@@ -43,6 +43,7 @@ function readLemonSqueezyCheckout(body: unknown): { id: string; url: string } | 
 }
 
 async function lsApi(config: BillingProviderConfig, path: string, method = 'GET', body?: unknown) {
+  // (unchanged)
   const res = await fetch(`https://api.lemonsqueezy.com/v1${path}`, {
     method,
     headers: {

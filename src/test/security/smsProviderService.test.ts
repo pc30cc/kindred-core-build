@@ -223,3 +223,185 @@ describe('testSmsProvider', () => {
     expect(JSON.stringify(result)).not.toContain('stored-placeholder');
   });
 });
+
+// ─── SMS.ir vendor ──────────────────────────────────────────────
+
+function smsIrRow(config: Record<string, unknown> = {}): Row {
+  return {
+    singleton: true,
+    provider_name: 'smsir',
+    config: {
+      apiKey: 'stored-placeholder',
+      lineNumber: '30007732',
+      verifyTemplateId: 100000,
+      verifyParameterName: 'CODE',
+      ...config,
+    },
+    is_active: true,
+    updated_at: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function fakeSmsIr(behaviour: 'ok' | 'auth' = 'ok') {
+  const calls: Record<string, unknown[]> = { bulk: [], verify: [], credit: [] };
+  const fail = () => Promise.reject(new Error('HTTP error! status: 401 - Unauthorized'));
+  return {
+    calls,
+    options: {
+      smsIrAdapterOptions: {
+        timeoutMs: 200,
+        createClient: (_k: string, line: number) => ({
+          sendBulk: (message: string, mobiles: string[], _d?: number, custom?: number) => {
+            calls.bulk.push({ message, mobiles, line, custom });
+            return behaviour === 'ok'
+              ? Promise.resolve({ status: 1, message: 'ok', data: { packId: 'p1', messageIds: [55], cost: 1 } })
+              : fail();
+          },
+          sendVerifyCode: (mobile: string, templateId: number, params: unknown) => {
+            calls.verify.push({ mobile, templateId, params });
+            return behaviour === 'ok'
+              ? Promise.resolve({ status: 1, message: 'ok', data: { messageId: 77, cost: 1 } })
+              : fail();
+          },
+          getCredit: () => {
+            calls.credit.push({});
+            return behaviour === 'ok'
+              ? Promise.resolve({ status: 1, message: 'ok', data: 4200 })
+              : fail();
+          },
+        }),
+      },
+    },
+  };
+}
+
+describe('SMS.ir configuration', () => {
+  it('stores only the SMS.ir whitelisted keys', async () => {
+    await svc.saveSmsProviderConfig(
+      CONFIG,
+      {
+        providerName: 'smsir', enabled: true, apiKey: 'new-placeholder',
+        lineNumber: '30007732', verifyTemplateId: 100000, verifyParameterName: 'CODE',
+        sender: '10008663', verifyTemplate: 'verifyLogin',
+      } as never,
+      ADMIN,
+    );
+    expect(Object.keys(upserts[0].config ?? {}).sort()).toEqual([
+      'apiKey', 'lineNumber', 'verifyParameterName', 'verifyTemplateId',
+    ]);
+  });
+
+  it('rejects a non-numeric line number', async () => {
+    await expect(
+      svc.saveSmsProviderConfig(CONFIG, { providerName: 'smsir', enabled: true, apiKey: 'k', lineNumber: '3000-77', verifyTemplateId: 1, verifyParameterName: 'CODE' }, ADMIN),
+    ).rejects.toMatchObject({ reason: 'invalid_line_number' });
+  });
+
+  it('rejects a non-positive template id', async () => {
+    await expect(
+      svc.saveSmsProviderConfig(CONFIG, { providerName: 'smsir', enabled: true, apiKey: 'k', lineNumber: '30007732', verifyTemplateId: 0, verifyParameterName: 'CODE' }, ADMIN),
+    ).rejects.toMatchObject({ reason: 'invalid_verify_template_id' });
+  });
+
+  it('rejects an invalid parameter name', async () => {
+    await expect(
+      svc.saveSmsProviderConfig(CONFIG, { providerName: 'smsir', enabled: true, apiKey: 'k', lineNumber: '30007732', verifyTemplateId: 1, verifyParameterName: 'my code' }, ADMIN),
+    ).rejects.toMatchObject({ reason: 'invalid_verify_parameter_name' });
+  });
+
+  it('requires a fresh API key when switching vendors', async () => {
+    row = configured();
+    await expect(
+      svc.saveSmsProviderConfig(CONFIG, { providerName: 'smsir', enabled: true, lineNumber: '30007732', verifyTemplateId: 1, verifyParameterName: 'CODE' }, ADMIN),
+    ).rejects.toMatchObject({ reason: 'api_key_required' });
+  });
+
+  it('wipes the previous vendor fields when switching', async () => {
+    row = configured({ config: { apiKey: 'stored-placeholder', verifyTemplate: 'verifyLogin', sender: '10008663' } });
+    await svc.saveSmsProviderConfig(
+      CONFIG,
+      { providerName: 'smsir', enabled: true, apiKey: 'new-placeholder', lineNumber: '30007732', verifyTemplateId: 100000, verifyParameterName: 'CODE' },
+      ADMIN,
+    );
+    expect(upserts[0].config).toEqual({
+      apiKey: 'new-placeholder', lineNumber: '30007732', verifyTemplateId: 100000, verifyParameterName: 'CODE',
+    });
+    expect(JSON.stringify(upserts[0].config)).not.toContain('stored-placeholder');
+  });
+
+  it('keeps the credential when re-saving the same vendor', async () => {
+    row = smsIrRow();
+    await svc.saveSmsProviderConfig(
+      CONFIG,
+      { providerName: 'smsir', enabled: true, lineNumber: '30007732', verifyTemplateId: 100001, verifyParameterName: 'CODE' },
+      ADMIN,
+    );
+    expect(upserts[0].config).toMatchObject({ apiKey: 'stored-placeholder', verifyTemplateId: 100001 });
+  });
+
+  it('exposes the redacted SMS.ir fields without the credential', async () => {
+    row = smsIrRow();
+    const info = await svc.getSmsProviderInfo(CONFIG);
+    expect(info).toMatchObject({
+      providerName: 'smsir', configured: true, enabled: true, hasApiKey: true,
+      lineNumber: '30007732', verifyTemplateId: 100000, verifyParameterName: 'CODE',
+    });
+    expect(JSON.stringify(info)).not.toContain('stored-placeholder');
+  });
+});
+
+describe('SMS.ir runtime', () => {
+  it('sends a verification code with the configured template and parameter', async () => {
+    row = smsIrRow();
+    const fake = fakeSmsIr();
+    await expect(svc.sendSmsVerification(CONFIG, { to: '09120000000', code: '123456' }, fake.options))
+      .resolves.toEqual({ success: true, provider: 'smsir', messageId: '77' });
+    expect(fake.calls.verify[0]).toMatchObject({
+      mobile: '09120000000', templateId: 100000, params: [{ name: 'CODE', value: '123456' }],
+    });
+  });
+
+  it('sends a plain SMS on the configured line', async () => {
+    row = smsIrRow();
+    const fake = fakeSmsIr();
+    await expect(svc.sendSms(CONFIG, { to: '09120000000', body: 'hi' }, fake.options))
+      .resolves.toEqual({ success: true, provider: 'smsir', messageId: '55' });
+    expect(fake.calls.bulk[0]).toMatchObject({ line: 30007732 });
+  });
+
+  it('returns sanitized credit info from the connection test', async () => {
+    row = smsIrRow();
+    const result = await svc.testSmsProvider(CONFIG, fakeSmsIr().options);
+    expect(result).toMatchObject({ success: true, provider: 'smsir', balance: 4200, currency: 'IRR' });
+    expect(JSON.stringify(result)).not.toContain('stored-placeholder');
+  });
+
+  it('normalizes an auth failure instead of throwing', async () => {
+    row = smsIrRow();
+    await expect(svc.testSmsProvider(CONFIG, fakeSmsIr('auth').options))
+      .resolves.toMatchObject({ success: false, errorCode: 'sms_auth_failed' });
+  });
+
+  it('fails closed when the line number is missing', async () => {
+    row = smsIrRow({ lineNumber: undefined });
+    await expect(svc.testSmsProvider(CONFIG, fakeSmsIr().options))
+      .resolves.toMatchObject({ success: false, errorCode: 'sms_provider_not_configured' });
+  });
+
+  it('fails closed when the template id is missing', async () => {
+    row = smsIrRow({ verifyTemplateId: undefined });
+    await expect(svc.sendSmsVerification(CONFIG, { to: '09120000000', code: '1' }, fakeSmsIr().options))
+      .resolves.toMatchObject({ success: false, errorCode: 'sms_template_not_found' });
+  });
+
+  it('never logs the code or the credential', async () => {
+    row = smsIrRow();
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await svc.sendSmsVerification(CONFIG, { to: '+989120000067', code: '654321' }, fakeSmsIr().options);
+    const logged = JSON.stringify(spy.mock.calls);
+    expect(logged).not.toContain('654321');
+    expect(logged).not.toContain('stored-placeholder');
+    expect(logged).toContain('recipient_masked');
+    spy.mockRestore();
+  });
+});

@@ -43,7 +43,6 @@ function readLemonSqueezyCheckout(body: unknown): { id: string; url: string } | 
 }
 
 async function lsApi(config: BillingProviderConfig, path: string, method = 'GET', body?: unknown) {
-  // (unchanged)
   const res = await fetch(`https://api.lemonsqueezy.com/v1${path}`, {
     method,
     headers: {
@@ -54,6 +53,29 @@ async function lsApi(config: BillingProviderConfig, path: string, method = 'GET'
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   return res.json();
+}
+
+// --- Webhook signature verification -------------------------------------
+//
+// Lemon Squeezy signs the raw body with HMAC-SHA256 (hex) in `X-Signature`.
+// There is no signed timestamp, so replay protection comes exclusively from
+// the provider event id plus the database idempotency claim.
+
+/** Length-checked constant-time hex comparison. */
+export function timingSafeHexEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  if (!/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b)) return false;
+  const bufA = Buffer.from(a.toLowerCase(), 'hex');
+  const bufB = Buffer.from(b.toLowerCase(), 'hex');
+  if (bufA.length === 0 || bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/** True when the provided hex signature matches HMAC-SHA256(secret, rawBody). */
+export function verifyLemonSqueezySignature(secret: string, signature: string, rawBody: string): boolean {
+  if (!secret || !signature) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  return timingSafeHexEqual(expected, signature.trim());
 }
 
 export const lemonSqueezyProvider: BillingProviderHandler = {
@@ -89,11 +111,12 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
     const sig = headers['x-signature'];
-    const secret = config.webhook_secret as string;
-    if (!sig || !secret) return null;
+    const secret = typeof config.webhook_secret === 'string' ? config.webhook_secret : '';
+    if (!sig || !secret) return null; // fail-closed: no secret → not verified
 
-    const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
-    if (expected !== sig) throw new Error('Invalid Lemon Squeezy webhook signature');
+    if (!verifyLemonSqueezySignature(secret, sig, body)) {
+      throw new Error('Invalid Lemon Squeezy webhook signature');
+    }
 
     const event = JSON.parse(body);
     const typeMap: Record<string, WebhookEvent['type']> = {

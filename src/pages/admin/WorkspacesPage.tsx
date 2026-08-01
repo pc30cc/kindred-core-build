@@ -15,6 +15,7 @@ import {
 } from '@/hooks/useAdmin';
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
+import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -239,6 +240,7 @@ function WorkspaceDetailView({
   onBack: () => void;
   onDelete: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const [selectedMember, setSelectedMember] = useState<any>(null);
   if (loading) {
     return (
@@ -296,6 +298,21 @@ function WorkspaceDetailView({
       </div>
 
       {/* Members */}
+      <Card>
+        {null}
+      </Card>
+
+      {/* Owner phone verification — the workspace has no own phone state. */}
+      {ws?.owner_id && (
+        <AdminPhoneVerificationCard
+          userId={ws.owner_id}
+          readOnly
+          ownerLink
+          title={t('admin.workspaces.ownerPhoneVerification')}
+          note={t('admin.workspaces.ownerPhoneNote')}
+        />
+      )}
+
       <Card>
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">

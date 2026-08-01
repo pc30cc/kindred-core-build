@@ -15,10 +15,11 @@ export function resolvePhoneStatus(input: {
   return input.verified === true || Boolean(input.verifiedAt) ? 'verified' : 'unverified';
 }
 
-export const PHONE_STATUS_BADGE: Record<PhoneStatus, 'default' | 'warning' | 'secondary'> = {
-  verified: 'default',
-  unverified: 'warning',
-  no_phone: 'secondary',
+/** Semantic token classes — green / amber / neutral. */
+export const PHONE_STATUS_CLASS: Record<PhoneStatus, string> = {
+  verified: 'border-transparent bg-success text-success-foreground hover:bg-success/80',
+  unverified: 'border-transparent bg-warning text-warning-foreground hover:bg-warning/80',
+  no_phone: 'border-transparent bg-secondary text-secondary-foreground',
 };
 
 export const PHONE_STATUS_LABEL_KEY: Record<PhoneStatus, string> = {

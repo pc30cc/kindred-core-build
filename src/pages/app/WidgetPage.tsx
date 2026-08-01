@@ -18,6 +18,7 @@ import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
+import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 
 function normalizeDomainInput(input: string): string {

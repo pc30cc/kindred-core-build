@@ -20,6 +20,7 @@ import { notificationsRouter } from './routes/notifications.js';
 import { availabilityRouter } from './routes/availability.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
+import { phoneVerificationRouter } from './routes/phoneVerification.js';
 import { adminRouter } from './routes/admin.js';
 import { realtimeRouter } from './routes/realtime.js';
 import { mapGeoRouter } from './routes/mapGeo.js';
@@ -281,6 +282,9 @@ app.use('/api/billing', billingRouter);
 
 // Plans & Feature Gating
 app.use('/api/plans', plansRouter);
+
+// Phone verification (account-level OTP). Auth is enforced per route.
+app.use('/api/phone-verification', phoneVerificationRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);

@@ -355,6 +355,13 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     candidates.push({ workspaceId: null, config: globalValue });
   }
 
+  // Evaluate EVERY candidate: stopping at the first verifying config would
+  // hide an ambiguous secret collision between two workspaces, and stopping at
+  // the first workspace mismatch would drop a later, correct candidate.
+  const accepted: Array<{ event: NonNullable<Awaited<ReturnType<typeof provider.verifyWebhook>>>; workspaceId: string }> = [];
+  let sawMismatch = false;
+  let sawUnresolved = false;
+
   for (const candidate of candidates) {
     let event;
     try {
@@ -368,29 +375,76 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     }
     if (!event) continue;
 
-    // Workspace binding: prefer the workspace that owns the verifying config.
+    // Workspace binding: pin to the workspace that owns the verifying config.
     if (candidate.workspaceId) {
       if (event.workspaceId && event.workspaceId !== candidate.workspaceId) {
-        logWebhookRejection(providerName, 'workspace_mismatch');
-        return res.status(400).json({ error: 'Webhook rejected' });
+        sawMismatch = true;
+        continue;
       }
-      event.workspaceId = candidate.workspaceId;
-    } else if (!event.workspaceId) {
+      accepted.push({ event, workspaceId: candidate.workspaceId });
+    } else if (typeof event.workspaceId === 'string' && event.workspaceId) {
+      accepted.push({ event, workspaceId: event.workspaceId });
+    } else {
+      sawUnresolved = true;
+    }
+  }
+
+  if (accepted.length > 1) {
+    logWebhookRejection(providerName, 'ambiguous_candidate_configs');
+    return res.status(400).json({ error: 'Webhook rejected' });
+  }
+  if (accepted.length === 0) {
+    if (sawMismatch) {
+      logWebhookRejection(providerName, 'workspace_mismatch');
+      return res.status(400).json({ error: 'Webhook rejected' });
+    }
+    if (sawUnresolved) {
       logWebhookRejection(providerName, 'unresolved_workspace');
       return res.status(400).json({ error: 'Webhook rejected' });
     }
-
-    try {
-      await processWebhookEvent(url, key, providerName, event);
-    } catch {
-      logWebhookRejection(providerName, 'processing_failed');
-      return res.status(500).json({ error: 'Webhook processing failed' });
-    }
-    return res.json({ received: true });
+    logWebhookRejection(providerName, 'signature_not_verified');
+    return res.status(400).json({ error: 'Webhook not verified' });
   }
 
-  logWebhookRejection(providerName, 'signature_not_verified');
-  return res.status(400).json({ error: 'Webhook not verified' });
+  const { event, workspaceId } = accepted[0];
+  event.workspaceId = workspaceId;
+
+  // A stable provider event id is required for replay protection.
+  const providerEventId = typeof event.providerEventId === 'string' ? event.providerEventId.trim() : '';
+  if (!providerEventId) {
+    logWebhookRejection(providerName, 'missing_provider_event_id');
+    return res.status(400).json({ error: 'Webhook rejected' });
+  }
+
+  // Claim BEFORE any financial side effect. A replay loses the unique index
+  // race and is acknowledged without touching subscriptions or payments.
+  let claim;
+  try {
+    claim = await claimBillingWebhookEvent(url, key, {
+      providerName,
+      providerEventId,
+      workspaceId,
+      eventType: event.type,
+      amount: event.amount,
+      currency: event.currency,
+      metadata: event.raw,
+    });
+  } catch {
+    logWebhookRejection(providerName, 'claim_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+
+  if (!claim.claimed) return res.json({ received: true, duplicate: true });
+
+  try {
+    await processWebhookEvent(url, key, providerName, event, { alreadyClaimed: true });
+  } catch {
+    await finalizeBillingWebhookEvent(url, key, claim.eventRowId, 'failed').catch(() => {});
+    logWebhookRejection(providerName, 'processing_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+  await finalizeBillingWebhookEvent(url, key, claim.eventRowId, 'success').catch(() => {});
+  return res.json({ received: true });
 });
 
 // ─── POST /api/billing/subscription/cancel ───────────────────────

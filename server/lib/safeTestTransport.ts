@@ -146,6 +146,9 @@ function performRequest(
     const req = requestImpl(
       {
         protocol: 'https:',
+        // No connection pooling: a reused keep-alive socket would skip our
+        // pinned `lookup` and could target an address we never validated.
+        agent: false,
         // `host` keeps the real hostname for the Host header, `servername`
         // keeps TLS SNI + certificate verification on the real hostname.
         host: target.hostname,
@@ -250,6 +253,10 @@ export function createSafeTestFetch(options: SafeTransportOptions = {}): SafeTes
       } catch {
         throw new SafeTransportError('redirect_blocked');
       }
+      // Same-origin only (protocol + hostname + effective port). A connection
+      // test never needs to hop between hosts, and refusing outright is safer
+      // than trying to strip individual credential-bearing headers.
+      if (!sameOrigin(url, next)) throw new SafeTransportError('redirect_blocked');
       // Standard fetch method semantics: 307/308 preserve method+body,
       // 301/302/303 downgrade a non-GET/HEAD request to GET without a body.
       if (raw.status !== 307 && raw.status !== 308 && method !== 'GET' && method !== 'HEAD') {

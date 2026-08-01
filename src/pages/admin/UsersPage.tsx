@@ -142,6 +142,20 @@ export default function AdminUsersPage() {
                     </div>
                   </TableCell>
                   <TableCell><Badge variant="secondary">{p.workspace_count}</Badge></TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={(p as any).phone_verified ? 'default' : 'secondary'} className="text-xs">
+                        {(p as any).phone_verified
+                          ? t('phoneVerification.statusVerified')
+                          : t('phoneVerification.statusUnverified')}
+                      </Badge>
+                      {(p as any).phone_masked && (
+                        <span className="text-xs text-muted-foreground font-mono" dir="ltr">
+                          {(p as any).phone_masked}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd') : '—'}
                   </TableCell>

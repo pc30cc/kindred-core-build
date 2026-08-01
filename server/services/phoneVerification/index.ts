@@ -196,16 +196,22 @@ async function audit(
 ): Promise<boolean> {
   // Audit rows are internal. They never carry a raw code, a digest, a full
   // phone number or a provider credential.
-  const { error } = await sb(config)
-    .from('audit_logs')
-    .insert({
-      action: entry.action,
-      entity_type: 'user_phone_verification',
-      entity_id: entry.targetUserId,
-      user_id: entry.userId,
-      workspace_id: entry.workspaceId ?? null,
-      new_value: entry.details as any,
-    } as any);
+  const row: {
+    action: string;
+    entity_type: string;
+    entity_id: string;
+    user_id: string | null;
+    workspace_id: string | null;
+    new_value: Record<string, unknown>;
+  } = {
+    action: entry.action,
+    entity_type: 'user_phone_verification',
+    entity_id: entry.targetUserId,
+    user_id: entry.userId,
+    workspace_id: entry.workspaceId ?? null,
+    new_value: entry.details,
+  };
+  const { error } = await sb(config).from('audit_logs').insert(row);
   if (error) {
     // Sanitized server-side log only: no phone, no code, no provider payload.
     console.error('[phoneVerification] audit insert failed', {

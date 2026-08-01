@@ -251,11 +251,23 @@ export async function issueChallenge(
     throw err;
   }
 
+  // The challenge id and the final digest are computed *before* the insert, so
+  // a challenge is never persisted with a guessable or placeholder digest.
+  const challengeId = randomUUID();
+  const code = generateOtpCode();
+  const codeDigest = digestCode({
+    challengeId,
+    userId: input.subjectUserId,
+    phoneE164: input.phoneE164,
+    code,
+  });
+
   const { data, error } = await client.rpc('phone_verification_start', {
+    _challenge_id: challengeId,
     _user_id: input.subjectUserId,
     _phone: input.phoneE164,
     _purpose: input.purpose,
-    _code_digest: 'pending',
+    _code_digest: codeDigest,
     _ttl_seconds: CHALLENGE_TTL_SECONDS,
     _created_by: input.createdBy,
     _created_by_admin_id: input.adminUserId ?? null,
@@ -267,29 +279,17 @@ export async function issueChallenge(
   const result = asRecord(data);
   const errCode = str(result.error);
   if (errCode) {
+    const code2 = isPhoneVerificationErrorCode(errCode) ? errCode : 'phone_rate_limited';
     const retry = typeof result.retryAfterSeconds === 'number' ? result.retryAfterSeconds : undefined;
-    throw new PhoneVerificationError(
-      isPhoneVerificationErrorCode(errCode) ? errCode : 'phone_rate_limited',
-      429,
-      retry,
-    );
+    const status =
+      code2 === 'phone_already_verified' ? 409
+      : code2 === 'phone_verification_unavailable' ? 503
+      : 429;
+    throw new PhoneVerificationError(code2, status, retry);
   }
-
-  const challengeId = str(result.challengeId);
-  if (!challengeId) throw new PhoneVerificationError('phone_verification_unavailable', 500);
-
-  const code = generateOtpCode();
-  const codeDigest = digestCode({
-    challengeId,
-    userId: input.subjectUserId,
-    phoneE164: input.phoneE164,
-    code,
-  });
-  const { error: digestError } = await client
-    .from('phone_verification_challenges')
-    .update({ code_digest: codeDigest, updated_at: new Date().toISOString() })
-    .eq('id', challengeId);
-  if (digestError) throw new PhoneVerificationError('phone_verification_unavailable', 500);
+  if (str(result.challengeId) !== challengeId) {
+    throw new PhoneVerificationError('phone_verification_unavailable', 500);
+  }
 
   await audit(config, {
     action: 'phone_verification_started',
@@ -309,12 +309,13 @@ export async function issueChallenge(
     input.smsOptions ?? {},
   );
 
-  await client.rpc('phone_verification_mark_delivery', {
+  const { data: markData, error: markError } = await client.rpc('phone_verification_mark_delivery', {
     _challenge_id: challengeId,
     _sent: sent.success,
     _provider_name: sent.provider,
     _provider_message_id: sent.messageId ?? null,
   });
+  const markOk = !markError && asRecord(markData).ok === true;
 
   await audit(config, {
     action: sent.success ? 'phone_verification_sent' : 'phone_verification_delivery_failed',
@@ -324,6 +325,7 @@ export async function issueChallenge(
     details: {
       purpose: input.purpose,
       phone_masked: maskE164(input.phoneE164),
+      delivery_state_recorded: markOk,
       // Internal-only fields; never surfaced in any user or admin response.
       provider: sent.provider,
       error_code: sent.errorCode ?? null,
@@ -331,6 +333,23 @@ export async function issueChallenge(
   });
 
   if (!sent.success) throw new PhoneVerificationError('phone_verification_unavailable', 502);
+
+  // Provider accepted the message but we could not record it: the OTP must not
+  // stay usable, and the caller must not be told the send succeeded.
+  if (!markOk) {
+    console.error('[phoneVerification] delivery bookkeeping failed; challenge invalidated', {
+      targetUserId: input.subjectUserId,
+    });
+    await client.rpc('phone_verification_invalidate', { _challenge_id: challengeId });
+    await audit(config, {
+      action: 'phone_verification_delivery_state_failed',
+      userId: input.actorUserId,
+      targetUserId: input.subjectUserId,
+      workspaceId: input.workspaceId,
+      details: { purpose: input.purpose, phone_masked: maskE164(input.phoneE164) },
+    });
+    throw new PhoneVerificationError('phone_verification_unavailable', 500);
+  }
 
   return {
     success: true,

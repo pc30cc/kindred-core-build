@@ -2,6 +2,7 @@ import { useState, useDeferredValue } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
+import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,7 @@ import {
   useAdminProfiles, useAdminProfileCount, useAdminUserDetail,
   useAdminUserRoles, useAssignRole, useRemoveRole,
 } from '@/hooks/useAdmin';
+import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
 import { supabase } from '@/lib/supabase';
 import {

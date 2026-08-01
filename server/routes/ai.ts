@@ -9,6 +9,11 @@ import type { ServerConfig } from '../config.js';
 import { executeAICompletion, testAIConnection, resolveAIConfig } from '../services/ai/index.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { requireModule, requireAICredits, incrementUsage } from '../middleware/featureGating.js';
+import {
+  authorizeWorkspaceAccess,
+  requirePlatformAdmin,
+  isSafeOutboundUrl,
+} from '../lib/workspaceAuth.js';
 
 export const aiRouter = Router();
 
@@ -47,16 +52,13 @@ aiRouter.post('/complete', requireModule('ai_assistant'), requireAICredits(1), a
   try {
     const config: ServerConfig = (req as any).serverConfig;
 
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
     const parsed = completionSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
     }
+
+    // Identity comes from a real user JWT; the publishable key is not identity.
+    if (!(await authorizeWorkspaceAccess(req, res, parsed.data.workspaceId))) return;
 
     if (!checkAIRateLimit(parsed.data.workspaceId)) {
       await logSecurityEvent(req, 'rate_limited', 'warn', {
@@ -112,15 +114,18 @@ const testSchema = z.object({
  */
 aiRouter.post('/test', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseServiceRoleKey && token !== config.supabaseAnonKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    // Provider connection testing is a platform-admin operation: it makes the
+    // server issue an outbound request with operator-supplied parameters.
+    if (!(await requirePlatformAdmin(req, res))) return;
 
     const parsed = testSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input' });
+    }
+
+    // SSRF guard: never let a caller point the server at an internal host.
+    if (parsed.data.baseUrl && !isSafeOutboundUrl(parsed.data.baseUrl)) {
+      return res.status(400).json({ success: false, error: 'baseUrl is not an allowed https endpoint' });
     }
 
     const result = await testAIConnection({
@@ -143,10 +148,7 @@ aiRouter.post('/test', async (req, res) => {
 aiRouter.get('/config/:workspaceId', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
 
     const aiConfig = await resolveAIConfig(config, req.params.workspaceId);
     if (!aiConfig) {

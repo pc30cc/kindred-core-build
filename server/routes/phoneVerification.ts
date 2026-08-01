@@ -13,6 +13,7 @@ import { requireUser, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getClientIp } from '../utils/clientIp.js';
 import {
   checkVerification,
+  cancelVerification,
   getStatusForActor,
   PhoneVerificationError,
   resendVerification,
@@ -125,6 +126,34 @@ phoneVerificationRouter.post('/check', async (req, res) => {
       ...(parsed.data.workspaceSlug ? { workspaceSlug: parsed.data.workspaceSlug } : {}),
       challengeId: parsed.data.challengeId,
       code: parsed.data.code,
+    });
+    res.json(result);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+const cancelSchema = z.object({
+  ...contextSchema,
+  challengeId: z.string().uuid().optional(),
+});
+
+/**
+ * "Change number" is a server-side operation: the outstanding code is
+ * invalidated in the database, never merely hidden in the UI.
+ */
+phoneVerificationRouter.post('/cancel', async (req, res) => {
+  const userId = await requireUser(req, res);
+  if (!userId) return;
+  const parsed = cancelSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'phone_verification_not_allowed' });
+  try {
+    const result = await cancelVerification(serverConfigOf(req), {
+      purpose: parsed.data.purpose as 'widget_access',
+      actorUserId: userId,
+      ...(parsed.data.workspaceId ? { workspaceId: parsed.data.workspaceId } : {}),
+      ...(parsed.data.workspaceSlug ? { workspaceSlug: parsed.data.workspaceSlug } : {}),
+      challengeId: parsed.data.challengeId ?? null,
     });
     res.json(result);
   } catch (err) {

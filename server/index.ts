@@ -18,7 +18,7 @@ import { accountRouter } from './routes/account.js';
 import { workspaceMembersRouter } from './routes/workspaceMembers.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { availabilityRouter } from './routes/availability.js';
-import { billingRouter } from './routes/billing.js';
+import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
 import { realtimeRouter } from './routes/realtime.js';
@@ -204,10 +204,15 @@ app.use((req, _res, next) => {
 // parser at the route level. ────────────────────────────────────────────
 app.use('/api/calls/livekit/webhook', livekitWebhookRouter);
 
+// Billing provider webhooks — same reason: signature verification needs the
+// exact raw bytes, so this mounts before express.json with its own raw parser.
+app.use('/api/billing/webhook', billingWebhookRouter);
+
 // JSON / cookies for everything else. Skip the webhook path explicitly so
 // a future re-order can't accidentally consume the raw body.
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
+  if (req.path.startsWith('/api/billing/webhook')) return next();
   return (express.json({ limit: '50mb' }) as any)(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)

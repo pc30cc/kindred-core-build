@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, raw } from 'express';
 import { z } from 'zod';
 import {
   resolveBillingConfig,
@@ -9,6 +9,9 @@ import {
   checkEntitlement,
 } from '../services/billing/index.js';
 import { createClient } from '@supabase/supabase-js';
+import type { ServerConfig } from '../config.js';
+import { getServiceClient } from '../supabase.js';
+import { isGlobalAdmin } from '../middleware/adminBypass.js';
 
 export const billingRouter = Router();
 
@@ -17,8 +20,110 @@ function getConfig(req: any) {
   return { url: c.supabaseUrl, key: c.supabaseServiceRoleKey };
 }
 
+// ─── Auth / Authorization ────────────────────────────────────────
+//
+// Billing routes previously accepted the publishable anon key (or nothing at
+// all) as identity, so any visitor could read/modify any workspace's
+// subscription by passing a `workspaceId`. Identity is now derived from a real
+// Supabase user JWT and workspace membership/role is verified BEFORE any
+// service-role database access or provider request happens.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function serverConfigOf(req: any): ServerConfig {
+  return (req as any).serverConfig as ServerConfig;
+}
+
+/** Resolves the calling user from the Bearer JWT. Writes 401 and returns null on failure. */
+async function requireUser(req: any, res: any): Promise<string | null> {
+  const config = serverConfigOf(req);
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing authorization' });
+    return null;
+  }
+  const token = authHeader.slice('Bearer '.length).trim();
+  // Publishable anon key and service-role key are not user identities.
+  if (!token || token === config.supabaseAnonKey || token === config.supabaseServiceRoleKey) {
+    res.status(401).json({ error: 'Invalid token' });
+    return null;
+  }
+  try {
+    const { data, error } = await getServiceClient(config).auth.getUser(token);
+    if (error || !data?.user) {
+      res.status(401).json({ error: 'Invalid token' });
+      return null;
+    }
+    return data.user.id;
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+    return null;
+  }
+}
+
+type BillingAuth = { userId: string; isAdmin: boolean; role: string | null };
+
+/**
+ * Authenticates the caller and verifies they may act on `workspaceId`.
+ * `manage: true` additionally requires workspace owner/admin (billing actions).
+ * Never reveals whether a workspace exists to a non-member.
+ */
+async function authorizeWorkspace(
+  req: any,
+  res: any,
+  workspaceId: unknown,
+  opts: { manage?: boolean } = {},
+): Promise<BillingAuth | null> {
+  const userId = await requireUser(req, res);
+  if (!userId) return null;
+
+  if (typeof workspaceId !== 'string' || !UUID_RE.test(workspaceId)) {
+    res.status(400).json({ error: 'Invalid workspaceId' });
+    return null;
+  }
+
+  const config = serverConfigOf(req);
+  if (await isGlobalAdmin(config, userId)) return { userId, isAdmin: true, role: null };
+
+  const sb = getServiceClient(config);
+  const { data: isMember } = await sb.rpc('is_workspace_member', {
+    _workspace_id: workspaceId,
+    _user_id: userId,
+  });
+  if (!isMember) {
+    res.status(403).json({ error: 'Not a workspace member' });
+    return null;
+  }
+
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  const role = ((member as { role?: string } | null)?.role) ?? null;
+
+  if (opts.manage && role !== 'owner' && role !== 'admin') {
+    res.status(403).json({ error: 'Insufficient workspace permissions' });
+    return null;
+  }
+  return { userId, isAdmin: false, role };
+}
+
+/** Super-admin (platform) gate — `has_role(uid,'admin')` only. No fallbacks. */
+async function requireSuperAdmin(req: any, res: any, next: any) {
+  const userId = await requireUser(req, res);
+  if (!userId) return;
+  if (!(await isGlobalAdmin(serverConfigOf(req), userId))) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  (req as any).adminUserId = userId;
+  next();
+}
+
 // ─── GET /api/billing/providers — list all billing providers with capabilities ──
-billingRouter.get('/providers', (_req, res) => {
+billingRouter.get('/providers', async (req, res) => {
+  if (!(await requireUser(req, res))) return;
   res.json({ providers: getAllProviders() });
 });
 
@@ -46,8 +151,9 @@ billingRouter.get('/plans', async (req, res) => {
 
 // ─── GET /api/billing/status/:workspaceId ────────────────────────
 billingRouter.get('/status/:workspaceId', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId } = req.params;
+  if (!(await authorizeWorkspace(req, res, workspaceId))) return;
+  const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
 
   // Lazy-flip stale trials to "expired" so downstream UI/queries see correct status.
@@ -83,11 +189,12 @@ const checkoutSchema = z.object({
 });
 
 billingRouter.post('/checkout', async (req, res) => {
-  const { url, key } = getConfig(req);
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
 
   const input = parsed.data;
+  if (!(await authorizeWorkspace(req, res, input.workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
   try {
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
@@ -124,9 +231,10 @@ billingRouter.post('/checkout', async (req, res) => {
 
 // ─── POST /api/billing/verify-callback — verify callback from gateway ──
 billingRouter.post('/verify-callback', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId, provider: providerName, params } = req.body;
   if (!workspaceId || !providerName) return res.status(400).json({ error: 'Missing workspaceId or provider' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const provider = getProvider(providerName);
   if (!provider || !provider.verifyPayment) return res.status(400).json({ error: 'Provider does not support payment verification' });
@@ -167,70 +275,126 @@ billingRouter.post('/verify-callback', async (req, res) => {
 });
 
 // ─── POST /api/billing/webhook/:provider — handle provider webhooks ──
-billingRouter.post('/webhook/:provider', async (req, res) => {
+//
+// Public by necessity (external providers call it), but fail-closed:
+// only providers whose `verifyWebhook` performs a cryptographic signature
+// check over the exact raw body may reach `processWebhookEvent`. Everything
+// else is rejected without touching the database.
+//
+// Mounted separately (see server/index.ts) with a raw body parser so the
+// signature is computed over the exact bytes the provider signed.
+export const billingWebhookRouter = Router();
+
+/** Providers with a cryptographic webhook signature over the raw body. */
+const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'lemon_squeezy', 'paytr']);
+
+type WebhookCandidate = { workspaceId: string | null; config: Record<string, unknown> };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Generic ops log — never includes body, headers, secrets or signatures. */
+function logWebhookRejection(providerName: string, category: string) {
+  // eslint-disable-next-line no-console
+  console.warn(`[billing-webhook] rejected provider=${providerName} reason=${category}`);
+}
+
+billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), async (req, res) => {
   const { url, key } = getConfig(req);
   const providerName = req.params.provider;
   const provider = getProvider(providerName);
   if (!provider) return res.status(404).json({ error: 'Unknown provider' });
 
-  try {
-    // For webhook, we need to find the config — could be from multiple workspaces
-    // Try global config first
-    const supabase = createClient(url, key);
-    const { data: globalConfig } = await supabase
-      .from('app_runtime_config')
-      .select('value')
-      .eq('key', 'billing_default_provider')
-      .maybeSingle();
-
-    let billingConfig: Record<string, unknown> = {};
-    if (globalConfig?.value) {
-      billingConfig = globalConfig.value as Record<string, unknown>;
-    }
-
-    // Also check workspace-level configs for webhook secrets
-    const { data: wsConfigs } = await supabase
-      .from('provider_configs')
-      .select('config')
-      .eq('provider_type', 'billing')
-      .eq('provider_name', providerName)
-      .eq('is_active', true)
-      .limit(1);
-
-    if (wsConfigs?.[0]) {
-      billingConfig = { ...billingConfig, ...(wsConfigs[0].config as Record<string, unknown>) };
-    }
-
-    const rawBody = JSON.stringify(req.body);
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) {
-      if (typeof v === 'string') headers[k] = v;
-    }
-
-    const event = await provider.verifyWebhook(
-      { provider: providerName, ...billingConfig },
-      headers,
-      rawBody
-    );
-
-    if (event) {
-      await processWebhookEvent(url, key, providerName, event);
-    }
-
-    // Always return 200 to acknowledge
-    res.json({ received: true });
-  } catch (e: any) {
-    console.error(`Billing webhook error (${providerName}):`, e.message);
-    // Still return 200 for most providers to prevent retries on signature errors
-    res.status(400).json({ error: e.message });
+  if (!SIGNED_WEBHOOK_PROVIDERS.has(providerName)) {
+    // No signed webhook contract → callback payloads are not proof of payment.
+    // These providers must go through the authenticated verify-callback route,
+    // which calls the provider's server-to-server verify API.
+    logWebhookRejection(providerName, 'no_signed_webhook_contract');
+    return res.status(400).json({ error: 'Webhook verification not supported for this provider' });
   }
+
+  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+  if (!rawBody) {
+    logWebhookRejection(providerName, 'empty_body');
+    return res.status(400).json({ error: 'Invalid webhook payload' });
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (typeof v === 'string') headers[k] = v;
+  }
+
+  const supabase = createClient(url, key);
+
+  // Candidate configs: each workspace-scoped config, plus the platform default.
+  // Verification is attempted against each; only the config whose secret
+  // validates the signature is used, which also pins the workspace.
+  const candidates: WebhookCandidate[] = [];
+  const { data: wsConfigs } = await supabase
+    .from('provider_configs')
+    .select('workspace_id, config')
+    .eq('provider_type', 'billing')
+    .eq('provider_name', providerName)
+    .eq('is_active', true)
+    .limit(50);
+  for (const row of (wsConfigs || []) as Array<{ workspace_id: string | null; config: unknown }>) {
+    if (isRecord(row.config)) candidates.push({ workspaceId: row.workspace_id, config: row.config });
+  }
+  const { data: globalConfig } = await supabase
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', 'billing_default_provider')
+    .maybeSingle();
+  const globalValue = (globalConfig as { value?: unknown } | null)?.value;
+  if (isRecord(globalValue) && globalValue.provider === providerName) {
+    candidates.push({ workspaceId: null, config: globalValue });
+  }
+
+  for (const candidate of candidates) {
+    let event;
+    try {
+      event = await provider.verifyWebhook(
+        { provider: providerName, ...candidate.config },
+        headers,
+        rawBody,
+      );
+    } catch {
+      continue; // signature mismatch / malformed payload for this config
+    }
+    if (!event) continue;
+
+    // Workspace binding: prefer the workspace that owns the verifying config.
+    if (candidate.workspaceId) {
+      if (event.workspaceId && event.workspaceId !== candidate.workspaceId) {
+        logWebhookRejection(providerName, 'workspace_mismatch');
+        return res.status(400).json({ error: 'Webhook rejected' });
+      }
+      event.workspaceId = candidate.workspaceId;
+    } else if (!event.workspaceId) {
+      logWebhookRejection(providerName, 'unresolved_workspace');
+      return res.status(400).json({ error: 'Webhook rejected' });
+    }
+
+    try {
+      await processWebhookEvent(url, key, providerName, event);
+    } catch {
+      logWebhookRejection(providerName, 'processing_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    return res.json({ received: true });
+  }
+
+  logWebhookRejection(providerName, 'signature_not_verified');
+  return res.status(400).json({ error: 'Webhook not verified' });
 });
 
 // ─── POST /api/billing/subscription/cancel ───────────────────────
 billingRouter.post('/subscription/cancel', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const supabase = createClient(url, key);
   const { data: sub } = await supabase
@@ -262,9 +426,10 @@ billingRouter.post('/subscription/cancel', async (req, res) => {
 
 // ─── POST /api/billing/subscription/resume ───────────────────────
 billingRouter.post('/subscription/resume', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const supabase = createClient(url, key);
   const { data: sub } = await supabase
@@ -296,9 +461,10 @@ billingRouter.post('/subscription/resume', async (req, res) => {
 
 // ─── POST /api/billing/portal — customer portal URL ─────────────
 billingRouter.post('/portal', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId, returnUrl } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const supabase = createClient(url, key);
   const { data: sub } = await supabase
@@ -325,7 +491,16 @@ billingRouter.post('/portal', async (req, res) => {
 
 // ─── POST /api/billing/test — test provider connection ───────────
 billingRouter.post('/test', async (req, res) => {
+  // Accepts an arbitrary provider config (credentials + endpoints) and performs
+  // an outbound request, so it is platform-admin only.
   const { provider: providerName, config } = req.body;
+  {
+    const userId = await requireUser(req, res);
+    if (!userId) return;
+    if (!(await isGlobalAdmin(serverConfigOf(req), userId))) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+  }
   if (!providerName) return res.status(400).json({ error: 'Missing provider name' });
 
   const provider = getProvider(providerName);
@@ -341,10 +516,11 @@ billingRouter.post('/test', async (req, res) => {
 
 // ─── GET /api/billing/entitlement — check feature entitlement ────
 billingRouter.get('/entitlement', async (req, res) => {
-  const { url, key } = getConfig(req);
   const workspaceId = req.query.workspaceId as string;
   const feature = req.query.feature as string;
   if (!workspaceId || !feature) return res.status(400).json({ error: 'Missing workspaceId or feature' });
+  if (!(await authorizeWorkspace(req, res, workspaceId))) return;
+  const { url, key } = getConfig(req);
 
   try {
     const result = await checkEntitlement(url, key, workspaceId, feature);
@@ -356,6 +532,7 @@ billingRouter.get('/entitlement', async (req, res) => {
 
 // ─── GET /api/billing/events/:workspaceId — billing event history ──
 billingRouter.get('/events/:workspaceId', async (req, res) => {
+  if (!(await authorizeWorkspace(req, res, req.params.workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { data, error } = await supabase
@@ -369,7 +546,7 @@ billingRouter.get('/events/:workspaceId', async (req, res) => {
 });
 
 // ─── Admin: GET /api/billing/admin/overview — platform billing overview ──
-billingRouter.get('/admin/overview', async (req, res) => {
+billingRouter.get('/admin/overview', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
 
@@ -392,7 +569,7 @@ billingRouter.get('/admin/overview', async (req, res) => {
 });
 
 // ─── Admin: POST /api/billing/admin/plans — create/update plan ──
-billingRouter.post('/admin/plans', async (req, res) => {
+billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const plan = req.body;
@@ -409,7 +586,7 @@ billingRouter.post('/admin/plans', async (req, res) => {
 });
 
 // ─── Admin: POST /api/billing/admin/grant — manually grant plan ──
-billingRouter.post('/admin/grant', async (req, res) => {
+billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const { workspaceId, planId, status, expiresAt } = req.body;
   if (!workspaceId || !planId) return res.status(400).json({ error: 'Missing workspaceId or planId' });

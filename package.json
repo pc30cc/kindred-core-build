@@ -67,6 +67,7 @@
     "helmet": "^8.1.0",
     "input-otp": "^1.4.2",
     "jsonwebtoken": "^9.0.2",
+    "kavenegar": "1.1.4",
     "leaflet": "1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "livekit-client": "^2.5.0",

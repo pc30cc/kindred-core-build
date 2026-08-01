@@ -386,3 +386,43 @@ describe('safe test transport — cross-origin redirects are refused', () => {
     expect(seen[0].host).toBe('api.example.com');
   });
 });
+describe('IPv6 link-local coverage (fe80::/10)', () => {
+  it.each(['fe80::1', 'fe90::1', 'fea0::1', 'feb0::1', 'febf::1'])(
+    'rejects %s as an initial URL literal',
+    async (addr) => {
+      const { fetchImpl } = make([{ status: 200 }]);
+      expect(await reasonOf(fetchImpl(`https://[${addr}]/v1`))).toBe('blocked_ip');
+    },
+  );
+
+  it.each(['fe80::1', 'fe90::1', 'fea0::1', 'feb0::1', 'febf::1'])(
+    'rejects a DNS answer of %s',
+    async (address) => {
+      const { fetchImpl } = make([{ status: 200 }], {
+        lookupImpl: async () => [{ address, family: 6 }],
+      });
+      expect(await reasonOf(fetchImpl('https://api.openai.com/v1'))).toBe('blocked_ip');
+    },
+  );
+
+  it('blocks link-local addresses carrying a zone id', () => {
+    expect(isBlockedIpAddress('fe80::1%eth0', 6)).toBe(true);
+    expect(isBlockedIpAddress('febf::1%eth0', 6)).toBe(true);
+  });
+
+  it('keeps the fe80::/10 boundary exact', () => {
+    expect(isBlockedIpAddress('febf::1', 6)).toBe(true);
+    // fec0::1 sits outside fe80::/10 and is not blocked by the link-local rule.
+    expect(isBlockedIpAddress('fec0::1', 6)).toBe(false);
+  });
+
+  it('still blocks the other reserved IPv6 ranges', () => {
+    expect(isBlockedIpAddress('::', 6)).toBe(true);
+    expect(isBlockedIpAddress('::1', 6)).toBe(true);
+    expect(isBlockedIpAddress('fc00::1', 6)).toBe(true);
+    expect(isBlockedIpAddress('fd12::1', 6)).toBe(true);
+    expect(isBlockedIpAddress('ff02::1', 6)).toBe(true);
+    expect(isBlockedIpAddress('::ffff:127.0.0.1', 6)).toBe(true);
+    expect(isBlockedIpAddress('2606:2800:220:1:248:1893:25c8:1946', 6)).toBe(false);
+  });
+});

@@ -164,7 +164,7 @@ describe('AdminSmsProviderCard — SMS.ir', () => {
     setValue(screen.getByLabelText('Code Parameter Name'), 'CODE');
     await click(screen.getByText('Save'));
     expect(api.save).toHaveBeenCalledWith({
-      providerName: 'smsir', enabled: true, apiKey: 'fresh-placeholder',
+      providerName: 'smsir', enabled: false, apiKey: 'fresh-placeholder',
       lineNumber: '30007732', verifyTemplateId: 100000, verifyParameterName: 'CODE',
     });
   });

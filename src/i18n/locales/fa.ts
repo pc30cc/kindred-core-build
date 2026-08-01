@@ -1097,6 +1097,10 @@ const fa: TranslationKeys = {
         retentionLink: 'بازکردن نگهداری و توقیف قانونی ضبط‌ها →',
       },
       workspaces: {
+      colOwnerPhone: 'موبایل مالک',
+      filterPhoneAll: 'همه مالکان',
+      filterPhoneVerified: 'مالکان تأییدشده',
+      filterPhoneUnverified: 'مالکان تأییدنشده',
         recording: 'ضبط',
       },
       placeholders: {
@@ -1618,6 +1622,12 @@ const fa: TranslationKeys = {
       controlCenter: 'مرکز کنترل پلتفرم',
     },
     users: {
+      phoneVerification: 'تأیید شماره موبایل',
+      phoneResend: 'ارسال دوباره کد',
+      phoneManualHint: 'تأیید دستی در گزارش ممیزی ثبت می‌شود. دلیل کوتاهی بنویسید.',
+      phoneManualReason: 'دلیل (مثلاً تأیید تلفنی)',
+      phoneManualVerify: 'تأیید دستی',
+      colPhone: 'موبایل',
       title: 'کاربران',
       total: 'مجموع {{count}}',
       searchPlaceholder: 'جستجو بر اساس ایمیل، نام یا شرکت...',

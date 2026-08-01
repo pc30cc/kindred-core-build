@@ -1109,6 +1109,10 @@ const en = {
         retentionLink: 'Open recording retention & legal hold →',
       },
       workspaces: {
+      colOwnerPhone: 'Owner phone',
+      filterPhoneAll: 'All owners',
+      filterPhoneVerified: 'Verified owners',
+      filterPhoneUnverified: 'Unverified owners',
         recording: 'Recording',
       },
       placeholders: {
@@ -1630,6 +1634,12 @@ const en = {
       controlCenter: 'Platform Control Center',
     },
     users: {
+      phoneVerification: 'Phone verification',
+      phoneResend: 'Resend code',
+      phoneManualHint: 'Manual verification is logged in the audit trail. Provide a short reason.',
+      phoneManualReason: 'Reason (e.g. verified by phone call)',
+      phoneManualVerify: 'Verify manually',
+      colPhone: 'Phone',
       title: 'Users',
       total: '{{count}} total',
       searchPlaceholder: 'Search by email, name or company...',

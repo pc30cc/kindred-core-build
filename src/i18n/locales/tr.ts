@@ -1097,6 +1097,10 @@ const tr: TranslationKeys = {
         retentionLink: 'Kayıt saklama ve yasal tutmayı aç →',
       },
       workspaces: {
+      colOwnerPhone: 'Sahip telefonu',
+      filterPhoneAll: 'Tüm sahipler',
+      filterPhoneVerified: 'Doğrulanmış sahipler',
+      filterPhoneUnverified: 'Doğrulanmamış sahipler',
         recording: 'Kayıt',
       },
       placeholders: {
@@ -1618,6 +1622,12 @@ const tr: TranslationKeys = {
       controlCenter: 'Platform Kontrol Merkezi',
     },
     users: {
+      phoneVerification: 'Telefon doğrulaması',
+      phoneResend: 'Kodu yeniden gönder',
+      phoneManualHint: 'Manuel doğrulama denetim kaydına yazılır. Kısa bir gerekçe girin.',
+      phoneManualReason: 'Gerekçe (ör. telefonla doğrulandı)',
+      phoneManualVerify: 'Manuel doğrula',
+      colPhone: 'Telefon',
       title: 'Kullanıcılar',
       total: 'Toplam {{count}}',
       searchPlaceholder: 'E-posta, ad veya şirkete göre ara...',

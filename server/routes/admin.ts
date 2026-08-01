@@ -18,6 +18,7 @@ import { adminReliabilityRouter } from './adminReliability.js';
 import { adminEnforcementRouter } from './adminEnforcement.js';
 import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
+import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 
 export const adminRouter = Router();
 
@@ -115,6 +116,10 @@ adminRouter.use('/calls', adminCallsRouter);
 // Global Advanced Routing — owner fallback / general-pool policy applied to
 // all workspaces. Lives inside super-admin Widget Settings UI.
 adminRouter.use('/advanced-routing', adminAdvancedRoutingRouter);
+
+// Phase 6-S3A — platform SMS provider (Kavenegar). Credential is stored in a
+// service-role-only table and never returned to the browser.
+adminRouter.use('/providers/sms', adminSmsProvidersRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

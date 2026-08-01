@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProviderSummary, PROVIDER_TYPE_KEYS, providerRegistry, getFallbackLog, type ProviderTypeKey, type ProviderHealth } from '@/providers';
 import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
+import { AdminSmsProviderCard } from '@/features/providers/AdminSmsProviderCard';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
 import { VisitorIntelligenceSection } from '@/features/providers/VisitorIntelligenceSection';
@@ -16,6 +17,9 @@ import { Link } from 'react-router-dom';
 // Phase 3: realtime is configured globally via the dedicated card.
 function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
   if (type === 'realtime') return <AdminRealtimeCard />;
+  // SMS credentials are server-only — the generic card would read/write full
+  // provider config from the browser, so SMS gets a dedicated card.
+  if (type === 'sms') return <AdminSmsProviderCard />;
   if (type === 'storage') {
     return (
       <div className="space-y-4">

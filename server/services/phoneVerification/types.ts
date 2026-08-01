@@ -58,6 +58,7 @@ export interface PhoneVerificationState {
   verifiedAt: string | null;
   verificationMethod: VerificationMethod | null;
   verifiedByAdminId: string | null;
+  verifiedByAdminEmail: string | null;
   manualVerificationReason: string | null;
   hasActiveChallenge: boolean;
   activeChallengeId: string | null;

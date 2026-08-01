@@ -443,3 +443,62 @@ export function authSignUp(data: {
 }
 
 export { API_BASE };
+
+// ─── Admin: SMS provider (platform-level, super admin only) ──────
+// The backend never returns the stored credential; `hasApiKey` is the only
+// signal the browser receives about it.
+
+export interface AdminSmsProviderInfo {
+  providerName: 'kavenegar' | 'disabled';
+  configured: boolean;
+  enabled: boolean;
+  hasApiKey: boolean;
+  sender: string | null;
+  verifyTemplate: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdminSmsTestResult {
+  success: boolean;
+  provider: string;
+  latencyMs?: number;
+  balance?: number | null;
+  currency?: string;
+  accountType?: string | null;
+  error?: string;
+  errorCode?: string;
+}
+
+export async function adminGetSmsProvider() {
+  return request<AdminSmsProviderInfo>('/api/admin/providers/sms', {
+    headers: await getAdminAuthHeaders(),
+  });
+}
+
+export async function adminSaveSmsProvider(payload: {
+  providerName: 'kavenegar';
+  enabled: boolean;
+  apiKey?: string;
+  sender?: string;
+  verifyTemplate: string;
+}) {
+  return request<AdminSmsProviderInfo>('/api/admin/providers/sms', {
+    method: 'PUT',
+    headers: await getAdminAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminDeleteSmsProvider() {
+  return request<AdminSmsProviderInfo>('/api/admin/providers/sms', {
+    method: 'DELETE',
+    headers: await getAdminAuthHeaders(),
+  });
+}
+
+export async function adminTestSmsProvider() {
+  return request<AdminSmsTestResult>('/api/admin/providers/sms/test', {
+    method: 'POST',
+    headers: await getAdminAuthHeaders(),
+  });
+}

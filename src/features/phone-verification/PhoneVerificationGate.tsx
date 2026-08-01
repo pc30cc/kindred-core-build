@@ -85,9 +85,15 @@ export function PhoneVerificationGate({
         </CardHeader>
         <CardContent>
           <PhoneVerificationFlow
+            /* Remount on challenge identity change so a resumed challenge
+               rehydrates its countdown from the server, not stale state. */
+            key={data?.activeChallengeId ?? 'new'}
             context={ctx}
             initialPhoneMasked={data?.phoneMasked ?? null}
             initialResendAfterSeconds={data?.resendAfterSeconds ?? 0}
+            initialChallengeId={data?.activeChallengeId ?? null}
+            initialChallengeExpiresInSeconds={data?.challengeExpiresInSeconds ?? null}
+            initialRemainingAttempts={data?.remainingAttempts ?? null}
             onVerified={() => { void refetch(); }}
           />
         </CardContent>

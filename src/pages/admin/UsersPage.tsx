@@ -1,4 +1,5 @@
-import { useState, useDeferredValue } from 'react';
+import { useState, useDeferredValue, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
@@ -29,6 +30,8 @@ import {
   KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
 } from 'lucide-react';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function AdminUsersPage() {
   const { t, dir } = useTranslation();
   const [page, setPage] = useState(0);
@@ -37,18 +40,36 @@ export default function AdminUsersPage() {
   const [limit, setLimit] = useState(30);
   const [phoneStatus, setPhoneStatus] = useState<AdminPhoneStatusFilter>('all');
   const deferredSearch = useDeferredValue(search);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link: /admin/users?user=<uuid>. An invalid value is ignored and
+  // never triggers a fetch.
+  const rawUserParam = searchParams.get('user');
+  const selectedUserId = rawUserParam && UUID_RE.test(rawUserParam) ? rawUserParam : null;
+
+  const openUser = useCallback((id: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('user', id);
+    setSearchParams(next);
+  }, [searchParams, setSearchParams]);
+
+  const closeUser = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('user');
+    setSearchParams(next);
+  }, [searchParams, setSearchParams]);
 
   // Filtering happens server-side so the count and pagination stay truthful.
   const { data: profiles, isLoading } = useAdminProfiles(limit, page * limit, deferredSearch, sort, phoneStatus);
   const { data: count } = useAdminProfileCount(deferredSearch, phoneStatus);
-
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const total = count ?? 0;
+  const hasNextPage = (page + 1) * limit < total;
 
   if (selectedUserId) {
     return (
       <UserDetailView
         userId={selectedUserId}
-        onBack={() => setSelectedUserId(null)}
+        onBack={closeUser}
       />
     );
   }
@@ -133,7 +154,7 @@ export default function AdminUsersPage() {
                 <TableRow
                   key={p.id}
                   className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => setSelectedUserId(p.id)}
+                  onClick={() => openUser(p.id)}
                 >
                   <TableCell>
                     <div className="flex items-center gap-3">
@@ -174,7 +195,7 @@ export default function AdminUsersPage() {
       <div className="flex justify-between items-center">
         <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>{t('admin.users.previous')}</Button>
         <span className="text-sm text-muted-foreground">{t('admin.users.page', { n: String(page + 1) })}</span>
-        <Button variant="outline" size="sm" disabled={!profiles || profiles.length < limit} onClick={() => setPage(p => p + 1)}>{t('admin.users.next')}</Button>
+        <Button variant="outline" size="sm" disabled={!hasNextPage} onClick={() => setPage(p => p + 1)}>{t('admin.users.next')}</Button>
       </div>
     </div>
   );

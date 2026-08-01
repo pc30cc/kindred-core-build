@@ -1,10 +1,11 @@
 /**
  * Super-admin view of a user's phone verification.
- * Never renders the full number (backend returns a masked value only) and
- * never exposes which SMS provider is active.
+ * The full number is admin-only and appears nowhere else (lists, owner UI,
+ * logs). The active SMS provider is never exposed.
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Send, ShieldCheck, Smartphone } from 'lucide-react';
+import { ExternalLink, Loader2, Send, ShieldCheck, Smartphone } from 'lucide-react';
 import {
   adminGetUserPhoneVerification,
   adminManualVerifyUserPhone,
@@ -39,7 +40,23 @@ function formatMoment(value: string | null | undefined, locale: string): string 
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(d);
 }
 
-export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
+export interface AdminPhoneVerificationCardProps {
+  userId: string;
+  /** Workspace detail renders the current owner's status read-only. */
+  readOnly?: boolean;
+  title?: string;
+  note?: string;
+  /** Deep link target for "Open owner in Users". */
+  ownerLink?: boolean;
+}
+
+export function AdminPhoneVerificationCard({
+  userId,
+  readOnly = false,
+  title,
+  note,
+  ownerLink = false,
+}: AdminPhoneVerificationCardProps) {
   const { t, locale: uiLocale } = useTranslation();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
@@ -52,10 +69,19 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
   });
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['admin-phone-verification', userId] });
-    qc.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
-    qc.invalidateQueries({ queryKey: ['admin-profiles'] });
-    qc.invalidateQueries({ queryKey: ['admin-workspaces'] });
+    for (const key of [
+      ['admin-phone-verification', userId],
+      ['admin-user-detail', userId],
+      ['admin-profiles'],
+      ['admin-profile-count'],
+      ['admin-workspaces'],
+      ['admin-workspace-count'],
+      ['admin-workspace-detail'],
+      ['admin-audit-logs'],
+      ['phone-verification-status'],
+    ]) {
+      qc.invalidateQueries({ queryKey: key });
+    }
   };
 
   const resend = useMutation({
@@ -78,6 +104,9 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
   const lastSentAt = formatMoment(data?.lastSentAt, locale);
 
   const rows: Array<{ label: string; value: string }> = [];
+  // Admin-only: the full number is shown here and nowhere else.
+  if (data?.phone) rows.push({ label: t('admin.users.phoneFull'), value: data.phone });
+  if (data?.country) rows.push({ label: t('admin.users.phoneCountry'), value: data.country });
   if (data?.verified) {
     if (verifiedAt) rows.push({ label: t('admin.users.phoneVerifiedAt'), value: verifiedAt });
     rows.push({
@@ -89,6 +118,9 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
     });
     if (data.verifiedByAdminEmail) {
       rows.push({ label: t('admin.users.phoneVerifiedBy'), value: data.verifiedByAdminEmail });
+    }
+    if (data.verifiedByAdminId) {
+      rows.push({ label: t('admin.users.phoneVerifiedById'), value: data.verifiedByAdminId });
     }
     if (data.manualVerificationReason) {
       rows.push({
@@ -105,8 +137,10 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
       <CardContent className="p-4 space-y-3">
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <Smartphone className="h-4 w-4 text-muted-foreground" />
-          {t('admin.users.phoneVerification')}
+          {title ?? t('admin.users.phoneVerification')}
         </h3>
+
+        {note && <p className="text-xs text-muted-foreground">{note}</p>}
 
         {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
 
@@ -140,6 +174,10 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
               </dl>
             )}
 
+            {!data.verified && !data.hasActiveChallenge && (
+              <p className="text-xs text-muted-foreground">{t('admin.users.phoneNoActiveChallenge')}</p>
+            )}
+
             {!data.verified && data.hasActiveChallenge && (
               <p className="text-xs text-warning">
                 {t('admin.users.phoneActiveChallenge').replace(
@@ -154,6 +192,16 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
               </p>
             )}
 
+            {ownerLink && (
+              <Button asChild size="sm" variant="outline">
+                <Link to={`/admin/users?user=${userId}`}>
+                  <ExternalLink className="h-4 w-4" />
+                  <span className="ms-2">{t('admin.users.openOwnerInUsers')}</span>
+                </Link>
+              </Button>
+            )}
+
+            {!readOnly && (
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Button
                 size="sm"
@@ -165,8 +213,9 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
                 <span className="ms-2">{t('admin.users.phoneResend')}</span>
               </Button>
             </div>
+            )}
 
-            {!data.verified && (
+            {!readOnly && !data.verified && (
               <div className="space-y-2 pt-2 border-t border-border">
                 <p className="text-xs text-muted-foreground">{t('admin.users.phoneManualHint')}</p>
                 <div className="flex gap-2">

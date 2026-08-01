@@ -16,7 +16,6 @@ import { getServiceClient } from '../../supabase.js';
 import { sendSmsVerification, type SmsRuntimeOptions } from '../sms/index.js';
 import {
   digestCode,
-  digestsMatch,
   generateOtpCode,
   hasPepper,
   hashIpForRateLimit,
@@ -292,23 +291,65 @@ export async function issueChallenge(
     throw new PhoneVerificationError('phone_verification_unavailable', 500);
   }
 
-  await audit(config, {
-    action: 'phone_verification_started',
-    userId: input.actorUserId,
-    targetUserId: input.subjectUserId,
-    workspaceId: input.workspaceId,
-    details: {
-      purpose: input.purpose,
-      created_by: input.createdBy,
-      phone_masked: maskE164(input.phoneE164),
-    },
-  });
+  const isAdminResend = input.createdBy === 'admin';
+
+  if (isAdminResend) {
+    // Durable "requested" trail before the external send, so a resend can
+    // never happen without a record even if the finalize step later fails.
+    await client.rpc('phone_verification_admin_resend_requested', {
+      _challenge_id: challengeId,
+      _user_id: input.subjectUserId,
+      _admin_id: input.adminUserId ?? input.actorUserId,
+      _phone_masked: maskE164(input.phoneE164),
+    });
+  } else {
+    await audit(config, {
+      action: 'phone_verification_started',
+      userId: input.actorUserId,
+      targetUserId: input.subjectUserId,
+      workspaceId: input.workspaceId,
+      details: {
+        purpose: input.purpose,
+        created_by: input.createdBy,
+        phone_masked: maskE164(input.phoneE164),
+      },
+    });
+  }
 
   const sent = await sendSmsVerification(
     config,
     { to: toProviderFormat(input.phoneE164), code },
     input.smsOptions ?? {},
   );
+
+  if (isAdminResend) {
+    // Finalize transaction: delivery state and the canonical admin audit are
+    // written together. If it fails, the OTP is invalidated and the admin gets
+    // an error — never a silent success.
+    const { data: finData, error: finError } = await client.rpc(
+      'phone_verification_finalize_admin_resend',
+      {
+        _challenge_id: challengeId,
+        _admin_id: input.adminUserId ?? input.actorUserId,
+        _sent: sent.success,
+        _provider_name: sent.provider,
+        _provider_message_id: sent.messageId ?? null,
+        _error_code: sent.errorCode ?? null,
+      },
+    );
+    if (finError || str(asRecord(finData).error)) {
+      await client.rpc('phone_verification_invalidate', { _challenge_id: challengeId });
+      throw new PhoneVerificationError('phone_verification_unavailable', 500);
+    }
+    if (!sent.success) throw new PhoneVerificationError('phone_verification_unavailable', 502);
+    return {
+      success: true,
+      challengeId,
+      phoneMasked: maskE164(input.phoneE164) ?? '',
+      expiresInSeconds: CHALLENGE_TTL_SECONDS,
+      resendAfterSeconds: RESEND_COOLDOWN_SECONDS,
+    };
+  }
 
   const { data: markData, error: markError } = await client.rpc('phone_verification_mark_delivery', {
     _challenge_id: challengeId,
@@ -435,8 +476,11 @@ export interface CheckResult {
 }
 
 /**
- * Claims one attempt atomically, compares in constant time and — only on a
- * match — consumes the challenge and flips the account to verified.
+ * Single atomic database transition: the candidate HMAC is computed here (the
+ * pepper and the raw code never leave the server process), and the database
+ * re-validates the challenge, burns the attempt, consumes it and writes the
+ * canonical success audit inside one locked transaction. A cancelled, expired,
+ * failed-delivery or already-consumed challenge can never verify an account.
  */
 export async function checkVerification(
   config: ServerConfig,
@@ -454,70 +498,45 @@ export async function checkVerification(
   if (!ctx.actorIsSubject) throw new PhoneVerificationError('phone_verification_not_allowed', 403);
 
   const client = sb(config);
-  const { data, error } = await client.rpc('phone_verification_claim_attempt', {
-    _challenge_id: input.challengeId,
-    _user_id: ctx.subjectUserId,
-  });
-  if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
+  // The stored number is read from the subject's verification state, never
+  // from the request body.
+  const state = await getPhoneVerificationState(config, ctx.subjectUserId);
+  if (state.verified) throw new PhoneVerificationError('phone_already_verified', 409);
+  if (!state.phone) throw new PhoneVerificationError('phone_challenge_not_found', 400);
 
-  const claim = asRecord(data);
-  const claimError = str(claim.error);
-  if (claimError) {
-    throw new PhoneVerificationError(
-      isPhoneVerificationErrorCode(claimError) ? claimError : 'phone_challenge_not_found',
-      400,
-    );
-  }
-
-  const storedDigest = str(claim.codeDigest) ?? '';
-  const phone = str(claim.phone) ?? '';
   const candidate = digestCode({
     challengeId: input.challengeId,
     userId: ctx.subjectUserId,
-    phoneE164: phone,
+    phoneE164: state.phone,
     code: String(input.code ?? ''),
   });
 
-  if (!digestsMatch(storedDigest, candidate)) {
-    const attemptsLeft =
-      typeof claim.maxAttempts === 'number' && typeof claim.attemptCount === 'number'
-        ? Math.max(0, claim.maxAttempts - claim.attemptCount)
-        : null;
-    await audit(config, {
-      action: 'phone_verification_code_failed',
-      userId: input.actorUserId,
-      targetUserId: ctx.subjectUserId,
-      workspaceId: ctx.workspaceId,
-      details: { purpose: input.purpose, phone_masked: maskE164(phone), attempts_left: attemptsLeft },
-    });
+  const { data, error } = await client.rpc('phone_verification_verify', {
+    _challenge_id: input.challengeId,
+    _user_id: ctx.subjectUserId,
+    _candidate_digest: candidate,
+    _actor_user_id: input.actorUserId,
+    _workspace_id: ctx.workspaceId,
+    _purpose: input.purpose,
+  });
+  if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
+
+  const row = asRecord(data);
+  const errCode = str(row.error);
+  if (errCode) {
     throw new PhoneVerificationError(
-      attemptsLeft === 0 ? 'phone_attempts_exceeded' : 'phone_code_invalid',
+      isPhoneVerificationErrorCode(errCode) ? errCode : 'phone_challenge_not_found',
       400,
     );
   }
 
-  const { data: consumed, error: consumeError } = await client.rpc('phone_verification_consume', {
-    _challenge_id: input.challengeId,
-    _user_id: ctx.subjectUserId,
-  });
-  if (consumeError) throw new PhoneVerificationError('phone_verification_unavailable', 500);
-  const consumedRow = asRecord(consumed);
-  const consumeErrCode = str(consumedRow.error);
-  if (consumeErrCode) throw new PhoneVerificationError('phone_challenge_not_found', 400);
-
-  await audit(config, {
-    action: 'phone_verification_succeeded',
-    userId: input.actorUserId,
-    targetUserId: ctx.subjectUserId,
-    workspaceId: ctx.workspaceId,
-    details: { purpose: input.purpose, phone_masked: maskE164(phone), method: 'sms_otp' },
-  });
-
+  // The success audit is written inside the verification transaction — the
+  // server never adds a second success event here.
   return {
     success: true,
     verified: true,
-    phoneMasked: str(consumedRow.phoneMasked) ?? maskE164(phone),
-    verifiedAt: str(consumedRow.verifiedAt),
+    phoneMasked: str(row.phoneMasked) ?? maskE164(state.phone),
+    verifiedAt: str(row.verifiedAt),
   };
 }
 
@@ -541,22 +560,16 @@ export async function cancelVerification(
   const { data, error } = await sb(config).rpc('phone_verification_cancel', {
     _user_id: ctx.subjectUserId,
     _challenge_id: input.challengeId ?? null,
+    _actor_user_id: input.actorUserId,
+    _workspace_id: ctx.workspaceId,
+    _purpose: input.purpose,
   });
   if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
 
   const row = asRecord(data);
   const cancelled = typeof row.cancelled === 'number' ? row.cancelled : 0;
 
-  if (cancelled > 0) {
-    await audit(config, {
-      action: 'phone_verification_cancelled',
-      userId: input.actorUserId,
-      targetUserId: ctx.subjectUserId,
-      workspaceId: ctx.workspaceId,
-      details: { purpose: input.purpose, cancelled },
-    });
-  }
-
+  // The cancellation audit is written inside the cancel transaction.
   return { success: true, cancelled };
 }
 

@@ -494,3 +494,16 @@ function WidgetPageContent() {
     </div>
   );
 }
+
+/**
+ * The widget surface is gated behind owner phone verification.
+ * UI gating only — the backend RLS policies enforce the same rule on writes.
+ */
+export default function WidgetPage() {
+  const workspace = useCurrentWorkspace();
+  return (
+    <PhoneVerificationGate purpose="widget_access" workspaceId={workspace?.id} mode="full_page">
+      <WidgetPageContent />
+    </PhoneVerificationGate>
+  );
+}

@@ -33,6 +33,69 @@ function readStripeSubscriptionPeriodMs(body: unknown, key: string): number {
   return Number(readStripeSubscriptionField(body, key)) * 1000;
 }
 
+/**
+ * Webhook signature verification helpers.
+ *
+ * `body` MUST be the exact raw request bytes decoded as utf-8 — never a
+ * re-serialized JSON object. Re-stringifying changes byte order/spacing and
+ * would either break valid deliveries or (worse) let a forged payload pass.
+ */
+const STRIPE_TOLERANCE_SECONDS = 300; // 5 minutes, both directions
+
+type StripeSignatureHeader = { timestamp: number; signatures: string[] };
+
+/** Parses `t=...,v1=...,v1=...` tolerating whitespace, unknown fields and ordering. */
+export function parseStripeSignatureHeader(header: string): StripeSignatureHeader | null {
+  let timestamp: number | null = null;
+  const signatures: string[] = [];
+  for (const rawPart of header.split(',')) {
+    const part = rawPart.trim();
+    if (!part) continue;
+    const eq = part.indexOf('=');
+    if (eq <= 0) continue;
+    const k = part.slice(0, eq).trim();
+    const v = part.slice(eq + 1).trim();
+    if (k === 't') {
+      if (timestamp !== null) return null; // ambiguous header
+      if (!/^\d+$/.test(v)) return null;
+      const parsed = Number(v);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      timestamp = parsed;
+    } else if (k === 'v1') {
+      if (/^[0-9a-f]+$/i.test(v)) signatures.push(v.toLowerCase());
+    }
+  }
+  if (timestamp === null || signatures.length === 0) return null;
+  return { timestamp, signatures };
+}
+
+/** Length-checked constant-time hex comparison. */
+function timingSafeHexEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  const bufA = Buffer.from(a, 'hex');
+  const bufB = Buffer.from(b, 'hex');
+  if (bufA.length === 0 || bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/** True when at least one `v1` signature matches and the timestamp is fresh. */
+export function verifyStripeSignature(
+  secret: string,
+  header: string,
+  rawBody: string,
+  nowMs: number = Date.now(),
+): boolean {
+  const parsed = parseStripeSignatureHeader(header);
+  if (!parsed) return false;
+  const ageSeconds = Math.floor(nowMs / 1000) - parsed.timestamp;
+  if (Math.abs(ageSeconds) > STRIPE_TOLERANCE_SECONDS) return false;
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(`${parsed.timestamp}.${rawBody}`)
+    .digest('hex');
+  return parsed.signatures.some((sig) => timingSafeHexEqual(expected, sig));
+}
+
 export const stripeProvider: BillingProviderHandler = {
   name: 'stripe',
   capabilities: {
@@ -67,18 +130,14 @@ export const stripeProvider: BillingProviderHandler = {
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
     const sig = headers['stripe-signature'];
-    const secret = config.webhook_secret as string;
+    const secret = typeof config.webhook_secret === 'string' ? config.webhook_secret : '';
     if (!sig || !secret) return null;
 
-    // Stripe signature verification
-    const parts = sig.split(',').reduce((acc: Record<string, string>, part: string) => {
-      const [k, v] = part.split('=');
-      acc[k] = v;
-      return acc;
-    }, {});
-    const timestamp = parts['t'];
-    const expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
-    if (expected !== parts['v1']) throw new Error('Invalid Stripe webhook signature');
+    // Fail closed: bad header, stale/future timestamp or no matching v1 signature.
+    // The error message never contains the secret, the digest or the payload.
+    if (!verifyStripeSignature(secret, sig, body)) {
+      throw new Error('Invalid Stripe webhook signature');
+    }
 
     const event = JSON.parse(body);
     const obj = event.data?.object;

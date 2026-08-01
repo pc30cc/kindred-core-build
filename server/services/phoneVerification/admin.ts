@@ -5,7 +5,6 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import { getPhoneVerificationState, issueChallenge } from './index.js';
 import { maskE164 } from './phone.js';
 import type { SmsRuntimeOptions } from '../sms/index.js';

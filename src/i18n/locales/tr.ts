@@ -1101,7 +1101,7 @@ const tr: TranslationKeys = {
       },
       workspaces: {
       ownerPhoneVerification: 'Sahip telefon doğrulaması',
-      openOwnerInUsers: 'Sahibi Kullanicilar'da ac',
+      openOwnerInUsers: 'Sahibi Kullanıcılar sayfasında aç',
       ownerPhoneNote: 'Bu durum mevcut calisma alani sahibine aittir. Calisma alani ayri bir telefon dogrulama durumu saklamaz.',
       colOwnerPhone: 'Sahip telefonu',
       filterPhoneAll: 'Tüm sahipler',

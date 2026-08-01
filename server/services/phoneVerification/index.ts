@@ -16,7 +16,6 @@ import { getServiceClient } from '../../supabase.js';
 import { sendSmsVerification, type SmsRuntimeOptions } from '../sms/index.js';
 import {
   digestCode,
-  digestsMatch,
   generateOtpCode,
   hasPepper,
   hashIpForRateLimit,
@@ -292,23 +291,65 @@ export async function issueChallenge(
     throw new PhoneVerificationError('phone_verification_unavailable', 500);
   }
 
-  await audit(config, {
-    action: 'phone_verification_started',
-    userId: input.actorUserId,
-    targetUserId: input.subjectUserId,
-    workspaceId: input.workspaceId,
-    details: {
-      purpose: input.purpose,
-      created_by: input.createdBy,
-      phone_masked: maskE164(input.phoneE164),
-    },
-  });
+  const isAdminResend = input.createdBy === 'admin';
+
+  if (isAdminResend) {
+    // Durable "requested" trail before the external send, so a resend can
+    // never happen without a record even if the finalize step later fails.
+    await client.rpc('phone_verification_admin_resend_requested', {
+      _challenge_id: challengeId,
+      _user_id: input.subjectUserId,
+      _admin_id: input.adminUserId ?? input.actorUserId,
+      _phone_masked: maskE164(input.phoneE164),
+    });
+  } else {
+    await audit(config, {
+      action: 'phone_verification_started',
+      userId: input.actorUserId,
+      targetUserId: input.subjectUserId,
+      workspaceId: input.workspaceId,
+      details: {
+        purpose: input.purpose,
+        created_by: input.createdBy,
+        phone_masked: maskE164(input.phoneE164),
+      },
+    });
+  }
 
   const sent = await sendSmsVerification(
     config,
     { to: toProviderFormat(input.phoneE164), code },
     input.smsOptions ?? {},
   );
+
+  if (isAdminResend) {
+    // Finalize transaction: delivery state and the canonical admin audit are
+    // written together. If it fails, the OTP is invalidated and the admin gets
+    // an error — never a silent success.
+    const { data: finData, error: finError } = await client.rpc(
+      'phone_verification_finalize_admin_resend',
+      {
+        _challenge_id: challengeId,
+        _admin_id: input.adminUserId ?? input.actorUserId,
+        _sent: sent.success,
+        _provider_name: sent.provider,
+        _provider_message_id: sent.messageId ?? null,
+        _error_code: sent.errorCode ?? null,
+      },
+    );
+    if (finError || str(asRecord(finData).error)) {
+      await client.rpc('phone_verification_invalidate', { _challenge_id: challengeId });
+      throw new PhoneVerificationError('phone_verification_unavailable', 500);
+    }
+    if (!sent.success) throw new PhoneVerificationError('phone_verification_unavailable', 502);
+    return {
+      success: true,
+      challengeId,
+      phoneMasked: maskE164(input.phoneE164) ?? '',
+      expiresInSeconds: CHALLENGE_TTL_SECONDS,
+      resendAfterSeconds: RESEND_COOLDOWN_SECONDS,
+    };
+  }
 
   const { data: markData, error: markError } = await client.rpc('phone_verification_mark_delivery', {
     _challenge_id: challengeId,

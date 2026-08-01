@@ -755,6 +755,9 @@ const tr: TranslationKeys = {
     verifiedTitle: 'Telefon numarası doğrulandı',
     statusVerified: 'Doğrulandı',
     statusUnverified: 'Doğrulanmadı',
+    statusNoPhone: 'Numara yok',
+    expiresIn: 'Kodun süresi {{seconds}} sn içinde doluyor',
+    attemptsLeft: '{{count}} deneme kaldı',
     verifiedByAdmin: 'Yönetici tarafından manuel doğrulandı',
     errors: {
       phone_verification_required: 'Telefon doğrulaması gereklidir.',

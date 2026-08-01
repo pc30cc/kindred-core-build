@@ -151,8 +151,9 @@ billingRouter.get('/plans', async (req, res) => {
 
 // ─── GET /api/billing/status/:workspaceId ────────────────────────
 billingRouter.get('/status/:workspaceId', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId } = req.params;
+  if (!(await authorizeWorkspace(req, res, workspaceId))) return;
+  const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
 
   // Lazy-flip stale trials to "expired" so downstream UI/queries see correct status.
@@ -188,11 +189,12 @@ const checkoutSchema = z.object({
 });
 
 billingRouter.post('/checkout', async (req, res) => {
-  const { url, key } = getConfig(req);
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
 
   const input = parsed.data;
+  if (!(await authorizeWorkspace(req, res, input.workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
   try {
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
@@ -229,9 +231,10 @@ billingRouter.post('/checkout', async (req, res) => {
 
 // ─── POST /api/billing/verify-callback — verify callback from gateway ──
 billingRouter.post('/verify-callback', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId, provider: providerName, params } = req.body;
   if (!workspaceId || !providerName) return res.status(400).json({ error: 'Missing workspaceId or provider' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const provider = getProvider(providerName);
   if (!provider || !provider.verifyPayment) return res.status(400).json({ error: 'Provider does not support payment verification' });
@@ -333,9 +336,10 @@ billingRouter.post('/webhook/:provider', async (req, res) => {
 
 // ─── POST /api/billing/subscription/cancel ───────────────────────
 billingRouter.post('/subscription/cancel', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const supabase = createClient(url, key);
   const { data: sub } = await supabase
@@ -367,9 +371,10 @@ billingRouter.post('/subscription/cancel', async (req, res) => {
 
 // ─── POST /api/billing/subscription/resume ───────────────────────
 billingRouter.post('/subscription/resume', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const supabase = createClient(url, key);
   const { data: sub } = await supabase
@@ -401,9 +406,10 @@ billingRouter.post('/subscription/resume', async (req, res) => {
 
 // ─── POST /api/billing/portal — customer portal URL ─────────────
 billingRouter.post('/portal', async (req, res) => {
-  const { url, key } = getConfig(req);
   const { workspaceId, returnUrl } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
+  const { url, key } = getConfig(req);
 
   const supabase = createClient(url, key);
   const { data: sub } = await supabase
@@ -430,7 +436,16 @@ billingRouter.post('/portal', async (req, res) => {
 
 // ─── POST /api/billing/test — test provider connection ───────────
 billingRouter.post('/test', async (req, res) => {
+  // Accepts an arbitrary provider config (credentials + endpoints) and performs
+  // an outbound request, so it is platform-admin only.
   const { provider: providerName, config } = req.body;
+  {
+    const userId = await requireUser(req, res);
+    if (!userId) return;
+    if (!(await isGlobalAdmin(serverConfigOf(req), userId))) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+  }
   if (!providerName) return res.status(400).json({ error: 'Missing provider name' });
 
   const provider = getProvider(providerName);
@@ -446,10 +461,11 @@ billingRouter.post('/test', async (req, res) => {
 
 // ─── GET /api/billing/entitlement — check feature entitlement ────
 billingRouter.get('/entitlement', async (req, res) => {
-  const { url, key } = getConfig(req);
   const workspaceId = req.query.workspaceId as string;
   const feature = req.query.feature as string;
   if (!workspaceId || !feature) return res.status(400).json({ error: 'Missing workspaceId or feature' });
+  if (!(await authorizeWorkspace(req, res, workspaceId))) return;
+  const { url, key } = getConfig(req);
 
   try {
     const result = await checkEntitlement(url, key, workspaceId, feature);
@@ -461,6 +477,7 @@ billingRouter.get('/entitlement', async (req, res) => {
 
 // ─── GET /api/billing/events/:workspaceId — billing event history ──
 billingRouter.get('/events/:workspaceId', async (req, res) => {
+  if (!(await authorizeWorkspace(req, res, req.params.workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { data, error } = await supabase
@@ -474,7 +491,7 @@ billingRouter.get('/events/:workspaceId', async (req, res) => {
 });
 
 // ─── Admin: GET /api/billing/admin/overview — platform billing overview ──
-billingRouter.get('/admin/overview', async (req, res) => {
+billingRouter.get('/admin/overview', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
 
@@ -497,7 +514,7 @@ billingRouter.get('/admin/overview', async (req, res) => {
 });
 
 // ─── Admin: POST /api/billing/admin/plans — create/update plan ──
-billingRouter.post('/admin/plans', async (req, res) => {
+billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const plan = req.body;
@@ -514,7 +531,7 @@ billingRouter.post('/admin/plans', async (req, res) => {
 });
 
 // ─── Admin: POST /api/billing/admin/grant — manually grant plan ──
-billingRouter.post('/admin/grant', async (req, res) => {
+billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const { workspaceId, planId, status, expiresAt } = req.body;
   if (!workspaceId || !planId) return res.status(400).json({ error: 'Missing workspaceId or planId' });

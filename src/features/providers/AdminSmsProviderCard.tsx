@@ -27,6 +27,10 @@ import {
 } from '@/lib/api';
 
 const VERIFY_TEMPLATE_PATTERN = /^[A-Za-z0-9]{1,64}$/;
+const LINE_NUMBER_PATTERN = /^[0-9]{1,20}$/;
+const PARAMETER_NAME_PATTERN = /^[A-Za-z0-9_]{1,50}$/;
+
+type RuntimeVendor = 'kavenegar' | 'smsir';
 
 export function AdminSmsProviderCard() {
   const { toast } = useToast();
@@ -43,10 +47,25 @@ export function AdminSmsProviderCard() {
   const [verifyTemplate, setVerifyTemplate] = useState('');
   const [sender, setSender] = useState('');
   const [enabled, setEnabled] = useState(true);
+  const [vendor, setVendor] = useState<RuntimeVendor>('kavenegar');
+  const [lineNumber, setLineNumber] = useState('');
+  const [verifyTemplateId, setVerifyTemplateId] = useState('');
+  const [verifyParameterName, setVerifyParameterName] = useState('CODE');
 
   const vendors = PROVIDER_SCHEMAS.sms?.vendors ?? [];
   const kavenegar = vendors.find((v) => v.name === 'kavenegar');
+  const smsir = vendors.find((v) => v.name === 'smsir');
+  const activeVendorSchema = vendor === 'kavenegar' ? kavenegar : smsir;
   const comingSoon = vendors.filter((v) => v.comingSoon);
+
+  const vendorLabel = (name: AdminSmsProviderInfo['providerName']) => {
+    if (name === 'kavenegar') return kavenegar?.label ?? 'Kavenegar';
+    if (name === 'smsir') return smsir?.label ?? 'SMS.ir';
+    return '—';
+  };
+
+  /** Switching vendors always requires a fresh API key — the server enforces this too. */
+  const keyKept = info?.hasApiKey === true && info.providerName === vendor;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,38 +82,87 @@ export function AdminSmsProviderCard() {
 
   const openDialog = () => {
     setApiKey('');
+    const current: RuntimeVendor =
+      info?.providerName === 'smsir' || info?.providerName === 'kavenegar'
+        ? info.providerName
+        : 'kavenegar';
+    setVendor(current);
     setVerifyTemplate(info?.verifyTemplate ?? '');
     setSender(info?.sender ?? '');
+    setLineNumber(info?.lineNumber ?? '');
+    setVerifyTemplateId(info?.verifyTemplateId != null ? String(info.verifyTemplateId) : '');
+    setVerifyParameterName(info?.verifyParameterName ?? 'CODE');
     setEnabled(info?.enabled ?? true);
     setDialogOpen(true);
   };
 
   const handleSave = async () => {
-    if (!VERIFY_TEMPLATE_PATTERN.test(verifyTemplate)) {
-      toast({
-        title: 'Invalid verification template',
-        description: 'Letters and digits only — no spaces or underscores.',
-        variant: 'destructive',
-      });
-      return;
+    if (vendor === 'kavenegar') {
+      if (!VERIFY_TEMPLATE_PATTERN.test(verifyTemplate)) {
+        toast({
+          title: 'Invalid verification template',
+          description: 'Letters and digits only — no spaces or underscores.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    } else {
+      if (!LINE_NUMBER_PATTERN.test(lineNumber.trim())) {
+        toast({
+          title: 'Invalid line number',
+          description: 'The SMS.ir line number must contain digits only.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (!/^[0-9]{1,15}$/.test(verifyTemplateId.trim()) || Number(verifyTemplateId.trim()) <= 0) {
+        toast({
+          title: 'Invalid template ID',
+          description: 'The SMS.ir verification template ID must be a positive number.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (!PARAMETER_NAME_PATTERN.test(verifyParameterName.trim())) {
+        toast({
+          title: 'Invalid parameter name',
+          description: 'Letters, digits and underscores only.',
+          variant: 'destructive',
+        });
+        return;
+      }
     }
-    if (!info?.hasApiKey && !apiKey.trim()) {
+    if (!keyKept && !apiKey.trim()) {
       toast({
         title: 'API key required',
-        description: 'An API key must be provided the first time this provider is saved.',
+        description:
+          info?.hasApiKey && info.providerName !== vendor
+            ? 'Switching vendors requires a new API key.'
+            : 'An API key must be provided the first time this provider is saved.',
         variant: 'destructive',
       });
       return;
     }
     setSaving(true);
     try {
-      const next = await adminSaveSmsProvider({
-        providerName: 'kavenegar',
-        enabled,
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-        ...(sender.trim() ? { sender: sender.trim() } : {}),
-        verifyTemplate,
-      });
+      const next = await adminSaveSmsProvider(
+        vendor === 'kavenegar'
+          ? {
+              providerName: 'kavenegar',
+              enabled,
+              ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+              ...(sender.trim() ? { sender: sender.trim() } : {}),
+              verifyTemplate,
+            }
+          : {
+              providerName: 'smsir',
+              enabled,
+              ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+              lineNumber: lineNumber.trim(),
+              verifyTemplateId: Number(verifyTemplateId.trim()),
+              verifyParameterName: verifyParameterName.trim(),
+            },
+      );
       setInfo(next);
       setApiKey('');
       setDialogOpen(false);
@@ -118,7 +186,7 @@ export function AdminSmsProviderCard() {
     } catch (err) {
       setTestResult({
         success: false,
-        provider: 'kavenegar',
+        provider: info?.providerName ?? 'unknown',
         error: err instanceof Error ? err.message : 'Connection test failed',
       });
     } finally {
@@ -170,7 +238,7 @@ export function AdminSmsProviderCard() {
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Vendor</span>
                 <span className="text-foreground font-medium">
-                  {info?.providerName === 'kavenegar' ? (kavenegar?.label ?? 'Kavenegar') : '—'}
+                  {vendorLabel(info?.providerName ?? 'disabled')}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -183,15 +251,34 @@ export function AdminSmsProviderCard() {
                   <span className="text-muted-foreground">Not set</span>
                 )}
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Verification template</span>
-                <span className="text-foreground">{info?.verifyTemplate ?? '—'}</span>
-              </div>
-              {info?.sender && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Default sender</span>
-                  <span className="text-foreground">{info.sender}</span>
-                </div>
+              {info?.providerName === 'smsir' ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Line number</span>
+                    <span className="text-foreground" data-testid="sms-line-number">{info.lineNumber ?? '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Verification template ID</span>
+                    <span className="text-foreground">{info.verifyTemplateId ?? '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Code parameter</span>
+                    <span className="text-foreground">{info.verifyParameterName ?? '—'}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Verification template</span>
+                    <span className="text-foreground">{info?.verifyTemplate ?? '—'}</span>
+                  </div>
+                  {info?.sender && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Default sender</span>
+                      <span className="text-foreground">{info.sender}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

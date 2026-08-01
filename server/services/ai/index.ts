@@ -274,7 +274,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
   };
   if (req.systemPrompt) body.system = req.systemPrompt;
 
-  const res = await fetchWithRetry(`${config.baseUrl || 'https://api.anthropic.com'}/v1/messages`.replace(/(?<!:)\/\/v1\//, '/v1/'), {
+  const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': config.apiKey,

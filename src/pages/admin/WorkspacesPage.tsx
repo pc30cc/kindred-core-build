@@ -308,8 +308,8 @@ function WorkspaceDetailView({
           userId={ws.owner_id}
           readOnly
           ownerLink
-          title={t('admin.workspaces.ownerPhoneVerification')}
-          note={t('admin.workspaces.ownerPhoneNote')}
+          title={t('admin.users.ownerPhoneVerification')}
+          note={t('admin.users.ownerPhoneNote')}
         />
       )}
 

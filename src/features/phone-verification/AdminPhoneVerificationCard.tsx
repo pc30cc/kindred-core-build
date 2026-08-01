@@ -196,7 +196,7 @@ export function AdminPhoneVerificationCard({
               <Button asChild size="sm" variant="outline">
                 <Link to={`/admin/users?user=${userId}`}>
                   <ExternalLink className="h-4 w-4" />
-                  <span className="ms-2">{t('admin.workspaces.openOwnerInUsers')}</span>
+                  <span className="ms-2">{t('admin.users.openOwnerInUsers')}</span>
                 </Link>
               </Button>
             )}

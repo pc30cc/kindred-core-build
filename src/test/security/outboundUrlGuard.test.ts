@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 const lookupMock = vi.fn();
-vi.mock('node:dns/promises', () => ({ lookup: (...a: any[]) => lookupMock(...a) }));
+vi.mock('node:dns/promises', () => ({ default: { lookup: (...a: any[]) => lookupMock(...a) }, lookup: (...a: any[]) => lookupMock(...a) }));
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => ({}) }));
 vi.mock('../../../server/middleware/adminBypass.js', () => ({ isGlobalAdmin: async () => false }));
 

@@ -7,7 +7,7 @@
  * no provider name, template, sender, message id or raw provider error.
  */
 
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { requireUser, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getClientIp } from '../utils/clientIp.js';
@@ -30,7 +30,7 @@ const contextSchema = {
   workspaceSlug: z.string().min(1).max(120).optional(),
 };
 
-function fail(res: any, err: unknown) {
+function fail(res: Response, err: unknown) {
   if (err instanceof PhoneVerificationError) {
     const body: Record<string, unknown> = { error: err.code };
     if (err.retryAfterSeconds !== undefined) body.retryAfterSeconds = err.retryAfterSeconds;
@@ -80,7 +80,7 @@ phoneVerificationRouter.post('/start', async (req, res) => {
       ...(parsed.data.workspaceSlug ? { workspaceSlug: parsed.data.workspaceSlug } : {}),
       phone: parsed.data.phone,
       country: parsed.data.country.toUpperCase(),
-      clientIp: getClientIp(req as any),
+      clientIp: getClientIp(req),
     });
     res.json(result);
   } catch (err) {
@@ -99,7 +99,7 @@ phoneVerificationRouter.post('/resend', async (req, res) => {
       actorUserId: userId,
       ...(parsed.data.workspaceId ? { workspaceId: parsed.data.workspaceId } : {}),
       ...(parsed.data.workspaceSlug ? { workspaceSlug: parsed.data.workspaceSlug } : {}),
-      clientIp: getClientIp(req as any),
+      clientIp: getClientIp(req),
     });
     res.json(result);
   } catch (err) {

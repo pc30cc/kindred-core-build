@@ -298,14 +298,6 @@ describe('provider host policy', () => {
     expect(Object.keys(OFFICIAL_AI_PROVIDER_HOSTS)).toContain('anthropic');
   });
 
-  it('matches official hosts exactly (legacy duplicate removed)', () => {
-    const openai = providerHostPolicy('openai');
-    expect(openai?.('api.openai.com')).toBe(true);
-    expect(openai?.('evil-openai.com')).toBe(false);
-    expect(openai?.('api.openai.com.attacker.tld')).toBe(false);
-    expect(Object.keys(OFFICIAL_AI_PROVIDER_HOSTS)).toContain('anthropic');
-  });
-
   it('leaves self-hosted providers unrestricted by host name', () => {
     expect(providerHostPolicy('ollama')).toBeUndefined();
     expect(providerHostPolicy('azure_openai')).toBeUndefined();

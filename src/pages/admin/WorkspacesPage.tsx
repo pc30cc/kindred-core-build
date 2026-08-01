@@ -91,14 +91,6 @@ export default function AdminWorkspacesPage() {
             className="pl-9"
           />
         </div>
-        <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="newest">Newest first</SelectItem>
-          </SelectContent>
-        </Select>
         <Select value={phoneFilter} onValueChange={v => { setPhoneFilter(v as typeof phoneFilter); setPage(0); }}>
           <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue />

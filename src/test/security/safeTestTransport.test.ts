@@ -303,3 +303,84 @@ describe('provider host policy', () => {
     expect(providerHostPolicy('azure_openai')).toBeUndefined();
   });
 });
+
+describe('safe test transport — socket isolation', () => {
+  it('disables connection pooling and keeps SNI/TLS on the real hostname', async () => {
+    const { fetchImpl, rawOptions } = make([{ status: 200, body: '{}' }]);
+    await fetchImpl('https://api.openai.com/v1');
+    const opts = rawOptions[0];
+    expect(opts.agent).toBe(false);
+    expect(opts.host).toBe('api.openai.com');
+    expect(opts.servername).toBe('api.openai.com');
+    expect('rejectUnauthorized' in opts).toBe(false);
+    expect(typeof opts.lookup).toBe('function');
+    let pinned = '';
+    opts.lookup('api.openai.com', {}, (_e: unknown, addr: string) => {
+      pinned = addr;
+    });
+    expect(pinned).toBe('93.184.216.34');
+  });
+
+  it('never shares an agent between two sequential requests', async () => {
+    const { fetchImpl, rawOptions } = make([{ status: 200, body: '{}' }]);
+    await fetchImpl('https://api.openai.com/v1');
+    await fetchImpl('https://api.openai.com/v2');
+    expect(rawOptions).toHaveLength(2);
+    for (const o of rawOptions) expect(o.agent).toBe(false);
+    expect(rawOptions[0].lookup).not.toBe(rawOptions[1].lookup);
+  });
+
+  it('applies agent:false and a fresh pinned lookup on every same-origin hop', async () => {
+    let call = 0;
+    const lookupImpl = async () => {
+      call++;
+      return [{ address: call === 1 ? '93.184.216.34' : '93.184.216.35', family: 4 }];
+    };
+    const { fetchImpl, rawOptions, seen } = make(
+      [
+        { status: 302, headers: { location: 'https://api.openai.com/v2' } },
+        { status: 200, body: '{}' },
+      ],
+      { lookupImpl },
+    );
+    await fetchImpl('https://api.openai.com/v1');
+    expect(rawOptions.map((o) => o.agent)).toEqual([false, false]);
+    expect(rawOptions.map((o) => o.servername)).toEqual(['api.openai.com', 'api.openai.com']);
+    expect(seen.map((s) => s.address)).toEqual(['93.184.216.34', '93.184.216.35']);
+  });
+});
+
+describe('safe test transport — cross-origin redirects are refused', () => {
+  const AUTH_HEADERS = {
+    authorization: 'Bearer placeholder-not-a-secret',
+    cookie: 'session=placeholder',
+  };
+
+  it.each([
+    ['https://evil.example.com/x', 'redirect_blocked'],
+    ['https://sub.api.example.com/x', 'redirect_blocked'],
+    ['https://api.example.net/x', 'redirect_blocked'],
+    ['https://93.184.216.34/x', 'redirect_blocked'],
+    ['https://api.example.com:8443/x', 'redirect_blocked'],
+    ['https://127.0.0.1/x', 'redirect_blocked'],
+    ['https://metadata.google.internal/x', 'redirect_blocked'],
+    ['http://api.example.com/x', 'unsafe_scheme'],
+  ])('blocks a redirect to %s', async (location, reason) => {
+    const { fetchImpl, seen } = make([
+      { status: 302, headers: { location } },
+      { status: 200, body: '{}' },
+    ]);
+    expect(
+      await reasonOf(
+        fetchImpl('https://api.example.com/v1', {
+          method: 'POST',
+          body: '{"probe":1}',
+          headers: AUTH_HEADERS,
+        }),
+      ),
+    ).toBe(reason);
+    // Only the first hop ever ran: no header, cookie or body reached hop two.
+    expect(seen).toHaveLength(1);
+    expect(seen[0].host).toBe('api.example.com');
+  });
+});

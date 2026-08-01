@@ -41,6 +41,67 @@ function readPaddleTransaction(body: unknown): { id: string; checkoutUrl: string
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
 
+// --- Webhook signature verification -------------------------------------
+//
+// `rawBody` MUST be the exact bytes Paddle signed, decoded as utf-8.
+// Re-serialising the JSON would change the signed material.
+
+const PADDLE_TOLERANCE_SECONDS = 300; // 5 minutes, both directions
+
+type PaddleSignatureHeader = { timestamp: number; signatures: string[] };
+
+/** Parses `ts=...;h1=...;h1=...`, tolerating whitespace, unknown fields and ordering. */
+export function parsePaddleSignatureHeader(header: string): PaddleSignatureHeader | null {
+  let timestamp: number | null = null;
+  const signatures: string[] = [];
+  for (const rawPart of header.split(';')) {
+    const part = rawPart.trim();
+    if (!part) continue;
+    const eq = part.indexOf('=');
+    if (eq <= 0) continue;
+    const k = part.slice(0, eq).trim();
+    const v = part.slice(eq + 1).trim();
+    if (k === 'ts') {
+      if (timestamp !== null) return null; // ambiguous header
+      if (!/^\d+$/.test(v)) return null;
+      const parsed = Number(v);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      timestamp = parsed;
+    } else if (k === 'h1') {
+      if (/^[0-9a-f]+$/i.test(v)) signatures.push(v.toLowerCase());
+    }
+  }
+  if (timestamp === null || signatures.length === 0) return null;
+  return { timestamp, signatures };
+}
+
+/** Length-checked constant-time hex comparison. */
+function timingSafeHexEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  const bufA = Buffer.from(a, 'hex');
+  const bufB = Buffer.from(b, 'hex');
+  if (bufA.length === 0 || bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/** True when at least one `h1` matches and the timestamp is fresh. */
+export function verifyPaddleSignature(
+  secret: string,
+  header: string,
+  rawBody: string,
+  nowMs: number = Date.now(),
+): boolean {
+  const parsed = parsePaddleSignatureHeader(header);
+  if (!parsed) return false;
+  const ageSeconds = Math.floor(nowMs / 1000) - parsed.timestamp;
+  if (Math.abs(ageSeconds) > PADDLE_TOLERANCE_SECONDS) return false;
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(`${parsed.timestamp}:${rawBody}`)
+    .digest('hex');
+  return parsed.signatures.some((sig) => timingSafeHexEqual(expected, sig));
+}
+
 async function paddleApi(config: BillingProviderConfig, path: string, method = 'GET', body?: unknown) {
   const res = await fetch(`${baseUrl(config)}${path}`, {
     method,
@@ -81,14 +142,14 @@ export const paddleProvider: BillingProviderHandler = {
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
     const sig = headers['paddle-signature'];
-    const secret = config.webhook_secret as string;
+    const secret = typeof config.webhook_secret === 'string' ? config.webhook_secret : '';
     if (!sig || !secret) return null;
 
-    // Paddle v2 signature: ts=...;h1=...
-    const parts: Record<string, string> = {};
-    sig.split(';').forEach((p: string) => { const [k, v] = p.split('='); parts[k] = v; });
-    const expected = crypto.createHmac('sha256', secret).update(`${parts['ts']}:${body}`).digest('hex');
-    if (expected !== parts['h1']) throw new Error('Invalid Paddle webhook signature');
+    // Paddle v2 signature: ts=...;h1=... — verified over the exact raw body,
+    // constant-time, with a 5-minute freshness window.
+    if (!verifyPaddleSignature(secret, sig, body)) {
+      throw new Error('Invalid Paddle webhook signature');
+    }
 
     const event = JSON.parse(body);
     const typeMap: Record<string, WebhookEvent['type']> = {

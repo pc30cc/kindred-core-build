@@ -1622,6 +1622,10 @@ const tr: TranslationKeys = {
       controlCenter: 'Platform Kontrol Merkezi',
     },
     users: {
+      colOwnerPhone: 'Sahip telefonu',
+      filterPhoneAll: 'Tüm sahipler',
+      filterPhoneVerified: 'Doğrulanmış sahipler',
+      filterPhoneUnverified: 'Doğrulanmamış sahipler',
       phoneVerification: 'Telefon doğrulaması',
       phoneResend: 'Kodu yeniden gönder',
       phoneManualHint: 'Manuel doğrulama denetim kaydına yazılır. Kısa bir gerekçe girin.',

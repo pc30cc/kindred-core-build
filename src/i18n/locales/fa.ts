@@ -1622,6 +1622,10 @@ const fa: TranslationKeys = {
       controlCenter: 'مرکز کنترل پلتفرم',
     },
     users: {
+      colOwnerPhone: 'موبایل مالک',
+      filterPhoneAll: 'همه مالکان',
+      filterPhoneVerified: 'مالکان تأییدشده',
+      filterPhoneUnverified: 'مالکان تأییدنشده',
       phoneVerification: 'تأیید شماره موبایل',
       phoneResend: 'ارسال دوباره کد',
       phoneManualHint: 'تأیید دستی در گزارش ممیزی ثبت می‌شود. دلیل کوتاهی بنویسید.',

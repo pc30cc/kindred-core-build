@@ -97,9 +97,9 @@ export default function AdminWorkspacesPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{t('admin.workspaces.filterPhoneAll')}</SelectItem>
-            <SelectItem value="verified">{t('admin.workspaces.filterPhoneVerified')}</SelectItem>
-            <SelectItem value="unverified">{t('admin.workspaces.filterPhoneUnverified')}</SelectItem>
+            <SelectItem value="all">{t('admin.users.filterPhoneAll')}</SelectItem>
+            <SelectItem value="verified">{t('admin.users.filterPhoneVerified')}</SelectItem>
+            <SelectItem value="unverified">{t('admin.users.filterPhoneUnverified')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
@@ -135,7 +135,7 @@ export default function AdminWorkspacesPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Slug</TableHead>
                 <TableHead>Owner</TableHead>
-                <TableHead>{t('admin.workspaces.colOwnerPhone')}</TableHead>
+                <TableHead>{t('admin.users.colOwnerPhone')}</TableHead>
                 <TableHead>Members</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="w-[80px]" />

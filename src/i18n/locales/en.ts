@@ -1634,6 +1634,10 @@ const en = {
       controlCenter: 'Platform Control Center',
     },
     users: {
+      colOwnerPhone: 'Owner phone',
+      filterPhoneAll: 'All owners',
+      filterPhoneVerified: 'Verified owners',
+      filterPhoneUnverified: 'Unverified owners',
       phoneVerification: 'Phone verification',
       phoneResend: 'Resend code',
       phoneManualHint: 'Manual verification is logged in the audit trail. Provide a short reason.',

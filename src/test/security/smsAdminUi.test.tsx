@@ -3,8 +3,7 @@
  * The API layer is mocked; no credential value is ever rendered or asserted.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react';
 
 const api = {
   get: vi.fn(),
@@ -24,6 +23,17 @@ const toast = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 
 const { AdminSmsProviderCard } = await import('@/features/providers/AdminSmsProviderCard');
+
+/** Click helper that flushes the resulting async state updates. */
+async function click(el: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(el);
+  });
+}
+
+function setValue(el: HTMLElement, value: string) {
+  fireEvent.change(el, { target: { value } });
+}
 
 const CONFIGURED = {
   providerName: 'kavenegar', configured: true, enabled: true, hasApiKey: true,
@@ -59,54 +69,47 @@ describe('AdminSmsProviderCard', () => {
   });
 
   it('keeps the stored credential when the key field is left blank', async () => {
-    const user = userEvent.setup();
     render(<AdminSmsProviderCard />);
     await waitFor(() => expect(screen.getByText('Configure')).toBeInTheDocument());
-    await user.click(screen.getByText('Configure'));
-    await user.click(screen.getByText('Save'));
+    await click(screen.getByText('Configure'));
+    await click(screen.getByText('Save'));
     await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
     expect(api.save.mock.calls[0][0]).not.toHaveProperty('apiKey');
   });
 
   it('blocks a save with an invalid verification template', async () => {
-    const user = userEvent.setup();
     render(<AdminSmsProviderCard />);
     await waitFor(() => expect(screen.getByText('Configure')).toBeInTheDocument());
-    await user.click(screen.getByText('Configure'));
-    const template = screen.getByLabelText('OTP / Verification Template');
-    await user.clear(template);
-    await user.type(template, 'verify login');
-    await user.click(screen.getByText('Save'));
+    await click(screen.getByText('Configure'));
+    setValue(screen.getByLabelText('OTP / Verification Template'), 'verify login');
+    await click(screen.getByText('Save'));
     expect(api.save).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalled();
   });
 
   it('requires a key on first configuration', async () => {
     api.get.mockResolvedValue(EMPTY);
-    const user = userEvent.setup();
     render(<AdminSmsProviderCard />);
     await waitFor(() => expect(screen.getByText('Configure')).toBeInTheDocument());
-    await user.click(screen.getByText('Configure'));
-    await user.type(screen.getByLabelText('OTP / Verification Template'), 'verifyLogin');
-    await user.click(screen.getByText('Save'));
+    await click(screen.getByText('Configure'));
+    setValue(screen.getByLabelText('OTP / Verification Template'), 'verifyLogin');
+    await click(screen.getByText('Save'));
     expect(api.save).not.toHaveBeenCalled();
   });
 
   it('renders a successful connection test with balance only', async () => {
-    const user = userEvent.setup();
     render(<AdminSmsProviderCard />);
     await waitFor(() => expect(screen.getByText('Test Connection')).toBeInTheDocument());
-    await user.click(screen.getByText('Test Connection'));
+    await click(screen.getByText('Test Connection'));
     await waitFor(() => expect(screen.getByTestId('sms-test-result')).toBeInTheDocument());
     expect(screen.getByTestId('sms-test-result').textContent).toContain('5000');
   });
 
   it('renders a normalized failure message', async () => {
     api.test.mockResolvedValue({ success: false, provider: 'kavenegar', error: 'SMS authentication failed' });
-    const user = userEvent.setup();
     render(<AdminSmsProviderCard />);
     await waitFor(() => expect(screen.getByText('Test Connection')).toBeInTheDocument());
-    await user.click(screen.getByText('Test Connection'));
+    await click(screen.getByText('Test Connection'));
     await waitFor(() =>
       expect(screen.getByTestId('sms-test-result').textContent).toContain('SMS authentication failed'),
     );

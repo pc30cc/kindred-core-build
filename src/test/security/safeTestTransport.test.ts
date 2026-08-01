@@ -17,10 +17,12 @@ type Hop = { status: number; headers?: Record<string, string>; body?: string; ti
 /** Records every connection attempt and replays scripted hops. */
 function fakeRequest(hops: Hop[]) {
   const seen: Array<{ host: string; servername: string; address: string; path: string; method: string; headers: Record<string, string>; body?: string; timeout: number }> = [];
+  const rawOptions: any[] = [];
   let i = 0;
   const impl: any = (options: any, cb: (res: any) => void) => {
     const hop = hops[Math.min(i, hops.length - 1)];
     i++;
+    rawOptions.push(options);
     const req: any = new EventEmitter();
     let written: string | undefined;
     // Resolve the pinned address by invoking the transport's lookup function.
@@ -62,19 +64,19 @@ function fakeRequest(hops: Hop[]) {
     };
     return req;
   };
-  return { impl, seen };
+  return { impl, seen, rawOptions };
 }
 
 const publicDns = async () => [{ address: '93.184.216.34', family: 4 }];
 
 function make(hops: Hop[], overrides: Record<string, unknown> = {}) {
-  const { impl, seen } = fakeRequest(hops);
+  const { impl, seen, rawOptions } = fakeRequest(hops);
   const fetchImpl = createSafeTestFetch({
     lookupImpl: publicDns as never,
     requestImpl: impl,
     ...overrides,
   });
-  return { fetchImpl, seen };
+  return { fetchImpl, seen, rawOptions };
 }
 
 async function reasonOf(p: Promise<unknown>): Promise<string> {

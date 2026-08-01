@@ -7,6 +7,21 @@ import express from 'express';
 const processWebhookEvent = vi.fn().mockResolvedValue(undefined);
 const stripeVerify = vi.fn();
 
+// In-memory stand-in for the `(provider_name, provider_event_id)` unique index.
+let claimedKeys = new Set<string>();
+let claimShouldThrow = false;
+const claimSpy = vi.fn();
+const finalizeSpy = vi.fn();
+
+async function fakeClaim(_url: string, _key: string, input: any) {
+  claimSpy(input);
+  if (claimShouldThrow) throw new Error('billing event claim failed');
+  const k = `${input.providerName}:${input.providerEventId}`;
+  if (claimedKeys.has(k)) return { claimed: false, duplicate: true };
+  claimedKeys.add(k);
+  return { claimed: true, eventRowId: `row_${claimedKeys.size}` };
+}
+
 vi.mock('../../../server/services/billing/index.js', () => ({
   resolveBillingConfig: vi.fn().mockResolvedValue(null),
   getProvider: (name: string) =>
@@ -19,6 +34,10 @@ vi.mock('../../../server/services/billing/index.js', () => ({
   processWebhookEvent: (...a: unknown[]) => processWebhookEvent(...a),
   logBillingEvent: vi.fn().mockResolvedValue(undefined),
   checkEntitlement: vi.fn().mockResolvedValue({ allowed: false }),
+  claimBillingWebhookEvent: (...a: any[]) => fakeClaim(a[0], a[1], a[2]),
+  finalizeBillingWebhookEvent: async (...a: unknown[]) => {
+    finalizeSpy(...a);
+  },
 }));
 
 let wsConfigRows: Array<{ workspace_id: string | null; config: unknown }> = [];
@@ -118,6 +137,10 @@ beforeEach(() => {
   globalConfigValue = null;
   processWebhookEvent.mockClear();
   stripeVerify.mockReset();
+  claimedKeys = new Set();
+  claimShouldThrow = false;
+  claimSpy.mockClear();
+  finalizeSpy.mockClear();
 });
 
 // ── Route protection ─────────────────────────────────────────────────────

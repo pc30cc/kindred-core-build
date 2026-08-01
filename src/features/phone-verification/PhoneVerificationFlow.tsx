@@ -37,10 +37,26 @@ function errorKey(err: unknown): string {
   return KNOWN_ERRORS.has(raw) ? `phoneVerification.errors.${raw}` : 'phoneVerification.errors.phone_verification_unavailable';
 }
 
+function errorCode(err: unknown): string {
+  const raw = err instanceof Error ? err.message : '';
+  return KNOWN_ERRORS.has(raw) ? raw : 'phone_verification_unavailable';
+}
+
+/** Persian/Arabic-Indic digits → ASCII. */
+function toAsciiDigits(value: string): string {
+  return value
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+
 interface Props {
   context: PhoneVerificationContext;
   initialPhoneMasked?: string | null;
   initialResendAfterSeconds?: number;
+  /** Rehydrated from the server status so a reload never loses the OTP. */
+  initialChallengeId?: string | null;
+  initialChallengeExpiresInSeconds?: number | null;
+  initialRemainingAttempts?: number | null;
   onVerified?: () => void;
 }
 
@@ -48,14 +64,20 @@ export function PhoneVerificationFlow({
   context,
   initialPhoneMasked,
   initialResendAfterSeconds = 0,
+  initialChallengeId = null,
+  initialChallengeExpiresInSeconds = null,
+  initialRemainingAttempts = null,
   onVerified,
 }: Props) {
   const { t } = useTranslation();
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
-  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [challengeId, setChallengeId] = useState<string | null>(initialChallengeId);
   const [maskedPhone, setMaskedPhone] = useState<string | null>(initialPhoneMasked ?? null);
   const [cooldown, setCooldown] = useState(initialResendAfterSeconds);
+  const [expiresIn, setExpiresIn] = useState<number>(initialChallengeExpiresInSeconds ?? 0);
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(initialRemainingAttempts);
+  const [expired, setExpired] = useState(false);
 
   const start = useStartPhoneVerification(context);
   const resend = useResendPhoneVerification(context);
@@ -67,19 +89,48 @@ export function PhoneVerificationFlow({
     return () => window.clearInterval(id);
   }, [cooldown]);
 
+  // Server-derived expiry countdown; on expiry the code step becomes read-only
+  // and the user is guided back to a fresh resend/start.
+  useEffect(() => {
+    if (!challengeId || expiresIn <= 0) return;
+    const id = window.setInterval(() => {
+      setExpiresIn((v) => {
+        if (v <= 1) {
+          setExpired(true);
+          return 0;
+        }
+        return v - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [challengeId, expiresIn]);
+
   const busy = start.isPending || resend.isPending || check.isPending;
   const step = challengeId ? 'code' : 'phone';
 
-  const digitsOnly = useMemo(() => phone.replace(/[^\d\u06F0-\u06F9\u0660-\u0669]/g, ''), [phone]);
+  const digitsOnly = useMemo(
+    () => toAsciiDigits(phone).replace(/\D/g, ''),
+    [phone],
+  );
+  const codeDigits = useMemo(() => toAsciiDigits(code).replace(/\D/g, '').slice(0, 6), [code]);
+
+  const applyChallenge = (res: { challengeId: string; phoneMasked: string; expiresInSeconds: number; resendAfterSeconds: number }) => {
+    setChallengeId(res.challengeId);
+    setMaskedPhone(res.phoneMasked);
+    setCooldown(res.resendAfterSeconds);
+    setExpiresIn(res.expiresInSeconds);
+    setAttemptsLeft(null);
+    setExpired(false);
+    setCode('');
+  };
 
   const handleSend = () => {
+    if (busy || digitsOnly.length < 10) return;
     start.mutate(
       { phone: digitsOnly, country: 'IR' },
       {
         onSuccess: (res) => {
-          setChallengeId(res.challengeId);
-          setMaskedPhone(res.phoneMasked);
-          setCooldown(res.resendAfterSeconds);
+          applyChallenge(res);
           toast({ title: t('phoneVerification.codeSent') });
         },
         onError: (err) => toast({ title: t(errorKey(err) as never), variant: 'destructive' }),
@@ -88,12 +139,10 @@ export function PhoneVerificationFlow({
   };
 
   const handleResend = () => {
+    if (busy || cooldown > 0) return;
     resend.mutate(undefined, {
       onSuccess: (res) => {
-        setChallengeId(res.challengeId);
-        setMaskedPhone(res.phoneMasked);
-        setCooldown(res.resendAfterSeconds);
-        setCode('');
+        applyChallenge(res);
         toast({ title: t('phoneVerification.codeSent') });
       },
       onError: (err) => toast({ title: t(errorKey(err) as never), variant: 'destructive' }),
@@ -101,15 +150,28 @@ export function PhoneVerificationFlow({
   };
 
   const handleVerify = () => {
-    if (!challengeId) return;
+    if (!challengeId || busy || expired || codeDigits.length < 6) return;
     check.mutate(
-      { challengeId, code: code.replace(/\D/g, '') },
+      { challengeId, code: codeDigits },
       {
         onSuccess: () => {
           toast({ title: t('phoneVerification.verifiedTitle') });
           onVerified?.();
         },
-        onError: (err) => toast({ title: t(errorKey(err) as never), variant: 'destructive' }),
+        onError: (err) => {
+          const code2 = errorCode(err);
+          toast({ title: t(`phoneVerification.errors.${code2}` as never), variant: 'destructive' });
+          // A wrong code keeps the user on the code step; only a dead challenge
+          // sends them back to the start.
+          if (code2 === 'phone_code_expired') setExpired(true);
+          if (code2 === 'phone_attempts_exceeded' || code2 === 'phone_challenge_not_found') {
+            setChallengeId(null);
+            setCode('');
+            setExpired(false);
+          } else if (code2 === 'phone_code_invalid') {
+            setAttemptsLeft((v) => (typeof v === 'number' && v > 0 ? v - 1 : v));
+          }
+        },
       },
     );
   };
@@ -126,6 +188,7 @@ export function PhoneVerificationFlow({
             <Input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
               placeholder="09121234567"
               inputMode="numeric"
               dir="ltr"
@@ -150,19 +213,39 @@ export function PhoneVerificationFlow({
           <Input
             value={code}
             onChange={(e) => setCode(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleVerify(); }}
             placeholder="––––––"
             inputMode="numeric"
             maxLength={6}
             dir="ltr"
             className="font-mono text-center tracking-[0.5em]"
-            disabled={busy}
+            disabled={busy || expired}
           />
-          <Button onClick={handleVerify} disabled={busy || code.replace(/\D/g, '').length < 6} className="w-full">
+          {expired ? (
+            <p className="text-xs text-warning">{t('phoneVerification.errors.phone_code_expired')}</p>
+          ) : (
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {expiresIn > 0
+                  ? t('phoneVerification.expiresIn').replace('{{seconds}}', String(expiresIn))
+                  : ''}
+              </span>
+              {typeof attemptsLeft === 'number' && (
+                <span>{t('phoneVerification.attemptsLeft').replace('{{count}}', String(attemptsLeft))}</span>
+              )}
+            </div>
+          )}
+          <Button onClick={handleVerify} disabled={busy || expired || codeDigits.length < 6} className="w-full">
             {check.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
             <span className="ms-2">{t('phoneVerification.verify')}</span>
           </Button>
           <div className="flex items-center justify-between gap-2">
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setChallengeId(null); setCode(''); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => { setChallengeId(null); setCode(''); setExpired(false); setAttemptsLeft(null); }}
+            >
               {t('phoneVerification.changeNumber')}
             </Button>
             <Button variant="ghost" size="sm" disabled={busy || cooldown > 0} onClick={handleResend}>

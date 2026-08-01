@@ -198,13 +198,13 @@ const BODY = JSON.stringify({ id: 'evt_1' });
 
 describe('billing webhooks', () => {
   it('rejects unknown providers', async () => {
-    const res = await call('POST', '/api/billing/webhook/nope', { body: BODY });
+    const res = await call('POST', '/api/billing/webhook/nope', { body: BODY, headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(404);
     expect(processWebhookEvent).not.toHaveBeenCalled();
   });
 
   it('rejects providers without a signed webhook contract', async () => {
-    const res = await call('POST', '/api/billing/webhook/zarinpal', { body: BODY });
+    const res = await call('POST', '/api/billing/webhook/zarinpal', { body: BODY, headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(400);
     expect(processWebhookEvent).not.toHaveBeenCalled();
   });
@@ -218,7 +218,7 @@ describe('billing webhooks', () => {
   it('rejects when no config verifies the signature', async () => {
     wsConfigRows = [{ workspace_id: WS, config: { webhook_secret: 'a' } }];
     stripeVerify.mockRejectedValue(new Error('Invalid Stripe webhook signature'));
-    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(400);
     expect(processWebhookEvent).not.toHaveBeenCalled();
   });
@@ -227,14 +227,14 @@ describe('billing webhooks', () => {
     const raw = '{"id":"evt_1",   "spaced":true}';
     wsConfigRows = [{ workspace_id: WS, config: { webhook_secret: 'a' } }];
     stripeVerify.mockResolvedValue({ type: 'invoice_paid', providerEventId: 'evt_1', raw: {} });
-    await call('POST', '/api/billing/webhook/stripe', { body: raw });
+    await call('POST', '/api/billing/webhook/stripe', { body: raw, headers: { 'content-type': 'application/json' } });
     expect(stripeVerify.mock.calls[0][2]).toBe(raw);
   });
 
   it('binds the event to the workspace that owns the verifying config', async () => {
     wsConfigRows = [{ workspace_id: WS, config: { webhook_secret: 'a' } }];
     stripeVerify.mockResolvedValue({ type: 'invoice_paid', providerEventId: 'evt_1', raw: {} });
-    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(200);
     expect(processWebhookEvent.mock.calls[0][3].workspaceId).toBe(WS);
   });
@@ -242,7 +242,7 @@ describe('billing webhooks', () => {
   it('rejects a payload claiming a workspace other than the config owner', async () => {
     wsConfigRows = [{ workspace_id: WS, config: { webhook_secret: 'a' } }];
     stripeVerify.mockResolvedValue({ type: 'invoice_paid', providerEventId: 'evt_1', workspaceId: OTHER_WS, raw: {} });
-    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(400);
     expect(processWebhookEvent).not.toHaveBeenCalled();
   });
@@ -250,7 +250,7 @@ describe('billing webhooks', () => {
   it('rejects a platform-config event with no workspace in the signed payload', async () => {
     globalConfigValue = { provider: 'stripe', webhook_secret: 'a' };
     stripeVerify.mockResolvedValue({ type: 'invoice_paid', providerEventId: 'evt_1', raw: {} });
-    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(400);
     expect(processWebhookEvent).not.toHaveBeenCalled();
   });
@@ -258,7 +258,7 @@ describe('billing webhooks', () => {
   it('accepts a platform-config event whose signed payload carries the workspace', async () => {
     globalConfigValue = { provider: 'stripe', webhook_secret: 'a' };
     stripeVerify.mockResolvedValue({ type: 'invoice_paid', providerEventId: 'evt_1', workspaceId: WS, raw: {} });
-    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
     expect(res.status).toBe(200);
     expect(processWebhookEvent.mock.calls[0][3].workspaceId).toBe(WS);
   });
@@ -268,7 +268,7 @@ describe('billing webhooks', () => {
     stripeVerify.mockRejectedValue(new Error('Invalid Stripe webhook signature'));
     const res = await call('POST', '/api/billing/webhook/stripe', {
       body: BODY,
-      headers: { authorization: 'Bearer SERVICE_KEY' },
+      headers: { 'content-type': 'application/json', authorization: 'Bearer SERVICE_KEY' },
     });
     expect(res.status).toBe(400);
     expect(processWebhookEvent).not.toHaveBeenCalled();

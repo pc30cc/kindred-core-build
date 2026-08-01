@@ -68,7 +68,7 @@ adminSmsProvidersRouter.get('/', async (req: Request, res: Response) => {
 });
 
 // ─── PUT — save config ───────────────────────────────────────────
-const saveSchema = z
+const kavenegarSaveSchema = z
   .object({
     providerName: z.literal('kavenegar'),
     enabled: z.boolean(),
@@ -77,6 +77,19 @@ const saveSchema = z
     verifyTemplate: z.string().regex(VERIFY_TEMPLATE_PATTERN),
   })
   .strict();
+
+const smsIrSaveSchema = z
+  .object({
+    providerName: z.literal('smsir'),
+    enabled: z.boolean(),
+    apiKey: z.string().max(512).optional(),
+    lineNumber: z.string().regex(/^[0-9]{1,20}$/),
+    verifyTemplateId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    verifyParameterName: z.string().regex(/^[A-Za-z0-9_]{1,50}$/),
+  })
+  .strict();
+
+const saveSchema = z.discriminatedUnion('providerName', [kavenegarSaveSchema, smsIrSaveSchema]);
 
 adminSmsProvidersRouter.put('/', async (req: Request, res: Response) => {
   const parsed = saveSchema.safeParse(req.body);
@@ -87,16 +100,26 @@ adminSmsProvidersRouter.put('/', async (req: Request, res: Response) => {
   if (!userId) return res.status(401).json({ error: 'Missing authorization' });
 
   try {
-    const { providerName, enabled, apiKey, sender, verifyTemplate } = parsed.data;
+    const body = parsed.data;
+    const common = {
+      providerName: body.providerName,
+      enabled: body.enabled,
+      ...(body.apiKey !== undefined ? { apiKey: body.apiKey } : {}),
+    };
     const info = await saveSmsProviderConfig(
       ctx(req).serverConfig,
-      {
-        providerName,
-        enabled,
-        verifyTemplate,
-        ...(apiKey !== undefined ? { apiKey } : {}),
-        ...(sender !== undefined ? { sender } : {}),
-      },
+      body.providerName === 'kavenegar'
+        ? {
+            ...common,
+            verifyTemplate: body.verifyTemplate,
+            ...(body.sender !== undefined ? { sender: body.sender } : {}),
+          }
+        : {
+            ...common,
+            lineNumber: body.lineNumber,
+            verifyTemplateId: body.verifyTemplateId,
+            verifyParameterName: body.verifyParameterName,
+          },
       userId,
     );
     res.json(info);

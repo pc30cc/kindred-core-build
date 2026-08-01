@@ -1403,11 +1403,13 @@ const smsVendors: ProviderVendor[] = [
   {
     name: 'smsir', label: 'اس‌ام‌اس آی‌آر (SMS.ir)',
     description: 'وب‌سرویس پیامکی SMS.ir — خطوط اختصاصی',
-    docsUrl: 'https://www.sms.ir',
+    docsUrl: 'https://app.sms.ir/developer/help',
     locales: ['fa'], currency: 'IRR',
     fields: [
       { key: 'api_key', label: 'کلید API', type: 'password', required: true },
-      { key: 'line_number', label: 'شماره خط', type: 'text', required: true },
+      { key: 'line_number', label: 'شماره خط', type: 'text', required: true, placeholder: '30007732', hint: 'شماره خط اختصاصی پنل SMS.ir — فقط عدد' },
+      { key: 'verify_template_id', label: 'شناسه الگوی تأیید (OTP)', type: 'text', required: true, placeholder: '100000', hint: 'Template ID تعریف‌شده در پنل SMS.ir — فقط عدد' },
+      { key: 'verify_parameter_name', label: 'نام پارامتر کد تأیید', type: 'text', required: true, placeholder: 'CODE', hint: 'نام پارامتر الگو که کد تأیید در آن قرار می‌گیرد' },
     ],
   },
   {
@@ -1483,7 +1485,7 @@ const smsVendors: ProviderVendor[] = [
 // vendor stays in the catalogue for discoverability but is flagged so the admin
 // UI renders it as "Coming soon" and refuses to activate it.
 for (const vendor of smsVendors) {
-  if (vendor.name !== 'kavenegar') vendor.comingSoon = true;
+  if (vendor.name !== 'kavenegar' && vendor.name !== 'smsir') vendor.comingSoon = true;
 }
 
 // =============================================

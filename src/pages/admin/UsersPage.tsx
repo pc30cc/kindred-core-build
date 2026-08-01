@@ -96,20 +96,21 @@ export default function AdminUsersPage() {
                 <TableHead>{t('admin.users.colCompany')}</TableHead>
                 <TableHead>{t('admin.users.colRoles')}</TableHead>
                 <TableHead>{t('admin.users.colWorkspaces')}</TableHead>
+                <TableHead>{t('admin.users.colPhone')}</TableHead>
                 <TableHead>{t('admin.users.colJoined')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
+                  <TableCell colSpan={6} className="text-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && (!profiles || profiles.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t('admin.users.noUsers')}</TableCell>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">{t('admin.users.noUsers')}</TableCell>
                 </TableRow>
               )}
               {profiles?.map(p => (

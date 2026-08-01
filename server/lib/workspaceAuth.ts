@@ -198,7 +198,7 @@ function isBlockedIpv6(addr: string): boolean {
   const host = addr.toLowerCase().replace(/%.*$/, '');
   if (host === '::1' || host === '::') return true;
   if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // unique-local
-  if (/^fe80:/.test(host)) return true; // link-local
+  if (isIpv6LinkLocal(host)) return true; // fe80::/10
   if (/^ff[0-9a-f]{2}:/.test(host)) return true; // multicast
   const mapped = mappedIpv4(host);
   if (mapped) return isBlockedIpv4(mapped);

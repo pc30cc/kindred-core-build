@@ -8134,8 +8134,23 @@ export type Database = {
         Args: { _filter: string; _phone: string; _verified_at: string }
         Returns: boolean
       }
+      phone_verification_admin_resend_requested: {
+        Args: {
+          _admin_id: string
+          _challenge_id: string
+          _phone_masked: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       phone_verification_cancel: {
-        Args: { _challenge_id?: string; _user_id: string }
+        Args: {
+          _actor_user_id?: string
+          _challenge_id?: string
+          _purpose?: string
+          _user_id: string
+          _workspace_id?: string
+        }
         Returns: Json
       }
       phone_verification_claim_attempt: {
@@ -8144,6 +8159,17 @@ export type Database = {
       }
       phone_verification_consume: {
         Args: { _challenge_id: string; _user_id: string }
+        Returns: Json
+      }
+      phone_verification_finalize_admin_resend: {
+        Args: {
+          _admin_id: string
+          _challenge_id: string
+          _error_code?: string
+          _provider_message_id?: string
+          _provider_name?: string
+          _sent: boolean
+        }
         Returns: Json
       }
       phone_verification_invalidate: {
@@ -8179,6 +8205,17 @@ export type Database = {
         Returns: Json
       }
       phone_verification_state: { Args: { _user_id: string }; Returns: Json }
+      phone_verification_verify: {
+        Args: {
+          _actor_user_id?: string
+          _candidate_digest: string
+          _challenge_id: string
+          _purpose?: string
+          _user_id: string
+          _workspace_id?: string
+        }
+        Returns: Json
+      }
       provision_account_on_signup: {
         Args: { _user_id: string }
         Returns: undefined

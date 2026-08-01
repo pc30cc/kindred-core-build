@@ -19,6 +19,7 @@ import { adminEnforcementRouter } from './adminEnforcement.js';
 import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
+import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
 
 export const adminRouter = Router();
 
@@ -120,6 +121,10 @@ adminRouter.use('/advanced-routing', adminAdvancedRoutingRouter);
 // Phase 6-S3A — platform SMS provider (Kavenegar). Credential is stored in a
 // service-role-only table and never returned to the browser.
 adminRouter.use('/providers/sms', adminSmsProvidersRouter);
+
+// Phase 6-S3B — per-user phone verification (status / resend / manual verify).
+// Mounted inside the admin router so `requireAdmin` runs first.
+adminRouter.use('/users', adminPhoneVerificationRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

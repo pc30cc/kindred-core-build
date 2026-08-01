@@ -27,18 +27,14 @@ export default function AdminWorkspacesPage() {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
-  const [phoneFilter, setPhoneFilter] = useState<'all' | 'verified' | 'unverified'>('all');
+  const [phoneFilter, setPhoneFilter] = useState<AdminPhoneStatusFilter>('all');
   const deferredSearch = useDeferredValue(search);
   const [limit, setLimit] = useState(30);
-  const { data: allWorkspaces, isLoading } = useAdminWorkspaces(limit, page * limit, deferredSearch, sort);
-  const workspaces = allWorkspaces?.filter(w =>
-    phoneFilter === 'all'
-      ? true
-      : phoneFilter === 'verified'
-        ? Boolean((w as any).owner_phone_verified)
-        : !(w as any).owner_phone_verified,
+  // Server-side filtering — filtering after pagination would silently drop rows.
+  const { data: workspaces, isLoading } = useAdminWorkspaces(
+    limit, page * limit, deferredSearch, sort, phoneFilter,
   );
-  const { data: count } = useAdminWorkspaceCount();
+  const { data: count } = useAdminWorkspaceCount(deferredSearch, phoneFilter);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -92,14 +88,15 @@ export default function AdminWorkspacesPage() {
             className="pl-9"
           />
         </div>
-        <Select value={phoneFilter} onValueChange={v => { setPhoneFilter(v as typeof phoneFilter); setPage(0); }}>
+        <Select value={phoneFilter} onValueChange={v => { setPhoneFilter(v as AdminPhoneStatusFilter); setPage(0); }}>
           <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{t('admin.users.filterPhoneAll')}</SelectItem>
-            <SelectItem value="verified">{t('admin.users.filterPhoneVerified')}</SelectItem>
-            <SelectItem value="unverified">{t('admin.users.filterPhoneUnverified')}</SelectItem>
+            <SelectItem value="all">{t('admin.users.phoneFilterAll')}</SelectItem>
+            <SelectItem value="verified">{t('admin.users.phoneFilterVerified')}</SelectItem>
+            <SelectItem value="unverified">{t('admin.users.phoneFilterUnverified')}</SelectItem>
+            <SelectItem value="no_phone">{t('admin.users.phoneFilterNoPhone')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
@@ -173,18 +170,10 @@ export default function AdminWorkspacesPage() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{w.owner_email}</TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={(w as any).owner_phone_verified ? 'default' : 'secondary'} className="text-xs">
-                        {(w as any).owner_phone_verified
-                          ? t('phoneVerification.statusVerified')
-                          : t('phoneVerification.statusUnverified')}
-                      </Badge>
-                      {(w as any).owner_phone_masked && (
-                        <span className="text-xs text-muted-foreground font-mono" dir="ltr">
-                          {(w as any).owner_phone_masked}
-                        </span>
-                      )}
-                    </div>
+                    <PhoneStatusCell
+                      masked={w.owner_phone_masked}
+                      verified={w.owner_phone_verified}
+                    />
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">{w.member_count}</Badge>

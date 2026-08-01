@@ -121,3 +121,70 @@ describe('AdminSmsProviderCard', () => {
     await waitFor(() => expect(screen.getByText('Test Connection')).toBeDisabled());
   });
 });
+
+const SMSIR_CONFIGURED = {
+  providerName: 'smsir', configured: true, enabled: true, hasApiKey: true,
+  sender: null, verifyTemplate: null, lineNumber: '30007732',
+  verifyTemplateId: 100000, verifyParameterName: 'CODE',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+describe('AdminSmsProviderCard — SMS.ir', () => {
+  it('renders the SMS.ir summary fields', async () => {
+    api.get.mockResolvedValue(SMSIR_CONFIGURED);
+    render(<AdminSmsProviderCard />);
+    await waitFor(() => expect(screen.getByTestId('sms-line-number')).toHaveTextContent('30007732'));
+    expect(screen.getByText('100000')).toBeInTheDocument();
+  });
+
+  it('requires a new API key when switching vendors', async () => {
+    api.get.mockResolvedValue({ ...SMSIR_CONFIGURED, providerName: 'kavenegar', lineNumber: null, verifyTemplateId: null, verifyParameterName: null, verifyTemplate: 'verifyLogin' });
+    render(<AdminSmsProviderCard />);
+    await waitFor(() => expect(screen.getByText('Configure')).toBeInTheDocument());
+    await click(screen.getByText('Configure'));
+    await click(screen.getByTestId('sms-vendor-select-smsir'));
+    expect(screen.getByTestId('sms-switch-key-warning')).toBeInTheDocument();
+    setValue(screen.getByLabelText('Line Number'), '30007732');
+    setValue(screen.getByLabelText('Verification Template ID'), '100000');
+    await click(screen.getByText('Save'));
+    expect(api.save).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }));
+  });
+
+  it('saves an SMS.ir configuration with a fresh key', async () => {
+    api.get.mockResolvedValue(EMPTY);
+    api.save.mockResolvedValue(SMSIR_CONFIGURED);
+    render(<AdminSmsProviderCard />);
+    await waitFor(() => expect(screen.getByText('Configure')).toBeInTheDocument());
+    await click(screen.getByText('Configure'));
+    await click(screen.getByTestId('sms-vendor-select-smsir'));
+    setValue(screen.getByLabelText('API Key'), 'fresh-placeholder');
+    setValue(screen.getByLabelText('Line Number'), '30007732');
+    setValue(screen.getByLabelText('Verification Template ID'), '100000');
+    setValue(screen.getByLabelText('Code Parameter Name'), 'CODE');
+    await click(screen.getByText('Save'));
+    expect(api.save).toHaveBeenCalledWith({
+      providerName: 'smsir', enabled: true, apiKey: 'fresh-placeholder',
+      lineNumber: '30007732', verifyTemplateId: 100000, verifyParameterName: 'CODE',
+    });
+  });
+
+  it('rejects a non-numeric line number before calling the API', async () => {
+    api.get.mockResolvedValue(EMPTY);
+    render(<AdminSmsProviderCard />);
+    await waitFor(() => expect(screen.getByText('Configure')).toBeInTheDocument());
+    await click(screen.getByText('Configure'));
+    await click(screen.getByTestId('sms-vendor-select-smsir'));
+    setValue(screen.getByLabelText('API Key'), 'fresh-placeholder');
+    setValue(screen.getByLabelText('Line Number'), 'kaveh');
+    await click(screen.getByText('Save'));
+    expect(api.save).not.toHaveBeenCalled();
+  });
+
+  it('no longer lists SMS.ir as coming soon', async () => {
+    api.get.mockResolvedValue(EMPTY);
+    render(<AdminSmsProviderCard />);
+    await waitFor(() => expect(screen.getByText('Configure')).toBeInTheDocument());
+    expect(screen.queryByTestId('sms-vendor-soon-smsir')).toBeNull();
+  });
+});

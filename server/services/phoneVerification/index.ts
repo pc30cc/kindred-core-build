@@ -11,6 +11,7 @@
  */
 
 import type { ServerConfig } from '../../config.js';
+import { randomUUID } from 'node:crypto';
 import { getServiceClient } from '../../supabase.js';
 import { sendSmsVerification, type SmsRuntimeOptions } from '../sms/index.js';
 import {
@@ -73,6 +74,9 @@ export async function getPhoneVerificationState(
     verifiedByAdminId: str(raw.verifiedByAdminId),
     manualVerificationReason: str(raw.manualVerificationReason),
     hasActiveChallenge: raw.hasActiveChallenge === true,
+    activeChallengeId: str(raw.activeChallengeId),
+    challengeExpiresInSeconds:
+      typeof raw.challengeExpiresInSeconds === 'number' ? raw.challengeExpiresInSeconds : null,
     lastSentAt: str(raw.lastSentAt),
     lastCreatedAt: str(raw.lastCreatedAt),
     remainingAttempts: typeof raw.remainingAttempts === 'number' ? raw.remainingAttempts : null,

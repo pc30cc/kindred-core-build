@@ -18,6 +18,7 @@ import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
+import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 
 function normalizeDomainInput(input: string): string {
@@ -32,7 +33,7 @@ function isValidDomain(d: string): boolean {
   return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d);
 }
 
-export default function WidgetPage() {
+function WidgetPageContent() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
@@ -492,5 +493,18 @@ export default function WidgetPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The widget surface is gated behind owner phone verification.
+ * UI gating only — the backend RLS policies enforce the same rule on writes.
+ */
+export default function WidgetPage() {
+  const workspace = useCurrentWorkspace();
+  return (
+    <PhoneVerificationGate purpose="widget_access" workspaceId={workspace?.id} mode="full_page">
+      <WidgetPageContent />
+    </PhoneVerificationGate>
   );
 }

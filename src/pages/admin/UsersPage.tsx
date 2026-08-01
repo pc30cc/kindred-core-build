@@ -1,6 +1,7 @@
 import { useState, useDeferredValue } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
+import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -96,20 +97,21 @@ export default function AdminUsersPage() {
                 <TableHead>{t('admin.users.colCompany')}</TableHead>
                 <TableHead>{t('admin.users.colRoles')}</TableHead>
                 <TableHead>{t('admin.users.colWorkspaces')}</TableHead>
+                <TableHead>{t('admin.users.colPhone')}</TableHead>
                 <TableHead>{t('admin.users.colJoined')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
+                  <TableCell colSpan={6} className="text-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && (!profiles || profiles.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t('admin.users.noUsers')}</TableCell>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">{t('admin.users.noUsers')}</TableCell>
                 </TableRow>
               )}
               {profiles?.map(p => (
@@ -141,6 +143,20 @@ export default function AdminUsersPage() {
                     </div>
                   </TableCell>
                   <TableCell><Badge variant="secondary">{p.workspace_count}</Badge></TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={(p as any).phone_verified ? 'default' : 'secondary'} className="text-xs">
+                        {(p as any).phone_verified
+                          ? t('phoneVerification.statusVerified')
+                          : t('phoneVerification.statusUnverified')}
+                      </Badge>
+                      {(p as any).phone_masked && (
+                        <span className="text-xs text-muted-foreground font-mono" dir="ltr">
+                          {(p as any).phone_masked}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd') : '—'}
                   </TableCell>
@@ -426,6 +442,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       </Card>
 
       {/* Workspace Plans & Subscriptions */}
+      <AdminPhoneVerificationCard userId={userId} />
+
       {detail.workspaces && detail.workspaces.length > 0 && (
         <Card>
           <CardContent className="p-4 space-y-3">

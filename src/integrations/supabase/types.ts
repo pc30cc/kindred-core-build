@@ -4949,6 +4949,75 @@ export type Database = {
         }
         Relationships: []
       }
+      phone_verification_challenges: {
+        Row: {
+          attempt_count: number
+          code_digest: string
+          consumed_at: string | null
+          created_at: string
+          created_by: string
+          created_by_admin_id: string | null
+          created_ip_hash: string | null
+          delivery_status: string
+          expires_at: string
+          id: string
+          invalidated_at: string | null
+          is_active: boolean
+          max_attempts: number
+          phone_e164: string
+          provider_message_id: string | null
+          provider_name: string | null
+          purpose: string
+          sent_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          code_digest: string
+          consumed_at?: string | null
+          created_at?: string
+          created_by?: string
+          created_by_admin_id?: string | null
+          created_ip_hash?: string | null
+          delivery_status?: string
+          expires_at: string
+          id?: string
+          invalidated_at?: string | null
+          is_active?: boolean
+          max_attempts?: number
+          phone_e164: string
+          provider_message_id?: string | null
+          provider_name?: string | null
+          purpose: string
+          sent_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          code_digest?: string
+          consumed_at?: string | null
+          created_at?: string
+          created_by?: string
+          created_by_admin_id?: string | null
+          created_ip_hash?: string | null
+          delivery_status?: string
+          expires_at?: string
+          id?: string
+          invalidated_at?: string | null
+          is_active?: boolean
+          max_attempts?: number
+          phone_e164?: string
+          provider_message_id?: string | null
+          provider_name?: string | null
+          purpose?: string
+          sent_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       plan_change_log: {
         Row: {
           change_type: string
@@ -6229,6 +6298,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_phone_verifications: {
+        Row: {
+          country_code: string
+          created_at: string
+          last_verified_at: string | null
+          manual_verification_reason: string | null
+          phone_e164: string
+          phone_verified_at: string | null
+          updated_at: string
+          user_id: string
+          verification_method: string | null
+          verified_by_admin_id: string | null
+        }
+        Insert: {
+          country_code?: string
+          created_at?: string
+          last_verified_at?: string | null
+          manual_verification_reason?: string | null
+          phone_e164: string
+          phone_verified_at?: string | null
+          updated_at?: string
+          user_id: string
+          verification_method?: string | null
+          verified_by_admin_id?: string | null
+        }
+        Update: {
+          country_code?: string
+          created_at?: string
+          last_verified_at?: string | null
+          manual_verification_reason?: string | null
+          phone_e164?: string
+          phone_verified_at?: string | null
+          updated_at?: string
+          user_id?: string
+          verification_method?: string | null
+          verified_by_admin_id?: string | null
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
@@ -7978,6 +8086,7 @@ export type Database = {
         Args: { _conversation_id: string }
         Returns: number
       }
+      mask_phone_e164: { Args: { _phone: string }; Returns: string }
       merge_visitor_into_contact: {
         Args: {
           _contact_id: string
@@ -7990,6 +8099,42 @@ export type Database = {
       }
       normalize_domain: { Args: { _input: string }; Returns: string }
       perf_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      phone_verification_claim_attempt: {
+        Args: { _challenge_id: string; _user_id: string }
+        Returns: Json
+      }
+      phone_verification_consume: {
+        Args: { _challenge_id: string; _user_id: string }
+        Returns: Json
+      }
+      phone_verification_manual_verify: {
+        Args: { _admin_id: string; _reason: string; _user_id: string }
+        Returns: Json
+      }
+      phone_verification_mark_delivery: {
+        Args: {
+          _challenge_id: string
+          _provider_message_id: string
+          _provider_name: string
+          _sent: boolean
+        }
+        Returns: undefined
+      }
+      phone_verification_start: {
+        Args: {
+          _code_digest: string
+          _created_by: string
+          _created_by_admin_id: string
+          _created_ip_hash: string
+          _max_attempts: number
+          _phone: string
+          _purpose: string
+          _ttl_seconds: number
+          _user_id: string
+        }
+        Returns: Json
+      }
+      phone_verification_state: { Args: { _user_id: string }; Returns: Json }
       provision_account_on_signup: {
         Args: { _user_id: string }
         Returns: undefined
@@ -8014,7 +8159,12 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
+      user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
       workspace_health_snapshot_compute: { Args: never; Returns: Json }
+      workspace_owner_phone_verified: {
+        Args: { _workspace_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       ai_kb_generated_status: "pending" | "accepted" | "rejected" | "published"

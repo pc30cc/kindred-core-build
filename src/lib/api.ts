@@ -516,3 +516,116 @@ export async function adminTestSmsProvider() {
     headers: await getAdminAuthHeaders(),
   });
 }
+
+// ─── Phone verification (account-level OTP) ──────────────────────
+// Responses are sanitized by the backend: they never contain the SMS vendor,
+// template, sender/line number, provider message id or a raw provider error.
+
+export type PhoneVerificationPurpose = 'widget_access';
+
+export interface PhoneVerificationStatus {
+  workspaceId?: string;
+  required: boolean;
+  satisfied: boolean;
+  canVerify: boolean;
+  phoneSet?: boolean;
+  phoneMasked?: string | null;
+  allowedCountries?: string[];
+  resendAfterSeconds?: number;
+  verifiedAt?: string | null;
+}
+
+export interface PhoneChallenge {
+  success: true;
+  challengeId: string;
+  phoneMasked: string;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+}
+
+export interface PhoneCheckResult {
+  success: true;
+  verified: true;
+  phoneMasked: string | null;
+  verifiedAt: string | null;
+}
+
+export interface PhoneVerificationContext {
+  purpose: PhoneVerificationPurpose;
+  workspaceId?: string;
+  workspaceSlug?: string;
+}
+
+export async function getPhoneVerificationStatus(ctx: PhoneVerificationContext) {
+  const params = new URLSearchParams({ purpose: ctx.purpose });
+  if (ctx.workspaceId) params.set('workspaceId', ctx.workspaceId);
+  if (ctx.workspaceSlug) params.set('workspaceSlug', ctx.workspaceSlug);
+  return request<PhoneVerificationStatus>(`/api/phone-verification/status?${params}`, {
+    headers: await userAuthHeaders(),
+  });
+}
+
+export async function startPhoneVerification(
+  input: PhoneVerificationContext & { country: string; phone: string },
+) {
+  return request<PhoneChallenge>('/api/phone-verification/start', {
+    method: 'POST',
+    headers: await userAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export async function resendPhoneVerification(ctx: PhoneVerificationContext) {
+  return request<PhoneChallenge>('/api/phone-verification/resend', {
+    method: 'POST',
+    headers: await userAuthHeaders(),
+    body: JSON.stringify(ctx),
+  });
+}
+
+export async function checkPhoneVerification(
+  input: PhoneVerificationContext & { challengeId: string; code: string },
+) {
+  return request<PhoneCheckResult>('/api/phone-verification/check', {
+    method: 'POST',
+    headers: await userAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+// ─── Admin: phone verification (super admin only) ────────────────
+
+export interface AdminPhoneVerification {
+  userId: string;
+  phone: string | null;
+  phoneMasked: string | null;
+  country: string | null;
+  verified: boolean;
+  verifiedAt: string | null;
+  verificationMethod: 'sms_otp' | 'admin_manual' | null;
+  verifiedByAdminId: string | null;
+  manualVerificationReason: string | null;
+  hasActiveChallenge: boolean;
+  lastSentAt: string | null;
+  remainingAttempts: number | null;
+}
+
+export async function adminGetUserPhoneVerification(userId: string) {
+  return request<AdminPhoneVerification>(`/api/admin/users/${userId}/phone-verification`, {
+    headers: await getAdminAuthHeaders(),
+  });
+}
+
+export async function adminResendUserPhoneVerification(userId: string) {
+  return request<{ success: true; phoneMasked: string; expiresInSeconds: number; resendAfterSeconds: number }>(
+    `/api/admin/users/${userId}/phone-verification/resend`,
+    { method: 'POST', headers: await getAdminAuthHeaders() },
+  );
+}
+
+export async function adminManualVerifyUserPhone(userId: string, reason: string) {
+  return request<{ success: true; verified: true; verificationMethod: 'admin_manual'; verifiedAt: string | null }>(
+    `/api/admin/users/${userId}/phone-verification/manual-verify`,
+    { method: 'POST', headers: await getAdminAuthHeaders(), body: JSON.stringify({ reason }) },
+  );
+}

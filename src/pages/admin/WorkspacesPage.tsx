@@ -1,4 +1,5 @@
 import { useState, useDeferredValue } from 'react';
+import { useTranslation } from '@/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -22,12 +23,21 @@ import {
 import { supabase } from '@/lib/supabase';
 
 export default function AdminWorkspacesPage() {
+  const { t } = useTranslation();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
+  const [phoneFilter, setPhoneFilter] = useState<'all' | 'verified' | 'unverified'>('all');
   const deferredSearch = useDeferredValue(search);
   const [limit, setLimit] = useState(30);
-  const { data: workspaces, isLoading } = useAdminWorkspaces(limit, page * limit, deferredSearch, sort);
+  const { data: allWorkspaces, isLoading } = useAdminWorkspaces(limit, page * limit, deferredSearch, sort);
+  const workspaces = allWorkspaces?.filter(w =>
+    phoneFilter === 'all'
+      ? true
+      : phoneFilter === 'verified'
+        ? Boolean((w as any).owner_phone_verified)
+        : !(w as any).owner_phone_verified,
+  );
   const { data: count } = useAdminWorkspaceCount();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -82,6 +92,16 @@ export default function AdminWorkspacesPage() {
             className="pl-9"
           />
         </div>
+        <Select value={phoneFilter} onValueChange={v => { setPhoneFilter(v as typeof phoneFilter); setPage(0); }}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('admin.users.filterPhoneAll')}</SelectItem>
+            <SelectItem value="verified">{t('admin.users.filterPhoneVerified')}</SelectItem>
+            <SelectItem value="unverified">{t('admin.users.filterPhoneUnverified')}</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
           <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue placeholder="Sort by" />
@@ -115,6 +135,7 @@ export default function AdminWorkspacesPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Slug</TableHead>
                 <TableHead>Owner</TableHead>
+                <TableHead>{t('admin.users.colOwnerPhone')}</TableHead>
                 <TableHead>Members</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="w-[80px]" />
@@ -123,14 +144,14 @@ export default function AdminWorkspacesPage() {
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && (!workspaces || workspaces.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">No workspaces found</TableCell>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No workspaces found</TableCell>
                 </TableRow>
               )}
               {workspaces?.map(w => (
@@ -151,6 +172,20 @@ export default function AdminWorkspacesPage() {
                     <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{w.slug}</code>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{w.owner_email}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={(w as any).owner_phone_verified ? 'default' : 'secondary'} className="text-xs">
+                        {(w as any).owner_phone_verified
+                          ? t('phoneVerification.statusVerified')
+                          : t('phoneVerification.statusUnverified')}
+                      </Badge>
+                      {(w as any).owner_phone_masked && (
+                        <span className="text-xs text-muted-foreground font-mono" dir="ltr">
+                          {(w as any).owner_phone_masked}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <Badge variant="secondary">{w.member_count}</Badge>
                   </TableCell>

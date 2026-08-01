@@ -107,7 +107,7 @@ function headersToObject(init?: RequestInit): Record<string, string> {
       out[k] = v;
     });
   } else {
-    for (const [k, v] of Object.entries(h)) out[k] = v;
+    for (const [k, v] of Object.entries(h)) out[k] = Array.isArray(v) ? v.join(', ') : String(v);
   }
   return out;
 }

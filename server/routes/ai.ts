@@ -14,6 +14,7 @@ import {
   requirePlatformAdmin,
   checkOutboundUrl,
 } from '../lib/workspaceAuth.js';
+import { createSafeTestFetch, providerHostPolicy } from '../lib/safeTestTransport.js';
 
 export const aiRouter = Router();
 
@@ -48,8 +49,8 @@ const completionSchema = z.object({
  * 1. parse + validate body
  * 2. real user JWT + workspace membership
  * 3. module entitlement ('ai_assistant')
- * 4. AI credit reservation (atomic deduct — unchanged semantics)
- * 5. rate limit
+ * 4. rate limit (rejected requests must never consume credit)
+ * 5. AI credit reservation (atomic deduct — unchanged semantics)
  * 6. provider execution + usage increment
  */
 aiRouter.post('/complete', async (req, res) => {
@@ -80,6 +81,15 @@ aiRouter.post('/complete', async (req, res) => {
       });
     }
 
+    // Rate limit BEFORE any credit reservation: a 429 must not consume credit.
+    if (!checkAIRateLimit(parsed.data.workspaceId)) {
+      await logSecurityEvent(req, 'rate_limited', 'warn', {
+        endpoint: '/api/ai/complete',
+        workspaceId: parsed.data.workspaceId,
+      });
+      return res.status(429).json({ error: 'AI rate limit exceeded. Max 60 requests/minute per workspace.' });
+    }
+
     // Credit reservation keeps its existing semantics (deduct before provider call).
     const credits = await deductAICredits(
       config.supabaseUrl,
@@ -97,14 +107,6 @@ aiRouter.post('/complete', async (req, res) => {
       });
     }
     (req as any).aiCredits = credits;
-
-    if (!checkAIRateLimit(parsed.data.workspaceId)) {
-      await logSecurityEvent(req, 'rate_limited', 'warn', {
-        endpoint: '/api/ai/complete',
-        workspaceId: parsed.data.workspaceId,
-      });
-      return res.status(429).json({ error: 'AI rate limit exceeded. Max 60 requests/minute per workspace.' });
-    }
 
     // Build the request explicitly: zod's inferred output marks every property
     // optional under `strictNullChecks: false`, while AIRequest requires
@@ -162,6 +164,8 @@ aiRouter.post('/test', async (req, res) => {
     }
 
     // SSRF guard: syntactic checks + DNS resolution of every answer (fail-closed).
+    // The connection itself then runs through the pinned transport below, so
+    // this pre-check cannot be bypassed by DNS rebinding or redirects.
     if (parsed.data.baseUrl) {
       const urlCheck = await checkOutboundUrl(parsed.data.baseUrl);
       if (!urlCheck.ok) {
@@ -169,13 +173,21 @@ aiRouter.post('/test', async (req, res) => {
       }
     }
 
-    const result = await testAIConnection({
-      provider: parsed.data.provider,
-      apiKey: parsed.data.apiKey,
-      model: parsed.data.model || 'gpt-4o-mini',
-      baseUrl: parsed.data.baseUrl,
-      orgId: parsed.data.orgId,
+    // Validation, DNS pinning and redirect handling all live in one boundary.
+    const safeFetch = createSafeTestFetch({
+      isHostAllowed: providerHostPolicy(parsed.data.provider),
     });
+
+    const result = await testAIConnection(
+      {
+        provider: parsed.data.provider,
+        apiKey: parsed.data.apiKey,
+        model: parsed.data.model || 'gpt-4o-mini',
+        baseUrl: parsed.data.baseUrl,
+        orgId: parsed.data.orgId,
+      },
+      { fetchImpl: safeFetch },
+    );
 
     return res.json(result);
   } catch (err: any) {

@@ -8,11 +8,11 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { executeAICompletion, testAIConnection, resolveAIConfig } from '../services/ai/index.js';
 import { logSecurityEvent } from '../middleware/security.js';
-import { requireModule, requireAICredits, incrementUsage } from '../middleware/featureGating.js';
+import { checkModuleAccess, deductAICredits, incrementUsage } from '../middleware/featureGating.js';
 import {
   authorizeWorkspaceAccess,
   requirePlatformAdmin,
-  isSafeOutboundUrl,
+  checkOutboundUrl,
 } from '../lib/workspaceAuth.js';
 
 export const aiRouter = Router();
@@ -44,11 +44,15 @@ const completionSchema = z.object({
 
 /**
  * POST /api/ai/complete
- * 1. requireModule('ai_assistant') — checks plan + override
- * 2. requireAICredits(1) — atomically deducts 1 credit, blocks if exhausted
- * 3. rate limit + execution
+ * Strict order (no workspace-scoped service-role work before authorization):
+ * 1. parse + validate body
+ * 2. real user JWT + workspace membership
+ * 3. module entitlement ('ai_assistant')
+ * 4. AI credit reservation (atomic deduct — unchanged semantics)
+ * 5. rate limit
+ * 6. provider execution + usage increment
  */
-aiRouter.post('/complete', requireModule('ai_assistant'), requireAICredits(1), async (req, res) => {
+aiRouter.post('/complete', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
 
@@ -59,6 +63,40 @@ aiRouter.post('/complete', requireModule('ai_assistant'), requireAICredits(1), a
 
     // Identity comes from a real user JWT; the publishable key is not identity.
     if (!(await authorizeWorkspaceAccess(req, res, parsed.data.workspaceId))) return;
+
+    // Module gate (plan + admin override) — after authorization.
+    const moduleAccess = await checkModuleAccess(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      parsed.data.workspaceId,
+      'ai_assistant',
+    );
+    if (!moduleAccess.allowed) {
+      return res.status(403).json({
+        error: "Module 'ai_assistant' is not enabled",
+        module: 'ai_assistant',
+        plan: moduleAccess.plan,
+        upgrade_required: true,
+      });
+    }
+
+    // Credit reservation keeps its existing semantics (deduct before provider call).
+    const credits = await deductAICredits(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      parsed.data.workspaceId,
+      1,
+    );
+    if (!credits.success) {
+      return res.status(403).json({
+        error: 'AI credits exhausted or AI not available on your plan',
+        reason: credits.reason,
+        credits_used: credits.credits_used,
+        credits_limit: credits.credits_limit,
+        upgrade_required: true,
+      });
+    }
+    (req as any).aiCredits = credits;
 
     if (!checkAIRateLimit(parsed.data.workspaceId)) {
       await logSecurityEvent(req, 'rate_limited', 'warn', {
@@ -93,7 +131,7 @@ aiRouter.post('/complete', requireModule('ai_assistant'), requireAICredits(1), a
         totalTokens: result.totalTokens,
       },
       latencyMs: result.latencyMs,
-      credits: (req as any).aiCredits,
+      credits,
     });
   } catch (err: any) {
     console.error('[ai] Completion error:', err.message);
@@ -123,9 +161,12 @@ aiRouter.post('/test', async (req, res) => {
       return res.status(400).json({ error: 'Invalid input' });
     }
 
-    // SSRF guard: never let a caller point the server at an internal host.
-    if (parsed.data.baseUrl && !isSafeOutboundUrl(parsed.data.baseUrl)) {
-      return res.status(400).json({ success: false, error: 'baseUrl is not an allowed https endpoint' });
+    // SSRF guard: syntactic checks + DNS resolution of every answer (fail-closed).
+    if (parsed.data.baseUrl) {
+      const urlCheck = await checkOutboundUrl(parsed.data.baseUrl);
+      if (!urlCheck.ok) {
+        return res.status(400).json({ success: false, error: 'baseUrl is not an allowed https endpoint' });
+      }
     }
 
     const result = await testAIConnection({

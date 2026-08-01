@@ -20,6 +20,7 @@ import {
   normalizePlanLimitsForCreate,
   USAGE_BACKED_LIMIT_KEYS,
 } from '../services/billing/capabilityRegistry.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const plansRouter = Router();
 
@@ -27,6 +28,20 @@ function getConfig(req: any) {
   const c = req.serverConfig;
   return { url: c.supabaseUrl, key: c.supabaseServiceRoleKey };
 }
+
+/**
+ * Every `/admin/*` route below is Platform Super Admin only. The gate runs as
+ * router-level middleware so no handler can perform a service-role query or
+ * mutation before authorization.
+ */
+plansRouter.use('/admin', async (req, res, next) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  next();
+});
+
+/** Public plan fields — never expose provider price ids or internal metadata. */
+const PUBLIC_PLAN_COLUMNS =
+  'id, name, slug, description, prices, entitlements, limits, is_free, is_active, sort_order, trial_days, default_currency, localized';
 
 // ═══════════════════════════════════════════════════════════
 // PUBLIC ROUTES
@@ -38,11 +53,11 @@ plansRouter.get('/', async (req, res) => {
   const supabase = createClient(url, key);
   const { data, error } = await supabase
     .from('billing_plans')
-    .select('*')
+    .select(PUBLIC_PLAN_COLUMNS)
     .eq('is_active', true)
     .eq('is_hidden', false)
     .order('sort_order');
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Failed to load plans' });
   res.json({ plans: data || [] });
 });
 
@@ -67,11 +82,12 @@ plansRouter.get('/check', async (req, res) => {
   const workspaceId = req.query.workspaceId as string;
   const feature = req.query.feature as string;
   if (!workspaceId || !feature) return res.status(400).json({ error: 'Missing workspaceId or feature' });
+  if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
   try {
     const result = await checkEntitlementFromDB(url, key, workspaceId, feature);
     res.json(result);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch {
+    res.status(500).json({ error: 'Entitlement check failed' });
   }
 });
 
@@ -83,8 +99,9 @@ plansRouter.get('/check', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
   const { url, key } = getConfig(req);
-  const supabase = createClient(url, key);
   const { workspaceId } = req.params;
+  if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
+  const supabase = createClient(url, key);
   try {
     const info = await getWorkspacePlanInfo(url, key, workspaceId);
 
@@ -150,8 +167,8 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
       // Raw plan JSON for debugging / forward-compat consumers.
       raw: { entitlements: planEntitlements, limits: planLimits },
     });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch {
+    res.status(500).json({ error: 'Failed to resolve entitlements' });
   }
 });
 
@@ -162,6 +179,7 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
 // GET /api/plans/workspace/:workspaceId — full plan + usage
 plansRouter.get('/workspace/:workspaceId', async (req, res) => {
   const { url, key } = getConfig(req);
+  if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
   try {
     const info = await getWorkspacePlanInfo(url, key, req.params.workspaceId);
 
@@ -175,8 +193,8 @@ plansRouter.get('/workspace/:workspaceId', async (req, res) => {
       .maybeSingle();
 
     res.json({ ...info, usage: usage || null });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch {
+    res.status(500).json({ error: 'Failed to load workspace plan' });
   }
 });
 
@@ -184,6 +202,7 @@ plansRouter.get('/workspace/:workspaceId', async (req, res) => {
 plansRouter.get('/workspace/:workspaceId/modules', async (req, res) => {
   const { url, key } = getConfig(req);
   const { workspaceId } = req.params;
+  if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
   const modules = [
     'chat', 'knowledge_base', 'ai_assistant', 'visitor_tracking',
     'email_campaigns', 'automation', 'analytics', 'omnichannel',
@@ -201,6 +220,7 @@ plansRouter.get('/workspace/:workspaceId/modules', async (req, res) => {
 plansRouter.get('/workspace/:workspaceId/channels', async (req, res) => {
   const { url, key } = getConfig(req);
   const { workspaceId } = req.params;
+  if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
   const channels = ['chat_widget', 'email', 'whatsapp', 'sms', 'instagram', 'telegram', 'voice', 'video'];
   const results: Record<string, { allowed: boolean; source?: string }> = {};
   await Promise.all(channels.map(async (c) => {
@@ -213,6 +233,7 @@ plansRouter.get('/workspace/:workspaceId/channels', async (req, res) => {
 // GET /api/plans/workspace/:workspaceId/usage — usage history
 plansRouter.get('/workspace/:workspaceId/usage', async (req, res) => {
   const { url, key } = getConfig(req);
+  if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
   const supabase = createClient(url, key);
   const { data, error } = await supabase
     .from('workspace_usage_counters')
@@ -220,7 +241,7 @@ plansRouter.get('/workspace/:workspaceId/usage', async (req, res) => {
     .eq('workspace_id', req.params.workspaceId)
     .order('period', { ascending: false })
     .limit(12);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Failed to load usage' });
   res.json({ usage: data || [] });
 });
 
@@ -232,7 +253,7 @@ plansRouter.get('/admin/all', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { data, error } = await supabase.from('billing_plans').select('*').order('sort_order');
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   res.json({ plans: data || [] });
 });
 
@@ -263,7 +284,7 @@ plansRouter.post('/admin', async (req, res) => {
     localized: localized || {},
   }).select().single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache();
   res.json({ plan: data, validation });
 });
@@ -284,7 +305,7 @@ plansRouter.put('/admin/:planId', async (req, res) => {
   }
 
   const { data, error } = await supabase.from('billing_plans').update(updates).eq('id', req.params.planId).select().single();
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache();
   res.json({ plan: data, validation });
 });
@@ -293,7 +314,7 @@ plansRouter.delete('/admin/:planId', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { error } = await supabase.from('billing_plans').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', req.params.planId);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache();
   res.json({ success: true });
 });
@@ -324,7 +345,7 @@ plansRouter.post('/admin/assign', async (req, res) => {
     updated_at: new Date().toISOString(),
   }, { onConflict: 'workspace_id' }).select().single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
 
   // Log plan change
   await supabase.from('plan_change_log').insert({
@@ -364,7 +385,7 @@ plansRouter.post('/admin/revoke', async (req, res) => {
   }
 
   const { error } = await supabase.from('workspace_subscriptions').delete().eq('workspace_id', workspaceId);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache(workspaceId);
   res.json({ success: true });
 });
@@ -376,7 +397,7 @@ plansRouter.get('/admin/subscriptions', async (req, res) => {
     .from('workspace_subscriptions')
     .select('*, billing_plans(name, slug)')
     .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   res.json({ subscriptions: data || [] });
 });
 
@@ -415,7 +436,7 @@ plansRouter.post('/admin/overrides/module', async (req, res) => {
     .select()
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache(workspaceId);
   res.json({ override: data });
 });
@@ -437,7 +458,7 @@ plansRouter.post('/admin/overrides/channel', async (req, res) => {
     .select()
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache(workspaceId);
   res.json({ override: data });
 });
@@ -446,7 +467,7 @@ plansRouter.delete('/admin/overrides/module/:id', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { error } = await supabase.from('workspace_module_overrides').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache();
   res.json({ success: true });
 });
@@ -455,7 +476,7 @@ plansRouter.delete('/admin/overrides/channel/:id', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { error } = await supabase.from('workspace_channel_overrides').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache();
   res.json({ success: true });
 });
@@ -491,7 +512,7 @@ plansRouter.post('/admin/overrides/limit', async (req, res) => {
     .select()
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache(workspaceId);
   res.json({ override: data });
 });
@@ -500,7 +521,7 @@ plansRouter.delete('/admin/overrides/limit/:id', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { error } = await supabase.from('workspace_limit_overrides').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   clearEntitlementCache();
   res.json({ success: true });
 });
@@ -518,7 +539,7 @@ plansRouter.get('/admin/usage/:workspaceId', async (req, res) => {
     .eq('workspace_id', req.params.workspaceId)
     .order('period', { ascending: false })
     .limit(12);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   res.json({ usage: data || [] });
 });
 
@@ -538,7 +559,7 @@ plansRouter.post('/admin/usage/adjust', async (req, res) => {
     .eq('workspace_id', workspaceId)
     .eq('period', currentPeriod);
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   res.json({ success: true });
 });
 
@@ -555,7 +576,7 @@ plansRouter.get('/admin/changes/:workspaceId', async (req, res) => {
     .eq('workspace_id', req.params.workspaceId)
     .order('created_at', { ascending: false })
     .limit(50);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   res.json({ changes: data || [] });
 });
 
@@ -578,7 +599,7 @@ plansRouter.get('/admin/diagnostics', async (req, res) => {
     .from('billing_plans')
     .select('id, slug, entitlements, limits')
     .eq('is_active', true);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
   const report = diagnoseAgainstPlans((data || []) as any);
 
   // Phase: Limits Backfill — surface plans that are missing resolver-ready

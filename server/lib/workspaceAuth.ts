@@ -11,6 +11,7 @@
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { lookup } from 'node:dns/promises';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,21 +69,31 @@ export async function authorizeWorkspaceAccess(
   if (await isGlobalAdmin(config, userId)) return { userId, isAdmin: true, role: null };
 
   const sb = getServiceClient(config);
-  const { data: isMember } = await sb.rpc('is_workspace_member', {
+  const { data: isMember, error: memberError } = await sb.rpc('is_workspace_member', {
     _workspace_id: workspaceId,
     _user_id: userId,
   });
+  // A backend failure is NOT a negative membership answer: fail with 500 so we
+  // never turn an outage into a silent (and misleading) authorization verdict.
+  if (memberError) {
+    res.status(500).json({ error: 'Authorization check failed' });
+    return null;
+  }
   if (!isMember) {
     res.status(403).json({ error: 'Not a workspace member' });
     return null;
   }
 
-  const { data: member } = await sb
+  const { data: member, error: roleError } = await sb
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
     .eq('user_id', userId)
     .maybeSingle();
+  if (roleError) {
+    res.status(500).json({ error: 'Authorization check failed' });
+    return null;
+  }
   const role = ((member as { role?: string } | null)?.role) ?? null;
 
   if (opts.manage && role !== 'owner' && role !== 'admin') {
@@ -123,6 +134,19 @@ function isPrivateIpv4(host: string): boolean {
   return false;
 }
 
+/** Extracts a dotted IPv4 from an IPv4-mapped IPv6 literal, hex or dotted form. */
+function mappedIpv4(host: string): string | null {
+  const dotted = host.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  if (dotted) return dotted[1];
+  const hex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (hex) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+  }
+  return null;
+}
+
 export function isSafeOutboundUrl(raw: string): boolean {
   let u: URL;
   try {
@@ -131,11 +155,71 @@ export function isSafeOutboundUrl(raw: string): boolean {
     return false;
   }
   if (u.protocol !== 'https:') return false;
+  if (u.username || u.password) return false;
+  if (u.port && !(Number(u.port) > 0 && Number(u.port) <= 65535)) return false;
   const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if (!host) return false;
   if (PRIVATE_HOST_RE.test(host)) return false;
   if (isPrivateIpv4(host)) return false;
+  // IPv4-mapped / IPv4-compatible IPv6 literals (e.g. ::ffff:127.0.0.1)
+  const mapped = mappedIpv4(host);
+  if (mapped && isPrivateIpv4(mapped)) return false;
   // IPv6 loopback / unique-local / link-local
-  if (host === '::1' || /^f[cd][0-9a-f]{2}:/i.test(host) || /^fe80:/i.test(host)) return false;
+  if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/i.test(host) || /^fe80:/i.test(host)) return false;
+  if (/^ff[0-9a-f]{2}:/i.test(host)) return false; // IPv6 multicast
   return true;
+}
+
+/** True when an IPv4 literal is reserved/multicast/broadcast-sensitive. */
+function isBlockedIpv4(host: string): boolean {
+  if (isPrivateIpv4(host)) return true;
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return false;
+  const a = Number(m[1]);
+  if (a >= 224) return true; // multicast + reserved + broadcast
+  return false;
+}
+
+function isBlockedIpv6(addr: string): boolean {
+  const host = addr.toLowerCase().replace(/%.*$/, '');
+  if (host === '::1' || host === '::') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // unique-local
+  if (/^fe80:/.test(host)) return true; // link-local
+  if (/^ff[0-9a-f]{2}:/.test(host)) return true; // multicast
+  const mapped = mappedIpv4(host);
+  if (mapped) return isBlockedIpv4(mapped);
+  return false;
+}
+
+export type OutboundUrlCheck = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Full SSRF pre-flight: syntactic checks plus DNS resolution of every answer.
+ * Fail-closed — DNS errors and any private/loopback/link-local/metadata answer
+ * reject the URL.
+ */
+export async function checkOutboundUrl(raw: string): Promise<OutboundUrlCheck> {
+  if (!isSafeOutboundUrl(raw)) return { ok: false, reason: 'unsafe_url' };
+  const host = new URL(raw).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+
+  // IP literals are already validated syntactically above.
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    return isBlockedIpv4(host) ? { ok: false, reason: 'private_ip' } : { ok: true };
+  }
+  if (host.includes(':')) {
+    return isBlockedIpv6(host) ? { ok: false, reason: 'private_ip' } : { ok: true };
+  }
+
+  let answers: Array<{ address: string; family: number }>;
+  try {
+    answers = await lookup(host, { all: true });
+  } catch {
+    return { ok: false, reason: 'dns_failure' };
+  }
+  if (!answers || answers.length === 0) return { ok: false, reason: 'dns_failure' };
+  for (const a of answers) {
+    const blocked = a.family === 6 ? isBlockedIpv6(a.address) : isBlockedIpv4(a.address);
+    if (blocked) return { ok: false, reason: 'private_ip' };
+  }
+  return { ok: true };
 }

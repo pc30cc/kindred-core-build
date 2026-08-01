@@ -8,6 +8,10 @@ import {
   logBillingEvent,
   checkEntitlement,
 } from '../services/billing/index.js';
+import {
+  claimBillingWebhookEvent,
+  finalizeBillingWebhookEvent,
+} from '../services/billing/index.js';
 import { createClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';

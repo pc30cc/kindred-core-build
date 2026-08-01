@@ -58,6 +58,15 @@ const MAX_TEST_RESPONSE_BYTES = 64 * 1024;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+/** Origin = protocol + hostname + effective port (443 when omitted for https). */
+function originOf(url: URL): string {
+  return `${url.protocol}//${normalizeHostname(url.hostname)}:${url.port || '443'}`;
+}
+
+function sameOrigin(a: URL, b: URL): boolean {
+  return originOf(a) === originOf(b);
+}
+
 /** Validates one URL and pins exactly one verified public address for it. */
 async function resolvePinnedTarget(
   url: URL,

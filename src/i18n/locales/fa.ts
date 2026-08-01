@@ -755,6 +755,9 @@ const fa: TranslationKeys = {
     verifiedTitle: 'شماره موبایل تأیید شد',
     statusVerified: 'تأییدشده',
     statusUnverified: 'تأییدنشده',
+    statusNoPhone: 'بدون شماره',
+    expiresIn: 'انقضای کد تا {{seconds}} ثانیه',
+    attemptsLeft: '{{count}} تلاش باقی مانده',
     verifiedByAdmin: 'تأیید دستی توسط مدیر',
     errors: {
       phone_verification_required: 'تأیید شماره موبایل الزامی است.',

@@ -101,7 +101,7 @@ function headersToObject(init?: RequestInit): Record<string, string> {
   const h = init?.headers;
   if (!h) return out;
   if (Array.isArray(h)) {
-    for (const [k, v] of h) out[k] = v;
+    for (const entry of h) out[String(entry[0])] = String(entry[1]);
   } else if (h instanceof Headers) {
     h.forEach((v, k) => {
       out[k] = v;

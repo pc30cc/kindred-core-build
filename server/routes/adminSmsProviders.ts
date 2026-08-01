@@ -87,7 +87,18 @@ adminSmsProvidersRouter.put('/', async (req: Request, res: Response) => {
   if (!userId) return res.status(401).json({ error: 'Missing authorization' });
 
   try {
-    const info = await saveSmsProviderConfig(ctx(req).serverConfig, parsed.data, userId);
+    const { providerName, enabled, apiKey, sender, verifyTemplate } = parsed.data;
+    const info = await saveSmsProviderConfig(
+      ctx(req).serverConfig,
+      {
+        providerName,
+        enabled,
+        verifyTemplate,
+        ...(apiKey !== undefined ? { apiKey } : {}),
+        ...(sender !== undefined ? { sender } : {}),
+      },
+      userId,
+    );
     res.json(info);
   } catch (err) {
     if (err instanceof SmsConfigValidationError) {

@@ -25,6 +25,7 @@ export default function AdminWorkspacesPage() {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
+  const [phoneFilter, setPhoneFilter] = useState<'all' | 'verified' | 'unverified'>('all');
   const deferredSearch = useDeferredValue(search);
   const [limit, setLimit] = useState(30);
   const { data: allWorkspaces, isLoading } = useAdminWorkspaces(limit, page * limit, deferredSearch, sort);

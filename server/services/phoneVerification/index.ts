@@ -175,6 +175,12 @@ export async function getStatusForActor(
     phoneMasked: state.phoneMasked,
     allowedCountries: ['IR'],
     resendAfterSeconds: resendAfterSeconds(state.lastCreatedAt),
+    // Resume: the OTP survives a page reload because the active challenge is
+    // rehydrated from the database, never from client storage.
+    hasActiveChallenge: state.hasActiveChallenge,
+    activeChallengeId: state.hasActiveChallenge ? state.activeChallengeId : null,
+    challengeExpiresInSeconds: state.hasActiveChallenge ? state.challengeExpiresInSeconds : null,
+    remainingAttempts: state.hasActiveChallenge ? state.remainingAttempts : null,
   };
 }
 
@@ -187,10 +193,10 @@ async function audit(
     workspaceId?: string | null;
     details: Record<string, unknown>;
   },
-): Promise<void> {
+): Promise<boolean> {
   // Audit rows are internal. They never carry a raw code, a digest, a full
   // phone number or a provider credential.
-  await sb(config)
+  const { error } = await sb(config)
     .from('audit_logs')
     .insert({
       action: entry.action,
@@ -199,8 +205,16 @@ async function audit(
       user_id: entry.userId,
       workspace_id: entry.workspaceId ?? null,
       new_value: entry.details as any,
-    } as any)
-    .then(() => {}, () => {});
+    } as any);
+  if (error) {
+    // Sanitized server-side log only: no phone, no code, no provider payload.
+    console.error('[phoneVerification] audit insert failed', {
+      action: entry.action,
+      targetUserId: entry.targetUserId,
+    });
+    return false;
+  }
+  return true;
 }
 
 export interface IssueChallengeInput {

@@ -171,9 +171,9 @@ export function isSafeOutboundUrl(raw: string): boolean {
   if (u.protocol !== 'https:') return false;
   if (u.username || u.password) return false;
   if (u.port && !(Number(u.port) > 0 && Number(u.port) <= 65535)) return false;
-  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const host = normalizeHostname(u.hostname);
   if (!host) return false;
-  if (PRIVATE_HOST_RE.test(host)) return false;
+  if (isBlockedHostname(host)) return false;
   if (isPrivateIpv4(host)) return false;
   // IPv4-mapped / IPv4-compatible IPv6 literals (e.g. ::ffff:127.0.0.1)
   const mapped = mappedIpv4(host);
@@ -205,6 +205,13 @@ function isBlockedIpv6(addr: string): boolean {
   return false;
 }
 
+/** Shared address gate: true when this resolved address must never be connected to. */
+export function isBlockedIpAddress(address: string, family: number): boolean {
+  return family === 6 || address.includes(':')
+    ? isBlockedIpv6(address)
+    : isBlockedIpv4(address);
+}
+
 export type OutboundUrlCheck = { ok: true } | { ok: false; reason: string };
 
 /**
@@ -214,7 +221,7 @@ export type OutboundUrlCheck = { ok: true } | { ok: false; reason: string };
  */
 export async function checkOutboundUrl(raw: string): Promise<OutboundUrlCheck> {
   if (!isSafeOutboundUrl(raw)) return { ok: false, reason: 'unsafe_url' };
-  const host = new URL(raw).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const host = normalizeHostname(new URL(raw).hostname);
 
   // IP literals are already validated syntactically above.
   if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {

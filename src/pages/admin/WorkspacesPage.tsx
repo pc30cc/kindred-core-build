@@ -297,11 +297,6 @@ function WorkspaceDetailView({
         <StatCard icon={Globe} label="Locale" value={ws?.default_locale || 'en'} />
       </div>
 
-      {/* Members */}
-      <Card>
-        {null}
-      </Card>
-
       {/* Owner phone verification — the workspace has no own phone state. */}
       {ws?.owner_id && (
         <AdminPhoneVerificationCard
@@ -313,6 +308,7 @@ function WorkspaceDetailView({
         />
       )}
 
+      {/* Members */}
       <Card>
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">

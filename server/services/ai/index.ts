@@ -514,7 +514,10 @@ export async function executeAICompletion(
 /**
  * Test AI provider connection with a minimal completion.
  */
-export async function testAIConnection(config: AIConfig): Promise<{
+export async function testAIConnection(
+  config: AIConfig,
+  options: { fetchImpl?: HttpFetch } = {},
+): Promise<{
   success: boolean;
   latencyMs: number;
   model: string;
@@ -531,12 +534,16 @@ export async function testAIConnection(config: AIConfig): Promise<{
   }
 
   try {
-    const result = await handler(config, {
-      workspaceId: 'test',
-      prompt: 'Say "ok" and nothing else.',
-      maxTokens: 5,
-      temperature: 0,
-    });
+    const result = await handler(
+      config,
+      {
+        workspaceId: 'test',
+        prompt: 'Say "ok" and nothing else.',
+        maxTokens: 5,
+        temperature: 0,
+      },
+      options.fetchImpl,
+    );
     return { success: true, latencyMs: result.latencyMs, model: result.model };
   } catch (err: any) {
     return { success: false, latencyMs: 0, model: config.model, error: err.message };

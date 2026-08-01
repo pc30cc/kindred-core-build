@@ -13,6 +13,8 @@ import {
   useAdminWorkspaces, useAdminWorkspaceCount,
   useAdminWorkspaceDetail, useAdminDeleteWorkspace,
 } from '@/hooks/useAdmin';
+import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
+import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {

@@ -80,22 +80,9 @@ export async function adminResendVerification(
     ...(input.smsOptions ? { smsOptions: input.smsOptions } : {}),
   });
 
-  const { error: auditError } = await getServiceClient(config)
-    .from('audit_logs')
-    .insert({
-      action: 'phone_verification_admin_resend',
-      entity_type: 'user_phone_verification',
-      entity_id: input.targetUserId,
-      user_id: input.adminUserId,
-      new_value: { phone_masked: maskE164(state.phone) } as any,
-    } as any);
-  if (auditError) {
-    // Sanitized log only — never the phone, the code or a provider payload.
-    console.error('[phoneVerification] admin resend audit failed', {
-      targetUserId: input.targetUserId,
-    });
-  }
-
+  // The `phone_verification_admin_resend_requested` and the canonical
+  // `phone_verification_admin_resend` audit rows are written transactionally
+  // inside the resend RPCs — a success response always implies a trail.
   return {
     success: true as const,
     phoneMasked: result.phoneMasked,

@@ -199,11 +199,21 @@ export default function AdminWorkspacesPage() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
+      {/* Pagination — driven by the server-side total, not the page length. */}
       <div className="flex justify-between items-center">
         <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
-        <span className="text-sm text-muted-foreground">Page {page + 1}</span>
-        <Button variant="outline" size="sm" disabled={!workspaces || workspaces.length < limit} onClick={() => setPage(p => p + 1)}>Next</Button>
+        <span className="text-sm text-muted-foreground">
+          Page {page + 1}
+          {typeof count === 'number' ? ` / ${Math.max(1, Math.ceil(count / limit))}` : ''}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={typeof count === 'number' ? (page + 1) * limit >= count : !workspaces || workspaces.length < limit}
+          onClick={() => setPage(p => p + 1)}
+        >
+          Next
+        </Button>
       </div>
 
       {/* Delete Confirmation Dialog */}

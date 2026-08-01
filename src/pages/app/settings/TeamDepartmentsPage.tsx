@@ -871,10 +871,11 @@ export function InviteMemberDialog({
       // Best-effort email
       if (email.trim() && API_BASE) {
         try {
-          const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+          const { data: sessionData } = await supabase.auth.getSession();
+          const accessToken = sessionData.session?.access_token || '';
           await fetch(`${API_BASE}/api/email/send`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
             body: JSON.stringify({
               workspaceId, to: email.trim(),
               subject: `You've been invited to ${workspaceName}`,

@@ -26,14 +26,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-function authHeaders(): Record<string, string> {
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  return anonKey ? { 'Authorization': `Bearer ${anonKey}` } : {};
-}
-
 /**
  * Real end-user identity for routes that authorize per user + workspace
- * (currently the /api/storage/* routes). The publishable anon key is NOT an
+ * (storage, AI, CDN, email and billing routes). The publishable anon key is NOT an
  * identity and is rejected by those routes.
  */
 async function userAuthHeaders(): Promise<Record<string, string>> {

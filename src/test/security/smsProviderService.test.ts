@@ -78,7 +78,9 @@ describe('getSmsProviderInfo', () => {
   it('reports an unconfigured platform', async () => {
     await expect(svc.getSmsProviderInfo(CONFIG)).resolves.toEqual({
       providerName: 'disabled', configured: false, enabled: false,
-      hasApiKey: false, sender: null, verifyTemplate: null, updatedAt: null,
+      hasApiKey: false, sender: null, verifyTemplate: null,
+      lineNumber: null, verifyTemplateId: null, verifyParameterName: null,
+      updatedAt: null,
     });
   });
 

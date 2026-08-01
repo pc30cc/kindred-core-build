@@ -12,6 +12,8 @@ const {
   MAX_TEST_REDIRECTS,
 } = await import('../../../server/lib/safeTestTransport.js');
 
+const { isBlockedIpAddress } = await import('../../../server/lib/workspaceAuth.js');
+
 type Hop = { status: number; headers?: Record<string, string>; body?: string; timeout?: boolean };
 
 /** Records every connection attempt and replays scripted hops. */

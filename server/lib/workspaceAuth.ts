@@ -134,6 +134,19 @@ function isPrivateIpv4(host: string): boolean {
   return false;
 }
 
+/** Extracts a dotted IPv4 from an IPv4-mapped IPv6 literal, hex or dotted form. */
+function mappedIpv4(host: string): string | null {
+  const dotted = host.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  if (dotted) return dotted[1];
+  const hex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (hex) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+  }
+  return null;
+}
+
 export function isSafeOutboundUrl(raw: string): boolean {
   let u: URL;
   try {
@@ -149,8 +162,8 @@ export function isSafeOutboundUrl(raw: string): boolean {
   if (PRIVATE_HOST_RE.test(host)) return false;
   if (isPrivateIpv4(host)) return false;
   // IPv4-mapped / IPv4-compatible IPv6 literals (e.g. ::ffff:127.0.0.1)
-  const mapped = host.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
-  if (mapped && isPrivateIpv4(mapped[1])) return false;
+  const mapped = mappedIpv4(host);
+  if (mapped && isPrivateIpv4(mapped)) return false;
   // IPv6 loopback / unique-local / link-local
   if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/i.test(host) || /^fe80:/i.test(host)) return false;
   if (/^ff[0-9a-f]{2}:/i.test(host)) return false; // IPv6 multicast
@@ -173,8 +186,8 @@ function isBlockedIpv6(addr: string): boolean {
   if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // unique-local
   if (/^fe80:/.test(host)) return true; // link-local
   if (/^ff[0-9a-f]{2}:/.test(host)) return true; // multicast
-  const mapped = host.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (mapped) return isBlockedIpv4(mapped[1]);
+  const mapped = mappedIpv4(host);
+  if (mapped) return isBlockedIpv4(mapped);
   return false;
 }
 

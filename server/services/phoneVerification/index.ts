@@ -344,7 +344,7 @@ export async function startVerification(
   if (state.verified) throw new PhoneVerificationError('phone_already_verified', 409);
 
   const normalized = normalizePhoneToE164(input.phone, input.country);
-  if (!normalized.ok) throw new PhoneVerificationError(normalized.reason, 400);
+  if (normalized.ok !== true) throw new PhoneVerificationError(normalized.reason, 400);
 
   return issueChallenge(config, {
     purpose: input.purpose,

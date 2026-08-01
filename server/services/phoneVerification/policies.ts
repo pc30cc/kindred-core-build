@@ -19,5 +19,8 @@ export type PhoneVerificationSubject =
   (typeof PHONE_VERIFICATION_PURPOSES)[PhoneVerificationPurpose]['subject'];
 
 export function isPhoneVerificationPurpose(value: unknown): value is PhoneVerificationPurpose {
-  return typeof value === 'string' && Object.hasOwn(PHONE_VERIFICATION_PURPOSES, value);
+  return (
+    typeof value === 'string' &&
+    Object.prototype.hasOwnProperty.call(PHONE_VERIFICATION_PURPOSES, value)
+  );
 }

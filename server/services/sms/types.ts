@@ -55,11 +55,11 @@ export function isSmsError(value: unknown): value is SmsError {
 }
 
 /** Vendors that have a real runtime adapter in this phase. */
-export const SUPPORTED_SMS_PROVIDERS = ['kavenegar'] as const;
+export const SUPPORTED_SMS_PROVIDERS = ['kavenegar', 'smsir'] as const;
 export type SupportedSmsProvider = (typeof SUPPORTED_SMS_PROVIDERS)[number];
 
 /** Values accepted by the `provider_name` column. */
-export const SMS_PROVIDER_NAMES = ['kavenegar', 'disabled'] as const;
+export const SMS_PROVIDER_NAMES = ['kavenegar', 'smsir', 'disabled'] as const;
 export type SmsProviderName = (typeof SMS_PROVIDER_NAMES)[number];
 
 export interface KavenegarSmsConfig {
@@ -68,6 +68,18 @@ export interface KavenegarSmsConfig {
   verifyTemplate: string;
   sender?: string;
 }
+
+export interface SmsIrSmsConfig {
+  provider: 'smsir';
+  apiKey: string;
+  /** Stored as a string so long line numbers keep full precision. */
+  lineNumber: string;
+  verifyTemplateId: number;
+  verifyParameterName: string;
+}
+
+/** Discriminated union of every runtime SMS configuration. */
+export type SmsProviderConfig = KavenegarSmsConfig | SmsIrSmsConfig;
 
 export interface SmsSendRequest {
   to: string;
@@ -96,6 +108,9 @@ export interface SmsProviderInfo {
   hasApiKey: boolean;
   sender: string | null;
   verifyTemplate: string | null;
+  lineNumber: string | null;
+  verifyTemplateId: number | null;
+  verifyParameterName: string | null;
   updatedAt: string | null;
 }
 

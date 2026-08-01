@@ -449,12 +449,15 @@ export { API_BASE };
 // signal the browser receives about it.
 
 export interface AdminSmsProviderInfo {
-  providerName: 'kavenegar' | 'disabled';
+  providerName: 'kavenegar' | 'smsir' | 'disabled';
   configured: boolean;
   enabled: boolean;
   hasApiKey: boolean;
   sender: string | null;
   verifyTemplate: string | null;
+  lineNumber: string | null;
+  verifyTemplateId: number | null;
+  verifyParameterName: string | null;
   updatedAt: string | null;
 }
 
@@ -475,13 +478,24 @@ export async function adminGetSmsProvider() {
   });
 }
 
-export async function adminSaveSmsProvider(payload: {
-  providerName: 'kavenegar';
-  enabled: boolean;
-  apiKey?: string;
-  sender?: string;
-  verifyTemplate: string;
-}) {
+export type AdminSmsProviderSavePayload =
+  | {
+      providerName: 'kavenegar';
+      enabled: boolean;
+      apiKey?: string;
+      sender?: string;
+      verifyTemplate: string;
+    }
+  | {
+      providerName: 'smsir';
+      enabled: boolean;
+      apiKey?: string;
+      lineNumber: string;
+      verifyTemplateId: number;
+      verifyParameterName: string;
+    };
+
+export async function adminSaveSmsProvider(payload: AdminSmsProviderSavePayload) {
   return request<AdminSmsProviderInfo>('/api/admin/providers/sms', {
     method: 'PUT',
     headers: await getAdminAuthHeaders(),

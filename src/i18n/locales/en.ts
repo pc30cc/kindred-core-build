@@ -767,6 +767,9 @@ const en = {
     verifiedTitle: 'Mobile number verified',
     statusVerified: 'Verified',
     statusUnverified: 'Not verified',
+    statusNoPhone: 'No number',
+    expiresIn: 'Code expires in {{seconds}}s',
+    attemptsLeft: '{{count}} attempts left',
     verifiedByAdmin: 'Verified manually by admin',
     errors: {
       phone_verification_required: 'Mobile verification is required.',

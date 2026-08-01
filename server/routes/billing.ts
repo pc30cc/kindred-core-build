@@ -275,63 +275,118 @@ billingRouter.post('/verify-callback', async (req, res) => {
 });
 
 // ─── POST /api/billing/webhook/:provider — handle provider webhooks ──
-billingRouter.post('/webhook/:provider', async (req, res) => {
+//
+// Public by necessity (external providers call it), but fail-closed:
+// only providers whose `verifyWebhook` performs a cryptographic signature
+// check over the exact raw body may reach `processWebhookEvent`. Everything
+// else is rejected without touching the database.
+//
+// Mounted separately (see server/index.ts) with a raw body parser so the
+// signature is computed over the exact bytes the provider signed.
+export const billingWebhookRouter = Router();
+
+/** Providers with a cryptographic webhook signature over the raw body. */
+const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'lemon_squeezy', 'paytr']);
+
+type WebhookCandidate = { workspaceId: string | null; config: Record<string, unknown> };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Generic ops log — never includes body, headers, secrets or signatures. */
+function logWebhookRejection(providerName: string, category: string) {
+  // eslint-disable-next-line no-console
+  console.warn(`[billing-webhook] rejected provider=${providerName} reason=${category}`);
+}
+
+billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), async (req, res) => {
   const { url, key } = getConfig(req);
   const providerName = req.params.provider;
   const provider = getProvider(providerName);
   if (!provider) return res.status(404).json({ error: 'Unknown provider' });
 
-  try {
-    // For webhook, we need to find the config — could be from multiple workspaces
-    // Try global config first
-    const supabase = createClient(url, key);
-    const { data: globalConfig } = await supabase
-      .from('app_runtime_config')
-      .select('value')
-      .eq('key', 'billing_default_provider')
-      .maybeSingle();
-
-    let billingConfig: Record<string, unknown> = {};
-    if (globalConfig?.value) {
-      billingConfig = globalConfig.value as Record<string, unknown>;
-    }
-
-    // Also check workspace-level configs for webhook secrets
-    const { data: wsConfigs } = await supabase
-      .from('provider_configs')
-      .select('config')
-      .eq('provider_type', 'billing')
-      .eq('provider_name', providerName)
-      .eq('is_active', true)
-      .limit(1);
-
-    if (wsConfigs?.[0]) {
-      billingConfig = { ...billingConfig, ...(wsConfigs[0].config as Record<string, unknown>) };
-    }
-
-    const rawBody = JSON.stringify(req.body);
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) {
-      if (typeof v === 'string') headers[k] = v;
-    }
-
-    const event = await provider.verifyWebhook(
-      { provider: providerName, ...billingConfig },
-      headers,
-      rawBody
-    );
-
-    if (event) {
-      await processWebhookEvent(url, key, providerName, event);
-    }
-
-    // Always return 200 to acknowledge
-    res.json({ received: true });
-  } catch (e: any) {
-    console.error(`Billing webhook error (${providerName}):`, e.message);
-    // Still return 200 for most providers to prevent retries on signature errors
-    res.status(400).json({ error: e.message });
+  if (!SIGNED_WEBHOOK_PROVIDERS.has(providerName)) {
+    // No signed webhook contract → callback payloads are not proof of payment.
+    // These providers must go through the authenticated verify-callback route,
+    // which calls the provider's server-to-server verify API.
+    logWebhookRejection(providerName, 'no_signed_webhook_contract');
+    return res.status(400).json({ error: 'Webhook verification not supported for this provider' });
   }
+
+  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+  if (!rawBody) {
+    logWebhookRejection(providerName, 'empty_body');
+    return res.status(400).json({ error: 'Invalid webhook payload' });
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (typeof v === 'string') headers[k] = v;
+  }
+
+  const supabase = createClient(url, key);
+
+  // Candidate configs: each workspace-scoped config, plus the platform default.
+  // Verification is attempted against each; only the config whose secret
+  // validates the signature is used, which also pins the workspace.
+  const candidates: WebhookCandidate[] = [];
+  const { data: wsConfigs } = await supabase
+    .from('provider_configs')
+    .select('workspace_id, config')
+    .eq('provider_type', 'billing')
+    .eq('provider_name', providerName)
+    .eq('is_active', true)
+    .limit(50);
+  for (const row of (wsConfigs || []) as Array<{ workspace_id: string | null; config: unknown }>) {
+    if (isRecord(row.config)) candidates.push({ workspaceId: row.workspace_id, config: row.config });
+  }
+  const { data: globalConfig } = await supabase
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', 'billing_default_provider')
+    .maybeSingle();
+  const globalValue = (globalConfig as { value?: unknown } | null)?.value;
+  if (isRecord(globalValue) && globalValue.provider === providerName) {
+    candidates.push({ workspaceId: null, config: globalValue });
+  }
+
+  for (const candidate of candidates) {
+    let event;
+    try {
+      event = await provider.verifyWebhook(
+        { provider: providerName, ...candidate.config },
+        headers,
+        rawBody,
+      );
+    } catch {
+      continue; // signature mismatch / malformed payload for this config
+    }
+    if (!event) continue;
+
+    // Workspace binding: prefer the workspace that owns the verifying config.
+    if (candidate.workspaceId) {
+      if (event.workspaceId && event.workspaceId !== candidate.workspaceId) {
+        logWebhookRejection(providerName, 'workspace_mismatch');
+        return res.status(400).json({ error: 'Webhook rejected' });
+      }
+      event.workspaceId = candidate.workspaceId;
+    } else if (!event.workspaceId) {
+      logWebhookRejection(providerName, 'unresolved_workspace');
+      return res.status(400).json({ error: 'Webhook rejected' });
+    }
+
+    try {
+      await processWebhookEvent(url, key, providerName, event);
+    } catch {
+      logWebhookRejection(providerName, 'processing_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    return res.json({ received: true });
+  }
+
+  logWebhookRejection(providerName, 'signature_not_verified');
+  return res.status(400).json({ error: 'Webhook not verified' });
 });
 
 // ─── POST /api/billing/subscription/cancel ───────────────────────

@@ -154,7 +154,7 @@ export default function AdminUsersPage() {
                 <TableRow
                   key={p.id}
                   className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => setSelectedUserId(p.id)}
+                  onClick={() => openUser(p.id)}
                 >
                   <TableCell>
                     <div className="flex items-center gap-3">

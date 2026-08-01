@@ -35,6 +35,11 @@ export interface ProviderVendor {
   deployment?: 'selfhosted' | 'external' | 'builtin' | 'disabled';
   /** Recommended setup tag, surfaced in admin UI as a hint badge. */
   recommendation?: 'simple' | 'production-selfhost' | 'cloud';
+  /**
+   * Listed in the catalogue but has no real backend runtime yet.
+   * Admin UI must render it disabled — never selectable, never savable.
+   */
+  comingSoon?: boolean;
 }
 
 export interface ProviderTypeSchema {
@@ -1360,7 +1365,8 @@ const smsVendors: ProviderVendor[] = [
     locales: ['fa'], currency: 'IRR',
     fields: [
       { key: 'api_key', label: 'کلید API', type: 'password', required: true },
-      { key: 'sender', label: 'شماره فرستنده', type: 'text', required: true, placeholder: '10008663' },
+      { key: 'verify_template', label: 'الگوی تأیید (OTP)', type: 'text', required: true, placeholder: 'verifyLogin', hint: 'نام الگوی تعریف‌شده در پنل کاوه‌نگار — فقط حروف انگلیسی و عدد' },
+      { key: 'sender', label: 'شماره فرستنده پیش‌فرض', type: 'text', placeholder: '10008663', hint: 'اختیاری — فقط برای پیامک عمومی؛ در VerifyLookup استفاده نمی‌شود' },
     ],
   },
   {

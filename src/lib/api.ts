@@ -282,17 +282,19 @@ export function cdnGetAssetUrl(workspaceId: string, path: string) {
 
 // ─── Billing ─────────────────────────────────────────────────────
 
-export function billingGetPlans(locale?: string) {
+// Billing routes authorize per user + workspace (and per platform admin), so
+// they require the real end-user JWT — the publishable anon key is rejected.
+export async function billingGetPlans(locale?: string) {
   const params = new URLSearchParams();
   if (locale) params.set('locale', locale);
-  return request<{ plans: any[] }>(`/api/billing/plans?${params}`, { headers: authHeaders() });
+  return request<{ plans: any[] }>(`/api/billing/plans?${params}`, { headers: await userAuthHeaders() });
 }
 
-export function billingGetStatus(workspaceId: string) {
-  return request<{ subscription: any; payments: any[] }>(`/api/billing/status/${workspaceId}`, { headers: authHeaders() });
+export async function billingGetStatus(workspaceId: string) {
+  return request<{ subscription: any; payments: any[] }>(`/api/billing/status/${workspaceId}`, { headers: await userAuthHeaders() });
 }
 
-export function billingCheckout(data: {
+export async function billingCheckout(data: {
   workspaceId: string;
   planId: string;
   interval: 'monthly' | 'yearly';
@@ -304,58 +306,58 @@ export function billingCheckout(data: {
   phone?: string;
 }) {
   return request<{ success: boolean; paymentUrl: string; sessionId?: string }>('/api/billing/checkout', {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify(data),
+    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify(data),
   });
 }
 
-export function billingCancel(workspaceId: string) {
+export async function billingCancel(workspaceId: string) {
   return request<{ success: boolean }>('/api/billing/subscription/cancel', {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify({ workspaceId }),
+    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ workspaceId }),
   });
 }
 
-export function billingResume(workspaceId: string) {
+export async function billingResume(workspaceId: string) {
   return request<{ success: boolean }>('/api/billing/subscription/resume', {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify({ workspaceId }),
+    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ workspaceId }),
   });
 }
 
-export function billingGetPortal(workspaceId: string, returnUrl: string) {
+export async function billingGetPortal(workspaceId: string, returnUrl: string) {
   return request<{ url: string }>('/api/billing/portal', {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify({ workspaceId, returnUrl }),
+    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ workspaceId, returnUrl }),
   });
 }
 
-export function billingTest(provider: string, config: Record<string, unknown>) {
+export async function billingTest(provider: string, config: Record<string, unknown>) {
   return request<{ success: boolean; latencyMs: number; error?: string }>('/api/billing/test', {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify({ provider, config }),
+    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ provider, config }),
   });
 }
 
-export function billingGetEvents(workspaceId: string) {
-  return request<{ events: any[] }>(`/api/billing/events/${workspaceId}`, { headers: authHeaders() });
+export async function billingGetEvents(workspaceId: string) {
+  return request<{ events: any[] }>(`/api/billing/events/${workspaceId}`, { headers: await userAuthHeaders() });
 }
 
-export function billingAdminOverview() {
+export async function billingAdminOverview() {
   return request<{
     totalSubscriptions: number;
     activeSubscriptions: number;
     recentPayments: any[];
     recentEvents: any[];
     plans: any[];
-  }>('/api/billing/admin/overview', { headers: authHeaders() });
+  }>('/api/billing/admin/overview', { headers: await userAuthHeaders() });
 }
 
-export function billingAdminGrant(data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) {
+export async function billingAdminGrant(data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) {
   return request<{ subscription: any }>('/api/billing/admin/grant', {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify(data),
+    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify(data),
   });
 }
 
-export function billingEntitlement(workspaceId: string, feature: string) {
+export async function billingEntitlement(workspaceId: string, feature: string) {
   return request<{ allowed: boolean; limit?: number; used?: number }>(
     `/api/billing/entitlement?workspaceId=${workspaceId}&feature=${feature}`,
-    { headers: authHeaders() }
+    { headers: await userAuthHeaders() }
   );
 }
 

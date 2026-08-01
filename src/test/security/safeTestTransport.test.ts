@@ -186,10 +186,10 @@ describe('safe test transport — redirects', () => {
       { status: 302, headers: { location: 'https://169.254.169.254/latest' } },
       { status: 200 },
     ]);
-    expect(await reasonOf(fetchImpl('https://api.openai.com/v1'))).toBe('blocked_ip');
+    expect(await reasonOf(fetchImpl('https://api.openai.com/v1'))).toBe('redirect_blocked');
   });
 
-  it('rejects a redirect to a hostname resolving privately', async () => {
+  it('rejects a same-origin redirect whose re-resolved address is private', async () => {
     let call = 0;
     const lookupImpl = async () => {
       call++;
@@ -198,7 +198,7 @@ describe('safe test transport — redirects', () => {
         : [{ address: '10.1.2.3', family: 4 }];
     };
     const { fetchImpl } = make(
-      [{ status: 302, headers: { location: 'https://inner.example.com/x' } }, { status: 200 }],
+      [{ status: 302, headers: { location: 'https://api.openai.com/x' } }, { status: 200 }],
       { lookupImpl },
     );
     expect(await reasonOf(fetchImpl('https://api.openai.com/v1'))).toBe('blocked_ip');
@@ -209,14 +209,14 @@ describe('safe test transport — redirects', () => {
       [{ status: 302, headers: { location: 'https://evil-openai.com/v1' } }, { status: 200 }],
       { isHostAllowed: providerHostPolicy('openai') },
     );
-    expect(await reasonOf(fetchImpl('https://api.openai.com/v1'))).toBe('host_not_allowed');
+    expect(await reasonOf(fetchImpl('https://api.openai.com/v1'))).toBe('redirect_blocked');
   });
 
   it('rejects a redirect without Location and one carrying credentials', async () => {
     const a = make([{ status: 302 }, { status: 200 }]);
     expect(await reasonOf(a.fetchImpl('https://api.openai.com/v1'))).toBe('redirect_blocked');
     const b = make([
-      { status: 302, headers: { location: 'https://user:pass@other.example.com/x' } },
+      { status: 302, headers: { location: 'https://user:pass@api.openai.com/x' } },
       { status: 200 },
     ]);
     expect(await reasonOf(b.fetchImpl('https://api.openai.com/v1'))).toBe('credentials_not_allowed');
@@ -230,20 +230,21 @@ describe('safe test transport — redirects', () => {
     expect(seen).toHaveLength(MAX_TEST_REDIRECTS + 1);
   });
 
-  it('follows an allowed public redirect after full validation', async () => {
+  it('follows a same-origin redirect after full re-validation', async () => {
     const { fetchImpl, seen } = make([
-      { status: 302, headers: { location: 'https://b.example.com/next' } },
+      { status: 302, headers: { location: 'https://a.example.com/next' } },
       { status: 200, body: '{"ok":true}' },
     ]);
     const res = await fetchImpl('https://a.example.com/start');
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('{"ok":true}');
-    expect(seen.map((s) => s.host)).toEqual(['a.example.com', 'b.example.com']);
+    expect(seen.map((s) => s.host)).toEqual(['a.example.com', 'a.example.com']);
+    expect(seen.map((s) => s.path)).toEqual(['/start', '/next']);
   });
 
   it('preserves method and body across 307/308 and downgrades 303', async () => {
     const keep = make([
-      { status: 307, headers: { location: 'https://b.example.com/x' } },
+      { status: 307, headers: { location: 'https://a.example.com/y' } },
       { status: 200, body: '{}' },
     ]);
     await keep.fetchImpl('https://a.example.com/x', { method: 'POST', body: '{"a":1}' });
@@ -251,7 +252,7 @@ describe('safe test transport — redirects', () => {
     expect(keep.seen[1].body).toBe('{"a":1}');
 
     const downgrade = make([
-      { status: 303, headers: { location: 'https://b.example.com/x' } },
+      { status: 303, headers: { location: 'https://a.example.com/y' } },
       { status: 200, body: '{}' },
     ]);
     await downgrade.fetchImpl('https://a.example.com/x', { method: 'POST', body: '{"a":1}' });

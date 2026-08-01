@@ -113,6 +113,9 @@ export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<Sm
       hasApiKey: false,
       sender: null,
       verifyTemplate: null,
+      lineNumber: null,
+      verifyTemplateId: null,
+      verifyParameterName: null,
       updatedAt: null,
     };
   }

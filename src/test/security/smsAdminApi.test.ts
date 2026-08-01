@@ -227,3 +227,59 @@ describe('POST /test', () => {
     expect(blocked.json).toMatchObject({ error: 'too_many_test_requests' });
   });
 });
+
+describe('PUT — SMS.ir payloads', () => {
+  const VALID = {
+    providerName: 'smsir', enabled: true, apiKey: 'new-placeholder',
+    lineNumber: '30007732', verifyTemplateId: 100000, verifyParameterName: 'CODE',
+  };
+
+  it('accepts a valid SMS.ir payload', async () => {
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: VALID });
+    expect(res.status).toBe(200);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ providerName: 'smsir', lineNumber: '30007732', verifyTemplateId: 100000 });
+    expect(res.json).not.toHaveProperty('apiKey');
+  });
+
+  it('rejects a Kavenegar field mixed into an SMS.ir payload', async () => {
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: { ...VALID, verifyTemplate: 'verifyLogin' } });
+    expect(res.status).toBe(400);
+    expect(saved).toHaveLength(0);
+  });
+
+  it('rejects a non-numeric line number', async () => {
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: { ...VALID, lineNumber: '3000-7732' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a string template id', async () => {
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: { ...VALID, verifyTemplateId: '100000' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an unsafe parameter name', async () => {
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: { ...VALID, verifyParameterName: 'my code' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a missing line number', async () => {
+    const { lineNumber: _drop, ...rest } = VALID;
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: rest });
+    expect(res.status).toBe(400);
+  });
+
+  it('allows omitting the key when re-saving SMS.ir', async () => {
+    const { apiKey: _drop, ...rest } = VALID;
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: rest });
+    expect(res.status).toBe(200);
+  });
+
+  it('surfaces a service-level validation reason', async () => {
+    state.saveThrows = Object.assign(new Error('invalid_line_number'), {
+      name: 'SmsConfigValidationError', reason: 'invalid_line_number',
+    });
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: VALID });
+    expect(res.status).toBe(500);
+  });
+});

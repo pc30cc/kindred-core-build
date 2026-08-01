@@ -14,17 +14,25 @@ const {
 
 const { isBlockedIpAddress } = await import('../../../server/lib/workspaceAuth.js');
 
+type ReqOptions = {
+  agent: unknown;
+  host: string;
+  servername: string;
+  rejectUnauthorized?: unknown;
+  lookup: (host: string, opts: unknown, cb: (err: unknown, address: string, family: number) => void) => void;
+};
+
 type Hop = { status: number; headers?: Record<string, string>; body?: string; timeout?: boolean };
 
 /** Records every connection attempt and replays scripted hops. */
 function fakeRequest(hops: Hop[]) {
   const seen: Array<{ host: string; servername: string; address: string; path: string; method: string; headers: Record<string, string>; body?: string; timeout: number }> = [];
-  const rawOptions: any[] = [];
+  const rawOptions: ReqOptions[] = [];
   let i = 0;
   const impl: any = (options: any, cb: (res: any) => void) => {
     const hop = hops[Math.min(i, hops.length - 1)];
     i++;
-    rawOptions.push(options);
+    rawOptions.push(options as ReqOptions);
     const req: any = new EventEmitter();
     let written: string | undefined;
     // Resolve the pinned address by invoking the transport's lookup function.

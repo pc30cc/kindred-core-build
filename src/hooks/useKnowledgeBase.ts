@@ -1,48 +1,33 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { KnowledgeBaseArticle, KnowledgeBaseCategory } from '@/types/models';
+import {
+  knowledgeBaseApi,
+  type KnowledgeBaseArticleInput,
+  type KnowledgeBaseArticleWithCategory,
+} from '@/lib/knowledge-base-api';
+import type { KnowledgeBaseCategory } from '@/types/models';
 
 /**
- * Phase 6-S5 — Knowledge Base is an INDEPENDENT product.
- * Article mutations MUST NOT call the AI Agent API. Re-indexing of KB
- * articles for the AI assistant is owned by the AI Agent side (Knowledge
- * Sources) and is triggered there, one-way, only for workspaces whose plan
- * includes `ai_assistant`.
+ * Phase 6-S5-R1 — Knowledge Base is an INDEPENDENT product.
+ *
+ * All private CRUD goes through the Express backend, which enforces
+ * authentication, workspace membership and the `knowledge_base` module.
+ * These hooks never call the AI Agent API: AI indexing is driven
+ * asynchronously from a neutral database event, so an AI outage or a
+ * missing AI plan can never block article CRUD.
  */
 
 export function useKBCategories(workspaceId: string | undefined, locale?: string) {
   return useQuery({
     queryKey: ['kb-categories', workspaceId, locale],
-    queryFn: async () => {
-      let q = supabase
-        .from('knowledge_base_categories')
-        .select('*')
-        .eq('workspace_id', workspaceId!)
-        .order('sort_order', { ascending: true });
-      if (locale) q = q.eq('locale', locale);
-      const { data, error } = await q;
-      if (error) throw error;
-      return data as KnowledgeBaseCategory[];
-    },
+    queryFn: () => knowledgeBaseApi.listCategories(workspaceId!, locale),
     enabled: !!workspaceId,
   });
 }
 
 export function useKBArticles(workspaceId: string | undefined, locale?: string, status?: string) {
-  return useQuery({
+  return useQuery<KnowledgeBaseArticleWithCategory[]>({
     queryKey: ['kb-articles', workspaceId, locale, status],
-    queryFn: async () => {
-      let q = supabase
-        .from('knowledge_base_articles')
-        .select('*, knowledge_base_categories(name, slug)')
-        .eq('workspace_id', workspaceId!)
-        .order('updated_at', { ascending: false });
-      if (locale) q = q.eq('locale', locale);
-      if (status && status !== 'all') q = q.eq('status', status);
-      const { data, error } = await q;
-      if (error) throw error;
-      return data as (KnowledgeBaseArticle & { knowledge_base_categories: { name: string; slug: string } | null })[];
-    },
+    queryFn: () => knowledgeBaseApi.listArticles(workspaceId!, locale, status),
     enabled: !!workspaceId,
   });
 }
@@ -50,55 +35,43 @@ export function useKBArticles(workspaceId: string | undefined, locale?: string, 
 export function useCreateKBArticle(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (article: Partial<KnowledgeBaseArticle>) => {
-      const { data, error } = await supabase
-        .from('knowledge_base_articles')
-        .insert({ ...article, workspace_id: workspaceId! })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (article: Partial<KnowledgeBaseArticleInput>) =>
+      knowledgeBaseApi.createArticle(workspaceId!, article),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kb-articles'] });
+      qc.invalidateQueries({ queryKey: ['public-help'] });
     },
   });
 }
 
-export function useUpdateKBArticle() {
+export function useUpdateKBArticle(workspaceId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<KnowledgeBaseArticle> & { id: string }) => {
-      const { data, error } = await supabase
-        .from('knowledge_base_articles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: ({
+      id,
+      workspace_id,
+      ...updates
+    }: Partial<KnowledgeBaseArticleInput> & { id: string; workspace_id?: string }) =>
+      knowledgeBaseApi.updateArticle((workspace_id || workspaceId)!, id, updates),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kb-articles'] });
+      qc.invalidateQueries({ queryKey: ['public-help'] });
     },
   });
 }
 
-export function useDeleteKBArticle() {
+export function useDeleteKBArticle(workspaceId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { data: row } = await supabase
-        .from('knowledge_base_articles')
-        .select('workspace_id')
-        .eq('id', id)
-        .maybeSingle();
-      const { error } = await supabase.from('knowledge_base_articles').delete().eq('id', id);
-      if (error) throw error;
-      return { id, workspace_id: (row as any)?.workspace_id };
+    mutationFn: async (input: string | { id: string; workspace_id?: string }) => {
+      const id = typeof input === 'string' ? input : input.id;
+      const ws = (typeof input === 'string' ? workspaceId : input.workspace_id || workspaceId)!;
+      await knowledgeBaseApi.deleteArticle(ws, id);
+      return { id, workspace_id: ws };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kb-articles'] });
+      qc.invalidateQueries({ queryKey: ['public-help'] });
     },
   });
 }
@@ -106,15 +79,8 @@ export function useDeleteKBArticle() {
 export function useCreateKBCategory(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (cat: Partial<KnowledgeBaseCategory>) => {
-      const { data, error } = await supabase
-        .from('knowledge_base_categories')
-        .insert({ ...cat, workspace_id: workspaceId! })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (cat: Partial<KnowledgeBaseCategory>) =>
+      knowledgeBaseApi.createCategory(workspaceId!, cat),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-categories'] }),
   });
 }

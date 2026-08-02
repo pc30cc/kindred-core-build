@@ -70,8 +70,29 @@ BEGIN
 END;
 $$;
 
+-- ── Idempotent redefinition guard ─────────────────────────────────────
+-- These four functions change their argument list AND (for complete) their
+-- return type, so a plain CREATE OR REPLACE cannot be used. Dropping every
+-- existing overload by name makes this migration safely re-runnable.
+DO $drop$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT oid::regprocedure AS sig
+    FROM pg_proc
+    WHERE pronamespace = 'public'::regnamespace
+      AND proname IN (
+        'claim_entitlement_fanout_jobs',
+        'advance_entitlement_fanout',
+        'complete_entitlement_fanout',
+        'fail_entitlement_fanout')
+  LOOP
+    EXECUTE 'DROP FUNCTION ' || r.sig;
+  END LOOP;
+END
+$drop$;
+
 -- ── Claim a SPECIFIC generation ───────────────────────────────────────
-DROP FUNCTION IF EXISTS public.claim_entitlement_fanout_jobs(text, integer, integer);
 CREATE FUNCTION public.claim_entitlement_fanout_jobs(
   _worker_id text,
   _limit integer DEFAULT 1,
@@ -134,7 +155,6 @@ END;
 $$;
 
 -- ── Advance: owner + generation gated, explicit counters ──────────────
-DROP FUNCTION IF EXISTS public.advance_entitlement_fanout(uuid, uuid, text, uuid, integer, integer, integer);
 CREATE FUNCTION public.advance_entitlement_fanout(
   _id uuid,
   _claim_token uuid,
@@ -175,7 +195,6 @@ END;
 $$;
 
 -- ── Complete: detects a newer generation and requeues instead ─────────
-DROP FUNCTION IF EXISTS public.complete_entitlement_fanout(uuid, uuid, text, integer, integer);
 CREATE FUNCTION public.complete_entitlement_fanout(
   _id uuid,
   _claim_token uuid,
@@ -253,7 +272,6 @@ END;
 $$;
 
 -- ── Fail / release with backoff (owner + generation gated) ────────────
-DROP FUNCTION IF EXISTS public.fail_entitlement_fanout(uuid, uuid, text, text, integer, integer);
 CREATE FUNCTION public.fail_entitlement_fanout(
   _id uuid,
   _claim_token uuid,

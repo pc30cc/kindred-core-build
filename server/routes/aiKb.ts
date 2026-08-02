@@ -582,11 +582,16 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const auth = await authenticate(req, res, config);
   if (!auth) return;
 
-  const { data: job } = await sb
+  const { data: job, error: jobError } = await sb
     .from('ai_kb_jobs')
     .select('id, workspace_id')
     .eq('id', req.params.jobId)
     .maybeSingle();
+  if (jobError) {
+    // R7.1 §10 — an unreadable job is NOT a missing job.
+    console.error('[ai-kb] publish-all job lookup failed', JSON.stringify({ code: jobError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
   if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
     return res.status(404).json({ error: 'job_not_found' });
   }
@@ -611,22 +616,17 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
   const failed: Array<{ generated_id: string; error: 'publish_failed' }> = [];
   for (const gen of drafts || []) {
-    try {
-      const article = await upsertKbArticleFromGenerated(sb, gen, 'published');
-      await sb
-        .from('ai_kb_generated_articles')
-        .update({
-          status: 'published',
-          kb_article_id: article.id,
-          reviewed_by: auth.userId,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', gen.id);
-      published.push({ generated_id: gen.id, kb_article_id: article.id });
-    } catch (error: unknown) {
-      logInternal('bulk_publish_failed', error, { generatedId: gen.id });
+    const { result, transportError } = await applyGeneratedDraft(sb, gen, auth.userId, 'publish');
+    if (transportError || !result?.ok || !result.kb_article_id) {
+      logInternal(
+        'bulk_publish_failed',
+        transportError ?? new Error(result?.error || 'unknown'),
+        { generatedId: gen.id },
+      );
       failed.push({ generated_id: gen.id, error: 'publish_failed' });
+      continue;
     }
+    published.push({ generated_id: gen.id, kb_article_id: result.kb_article_id });
   }
   return res.json({ ok: true, published_count: published.length, failed_count: failed.length, published, failed });
 });
@@ -640,50 +640,48 @@ aiKbRouter.get('/generated/:id/visibility', async (req: Request, res: Response) 
   if (!ctx) return;
   const { gen, sb } = ctx;
 
-  const result: any = {
-    generated_status: gen.status,
-    kb_article_id: gen.kb_article_id || null,
-    kb_article_status: null,
-    kb_article_locale: null,
-    kb_article_slug: null,
-    kb_article_workspace_id: null,
-    widget_visible: false,
-    reason_if_not_visible: null as string | null,
-  };
+  const base = { generatedStatus: gen.status, kbArticleId: gen.kb_article_id || null };
 
   if (!gen.kb_article_id) {
-    result.reason_if_not_visible = 'no_kb_article';
-    return res.json(result);
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: null, widgetVisible: false, reason: 'no_kb_article',
+    }));
   }
-  const { data: art } = await sb
+
+  const { data: art, error: artError } = await sb
     .from('knowledge_base_articles')
     .select('id, status, locale, slug, workspace_id')
     .eq('id', gen.kb_article_id)
     .maybeSingle();
-  if (!art) {
-    result.reason_if_not_visible = 'article_missing';
-    return res.json(result);
+  if (artError) {
+    // R7.1 §10 — an unreadable article must never be reported as "missing".
+    console.error('[ai-kb] visibility article lookup failed', JSON.stringify({ code: artError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
   }
-  result.kb_article_status = art.status;
-  result.kb_article_locale = art.locale;
-  result.kb_article_slug = art.slug;
-  result.kb_article_workspace_id = art.workspace_id;
+  if (!art) {
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: null, widgetVisible: false, reason: 'article_missing',
+    }));
+  }
+  // The workspace id itself is internal — only the VERDICT is exposed.
   if (art.workspace_id !== gen.workspace_id) {
-    result.reason_if_not_visible = 'workspace_mismatch';
-    return res.json(result);
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: null, widgetVisible: false, reason: 'workspace_mismatch',
+    }));
   }
   if (art.status !== 'published') {
-    result.reason_if_not_visible = 'not_published';
-    return res.json(result);
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: art, widgetVisible: false, reason: 'not_published',
+    }));
   }
-  if (art.locale !== gen.locale) {
-    // Not fatal — widget falls back across locales — but report it.
-    result.widget_visible = true;
-    result.reason_if_not_visible = 'locale_mismatch';
-    return res.json(result);
-  }
-  result.widget_visible = true;
-  return res.json(result);
+  // Not fatal — the widget falls back across locales — but still reported.
+  const localeMismatch = art.locale !== gen.locale;
+  return res.json(toPublicAiKbVisibility({
+    ...base,
+    article: art,
+    widgetVisible: true,
+    reason: localeMismatch ? 'locale_mismatch' : null,
+  }));
 });
 
 // ──────────────────────────────────────────────────────────────

@@ -762,15 +762,10 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     }
   }
 
-  const gate = await ensureModulesEnabled(config, workspaceId, {
-    isAdmin: auth.isAdmin,
-    userId: auth.userId,
+  if (!(await gateAiKb(res, config, workspaceId, auth, {
+    permissions: ['can_manage_knowledge_base'],
     route: 'POST /api/ai-kb/jobs/test',
-  });
-  if (!gate.ok) {
-    const blocked = gate as { ok: false; status: number; body: any };
-    return res.status(blocked.status).json(blocked.body);
-  }
+  }))) return;
 
   const source = await resolveSourceDomain(config, workspaceId);
   if (!source.can_scan || !source.domain) {
@@ -816,7 +811,8 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     .single();
 
   if (error || !job) {
-    return res.status(500).json({ error: 'job_create_failed', details: error?.message });
+    logInternal('test_job_create_failed', error, { workspaceId });
+    return res.status(500).json({ error: 'job_create_failed' });
   }
 
   await logAiKbUsage(config, workspaceId, 'job_created', {

@@ -53,7 +53,7 @@ describe('AI KB public DTOs redact internal state', () => {
       message: 'provider payload {"key":"sk-live"}', created_at: 't',
     });
     expect(JSON.stringify(dto)).not.toContain('sk-live');
-    expect((dto as Record<string, unknown>).message).toBeUndefined();
+    expect((dto as unknown as Record<string, unknown>).message).toBeUndefined();
   });
 
   it('redacts page-level error text', () => {

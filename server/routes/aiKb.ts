@@ -374,35 +374,39 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
 // ──────────────────────────────────────────────────────────────
 //  POST /api/ai-kb/generated/:id/(accept|reject|publish)
 // ──────────────────────────────────────────────────────────────
-async function loadGenerated(req: Request, res: Response, config: ServerConfig) {
+async function loadGenerated(
+  req: Request,
+  res: Response,
+  config: ServerConfig,
+  permissions: KnowledgeBasePermission[],
+) {
+  const auth = await authenticate(req, res, config);
+  if (!auth) return null;
+
   const sb = getServiceClient(config);
   const { data: gen } = await sb
     .from('ai_kb_generated_articles')
     .select('*')
     .eq('id', req.params.id)
     .maybeSingle();
-  if (!gen) {
+
+  // Canonical 404 for missing OR cross-workspace — no existence leak.
+  if (!gen || !(await isAuthorizedForWorkspace(config, auth, gen.workspace_id))) {
     res.status(404).json({ error: 'not_found' });
     return null;
   }
-  const auth = await authorizeMember(req, res, config, gen.workspace_id);
-  if (!auth) return null;
-  const gate = await ensureModulesEnabled(config, gen.workspace_id, {
-    isAdmin: auth.isAdmin,
-    userId: auth.userId,
+
+  const ok = await gateAiKb(res, config, gen.workspace_id, auth, {
+    permissions,
     route: `${req.method} ${req.baseUrl}${req.path}`,
   });
-  if (!gate.ok) {
-    const blocked = gate as { ok: false; status: number; body: any };
-    res.status(blocked.status).json(blocked.body);
-    return null;
-  }
+  if (!ok) return null;
   return { gen, sb, userId: auth.userId };
 }
 
 aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await loadGenerated(req, res, config);
+  const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 

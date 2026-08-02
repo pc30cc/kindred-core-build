@@ -339,6 +339,7 @@ export async function rebuildWorkspaceIndex(
   // attempt is an outage, not a success. Deployments with NO usable provider
   // run a documented keyword-only index and complete normally.
   if (
+    summary.terminalState === 'completed' &&
     isUsableEmbeddingProvider(embedder) &&
     summary.embeddingFailures > 0 &&
     summary.embeddingsGenerated === 0

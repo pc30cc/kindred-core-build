@@ -121,6 +121,47 @@ export interface AiKbJobEventPublicDto {
   error_code: AiKbPublicErrorCode | null;
 }
 
+/**
+ * Phase 6-S5-R7.1 — the visibility diagnostic is operator-facing, so it may
+ * only describe the PUBLICATION STATE. Internal identifiers that let a caller
+ * correlate rows across workspaces (`kb_article_workspace_id`), worker
+ * metadata and raw article bodies are structurally absent.
+ */
+export type AiKbVisibilityReason =
+  | 'no_kb_article'
+  | 'article_missing'
+  | 'workspace_mismatch'
+  | 'not_published'
+  | 'locale_mismatch';
+
+export interface AiKbVisibilityPublicDto {
+  generated_status: string;
+  kb_article_id: string | null;
+  kb_article_status: string | null;
+  kb_article_locale: string | null;
+  kb_article_slug: string | null;
+  widget_visible: boolean;
+  reason_if_not_visible: AiKbVisibilityReason | null;
+}
+
+export function toPublicAiKbVisibility(input: {
+  generatedStatus: string;
+  kbArticleId?: string | null;
+  article?: { status?: string | null; locale?: string | null; slug?: string | null } | null;
+  widgetVisible: boolean;
+  reason: AiKbVisibilityReason | null;
+}): AiKbVisibilityPublicDto {
+  return {
+    generated_status: input.generatedStatus,
+    kb_article_id: input.kbArticleId ?? null,
+    kb_article_status: input.article?.status ?? null,
+    kb_article_locale: input.article?.locale ?? null,
+    kb_article_slug: input.article?.slug ?? null,
+    widget_visible: input.widgetVisible,
+    reason_if_not_visible: input.reason,
+  };
+}
+
 // ─── Explicit column lists for the queries ─────────────────────
 export const AI_KB_JOB_COLUMNS =
   'id, workspace_id, status, source_kind, source_domain, locale, progress, ' +

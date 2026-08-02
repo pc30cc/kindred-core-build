@@ -3,8 +3,7 @@
  * queue.
  *
  * Runs the actual forward-only migrations
- * (`007_entitlement_fanout_jobs.sql` then
- * `008_entitlement_fanout_generations.sql`) against a live PostgreSQL and
+ * (`007` → `008` → `009`) against a live PostgreSQL and
  * exercises the contract that unit tests cannot prove: lease exclusivity,
  * lease expiry reclaim, non-owner rejection, generation bumping while a pass
  * is in flight, and exact counter accounting.
@@ -41,7 +40,9 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
             AND proname IN (
               'enqueue_entitlement_fanout', 'claim_entitlement_fanout_jobs',
               'advance_entitlement_fanout', 'complete_entitlement_fanout',
-              'fail_entitlement_fanout', 'entitlement_fanout_touch')
+              'fail_entitlement_fanout', 'entitlement_fanout_touch',
+              '_ai_kb_apply_generated', 'accept_ai_kb_generated_article',
+              'publish_ai_kb_generated_article', 'reject_ai_kb_generated_article')
         LOOP
           EXECUTE 'DROP FUNCTION ' || r.sig || ' CASCADE';
         END LOOP;
@@ -51,6 +52,7 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
     for (const file of [
       'database/migrations/007_entitlement_fanout_jobs.sql',
       'database/migrations/008_entitlement_fanout_generations.sql',
+      'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
     ]) {
       await client.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
     }
@@ -92,6 +94,14 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
     'SELECT public.complete_entitlement_fanout($1,$2,$3,$4,$5,$6,$7,$8,$9) AS outcome',
     [job.id, job.claim_token, worker, gen, cursor,
       counts.p ?? 0, counts.s ?? 0, counts.r ?? 0, counts.x ?? 0],
+  )).rows[0].outcome as string;
+
+  const fail = async (
+    job: Record<string, any>, worker: string, code: string,
+    retry = 300, maxAttempts = 10, gen = job.processing_generation,
+  ) => (await client.query(
+    'SELECT public.fail_entitlement_fanout($1,$2,$3,$4,$5,$6,$7) AS outcome',
+    [job.id, job.claim_token, worker, gen, code, retry, maxAttempts],
   )).rows[0].outcome as string;
 
   const row = async (id: string) => (await client.query(
@@ -229,11 +239,8 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
     const cursor = '88888888-8888-8888-8888-888888888888';
     await advance(job, 'worker-a', cursor, { p: 4, r: 1 });
 
-    const released = (await client.query(
-      'SELECT public.fail_entitlement_fanout($1,$2,$3,$4,$5,1,1000) AS ok',
-      [job.id, job.claim_token, 'worker-a', job.processing_generation, 'fanout_workspace_retryable'],
-    )).rows[0].ok;
-    expect(released).toBe(true);
+    expect(await fail(job, 'worker-a', 'fanout_workspace_retryable', 1, 1000))
+      .toBe('retry_same_generation');
 
     const r = await row(id);
     expect(r.status).toBe('pending');
@@ -257,11 +264,8 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
     const id = await enqueue(...PLATFORM);
     const [job] = await claim('worker-a', 300);
 
-    const retry = (await client.query(
-      'SELECT public.fail_entitlement_fanout($1,$2,$3,$4,$5,300,10) AS ok',
-      [job.id, job.claim_token, 'worker-a', job.processing_generation, 'fanout_lookup_failed'],
-    )).rows[0].ok;
-    expect(retry).toBe(true);
+    expect(await fail(job, 'worker-a', 'fanout_lookup_failed', 300, 10))
+      .toBe('retry_same_generation');
 
     const r = await row(id);
     expect(r.status).toBe('pending');
@@ -272,15 +276,11 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
       'UPDATE public.entitlement_fanout_jobs SET next_attempt_at = now() WHERE id = $1', [id],
     );
     const [again] = await claim('worker-a', 300);
-    const dead = (await client.query(
-      'SELECT public.fail_entitlement_fanout($1,$2,$3,$4,$5,60,1) AS ok',
-      [again.id, again.claim_token, 'worker-a', again.processing_generation, 'fanout_lookup_failed'],
-    )).rows[0].ok;
-    expect(dead).toBe(true);
+    expect(await fail(again, 'worker-a', 'fanout_lookup_failed', 60, 1)).toBe('dead_lettered');
     expect((await row(id)).status).toBe('failed');
   });
 
-  it('migration 008 preserves in-flight jobs and backfills completed ones', async () => {
+  it('re-running the migration head preserves in-flight jobs', async () => {
     await reset();
     const id = await enqueue(...PLATFORM);
     const [job] = await claim('worker-a', 300);
@@ -289,7 +289,7 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
 
     // Re-running the forward-only migration must be a no-op for live state.
     await client.query(readFileSync(
-      resolve(process.cwd(), 'database/migrations/008_entitlement_fanout_generations.sql'),
+      resolve(process.cwd(), 'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql'),
       'utf8',
     ));
 
@@ -297,5 +297,255 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
     expect(r.cursor_workspace_id).toBe(cursor);
     expect(Number(r.processed_count)).toBe(7);
     expect(r.status).toBe('running');
+  });
+
+  // ── R7.1 §1-§7 — generation-bound cursor, generation-safe retry and
+  //    concurrency-safe enqueue.
+
+  it('A: a cursor produced by an older generation is discarded on claim', async () => {
+    await reset();
+    const id = await enqueue(...PLATFORM);
+    const [job] = await claim('worker-a', 300);
+    const cursor = 'aaaaaaaa-0000-4000-8000-000000000000';
+    await advance(job, 'worker-a', cursor, { p: 4 });
+    expect(Number((await row(id)).cursor_generation)).toBe(1);
+
+    // A newer change lands, then the lease simply expires (worker crash):
+    // no complete, no fail. The cursor row is still populated.
+    await enqueue(...PLATFORM);
+    await client.query(
+      "UPDATE public.entitlement_fanout_jobs SET claim_expires_at = now() - interval '1 second' WHERE id = $1",
+      [id],
+    );
+
+    const [resumed] = await claim('worker-b', 300);
+    expect(Number(resumed.processing_generation)).toBe(2);
+    // The stale cursor must NOT be reused for generation 2.
+    expect(resumed.cursor_workspace_id).toBeNull();
+    expect(resumed.cursor_generation).toBeNull();
+  });
+
+  it('B: a same-generation retry keeps the cursor bound to that generation', async () => {
+    await reset();
+    const id = await enqueue(...PLATFORM);
+    const [job] = await claim('worker-a', 300);
+    const cursor = 'bbbbbbbb-0000-4000-8000-000000000000';
+    await advance(job, 'worker-a', cursor, { p: 2 });
+    expect(await fail(job, 'worker-a', 'fanout_workspace_retryable', 1, 1000))
+      .toBe('retry_same_generation');
+
+    const r = await row(id);
+    expect(r.cursor_workspace_id).toBe(cursor);
+    expect(Number(r.cursor_generation)).toBe(1);
+
+    await client.query(
+      'UPDATE public.entitlement_fanout_jobs SET next_attempt_at = now() WHERE id = $1', [id],
+    );
+    const [resumed] = await claim('worker-b', 300);
+    expect(resumed.cursor_workspace_id).toBe(cursor);
+  });
+
+  it('C: a failure under a superseded generation requeues immediately, without backoff', async () => {
+    await reset();
+    const id = await enqueue(...PLATFORM);
+    const [job] = await claim('worker-a', 300);
+    await advance(job, 'worker-a', 'cccccccc-0000-4000-8000-000000000000', { p: 1 });
+    await enqueue(...PLATFORM);
+
+    // A long backoff is requested — it must be ignored, this is fresh work.
+    expect(await fail(job, 'worker-a', 'fanout_workspace_retryable', 3600, 1000))
+      .toBe('requeued_new_generation');
+
+    const r = await row(id);
+    expect(r.status).toBe('pending');
+    expect(r.cursor_workspace_id).toBeNull();
+    expect(r.cursor_generation).toBeNull();
+    // Claimable right now, with no next_attempt_at penalty.
+    const [next] = await claim('worker-b', 300);
+    expect(next).toBeTruthy();
+    expect(Number(next.processing_generation)).toBe(2);
+  });
+
+  it('C2: a dead-lettered job keeps its cursor generation for a later resume', async () => {
+    await reset();
+    const id = await enqueue(...PLATFORM);
+    const [job] = await claim('worker-a', 300);
+    const cursor = 'dddddddd-0000-4000-8000-000000000000';
+    await advance(job, 'worker-a', cursor, { p: 1 });
+    expect(await fail(job, 'worker-a', 'fanout_lookup_failed', 5, 1)).toBe('dead_lettered');
+    const r = await row(id);
+    expect(r.status).toBe('failed');
+    expect(r.cursor_workspace_id).toBe(cursor);
+    expect(Number(r.cursor_generation)).toBe(1);
+  });
+
+  it('D: concurrent first enqueues create exactly one job and lose no change', async () => {
+    await reset();
+    const { Client } = await import('pg');
+    const conns: any[] = [];
+    for (let i = 0; i < 8; i += 1) {
+      const c = new Client({ connectionString: DSN });
+      await c.connect();
+      conns.push(c);
+    }
+    try {
+      const ids = await Promise.all(conns.map((c) =>
+        c.query('SELECT public.enqueue_entitlement_fanout($1,$2,$3) AS id',
+          ['platform', 'platform_ai_toggle', null]).then((r: any) => r.rows[0].id as string)));
+
+      const distinct = new Set(ids);
+      expect(distinct.size).toBe(1);
+
+      const all = (await client.query(
+        "SELECT * FROM public.entitlement_fanout_jobs WHERE scope = 'platform'")).rows;
+      expect(all).toHaveLength(1);
+      // Eight concurrent changes: one creation + seven bumps. No change is
+      // silently merged away.
+      expect(Number(all[0].requested_generation)).toBe(conns.length);
+    } finally {
+      await Promise.all(conns.map((c) => c.end()));
+    }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────
+//  R7.1 §12 — AI-KB accept/publish are ONE transaction.
+// ──────────────────────────────────────────────────────────────
+suite('AI-KB transactional draft mutations (PostgreSQL)', () => {
+  let db: any;
+  const WS = '0000ffff-0000-4000-8000-000000000001';
+  const OTHER_WS = '0000ffff-0000-4000-8000-000000000002';
+  const REVIEWER = '0000ffff-0000-4000-8000-0000000000ff';
+
+  beforeAll(async () => {
+    const { Client } = await import('pg');
+    db = new Client({ connectionString: DSN });
+    await db.connect();
+    await db.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+    await db.query('DROP TABLE IF EXISTS public.ai_kb_generated_articles CASCADE');
+    await db.query('DROP TABLE IF EXISTS public.knowledge_base_articles CASCADE');
+    await db.query(`
+      CREATE TABLE public.knowledge_base_articles (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id uuid NOT NULL,
+        slug text NOT NULL,
+        locale text NOT NULL,
+        title text NOT NULL,
+        content text,
+        excerpt text,
+        status text NOT NULL DEFAULT 'draft',
+        UNIQUE (workspace_id, locale, slug)
+      );
+      CREATE TABLE public.ai_kb_generated_articles (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        job_id uuid,
+        workspace_id uuid NOT NULL,
+        title text NOT NULL,
+        slug text,
+        excerpt text,
+        content_md text,
+        locale text NOT NULL DEFAULT 'en',
+        status text NOT NULL DEFAULT 'pending',
+        kb_article_id uuid,
+        reviewed_by uuid,
+        reviewed_at timestamptz
+      );
+    `);
+    await db.query(readFileSync(resolve(
+      process.cwd(), 'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql'), 'utf8'));
+  }, 120_000);
+
+  afterAll(async () => { if (db) await db.end(); });
+
+  const seed = async (over: Record<string, any> = {}) => {
+    const r = await db.query(
+      `INSERT INTO public.ai_kb_generated_articles
+         (workspace_id, title, slug, excerpt, content_md, locale)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [over.workspace_id ?? WS, over.title ?? 'How to reset a password',
+        over.slug ?? 'reset-password', 'summary', '<p>body</p>', over.locale ?? 'en'],
+    );
+    return r.rows[0];
+  };
+
+  it('publish links the article and the draft in a single transaction', async () => {
+    const gen = await seed();
+    const out = (await db.query(
+      'SELECT public.publish_ai_kb_generated_article($1,$2,$3,$4) AS r',
+      [gen.id, WS, REVIEWER, '<p>normalized</p>'],
+    )).rows[0].r;
+    expect(out.ok).toBe(true);
+    expect(out.status).toBe('published');
+
+    const art = (await db.query(
+      'SELECT * FROM public.knowledge_base_articles WHERE id = $1', [out.kb_article_id])).rows[0];
+    expect(art.workspace_id).toBe(WS);
+    expect(art.content).toBe('<p>normalized</p>');
+
+    const after = (await db.query(
+      'SELECT * FROM public.ai_kb_generated_articles WHERE id = $1', [gen.id])).rows[0];
+    // The back-link cannot be missing: it is written by the same call.
+    expect(after.kb_article_id).toBe(out.kb_article_id);
+    expect(after.status).toBe('published');
+    expect(after.reviewed_by).toBe(REVIEWER);
+  });
+
+  it('re-publishing reuses the linked article instead of duplicating it', async () => {
+    const gen = await seed({ slug: 'idempotent' });
+    const first = (await db.query(
+      'SELECT public.publish_ai_kb_generated_article($1,$2,$3,$4) AS r',
+      [gen.id, WS, REVIEWER, '<p>v1</p>'])).rows[0].r;
+    const second = (await db.query(
+      'SELECT public.publish_ai_kb_generated_article($1,$2,$3,$4) AS r',
+      [gen.id, WS, REVIEWER, '<p>v2</p>'])).rows[0].r;
+    expect(second.kb_article_id).toBe(first.kb_article_id);
+
+    const count = (await db.query(
+      "SELECT count(*)::int AS n FROM public.knowledge_base_articles WHERE slug LIKE 'idempotent%'",
+    )).rows[0].n;
+    expect(count).toBe(1);
+  });
+
+  it('de-duplicates the slug per (workspace, locale)', async () => {
+    await db.query(
+      `INSERT INTO public.knowledge_base_articles (workspace_id, slug, locale, title)
+       VALUES ($1,'taken','en','existing')`, [WS]);
+    const gen = await seed({ slug: 'taken' });
+    const out = (await db.query(
+      'SELECT public.accept_ai_kb_generated_article($1,$2,$3,$4) AS r',
+      [gen.id, WS, REVIEWER, '<p>x</p>'])).rows[0].r;
+    expect(out.ok).toBe(true);
+    expect(out.slug).toBe('taken-2');
+    expect(out.status).toBe('draft');
+  });
+
+  it('refuses a cross-workspace mutation without leaking existence', async () => {
+    const gen = await seed({ slug: 'cross-ws' });
+    const out = (await db.query(
+      'SELECT public.publish_ai_kb_generated_article($1,$2,$3,$4) AS r',
+      [gen.id, OTHER_WS, REVIEWER, '<p>x</p>'])).rows[0].r;
+    expect(out.ok).toBe(false);
+    expect(out.error).toBe('not_found');
+
+    const untouched = (await db.query(
+      'SELECT status FROM public.ai_kb_generated_articles WHERE id = $1', [gen.id])).rows[0];
+    expect(untouched.status).toBe('pending');
+  });
+
+  it('reject reports not_found instead of a silent no-op', async () => {
+    const missing = (await db.query(
+      'SELECT public.reject_ai_kb_generated_article($1,$2,$3) AS r',
+      ['0000ffff-0000-4000-8000-00000000dead', WS, REVIEWER])).rows[0].r;
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toBe('not_found');
+
+    const gen = await seed({ slug: 'rejectable' });
+    const ok = (await db.query(
+      'SELECT public.reject_ai_kb_generated_article($1,$2,$3) AS r',
+      [gen.id, WS, REVIEWER])).rows[0].r;
+    expect(ok.ok).toBe(true);
+    expect((await db.query(
+      'SELECT status FROM public.ai_kb_generated_articles WHERE id = $1', [gen.id])).rows[0].status)
+      .toBe('rejected');
   });
 });

@@ -66,9 +66,21 @@ describe('AI KB Builder plan enforcement', () => {
   });
 
   it('never writes a KB article outside the generated draft workspace', () => {
-    const upsert = src.match(/async function upsertKbArticleFromGenerated[\s\S]*?\n\}\n/)?.[0] ?? '';
-    expect(upsert).toMatch(/\.eq\('workspace_id', gen\.workspace_id\)/);
-    expect(upsert).toMatch(/kb_article_workspace_mismatch/);
+    // R7.1 §12 — the write is now one transactional RPC keyed on
+    // (generated_id, workspace_id); the route may not touch the article
+    // table directly on the accept/publish path.
+    const apply = src.match(/async function applyGeneratedDraft[\s\S]*?\n\}\n/)?.[0] ?? '';
+    expect(apply).toMatch(/_workspace_id: gen\.workspace_id/);
+    expect(apply).toMatch(/accept_ai_kb_generated_article/);
+    expect(apply).toMatch(/publish_ai_kb_generated_article/);
+    expect(src).not.toMatch(/from\('knowledge_base_articles'\)\s*\n?\s*\.insert/);
+
+    const migration = read('database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql');
+    expect(migration).toMatch(/_ai_kb_apply_generated/);
+    expect(migration).toMatch(/kb_article_workspace_mismatch/);
+    // The generated row and the KB article are linked in the same statement
+    // sequence, inside one function body — never two independent writes.
+    expect(migration).toMatch(/UPDATE public\.ai_kb_generated_articles[\s\S]*?kb_article_id = v_article\.id/);
   });
 });
 

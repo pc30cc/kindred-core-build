@@ -268,11 +268,40 @@ interface ClaimRow {
   source: string;
   plan_id: string | null;
   cursor_workspace_id: string | null;
+  /**
+   * The generation that PRODUCED `cursor_workspace_id`. A cursor is only
+   * meaningful for its own generation (R7.1 §1).
+   */
+  cursor_generation?: number | string | null;
   attempts: number;
   requested_generation: number | string;
   processing_generation: number | string;
   claim_token: string;
   claim_expires_at: string;
+}
+
+/**
+ * `fail_entitlement_fanout` now reports an explicit outcome. Older
+ * deployments (and the mocked unit harness) still answer with a bare
+ * boolean, so both encodings are accepted; only an unmistakable failure to
+ * release is charged as a lost lease.
+ */
+export type FanoutReleaseOutcome =
+  | 'retry_same_generation'
+  | 'requeued_new_generation'
+  | 'dead_lettered'
+  | 'lease_lost';
+
+export function classifyReleaseOutcome(raw: unknown): FanoutReleaseOutcome {
+  if (raw === true) return 'retry_same_generation';
+  if (
+    raw === 'retry_same_generation' ||
+    raw === 'requeued_new_generation' ||
+    raw === 'dead_lettered'
+  ) {
+    return raw;
+  }
+  return 'lease_lost';
 }
 
 export interface FanoutDrainSummary {
@@ -445,7 +474,10 @@ export async function drainEntitlementFanoutJobs(
         _generation: generation, _error_code: code,
         _retry_seconds: retrySeconds, _max_attempts: maxAttempts,
       });
-      if (released !== true) summary.leaseLost += 1;
+      const outcome = classifyReleaseOutcome(released);
+      if (outcome === 'lease_lost') summary.leaseLost += 1;
+      else if (outcome === 'requeued_new_generation') summary.requeuedNewGeneration += 1;
+      return outcome;
     };
 
     if (job.scope === 'plan' && !job.plan_id) {
@@ -457,7 +489,20 @@ export async function drainEntitlementFanoutJobs(
 
     // Cursor semantics (R7 §2): the last workspace whose required action
     // SUCCEEDED. Never the last attempted.
-    let lastSuccessfulCursor: string | null = job.cursor_workspace_id;
+    // R7.1 §1: a cursor produced by a DIFFERENT generation is worthless —
+    // the workspaces behind it were decided under stale entitlements — so
+    // the pass restarts from the beginning. The claim RPC already enforces
+    // this; the guard keeps the worker correct against an older RPC too.
+    const cursorGeneration =
+      job.cursor_generation === null || job.cursor_generation === undefined
+        ? null
+        : Number(job.cursor_generation);
+    const cursorBelongsToGeneration =
+      job.cursor_workspace_id !== null && cursorGeneration === generation;
+    const startCursor: string | null = cursorBelongsToGeneration
+      ? job.cursor_workspace_id
+      : null;
+    let lastSuccessfulCursor: string | null = startCursor;
     let pending = zeroProgress();
     let pages = 0;
     let done = false;
@@ -469,7 +514,7 @@ export async function drainEntitlementFanoutJobs(
       const hasProgress =
         pending.processed || pending.skippedIneligible ||
         pending.retryableFailures || pending.permanentFailures ||
-        lastSuccessfulCursor !== job.cursor_workspace_id;
+        lastSuccessfulCursor !== startCursor;
       if (!hasProgress) return true;
       const { data: advanced, error: advErr } = await sb.rpc('advance_entitlement_fanout', {
         _id: job.id, _claim_token: job.claim_token, _worker_id: workerId,
@@ -573,8 +618,10 @@ export async function drainEntitlementFanoutJobs(
       _generation: generation, _error_code: 'fanout_requeued',
       _retry_seconds: 5, _max_attempts: 1000000,
     });
-    if (released === true) summary.requeued += 1;
-    else summary.leaseLost += 1;
+    const outcome = classifyReleaseOutcome(released);
+    if (outcome === 'requeued_new_generation') summary.requeuedNewGeneration += 1;
+    else if (outcome === 'lease_lost') summary.leaseLost += 1;
+    else summary.requeued += 1;
   }
 
   return summary;

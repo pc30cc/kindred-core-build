@@ -63,7 +63,11 @@ describe('paddle signature verification', () => {
 });
 
 describe('paddle verifyWebhook', () => {
-  const ts = Math.floor(Date.now() / 1000);
+  // Determinism: this MUST be read at assertion time, not while the file is
+  // being collected. Under a loaded full-suite run the gap between collection
+  // and execution can exceed the 300s replay tolerance and fail a correct
+  // implementation.
+  const ts = () => Math.floor(Date.now() / 1000);
 
   it('returns null when no signature or secret is present', async () => {
     await expect(paddleProvider.verifyWebhook({ provider: 'paddle', webhook_secret: SECRET }, {}, BODY)).resolves.toBeNull();
@@ -71,13 +75,13 @@ describe('paddle verifyWebhook', () => {
   });
   it('throws on an invalid signature', async () => {
     await expect(
-      paddleProvider.verifyWebhook({ provider: 'paddle', webhook_secret: SECRET }, { 'paddle-signature': `ts=${ts};h1=aabb` }, BODY),
+      paddleProvider.verifyWebhook({ provider: 'paddle', webhook_secret: SECRET }, { 'paddle-signature': `ts=${ts()};h1=aabb` }, BODY),
     ).rejects.toThrow(/Invalid Paddle webhook signature/);
   });
   it('maps a verified event without altering the payload mapping', async () => {
     const event = await paddleProvider.verifyWebhook(
       { provider: 'paddle', webhook_secret: SECRET },
-      { 'paddle-signature': paddleHeader(SECRET, BODY, ts) },
+      { 'paddle-signature': paddleHeader(SECRET, BODY, ts()) },
       BODY,
     );
     expect(event).toMatchObject({ type: 'checkout_completed', providerEventId: 'evt_1', workspaceId: 'ws_1' });

@@ -46,6 +46,7 @@ import {
   toPublicAiKbJobEvent,
   toPublicErrorCode,
   type AiKbJobRowLike,
+  toPublicAiKbVisibility,
 } from '../services/ai-kb/dto.js';
 
 export const aiKbRouter: Router = express.Router();
@@ -455,67 +456,65 @@ aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => 
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
-  await sb
-    .from('ai_kb_generated_articles')
-    .update({ status: 'rejected', reviewed_by: userId, reviewed_at: new Date().toISOString() })
-    .eq('id', gen.id);
-
+  // R7.1 §11 — a mutation whose result is never inspected reports success
+  // for a write that did not happen.
+  const { data, error } = await sb.rpc('reject_ai_kb_generated_article', {
+    _generated_id: gen.id,
+    _workspace_id: gen.workspace_id,
+    _reviewer: userId,
+  });
+  if (error) {
+    logInternal('reject_failed', error, { generatedId: gen.id });
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
+  const result = (data || {}) as { ok?: boolean; error?: string };
+  if (!result.ok) {
+    if (result.error === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'reject_failed' });
+  }
   return res.json({ ok: true });
 });
 
-/** Insert (or reuse) a knowledge_base_articles row as a DRAFT for this generated draft. */
-async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' | 'published') {
-  // If we already linked one, just update its status; otherwise insert a fresh draft.
-  if (gen.kb_article_id) {
-    // Composite ownership invariant: never write across workspaces.
-    const { data, error } = await sb
-      .from('knowledge_base_articles')
-      .update({
-        title: gen.title,
-        content: normalizeArticleHtml(gen.content_md),
-        excerpt: gen.excerpt,
-        locale: gen.locale,
-        status,
-      })
-      .eq('id', gen.kb_article_id)
-      .eq('workspace_id', gen.workspace_id)
-      .select('id, workspace_id, slug, locale, status')
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) throw new Error('kb_article_workspace_mismatch');
-    return data;
-  }
+/**
+ * R7.1 §12 — accept / publish are ONE transaction.
+ *
+ * Previously the KB article was written first and the generated row was
+ * linked afterwards; a failure between the two orphaned the article and the
+ * next retry produced a duplicate. `accept_ai_kb_generated_article` /
+ * `publish_ai_kb_generated_article` perform the upsert, the slug
+ * de-duplication and the back-link atomically, keyed on
+ * (generated_id, workspace_id) so a cross-workspace write is impossible.
+ *
+ * HTML normalization stays in the application layer and is passed in.
+ */
+interface ApplyGeneratedResult {
+  ok: boolean;
+  error?: string;
+  kb_article_id?: string;
+  status?: string;
+  slug?: string;
+  locale?: string;
+}
 
-  const baseSlug = gen.slug || slugifyTitle(gen.title);
-  let slug = baseSlug;
-  // de-duplicate slug per (workspace, locale)
-  for (let i = 0; i < 50; i++) {
-    const { data: clash } = await sb
-      .from('knowledge_base_articles')
-      .select('id')
-      .eq('workspace_id', gen.workspace_id)
-      .eq('locale', gen.locale)
-      .eq('slug', slug)
-      .maybeSingle();
-    if (!clash) break;
-    slug = `${baseSlug}-${i + 2}`;
-  }
-
-  const { data, error } = await sb
-    .from('knowledge_base_articles')
-    .insert({
-      workspace_id: gen.workspace_id,
-      slug,
-      locale: gen.locale,
-      title: gen.title,
-      content: normalizeArticleHtml(gen.content_md),
-      excerpt: gen.excerpt,
-      status,
-    })
-    .select('id, workspace_id, slug, locale, status')
-    .single();
-  if (error) throw error;
-  return data;
+async function applyGeneratedDraft(
+  sb: any,
+  gen: any,
+  userId: string,
+  mode: 'accept' | 'publish',
+): Promise<{ result?: ApplyGeneratedResult; transportError?: unknown }> {
+  // Ensure the row always has a usable slug seed before the RPC dedupes it.
+  if (!gen.slug) gen.slug = slugifyTitle(gen.title);
+  const { data, error } = await sb.rpc(
+    mode === 'accept' ? 'accept_ai_kb_generated_article' : 'publish_ai_kb_generated_article',
+    {
+      _generated_id: gen.id,
+      _workspace_id: gen.workspace_id,
+      _reviewer: userId,
+      _content: normalizeArticleHtml(gen.content_md),
+    },
+  );
+  if (error) return { transportError: error };
+  return { result: (data || { ok: false }) as ApplyGeneratedResult };
 }
 
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
@@ -524,22 +523,17 @@ aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => 
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
-  try {
-    const article = await upsertKbArticleFromGenerated(sb, gen, 'draft');
-    await sb
-      .from('ai_kb_generated_articles')
-      .update({
-        status: 'accepted',
-        kb_article_id: article.id,
-        reviewed_by: userId,
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', gen.id);
-    return res.json({ ok: true, kb_article_id: article.id });
-  } catch (error: unknown) {
-    logInternal('accept_failed', error, { generatedId: gen.id });
+  const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'accept');
+  if (transportError) {
+    logInternal('accept_transport_failed', transportError, { generatedId: gen.id });
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
+  if (!result?.ok) {
+    if (result?.error === 'not_found') return res.status(404).json({ error: 'not_found' });
+    logInternal('accept_failed', new Error(result?.error || 'unknown'), { generatedId: gen.id });
     return res.status(500).json({ error: 'accept_failed' });
   }
+  return res.json({ ok: true, kb_article_id: result.kb_article_id });
 });
 
 aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) => {
@@ -551,40 +545,31 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
-  try {
-    const article = await upsertKbArticleFromGenerated(sb, gen, 'published');
-    await sb
-      .from('ai_kb_generated_articles')
-      .update({
-        status: 'published',
-        kb_article_id: article.id,
-        reviewed_by: userId,
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', gen.id);
-    // Post-publish verification — confirm the article is actually visible
-    // to the widget query (workspace + status='published').
-    const { data: verify } = await sb
-      .from('knowledge_base_articles')
-      .select('id, status, locale, slug')
-      .eq('id', article.id)
-      .eq('workspace_id', gen.workspace_id)
-      .eq('status', 'published')
-      .maybeSingle();
-    if (!verify) {
-      return res.status(500).json({ error: 'publish_verification_failed', kb_article_id: article.id });
-    }
-    return res.json({
-      ok: true,
-      kb_article_id: article.id,
-      status: 'published',
-      slug: verify.slug,
-      locale: verify.locale,
-    });
-  } catch (error: unknown) {
-    logInternal('publish_failed', error, { generatedId: gen.id });
+  const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'publish');
+  if (transportError) {
+    logInternal('publish_transport_failed', transportError, { generatedId: gen.id });
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
+  if (!result?.ok) {
+    if (result?.error === 'not_found') return res.status(404).json({ error: 'not_found' });
+    logInternal('publish_failed', new Error(result?.error || 'unknown'), { generatedId: gen.id });
     return res.status(500).json({ error: 'publish_failed' });
   }
+  // The transaction itself is the proof of publication: the article row was
+  // written with status='published' in the same statement that linked it.
+  if (result.status !== 'published') {
+    return res.status(500).json({
+      error: 'publish_verification_failed',
+      kb_article_id: result.kb_article_id,
+    });
+  }
+  return res.json({
+    ok: true,
+    kb_article_id: result.kb_article_id,
+    status: 'published',
+    slug: result.slug,
+    locale: result.locale,
+  });
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -598,11 +583,16 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const auth = await authenticate(req, res, config);
   if (!auth) return;
 
-  const { data: job } = await sb
+  const { data: job, error: jobError } = await sb
     .from('ai_kb_jobs')
     .select('id, workspace_id')
     .eq('id', req.params.jobId)
     .maybeSingle();
+  if (jobError) {
+    // R7.1 §10 — an unreadable job is NOT a missing job.
+    console.error('[ai-kb] publish-all job lookup failed', JSON.stringify({ code: jobError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
   if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
     return res.status(404).json({ error: 'job_not_found' });
   }
@@ -627,22 +617,17 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
   const failed: Array<{ generated_id: string; error: 'publish_failed' }> = [];
   for (const gen of drafts || []) {
-    try {
-      const article = await upsertKbArticleFromGenerated(sb, gen, 'published');
-      await sb
-        .from('ai_kb_generated_articles')
-        .update({
-          status: 'published',
-          kb_article_id: article.id,
-          reviewed_by: auth.userId,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', gen.id);
-      published.push({ generated_id: gen.id, kb_article_id: article.id });
-    } catch (error: unknown) {
-      logInternal('bulk_publish_failed', error, { generatedId: gen.id });
+    const { result, transportError } = await applyGeneratedDraft(sb, gen, auth.userId, 'publish');
+    if (transportError || !result?.ok || !result.kb_article_id) {
+      logInternal(
+        'bulk_publish_failed',
+        transportError ?? new Error(result?.error || 'unknown'),
+        { generatedId: gen.id },
+      );
       failed.push({ generated_id: gen.id, error: 'publish_failed' });
+      continue;
     }
+    published.push({ generated_id: gen.id, kb_article_id: result.kb_article_id });
   }
   return res.json({ ok: true, published_count: published.length, failed_count: failed.length, published, failed });
 });
@@ -656,50 +641,48 @@ aiKbRouter.get('/generated/:id/visibility', async (req: Request, res: Response) 
   if (!ctx) return;
   const { gen, sb } = ctx;
 
-  const result: any = {
-    generated_status: gen.status,
-    kb_article_id: gen.kb_article_id || null,
-    kb_article_status: null,
-    kb_article_locale: null,
-    kb_article_slug: null,
-    kb_article_workspace_id: null,
-    widget_visible: false,
-    reason_if_not_visible: null as string | null,
-  };
+  const base = { generatedStatus: gen.status, kbArticleId: gen.kb_article_id || null };
 
   if (!gen.kb_article_id) {
-    result.reason_if_not_visible = 'no_kb_article';
-    return res.json(result);
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: null, widgetVisible: false, reason: 'no_kb_article',
+    }));
   }
-  const { data: art } = await sb
+
+  const { data: art, error: artError } = await sb
     .from('knowledge_base_articles')
     .select('id, status, locale, slug, workspace_id')
     .eq('id', gen.kb_article_id)
     .maybeSingle();
-  if (!art) {
-    result.reason_if_not_visible = 'article_missing';
-    return res.json(result);
+  if (artError) {
+    // R7.1 §10 — an unreadable article must never be reported as "missing".
+    console.error('[ai-kb] visibility article lookup failed', JSON.stringify({ code: artError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
   }
-  result.kb_article_status = art.status;
-  result.kb_article_locale = art.locale;
-  result.kb_article_slug = art.slug;
-  result.kb_article_workspace_id = art.workspace_id;
+  if (!art) {
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: null, widgetVisible: false, reason: 'article_missing',
+    }));
+  }
+  // The workspace id itself is internal — only the VERDICT is exposed.
   if (art.workspace_id !== gen.workspace_id) {
-    result.reason_if_not_visible = 'workspace_mismatch';
-    return res.json(result);
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: null, widgetVisible: false, reason: 'workspace_mismatch',
+    }));
   }
   if (art.status !== 'published') {
-    result.reason_if_not_visible = 'not_published';
-    return res.json(result);
+    return res.json(toPublicAiKbVisibility({
+      ...base, article: art, widgetVisible: false, reason: 'not_published',
+    }));
   }
-  if (art.locale !== gen.locale) {
-    // Not fatal — widget falls back across locales — but report it.
-    result.widget_visible = true;
-    result.reason_if_not_visible = 'locale_mismatch';
-    return res.json(result);
-  }
-  result.widget_visible = true;
-  return res.json(result);
+  // Not fatal — the widget falls back across locales — but still reported.
+  const localeMismatch = art.locale !== gen.locale;
+  return res.json(toPublicAiKbVisibility({
+    ...base,
+    article: art,
+    widgetVisible: true,
+    reason: localeMismatch ? 'locale_mismatch' : null,
+  }));
 });
 
 // ──────────────────────────────────────────────────────────────

@@ -1,15 +1,14 @@
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { KnowledgeBaseArticle, KnowledgeBaseCategory } from '@/types/models';
-import { aiAgentApi } from '@/lib/ai-agent-api';
 
-function fireAndForgetSync(workspaceId: string | undefined, sourceId: string | undefined) {
-  if (!workspaceId || !sourceId) return;
-  // Best-effort: don't block UI on indexing.
-  aiAgentApi
-    .syncKnowledgeSource(workspaceId, 'kb_article', sourceId)
-    .catch(() => {});
-}
+/**
+ * Phase 6-S5 — Knowledge Base is an INDEPENDENT product.
+ * Article mutations MUST NOT call the AI Agent API. Re-indexing of KB
+ * articles for the AI assistant is owned by the AI Agent side (Knowledge
+ * Sources) and is triggered there, one-way, only for workspaces whose plan
+ * includes `ai_assistant`.
+ */
 
 export function useKBCategories(workspaceId: string | undefined, locale?: string) {
   return useQuery({
@@ -60,9 +59,8 @@ export function useCreateKBArticle(workspaceId: string | undefined) {
       if (error) throw error;
       return data;
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kb-articles'] });
-      fireAndForgetSync(workspaceId, data?.id);
     },
   });
 }
@@ -80,9 +78,8 @@ export function useUpdateKBArticle() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kb-articles'] });
-      fireAndForgetSync(data?.workspace_id, data?.id);
     },
   });
 }
@@ -100,9 +97,8 @@ export function useDeleteKBArticle() {
       if (error) throw error;
       return { id, workspace_id: (row as any)?.workspace_id };
     },
-    onSuccess: (res: any) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kb-articles'] });
-      fireAndForgetSync(res?.workspace_id, res?.id);
     },
   });
 }

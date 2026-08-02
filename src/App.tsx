@@ -35,6 +35,7 @@ import ContactsPage from "@/pages/app/ContactsPage";
 import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
+import { PlanAccessGate } from "@/components/plan/PlanAccessGate";
 import WidgetPage from "@/pages/app/WidgetPage";
 import { PlanLockedOverlay } from "@/components/plan/PlanLockedOverlay";
 // AI Agent (Phase 1 foundation)
@@ -66,7 +67,6 @@ import AiAgentOperatorAssistAnalyticsPage from "@/pages/app/ai-agent/OperatorAss
 import AiAgentSuggestedTestsPage from "@/pages/app/ai-agent/SuggestedTestsPage";
 import AiAgentRegressionRunsPage from "@/pages/app/ai-agent/RegressionRunsPage";
 import AiAgentKnowledgePage from "@/pages/app/ai-agent/KnowledgePage";
-import AiAgentArticlesPage from "@/pages/app/ai-agent/ArticlesPage";
 import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
 import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
 import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
@@ -229,6 +229,21 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="widget" element={<WidgetPage />} />
                 <Route path="email" element={<EmailPage />} />
                 <Route path="billing" element={<BillingPage />} />
+                {/* Phase 6-S5 — Knowledge Base is an INDEPENDENT product.
+                    It lives directly under the workspace app layout and is
+                    gated only by the `knowledge_base` plan module. It must
+                    never be nested under AiAgentLayout. */}
+                <Route
+                  path="knowledge-base"
+                  element={
+                    <PlanAccessGate moduleKey="knowledge_base">
+                      <KnowledgeBasePage />
+                    </PlanAccessGate>
+                  }
+                />
+                {/* Legacy KB URL — declared OUTSIDE AiAgentLayout so the
+                    redirect still works while AI Agent is disabled. */}
+                <Route path="ai-agent/articles" element={<Navigate to="../../knowledge-base" replace />} />
                 <Route path="call-center" element={<CallCenterLayout />}>
                   <Route index element={<CallCenterOverviewPage />} />
                   <Route path="queue" element={<CallCenterLiveQueuePage />} />
@@ -263,16 +278,14 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="team-departments" element={<TeamDepartmentsPage />} />
                   <Route path="staff-access" element={<StaffAccessPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
-                  {/* KB unification (Phase 3): the old settings entry now redirects
-                      into the AI Agent Articles tab — the single source of truth. */}
-                  <Route path="knowledge-base" element={<Navigate to="../ai-agent/articles" replace />} />
+                  {/* Legacy settings entry → canonical Knowledge Base route. */}
+                  <Route path="knowledge-base" element={<Navigate to="../../knowledge-base" replace />} />
                 </Route>
                 {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
                 <Route path="ai-agent" element={<AiAgentLayout />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AiAgentOverviewPage />} />
                   <Route path="knowledge" element={<AiAgentKnowledgePage />} />
-                  <Route path="articles" element={<PlanLockedOverlay moduleKey="knowledge_base"><AiAgentArticlesPage /></PlanLockedOverlay>} />
                   <Route path="behavior" element={<AiAgentBehaviorPage />} />
                   <Route path="operator-assist" element={<AiAgentOperatorAssistPage />} />
                   <Route path="activity" element={<AiAgentActivityPage />} />
@@ -309,7 +322,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 {/* Backwards-compat redirects: legacy URLs → settings */}
                 <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />
                 <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />
-                <Route path="knowledge-base" element={<Navigate to="../ai-agent/articles" replace />} />
                 <Route path="ai" element={<Navigate to="../settings/ai" replace />} />
               </Route>
 

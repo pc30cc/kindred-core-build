@@ -10,6 +10,7 @@ import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCa
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
+import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 
 function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
@@ -116,9 +117,12 @@ export default function KnowledgePage() {
         </div>
       </div>
 
+      {/* Phase 6-S5 — the AI KB Builder lives on the AI Agent side only. */}
+      <AiKbBuilderTab />
+
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild variant="default" className="shadow-sm">
-          <Link to="../articles">
+          <Link to="../../knowledge-base">
             <BookText className="h-4 w-4 me-2" />
             {tr('actions.manageArticles', 'Manage articles')}
           </Link>

@@ -8,6 +8,7 @@
  */
 import type { Request, Response, NextFunction } from 'express';
 import type { ServerConfig } from '../../config.js';
+import { checkModuleAccess } from '../../middleware/featureGating.js';
 import { getServiceClient } from '../../supabase.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { getPlatformAiAgentSettings } from './platformSettings.js';
@@ -317,6 +318,19 @@ export async function isAutoAnswerAllowedForWorkspace(
       return { allowed: false, reason: 'auto_answer_disabled_by_platform' };
     }
     if (workspaceId) {
+      // Phase 6-S5 — plan gate: no AI auto-answer without the `ai_assistant`
+      // module. Fail-closed on lookup problems.
+      const planAccess = await checkModuleAccess(
+        config.supabaseUrl,
+        config.supabaseServiceRoleKey,
+        workspaceId,
+        'ai_assistant',
+      ).catch(() => ({ allowed: false }));
+      if (!planAccess.allowed) {
+        return { allowed: false, reason: 'ai_assistant_not_in_plan' };
+      }
+    }
+    if (workspaceId) {
       const sb = getServiceClient(config);
       const { data: row } = await sb
         .from('ai_agent_settings')
@@ -330,6 +344,7 @@ export async function isAutoAnswerAllowedForWorkspace(
     }
     return { allowed: true };
   } catch {
-    return { allowed: true };
+    // Fail-closed: an unexpected error must not enable AI auto-answer.
+    return { allowed: false, reason: 'auto_answer_guard_error' };
   }
 }

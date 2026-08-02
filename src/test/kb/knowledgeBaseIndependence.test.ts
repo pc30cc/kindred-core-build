@@ -34,6 +34,8 @@ describe('Knowledge Base is independent from the AI Agent', () => {
     const src = read('server/services/ai-agent/knowledgeIndex/kbEvents.ts');
     expect(src).toMatch(/knowledge_base_change_events/);
     expect(src).toMatch(/'ai_assistant'/);
-    expect(src).toMatch(/skippedNoPlan/);
+    // Plan-off is a DEFERRAL (retryable), never a completion.
+    expect(src).toMatch(/ai_assistant_plan_required/);
+    expect(src).toMatch(/defer_kb_change_events/);
   });
 });

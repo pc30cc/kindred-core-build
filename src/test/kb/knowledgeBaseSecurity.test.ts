@@ -53,15 +53,16 @@ describe('KB write authorization', () => {
 describe('AI KB Builder plan enforcement', () => {
   const src = read('server/routes/aiKb.ts');
 
-  it('review/publish paths run the module gate, not only membership', () => {
+  it('review/publish paths run the full gate, not only membership', () => {
     const loadGenerated = src.match(/async function loadGenerated[\s\S]*?\n\}\n/)?.[0] ?? '';
-    expect(loadGenerated).toMatch(/ensureModulesEnabled/);
+    expect(loadGenerated).toMatch(/gateAiKb/);
     const publishAll = src.match(/publish-all'[\s\S]*?\n\}\);/)?.[0] ?? '';
-    expect(publishAll).toMatch(/ensureModulesEnabled/);
+    expect(publishAll).toMatch(/gateAiKb/);
   });
 
-  it('gates both knowledge_base and ai_kb_builder independently', () => {
-    expect(src).toMatch(/\['knowledge_base', 'ai_kb_builder'\]/);
+  it('publishing generated drafts requires the publish permission', () => {
+    const publishAll = src.match(/publish-all'[\s\S]*?\n\}\);/)?.[0] ?? '';
+    expect(publishAll).toMatch(/can_publish_knowledge_base/);
   });
 
   it('never writes a KB article outside the generated draft workspace', () => {

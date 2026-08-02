@@ -26,6 +26,7 @@ import {
   changeAccountPassword,
 } from '@/lib/account-api';
 import { resendVerificationEmail } from '@/lib/auth-email-api';
+import { AccountPhoneField } from '@/features/phone-verification/AccountPhoneField';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

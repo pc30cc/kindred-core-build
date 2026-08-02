@@ -67,7 +67,6 @@ import AiAgentOperatorAssistAnalyticsPage from "@/pages/app/ai-agent/OperatorAss
 import AiAgentSuggestedTestsPage from "@/pages/app/ai-agent/SuggestedTestsPage";
 import AiAgentRegressionRunsPage from "@/pages/app/ai-agent/RegressionRunsPage";
 import AiAgentKnowledgePage from "@/pages/app/ai-agent/KnowledgePage";
-import AiAgentArticlesPage from "@/pages/app/ai-agent/ArticlesPage";
 import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
 import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
 import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";

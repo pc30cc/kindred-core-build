@@ -24,13 +24,17 @@ vi.mock('../../../server/supabase', () => ({
       return { data: true, error: null };
     },
     from: () => {
+      // The builder must stay chainable AFTER .limit(), exactly like
+      // postgrest-js: the query resolves only when awaited.
       const q: any = {
-        select: () => q, eq: () => q, order: () => q, gt: () => q,
-        limit: async () => {
+        select: () => q, eq: () => q, order: () => q, gt: () => q, limit: () => q,
+        then: (resolve: any, reject: any) => {
           const idx = pageCall;
           pageCall += 1;
-          if (pageErrorOnCall === idx) return { data: null, error: { code: 'XX000' } };
-          return { data: (workspacePages[idx] || []).map((id) => ({ id, workspace_id: id })), error: null };
+          const result = pageErrorOnCall === idx
+            ? { data: null, error: { code: 'XX000' } }
+            : { data: (workspacePages[idx] || []).map((id) => ({ id, workspace_id: id })), error: null };
+          return Promise.resolve(result).then(resolve, reject);
         },
       };
       return q;

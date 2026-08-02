@@ -5,10 +5,14 @@
 import type { ReactNode } from 'react';
 import { EntitlementAccessGate } from './EntitlementAccessGate';
 
+/**
+ * Phase 6-S5-R4 — `knowledge_base` is deliberately ABSENT from this union.
+ * The Knowledge Base is a core workspace product and must never be placed
+ * behind a plan gate; removing the key makes that a compile-time guarantee.
+ */
 export type PlanModuleKey =
   | 'ai_assistant'
   | 'call_center'
-  | 'knowledge_base'
   | 'visitor_tracking'
   | 'contacts';
 

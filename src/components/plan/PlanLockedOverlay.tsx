@@ -7,10 +7,13 @@ import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+/**
+ * Phase 6-S5-R4 — `knowledge_base` is deliberately ABSENT: the Knowledge Base
+ * is a core product and is never locked or blurred by a plan.
+ */
 type ModuleKey =
   | 'ai_assistant'
   | 'call_center'
-  | 'knowledge_base'
   | 'visitor_tracking'
   | 'contacts';
 

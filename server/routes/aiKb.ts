@@ -602,16 +602,9 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.get('/generated/:id/visibility', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const sb = getServiceClient(config);
-  const { data: gen } = await sb
-    .from('ai_kb_generated_articles')
-    .select('*')
-    .eq('id', req.params.id)
-    .maybeSingle();
-  if (!gen) return res.status(404).json({ error: 'not_found' });
-
-  const auth = await authorizeMember(req, res, config, gen.workspace_id);
-  if (!auth) return;
+  const ctx = await loadGenerated(req, res, config, []);
+  if (!ctx) return;
+  const { gen, sb } = ctx;
 
   const result: any = {
     generated_status: gen.status,

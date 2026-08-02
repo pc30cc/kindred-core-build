@@ -10,7 +10,7 @@ import {
   LogOut, Shield, ChevronDown, UserPlus, Plus,
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, Building2, HelpCircle, Sparkles,
-  AlertCircle, Check, Ban,
+  AlertCircle, Check, Ban, Lock,
   PhoneCall,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -31,6 +31,7 @@ import { useBranding } from '@/hooks/useBranding';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
@@ -47,6 +48,7 @@ export function AppSidebar() {
   const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
   const { data: callCenterCaps, isError: callCenterCapsError } = useCallCenterCapabilities(workspace?.id);
+  const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
   // Fail-CLOSED: hide unless capabilities explicitly say visible.
   const callCenterVisible =
     !callCenterCapsError && !!callCenterCaps?.workspace_call_center_visible;
@@ -146,17 +148,26 @@ export function AppSidebar() {
     !!aiAgentCaps &&
     aiAgentCaps.ai_agent_enabled &&
     aiAgentCaps.customer_ai_agent_visible;
+  // Phase 6-S5 — plan-level module state (independent from platform toggles).
+  const moduleEnabled = (key: string): boolean =>
+    entitlements?.modules?.[key]?.value !== false;
+  // AI Agent: platform availability decides visibility, plan decides lock.
+  const aiAssistantPlanEnabled = moduleEnabled('ai_assistant');
+  // Knowledge Base is INDEPENDENT of AI Agent: it is never hidden because of
+  // AI platform toggles; it is only locked by the `knowledge_base` module.
+  const knowledgeBasePlanEnabled = moduleEnabled('knowledge_base');
+
   const mainNav = [
     ...(aiAgentVisible
-      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles } as const]
+      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, locked: !aiAssistantPlanEnabled } as const]
       : []),
     ...(callCenterVisible
-      ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall } as const]
+      ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall, locked: false } as const]
       : []),
-    { key: 'visitors', path: '/visitors', icon: Eye },
-    { key: 'contacts', path: '/contacts', icon: Users },
-    { key: 'knowledgeBase', path: '/ai-agent/articles', icon: BookOpen },
-    { key: 'team', path: '/team', icon: UserCog },
+    { key: 'visitors', path: '/visitors', icon: Eye, locked: false },
+    { key: 'contacts', path: '/contacts', icon: Users, locked: false },
+    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, locked: !knowledgeBasePlanEnabled },
+    { key: 'team', path: '/team', icon: UserCog, locked: false },
   ] as const;
 
   const bottomNav = [
@@ -387,7 +398,10 @@ export function AppSidebar() {
             )}
           >
             <item.icon className="h-[18px] w-[18px] shrink-0" />
-            <span>{t(`nav.${item.key}` as any)}</span>
+            <span className="flex-1">{t(`nav.${item.key}` as any)}</span>
+            {item.locked && (
+              <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
+            )}
           </Link>
         ))}
       </nav>

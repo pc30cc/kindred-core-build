@@ -377,14 +377,16 @@ export async function rebuildWorkspaceIndex(
 
   summary.embeddingBudgetUsed = budget - remainingBudget;
 
-  // Provider truthfulness: a configured embedding provider that failed every
-  // attempt is an outage, not a success. Deployments with NO usable provider
-  // run a documented keyword-only index and complete normally.
+  // Phase 6-S5-R6 — STRICT partial-embedding policy.
+  //
+  // A rebuild that produced ANY embedding failure is not complete: the chunks
+  // that failed have no vector and would silently never be retried once the
+  // event is marked processed. Deployments with NO usable provider run a
+  // documented keyword-only index and still complete normally.
   if (
     summary.terminalState === 'completed' &&
     isUsableEmbeddingProvider(embedder) &&
-    summary.embeddingFailures > 0 &&
-    summary.embeddingsGenerated === 0
+    summary.embeddingFailures > 0
   ) {
     summary.ok = false;
     summary.terminalState = 'deferred_provider_unavailable';

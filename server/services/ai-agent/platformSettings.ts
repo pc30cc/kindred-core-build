@@ -13,7 +13,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
-import { checkModuleAccess } from '../../middleware/featureGating.js';
+import { checkModuleAccess, checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
 export interface PlatformAiAgentSettings {
   id: string;

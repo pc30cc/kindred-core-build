@@ -243,7 +243,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 />
                 {/* Legacy KB URL — declared OUTSIDE AiAgentLayout so the
                     redirect still works while AI Agent is disabled. */}
-                <Route path="ai-agent/articles" element={<Navigate to="../knowledge-base" replace />} />
+                <Route path="ai-agent/articles" element={<Navigate to="../../knowledge-base" replace />} />
                 <Route path="call-center" element={<CallCenterLayout />}>
                   <Route index element={<CallCenterOverviewPage />} />
                   <Route path="queue" element={<CallCenterLiveQueuePage />} />

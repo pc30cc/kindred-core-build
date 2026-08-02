@@ -150,6 +150,11 @@ export interface RebuildSummary {
   chunksDeleted: number;
   /** kb_article chunks removed because their article is no longer eligible. */
   staleSourcesReconciled: number;
+  /**
+   * True when the destructive reconciliation sweep was skipped because a
+   * prerequisite query failed. Deleting on unverified data is never allowed.
+   */
+  reconciliationSkipped?: boolean;
   embeddingsGenerated: number;
   embeddingFailures: number;
   embeddingProvider: string;
@@ -186,13 +191,20 @@ export async function rebuildWorkspaceIndex(
   };
 
   // 1) Published KB articles
-  const { data: articles } = await sb
+  //
+  // Phase 6-S5-R4 — the eligible-article set is the ONLY input the
+  // reconciliation sweep uses to decide what to retire. If this query fails we
+  // must NOT treat "no rows" as "nothing is eligible", otherwise a transient
+  // database error would wipe the entire KB index. The failure is recorded and
+  // the sweep is skipped.
+  const { data: articles, error: articlesError } = await sb
     .from('knowledge_base_articles')
     .select('id, slug, locale, title, content, status')
     .eq('workspace_id', workspaceId)
     .eq('status', 'published')
     .eq('used_by_ai', true)
     .limit(2000);
+  const articleSetTrustworthy = !articlesError;
   const eligibleArticleIds = new Set<string>((articles || []).map((a) => a.id as string));
   for (const a of articles || []) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));
@@ -274,31 +286,51 @@ export async function rebuildWorkspaceIndex(
   // kb_article chunk whose source_id is not in the eligible set is retired.
   // Scoped to source_type='kb_article' — Q&A and business-profile chunks are
   // never touched here.
-  const { data: kbChunks } = await sb
-    .from('ai_knowledge_chunks')
-    .select('source_id')
-    .eq('workspace_id', workspaceId)
-    .eq('source_type', 'kb_article')
-    .neq('status', 'deleted')
-    .limit(20000);
-  const staleSourceIds = Array.from(
-    new Set(
-      (kbChunks || [])
-        .map((c) => c.source_id as string)
-        .filter((id) => id && !eligibleArticleIds.has(id)),
-    ),
-  );
-  if (staleSourceIds.length > 0) {
-    const { data: retired } = await sb
+  //
+  // The sweep is DESTRUCTIVE, so it runs only when every prerequisite query
+  // succeeded. On any query error it is skipped entirely and the rebuild is
+  // reported as non-terminal so the outbox event is retried, never completed.
+  let reconciliationFailed = !articleSetTrustworthy;
+  if (articleSetTrustworthy) {
+    const { data: kbChunks, error: chunksError } = await sb
       .from('ai_knowledge_chunks')
-      .update({ status: 'deleted', updated_at: new Date().toISOString() })
+      .select('source_id')
       .eq('workspace_id', workspaceId)
       .eq('source_type', 'kb_article')
       .neq('status', 'deleted')
-      .in('source_id', staleSourceIds)
-      .select('id');
-    summary.staleSourcesReconciled = staleSourceIds.length;
-    summary.chunksDeleted += (retired || []).length;
+      .limit(20000);
+    if (chunksError) {
+      reconciliationFailed = true;
+    } else {
+      const staleSourceIds = Array.from(
+        new Set(
+          (kbChunks || [])
+            .map((c) => c.source_id as string)
+            .filter((id) => id && !eligibleArticleIds.has(id)),
+        ),
+      );
+      if (staleSourceIds.length > 0) {
+        const { data: retired, error: retireError } = await sb
+          .from('ai_knowledge_chunks')
+          .update({ status: 'deleted', updated_at: new Date().toISOString() })
+          .eq('workspace_id', workspaceId)
+          .eq('source_type', 'kb_article')
+          .neq('status', 'deleted')
+          .in('source_id', staleSourceIds)
+          .select('id');
+        if (retireError) {
+          reconciliationFailed = true;
+        } else {
+          summary.staleSourcesReconciled = staleSourceIds.length;
+          summary.chunksDeleted += (retired || []).length;
+        }
+      }
+    }
+  }
+  if (reconciliationFailed) {
+    summary.ok = false;
+    summary.terminalState = 'failed';
+    summary.reconciliationSkipped = true;
   }
 
   summary.embeddingBudgetUsed = budget - remainingBudget;

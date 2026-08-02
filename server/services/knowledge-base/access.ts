@@ -12,6 +12,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { checkModuleAccess } from '../../middleware/featureGating.js';
+import { getServiceClient } from '../../supabase.js';
 
 export interface KnowledgeBasePlanDenial {
   error: 'knowledge_base_plan_required';
@@ -70,4 +71,41 @@ export interface KnowledgeBaseArticleRecord extends KnowledgeBaseArticleInput {
   used_by_ai: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// ─── Granular KB permissions ────────────────────────────────
+
+export type KnowledgeBasePermission =
+  | 'can_manage_knowledge_base'
+  | 'can_publish_knowledge_base';
+
+export interface KnowledgeBasePermissionDenial {
+  error: 'knowledge_base_permission_denied';
+  permission: KnowledgeBasePermission;
+}
+
+/**
+ * Fail-closed granular permission check backed by
+ * `public.has_workspace_permission` (role_permissions override + role default).
+ * Returns null when allowed, otherwise the canonical denial body.
+ */
+export async function checkKnowledgeBasePermission(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+  permission: KnowledgeBasePermission,
+): Promise<KnowledgeBasePermissionDenial | null> {
+  let granted = false;
+  try {
+    const { data, error } = await getServiceClient(config).rpc('has_workspace_permission', {
+      _workspace_id: workspaceId,
+      _user_id: userId,
+      _permission_key: permission,
+    });
+    granted = !error && data === true;
+  } catch {
+    granted = false;
+  }
+  if (granted) return null;
+  return { error: 'knowledge_base_permission_denied', permission };
 }

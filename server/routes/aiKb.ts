@@ -282,6 +282,8 @@ aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
+  if (!(await gateAiKb(res, config, workspaceId, auth, { route: 'GET /api/ai-kb/jobs' }))) return;
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('ai_kb_jobs')
@@ -290,7 +292,10 @@ aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (error) return res.status(500).json({ error: 'list_failed', details: error.message });
+  if (error) {
+    logInternal('list_failed', error, { workspaceId });
+    return res.status(500).json({ error: 'list_failed' });
+  }
   return res.json({ jobs: data || [] });
 });
 
@@ -301,16 +306,20 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
 
-  const { data: job, error } = await sb
+  const auth = await authenticate(req, res, config);
+  if (!auth) return;
+
+  const { data: job } = await sb
     .from('ai_kb_jobs')
     .select('*')
     .eq('id', req.params.id)
     .maybeSingle();
 
-  if (error || !job) return res.status(404).json({ error: 'job_not_found' });
-
-  const auth = await authorizeMember(req, res, config, job.workspace_id);
-  if (!auth) return;
+  // Canonical 404 for both "missing" and "not yours" — no existence leak.
+  if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
+    return res.status(404).json({ error: 'job_not_found' });
+  }
+  if (!(await gateAiKb(res, config, job.workspace_id, auth, { route: 'GET /api/ai-kb/jobs/:id' }))) return;
 
   const [{ data: pages }, { data: generated }, { data: events }] = await Promise.all([
     sb.from('ai_kb_job_pages').select('*').eq('job_id', job.id).order('created_at', { ascending: true }).limit(500),

@@ -759,6 +759,10 @@ const tr: TranslationKeys = {
     expiresIn: 'Kodun süresi {{seconds}} sn içinde doluyor',
     attemptsLeft: '{{count}} deneme kaldı',
     verifiedByAdmin: 'Yönetici tarafından manuel doğrulandı',
+    accountVerifyCta: 'Numarayı doğrula',
+    accountVerifiedNote: 'Cep telefonu numaranız doğrulandı. Korumalı bölümler için de aynı numara kullanılır.',
+    accountUnverifiedNote: 'Numaranızı buradan veya herhangi bir korumalı bölümden doğrulayabilirsiniz; ikisi de aynıdır.',
+    accountDialogBody: 'Cep telefonu numaranızı girin ve gönderdiğimiz tek kullanımlık kodu yazın.',
     errors: {
       phone_verification_required: 'Telefon doğrulaması gereklidir.',
       phone_verification_not_allowed: 'Bu numarayı doğrulama izniniz yok.',

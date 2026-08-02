@@ -759,6 +759,10 @@ const fa: TranslationKeys = {
     expiresIn: 'انقضای کد تا {{seconds}} ثانیه',
     attemptsLeft: '{{count}} تلاش باقی مانده',
     verifiedByAdmin: 'تأیید دستی توسط مدیر',
+    accountVerifyCta: 'تأیید شماره',
+    accountVerifiedNote: 'شماره موبایل شما تأیید شده است. همین شماره برای باز کردن بخش‌های محافظت‌شده استفاده می‌شود.',
+    accountUnverifiedNote: 'شماره موبایل خود را از همین‌جا یا از هر بخش محافظت‌شده تأیید کنید؛ هر دو یکی است.',
+    accountDialogBody: 'شماره موبایل خود را وارد کنید و کد یک‌بارمصرف ارسال‌شده را ثبت کنید.',
     errors: {
       phone_verification_required: 'تأیید شماره موبایل الزامی است.',
       phone_verification_not_allowed: 'اجازه تأیید این شماره را ندارید.',

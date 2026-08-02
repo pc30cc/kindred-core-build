@@ -771,6 +771,10 @@ const en = {
     expiresIn: 'Code expires in {{seconds}}s',
     attemptsLeft: '{{count}} attempts left',
     verifiedByAdmin: 'Verified manually by admin',
+    accountVerifyCta: 'Verify number',
+    accountVerifiedNote: 'Your mobile number is verified. It is the same number used to unlock protected sections.',
+    accountUnverifiedNote: 'Verify your mobile number here or in any protected section — it is the same verification.',
+    accountDialogBody: 'Enter your mobile number and the one-time code we send you.',
     errors: {
       phone_verification_required: 'Mobile verification is required.',
       phone_verification_not_allowed: 'You are not allowed to verify this number.',

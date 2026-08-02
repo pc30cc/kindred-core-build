@@ -25,17 +25,24 @@ CREATE TABLE IF NOT EXISTS public.entitlement_fanout_jobs (
   completed_at timestamptz
 );
 
-GRANT ALL ON public.entitlement_fanout_jobs TO service_role;
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT ALL ON public.entitlement_fanout_jobs TO service_role';
+  END IF;
+END
+$do$;
 
 ALTER TABLE public.entitlement_fanout_jobs ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "entitlement_fanout_jobs_service_only" ON public.entitlement_fanout_jobs;
-CREATE POLICY "entitlement_fanout_jobs_service_only"
-  ON public.entitlement_fanout_jobs
-  FOR ALL
-  TO service_role
-  USING (true)
-  WITH CHECK (true);
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "entitlement_fanout_jobs_service_only" ON public.entitlement_fanout_jobs';
+    EXECUTE 'CREATE POLICY "entitlement_fanout_jobs_service_only" ON public.entitlement_fanout_jobs FOR ALL TO service_role USING (true) WITH CHECK (true)';
+  END IF;
+END
+$do$;
 
 -- One active job per plan; one active platform-wide job.
 CREATE UNIQUE INDEX IF NOT EXISTS entitlement_fanout_jobs_active_plan_uq
@@ -108,8 +115,20 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.enqueue_entitlement_fanout(text, text, uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.enqueue_entitlement_fanout(text, text, uuid) TO service_role;
+DO $do$
+BEGIN
+  EXECUTE 'REVOKE ALL ON FUNCTION public.enqueue_entitlement_fanout(text, text, uuid) FROM PUBLIC';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.enqueue_entitlement_fanout(text, text, uuid) FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.enqueue_entitlement_fanout(text, text, uuid) FROM authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.enqueue_entitlement_fanout(text, text, uuid) TO service_role';
+  END IF;
+END
+$do$;
 
 -- ── Claim with an expiring, owned lease ───────────────────────────────
 CREATE OR REPLACE FUNCTION public.claim_entitlement_fanout_jobs(
@@ -163,8 +182,20 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.claim_entitlement_fanout_jobs(text, integer, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.claim_entitlement_fanout_jobs(text, integer, integer) TO service_role;
+DO $do$
+BEGIN
+  EXECUTE 'REVOKE ALL ON FUNCTION public.claim_entitlement_fanout_jobs(text, integer, integer) FROM PUBLIC';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.claim_entitlement_fanout_jobs(text, integer, integer) FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.claim_entitlement_fanout_jobs(text, integer, integer) FROM authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.claim_entitlement_fanout_jobs(text, integer, integer) TO service_role';
+  END IF;
+END
+$do$;
 
 -- ── Save progress and extend the lease (owner only) ───────────────────
 CREATE OR REPLACE FUNCTION public.advance_entitlement_fanout(
@@ -199,8 +230,20 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.advance_entitlement_fanout(uuid, uuid, text, uuid, integer, integer, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.advance_entitlement_fanout(uuid, uuid, text, uuid, integer, integer, integer) TO service_role;
+DO $do$
+BEGIN
+  EXECUTE 'REVOKE ALL ON FUNCTION public.advance_entitlement_fanout(uuid, uuid, text, uuid, integer, integer, integer) FROM PUBLIC';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.advance_entitlement_fanout(uuid, uuid, text, uuid, integer, integer, integer) FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.advance_entitlement_fanout(uuid, uuid, text, uuid, integer, integer, integer) FROM authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.advance_entitlement_fanout(uuid, uuid, text, uuid, integer, integer, integer) TO service_role';
+  END IF;
+END
+$do$;
 
 -- ── Complete (owner only) ─────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.complete_entitlement_fanout(
@@ -235,8 +278,20 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.complete_entitlement_fanout(uuid, uuid, text, integer, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.complete_entitlement_fanout(uuid, uuid, text, integer, integer) TO service_role;
+DO $do$
+BEGIN
+  EXECUTE 'REVOKE ALL ON FUNCTION public.complete_entitlement_fanout(uuid, uuid, text, integer, integer) FROM PUBLIC';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.complete_entitlement_fanout(uuid, uuid, text, integer, integer) FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.complete_entitlement_fanout(uuid, uuid, text, integer, integer) FROM authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.complete_entitlement_fanout(uuid, uuid, text, integer, integer) TO service_role';
+  END IF;
+END
+$do$;
 
 -- ── Fail / release with backoff (owner only) ──────────────────────────
 CREATE OR REPLACE FUNCTION public.fail_entitlement_fanout(
@@ -274,5 +329,17 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.fail_entitlement_fanout(uuid, uuid, text, text, integer, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fail_entitlement_fanout(uuid, uuid, text, text, integer, integer) TO service_role;
+DO $do$
+BEGIN
+  EXECUTE 'REVOKE ALL ON FUNCTION public.fail_entitlement_fanout(uuid, uuid, text, text, integer, integer) FROM PUBLIC';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.fail_entitlement_fanout(uuid, uuid, text, text, integer, integer) FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.fail_entitlement_fanout(uuid, uuid, text, text, integer, integer) FROM authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.fail_entitlement_fanout(uuid, uuid, text, text, integer, integer) TO service_role';
+  END IF;
+END
+$do$;

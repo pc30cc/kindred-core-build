@@ -46,7 +46,48 @@ function logInternal(scope: string, error: unknown, context: Record<string, unkn
   console.error(`[ai-kb] ${scope}`, JSON.stringify({ ...context, message: message.slice(0, 300) }));
 }
 
-// ─── Auth helper (operator JWT + workspace membership) ─────────
+// ─── Auth helpers (operator JWT + workspace membership) ────────
+
+export interface AiKbAuth { userId: string; isAdmin: boolean }
+
+/** Authenticate only. Writes 401 and returns null when the JWT is invalid. */
+async function authenticate(
+  req: Request,
+  res: Response,
+  config: ServerConfig,
+): Promise<AiKbAuth | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing authorization' });
+    return null;
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const sb = getServiceClient(config);
+  const { data: { user }, error } = await sb.auth.getUser(token);
+  if (error || !user) {
+    res.status(401).json({ error: 'Invalid token' });
+    return null;
+  }
+  return { userId: user.id, isAdmin: await isGlobalAdmin(config, user.id) };
+}
+
+/**
+ * Silent membership probe used by resource-scoped routes so an unauthorized
+ * cross-workspace request cannot distinguish "not found" from "forbidden".
+ */
+async function isAuthorizedForWorkspace(
+  config: ServerConfig,
+  auth: AiKbAuth,
+  workspaceId: string,
+): Promise<boolean> {
+  if (auth.isAdmin) return true;
+  const { data, error } = await getServiceClient(config).rpc('is_workspace_member', {
+    _workspace_id: workspaceId,
+    _user_id: auth.userId,
+  });
+  return !error && data === true;
+}
+
 async function authorizeMember(
   req: Request,
   res: Response,

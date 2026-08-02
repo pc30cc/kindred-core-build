@@ -139,10 +139,17 @@ export async function syncKnowledgeSource(
 
 export interface RebuildSummary {
   ok: boolean;
+  /**
+   * Authoritative outcome for the outbox worker. `ok === false` NEVER means
+   * "nothing to do" — the caller must defer or fail the event accordingly.
+   */
+  terminalState: 'completed' | 'deferred_provider_unavailable' | 'failed';
   chunksCreated: number;
   chunksUpdated: number;
   chunksSkipped: number;
   chunksDeleted: number;
+  /** kb_article chunks removed because their article is no longer eligible. */
+  staleSourcesReconciled: number;
   embeddingsGenerated: number;
   embeddingFailures: number;
   embeddingProvider: string;
@@ -163,10 +170,12 @@ export async function rebuildWorkspaceIndex(
 
   const summary: RebuildSummary = {
     ok: true,
+    terminalState: 'completed',
     chunksCreated: 0,
     chunksUpdated: 0,
     chunksSkipped: 0,
     chunksDeleted: 0,
+    staleSourcesReconciled: 0,
     embeddingsGenerated: 0,
     embeddingFailures: 0,
     embeddingProvider: embedder.name,
@@ -184,6 +193,7 @@ export async function rebuildWorkspaceIndex(
     .eq('status', 'published')
     .eq('used_by_ai', true)
     .limit(2000);
+  const eligibleArticleIds = new Set<string>((articles || []).map((a) => a.id as string));
   for (const a of articles || []) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));
     const r = await indexSource(config, {

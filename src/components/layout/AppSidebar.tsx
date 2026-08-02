@@ -157,9 +157,10 @@ export function AppSidebar() {
   // AI Agent: platform availability decides visibility, plan decides lock.
   const aiAssistantPlanEnabled =
     aiAgentCaps?.plan_ai_assistant_enabled === true || moduleEnabled('ai_assistant');
-  // Knowledge Base is INDEPENDENT of AI Agent: it is never hidden because of
-  // AI platform toggles; it is only locked by the `knowledge_base` module.
-  const knowledgeBasePlanEnabled = moduleEnabled('knowledge_base');
+  // Phase 6-S5-R4 — Knowledge Base is a CORE workspace product. It is never
+  // hidden and NEVER locked: not by plan, not by AI platform state, not while
+  // entitlements are loading, not on entitlement lookup errors. It behaves
+  // exactly like Inbox or Contacts.
 
   const mainNav = [
     ...(aiAgentVisible
@@ -170,7 +171,7 @@ export function AppSidebar() {
       : []),
     { key: 'visitors', path: '/visitors', icon: Eye, locked: false },
     { key: 'contacts', path: '/contacts', icon: Users, locked: false },
-    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, locked: !knowledgeBasePlanEnabled },
+    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, locked: false },
     { key: 'team', path: '/team', icon: UserCog, locked: false },
   ] as const;
 

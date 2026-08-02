@@ -35,6 +35,7 @@ import ContactsPage from "@/pages/app/ContactsPage";
 import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
+import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
 import { PlanAccessGate } from "@/components/plan/PlanAccessGate";
 import WidgetPage from "@/pages/app/WidgetPage";
 import { PlanLockedOverlay } from "@/components/plan/PlanLockedOverlay";
@@ -243,7 +244,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 />
                 {/* Legacy KB URL — declared OUTSIDE AiAgentLayout so the
                     redirect still works while AI Agent is disabled. */}
-                <Route path="ai-agent/articles" element={<Navigate to="../../knowledge-base" replace />} />
+                <Route path="ai-agent/articles" element={<WorkspaceKnowledgeBaseRedirect />} />
                 <Route path="call-center" element={<CallCenterLayout />}>
                   <Route index element={<CallCenterOverviewPage />} />
                   <Route path="queue" element={<CallCenterLiveQueuePage />} />
@@ -279,7 +280,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="staff-access" element={<StaffAccessPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
                   {/* Legacy settings entry → canonical Knowledge Base route. */}
-                  <Route path="knowledge-base" element={<Navigate to="../../knowledge-base" replace />} />
+                  <Route path="knowledge-base" element={<WorkspaceKnowledgeBaseRedirect />} />
                 </Route>
                 {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
                 <Route path="ai-agent" element={<AiAgentLayout />}>

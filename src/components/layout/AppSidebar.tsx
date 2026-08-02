@@ -146,13 +146,17 @@ export function AppSidebar() {
   const aiAgentVisible =
     !aiAgentCapsError &&
     !!aiAgentCaps &&
-    aiAgentCaps.ai_agent_enabled &&
-    aiAgentCaps.customer_ai_agent_visible;
-  // Phase 6-S5 — plan-level module state (independent from platform toggles).
-  const moduleEnabled = (key: string): boolean =>
-    entitlements?.modules?.[key]?.value !== false;
+    aiAgentCaps.ai_agent_enabled === true &&
+    aiAgentCaps.customer_ai_agent_visible === true;
+  // Phase 6-S5-R1 — plan-level module state, FAIL CLOSED.
+  // A missing key or an unresolved lookup is NEVER treated as enabled.
+  const moduleEnabled = (key: string): boolean => {
+    const state = entitlements?.modules?.[key];
+    return state != null && state.value === true;
+  };
   // AI Agent: platform availability decides visibility, plan decides lock.
-  const aiAssistantPlanEnabled = moduleEnabled('ai_assistant');
+  const aiAssistantPlanEnabled =
+    aiAgentCaps?.plan_ai_assistant_enabled === true || moduleEnabled('ai_assistant');
   // Knowledge Base is INDEPENDENT of AI Agent: it is never hidden because of
   // AI platform toggles; it is only locked by the `knowledge_base` module.
   const knowledgeBasePlanEnabled = moduleEnabled('knowledge_base');

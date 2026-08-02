@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 import { EntitlementAccessGate } from '@/components/plan/EntitlementAccessGate';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 
 function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
@@ -40,6 +41,7 @@ const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'l
 ];
 
 export default function KnowledgePage() {
+  const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
   const wsId = workspace?.id;
   const { t, dir } = useTranslation();

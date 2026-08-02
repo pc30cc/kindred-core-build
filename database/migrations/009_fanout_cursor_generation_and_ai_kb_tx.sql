@@ -501,12 +501,29 @@ END;
 $$;
 
 -- These are service-role/edge-free server paths only; no anon or
--- authenticated execute grant is issued.
-REVOKE ALL ON FUNCTION public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.accept_ai_kb_generated_article(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.publish_ai_kb_generated_article(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.reject_ai_kb_generated_article(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.accept_ai_kb_generated_article(uuid, uuid, uuid, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.publish_ai_kb_generated_article(uuid, uuid, uuid, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.reject_ai_kb_generated_article(uuid, uuid, uuid) TO service_role;
+-- authenticated execute grant is issued. Roles are guarded so the file also
+-- runs on a plain PostgreSQL (CI integration tests, self-hosted installs).
+DO $grants$
+DECLARE
+  v_sigs text[] := ARRAY[
+    'public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text)',
+    'public.accept_ai_kb_generated_article(uuid, uuid, uuid, text)',
+    'public.publish_ai_kb_generated_article(uuid, uuid, uuid, text)',
+    'public.reject_ai_kb_generated_article(uuid, uuid, uuid)'
+  ];
+  v_sig text;
+BEGIN
+  FOREACH v_sig IN ARRAY v_sigs LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', v_sig);
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM anon', v_sig);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM authenticated', v_sig);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', v_sig);
+    END IF;
+  END LOOP;
+END
+$grants$;

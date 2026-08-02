@@ -98,7 +98,6 @@ describe('Durable KB → AI outbox', () => {
   it('defers temporary conditions instead of consuming attempts', () => {
     expect(src).toMatch(/defer_kb_change_events/);
     for (const code of [
-      'knowledge_base_plan_required',
       'ai_assistant_plan_required',
       'ai_platform_disabled',
       'ai_provider_unavailable',
@@ -108,6 +107,8 @@ describe('Durable KB → AI outbox', () => {
     }
     // Plan-off must NOT complete the event any more.
     expect(src).not.toMatch(/skippedNoPlan/);
+    // Phase 6-S5-R4 — the KB itself is never plan-gated, so this code is gone.
+    expect(src).not.toMatch(/knowledge_base_plan_required/);
   });
 
   it('only real errors consume attempts, with permanent classification', () => {
@@ -148,6 +149,14 @@ describe('Index reconciliation', () => {
     expect(src).toMatch(/terminalState/);
     expect(src).toMatch(/deferred_provider_unavailable/);
   });
+
+  it('never deletes chunks when a prerequisite query failed', () => {
+    expect(src).toMatch(/articleSetTrustworthy/);
+    expect(src).toMatch(/reconciliationFailed/);
+    expect(src).toMatch(/reconciliationSkipped/);
+    // The destructive update is only reachable inside the trusted branch.
+    expect(src).toMatch(/if \(articleSetTrustworthy\) \{/);
+  });
 });
 
 describe('Central entitlement-change funnel', () => {
@@ -165,6 +174,13 @@ describe('Central entitlement-change funnel', () => {
     expect(read('server/services/billing/index.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
   });
 
+  it('covers non-workspace-scoped transitions (plan edits, platform toggles)', () => {
+    expect(src).toMatch(/handlePlanDefinitionChanged/);
+    expect(src).toMatch(/handleBulkEntitlementChanged/);
+    expect(read('server/routes/billing.ts')).toMatch(/handlePlanDefinitionChanged/);
+    expect(read('server/routes/aiAgent.ts')).toMatch(/handleBulkEntitlementChanged/);
+  });
+
   it('never throws into the billing path', () => {
     expect(src).toMatch(/errorCode\?: 'catchup_enqueue_failed'/);
   });
@@ -177,10 +193,14 @@ describe('AI KB Builder is a FEATURE gate, not a module gate', () => {
     expect(src).toMatch(/checkEntitlementFromDB[\s\S]*?'ai_kb_builder'/);
   });
 
-  it('gates knowledge_base and ai_assistant as modules, plus the platform switch', () => {
-    expect(src).toMatch(/'knowledge_base', error: 'knowledge_base_plan_required'/);
+  it('gates ai_assistant as a module and never gates knowledge_base', () => {
     expect(src).toMatch(/'ai_assistant', error: 'ai_assistant_plan_required'/);
     expect(src).toMatch(/assertAiAgentPlatformEnabledForWorkspace/);
+    expect(src).not.toMatch(/knowledge_base_plan_required/);
+  });
+
+  it('applies customer visibility to AI KB routes by default', () => {
+    expect(read('server/routes/aiKb.ts')).toMatch(/customerFacing: opts\.customerFacing \?\? true/);
   });
 
   it('routes use the central guard and never leak raw DB errors', () => {

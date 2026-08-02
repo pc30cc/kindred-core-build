@@ -761,7 +761,7 @@ const fa: TranslationKeys = {
     verifiedByAdmin: 'تأیید دستی توسط مدیر',
     accountVerifyCta: 'تأیید شماره',
     accountVerifiedNote: 'شماره موبایل شما تأیید شده است. همین شماره برای باز کردن بخش‌های محافظت‌شده استفاده می‌شود.',
-    accountUnverifiedNote: 'شماره موبایل خود را از همین‌جا یا از هر بخش محافظت‌شده تأیید کنید؛ هر دو یکی است.',
+    accountUnverifiedNote: 'برای استفاده از تمامی سرویس ها لطفا شماره تلفن خودتان را وریفای کنید .',
     accountDialogBody: 'شماره موبایل خود را وارد کنید و کد یک‌بارمصرف ارسال‌شده را ثبت کنید.',
     errors: {
       phone_verification_required: 'تأیید شماره موبایل الزامی است.',

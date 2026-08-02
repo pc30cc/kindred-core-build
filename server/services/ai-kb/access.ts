@@ -181,7 +181,7 @@ export async function checkAiKbAccess(
   if (!platform.ok) {
     // Phase 6-S5-R6 — a failed platform lookup is TRANSIENT and must surface
     // as 503, not as a permanent 403 "your plan/platform disabled this".
-    if (platform.reason === 'lookup_failed') {
+    if (!platform.ok && platform.reason === 'lookup_failed') {
       return {
         ok: false,
         denial: { status: 503, body: { error: 'ai_platform_status_unavailable' } },
@@ -238,6 +238,6 @@ export async function readAiKbCapabilities(
     ai_assistant,
     ai_kb_builder,
     platform_enabled: platform.ok,
-    platform_status_unavailable: !platform.ok && platform.reason === 'lookup_failed',
+    platform_status_unavailable: platform.ok === false && platform.reason === 'lookup_failed',
   };
 }

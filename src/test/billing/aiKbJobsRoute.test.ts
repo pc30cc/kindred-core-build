@@ -69,6 +69,16 @@ const { gateMw } = vi.hoisted(() => ({ gateMw: vi.fn() }));
 vi.mock("../../../server/middleware/featureGating.js", () => ({
   requireLimit: (..._args: unknown[]) => gateMw,
   checkModuleAccess: async () => ({ allowed: true, plan: "pro" }),
+  checkEntitlementFromDB: async () => ({ allowed: true, reason: "plan" }),
+}));
+
+// Phase 6-S5-R3: the route now runs the central AI-KB gate. Entitlements and
+// the platform switch are satisfied here so the test isolates the LIMIT gate.
+vi.mock("../../../server/services/ai-agent/platformGuards.js", () => ({
+  assertAiAgentPlatformEnabledForWorkspace: async () => ({ ok: true }),
+}));
+vi.mock("../../../server/services/knowledge-base/access.js", () => ({
+  checkKnowledgeBasePermission: async () => null,
 }));
 
 vi.mock("../../../server/services/billing/usageResolvers.js", () => ({

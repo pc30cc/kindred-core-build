@@ -13,6 +13,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
+import { checkModuleAccess } from '../../middleware/featureGating.js';
 
 export interface PlatformAiAgentSettings {
   id: string;
@@ -259,21 +260,37 @@ export interface WorkspaceAiAgentCapabilities {
   };
   disabled_message: string | null;
   max_customer_visible_nav_items: number;
+  /** Phase 6-S5 — plan entitlement for the `ai_assistant` module. */
+  plan_ai_assistant_enabled: boolean;
 }
 
 export async function getWorkspaceAiAgentCapabilities(
   config: ServerConfig,
-  _workspaceId: string,
+  workspaceId: string,
   userId: string | null,
 ): Promise<WorkspaceAiAgentCapabilities> {
   const s = await getPlatformAiAgentSettings(config);
   const isAdmin = userId ? await isGlobalAdmin(config, userId).catch(() => false) : false;
 
+  // Phase 6-S5 — AI Agent is plan-gated. A workspace whose plan does not
+  // include `ai_assistant` gets an all-off capability snapshot (fail-closed),
+  // independent of the platform toggles. Global admins bypass the plan only.
+  const planAccess = workspaceId
+    ? await checkModuleAccess(
+        config.supabaseUrl,
+        config.supabaseServiceRoleKey,
+        workspaceId,
+        'ai_assistant',
+      ).catch(() => ({ allowed: false }))
+    : { allowed: false };
+  const planEnabled = !!planAccess.allowed;
+  const planBlocked = !planEnabled && !isAdmin;
+
   // Customer access requires:
   //   ai_agent_enabled && customer_ai_agent_visible (& whatever feature flag)
   // Super admin bypasses customer_ai_agent_visible and advanced flags BUT
   // never bypasses ai_agent_enabled (the true kill switch).
-  const killOn = !s.ai_agent_enabled;
+  const killOn = !s.ai_agent_enabled || planBlocked;
   const customerCanSee = s.ai_agent_enabled && s.customer_ai_agent_visible;
   const advVisible = (customerFlag: boolean) => {
     if (killOn) return false;
@@ -283,8 +300,8 @@ export async function getWorkspaceAiAgentCapabilities(
   const navOk = (flag: boolean) => !killOn && (isAdmin || (customerCanSee && flag));
 
   return {
-    ai_agent_enabled: s.ai_agent_enabled,
-    customer_ai_agent_visible: s.customer_ai_agent_visible,
+    ai_agent_enabled: s.ai_agent_enabled && !planBlocked,
+    customer_ai_agent_visible: s.customer_ai_agent_visible && !planBlocked,
     operator_assist_enabled: s.operator_assist_enabled,
     auto_answer_enabled: s.auto_answer_enabled,
     learning_enabled: s.learning_enabled,
@@ -308,5 +325,6 @@ export async function getWorkspaceAiAgentCapabilities(
     },
     disabled_message: s.disabled_message,
     max_customer_visible_nav_items: s.max_customer_visible_nav_items,
+    plan_ai_assistant_enabled: planEnabled,
   };
 }

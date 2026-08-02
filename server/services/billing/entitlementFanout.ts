@@ -474,7 +474,10 @@ export async function drainEntitlementFanoutJobs(
         _generation: generation, _error_code: code,
         _retry_seconds: retrySeconds, _max_attempts: maxAttempts,
       });
-      if (released !== true) summary.leaseLost += 1;
+      const outcome = classifyReleaseOutcome(released);
+      if (outcome === 'lease_lost') summary.leaseLost += 1;
+      else if (outcome === 'requeued_new_generation') summary.requeuedNewGeneration += 1;
+      return outcome;
     };
 
     if (job.scope === 'plan' && !job.plan_id) {
@@ -486,7 +489,20 @@ export async function drainEntitlementFanoutJobs(
 
     // Cursor semantics (R7 §2): the last workspace whose required action
     // SUCCEEDED. Never the last attempted.
-    let lastSuccessfulCursor: string | null = job.cursor_workspace_id;
+    // R7.1 §1: a cursor produced by a DIFFERENT generation is worthless —
+    // the workspaces behind it were decided under stale entitlements — so
+    // the pass restarts from the beginning. The claim RPC already enforces
+    // this; the guard keeps the worker correct against an older RPC too.
+    const cursorGeneration =
+      job.cursor_generation === null || job.cursor_generation === undefined
+        ? null
+        : Number(job.cursor_generation);
+    const cursorBelongsToGeneration =
+      job.cursor_workspace_id !== null && cursorGeneration === generation;
+    const startCursor: string | null = cursorBelongsToGeneration
+      ? job.cursor_workspace_id
+      : null;
+    let lastSuccessfulCursor: string | null = startCursor;
     let pending = zeroProgress();
     let pages = 0;
     let done = false;
@@ -498,7 +514,7 @@ export async function drainEntitlementFanoutJobs(
       const hasProgress =
         pending.processed || pending.skippedIneligible ||
         pending.retryableFailures || pending.permanentFailures ||
-        lastSuccessfulCursor !== job.cursor_workspace_id;
+        lastSuccessfulCursor !== startCursor;
       if (!hasProgress) return true;
       const { data: advanced, error: advErr } = await sb.rpc('advance_entitlement_fanout', {
         _id: job.id, _claim_token: job.claim_token, _worker_id: workerId,

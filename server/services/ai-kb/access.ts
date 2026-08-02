@@ -178,10 +178,10 @@ export async function checkAiKbAccess(
   const platform = await assertAiAgentPlatformEnabledForWorkspace(config, workspaceId, {
     customerFacing: opts.customerFacing && !opts.isAdmin,
   });
-  if (!platform.ok) {
+  if (platform.ok !== true) {
     // Phase 6-S5-R6 — a failed platform lookup is TRANSIENT and must surface
     // as 503, not as a permanent 403 "your plan/platform disabled this".
-    if (!platform.ok && platform.reason === 'lookup_failed') {
+    if (platform.reason === 'lookup_failed') {
       return {
         ok: false,
         denial: { status: 503, body: { error: 'ai_platform_status_unavailable' } },

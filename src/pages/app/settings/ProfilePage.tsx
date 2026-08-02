@@ -26,6 +26,7 @@ import {
   changeAccountPassword,
 } from '@/lib/account-api';
 import { resendVerificationEmail } from '@/lib/auth-email-api';
+import { AccountPhoneField } from '@/features/phone-verification/AccountPhoneField';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -378,18 +379,24 @@ export default function SettingsProfilePage() {
             <Input id="email" value={me?.email ?? ''} disabled />
             <p className="text-xs text-muted-foreground">{t('account.emailHelper')}</p>
           </div>
-          <div className="space-y-2 md:col-span-1">
-            <Label htmlFor="phone" className="text-xs font-medium text-muted-foreground">
-              {t('account.phone')}
-            </Label>
-            <Input
-              id="phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              onBlur={savePhone}
-              placeholder={t('account.phonePlaceholder')}
+          <div className="md:col-span-1">
+            <AccountPhoneField
+              fallback={
+                <div className="space-y-2">
+                  <Label htmlFor="phone" className="text-xs font-medium text-muted-foreground">
+                    {t('account.phone')}
+                  </Label>
+                  <Input
+                    id="phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    onBlur={savePhone}
+                    placeholder={t('account.phonePlaceholder')}
+                  />
+                  <p className="text-xs text-muted-foreground">{t('account.phoneHelper')}</p>
+                </div>
+              }
             />
-            <p className="text-xs text-muted-foreground">{t('account.phoneHelper')}</p>
           </div>
         </div>
       </Card>

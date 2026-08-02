@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
 import {
   stripeProvider,
@@ -24,6 +24,11 @@ function header(body: string, ts: number, extra: string[] = []) {
 }
 const nowSec = () => Math.floor(Date.now() / 1000);
 
+// Determinism: the tolerance-window assertions below compare a signed
+// timestamp against the clock read INSIDE the verifier. On a loaded CI box
+// those two reads can land in different seconds, so the clock is pinned for
+// every test in this file rather than left to real time.
+beforeEach(() => vi.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00Z')));
 afterEach(() => vi.useRealTimers());
 
 describe('parseStripeSignatureHeader', () => {

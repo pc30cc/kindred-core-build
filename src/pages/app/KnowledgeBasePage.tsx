@@ -69,8 +69,8 @@ export default function KnowledgeBasePage() {
   const { data: articles, isLoading } = useKBArticles(workspace?.id, locale, statusFilter);
   const { data: categories } = useKBCategories(workspace?.id, locale);
   const createArticle = useCreateKBArticle(workspace?.id);
-  const updateArticle = useUpdateKBArticle();
-  const deleteArticle = useDeleteKBArticle();
+  const updateArticle = useUpdateKBArticle(workspace?.id);
+  const deleteArticle = useDeleteKBArticle(workspace?.id);
 
   const [form, setForm] = useState<FormData>(emptyForm);
 

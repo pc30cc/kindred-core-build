@@ -4740,6 +4740,48 @@ export type Database = {
           },
         ]
       }
+      knowledge_base_change_events: {
+        Row: {
+          article_id: string | null
+          attempts: number
+          created_at: string
+          event_type: string
+          id: string
+          last_error: string | null
+          locale: string | null
+          processed_at: string | null
+          status: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          article_id?: string | null
+          attempts?: number
+          created_at?: string
+          event_type: string
+          id?: string
+          last_error?: string | null
+          locale?: string | null
+          processed_at?: string | null
+          status?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          article_id?: string | null
+          attempts?: number
+          created_at?: string
+          event_type?: string
+          id?: string
+          last_error?: string | null
+          locale?: string | null
+          processed_at?: string | null
+          status?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       livekit_webhook_events: {
         Row: {
           egress_id: string | null
@@ -8241,6 +8283,10 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
+      workspace_has_knowledge_base: {
+        Args: { _workspace_id: string }
+        Returns: boolean
+      }
       workspace_health_snapshot_compute: { Args: never; Returns: Json }
       workspace_owner_phone_verified: {
         Args: { _workspace_id: string }

@@ -286,6 +286,26 @@ export function aiAgentPlatformGuard() {
       }
     }
 
+    // ── Phase 6-S5-R1 — CENTRAL customer AI plan enforcement. ──
+    // Every customer-facing AI route requires the `ai_assistant` module.
+    // Super admins bypass for platform administration/diagnostics only.
+    if (workspaceId && !isAdmin) {
+      const planAccess = await checkModuleAccess(
+        config.supabaseUrl,
+        config.supabaseServiceRoleKey,
+        workspaceId,
+        'ai_assistant',
+      ).catch(() => ({ allowed: false, plan: undefined }));
+      if (!planAccess.allowed) {
+        return res.status(403).json({
+          error: 'ai_assistant_plan_required',
+          module: 'ai_assistant',
+          plan: (planAccess as { plan?: string }).plan ?? null,
+          upgrade_required: true,
+        });
+      }
+    }
+
     // Per-feature toggle.
     const matched = FEATURE_ROUTES.find((r) => r.rx.test(req.path));
     if (matched) {
@@ -327,7 +347,7 @@ export async function isAutoAnswerAllowedForWorkspace(
         'ai_assistant',
       ).catch(() => ({ allowed: false }));
       if (!planAccess.allowed) {
-        return { allowed: false, reason: 'ai_assistant_not_in_plan' };
+        return { allowed: false, reason: 'ai_assistant_plan_required' };
       }
     }
     if (workspaceId) {

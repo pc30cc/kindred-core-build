@@ -40,6 +40,7 @@ import { callbacksRouter } from './routes/callbacks.js';
 import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
 import { callInvitationsRouter } from './routes/callInvitations.js';
 import { aiKbRouter } from './routes/aiKb.js';
+import { knowledgeBaseRouter } from './routes/knowledgeBase.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
 import { callCenterRouter } from './routes/callCenter.js';
 import { callWidgetRouter } from './routes/callWidget.js';
@@ -359,6 +360,7 @@ app.use('/api/contacts', contactsRouter);
 // AI Knowledge Base Builder — auth + workspace membership enforced inside.
 // Worker that actually crawls + generates runs as a separate process; see
 // worker/intelligence/index.ts and Dockerfile.worker.
+app.use('/api/knowledge-base', knowledgeBaseRouter);
 app.use('/api/ai-kb', aiKbRouter);
 
 // AI Agent (Phase 1) — workspace-scoped configuration, knowledge status,

@@ -49,9 +49,12 @@ export function AiAgentLayout() {
     return <Navigate to={wsPath('/inbox')} replace />;
   }
 
-  // Platform kill switch — bounce out of the section entirely.
+  // Platform kill switch ONLY — plan state must never cause a redirect;
+  // a plan-off workspace must reach the upgrade screen below.
   const platformDisabled =
-    !!capabilities && (!capabilities.ai_agent_enabled || !capabilities.customer_ai_agent_visible);
+    !capabilities ||
+    capabilities.ai_agent_enabled !== true ||
+    capabilities.customer_ai_agent_visible !== true;
   if (platformDisabled) {
     return <Navigate to={wsPath('/inbox')} replace />;
   }
@@ -70,7 +73,10 @@ export function AiAgentLayout() {
     return { ...g, items: filtered };
   });
 
+  // Phase 6-S5-R1 — the plan gate wraps the ENTIRE AI layout (including the
+  // inner AI sidebar), so nothing AI-related mounts without `ai_assistant`.
   return (
+    <PlanAccessGate moduleKey="ai_assistant">
     <div className="flex h-full">
       <div className="w-[260px] shrink-0 border-e border-border/60 bg-card/50 overflow-y-auto">
         <div className="sticky top-0 bg-card/80 backdrop-blur-sm border-b border-border/40 px-5 py-4 flex items-center gap-2.5">
@@ -111,14 +117,11 @@ export function AiAgentLayout() {
         </nav>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {/* Phase 6-S5 — non-mounting plan gate: when `ai_assistant` is not
-            in the plan, AI child pages never mount and no AI request runs. */}
-        <PlanAccessGate moduleKey="ai_assistant">
-          <div className="max-w-5xl mx-auto p-8">
-            <Outlet />
-          </div>
-        </PlanAccessGate>
+        <div className="max-w-5xl mx-auto p-8">
+          <Outlet />
+        </div>
       </div>
     </div>
+    </PlanAccessGate>
   );
 }

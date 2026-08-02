@@ -235,8 +235,24 @@ export async function repairPlatformOffConversations(
 
 /** Redacted capability snapshot intended for workspace customers. */
 export interface WorkspaceAiAgentCapabilities {
+  /** TRUE platform kill switch (Super Admin). Never affected by plan. */
   ai_agent_enabled: boolean;
+  /** TRUE platform customer-visibility switch. Never affected by plan. */
   customer_ai_agent_visible: boolean;
+
+  /** Plan state (independent from platform state). */
+  plan_ai_assistant_enabled: boolean;
+  plan_knowledge_base_enabled: boolean;
+  plan_ai_kb_builder_enabled: boolean;
+  plan_name: string | null;
+  plan_slug: string | null;
+  upgrade_required: boolean;
+  entitlement_error: boolean;
+
+  /** Derived state (platform AND plan). */
+  effective_ai_agent_available: boolean;
+  effective_ai_kb_builder_available: boolean;
+
   operator_assist_enabled: boolean;
   auto_answer_enabled: boolean;
   learning_enabled: boolean;
@@ -260,8 +276,16 @@ export interface WorkspaceAiAgentCapabilities {
   };
   disabled_message: string | null;
   max_customer_visible_nav_items: number;
-  /** Phase 6-S5 — plan entitlement for the `ai_assistant` module. */
-  plan_ai_assistant_enabled: boolean;
+  /** Nested mirror of the same data (Phase 6-S5-R1). */
+  platform: { enabled: boolean; customerVisible: boolean; disabledMessage: string | null };
+  plan: {
+    aiAssistantEnabled: boolean;
+    knowledgeBaseEnabled: boolean;
+    aiKbBuilderEnabled: boolean;
+    planName: string | null;
+    planSlug: string | null;
+  };
+  effective: { aiAgentAvailable: boolean; aiKbBuilderAvailable: boolean };
 }
 
 export async function getWorkspaceAiAgentCapabilities(
@@ -272,26 +296,46 @@ export async function getWorkspaceAiAgentCapabilities(
   const s = await getPlatformAiAgentSettings(config);
   const isAdmin = userId ? await isGlobalAdmin(config, userId).catch(() => false) : false;
 
-  // Phase 6-S5 — AI Agent is plan-gated. A workspace whose plan does not
-  // include `ai_assistant` gets an all-off capability snapshot (fail-closed),
-  // independent of the platform toggles. Global admins bypass the plan only.
-  const planAccess = workspaceId
-    ? await checkModuleAccess(
+  // ── Phase 6-S5-R1 — platform state and plan state are SEPARATE. ──
+  // Platform fields below reflect ONLY the Super Admin toggles. Plan
+  // entitlements live in their own fields; the UI derives `effective_*`.
+  let entitlementError = false;
+  const lookup = async (key: string) => {
+    if (!workspaceId) return { allowed: false, plan: null as string | null };
+    try {
+      const r = await checkModuleAccess(
         config.supabaseUrl,
         config.supabaseServiceRoleKey,
         workspaceId,
-        'ai_assistant',
-      ).catch(() => ({ allowed: false }))
-    : { allowed: false };
-  const planEnabled = !!planAccess.allowed;
-  const planBlocked = !planEnabled && !isAdmin;
+        key,
+      );
+      if (r.reason === 'rpc_error' || r.reason === 'exception') entitlementError = true;
+      return { allowed: !!r.allowed, plan: (r.plan as string | undefined) ?? null };
+    } catch {
+      entitlementError = true;
+      return { allowed: false, plan: null as string | null };
+    }
+  };
 
-  // Customer access requires:
-  //   ai_agent_enabled && customer_ai_agent_visible (& whatever feature flag)
-  // Super admin bypasses customer_ai_agent_visible and advanced flags BUT
-  // never bypasses ai_agent_enabled (the true kill switch).
-  const killOn = !s.ai_agent_enabled || planBlocked;
-  const customerCanSee = s.ai_agent_enabled && s.customer_ai_agent_visible;
+  const aiPlan = await lookup('ai_assistant');
+  const kbPlan = await lookup('knowledge_base');
+  const builderPlan = await lookup('ai_kb_builder');
+
+  const platformEnabled = s.ai_agent_enabled === true;
+  const customerVisible = s.customer_ai_agent_visible === true;
+  // Super admins bypass plan for diagnostics only (never the kill switch).
+  const aiPlanEnabled = aiPlan.allowed || isAdmin;
+  const kbPlanEnabled = kbPlan.allowed || isAdmin;
+  const builderPlanEnabled = builderPlan.allowed || isAdmin;
+
+  const effectiveAiAvailable = platformEnabled && customerVisible && aiPlanEnabled;
+  const effectiveBuilderAvailable = effectiveAiAvailable && kbPlanEnabled && builderPlanEnabled;
+
+  // Nav/advanced flags describe what an *entitled* user may see. They stay
+  // driven by the platform toggles; the plan gate is applied by the client
+  // (non-mounting PlanAccessGate) and by the server middleware.
+  const killOn = !platformEnabled;
+  const customerCanSee = platformEnabled && customerVisible;
   const advVisible = (customerFlag: boolean) => {
     if (killOn) return false;
     if (isAdmin) return true;
@@ -299,9 +343,23 @@ export async function getWorkspaceAiAgentCapabilities(
   };
   const navOk = (flag: boolean) => !killOn && (isAdmin || (customerCanSee && flag));
 
+  const planName = aiPlan.plan || kbPlan.plan || null;
+
   return {
-    ai_agent_enabled: s.ai_agent_enabled && !planBlocked,
-    customer_ai_agent_visible: s.customer_ai_agent_visible && !planBlocked,
+    ai_agent_enabled: platformEnabled,
+    customer_ai_agent_visible: customerVisible,
+
+    plan_ai_assistant_enabled: aiPlanEnabled,
+    plan_knowledge_base_enabled: kbPlanEnabled,
+    plan_ai_kb_builder_enabled: builderPlanEnabled,
+    plan_name: planName,
+    plan_slug: planName,
+    upgrade_required: platformEnabled && customerVisible && !aiPlanEnabled,
+    entitlement_error: entitlementError,
+
+    effective_ai_agent_available: effectiveAiAvailable,
+    effective_ai_kb_builder_available: effectiveBuilderAvailable,
+
     operator_assist_enabled: s.operator_assist_enabled,
     auto_answer_enabled: s.auto_answer_enabled,
     learning_enabled: s.learning_enabled,
@@ -325,6 +383,21 @@ export async function getWorkspaceAiAgentCapabilities(
     },
     disabled_message: s.disabled_message,
     max_customer_visible_nav_items: s.max_customer_visible_nav_items,
-    plan_ai_assistant_enabled: planEnabled,
+    platform: {
+      enabled: platformEnabled,
+      customerVisible,
+      disabledMessage: s.disabled_message,
+    },
+    plan: {
+      aiAssistantEnabled: aiPlanEnabled,
+      knowledgeBaseEnabled: kbPlanEnabled,
+      aiKbBuilderEnabled: builderPlanEnabled,
+      planName,
+      planSlug: planName,
+    },
+    effective: {
+      aiAgentAvailable: effectiveAiAvailable,
+      aiKbBuilderAvailable: effectiveBuilderAvailable,
+    },
   };
 }

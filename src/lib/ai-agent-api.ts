@@ -129,8 +129,24 @@ export interface PlatformAiAgentSettings {
 
 // E12 — Redacted capability snapshot exposed to workspace customers.
 export interface AiAgentCapabilities {
+  /** TRUE platform kill switch — never affected by the workspace plan. */
   ai_agent_enabled: boolean;
+  /** TRUE platform customer-visibility switch — never affected by the plan. */
   customer_ai_agent_visible: boolean;
+
+  /** Plan state (independent of platform state). */
+  plan_ai_assistant_enabled?: boolean;
+  plan_knowledge_base_enabled?: boolean;
+  plan_ai_kb_builder_enabled?: boolean;
+  plan_name?: string | null;
+  plan_slug?: string | null;
+  upgrade_required?: boolean;
+  entitlement_error?: boolean;
+
+  /** Derived state (platform AND plan). */
+  effective_ai_agent_available?: boolean;
+  effective_ai_kb_builder_available?: boolean;
+
   operator_assist_enabled: boolean;
   auto_answer_enabled: boolean;
   learning_enabled: boolean;
@@ -154,6 +170,15 @@ export interface AiAgentCapabilities {
   };
   disabled_message: string | null;
   max_customer_visible_nav_items?: number;
+  platform?: { enabled: boolean; customerVisible: boolean; disabledMessage: string | null };
+  plan?: {
+    aiAssistantEnabled: boolean;
+    knowledgeBaseEnabled: boolean;
+    aiKbBuilderEnabled: boolean;
+    planName: string | null;
+    planSlug: string | null;
+  };
+  effective?: { aiAgentAvailable: boolean; aiKbBuilderAvailable: boolean };
 }
 
 export interface AgentSettings {

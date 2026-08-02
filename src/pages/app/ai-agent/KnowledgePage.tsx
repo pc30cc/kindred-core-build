@@ -11,6 +11,8 @@ import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
+import { EntitlementAccessGate } from '@/components/plan/EntitlementAccessGate';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 
 function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
@@ -39,6 +41,7 @@ const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'l
 ];
 
 export default function KnowledgePage() {
+  const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
   const wsId = workspace?.id;
   const { t, dir } = useTranslation();
@@ -117,12 +120,23 @@ export default function KnowledgePage() {
         </div>
       </div>
 
-      {/* Phase 6-S5 — the AI KB Builder lives on the AI Agent side only. */}
-      <AiKbBuilderTab />
+      {/* Phase 6-S5-R1 — the AI KB Builder has its OWN entitlement. When it
+          is locked, only this card is replaced; the rest of Knowledge
+          Sources stays usable and the Builder never mounts. */}
+      <EntitlementAccessGate
+        mode="inline"
+        requirements={[
+          { type: 'module', key: 'ai_assistant' },
+          { type: 'module', key: 'knowledge_base' },
+          { type: 'feature', key: 'ai_kb_builder' },
+        ]}
+      >
+        <AiKbBuilderTab />
+      </EntitlementAccessGate>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild variant="default" className="shadow-sm">
-          <Link to="../../knowledge-base">
+          <Link to={wsPath('/knowledge-base')}>
             <BookText className="h-4 w-4 me-2" />
             {tr('actions.manageArticles', 'Manage articles')}
           </Link>

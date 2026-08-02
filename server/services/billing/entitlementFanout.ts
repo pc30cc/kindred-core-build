@@ -268,11 +268,40 @@ interface ClaimRow {
   source: string;
   plan_id: string | null;
   cursor_workspace_id: string | null;
+  /**
+   * The generation that PRODUCED `cursor_workspace_id`. A cursor is only
+   * meaningful for its own generation (R7.1 §1).
+   */
+  cursor_generation?: number | string | null;
   attempts: number;
   requested_generation: number | string;
   processing_generation: number | string;
   claim_token: string;
   claim_expires_at: string;
+}
+
+/**
+ * `fail_entitlement_fanout` now reports an explicit outcome. Older
+ * deployments (and the mocked unit harness) still answer with a bare
+ * boolean, so both encodings are accepted; only an unmistakable failure to
+ * release is charged as a lost lease.
+ */
+export type FanoutReleaseOutcome =
+  | 'retry_same_generation'
+  | 'requeued_new_generation'
+  | 'dead_lettered'
+  | 'lease_lost';
+
+export function classifyReleaseOutcome(raw: unknown): FanoutReleaseOutcome {
+  if (raw === true) return 'retry_same_generation';
+  if (
+    raw === 'retry_same_generation' ||
+    raw === 'requeued_new_generation' ||
+    raw === 'dead_lettered'
+  ) {
+    return raw;
+  }
+  return 'lease_lost';
 }
 
 export interface FanoutDrainSummary {

@@ -99,11 +99,15 @@ jobs:
         id: install
         run: bun install --frozen-lockfile
 
-      # Real database proof: the durable entitlement fan-out queue's lease
-      # ownership, expiry reclaim and idempotent enqueue are executed against
-      # a live PostgreSQL, not mocked.
+      # Real database proof: the durable entitlement fan-out queue (lease
+      # ownership, expiry reclaim, generation-bound cursors, concurrency-safe
+      # enqueue), the worker loop itself and the transactional AI-KB draft
+      # mutations all run against a live PostgreSQL, not mocked.
+      #
+      # --no-file-parallelism: these suites install schema into ONE shared
+      # database, so they must not run concurrently.
       - name: Integration tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
-        run: bunx vitest run src/test/integration
+        run: bunx vitest run src/test/integration --no-file-parallelism

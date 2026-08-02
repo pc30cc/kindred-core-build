@@ -26,6 +26,9 @@ export type EntitlementChangeSource =
   | 'provider_webhook'
   | 'workspace_module_override'
   | 'workspace_channel_override'
+  | 'workspace_limit_override'
+  | 'plan_definition_updated'
+  | 'trial_expired'
   | 'platform_ai_toggle';
 
 export interface EntitlementChangeInput {
@@ -85,4 +88,60 @@ export async function handleWorkspaceEntitlementChanged(
     };
   }
   return { ok: true, cacheCleared: true, catchupEnqueued: catchup.enqueued };
+}
+
+/**
+ * Fan-out variant for changes that are NOT scoped to one workspace — editing
+ * a plan definition or flipping a platform-level AI switch changes the
+ * effective entitlements of every workspace on that plan at once.
+ *
+ * Never throws. Failures are counted and logged, not propagated.
+ */
+export async function handleBulkEntitlementChanged(
+  config: ServerConfig,
+  workspaceIds: string[],
+  source: EntitlementChangeSource,
+): Promise<{ ok: boolean; processed: number; failed: number }> {
+  const unique = Array.from(new Set(workspaceIds.filter(Boolean)));
+  let failed = 0;
+  for (const workspaceId of unique) {
+    const r = await handleWorkspaceEntitlementChanged(config, { workspaceId, source });
+    if (!r.ok) failed += 1;
+  }
+  if (failed > 0) {
+    console.error(
+      '[billing.entitlementChange] bulk change partially failed',
+      JSON.stringify({ source, total: unique.length, failed }),
+    );
+  }
+  return { ok: failed === 0, processed: unique.length, failed };
+}
+
+/**
+ * Resolves every workspace currently subscribed to a plan, then funnels the
+ * change. Used when a plan's modules/features/limits are edited.
+ */
+export async function handlePlanDefinitionChanged(
+  config: ServerConfig,
+  planId: string,
+): Promise<{ ok: boolean; processed: number; failed: number }> {
+  try {
+    const { getServiceClient } = await import('../../supabase.js');
+    const { data, error } = await getServiceClient(config)
+      .from('workspace_subscriptions')
+      .select('workspace_id')
+      .eq('plan_id', planId)
+      .limit(10000);
+    if (error) {
+      console.error(
+        '[billing.entitlementChange] plan fan-out lookup failed',
+        JSON.stringify({ planId }),
+      );
+      return { ok: false, processed: 0, failed: 0 };
+    }
+    const ids = (data || []).map((r) => (r as { workspace_id: string }).workspace_id);
+    return handleBulkEntitlementChanged(config, ids, 'plan_definition_updated');
+  } catch {
+    return { ok: false, processed: 0, failed: 0 };
+  }
 }

@@ -297,29 +297,29 @@ aiAgentRouter.patch('/platform/settings', async (req: Request, res: Response) =>
   const { userId } = await resolveCurrentUserId(req, config);
   if (!userId) return res.status(401).json({ error: 'unauthenticated' });
   try {
+    // Phase 6-S5-R5 — capture the PREVIOUS state so we can detect the real
+    // false → true transition instead of fanning out on every patch.
+    const previous = await getPlatformAiAgentSettings(config);
     const settings = await updatePlatformAiAgentSettings(
       config,
       (req.body || {}) as Record<string, unknown>,
       userId,
     );
-    // Phase 6-S5-R4 — a platform AI toggle can turn indexing back ON for every
-    // workspace, so deferred outbox events must become eligible again.
-    if (settings.ai_agent_enabled) {
-      const { getServiceClient } = await import('../supabase.js');
-      const { handleBulkEntitlementChanged } = await import(
+    // Only a genuine OFF → ON transition re-arms deferred indexing for every
+    // workspace. ON → ON does nothing; ON → OFF only clears caches implicitly
+    // (events stay deferred and retryable on their own backoff).
+    const turnedOn =
+      previous.ai_agent_enabled === false && settings.ai_agent_enabled === true;
+    let fanout: { scheduled: boolean } = { scheduled: false };
+    if (turnedOn) {
+      const { handlePlatformAiEnabled } = await import(
         '../services/billing/entitlementChange.js'
       );
-      const { data: rows } = await getServiceClient(config)
-        .from('ai_agent_settings')
-        .select('workspace_id')
-        .limit(10000);
-      await handleBulkEntitlementChanged(
-        config,
-        (rows || []).map((r: { workspace_id: string }) => r.workspace_id),
-        'platform_ai_toggle',
-      );
+      // Authoritative source = public.workspaces, paginated, backgrounded.
+      const r = await handlePlatformAiEnabled(config);
+      fanout = { scheduled: r.ok };
     }
-    return res.json({ settings });
+    return res.json({ settings, entitlement_fanout: fanout });
   } catch (e: any) {
     if (String(e?.message) === 'forbidden') {
       return res.status(403).json({ error: 'forbidden' });

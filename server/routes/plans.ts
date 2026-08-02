@@ -21,7 +21,10 @@ import {
   USAGE_BACKED_LIMIT_KEYS,
 } from '../services/billing/capabilityRegistry.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
-import { handleWorkspaceEntitlementChanged } from '../services/billing/entitlementChange.js';
+import {
+  handleWorkspaceEntitlementChanged,
+  handlePlanDefinitionChanged,
+} from '../services/billing/entitlementChange.js';
 
 export const plansRouter = Router();
 
@@ -307,8 +310,17 @@ plansRouter.put('/admin/:planId', async (req, res) => {
 
   const { data, error } = await supabase.from('billing_plans').update(updates).eq('id', req.params.planId).select().single();
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache();
-  res.json({ plan: data, validation });
+  // Phase 6-S5-R5 — a plan-definition edit changes the effective entitlements
+  // of every workspace on that plan. Funnel it. A catch-up failure must NOT
+  // roll back the billing change, but it must be reported (sanitized).
+  const refresh = await handlePlanDefinitionChanged((req as any).serverConfig, req.params.planId);
+  res.json({
+    plan: data,
+    validation,
+    entitlement_refresh: refresh.ok
+      ? { ok: true, backgrounded: refresh.backgrounded }
+      : { ok: false, error: 'entitlement_catchup_enqueue_failed' },
+  });
 });
 
 plansRouter.delete('/admin/:planId', async (req, res) => {
@@ -316,8 +328,13 @@ plansRouter.delete('/admin/:planId', async (req, res) => {
   const supabase = createClient(url, key);
   const { error } = await supabase.from('billing_plans').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', req.params.planId);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache();
-  res.json({ success: true });
+  const refresh = await handlePlanDefinitionChanged((req as any).serverConfig, req.params.planId);
+  res.json({
+    success: true,
+    entitlement_refresh: refresh.ok
+      ? { ok: true, backgrounded: refresh.backgrounded }
+      : { ok: false, error: 'entitlement_catchup_enqueue_failed' },
+  });
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -481,18 +498,47 @@ plansRouter.post('/admin/overrides/channel', async (req, res) => {
 plansRouter.delete('/admin/overrides/module/:id', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
+  // Read first: removing a NEGATIVE `ai_assistant` override can re-enable AI,
+  // which requires a workspace-scoped catch-up, not a blind cache clear.
+  const { data: existing } = await supabase
+    .from('workspace_module_overrides')
+    .select('workspace_id, module_key, enabled')
+    .eq('id', req.params.id)
+    .maybeSingle();
   const { error } = await supabase.from('workspace_module_overrides').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache();
+  if (!existing) {
+    // Canonical response for missing OR already-removed — no existence leak.
+    clearEntitlementCache();
+    return res.json({ success: true });
+  }
+  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    workspaceId: (existing as { workspace_id: string }).workspace_id,
+    source: 'workspace_module_override',
+  });
   res.json({ success: true });
 });
 
 plansRouter.delete('/admin/overrides/channel/:id', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
+  const { data: existing } = await supabase
+    .from('workspace_channel_overrides')
+    .select('workspace_id, channel_key')
+    .eq('id', req.params.id)
+    .maybeSingle();
   const { error } = await supabase.from('workspace_channel_overrides').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache();
+  if (existing) {
+    // Channel changes never affect AI indexing eligibility: the funnel clears
+    // the cache and the transition rule suppresses the catch-up.
+    await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+      workspaceId: (existing as { workspace_id: string }).workspace_id,
+      source: 'workspace_channel_override',
+    });
+  } else {
+    clearEntitlementCache();
+  }
   res.json({ success: true });
 });
 
@@ -528,16 +574,34 @@ plansRouter.post('/admin/overrides/limit', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache(workspaceId);
+  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    workspaceId,
+    source: 'workspace_limit_override',
+    limitKey,
+  });
   res.json({ override: data });
 });
 
 plansRouter.delete('/admin/overrides/limit/:id', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
+  const { data: existing } = await supabase
+    .from('workspace_limit_overrides')
+    .select('workspace_id, limit_key')
+    .eq('id', req.params.id)
+    .maybeSingle();
   const { error } = await supabase.from('workspace_limit_overrides').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache();
+  if (existing) {
+    const row = existing as { workspace_id: string; limit_key: string };
+    await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+      workspaceId: row.workspace_id,
+      source: 'workspace_limit_override',
+      limitKey: row.limit_key,
+    });
+  } else {
+    clearEntitlementCache();
+  }
   res.json({ success: true });
 });
 

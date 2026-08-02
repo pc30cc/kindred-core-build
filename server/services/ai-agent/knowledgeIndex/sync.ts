@@ -137,6 +137,17 @@ export async function syncKnowledgeSource(
   }
 }
 
+export type RebuildErrorCode =
+  | 'kb_article_query_failed'
+  | 'qna_query_failed'
+  | 'business_profile_query_failed'
+  | 'chunk_query_failed'
+  | 'chunk_write_failed'
+  | 'chunk_delete_failed'
+  | 'chunk_reconciliation_failed'
+  | 'embedding_provider_unavailable'
+  | 'embedding_failed';
+
 export interface RebuildSummary {
   ok: boolean;
   /**
@@ -144,6 +155,8 @@ export interface RebuildSummary {
    * "nothing to do" — the caller must defer or fail the event accordingly.
    */
   terminalState: 'completed' | 'deferred_provider_unavailable' | 'failed';
+  /** Sanitized failure classification. Never contains raw database text. */
+  errorCode?: RebuildErrorCode;
   chunksCreated: number;
   chunksUpdated: number;
   chunksSkipped: number;
@@ -190,6 +203,34 @@ export async function rebuildWorkspaceIndex(
     sourcesProcessed: 0,
   };
 
+  /** First hard failure wins; later failures never downgrade the code. */
+  const fail = (code: RebuildErrorCode): void => {
+    summary.ok = false;
+    summary.terminalState = 'failed';
+    if (!summary.errorCode) summary.errorCode = code;
+  };
+  /** Set when ANY required write failed — blocks destructive reconciliation. */
+  let indexWritesTrustworthy = true;
+  const applyIndexResult = (r: Awaited<ReturnType<typeof indexSource>>): void => {
+    summary.chunksCreated += r.chunksCreated;
+    summary.chunksUpdated += r.chunksUpdated;
+    summary.chunksSkipped += r.chunksSkipped;
+    summary.chunksDeleted += r.chunksDeleted;
+    summary.embeddingsGenerated += r.embeddingsGenerated;
+    summary.embeddingFailures += r.embeddingFailures;
+    summary.sourcesProcessed += 1;
+    if (!r.ok) {
+      indexWritesTrustworthy = false;
+      fail(
+        r.errorCode === 'chunk_read_failed'
+          ? 'chunk_query_failed'
+          : r.errorCode === 'chunk_delete_failed'
+            ? 'chunk_delete_failed'
+            : 'chunk_write_failed',
+      );
+    }
+  };
+
   // 1) Published KB articles
   //
   // Phase 6-S5-R4 — the eligible-article set is the ONLY input the
@@ -205,6 +246,7 @@ export async function rebuildWorkspaceIndex(
     .eq('used_by_ai', true)
     .limit(2000);
   const articleSetTrustworthy = !articlesError;
+  if (articlesError) fail('kb_article_query_failed');
   const eligibleArticleIds = new Set<string>((articles || []).map((a) => a.id as string));
   for (const a of articles || []) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));
@@ -217,24 +259,22 @@ export async function rebuildWorkspaceIndex(
       sourceUrl: a.slug ? `/help/${a.slug}` : null,
       chunks,
     }, embedder, { remainingEmbedBudget: remainingBudget });
-    summary.chunksCreated += r.chunksCreated;
-    summary.chunksUpdated += r.chunksUpdated;
-    summary.chunksSkipped += r.chunksSkipped;
-    summary.chunksDeleted += r.chunksDeleted;
-    summary.embeddingsGenerated += r.embeddingsGenerated;
-    summary.embeddingFailures += r.embeddingFailures;
+    applyIndexResult(r);
     remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated - r.embeddingFailures);
-    summary.sourcesProcessed += 1;
   }
 
   // 2) Enabled Q&A
-  const { data: qnas } = await sb
+  //
+  // A failed query must never be read as "no Q&A exist": that would let the
+  // rebuild report success on an untrusted, empty source set.
+  const { data: qnas, error: qnasError } = await sb
     .from('ai_agent_qna')
     .select('id, question, answer, locale, enabled')
     .eq('workspace_id', workspaceId)
     .eq('enabled', true)
     .limit(5000);
-  for (const q of qnas || []) {
+  if (qnasError) fail('qna_query_failed');
+  for (const q of qnasError ? [] : (qnas || [])) {
     const chunks = chunkQna(q.question as string, q.answer as string);
     const r = await indexSource(config, {
       workspaceId,
@@ -244,23 +284,27 @@ export async function rebuildWorkspaceIndex(
       locale: (q.locale as string) || null,
       chunks,
     }, embedder, { remainingEmbedBudget: remainingBudget });
-    summary.chunksCreated += r.chunksCreated;
-    summary.chunksUpdated += r.chunksUpdated;
-    summary.chunksSkipped += r.chunksSkipped;
-    summary.chunksDeleted += r.chunksDeleted;
-    summary.embeddingsGenerated += r.embeddingsGenerated;
-    summary.embeddingFailures += r.embeddingFailures;
+    applyIndexResult(r);
     remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated - r.embeddingFailures);
-    summary.sourcesProcessed += 1;
   }
 
   // 3) Business profile
-  const settings = await getOrCreateSettings(config, workspaceId);
-  const profileText = [
-    settings.business_description,
-    settings.instructions?.custom_instructions,
-  ].filter(Boolean).join('\n\n');
-  if (profileText) {
+  //
+  // An absent/empty profile is a VALID state. A settings lookup FAILURE is not
+  // — it is indistinguishable from "empty" unless we detect it explicitly.
+  let profileText = '';
+  let profileOk = true;
+  try {
+    const settings = await getOrCreateSettings(config, workspaceId);
+    profileText = [
+      settings.business_description,
+      settings.instructions?.custom_instructions,
+    ].filter(Boolean).join('\n\n');
+  } catch {
+    profileOk = false;
+    fail('business_profile_query_failed');
+  }
+  if (profileOk && profileText) {
     const chunks = chunkText(profileText);
     const r = await indexSource(config, {
       workspaceId,
@@ -269,14 +313,8 @@ export async function rebuildWorkspaceIndex(
       title: 'Business profile',
       chunks,
     }, embedder, { remainingEmbedBudget: remainingBudget });
-    summary.chunksCreated += r.chunksCreated;
-    summary.chunksUpdated += r.chunksUpdated;
-    summary.chunksSkipped += r.chunksSkipped;
-    summary.chunksDeleted += r.chunksDeleted;
-    summary.embeddingsGenerated += r.embeddingsGenerated;
-    summary.embeddingFailures += r.embeddingFailures;
+    applyIndexResult(r);
     remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated);
-    summary.sourcesProcessed += 1;
   }
 
   // 4) Reconciliation sweep — Phase 6-S5-R3.
@@ -290,8 +328,11 @@ export async function rebuildWorkspaceIndex(
   // The sweep is DESTRUCTIVE, so it runs only when every prerequisite query
   // succeeded. On any query error it is skipped entirely and the rebuild is
   // reported as non-terminal so the outbox event is retried, never completed.
-  let reconciliationFailed = !articleSetTrustworthy;
-  if (articleSetTrustworthy) {
+  // Prerequisites: the eligible-article set is trustworthy AND every required
+  // KB source write succeeded. Otherwise no chunk may be retired.
+  const reconciliationAllowed = articleSetTrustworthy && indexWritesTrustworthy;
+  let reconciliationFailed = !reconciliationAllowed;
+  if (reconciliationAllowed) {
     const { data: kbChunks, error: chunksError } = await sb
       .from('ai_knowledge_chunks')
       .select('source_id')
@@ -301,6 +342,7 @@ export async function rebuildWorkspaceIndex(
       .limit(20000);
     if (chunksError) {
       reconciliationFailed = true;
+      fail('chunk_query_failed');
     } else {
       const staleSourceIds = Array.from(
         new Set(
@@ -320,6 +362,7 @@ export async function rebuildWorkspaceIndex(
           .select('id');
         if (retireError) {
           reconciliationFailed = true;
+          fail('chunk_reconciliation_failed');
         } else {
           summary.staleSourcesReconciled = staleSourceIds.length;
           summary.chunksDeleted += (retired || []).length;
@@ -328,9 +371,8 @@ export async function rebuildWorkspaceIndex(
     }
   }
   if (reconciliationFailed) {
-    summary.ok = false;
-    summary.terminalState = 'failed';
     summary.reconciliationSkipped = true;
+    fail('chunk_reconciliation_failed');
   }
 
   summary.embeddingBudgetUsed = budget - remainingBudget;
@@ -346,6 +388,7 @@ export async function rebuildWorkspaceIndex(
   ) {
     summary.ok = false;
     summary.terminalState = 'deferred_provider_unavailable';
+    summary.errorCode = 'embedding_provider_unavailable';
   }
 
   return summary;

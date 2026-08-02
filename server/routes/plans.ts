@@ -21,6 +21,7 @@ import {
   USAGE_BACKED_LIMIT_KEYS,
 } from '../services/billing/capabilityRegistry.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { enqueueKnowledgeBaseCatchup } from '../services/ai-agent/knowledgeIndex/kbEvents.js';
 
 export const plansRouter = Router();
 
@@ -359,7 +360,7 @@ plansRouter.post('/admin/assign', async (req, res) => {
   clearEntitlementCache(workspaceId);
   // Deterministic catch-up: a plan upgrade may newly grant `ai_assistant`,
   // so re-queue the workspace on the neutral KB outbox. One-way, best effort.
-  await enqueueKnowledgeBaseCatchup(getServerConfig(req), workspaceId);
+  await enqueueKnowledgeBaseCatchup((req as any).serverConfig, workspaceId);
   res.json({ subscription: data });
 });
 

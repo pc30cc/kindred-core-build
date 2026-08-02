@@ -636,6 +636,10 @@ billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
   if (plan.id) {
     const { data, error } = await supabase.from('billing_plans').update(plan).eq('id', plan.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
+    // Phase 6-S5-R4 — editing a plan definition changes the effective
+    // entitlements of EVERY workspace on that plan; funnel the change so
+    // caches are cleared and AI index catch-up is enqueued deterministically.
+    await handlePlanDefinitionChanged((req as any).serverConfig, plan.id);
     return res.json({ plan: data });
   }
 

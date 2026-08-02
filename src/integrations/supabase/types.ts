@@ -4469,6 +4469,66 @@ export type Database = {
         }
         Relationships: []
       }
+      entitlement_fanout_jobs: {
+        Row: {
+          attempts: number
+          claim_expires_at: string | null
+          claim_token: string | null
+          completed_at: string | null
+          created_at: string
+          cursor_workspace_id: string | null
+          failed_count: number
+          id: string
+          last_error_code: string | null
+          next_attempt_at: string
+          plan_id: string | null
+          processed_count: number
+          scope: string
+          source: string
+          status: string
+          updated_at: string
+          worker_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          completed_at?: string | null
+          created_at?: string
+          cursor_workspace_id?: string | null
+          failed_count?: number
+          id?: string
+          last_error_code?: string | null
+          next_attempt_at?: string
+          plan_id?: string | null
+          processed_count?: number
+          scope: string
+          source: string
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          completed_at?: string | null
+          created_at?: string
+          cursor_workspace_id?: string | null
+          failed_count?: number
+          id?: string
+          last_error_code?: string | null
+          next_attempt_at?: string
+          plan_id?: string | null
+          processed_count?: number
+          scope?: string
+          source?: string
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Relationships: []
+      }
       feature_flags: {
         Row: {
           description: string | null
@@ -8061,6 +8121,18 @@ export type Database = {
             Returns: Json
           }
       admin_security_stats: { Args: never; Returns: Json }
+      advance_entitlement_fanout: {
+        Args: {
+          _claim_token: string
+          _cursor_workspace_id: string
+          _failed: number
+          _id: string
+          _lease_seconds?: number
+          _processed: number
+          _worker_id: string
+        }
+        Returns: boolean
+      }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
       bulk_create_contacts: {
         Args: { _contacts: Json; _workspace_id: string }
@@ -8081,6 +8153,21 @@ export type Database = {
         Args: { _feature: string; _workspace_id: string }
         Returns: Json
       }
+      claim_entitlement_fanout_jobs: {
+        Args: { _lease_seconds?: number; _limit?: number; _worker_id: string }
+        Returns: {
+          attempts: number
+          claim_expires_at: string
+          claim_token: string
+          cursor_workspace_id: string
+          failed_count: number
+          id: string
+          plan_id: string
+          processed_count: number
+          scope: string
+          source: string
+        }[]
+      }
       claim_kb_change_events: {
         Args: { _lease_seconds?: number; _limit?: number; _worker_id: string }
         Returns: {
@@ -8094,6 +8181,16 @@ export type Database = {
       }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }
       cleanup_expired_widget_identity: { Args: never; Returns: undefined }
+      complete_entitlement_fanout: {
+        Args: {
+          _claim_token: string
+          _failed?: number
+          _id: string
+          _processed?: number
+          _worker_id: string
+        }
+        Returns: boolean
+      }
       complete_kb_change_events: {
         Args: { _claim_token: string; _ids: string[]; _worker_id: string }
         Returns: number
@@ -8163,9 +8260,24 @@ export type Database = {
         }
         Returns: number
       }
+      enqueue_entitlement_fanout: {
+        Args: { _plan_id?: string; _scope: string; _source: string }
+        Returns: string
+      }
       enqueue_kb_catchup: { Args: { _workspace_id: string }; Returns: number }
       evaluate_alert_rules: { Args: never; Returns: Json }
       expire_stale_trials: { Args: never; Returns: number }
+      fail_entitlement_fanout: {
+        Args: {
+          _claim_token: string
+          _error_code: string
+          _id: string
+          _max_attempts?: number
+          _retry_seconds?: number
+          _worker_id: string
+        }
+        Returns: boolean
+      }
       fail_kb_change_events: {
         Args: {
           _claim_token: string

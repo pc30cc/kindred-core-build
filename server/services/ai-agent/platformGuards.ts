@@ -13,6 +13,9 @@ import { getServiceClient } from '../../supabase.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { getPlatformAiAgentSettings, isPlatformSettingsLookupFailed } from './platformSettings.js';
 
+/** Transient, retryable: platform AI state could not be resolved. */
+export const PLATFORM_STATUS_UNAVAILABLE = 'ai_platform_status_unavailable';
+
 export type PlatformFeatureKey =
   | 'operator_assist'
   | 'auto_answer'
@@ -54,12 +57,15 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
   workspaceId: string,
   opts: { customerFacing?: boolean } = {},
 ): Promise<{ ok: true } | { ok: false; status: number; error: string; reason?: 'kill_switch' | 'customer_hidden' | 'workspace_disabled' | 'lookup_failed' }> {
+  // Phase 6-S5-R6 — an UNRESOLVED platform lookup is reported as its own
+  // 503 `ai_platform_status_unavailable`, never conflated with a deliberate
+  // 403 kill switch. Callers must surface the transient nature to the client.
   try {
     const platform = await getPlatformAiAgentSettings(config);
     // Phase 6-S5-R4 — an UNRESOLVED settings lookup is not "enabled".
     // Only a genuinely missing table defaults open (handled upstream).
     if (isPlatformSettingsLookupFailed(platform)) {
-      return { ok: false, status: 503, error: 'ai_agent_platform_disabled', reason: 'lookup_failed' };
+      return { ok: false, status: 503, error: PLATFORM_STATUS_UNAVAILABLE, reason: 'lookup_failed' };
     }
     if (!platform.ai_agent_enabled) {
       return { ok: false, status: 403, error: 'ai_agent_platform_disabled', reason: 'kill_switch' };
@@ -76,7 +82,7 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
         .maybeSingle();
       // Fail closed: we cannot prove the workspace is NOT disabled.
       if (error) {
-        return { ok: false, status: 503, error: 'ai_agent_platform_disabled', reason: 'lookup_failed' };
+        return { ok: false, status: 503, error: PLATFORM_STATUS_UNAVAILABLE, reason: 'lookup_failed' };
       }
       const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
       if (meta.platform_disabled === true) {
@@ -86,7 +92,7 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
     return { ok: true };
   } catch {
     // Unexpected failure while evaluating a security gate → fail CLOSED.
-    return { ok: false, status: 503, error: 'ai_agent_platform_disabled', reason: 'lookup_failed' };
+    return { ok: false, status: 503, error: PLATFORM_STATUS_UNAVAILABLE, reason: 'lookup_failed' };
   }
 }
 

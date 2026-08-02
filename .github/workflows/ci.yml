@@ -65,3 +65,45 @@ jobs:
       - name: Build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build
+
+  integration:
+    name: Integration (PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Install dependencies (frozen lockfile)
+        id: install
+        run: bun install --frozen-lockfile
+
+      # Real database proof: the durable entitlement fan-out queue's lease
+      # ownership, expiry reclaim and idempotent enqueue are executed against
+      # a live PostgreSQL, not mocked.
+      - name: Integration tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
+        run: bunx vitest run src/test/integration

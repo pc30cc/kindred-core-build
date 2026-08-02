@@ -182,195 +182,53 @@ export async function handleBulkEntitlementChanged(
 }
 
 /**
- * Resolves every workspace currently subscribed to a plan, then funnels the
- * change. Used when a plan's modules/features/limits are edited.
+ * Phase 6-S5-R6 — non-workspace-scoped changes (plan definition edits, the
+ * platform AI kill switch) are no longer fanned out in-process. They are
+ * queued as DURABLE background jobs in `public.entitlement_fanout_jobs` and
+ * drained by a lease-owning worker, so a deploy or crash can never lose the
+ * remaining workspaces. See ./entitlementFanout.ts.
  */
-
-/** Page size for every fan-out cursor. Bounded memory, deterministic order. */
-export const FANOUT_PAGE_SIZE = 500;
-/**
- * Above this many affected workspaces the fan-out is detached from the HTTP
- * request so an admin save never blocks on thousands of catch-up enqueues.
- */
-export const FANOUT_INLINE_THRESHOLD = 200;
-
 export interface FanoutResult {
   ok: boolean;
-  processed: number;
-  failed: number;
-  /** True when the remaining work was detached to a background task. */
+  /** Durable job id, or null when nothing needed queueing. */
+  jobId: string | null;
+  /** True when the change provably cannot affect AI entitlements. */
+  skipped: boolean;
+  /** Always true now: fan-out never runs inside the HTTP request. */
   backgrounded: boolean;
-  pages: number;
-  errorCode?: 'fanout_lookup_failed';
-}
-
-type PageReader = (
-  offset: number,
-  limit: number,
-) => Promise<{ ids: string[]; error: boolean }>;
-
-/**
- * Shared paginated fan-out driver. Pages with a deterministic order until a
- * short page is returned; deduplicates ids; never loads an unbounded set into
- * memory; detaches to the background once the inline threshold is exceeded.
- */
-async function runPaginatedFanout(
-  config: ServerConfig,
-  readPage: PageReader,
-  source: EntitlementChangeSource,
-  opts: { inlineThreshold?: number } = {},
-): Promise<FanoutResult> {
-  const inlineThreshold = opts.inlineThreshold ?? FANOUT_INLINE_THRESHOLD;
-  const seen = new Set<string>();
-  const result: FanoutResult = {
-    ok: true, processed: 0, failed: 0, backgrounded: false, pages: 0,
-  };
-
-  let offset = 0;
-  for (;;) {
-    const page = await readPage(offset, FANOUT_PAGE_SIZE);
-    if (page.error) {
-      console.error(
-        '[billing.entitlementChange] fan-out lookup failed',
-        JSON.stringify({ source, offset }),
-      );
-      return { ...result, ok: false, errorCode: 'fanout_lookup_failed' };
-    }
-    result.pages += 1;
-    const fresh = page.ids.filter((id) => id && !seen.has(id));
-    for (const id of fresh) seen.add(id);
-
-    if (result.processed + fresh.length > inlineThreshold) {
-      // Detach the remainder — including this page — from the caller.
-      result.backgrounded = true;
-      const startOffset = offset;
-      void (async () => {
-        try {
-          await drainRemainder(config, readPage, source, seen, startOffset);
-        } catch (error: unknown) {
-          console.error(
-            '[billing.entitlementChange] background fan-out crashed',
-            JSON.stringify({ source, message: safeMessage(error) }),
-          );
-        }
-      })();
-      return result;
-    }
-
-    for (const workspaceId of fresh) {
-      const r = await handleWorkspaceEntitlementChanged(config, { workspaceId, source });
-      result.processed += 1;
-      if (!r.ok) result.failed += 1;
-    }
-
-    if (page.ids.length < FANOUT_PAGE_SIZE) break;
-    offset += FANOUT_PAGE_SIZE;
-  }
-
-  result.ok = result.failed === 0;
-  return result;
-}
-
-async function drainRemainder(
-  config: ServerConfig,
-  readPage: PageReader,
-  source: EntitlementChangeSource,
-  seen: Set<string>,
-  startOffset: number,
-): Promise<void> {
-  let offset = startOffset;
-  let processed = 0;
-  let failed = 0;
-  for (;;) {
-    const page = await readPage(offset, FANOUT_PAGE_SIZE);
-    if (page.error) {
-      console.error(
-        '[billing.entitlementChange] background fan-out page failed',
-        JSON.stringify({ source, offset }),
-      );
-      return;
-    }
-    for (const workspaceId of page.ids) {
-      if (!workspaceId) continue;
-      const first = !seen.has(workspaceId);
-      seen.add(workspaceId);
-      if (!first && offset !== startOffset) continue;
-      const r = await handleWorkspaceEntitlementChanged(config, { workspaceId, source });
-      processed += 1;
-      if (!r.ok) failed += 1;
-    }
-    if (page.ids.length < FANOUT_PAGE_SIZE) break;
-    offset += FANOUT_PAGE_SIZE;
-  }
-  console.warn(
-    '[billing.entitlementChange] background fan-out finished',
-    JSON.stringify({ source, processed, failed }),
-  );
-}
-
-function safeMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 200);
+  errorCode?: 'fanout_enqueue_failed';
 }
 
 /**
- * Fan-out for a plan-definition edit: every workspace currently assigned to
- * the plan. Paginated, deduplicated, backgrounded above the inline threshold.
+ * Fan-out for a plan-definition edit. Pass the plan row before and after the
+ * write so a price/description-only edit is skipped.
  */
 export async function handlePlanDefinitionChanged(
   config: ServerConfig,
   planId: string,
+  diff: {
+    previous?: import('./entitlementFanout.js').PlanDefinitionLike | null;
+    next?: import('./entitlementFanout.js').PlanDefinitionLike | null;
+  } = {},
 ): Promise<FanoutResult> {
   if (!planId) {
-    return { ok: false, processed: 0, failed: 0, backgrounded: false, pages: 0 };
+    return { ok: false, jobId: null, skipped: false, backgrounded: true, errorCode: 'fanout_enqueue_failed' };
   }
-  const { getServiceClient } = await import('../../supabase.js');
-  const sb = getServiceClient(config);
-  const readPage: PageReader = async (offset, limit) => {
-    try {
-      const { data, error } = await sb
-        .from('workspace_subscriptions')
-        .select('workspace_id')
-        .eq('plan_id', planId)
-        .order('workspace_id', { ascending: true })
-        .range(offset, offset + limit - 1);
-      if (error) return { ids: [], error: true };
-      return {
-        ids: (data || []).map((r) => (r as { workspace_id: string }).workspace_id),
-        error: false,
-      };
-    } catch {
-      return { ids: [], error: true };
-    }
-  };
-  return runPaginatedFanout(config, readPage, 'plan_definition_updated');
+  const { enqueuePlanEntitlementFanout } = await import('./entitlementFanout.js');
+  const r = await enqueuePlanEntitlementFanout(config, planId, diff);
+  return { ...r, backgrounded: true };
 }
 
 /**
- * Fan-out for the platform AI kill switch turning back ON.
- *
- * The authoritative source is `public.workspaces` — a workspace may have no
- * `ai_agent_settings` row yet and would otherwise be silently skipped.
+ * Fan-out for the platform AI kill switch. Only a genuine OFF → ON transition
+ * can grant access, so the caller passes the transition and everything else is
+ * skipped.
  */
 export async function handlePlatformAiEnabled(
   config: ServerConfig,
+  transition: { previousEnabled?: boolean; nextEnabled?: boolean } = {},
 ): Promise<FanoutResult> {
-  const { getServiceClient } = await import('../../supabase.js');
-  const sb = getServiceClient(config);
-  const readPage: PageReader = async (offset, limit) => {
-    try {
-      const { data, error } = await sb
-        .from('workspaces')
-        .select('id')
-        .order('id', { ascending: true })
-        .range(offset, offset + limit - 1);
-      if (error) return { ids: [], error: true };
-      return { ids: (data || []).map((r) => (r as { id: string }).id), error: false };
-    } catch {
-      return { ids: [], error: true };
-    }
-  };
-  // Platform-wide fan-out is always detached from the admin HTTP request.
-  return runPaginatedFanout(config, readPage, 'platform_ai_toggle', {
-    inlineThreshold: 0,
-  });
+  const { enqueuePlatformEntitlementFanout } = await import('./entitlementFanout.js');
+  const r = await enqueuePlatformEntitlementFanout(config, transition);
+  return { ...r, backgrounded: true };
 }

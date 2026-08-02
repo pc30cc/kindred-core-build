@@ -357,6 +357,9 @@ plansRouter.post('/admin/assign', async (req, res) => {
   });
 
   clearEntitlementCache(workspaceId);
+  // Deterministic catch-up: a plan upgrade may newly grant `ai_assistant`,
+  // so re-queue the workspace on the neutral KB outbox. One-way, best effort.
+  await enqueueKnowledgeBaseCatchup(getServerConfig(req), workspaceId);
   res.json({ subscription: data });
 });
 

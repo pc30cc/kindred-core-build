@@ -29,7 +29,8 @@ describe('Knowledge Base is independent from the AI Agent', () => {
   it('KB access helpers contain no entitlement lookup at all', () => {
     const src = read('server/services/knowledge-base/access.ts');
     expect(src).not.toMatch(/checkModuleAccess/);
-    expect(src).not.toMatch(/knowledge_base_plan_required/);
+    // Only prose may mention the removed denial; no code may emit it.
+    expect(src).not.toMatch(/error: 'knowledge_base_plan_required'/);
     expect(src).not.toMatch(/'ai_assistant'/);
     // Granular role permissions remain the only authorization layer.
     expect(src).toMatch(/has_workspace_permission/);

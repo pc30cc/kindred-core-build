@@ -46,6 +46,7 @@ import {
   toPublicAiKbJobEvent,
   toPublicErrorCode,
   type AiKbJobRowLike,
+  toPublicAiKbVisibility,
 } from '../services/ai-kb/dto.js';
 
 export const aiKbRouter: Router = express.Router();

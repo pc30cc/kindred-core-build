@@ -365,11 +365,18 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   const auth = await authenticate(req, res, config);
   if (!auth) return;
 
-  const { data: job } = await sb
+  // Phase 6-S5-R7 — a lookup FAILURE is not a 404. Collapsing it into
+  // "job_not_found" tells the operator their job disappeared while the real
+  // cause is a transient backend fault.
+  const { data: job, error: jobError } = await sb
     .from('ai_kb_jobs')
     .select(AI_KB_JOB_COLUMNS)
     .eq('id', req.params.id)
     .maybeSingle<AiKbJobRowLike>();
+  if (jobError) {
+    console.error('[ai-kb] job lookup failed', JSON.stringify({ code: jobError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
 
   // Canonical 404 for both "missing" and "not yours" — no existence leak.
   if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
@@ -377,11 +384,23 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   }
   if (!(await gateAiKb(res, config, job.workspace_id, auth, { route: 'GET /api/ai-kb/jobs/:id' }))) return;
 
-  const [{ data: pages }, { data: generated }, { data: events }] = await Promise.all([
+  const [pagesRes, generatedRes, eventsRes] = await Promise.all([
     sb.from('ai_kb_job_pages').select(AI_KB_PAGE_COLUMNS).eq('job_id', job.id).order('created_at', { ascending: true }).limit(500),
     sb.from('ai_kb_generated_articles').select(AI_KB_GENERATED_COLUMNS).eq('job_id', job.id).order('created_at', { ascending: true }),
     sb.from('ai_kb_job_events').select(AI_KB_EVENT_COLUMNS).eq('job_id', job.id).order('created_at', { ascending: false }).limit(50),
   ]);
+
+  // A failed sub-query must never be rendered as an empty list: the operator
+  // would read "0 generated drafts" as an authoritative result and re-run a
+  // job that already produced content.
+  const subError = pagesRes.error || generatedRes.error || eventsRes.error;
+  if (subError) {
+    console.error('[ai-kb] job detail subquery failed', JSON.stringify({ code: subError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
+  const { data: pages } = pagesRes;
+  const { data: generated } = generatedRes;
+  const { data: events } = eventsRes;
 
   return res.json({
     job: toPublicAiKbJob(job as any),
@@ -404,11 +423,16 @@ async function loadGenerated(
   if (!auth) return null;
 
   const sb = getServiceClient(config);
-  const { data: gen } = await sb
+  const { data: gen, error: genError } = await sb
     .from('ai_kb_generated_articles')
-    .select('*')
+    .select(AI_KB_GENERATED_INTERNAL_COLUMNS)
     .eq('id', req.params.id)
     .maybeSingle();
+  if (genError) {
+    console.error('[ai-kb] generated lookup failed', JSON.stringify({ code: genError.code }));
+    res.status(503).json({ error: 'ai_kb_status_unavailable' });
+    return null;
+  }
 
   // Canonical 404 for missing OR cross-workspace — no existence leak.
   if (!gen || !(await isAuthorizedForWorkspace(config, auth, gen.workspace_id))) {
@@ -454,7 +478,7 @@ async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' |
       })
       .eq('id', gen.kb_article_id)
       .eq('workspace_id', gen.workspace_id)
-      .select('*')
+      .select('id, workspace_id, slug, locale, status')
       .maybeSingle();
     if (error) throw error;
     if (!data) throw new Error('kb_article_workspace_mismatch');
@@ -487,7 +511,7 @@ async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' |
       excerpt: gen.excerpt,
       status,
     })
-    .select('*')
+    .select('id, workspace_id, slug, locale, status')
     .single();
   if (error) throw error;
   return data;
@@ -587,12 +611,17 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
     route: 'POST /api/ai-kb/jobs/:jobId/publish-all',
   }))) return;
 
-  const { data: drafts } = await sb
+  const { data: drafts, error: draftsError } = await sb
     .from('ai_kb_generated_articles')
-    .select('*')
+    .select(AI_KB_GENERATED_INTERNAL_COLUMNS)
     .eq('job_id', job.id)
     .eq('workspace_id', job.workspace_id)
     .in('status', ['pending', 'accepted']);
+  if (draftsError) {
+    // Never report "0 published" on an unread draft set.
+    console.error('[ai-kb] publish-all draft lookup failed', JSON.stringify({ code: draftsError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
 
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
   const failed: Array<{ generated_id: string; error: 'publish_failed' }> = [];

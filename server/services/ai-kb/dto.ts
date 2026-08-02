@@ -132,6 +132,14 @@ export const AI_KB_GENERATED_COLUMNS =
   'id, job_id, workspace_id, title, slug, excerpt, locale, status, kb_article_id, ' +
   'suggested_category, confidence, created_at, updated_at';
 export const AI_KB_EVENT_COLUMNS = 'id, job_id, level, created_at';
+/**
+ * Phase 6-S5-R7 — SERVER-INTERNAL column list for draft mutation paths
+ * (accept / publish / publish-all). It adds `content_md`, which the public
+ * DTO deliberately withholds, so it must never be returned to a client
+ * unmapped. Use `AI_KB_GENERATED_COLUMNS` for anything that is serialized.
+ */
+export const AI_KB_GENERATED_INTERNAL_COLUMNS =
+  'id, job_id, workspace_id, title, slug, excerpt, locale, status, kb_article_id, content_md';
 
 // ─── Mappers ───────────────────────────────────────────────────
 export function toPublicAiKbJob(row: AiKbJobRowLike): AiKbJobPublicDto {

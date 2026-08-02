@@ -131,7 +131,11 @@ export async function indexSource(
     if (needsEmbed) toEmbed.push({ i: c.index, content: c.content, hash });
   }
 
-  // Embed in batch (best-effort).
+  // Embed in batch. Phase 6-S5-R7 — STRICT validation: a provider may return
+  // a short/long vector, a non-array, or NaN/Infinity entries. Writing such a
+  // value produces a silently unusable index row, so anything that is not a
+  // finite vector of the provider's exact dimensionality is counted as an
+  // embedding FAILURE and never persisted.
   let vectors: Map<number, number[]> = new Map();
   if (toEmbed.length && embedder && isUsableEmbeddingProvider(embedder)) {
     const budget = opts?.remainingEmbedBudget ?? toEmbed.length;
@@ -139,12 +143,19 @@ export async function indexSource(
     if (slice.length) {
       try {
         const out = await embedder.embedTexts(slice.map((t) => t.content));
+        const expected = embedder.dimensions;
         slice.forEach((t, idx) => {
-          const v = out[idx];
-          if (v && v.length) vectors.set(t.i, v);
+          const v = Array.isArray(out) ? out[idx] : undefined;
+          if (isValidEmbedding(v, expected)) vectors.set(t.i, v as number[]);
         });
         result.embeddingsGenerated = vectors.size;
         result.embeddingFailures += slice.length - vectors.size;
+        if (vectors.size < slice.length) {
+          console.warn(
+            '[knowledgeIndex.indexer] rejected invalid embeddings',
+            JSON.stringify({ expected, requested: slice.length, accepted: vectors.size }),
+          );
+        }
       } catch (err: any) {
         console.warn('[knowledgeIndex.indexer] embedding batch failed:', err?.message);
         result.embeddingFailures += slice.length;
@@ -202,6 +213,21 @@ export async function indexSource(
   }
 
   return result;
+}
+
+/**
+ * Phase 6-S5-R7 — an embedding is only usable when it is a real numeric
+ * vector of the provider's exact dimensionality with no NaN/Infinity entries.
+ * Anything else must be rejected BEFORE it reaches the database, otherwise
+ * the row looks embedded while retrieval silently degrades.
+ */
+export function isValidEmbedding(v: unknown, expectedDimensions: number): v is number[] {
+  if (!Array.isArray(v) || v.length === 0) return false;
+  if (expectedDimensions > 0 && v.length !== expectedDimensions) return false;
+  for (const n of v) {
+    if (typeof n !== 'number' || !Number.isFinite(n)) return false;
+  }
+  return true;
 }
 
 /** pgvector accepts vector-as-text in the form "[0.1,0.2,...]". */

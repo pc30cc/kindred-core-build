@@ -4,9 +4,9 @@ import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { Bot, LayoutDashboard, BookOpen, BookMarked, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
+import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
-import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { PlanAccessGate } from '@/components/plan/PlanAccessGate';
 
 interface NavItem { key: string; label: string; subPath: string; icon: React.ElementType; }
 interface NavGroup { key: string; label: string; items: NavItem[]; }
@@ -15,7 +15,6 @@ const groups: NavGroup[] = [
   {
     key: 'main', label: 'AI Agent', items: [
       { key: 'overview', label: 'Overview', subPath: '/ai-agent/overview', icon: LayoutDashboard },
-      { key: 'articles', label: 'Articles', subPath: '/ai-agent/articles', icon: BookMarked },
       { key: 'knowledge', label: 'Knowledge Sources', subPath: '/ai-agent/knowledge', icon: BookOpen },
       { key: 'behavior', label: 'Behavior', subPath: '/ai-agent/behavior', icon: Sliders },
       { key: 'operatorAssist', label: 'Operator Assist', subPath: '/ai-agent/operator-assist', icon: Sparkles },
@@ -112,11 +111,13 @@ export function AiAgentLayout() {
         </nav>
       </div>
       <div className="flex-1 overflow-y-auto">
-        <PlanLockedOverlay moduleKey="ai_assistant">
+        {/* Phase 6-S5 — non-mounting plan gate: when `ai_assistant` is not
+            in the plan, AI child pages never mount and no AI request runs. */}
+        <PlanAccessGate moduleKey="ai_assistant">
           <div className="max-w-5xl mx-auto p-8">
             <Outlet />
           </div>
-        </PlanLockedOverlay>
+        </PlanAccessGate>
       </div>
     </div>
   );

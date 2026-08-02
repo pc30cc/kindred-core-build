@@ -214,6 +214,11 @@ export async function handlePlanDefinitionChanged(
   if (!planId) {
     return { ok: false, jobId: null, skipped: false, backgrounded: true, errorCode: 'fanout_enqueue_failed' };
   }
+  // Phase 6-S5-R7 — a plan edit changes the effective entitlements of every
+  // workspace on that plan, INCLUDING pure revocations that queue no job.
+  // Cache invalidation therefore happens unconditionally and before any
+  // relevance filtering.
+  clearEntitlementCache();
   const { enqueuePlanEntitlementFanout } = await import('./entitlementFanout.js');
   const r = await enqueuePlanEntitlementFanout(config, planId, diff);
   return { ...r, backgrounded: true };
@@ -228,6 +233,9 @@ export async function handlePlatformAiEnabled(
   config: ServerConfig,
   transition: { previousEnabled?: boolean; nextEnabled?: boolean } = {},
 ): Promise<FanoutResult> {
+  // Turning the platform AI switch OFF revokes access everywhere at once; it
+  // queues nothing but must never be served from a stale cache.
+  clearEntitlementCache();
   const { enqueuePlatformEntitlementFanout } = await import('./entitlementFanout.js');
   const r = await enqueuePlatformEntitlementFanout(config, transition);
   return { ...r, backgrounded: true };

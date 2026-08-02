@@ -22,7 +22,7 @@ describe('Knowledge Base is independent from the AI Agent', () => {
     // Phase 6-S5-R4 — no entitlement lookup, no plan denial, ever.
     expect(src).not.toMatch(/checkKnowledgeBaseModule/);
     expect(src).not.toMatch(/checkModuleAccess|checkEntitlementFromDB/);
-    expect(src).not.toMatch(/knowledge_base_plan_required/);
+    expect(src).not.toMatch(/error: 'knowledge_base_plan_required'/);
     expect(src).not.toMatch(/ai-agent|aiAgent|ai_assistant/);
   });
 

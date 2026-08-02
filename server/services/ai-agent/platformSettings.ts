@@ -301,6 +301,7 @@ export interface WorkspaceAiAgentCapabilities {
 
   /** Plan state (independent from platform state). */
   plan_ai_assistant_enabled: boolean;
+  /** Always true — the Knowledge Base is a core product (Phase 6-S5-R4/R6). */
   plan_knowledge_base_enabled: boolean;
   plan_ai_kb_builder_enabled: boolean;
   plan_name: string | null;
@@ -376,19 +377,48 @@ export async function getWorkspaceAiAgentCapabilities(
     }
   };
 
+  /** FEATURE entitlements resolve through check_workspace_entitlement. */
+  const featureLookup = async (key: string) => {
+    if (!workspaceId) return { allowed: false, plan: null as string | null };
+    try {
+      const r = await checkEntitlementFromDB(
+        config.supabaseUrl,
+        config.supabaseServiceRoleKey,
+        workspaceId,
+        key,
+      );
+      if (r.reason === 'rpc_error' || r.reason === 'exception') entitlementError = true;
+      return {
+        allowed: r.allowed === true && r.reason !== 'rpc_error' && r.reason !== 'exception',
+        plan: ((r as { plan?: string }).plan) ?? null,
+      };
+    } catch {
+      entitlementError = true;
+      return { allowed: false, plan: null as string | null };
+    }
+  };
+
+  // Phase 6-S5-R6 — capability alignment with server/services/ai-kb/access.ts:
+  //   knowledge_base → ALWAYS available (core product, never plan-gated)
+  //   ai_assistant   → MODULE      (check_module_access)
+  //   ai_kb_builder  → FEATURE     (check_workspace_entitlement)
+  // A feature is never resolved through the module RPC and vice versa.
   const aiPlan = await lookup('ai_assistant');
-  const kbPlan = await lookup('knowledge_base');
-  const builderPlan = await lookup('ai_kb_builder');
+  const builderPlan = await featureLookup('ai_kb_builder');
 
   const platformEnabled = s.ai_agent_enabled === true;
   const customerVisible = s.customer_ai_agent_visible === true;
   // Super admins bypass plan for diagnostics only (never the kill switch).
   const aiPlanEnabled = aiPlan.allowed || isAdmin;
-  const kbPlanEnabled = kbPlan.allowed || isAdmin;
+  // The Knowledge Base is a core product: never plan-gated, never gated by
+  // the AI platform switch. Reported as a constant so the UI stays aligned.
+  const kbPlanEnabled = true;
   const builderPlanEnabled = builderPlan.allowed || isAdmin;
 
   const effectiveAiAvailable = platformEnabled && customerVisible && aiPlanEnabled;
-  const effectiveBuilderAvailable = effectiveAiAvailable && kbPlanEnabled && builderPlanEnabled;
+  // Builder needs AI available + the ai_kb_builder FEATURE. It must not
+  // depend on a knowledge_base entitlement that no longer exists.
+  const effectiveBuilderAvailable = effectiveAiAvailable && builderPlanEnabled;
 
   // Nav/advanced flags describe what an *entitled* user may see. They stay
   // driven by the platform toggles; the plan gate is applied by the client
@@ -402,7 +432,7 @@ export async function getWorkspaceAiAgentCapabilities(
   };
   const navOk = (flag: boolean) => !killOn && (isAdmin || (customerCanSee && flag));
 
-  const planName = aiPlan.plan || kbPlan.plan || null;
+  const planName = aiPlan.plan || builderPlan.plan || null;
 
   return {
     ai_agent_enabled: platformEnabled,

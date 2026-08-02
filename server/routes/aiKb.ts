@@ -83,43 +83,31 @@ async function authorizeMember(
   return { userId: user.id, isAdmin };
 }
 
-async function ensureModulesEnabled(
+/**
+ * Full AI KB Builder gate: granular KB permission → knowledge_base module →
+ * ai_assistant module → ai_kb_builder FEATURE → platform AI switch.
+ *
+ * Writes the canonical denial response and returns false when blocked, so no
+ * provider call, job creation, KB write or credit deduction can follow.
+ */
+async function gateAiKb(
+  res: Response,
   config: ServerConfig,
   workspaceId: string,
-  opts?: { isAdmin?: boolean; userId?: string; route?: string },
-): Promise<{ ok: true } | { ok: false; status: number; body: any }> {
-  for (const moduleKey of ['knowledge_base', 'ai_kb_builder']) {
-    const r = await checkModuleAccess(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      moduleKey,
-    );
-    if (!r.allowed) {
-      if (opts?.isAdmin && opts.userId) {
-        // Global admin bypass — log and continue.
-        await logGateBypass(config, {
-          userId: opts.userId,
-          workspaceId,
-          moduleKey,
-          route: opts.route || 'ai-kb',
-          reason: `plan=${r.plan || 'unknown'}`,
-        });
-        continue;
-      }
-      return {
-        ok: false,
-        status: 403,
-        body: {
-          error: `Module '${moduleKey}' is not enabled for this workspace`,
-          module: moduleKey,
-          plan: r.plan,
-          upgrade_required: true,
-        },
-      };
-    }
-  }
-  return { ok: true };
+  auth: { userId: string; isAdmin: boolean },
+  opts: { permissions?: KnowledgeBasePermission[]; route: string; customerFacing?: boolean },
+): Promise<boolean> {
+  const result: AiKbAccessResult = await checkAiKbAccess(config, workspaceId, {
+    permissions: opts.permissions,
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: opts.route,
+    customerFacing: opts.customerFacing,
+  });
+  if (result.ok) return true;
+  const denial = result.denial!;
+  res.status(denial.status).json(denial.body);
+  return false;
 }
 
 // ──────────────────────────────────────────────────────────────

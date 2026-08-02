@@ -205,8 +205,13 @@ export function PhoneVerificationFlow({
       {step === 'phone' ? (
         <div className="space-y-3">
           <Label className="text-sm font-medium">{t('phoneVerification.phoneLabel')}</Label>
-          <div className="flex items-stretch gap-2">
-            <span className="inline-flex items-center rounded-md border border-border bg-muted px-3 text-sm font-mono text-muted-foreground">
+          {/* dir=ltr keeps the country prefix pinned to the left even in RTL locales */}
+          <div
+            dir="ltr"
+            className="flex items-stretch overflow-hidden rounded-xl border border-border bg-background shadow-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20"
+          >
+            <span className="inline-flex items-center gap-1.5 border-r border-border bg-muted/60 px-3 text-sm font-mono text-muted-foreground select-none">
+              <Smartphone className="h-3.5 w-3.5" />
               +98
             </span>
             <Input
@@ -216,12 +221,12 @@ export function PhoneVerificationFlow({
               placeholder="09121234567"
               inputMode="numeric"
               dir="ltr"
-              className="font-mono"
+              className="h-11 flex-1 border-0 bg-transparent font-mono tracking-wider shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               disabled={busy}
             />
           </div>
           <p className="text-xs text-muted-foreground">{t('phoneVerification.phoneHint')}</p>
-          <Button onClick={handleSend} disabled={busy || digitsOnly.length < 10} className="w-full">
+          <Button onClick={handleSend} disabled={busy || digitsOnly.length < 10} className="w-full h-11 shadow-sm">
             {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
             <span className="ms-2">{t('phoneVerification.sendCode')}</span>
           </Button>
@@ -230,7 +235,8 @@ export function PhoneVerificationFlow({
         <div className="space-y-3">
           <Label className="text-sm font-medium">{t('phoneVerification.codeLabel')}</Label>
           {maskedPhone && (
-            <p className="text-xs text-muted-foreground font-mono" dir="ltr">
+            <p className="inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-xs font-mono text-muted-foreground" dir="ltr">
+              <Smartphone className="h-3 w-3" />
               {maskedPhone}
             </p>
           )}
@@ -242,7 +248,7 @@ export function PhoneVerificationFlow({
             inputMode="numeric"
             maxLength={6}
             dir="ltr"
-            className="font-mono text-center tracking-[0.5em]"
+            className="h-14 rounded-xl bg-muted/30 font-mono text-center text-xl tracking-[0.5em]"
             disabled={busy || expired}
           />
           {expired ? (
@@ -259,7 +265,7 @@ export function PhoneVerificationFlow({
               )}
             </div>
           )}
-          <Button onClick={handleVerify} disabled={busy || expired || codeDigits.length < 6} className="w-full">
+          <Button onClick={handleVerify} disabled={busy || expired || codeDigits.length < 6} className="w-full h-11 shadow-sm">
             {check.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
             <span className="ms-2">{t('phoneVerification.verify')}</span>
           </Button>

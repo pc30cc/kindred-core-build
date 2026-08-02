@@ -60,13 +60,17 @@ export function PhoneVerificationGate({
   if (!data?.canVerify) {
     return (
       <div className={mode === 'full_page' ? 'max-w-xl mx-auto py-16' : 'py-6'}>
-        <Card className="card-elevated border-warning/40">
-          <CardHeader className="items-center text-center">
-            <div className="p-3 rounded-xl bg-warning/10 mb-2 w-fit">
-              <ShieldAlert className="h-6 w-6 text-warning" />
+        <Card className="card-elevated overflow-hidden border-warning/30">
+          <div className="h-1 w-full bg-gradient-to-r from-warning/70 via-warning to-warning/70" />
+          <CardHeader className="items-center text-center pt-8 pb-8">
+            <div className="relative mb-3">
+              <div className="absolute inset-0 rounded-2xl bg-warning/20 blur-xl" aria-hidden />
+              <div className="relative p-4 rounded-2xl bg-warning/10 ring-1 ring-warning/30">
+                <ShieldAlert className="h-7 w-7 text-warning" />
+              </div>
             </div>
             <CardTitle className="text-lg">{t('phoneVerification.memberLockedTitle')}</CardTitle>
-            <CardDescription>{t('phoneVerification.memberLockedBody')}</CardDescription>
+            <CardDescription className="max-w-sm">{t('phoneVerification.memberLockedBody')}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -75,15 +79,19 @@ export function PhoneVerificationGate({
 
   return (
     <div className={mode === 'full_page' ? 'max-w-xl mx-auto py-12' : 'py-6'}>
-      <Card className="card-elevated">
-        <CardHeader className="items-center text-center">
-          <div className="p-3 rounded-xl bg-primary/10 mb-2 w-fit">
-            <ShieldCheck className="h-6 w-6 text-primary" />
+      <Card className="card-elevated overflow-hidden">
+        <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+        <CardHeader className="items-center text-center pt-8 pb-4">
+          <div className="relative mb-3">
+            <div className="absolute inset-0 rounded-2xl bg-primary/25 blur-xl" aria-hidden />
+            <div className="relative p-4 rounded-2xl bg-primary/10 ring-1 ring-primary/25">
+              <ShieldCheck className="h-7 w-7 text-primary" />
+            </div>
           </div>
-          <CardTitle className="text-lg">{t('phoneVerification.ownerTitle')}</CardTitle>
-          <CardDescription>{t('phoneVerification.ownerBody')}</CardDescription>
+          <CardTitle className="text-xl">{t('phoneVerification.ownerTitle')}</CardTitle>
+          <CardDescription className="max-w-sm">{t('phoneVerification.ownerBody')}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pb-8">
           <PhoneVerificationFlow
             /* Remount on challenge identity change so a resumed challenge
                rehydrates its countdown from the server, not stale state. */

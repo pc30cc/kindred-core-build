@@ -368,3 +368,145 @@ BEGIN
   RETURN 'retry_same_generation';
 END;
 $$;
+
+-- ── D) Transactional AI-KB draft mutations ────────────────────────────
+-- accept / publish previously ran as two independent statements: insert the
+-- KB article, then link it back. A failure in between orphaned the article
+-- and a retry created a duplicate. These run as ONE transaction and are the
+-- only supported write path.
+
+CREATE OR REPLACE FUNCTION public._ai_kb_apply_generated(
+  _generated_id uuid,
+  _workspace_id uuid,
+  _reviewer uuid,
+  _content text,
+  _article_status text,
+  _generated_status text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  g          record;
+  v_article  record;
+  v_base     text;
+  v_slug     text;
+  v_clash    uuid;
+  i          integer;
+BEGIN
+  SELECT * INTO g
+  FROM public.ai_kb_generated_articles
+  WHERE id = _generated_id AND workspace_id = _workspace_id
+  FOR UPDATE;
+
+  IF g.id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'not_found');
+  END IF;
+
+  IF g.kb_article_id IS NOT NULL THEN
+    UPDATE public.knowledge_base_articles
+    SET title = g.title,
+        content = _content,
+        excerpt = g.excerpt,
+        locale = g.locale,
+        status = _article_status
+    WHERE id = g.kb_article_id AND workspace_id = _workspace_id
+    RETURNING id, workspace_id, slug, locale, status INTO v_article;
+
+    IF v_article.id IS NULL THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'kb_article_workspace_mismatch');
+    END IF;
+  ELSE
+    v_base := COALESCE(NULLIF(g.slug, ''), 'article-' || LEFT(g.id::text, 8));
+    v_slug := v_base;
+    FOR i IN 0..49 LOOP
+      SELECT id INTO v_clash
+      FROM public.knowledge_base_articles
+      WHERE workspace_id = _workspace_id AND locale = g.locale AND slug = v_slug
+      LIMIT 1;
+      EXIT WHEN v_clash IS NULL;
+      v_slug := v_base || '-' || (i + 2)::text;
+      v_clash := NULL;
+    END LOOP;
+
+    INSERT INTO public.knowledge_base_articles
+      (workspace_id, slug, locale, title, content, excerpt, status)
+    VALUES
+      (_workspace_id, v_slug, g.locale, g.title, _content, g.excerpt, _article_status)
+    RETURNING id, workspace_id, slug, locale, status INTO v_article;
+  END IF;
+
+  UPDATE public.ai_kb_generated_articles
+  SET status = _generated_status,
+      kb_article_id = v_article.id,
+      reviewed_by = _reviewer,
+      reviewed_at = now()
+  WHERE id = _generated_id AND workspace_id = _workspace_id;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'kb_article_id', v_article.id,
+    'status', v_article.status,
+    'slug', v_article.slug,
+    'locale', v_article.locale
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.accept_ai_kb_generated_article(
+  _generated_id uuid, _workspace_id uuid, _reviewer uuid, _content text
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public._ai_kb_apply_generated(
+    _generated_id, _workspace_id, _reviewer, _content, 'draft', 'accepted');
+$$;
+
+CREATE OR REPLACE FUNCTION public.publish_ai_kb_generated_article(
+  _generated_id uuid, _workspace_id uuid, _reviewer uuid, _content text
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public._ai_kb_apply_generated(
+    _generated_id, _workspace_id, _reviewer, _content, 'published', 'published');
+$$;
+
+CREATE OR REPLACE FUNCTION public.reject_ai_kb_generated_article(
+  _generated_id uuid, _workspace_id uuid, _reviewer uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_count integer;
+BEGIN
+  UPDATE public.ai_kb_generated_articles
+  SET status = 'rejected', reviewed_by = _reviewer, reviewed_at = now()
+  WHERE id = _generated_id AND workspace_id = _workspace_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> 1 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'not_found');
+  END IF;
+  RETURN jsonb_build_object('ok', true);
+END;
+$$;
+
+-- These are service-role/edge-free server paths only; no anon or
+-- authenticated execute grant is issued.
+REVOKE ALL ON FUNCTION public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.accept_ai_kb_generated_article(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.publish_ai_kb_generated_article(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.reject_ai_kb_generated_article(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.accept_ai_kb_generated_article(uuid, uuid, uuid, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.publish_ai_kb_generated_article(uuid, uuid, uuid, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reject_ai_kb_generated_article(uuid, uuid, uuid) TO service_role;

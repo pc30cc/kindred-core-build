@@ -22,7 +22,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
-import { isGlobalAdmin, logGateBypass } from '../middleware/adminBypass.js';
+import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import {
   checkAiKbAccess,
   readAiKbCapabilities,

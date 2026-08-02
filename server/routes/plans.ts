@@ -338,10 +338,24 @@ plansRouter.put('/admin/:planId', async (req, res) => {
 plansRouter.delete('/admin/:planId', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
+  const { data: previousPlan } = await supabase
+    .from('billing_plans')
+    .select('is_active, entitlements, limits')
+    .eq('id', req.params.planId)
+    .maybeSingle();
   const { error } = await supabase.from('billing_plans').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', req.params.planId);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  // Deactivation always changes effective access for every subscriber.
-  const refresh = await handlePlanDefinitionChanged((req as any).serverConfig, req.params.planId);
+  // Phase 6-S5-R7 — deactivation is a PURE REVOCATION. It can only remove
+  // access, so it clears entitlement caches but must never queue an index
+  // fan-out: there is nothing new to index for anyone.
+  const refresh = await handlePlanDefinitionChanged(
+    (req as any).serverConfig,
+    req.params.planId,
+    {
+      previous: (previousPlan as any) ?? { is_active: true },
+      next: { ...((previousPlan as any) ?? {}), is_active: false },
+    },
+  );
   res.json({
     success: true,
     entitlement_refresh: refresh.ok

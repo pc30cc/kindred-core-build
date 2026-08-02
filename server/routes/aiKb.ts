@@ -475,7 +475,7 @@ async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' |
 
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await loadGenerated(req, res, config);
+  const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
@@ -491,14 +491,18 @@ aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => 
       })
       .eq('id', gen.id);
     return res.json({ ok: true, kb_article_id: article.id });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'accept_failed', details: err?.message });
+  } catch (error: unknown) {
+    logInternal('accept_failed', error, { generatedId: gen.id });
+    return res.status(500).json({ error: 'accept_failed' });
   }
 });
 
 aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await loadGenerated(req, res, config);
+  const ctx = await loadGenerated(req, res, config, [
+    'can_manage_knowledge_base',
+    'can_publish_knowledge_base',
+  ]);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
@@ -532,8 +536,9 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
       slug: verify.slug,
       locale: verify.locale,
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'publish_failed', details: err?.message });
+  } catch (error: unknown) {
+    logInternal('publish_failed', error, { generatedId: gen.id });
+    return res.status(500).json({ error: 'publish_failed' });
   }
 });
 

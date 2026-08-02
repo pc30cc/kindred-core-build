@@ -135,7 +135,9 @@ export default function AiKbBuilderTab() {
   }
 
   const isAdmin = !!src.is_global_admin;
-  const moduleBlocked = !src.modules.knowledge_base || !src.modules.ai_kb_builder;
+  // Phase 6-S5-R4 — only the AI KB Builder feature gates this surface.
+  // `knowledge_base` is a core product and is never an access requirement.
+  const moduleBlocked = !src.modules.ai_kb_builder;
   const blocked = moduleBlocked && !isAdmin;
 
   const noDomain = !src.source.can_scan || !src.source.domain;

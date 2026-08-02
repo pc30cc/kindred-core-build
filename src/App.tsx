@@ -36,7 +36,6 @@ import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
-import { PlanAccessGate } from "@/components/plan/PlanAccessGate";
 import WidgetPage from "@/pages/app/WidgetPage";
 import { PlanLockedOverlay } from "@/components/plan/PlanLockedOverlay";
 // AI Agent (Phase 1 foundation)
@@ -230,18 +229,13 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="widget" element={<WidgetPage />} />
                 <Route path="email" element={<EmailPage />} />
                 <Route path="billing" element={<BillingPage />} />
-                {/* Phase 6-S5 — Knowledge Base is an INDEPENDENT product.
-                    It lives directly under the workspace app layout and is
-                    gated only by the `knowledge_base` plan module. It must
-                    never be nested under AiAgentLayout. */}
-                <Route
-                  path="knowledge-base"
-                  element={
-                    <PlanAccessGate moduleKey="knowledge_base">
-                      <KnowledgeBasePage />
-                    </PlanAccessGate>
-                  }
-                />
+                {/* Phase 6-S5-R4 — Knowledge Base is a CORE workspace product.
+                    It is ALWAYS available: no plan gate, no AI dependency, no
+                    upgrade screen. Only authentication + workspace membership
+                    (the parent layout) protect it. It must never be nested
+                    under AiAgentLayout and must never be wrapped in an
+                    entitlement gate. */}
+                <Route path="knowledge-base" element={<KnowledgeBasePage />} />
                 {/* Legacy KB URL — declared OUTSIDE AiAgentLayout so the
                     redirect still works while AI Agent is disabled. */}
                 <Route path="ai-agent/articles" element={<WorkspaceKnowledgeBaseRedirect />} />

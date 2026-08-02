@@ -123,11 +123,12 @@ export default function KnowledgePage() {
       {/* Phase 6-S5-R1 — the AI KB Builder has its OWN entitlement. When it
           is locked, only this card is replaced; the rest of Knowledge
           Sources stays usable and the Builder never mounts. */}
+      {/* Phase 6-S5-R4 — `knowledge_base` is NOT a requirement: the Knowledge
+          Base itself is always available. Only the AI surfaces are gated. */}
       <EntitlementAccessGate
         mode="inline"
         requirements={[
           { type: 'module', key: 'ai_assistant' },
-          { type: 'module', key: 'knowledge_base' },
           { type: 'feature', key: 'ai_kb_builder' },
         ]}
       >

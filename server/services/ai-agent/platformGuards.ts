@@ -11,7 +11,7 @@ import type { ServerConfig } from '../../config.js';
 import { checkModuleAccess } from '../../middleware/featureGating.js';
 import { getServiceClient } from '../../supabase.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
-import { getPlatformAiAgentSettings } from './platformSettings.js';
+import { getPlatformAiAgentSettings, isPlatformSettingsLookupFailed } from './platformSettings.js';
 
 export type PlatformFeatureKey =
   | 'operator_assist'
@@ -53,9 +53,14 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
   config: ServerConfig,
   workspaceId: string,
   opts: { customerFacing?: boolean } = {},
-): Promise<{ ok: true } | { ok: false; status: number; error: string; reason?: 'kill_switch' | 'customer_hidden' | 'workspace_disabled' }> {
+): Promise<{ ok: true } | { ok: false; status: number; error: string; reason?: 'kill_switch' | 'customer_hidden' | 'workspace_disabled' | 'lookup_failed' }> {
   try {
     const platform = await getPlatformAiAgentSettings(config);
+    // Phase 6-S5-R4 — an UNRESOLVED settings lookup is not "enabled".
+    // Only a genuinely missing table defaults open (handled upstream).
+    if (isPlatformSettingsLookupFailed(platform)) {
+      return { ok: false, status: 503, error: 'ai_agent_platform_disabled', reason: 'lookup_failed' };
+    }
     if (!platform.ai_agent_enabled) {
       return { ok: false, status: 403, error: 'ai_agent_platform_disabled', reason: 'kill_switch' };
     }
@@ -64,11 +69,15 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
     }
     if (workspaceId) {
       const sb = getServiceClient(config);
-      const { data: row } = await sb
+      const { data: row, error } = await sb
         .from('ai_agent_settings')
         .select('metadata')
         .eq('workspace_id', workspaceId)
         .maybeSingle();
+      // Fail closed: we cannot prove the workspace is NOT disabled.
+      if (error) {
+        return { ok: false, status: 503, error: 'ai_agent_platform_disabled', reason: 'lookup_failed' };
+      }
       const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
       if (meta.platform_disabled === true) {
         return { ok: false, status: 403, error: 'ai_agent_platform_disabled', reason: 'workspace_disabled' };
@@ -76,7 +85,8 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
     }
     return { ok: true };
   } catch {
-    return { ok: true }; // table missing → fail open
+    // Unexpected failure while evaluating a security gate → fail CLOSED.
+    return { ok: false, status: 503, error: 'ai_agent_platform_disabled', reason: 'lookup_failed' };
   }
 }
 

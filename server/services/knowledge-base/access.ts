@@ -1,56 +1,22 @@
 /**
- * Phase 6-S5-R1 — Knowledge Base authorization helpers.
+ * Phase 6-S5-R4 — Knowledge Base authorization helpers.
  *
- * Knowledge Base is an INDEPENDENT product. Access depends on the
- * `knowledge_base` module ONLY — never on AI Agent platform toggles,
- * the `ai_assistant` module, or AI provider availability.
+ * Knowledge Base is a CORE product and is ALWAYS available. There is NO
+ * `knowledge_base` module/feature entitlement check anywhere in the KB path —
+ * not in Express, not in RLS, not in the UI. It also never depends on AI Agent
+ * platform toggles, the `ai_assistant` module, or AI provider availability.
  *
  * Authorization order for every private read/write:
  *   authentication → workspace resolution → membership →
- *   existing KB role permission → knowledge_base module → resource
- *   workspace-ownership validation → database operation
+ *   KB role permission → resource workspace-ownership validation →
+ *   database operation
+ *
+ * The former `checkKnowledgeBaseModule()` helper and the
+ * `knowledge_base_plan_required` denial were REMOVED on purpose. Do not
+ * reintroduce them.
  */
 import type { ServerConfig } from '../../config.js';
-import { checkModuleAccess } from '../../middleware/featureGating.js';
 import { getServiceClient } from '../../supabase.js';
-
-export interface KnowledgeBasePlanDenial {
-  error: 'knowledge_base_plan_required';
-  module: 'knowledge_base';
-  plan: string | null;
-  upgrade_required: true;
-}
-
-/**
- * Fail-closed `knowledge_base` module check. Returns null when allowed,
- * otherwise the canonical denial body (never a raw RPC/DB error).
- */
-export async function checkKnowledgeBaseModule(
-  config: ServerConfig,
-  workspaceId: string,
-): Promise<KnowledgeBasePlanDenial | null> {
-  let allowed = false;
-  let plan: string | null = null;
-  try {
-    const r = await checkModuleAccess(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      'knowledge_base',
-    );
-    allowed = r.allowed === true;
-    plan = (r.plan as string | undefined) ?? null;
-  } catch {
-    allowed = false;
-  }
-  if (allowed) return null;
-  return {
-    error: 'knowledge_base_plan_required',
-    module: 'knowledge_base',
-    plan,
-    upgrade_required: true,
-  };
-}
 
 export type ArticleStatus = 'draft' | 'published' | 'archived';
 

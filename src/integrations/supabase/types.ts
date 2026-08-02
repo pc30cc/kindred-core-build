@@ -8364,10 +8364,6 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
-      workspace_has_knowledge_base: {
-        Args: { _workspace_id: string }
-        Returns: boolean
-      }
       workspace_health_snapshot_compute: { Args: never; Returns: Json }
       workspace_owner_phone_verified: {
         Args: { _workspace_id: string }

@@ -1,10 +1,13 @@
 /**
- * Phase 6-S5-R1 — Private Knowledge Base CRUD.
+ * Phase 6-S5-R4 — Private Knowledge Base CRUD.
  *
- * Knowledge Base is an independent product. These routes are the ONLY
- * supported write path for the dashboard; they enforce authentication,
- * workspace membership, the `knowledge_base` module entitlement and
- * resource ownership before touching the database.
+ * Knowledge Base is a CORE product and is ALWAYS available: there is NO
+ * `knowledge_base` plan/module/feature check on any route in this file, and
+ * no route may ever return `knowledge_base_plan_required`.
+ *
+ * These routes are the ONLY supported write path for the dashboard; they
+ * enforce authentication, workspace membership, granular workspace role
+ * permissions and resource ownership before touching the database.
  *
  * NO AI dependency: nothing here calls an AI provider, the AI Agent API,
  * or the indexing pipeline. Indexing happens asynchronously from a neutral
@@ -16,7 +19,6 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
-  checkKnowledgeBaseModule,
   checkKnowledgeBasePermission,
   type KnowledgeBasePermission,
 } from '../services/knowledge-base/access.js';
@@ -48,9 +50,11 @@ const categoryInputSchema = z.object({
 const categoryPatchSchema = categoryInputSchema.partial();
 
 /**
- * Auth → membership → `knowledge_base` module → granular KB permission.
- * Writes the response on failure. Platform super-admins skip the granular
- * permission check only (never the module entitlement).
+ * Auth → membership → granular KB permission.
+ *
+ * NO plan/entitlement lookup happens here — Knowledge Base availability does
+ * not depend on a subscription. Platform super-admins skip the granular
+ * permission check.
  */
 async function guard(
   req: Request,
@@ -61,11 +65,6 @@ async function guard(
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
   const config = serverConfigOf(req);
-  const denial = await checkKnowledgeBaseModule(config, workspaceId as string);
-  if (denial) {
-    res.status(403).json(denial);
-    return null;
-  }
   if (permission && !auth.isAdmin) {
     const permDenial = await checkKnowledgeBasePermission(
       config, workspaceId as string, auth.userId, permission,

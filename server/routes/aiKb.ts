@@ -143,7 +143,10 @@ async function gateAiKb(
     isAdmin: auth.isAdmin,
     userId: auth.userId,
     route: opts.route,
-    customerFacing: opts.customerFacing,
+    // Phase 6-S5-R4 — every /api/ai-kb route is a CUSTOMER-facing surface by
+    // default, so the platform customer-visibility flag applies unless a route
+    // explicitly opts out. Global admins are exempted inside the guard.
+    customerFacing: opts.customerFacing ?? true,
   });
   if (result.ok) return true;
   const denial = result.denial!;

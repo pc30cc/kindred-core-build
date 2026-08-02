@@ -302,6 +302,23 @@ aiAgentRouter.patch('/platform/settings', async (req: Request, res: Response) =>
       (req.body || {}) as Record<string, unknown>,
       userId,
     );
+    // Phase 6-S5-R4 — a platform AI toggle can turn indexing back ON for every
+    // workspace, so deferred outbox events must become eligible again.
+    if (settings.ai_agent_enabled) {
+      const { getServiceClient } = await import('../supabase.js');
+      const { handleBulkEntitlementChanged } = await import(
+        '../services/billing/entitlementChange.js'
+      );
+      const { data: rows } = await getServiceClient(config)
+        .from('ai_agent_settings')
+        .select('workspace_id')
+        .limit(10000);
+      await handleBulkEntitlementChanged(
+        config,
+        (rows || []).map((r: { workspace_id: string }) => r.workspace_id),
+        'platform_ai_toggle',
+      );
+    }
     return res.json({ settings });
   } catch (e: any) {
     if (String(e?.message) === 'forbidden') {

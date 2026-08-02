@@ -1,16 +1,18 @@
 /**
- * Phase 6-S5-R3 — central, typed AI KB Builder access guard.
+ * Phase 6-S5-R4 — central, typed AI KB Builder access guard.
  *
  * Entitlement type contract (must match server/services/billing/capabilityRegistry.ts):
- *   knowledge_base → module   (check_module_access)
  *   ai_assistant   → module   (check_module_access)
  *   ai_kb_builder  → feature  (check_workspace_entitlement)
  *
  * A feature is NEVER checked through the module RPC and vice versa.
  *
+ * `knowledge_base` is deliberately NOT checked: the Knowledge Base is a core
+ * product. Only the AI surfaces that WRITE into it are plan-gated.
+ *
  * Evaluation order (fail-closed at every step):
- *   granular permission → knowledge_base module → ai_assistant module
- *   → ai_kb_builder feature → platform AI kill switch
+ *   granular KB permission → ai_assistant module → ai_kb_builder feature
+ *   → platform AI kill switch (+ customer visibility)
  */
 import type { ServerConfig } from '../../config.js';
 import { checkModuleAccess, checkEntitlementFromDB } from '../../middleware/featureGating.js';
@@ -21,10 +23,9 @@ import {
   type KnowledgeBasePermission,
 } from '../knowledge-base/access.js';
 
-export type AiKbEntitlementKey = 'knowledge_base' | 'ai_assistant' | 'ai_kb_builder';
+export type AiKbEntitlementKey = 'ai_assistant' | 'ai_kb_builder';
 
 export type AiKbDenialCode =
-  | 'knowledge_base_plan_required'
   | 'ai_assistant_plan_required'
   | 'ai_kb_builder_feature_required'
   | 'ai_platform_disabled'
@@ -32,7 +33,7 @@ export type AiKbDenialCode =
 
 export interface AiKbDenialBody {
   error: AiKbDenialCode;
-  module?: 'knowledge_base' | 'ai_assistant';
+  module?: 'ai_assistant';
   feature?: 'ai_kb_builder';
   permission?: KnowledgeBasePermission;
   upgrade_required?: boolean;
@@ -108,9 +109,8 @@ export async function checkAiKbAccess(
     }
   }
 
-  // 2/3. Modules — knowledge_base then ai_assistant.
-  const modules: Array<{ key: 'knowledge_base' | 'ai_assistant'; error: AiKbDenialCode }> = [
-    { key: 'knowledge_base', error: 'knowledge_base_plan_required' },
+  // 2. Module — ai_assistant ONLY. `knowledge_base` is never gated.
+  const modules: Array<{ key: 'ai_assistant'; error: AiKbDenialCode }> = [
     { key: 'ai_assistant', error: 'ai_assistant_plan_required' },
   ];
   for (const m of modules) {
@@ -140,7 +140,7 @@ export async function checkAiKbAccess(
     };
   }
 
-  // 4. Feature — ai_kb_builder, via the entitlement RPC (never the module RPC).
+  // 3. Feature — ai_kb_builder, via the entitlement RPC (never the module RPC).
   let featureAllowed = false;
   try {
     const r = await checkEntitlementFromDB(
@@ -171,7 +171,9 @@ export async function checkAiKbAccess(
     }
   }
 
-  // 5. Platform AI kill switch — hard, NOT bypassable by global admins.
+  // 4. Platform AI kill switch — hard, NOT bypassable by global admins.
+  //    Customer-facing surfaces additionally honour customer visibility;
+  //    global admins keep operating so they can diagnose the workspace.
   const platform = await assertAiAgentPlatformEnabledForWorkspace(config, workspaceId, {
     customerFacing: opts.customerFacing && !opts.isAdmin,
   });
@@ -188,7 +190,8 @@ export async function checkAiKbAccess(
  * the upgrade path.
  */
 export interface AiKbCapabilitySnapshot {
-  knowledge_base: boolean;
+  /** Always true — Knowledge Base is a core product, reported for the UI only. */
+  knowledge_base: true;
   ai_assistant: boolean;
   ai_kb_builder: boolean;
   platform_enabled: boolean;
@@ -198,7 +201,7 @@ export async function readAiKbCapabilities(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<AiKbCapabilitySnapshot> {
-  const safeModule = async (key: 'knowledge_base' | 'ai_assistant'): Promise<boolean> => {
+  const safeModule = async (key: 'ai_assistant'): Promise<boolean> => {
     try {
       const r = await checkModuleAccess(
         config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, key,
@@ -214,11 +217,10 @@ export async function readAiKbCapabilities(
       return r.allowed === true && r.reason !== 'rpc_error' && r.reason !== 'exception';
     } catch { return false; }
   };
-  const [knowledge_base, ai_assistant, ai_kb_builder, platform] = await Promise.all([
-    safeModule('knowledge_base'),
+  const [ai_assistant, ai_kb_builder, platform] = await Promise.all([
     safeModule('ai_assistant'),
     safeFeature(),
     assertAiAgentPlatformEnabledForWorkspace(config, workspaceId),
   ]);
-  return { knowledge_base, ai_assistant, ai_kb_builder, platform_enabled: platform.ok };
+  return { knowledge_base: true, ai_assistant, ai_kb_builder, platform_enabled: platform.ok };
 }

@@ -26,7 +26,6 @@ import { rebuildWorkspaceIndex } from './sync.js';
 /** Canonical, sanitized outcome codes recorded on the outbox row. */
 export type KbEventErrorCode =
   | 'ai_assistant_plan_required'
-  | 'knowledge_base_plan_required'
   | 'ai_platform_disabled'
   | 'ai_provider_unavailable'
   | 'entitlement_lookup_failed'
@@ -36,7 +35,6 @@ export type KbEventErrorCode =
 
 /** Deferral backoff per temporary reason (seconds). */
 const DEFER_SECONDS: Record<string, number> = {
-  knowledge_base_plan_required: 4 * 60 * 60,
   ai_assistant_plan_required: 4 * 60 * 60,
   ai_platform_disabled: 60 * 60,
   ai_provider_unavailable: 15 * 60,
@@ -193,25 +191,19 @@ export async function drainKnowledgeBaseChangeEvents(
   };
 
   for (const [workspaceId, { token, ids }] of byWorkspace) {
-    // 1. Modules — fail closed, defer on lookup error (never discard).
+    // 1. Module — `ai_assistant` ONLY. Phase 6-S5-R4: the Knowledge Base itself
+    //    is never plan-gated; only AI indexing of it is. Fail closed, and defer
+    //    (never discard) on lookup error.
     let moduleDenial: KbEventErrorCode | null = null;
     let lookupFailed = false;
-    for (const key of ['knowledge_base', 'ai_assistant'] as const) {
-      try {
-        const r = await checkModuleAccess(
-          config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, key,
-        );
-        if (r.reason === 'rpc_error' || r.reason === 'exception') { lookupFailed = true; break; }
-        if (r.allowed !== true) {
-          moduleDenial = key === 'knowledge_base'
-            ? 'knowledge_base_plan_required'
-            : 'ai_assistant_plan_required';
-          break;
-        }
-      } catch {
-        lookupFailed = true;
-        break;
-      }
+    try {
+      const r = await checkModuleAccess(
+        config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_assistant',
+      );
+      if (r.reason === 'rpc_error' || r.reason === 'exception') lookupFailed = true;
+      else if (r.allowed !== true) moduleDenial = 'ai_assistant_plan_required';
+    } catch {
+      lookupFailed = true;
     }
     if (lookupFailed) { await defer(workspaceId, token, ids, 'entitlement_lookup_failed'); continue; }
     if (moduleDenial) { await defer(workspaceId, token, ids, moduleDenial); continue; }
@@ -224,6 +216,18 @@ export async function drainKnowledgeBaseChangeEvents(
     try {
       const result = await rebuildWorkspaceIndex(config, workspaceId);
       if (!result.ok || result.terminalState !== 'completed') {
+        // A skipped reconciliation sweep is a real (retryable) failure, not a
+        // provider outage: it consumes attempts so it stays observable.
+        if (result.terminalState === 'failed') {
+          const n = await failOwned(
+            config, token, workerId, ids, 'index_rebuild_failed',
+            'reconciliation prerequisites unavailable', false,
+          );
+          if (n === 0) { summary.leaseLost += ids.length; continue; }
+          summary.failed += n;
+          log('event_failed', { workspaceId, code: 'index_rebuild_failed', count: n });
+          continue;
+        }
         await defer(workspaceId, token, ids, 'ai_provider_unavailable');
         continue;
       }

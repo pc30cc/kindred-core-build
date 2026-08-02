@@ -68,12 +68,17 @@ let lastIdleLogAt = 0;
  *
  * Knowledge Base writes only append neutral rows to
  * public.knowledge_base_change_events. This worker drains them on the AI
- * side and re-indexes only plan-entitled workspaces. Failures are logged
- * and never propagate back into the Knowledge Base product.
+ * side and re-indexes only plan-entitled workspaces. Events are claimed with
+ * an atomic FOR UPDATE SKIP LOCKED lease, so multiple replicas are safe.
+ * Failures are released back to the queue with backoff and never propagate
+ * back into the Knowledge Base product.
  */
 async function drainKbEvents() {
   try {
-    const summary = await drainKnowledgeBaseChangeEvents(loadConfig(), { batchSize: 100 });
+    const summary = await drainKnowledgeBaseChangeEvents(loadConfig(), {
+      batchSize: 100,
+      workerId: WORKER_ID,
+    });
     if (summary.claimed > 0) log('kb change events drained', summary);
   } catch (err: any) {
     log('kb change events drain error', { error: err?.message });

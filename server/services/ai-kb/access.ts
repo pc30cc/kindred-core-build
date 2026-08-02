@@ -29,6 +29,7 @@ export type AiKbDenialCode =
   | 'ai_assistant_plan_required'
   | 'ai_kb_builder_feature_required'
   | 'ai_platform_disabled'
+  | 'ai_platform_status_unavailable'
   | 'knowledge_base_permission_denied';
 
 export interface AiKbDenialBody {
@@ -178,6 +179,14 @@ export async function checkAiKbAccess(
     customerFacing: opts.customerFacing && !opts.isAdmin,
   });
   if (!platform.ok) {
+    // Phase 6-S5-R6 — a failed platform lookup is TRANSIENT and must surface
+    // as 503, not as a permanent 403 "your plan/platform disabled this".
+    if (platform.reason === 'lookup_failed') {
+      return {
+        ok: false,
+        denial: { status: 503, body: { error: 'ai_platform_status_unavailable' } },
+      };
+    }
     return { ok: false, denial: { status: 403, body: { error: 'ai_platform_disabled' } } };
   }
 
@@ -195,6 +204,8 @@ export interface AiKbCapabilitySnapshot {
   ai_assistant: boolean;
   ai_kb_builder: boolean;
   platform_enabled: boolean;
+  /** True when platform state could NOT be resolved (transient, retryable). */
+  platform_status_unavailable: boolean;
 }
 
 export async function readAiKbCapabilities(
@@ -222,5 +233,11 @@ export async function readAiKbCapabilities(
     safeFeature(),
     assertAiAgentPlatformEnabledForWorkspace(config, workspaceId),
   ]);
-  return { knowledge_base: true, ai_assistant, ai_kb_builder, platform_enabled: platform.ok };
+  return {
+    knowledge_base: true,
+    ai_assistant,
+    ai_kb_builder,
+    platform_enabled: platform.ok,
+    platform_status_unavailable: !platform.ok && platform.reason === 'lookup_failed',
+  };
 }

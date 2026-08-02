@@ -46,10 +46,16 @@ describe('plan-change AI relevance diff', () => {
       { is_active: true, entitlements: {}, limits: { ai_knowledge_chunks_embedded: 50 } },
       { is_active: true, entitlements: {}, limits: { ai_knowledge_chunks_embedded: 500 } },
     )).toBe(true);
+    // Phase 6-S5-R7 — activation can GRANT access, so it fans out...
+    expect(planChangeAffectsAiEntitlements(
+      { is_active: false, entitlements: {}, limits: {} },
+      { is_active: true, entitlements: {}, limits: {} },
+    )).toBe(true);
+    // ...but deactivation is a pure revocation: nothing new to index.
     expect(planChangeAffectsAiEntitlements(
       { is_active: true, entitlements: {}, limits: {} },
       { is_active: false, entitlements: {}, limits: {} },
-    )).toBe(true);
+    )).toBe(false);
   });
 
   it('is conservative when the previous definition is unknown', () => {

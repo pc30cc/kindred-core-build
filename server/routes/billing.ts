@@ -16,6 +16,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { handleWorkspaceEntitlementChanged } from '../services/billing/entitlementChange.js';
 
 export const billingRouter = Router();
 
@@ -660,6 +661,10 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
     updated_at: new Date().toISOString(),
   }, { onConflict: 'workspace_id' }).select().single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: 'Request failed' });
+  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    workspaceId,
+    source: 'admin_grant',
+  });
   res.json({ subscription: data });
 });

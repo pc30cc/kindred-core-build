@@ -108,7 +108,7 @@ export async function getPlatformAiAgentSettings(
     // Phase 6-S5-R4 — a MISSING table is a greenfield self-host install and
     // still defaults open. Any OTHER error is an unresolved lookup and MUST
     // be reported so security-relevant callers can fail closed.
-    if (error && !isMissingRelationError(error)) lookupFailed = true;
+    if (error && !isPlatformSettingsTableMissing(error)) lookupFailed = true;
     value = applyDefaults((data as any) || {});
   } catch {
     lookupFailed = true;
@@ -122,14 +122,47 @@ export async function getPlatformAiAgentSettings(
   return value;
 }
 
-function isMissingRelationError(error: { code?: string; message?: string }): boolean {
-  const code = String(error.code || '');
-  const message = String(error.message || '').toLowerCase();
+/** The one relation that may legitimately be absent in a greenfield install. */
+const PLATFORM_SETTINGS_RELATION = 'platform_ai_agent_settings';
+
+/**
+ * Phase 6-S5-R5 — EXACT missing-table detection.
+ *
+ * Returns true ONLY when the database reports that the relation
+ * `public.platform_ai_agent_settings` itself does not exist. Everything else —
+ * missing column (42703), undefined function (42883), permission denied
+ * (42501), timeouts, network errors, unrelated schema-cache misses — is an
+ * unresolved lookup and MUST fail closed.
+ */
+export function isPlatformSettingsTableMissing(error: {
+  code?: string;
+  message?: string;
+  details?: string;
+}): boolean {
+  const code = String(error?.code || '');
+  // 42P01 = undefined_table, PGRST205 = PostgREST "table not found in schema cache".
+  if (code !== '42P01' && code !== 'PGRST205') return false;
+
+  const haystack = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  if (!haystack.trim()) return false;
+
+  // The message must name THIS relation. A 42P01 mentioning any other relation
+  // is a different bug and must not silently unlock greenfield defaults.
+  const named = new RegExp(
+    `(^|[^a-z0-9_])(public\\.)?${PLATFORM_SETTINGS_RELATION}([^a-z0-9_]|$)`,
+  ).test(haystack);
+  if (!named) return false;
+
+  // Must actually be a *relation* absence, not a column/function absence that
+  // happens to mention the table name.
+  if (/\bcolumn\b/.test(haystack)) return false;
+  if (/\bfunction\b/.test(haystack)) return false;
+  if (/permission denied/.test(haystack)) return false;
+
   return (
-    code === '42P01' ||
-    code === 'PGRST205' ||
-    message.includes('does not exist') ||
-    message.includes('could not find the table')
+    /relation .* does not exist/.test(haystack) ||
+    /could not find the table/.test(haystack) ||
+    /table .* does not exist/.test(haystack)
   );
 }
 

@@ -154,8 +154,13 @@ describe('Index reconciliation', () => {
     expect(src).toMatch(/articleSetTrustworthy/);
     expect(src).toMatch(/reconciliationFailed/);
     expect(src).toMatch(/reconciliationSkipped/);
+    // R5: the sweep additionally requires every index write to have succeeded.
+    expect(src).toMatch(/indexWritesTrustworthy/);
+    expect(src).toMatch(
+      /reconciliationAllowed = articleSetTrustworthy && indexWritesTrustworthy/,
+    );
     // The destructive update is only reachable inside the trusted branch.
-    expect(src).toMatch(/if \(articleSetTrustworthy\) \{/);
+    expect(src).toMatch(/if \(reconciliationAllowed\) \{/);
   });
 });
 
@@ -178,7 +183,10 @@ describe('Central entitlement-change funnel', () => {
     expect(src).toMatch(/handlePlanDefinitionChanged/);
     expect(src).toMatch(/handleBulkEntitlementChanged/);
     expect(read('server/routes/billing.ts')).toMatch(/handlePlanDefinitionChanged/);
-    expect(read('server/routes/aiAgent.ts')).toMatch(/handleBulkEntitlementChanged/);
+    // The platform AI toggle funnels through the paginated fan-out helper,
+    // which is itself implemented on top of the bulk funnel.
+    expect(src).toMatch(/handlePlatformAiEnabled/);
+    expect(read('server/routes/aiAgent.ts')).toMatch(/handlePlatformAiEnabled/);
   });
 
   it('never throws into the billing path', () => {

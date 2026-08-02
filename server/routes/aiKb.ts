@@ -34,6 +34,18 @@ import { resolveAiKbLimits, countJobsThisMonth } from '../services/ai-kb/limits.
 import { readAiCreditState, logAiKbUsage } from '../services/ai-kb/credits.js';
 import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
 import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
+import {
+  AI_KB_JOB_COLUMNS,
+  AI_KB_PAGE_COLUMNS,
+  AI_KB_GENERATED_COLUMNS,
+  AI_KB_EVENT_COLUMNS,
+  toPublicAiKbJob,
+  toPublicAiKbPage,
+  toPublicAiKbGenerated,
+  toPublicAiKbJobEvent,
+  toPublicErrorCode,
+  type AiKbJobRowLike,
+} from '../services/ai-kb/dto.js';
 
 export const aiKbRouter: Router = express.Router();
 
@@ -302,8 +314,8 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
       admin_override: auth.isAdmin,
       created_by_global_admin: auth.isAdmin ? auth.userId : null,
     })
-    .select('*')
-    .single();
+    .select(AI_KB_JOB_COLUMNS)
+    .single<AiKbJobRowLike>();
 
   if (error || !job) {
     logInternal('job_create_failed', error, { workspaceId });
@@ -312,7 +324,7 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
 
   await logAiKbUsage(config, workspaceId, 'job_created', { jobId: job.id, metadata: { domain: source.domain } });
 
-  return res.status(201).json({ job });
+  return res.status(201).json({ job: toPublicAiKbJob(job as any) });
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -331,7 +343,7 @@ aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('ai_kb_jobs')
-    .select('*')
+    .select(AI_KB_JOB_COLUMNS)
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
     .limit(50);
@@ -340,7 +352,7 @@ aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
     logInternal('list_failed', error, { workspaceId });
     return res.status(500).json({ error: 'list_failed' });
   }
-  return res.json({ jobs: data || [] });
+  return res.json({ jobs: (data || []).map((r) => toPublicAiKbJob(r as any)) });
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -355,9 +367,9 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
 
   const { data: job } = await sb
     .from('ai_kb_jobs')
-    .select('*')
+    .select(AI_KB_JOB_COLUMNS)
     .eq('id', req.params.id)
-    .maybeSingle();
+    .maybeSingle<AiKbJobRowLike>();
 
   // Canonical 404 for both "missing" and "not yours" — no existence leak.
   if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
@@ -366,12 +378,17 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   if (!(await gateAiKb(res, config, job.workspace_id, auth, { route: 'GET /api/ai-kb/jobs/:id' }))) return;
 
   const [{ data: pages }, { data: generated }, { data: events }] = await Promise.all([
-    sb.from('ai_kb_job_pages').select('*').eq('job_id', job.id).order('created_at', { ascending: true }).limit(500),
-    sb.from('ai_kb_generated_articles').select('*').eq('job_id', job.id).order('created_at', { ascending: true }),
-    sb.from('ai_kb_job_events').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(50),
+    sb.from('ai_kb_job_pages').select(AI_KB_PAGE_COLUMNS).eq('job_id', job.id).order('created_at', { ascending: true }).limit(500),
+    sb.from('ai_kb_generated_articles').select(AI_KB_GENERATED_COLUMNS).eq('job_id', job.id).order('created_at', { ascending: true }),
+    sb.from('ai_kb_job_events').select(AI_KB_EVENT_COLUMNS).eq('job_id', job.id).order('created_at', { ascending: false }).limit(50),
   ]);
 
-  return res.json({ job, pages: pages || [], generated: generated || [], events: events || [] });
+  return res.json({
+    job: toPublicAiKbJob(job as any),
+    pages: (pages || []).map((r) => toPublicAiKbPage(r as any)),
+    generated: (generated || []).map((r) => toPublicAiKbGenerated(r as any)),
+    events: (events || []).map((r) => toPublicAiKbJobEvent(r as any)),
+  });
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -688,8 +705,8 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
       .eq('workspace_id', workspaceId).in('status', ['running', 'crawling', 'generating']),
     sb.from('ai_kb_jobs').select('id', { count: 'exact', head: true })
       .eq('workspace_id', workspaceId).eq('status', 'failed'),
-    sb.from('ai_kb_jobs').select('*')
-      .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    sb.from('ai_kb_jobs').select(AI_KB_JOB_COLUMNS)
+      .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1).maybeSingle<AiKbJobRowLike>(),
     resolveSourceDomain(config, workspaceId),
     resolveAiKbLimits(config, workspaceId),
     readAiCreditState(config, workspaceId),
@@ -706,11 +723,12 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
       running_jobs_count: runningRes.count || 0,
       failed_jobs_count: failedRes.count || 0,
     },
-    latest_job: latest,
+    latest_job: latest ? toPublicAiKbJob(latest) : null,
     latest_job_status: latest?.status || null,
-    latest_worker_id: latest?.worker_id || null,
     latest_heartbeat_at: latest?.updated_at || null,
-    latest_error: latest?.error_message || null,
+    latest_error_code: latest
+      ? toPublicErrorCode({ status: latest.status, errorMessage: latest.error_message })
+      : null,
     source_domain_status: {
       domain: source.domain,
       kind: source.kind,
@@ -810,8 +828,8 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
       admin_override: auth.isAdmin,
       created_by_global_admin: auth.isAdmin ? auth.userId : null,
     })
-    .select('*')
-    .single();
+    .select(AI_KB_JOB_COLUMNS)
+    .single<AiKbJobRowLike>();
 
   if (error || !job) {
     logInternal('test_job_create_failed', error, { workspaceId });
@@ -823,5 +841,5 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     metadata: { domain: source.domain, test: true, generate: !!generate },
   });
 
-  return res.status(201).json({ job, test: true });
+  return res.status(201).json({ job: toPublicAiKbJob(job as any), test: true });
 });

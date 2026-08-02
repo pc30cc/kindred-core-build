@@ -61,6 +61,8 @@ interface RawClaimRow {
 
 export interface KbEventDrainSummary {
   claimed: number;
+  /** Events transitioned to processed (exact RPC-confirmed count). */
+  completed: number;
   reindexedWorkspaces: number;
   deferred: number;
   failed: number;
@@ -83,6 +85,33 @@ function log(event: string, data: Record<string, unknown>): void {
 }
 
 // ─── Owned lease transitions ────────────────────────────────
+
+/**
+ * Phase 6-S5-R5 — exact partial-transition accounting.
+ *
+ *   updated === requested        → full success
+ *   updated === 0                → every id lost its lease
+ *   0 < updated < requested      → partial success, remainder lease-lost
+ *   updated > requested          → invariant violation (defensive clamp)
+ */
+export function accountOwnedTransition(
+  requested: number,
+  updated: number,
+): { succeeded: number; leaseLost: number; invariantViolation: boolean } {
+  const safeRequested = Math.max(0, requested);
+  const safeUpdated = Math.max(0, updated);
+  if (safeUpdated > safeRequested) {
+    log('lease_transition_invariant_violation', {
+      requested: safeRequested, updated: safeUpdated,
+    });
+    return { succeeded: safeRequested, leaseLost: 0, invariantViolation: true };
+  }
+  return {
+    succeeded: safeUpdated,
+    leaseLost: safeRequested - safeUpdated,
+    invariantViolation: false,
+  };
+}
 
 async function completeOwned(
   config: ServerConfig, token: string, workerId: string, ids: string[],
@@ -148,7 +177,7 @@ export async function drainKnowledgeBaseChangeEvents(
   opts: { batchSize?: number; workerId?: string; leaseSeconds?: number } = {},
 ): Promise<KbEventDrainSummary> {
   const summary: KbEventDrainSummary = {
-    claimed: 0, reindexedWorkspaces: 0, deferred: 0, failed: 0, leaseLost: 0,
+    claimed: 0, completed: 0, reindexedWorkspaces: 0, deferred: 0, failed: 0, leaseLost: 0,
     deferralReasons: {},
   };
   const workerId = opts.workerId ?? process.env.WORKER_ID ?? 'kb-drain';
@@ -171,26 +200,38 @@ export async function drainKnowledgeBaseChangeEvents(
   }));
   summary.claimed = claims.length;
 
-  // Collapse to one re-index per workspace per batch. All rows of a batch
-  // share one claim token, so ownership checks stay valid per group.
-  const byWorkspace = new Map<string, { token: string; ids: string[] }>();
+  // Phase 6-S5-R5 — group by (workspace_id, claim_token). The claim RPC may
+  // return rows carrying DIFFERENT tokens; completing an id with a token that
+  // did not claim it would silently lose the event. Each token is its own
+  // owned group, even for the same workspace.
+  const byOwnedGroup = new Map<
+    string,
+    { workspaceId: string; token: string; ids: string[] }
+  >();
   for (const claim of claims) {
-    const entry = byWorkspace.get(claim.workspaceId) ?? { token: claim.claimToken, ids: [] };
+    const key = `${claim.workspaceId}::${claim.claimToken}`;
+    const entry = byOwnedGroup.get(key)
+      ?? { workspaceId: claim.workspaceId, token: claim.claimToken, ids: [] };
     entry.ids.push(claim.id);
-    byWorkspace.set(claim.workspaceId, entry);
+    byOwnedGroup.set(key, entry);
   }
 
   const defer = async (
     workspaceId: string, token: string, ids: string[], code: KbEventErrorCode,
   ) => {
     const n = await deferOwned(config, token, workerId, ids, code);
-    if (n === 0) { summary.leaseLost += ids.length; return; }
-    summary.deferred += n;
-    summary.deferralReasons[code] = (summary.deferralReasons[code] ?? 0) + n;
-    log('event_deferred', { workspaceId, code, count: n });
+    const acct = accountOwnedTransition(ids.length, n);
+    summary.leaseLost += acct.leaseLost;
+    if (acct.succeeded === 0) return;
+    summary.deferred += acct.succeeded;
+    summary.deferralReasons[code] =
+      (summary.deferralReasons[code] ?? 0) + acct.succeeded;
+    log('event_deferred', {
+      workspaceId, code, count: acct.succeeded, leaseLost: acct.leaseLost,
+    });
   };
 
-  for (const [workspaceId, { token, ids }] of byWorkspace) {
+  for (const { workspaceId, token, ids } of byOwnedGroup.values()) {
     // 1. Module — `ai_assistant` ONLY. Phase 6-S5-R4: the Knowledge Base itself
     //    is never plan-gated; only AI indexing of it is. Fail closed, and defer
     //    (never discard) on lookup error.
@@ -221,26 +262,46 @@ export async function drainKnowledgeBaseChangeEvents(
         if (result.terminalState === 'failed') {
           const n = await failOwned(
             config, token, workerId, ids, 'index_rebuild_failed',
-            'reconciliation prerequisites unavailable', false,
+            result.errorCode ?? 'rebuild prerequisites unavailable', false,
           );
-          if (n === 0) { summary.leaseLost += ids.length; continue; }
-          summary.failed += n;
-          log('event_failed', { workspaceId, code: 'index_rebuild_failed', count: n });
+          const acct = accountOwnedTransition(ids.length, n);
+          summary.leaseLost += acct.leaseLost;
+          summary.failed += acct.succeeded;
+          if (acct.succeeded > 0) {
+            log('event_failed', {
+              workspaceId,
+              code: 'index_rebuild_failed',
+              rebuildErrorCode: result.errorCode ?? null,
+              count: acct.succeeded,
+              leaseLost: acct.leaseLost,
+            });
+          }
           continue;
         }
         await defer(workspaceId, token, ids, 'ai_provider_unavailable');
         continue;
       }
       const n = await completeOwned(config, token, workerId, ids);
-      if (n === 0) { summary.leaseLost += ids.length; continue; }
-      summary.reindexedWorkspaces += 1;
+      const acct = accountOwnedTransition(ids.length, n);
+      summary.leaseLost += acct.leaseLost;
+      summary.completed += acct.succeeded;
+      // A workspace counts as reindexed ONLY when every claimed id in this
+      // owned group was actually completed.
+      if (acct.succeeded === ids.length && ids.length > 0) {
+        summary.reindexedWorkspaces += 1;
+      }
     } catch (error: unknown) {
       const { code, permanent } = classifyRebuildError(error);
       const detail = error instanceof Error ? error.message : String(error);
       const n = await failOwned(config, token, workerId, ids, code, detail, permanent);
-      if (n === 0) { summary.leaseLost += ids.length; continue; }
-      summary.failed += n;
-      log('event_failed', { workspaceId, code, permanent, count: n });
+      const acct = accountOwnedTransition(ids.length, n);
+      summary.leaseLost += acct.leaseLost;
+      summary.failed += acct.succeeded;
+      if (acct.succeeded > 0) {
+        log('event_failed', {
+          workspaceId, code, permanent, count: acct.succeeded, leaseLost: acct.leaseLost,
+        });
+      }
     }
   }
 

@@ -23,7 +23,20 @@ export interface IndexSourceInput {
   metadata?: Record<string, unknown>;
 }
 
+export type IndexSourceErrorCode =
+  | 'chunk_read_failed'
+  | 'chunk_write_failed'
+  | 'chunk_delete_failed';
+
 export interface IndexSourceResult {
+  /**
+   * Phase 6-S5-R5 — authoritative success flag. A false value means at least
+   * one required database operation failed; the caller must NOT report a
+   * completed rebuild and must NOT run destructive reconciliation.
+   */
+  ok: boolean;
+  errorCode?: IndexSourceErrorCode;
+  retryable?: boolean;
   chunksCreated: number;
   chunksUpdated: number;
   chunksSkipped: number;
@@ -40,6 +53,7 @@ export async function indexSource(
 ): Promise<IndexSourceResult> {
   const sb = getServiceClient(config);
   const result: IndexSourceResult = {
+    ok: true,
     chunksCreated: 0,
     chunksUpdated: 0,
     chunksSkipped: 0,
@@ -50,7 +64,7 @@ export async function indexSource(
 
   // If chunks empty → mark all existing as deleted (source removed/unpublished).
   if (!input.chunks.length) {
-    const { data: deleted } = await sb
+    const { data: deleted, error: deleteError } = await sb
       .from('ai_knowledge_chunks')
       .update({ status: 'deleted' })
       .eq('workspace_id', input.workspaceId)
@@ -58,17 +72,29 @@ export async function indexSource(
       .eq('source_id', input.sourceId)
       .neq('status', 'deleted')
       .select('id');
+    if (deleteError) {
+      result.ok = false;
+      result.errorCode = 'chunk_delete_failed';
+      result.retryable = true;
+      return result;
+    }
     result.chunksDeleted = (deleted || []).length;
     return result;
   }
 
   // Load existing chunks for this source.
-  const { data: existing } = await sb
+  const { data: existing, error: existingError } = await sb
     .from('ai_knowledge_chunks')
     .select('id, chunk_index, content_hash, embedding, status')
     .eq('workspace_id', input.workspaceId)
     .eq('source_type', input.sourceType)
     .eq('source_id', input.sourceId);
+  if (existingError) {
+    result.ok = false;
+    result.errorCode = 'chunk_read_failed';
+    result.retryable = true;
+    return result;
+  }
   const existingByIndex = new Map<number, any>();
   for (const row of existing || []) existingByIndex.set(row.chunk_index, row);
 
@@ -144,6 +170,10 @@ export async function indexSource(
       .select('id, chunk_index');
     if (error) {
       console.warn('[knowledgeIndex.indexer] upsert failed:', error.message);
+      result.ok = false;
+      result.errorCode = 'chunk_write_failed';
+      result.retryable = true;
+      return result;
     } else {
       // We can't perfectly distinguish create vs update from upsert; use
       // existing-set membership as proxy.
@@ -162,7 +192,13 @@ export async function indexSource(
       .from('ai_knowledge_chunks')
       .update({ status: 'deleted' })
       .in('id', orphan.map((r) => r.id));
-    if (!error) result.chunksDeleted = orphan.length;
+    if (error) {
+      result.ok = false;
+      result.errorCode = 'chunk_delete_failed';
+      result.retryable = true;
+      return result;
+    }
+    result.chunksDeleted = orphan.length;
   }
 
   return result;

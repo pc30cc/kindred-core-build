@@ -20,10 +20,15 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { checkModuleAccess } from '../middleware/featureGating.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { isGlobalAdmin, logGateBypass } from '../middleware/adminBypass.js';
+import {
+  checkAiKbAccess,
+  readAiKbCapabilities,
+  type AiKbAccessResult,
+} from '../services/ai-kb/access.js';
+import type { KnowledgeBasePermission } from '../services/knowledge-base/access.js';
 import { resolveSourceDomain } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimits, countJobsThisMonth } from '../services/ai-kb/limits.js';
 import { readAiCreditState, logAiKbUsage } from '../services/ai-kb/credits.js';
@@ -31,6 +36,15 @@ import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
 import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
 
 export const aiKbRouter: Router = express.Router();
+
+/**
+ * Sanitized server-side logging. Internal error text never reaches the client:
+ * routes respond with a stable code only (see docs/ENTITLEMENT_ARCHITECTURE.md).
+ */
+function logInternal(scope: string, error: unknown, context: Record<string, unknown> = {}): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[ai-kb] ${scope}`, JSON.stringify({ ...context, message: message.slice(0, 300) }));
+}
 
 // ─── Auth helper (operator JWT + workspace membership) ─────────
 async function authorizeMember(

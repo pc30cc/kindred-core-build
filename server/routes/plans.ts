@@ -308,17 +308,29 @@ plansRouter.put('/admin/:planId', async (req, res) => {
     }
   }
 
+  // Phase 6-S5-R6 — capture the PREVIOUS definition so the fan-out is only
+  // queued when an AI-relevant entitlement or limit actually moved.
+  const { data: previousPlan } = await supabase
+    .from('billing_plans')
+    .select('is_active, entitlements, limits')
+    .eq('id', req.params.planId)
+    .maybeSingle();
+
   const { data, error } = await supabase.from('billing_plans').update(updates).eq('id', req.params.planId).select().single();
   if (error) return res.status(500).json({ error: 'Request failed' });
-  // Phase 6-S5-R5 — a plan-definition edit changes the effective entitlements
-  // of every workspace on that plan. Funnel it. A catch-up failure must NOT
-  // roll back the billing change, but it must be reported (sanitized).
-  const refresh = await handlePlanDefinitionChanged((req as any).serverConfig, req.params.planId);
+  // A plan-definition edit changes the effective entitlements of every
+  // workspace on that plan. Queue a DURABLE fan-out job. A queueing failure
+  // must NOT roll back the billing change, but it must be reported (sanitized).
+  const refresh = await handlePlanDefinitionChanged(
+    (req as any).serverConfig,
+    req.params.planId,
+    { previous: previousPlan as any, next: data as any },
+  );
   res.json({
     plan: data,
     validation,
     entitlement_refresh: refresh.ok
-      ? { ok: true, backgrounded: refresh.backgrounded }
+      ? { ok: true, backgrounded: refresh.backgrounded, skipped: refresh.skipped }
       : { ok: false, error: 'entitlement_catchup_enqueue_failed' },
   });
 });
@@ -328,6 +340,7 @@ plansRouter.delete('/admin/:planId', async (req, res) => {
   const supabase = createClient(url, key);
   const { error } = await supabase.from('billing_plans').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', req.params.planId);
   if (error) return res.status(500).json({ error: 'Request failed' });
+  // Deactivation always changes effective access for every subscriber.
   const refresh = await handlePlanDefinitionChanged((req as any).serverConfig, req.params.planId);
   res.json({
     success: true,

@@ -310,14 +310,18 @@ aiAgentRouter.patch('/platform/settings', async (req: Request, res: Response) =>
     // (events stay deferred and retryable on their own backoff).
     const turnedOn =
       previous.ai_agent_enabled === false && settings.ai_agent_enabled === true;
-    let fanout: { scheduled: boolean } = { scheduled: false };
+    let fanout: { scheduled: boolean; jobId?: string | null } = { scheduled: false };
     if (turnedOn) {
       const { handlePlatformAiEnabled } = await import(
         '../services/billing/entitlementChange.js'
       );
-      // Authoritative source = public.workspaces, paginated, backgrounded.
-      const r = await handlePlatformAiEnabled(config);
-      fanout = { scheduled: r.ok };
+      // Phase 6-S5-R6 — durable, restart-safe queue job; the worker walks
+      // public.workspaces with a keyset cursor.
+      const r = await handlePlatformAiEnabled(config, {
+        previousEnabled: previous.ai_agent_enabled === true,
+        nextEnabled: settings.ai_agent_enabled === true,
+      });
+      fanout = { scheduled: r.ok && !r.skipped, jobId: r.jobId };
     }
     return res.json({ settings, entitlement_fanout: fanout });
   } catch (e: any) {

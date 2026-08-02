@@ -229,6 +229,21 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="widget" element={<WidgetPage />} />
                 <Route path="email" element={<EmailPage />} />
                 <Route path="billing" element={<BillingPage />} />
+                {/* Phase 6-S5 — Knowledge Base is an INDEPENDENT product.
+                    It lives directly under the workspace app layout and is
+                    gated only by the `knowledge_base` plan module. It must
+                    never be nested under AiAgentLayout. */}
+                <Route
+                  path="knowledge-base"
+                  element={
+                    <PlanAccessGate moduleKey="knowledge_base">
+                      <KnowledgeBasePage />
+                    </PlanAccessGate>
+                  }
+                />
+                {/* Legacy KB URL — declared OUTSIDE AiAgentLayout so the
+                    redirect still works while AI Agent is disabled. */}
+                <Route path="ai-agent/articles" element={<Navigate to="../knowledge-base" replace />} />
                 <Route path="call-center" element={<CallCenterLayout />}>
                   <Route index element={<CallCenterOverviewPage />} />
                   <Route path="queue" element={<CallCenterLiveQueuePage />} />

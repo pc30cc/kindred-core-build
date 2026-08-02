@@ -4681,11 +4681,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "knowledge_base_articles_category_id_fkey"
-            columns: ["category_id"]
+            foreignKeyName: "knowledge_base_articles_category_workspace_fkey"
+            columns: ["category_id", "workspace_id"]
             isOneToOne: false
             referencedRelation: "knowledge_base_categories"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "knowledge_base_articles_workspace_id_fkey"
@@ -4749,6 +4749,9 @@ export type Database = {
           id: string
           last_error: string | null
           locale: string | null
+          locked_at: string | null
+          locked_by: string | null
+          next_attempt_at: string
           processed_at: string | null
           status: string | null
           updated_at: string
@@ -4762,6 +4765,9 @@ export type Database = {
           id?: string
           last_error?: string | null
           locale?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          next_attempt_at?: string
           processed_at?: string | null
           status?: string | null
           updated_at?: string
@@ -4775,6 +4781,9 @@ export type Database = {
           id?: string
           last_error?: string | null
           locale?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          next_attempt_at?: string
           processed_at?: string | null
           status?: string | null
           updated_at?: string
@@ -8051,8 +8060,18 @@ export type Database = {
         Args: { _feature: string; _workspace_id: string }
         Returns: Json
       }
+      claim_kb_change_events: {
+        Args: { _lease_seconds?: number; _limit?: number; _worker_id: string }
+        Returns: {
+          attempts: number
+          event_type: string
+          id: string
+          workspace_id: string
+        }[]
+      }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }
       cleanup_expired_widget_identity: { Args: never; Returns: undefined }
+      complete_kb_change_events: { Args: { _ids: string[] }; Returns: number }
       count_recent_login_failures: {
         Args: { _email: string; _ip: string; _window_minutes?: number }
         Returns: number
@@ -8104,8 +8123,22 @@ export type Database = {
         Args: { _credits?: number; _period?: string; _workspace_id: string }
         Returns: Json
       }
+      default_workspace_permission: {
+        Args: { _permission_key: string; _role: string }
+        Returns: boolean
+      }
+      enqueue_kb_catchup: { Args: { _workspace_id: string }; Returns: number }
       evaluate_alert_rules: { Args: never; Returns: Json }
       expire_stale_trials: { Args: never; Returns: number }
+      fail_kb_change_events: {
+        Args: {
+          _error: string
+          _ids: string[]
+          _max_attempts?: number
+          _retry_seconds?: number
+        }
+        Returns: number
+      }
       generate_short_id: { Args: { prefix?: string }; Returns: string }
       get_account_role: {
         Args: { _account_id: string; _user_id: string }
@@ -8121,6 +8154,14 @@ export type Database = {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
+        }
+        Returns: boolean
+      }
+      has_workspace_permission: {
+        Args: {
+          _permission_key: string
+          _user_id: string
+          _workspace_id: string
         }
         Returns: boolean
       }

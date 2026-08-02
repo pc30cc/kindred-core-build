@@ -316,6 +316,16 @@ async function loadGenerated(req: Request, res: Response, config: ServerConfig) 
   }
   const auth = await authorizeMember(req, res, config, gen.workspace_id);
   if (!auth) return null;
+  const gate = await ensureModulesEnabled(config, gen.workspace_id, {
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: `${req.method} ${req.baseUrl}${req.path}`,
+  });
+  if (!gate.ok) {
+    const blocked = gate as { ok: false; status: number; body: any };
+    res.status(blocked.status).json(blocked.body);
+    return null;
+  }
   return { gen, sb, userId: auth.userId };
 }
 
@@ -337,6 +347,7 @@ aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => 
 async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' | 'published') {
   // If we already linked one, just update its status; otherwise insert a fresh draft.
   if (gen.kb_article_id) {
+    // Composite ownership invariant: never write across workspaces.
     const { data, error } = await sb
       .from('knowledge_base_articles')
       .update({
@@ -347,9 +358,11 @@ async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' |
         status,
       })
       .eq('id', gen.kb_article_id)
+      .eq('workspace_id', gen.workspace_id)
       .select('*')
       .maybeSingle();
     if (error) throw error;
+    if (!data) throw new Error('kb_article_workspace_mismatch');
     return data;
   }
 
@@ -467,10 +480,21 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const auth = await authorizeMember(req, res, config, job.workspace_id);
   if (!auth) return;
 
+  const gate = await ensureModulesEnabled(config, job.workspace_id, {
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: 'POST /api/ai-kb/jobs/:jobId/publish-all',
+  });
+  if (!gate.ok) {
+    const blocked = gate as { ok: false; status: number; body: any };
+    return res.status(blocked.status).json(blocked.body);
+  }
+
   const { data: drafts } = await sb
     .from('ai_kb_generated_articles')
     .select('*')
     .eq('job_id', job.id)
+    .eq('workspace_id', job.workspace_id)
     .in('status', ['pending', 'accepted']);
 
   const published: any[] = [];

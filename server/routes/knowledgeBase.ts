@@ -15,7 +15,11 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
-import { checkKnowledgeBaseModule } from '../services/knowledge-base/access.js';
+import {
+  checkKnowledgeBaseModule,
+  checkKnowledgeBasePermission,
+  type KnowledgeBasePermission,
+} from '../services/knowledge-base/access.js';
 
 export const knowledgeBaseRouter: Router = express.Router();
 
@@ -43,12 +47,17 @@ const categoryInputSchema = z.object({
 });
 const categoryPatchSchema = categoryInputSchema.partial();
 
-/** Auth + membership + `knowledge_base` module. Writes the response on failure. */
+/**
+ * Auth → membership → `knowledge_base` module → granular KB permission.
+ * Writes the response on failure. Platform super-admins skip the granular
+ * permission check only (never the module entitlement).
+ */
 async function guard(
   req: Request,
   res: Response,
   workspaceId: unknown,
-): Promise<{ config: ServerConfig; workspaceId: string } | null> {
+  permission?: KnowledgeBasePermission,
+): Promise<{ config: ServerConfig; workspaceId: string; userId: string; isAdmin: boolean } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
   const config = serverConfigOf(req);
@@ -57,7 +66,39 @@ async function guard(
     res.status(403).json(denial);
     return null;
   }
-  return { config, workspaceId: workspaceId as string };
+  if (permission && !auth.isAdmin) {
+    const permDenial = await checkKnowledgeBasePermission(
+      config, workspaceId as string, auth.userId, permission,
+    );
+    if (permDenial) {
+      res.status(403).json(permDenial);
+      return null;
+    }
+  }
+  return {
+    config,
+    workspaceId: workspaceId as string,
+    userId: auth.userId,
+    isAdmin: auth.isAdmin,
+  };
+}
+
+/**
+ * Publishing is a separate permission from editing. Returns true when the
+ * response has already been written (caller must return).
+ */
+async function denyIfCannotPublish(
+  g: { config: ServerConfig; workspaceId: string; userId: string; isAdmin: boolean },
+  status: string | undefined,
+  res: Response,
+): Promise<boolean> {
+  if (status !== 'published' || g.isAdmin) return false;
+  const denial = await checkKnowledgeBasePermission(
+    g.config, g.workspaceId, g.userId, 'can_publish_knowledge_base',
+  );
+  if (!denial) return false;
+  res.status(403).json(denial);
+  return true;
 }
 
 function workspaceIdOf(req: Request): unknown {
@@ -122,10 +163,11 @@ knowledgeBaseRouter.get('/articles', async (req: Request, res: Response) => {
 });
 
 knowledgeBaseRouter.post('/articles', async (req: Request, res: Response) => {
-  const g = await guard(req, res, workspaceIdOf(req));
+  const g = await guard(req, res, workspaceIdOf(req), 'can_manage_knowledge_base');
   if (!g) return;
   const parsed = articleInputSchema.safeParse((req.body as { article?: unknown })?.article ?? req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_article' });
+  if (await denyIfCannotPublish(g, parsed.data.status, res)) return;
 
   if (parsed.data.category_id) {
     const ok = await assertOwnership(
@@ -143,13 +185,14 @@ knowledgeBaseRouter.post('/articles', async (req: Request, res: Response) => {
 });
 
 knowledgeBaseRouter.patch('/articles/:articleId', async (req: Request, res: Response) => {
-  const g = await guard(req, res, workspaceIdOf(req));
+  const g = await guard(req, res, workspaceIdOf(req), 'can_manage_knowledge_base');
   if (!g) return;
   const articleId = String(req.params.articleId);
   if (!(await assertOwnership(g.config, 'knowledge_base_articles', articleId, g.workspaceId, res))) return;
 
   const parsed = articlePatchSchema.safeParse((req.body as { article?: unknown })?.article ?? req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_article' });
+  if (await denyIfCannotPublish(g, parsed.data.status, res)) return;
   if (parsed.data.category_id) {
     const ok = await assertOwnership(
       g.config, 'knowledge_base_categories', parsed.data.category_id, g.workspaceId, res,
@@ -168,7 +211,7 @@ knowledgeBaseRouter.patch('/articles/:articleId', async (req: Request, res: Resp
 });
 
 knowledgeBaseRouter.delete('/articles/:articleId', async (req: Request, res: Response) => {
-  const g = await guard(req, res, workspaceIdOf(req));
+  const g = await guard(req, res, workspaceIdOf(req), 'can_manage_knowledge_base');
   if (!g) return;
   const articleId = String(req.params.articleId);
   if (!(await assertOwnership(g.config, 'knowledge_base_articles', articleId, g.workspaceId, res))) return;
@@ -200,7 +243,7 @@ knowledgeBaseRouter.get('/categories', async (req: Request, res: Response) => {
 });
 
 knowledgeBaseRouter.post('/categories', async (req: Request, res: Response) => {
-  const g = await guard(req, res, workspaceIdOf(req));
+  const g = await guard(req, res, workspaceIdOf(req), 'can_manage_knowledge_base');
   if (!g) return;
   const parsed = categoryInputSchema.safeParse((req.body as { category?: unknown })?.category ?? req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_category' });
@@ -214,7 +257,7 @@ knowledgeBaseRouter.post('/categories', async (req: Request, res: Response) => {
 });
 
 knowledgeBaseRouter.patch('/categories/:categoryId', async (req: Request, res: Response) => {
-  const g = await guard(req, res, workspaceIdOf(req));
+  const g = await guard(req, res, workspaceIdOf(req), 'can_manage_knowledge_base');
   if (!g) return;
   const categoryId = String(req.params.categoryId);
   if (!(await assertOwnership(g.config, 'knowledge_base_categories', categoryId, g.workspaceId, res))) return;
@@ -232,7 +275,7 @@ knowledgeBaseRouter.patch('/categories/:categoryId', async (req: Request, res: R
 });
 
 knowledgeBaseRouter.delete('/categories/:categoryId', async (req: Request, res: Response) => {
-  const g = await guard(req, res, workspaceIdOf(req));
+  const g = await guard(req, res, workspaceIdOf(req), 'can_manage_knowledge_base');
   if (!g) return;
   const categoryId = String(req.params.categoryId);
   if (!(await assertOwnership(g.config, 'knowledge_base_categories', categoryId, g.workspaceId, res))) return;

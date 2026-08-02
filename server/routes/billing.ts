@@ -16,7 +16,10 @@ import { createClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { handleWorkspaceEntitlementChanged } from '../services/billing/entitlementChange.js';
+import {
+  handleWorkspaceEntitlementChanged,
+  handlePlanDefinitionChanged,
+} from '../services/billing/entitlementChange.js';
 
 export const billingRouter = Router();
 

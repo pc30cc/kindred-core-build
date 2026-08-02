@@ -550,25 +550,22 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
 
+  const auth = await authenticate(req, res, config);
+  if (!auth) return;
+
   const { data: job } = await sb
     .from('ai_kb_jobs')
     .select('id, workspace_id')
     .eq('id', req.params.jobId)
     .maybeSingle();
-  if (!job) return res.status(404).json({ error: 'job_not_found' });
-
-  const auth = await authorizeMember(req, res, config, job.workspace_id);
-  if (!auth) return;
-
-  const gate = await ensureModulesEnabled(config, job.workspace_id, {
-    isAdmin: auth.isAdmin,
-    userId: auth.userId,
-    route: 'POST /api/ai-kb/jobs/:jobId/publish-all',
-  });
-  if (!gate.ok) {
-    const blocked = gate as { ok: false; status: number; body: any };
-    return res.status(blocked.status).json(blocked.body);
+  if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
+    return res.status(404).json({ error: 'job_not_found' });
   }
+
+  if (!(await gateAiKb(res, config, job.workspace_id, auth, {
+    permissions: ['can_manage_knowledge_base', 'can_publish_knowledge_base'],
+    route: 'POST /api/ai-kb/jobs/:jobId/publish-all',
+  }))) return;
 
   const { data: drafts } = await sb
     .from('ai_kb_generated_articles')
@@ -577,8 +574,8 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
     .eq('workspace_id', job.workspace_id)
     .in('status', ['pending', 'accepted']);
 
-  const published: any[] = [];
-  const failed: any[] = [];
+  const published: Array<{ generated_id: string; kb_article_id: string }> = [];
+  const failed: Array<{ generated_id: string; error: 'publish_failed' }> = [];
   for (const gen of drafts || []) {
     try {
       const article = await upsertKbArticleFromGenerated(sb, gen, 'published');
@@ -592,8 +589,9 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
         })
         .eq('id', gen.id);
       published.push({ generated_id: gen.id, kb_article_id: article.id });
-    } catch (err: any) {
-      failed.push({ generated_id: gen.id, error: err?.message || 'unknown' });
+    } catch (error: unknown) {
+      logInternal('bulk_publish_failed', error, { generatedId: gen.id });
+      failed.push({ generated_id: gen.id, error: 'publish_failed' });
     }
   }
   return res.json({ ok: true, published_count: published.length, failed_count: failed.length, published, failed });

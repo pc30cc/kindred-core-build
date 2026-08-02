@@ -86,6 +86,24 @@ suite('entitlement fan-out consumer (PostgreSQL)', () => {
     db = new Client({ connectionString: DSN });
     await db.connect();
     await db.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+    // Start from a clean install so the forward-only chain is proven in
+    // order, not against functions left by a previous run.
+    await db.query(`
+      DO $$
+      DECLARE r record;
+      BEGIN
+        FOR r IN
+          SELECT oid::regprocedure AS sig FROM pg_proc
+          WHERE pronamespace = 'public'::regnamespace
+            AND proname IN (
+              'enqueue_entitlement_fanout', 'claim_entitlement_fanout_jobs',
+              'advance_entitlement_fanout', 'complete_entitlement_fanout',
+              'fail_entitlement_fanout', 'entitlement_fanout_touch')
+        LOOP
+          EXECUTE 'DROP FUNCTION ' || r.sig || ' CASCADE';
+        END LOOP;
+      END $$;
+    `);
     await db.query('DROP TABLE IF EXISTS public.entitlement_fanout_jobs CASCADE');
     await db.query('DROP TABLE IF EXISTS public.workspaces CASCADE');
     await db.query('CREATE TABLE public.workspaces (id uuid PRIMARY KEY)');

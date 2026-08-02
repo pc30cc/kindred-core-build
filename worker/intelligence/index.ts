@@ -15,6 +15,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { processJob } from './processor.js';
 import { DbJobQueueProvider, type JobQueueProvider } from '../../server/services/ai-kb/queue.js';
+import { loadConfig } from '../../server/config.js';
+import { drainKnowledgeBaseChangeEvents } from '../../server/services/ai-agent/knowledgeIndex/kbEvents.js';
 
 const POLL_INTERVAL_MS = parseInt(process.env.AI_KB_WORKER_POLL_MS || '5000', 10);
 const WORKER_ID = process.env.WORKER_ID || `ai-kb-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -60,6 +62,23 @@ export function createWorkerClient(env: WorkerEnv): SupabaseClient {
 }
 
 let lastIdleLogAt = 0;
+
+/**
+ * Phase 6-S5-R1 — one-way KB → AI index bridge.
+ *
+ * Knowledge Base writes only append neutral rows to
+ * public.knowledge_base_change_events. This worker drains them on the AI
+ * side and re-indexes only plan-entitled workspaces. Failures are logged
+ * and never propagate back into the Knowledge Base product.
+ */
+async function drainKbEvents() {
+  try {
+    const summary = await drainKnowledgeBaseChangeEvents(loadConfig(), { batchSize: 100 });
+    if (summary.claimed > 0) log('kb change events drained', summary);
+  } catch (err: any) {
+    log('kb change events drain error', { error: err?.message });
+  }
+}
 
 async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv) {
   try {
@@ -152,7 +171,10 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
   if (standalone) log('mode standalone', { workerId: env.workerId });
   else if (inproc) log('mode inproc', { workerId: env.workerId });
 
-  const run = () => tick(sb, queue, env).catch((e) => console.error('[ai-kb worker]', e));
+  const run = () =>
+    tick(sb, queue, env)
+      .catch((e) => console.error('[ai-kb worker]', e))
+      .then(drainKbEvents);
 
   // Run schema self-check first, then start the poll loop. Never crashes the
   // process — just retries with backoff so a temporary DB outage does not

@@ -123,16 +123,42 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
 
   const requestedDomainId = (req.query.domain_id as string) || undefined;
 
+  // This is the designated upgrade-discovery surface: when the workspace is
+  // not fully entitled it returns a REDACTED capability snapshot only — no
+  // private source, credit or job data.
+  const capabilities = await readAiKbCapabilities(config, workspaceId);
+  const entitled = await checkAiKbAccess(config, workspaceId, {
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: 'GET /api/ai-kb/source',
+  });
+  if (!entitled.ok) {
+    return res.json({
+      source: {
+        domain: null, kind: null, workspace_domain_id: null,
+        verified: false, is_primary: false, can_scan: false,
+        reason_if_blocked: entitled.denial?.body.error ?? 'not_entitled',
+        available_domains: [],
+      },
+      plan: {
+        slug: null,
+        limits: { maxPages: 0, maxDepth: 0, jobsPerMonth: 0, maxArticles: 0, maxChars: 0, monthlyCredits: 0 },
+        jobs_used_this_month: 0,
+        can_start_job: false,
+      },
+      credits: { used: 0, limit: 0, remaining: 0, period: '' },
+      modules: capabilities,
+      upgrade_required: true,
+      denial: entitled.denial?.body,
+      is_global_admin: auth.isAdmin,
+    });
+  }
+
   const [source, limitsInfo, credits, jobsThisMonth] = await Promise.all([
     resolveSourceDomain(config, workspaceId, requestedDomainId),
     resolveAiKbLimits(config, workspaceId),
     readAiCreditState(config, workspaceId),
     countJobsThisMonth(config, workspaceId),
-  ]);
-
-  const modules = await Promise.all([
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'knowledge_base'),
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_kb_builder'),
   ]);
 
   return res.json({
@@ -144,10 +170,7 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
       can_start_job: auth.isAdmin || jobsThisMonth < limitsInfo.limits.jobsPerMonth,
     },
     credits,
-    modules: {
-      knowledge_base: modules[0].allowed || auth.isAdmin,
-      ai_kb_builder: modules[1].allowed || auth.isAdmin,
-    },
+    modules: capabilities,
     is_global_admin: auth.isAdmin,
   });
 });

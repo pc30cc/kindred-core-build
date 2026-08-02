@@ -97,19 +97,45 @@ export async function getPlatformAiAgentSettings(
   if (cache && now - cache.ts < CACHE_TTL_MS) return cache.value;
 
   let value: PlatformAiAgentSettings;
+  let lookupFailed = false;
   try {
     const sb = getServiceClient(config);
-    const { data } = await sb
+    const { data, error } = await sb
       .from('platform_ai_agent_settings' as any)
       .select('*')
       .eq('singleton_key', true)
       .maybeSingle();
+    // Phase 6-S5-R4 — a MISSING table is a greenfield self-host install and
+    // still defaults open. Any OTHER error is an unresolved lookup and MUST
+    // be reported so security-relevant callers can fail closed.
+    if (error && !isMissingRelationError(error)) lookupFailed = true;
     value = applyDefaults((data as any) || {});
   } catch {
+    lookupFailed = true;
     value = applyDefaults({});
+  }
+  if (lookupFailed) {
+    // Never cache an unresolved lookup — the next call must retry.
+    return { ...value, metadata: { ...value.metadata, __lookup_failed: true } };
   }
   cache = { value, ts: now };
   return value;
+}
+
+function isMissingRelationError(error: { code?: string; message?: string }): boolean {
+  const code = String(error.code || '');
+  const message = String(error.message || '').toLowerCase();
+  return (
+    code === '42P01' ||
+    code === 'PGRST205' ||
+    message.includes('does not exist') ||
+    message.includes('could not find the table')
+  );
+}
+
+/** True when the last settings read could not be resolved (fail-closed signal). */
+export function isPlatformSettingsLookupFailed(settings: PlatformAiAgentSettings): boolean {
+  return (settings.metadata as Record<string, unknown> | null)?.__lookup_failed === true;
 }
 
 export function __resetPlatformAiAgentSettingsCache(): void {

@@ -17,6 +17,7 @@ import { processJob } from './processor.js';
 import { DbJobQueueProvider, type JobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import { loadConfig } from '../../server/config.js';
 import { drainKnowledgeBaseChangeEvents } from '../../server/services/ai-agent/knowledgeIndex/kbEvents.js';
+import { drainEntitlementFanoutJobs } from '../../server/services/billing/entitlementFanout.js';
 
 const POLL_INTERVAL_MS = parseInt(process.env.AI_KB_WORKER_POLL_MS || '5000', 10);
 const WORKER_ID = process.env.WORKER_ID || `ai-kb-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -82,6 +83,27 @@ async function drainKbEvents() {
     if (summary.claimed > 0) log('kb change events drained', summary);
   } catch (err: any) {
     log('kb change events drain error', { error: err?.message });
+  }
+}
+
+/**
+ * Phase 6-S5-R6 — durable entitlement fan-out consumer.
+ *
+ * Plan-definition edits and the platform AI kill switch persist a job row
+ * before the admin request returns; this loop claims it under an owned,
+ * expiring lease and walks the affected workspaces with a keyset cursor.
+ * Restart-safe: progress is checkpointed per page, so a redeploy resumes
+ * exactly where it stopped instead of losing the remainder.
+ */
+async function drainFanoutJobs() {
+  try {
+    const summary = await drainEntitlementFanoutJobs(loadConfig(), {
+      workerId: WORKER_ID,
+      limit: 1,
+    });
+    if (summary.claimed > 0) log('entitlement fan-out drained', summary);
+  } catch (err: any) {
+    log('entitlement fan-out drain error', { error: err?.message });
   }
 }
 
@@ -179,7 +201,8 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
   const run = () =>
     tick(sb, queue, env)
       .catch((e) => console.error('[ai-kb worker]', e))
-      .then(drainKbEvents);
+      .then(drainKbEvents)
+      .then(drainFanoutJobs);
 
   // Run schema self-check first, then start the poll loop. Never crashes the
   // process — just retries with backoff so a temporary DB outage does not

@@ -19,6 +19,11 @@ import { paytrProvider } from './providers/paytr.js';
 import { sipayProvider } from './providers/sipay.js';
 import { paratikaProvider } from './providers/paratika.js';
 import { craftgateProvider } from './providers/craftgate.js';
+import type { ServerConfig } from '../../config.js';
+import {
+  handleWorkspaceEntitlementChanged,
+  type EntitlementChangeSource,
+} from './entitlementChange.js';
 
 // Provider registry
 const providers: Record<string, BillingProviderHandler> = {
@@ -297,6 +302,26 @@ export async function processWebhookEvent(
       }
       break;
     }
+  }
+
+  // Every provider-driven subscription transition is an entitlement change:
+  // funnel it so the cache is cleared and KB catch-up is enqueued exactly
+  // once per event, on grants as well as on downgrades.
+  const ENTITLEMENT_CHANGING: Record<string, EntitlementChangeSource | undefined> = {
+    checkout_completed: 'subscription_created',
+    subscription_created: 'subscription_created',
+    payment_succeeded: 'payment_succeeded',
+    invoice_paid: 'subscription_renewed',
+    subscription_canceled: 'subscription_canceled',
+    payment_failed: 'provider_webhook',
+    invoice_failed: 'provider_webhook',
+  };
+  const changeSource = ENTITLEMENT_CHANGING[event.type];
+  if (changeSource) {
+    await handleWorkspaceEntitlementChanged(
+      { supabaseUrl, supabaseServiceRoleKey: serviceRoleKey } as ServerConfig,
+      { workspaceId: event.workspaceId, source: changeSource },
+    );
   }
 }
 

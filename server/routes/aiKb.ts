@@ -20,10 +20,15 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { checkModuleAccess } from '../middleware/featureGating.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
-import { isGlobalAdmin, logGateBypass } from '../middleware/adminBypass.js';
+import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import {
+  checkAiKbAccess,
+  readAiKbCapabilities,
+  type AiKbAccessResult,
+} from '../services/ai-kb/access.js';
+import type { KnowledgeBasePermission } from '../services/knowledge-base/access.js';
 import { resolveSourceDomain } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimits, countJobsThisMonth } from '../services/ai-kb/limits.js';
 import { readAiCreditState, logAiKbUsage } from '../services/ai-kb/credits.js';
@@ -32,7 +37,57 @@ import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
 
 export const aiKbRouter: Router = express.Router();
 
-// ─── Auth helper (operator JWT + workspace membership) ─────────
+/**
+ * Sanitized server-side logging. Internal error text never reaches the client:
+ * routes respond with a stable code only (see docs/ENTITLEMENT_ARCHITECTURE.md).
+ */
+function logInternal(scope: string, error: unknown, context: Record<string, unknown> = {}): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[ai-kb] ${scope}`, JSON.stringify({ ...context, message: message.slice(0, 300) }));
+}
+
+// ─── Auth helpers (operator JWT + workspace membership) ────────
+
+export interface AiKbAuth { userId: string; isAdmin: boolean }
+
+/** Authenticate only. Writes 401 and returns null when the JWT is invalid. */
+async function authenticate(
+  req: Request,
+  res: Response,
+  config: ServerConfig,
+): Promise<AiKbAuth | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing authorization' });
+    return null;
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const sb = getServiceClient(config);
+  const { data: { user }, error } = await sb.auth.getUser(token);
+  if (error || !user) {
+    res.status(401).json({ error: 'Invalid token' });
+    return null;
+  }
+  return { userId: user.id, isAdmin: await isGlobalAdmin(config, user.id) };
+}
+
+/**
+ * Silent membership probe used by resource-scoped routes so an unauthorized
+ * cross-workspace request cannot distinguish "not found" from "forbidden".
+ */
+async function isAuthorizedForWorkspace(
+  config: ServerConfig,
+  auth: AiKbAuth,
+  workspaceId: string,
+): Promise<boolean> {
+  if (auth.isAdmin) return true;
+  const { data, error } = await getServiceClient(config).rpc('is_workspace_member', {
+    _workspace_id: workspaceId,
+    _user_id: auth.userId,
+  });
+  return !error && data === true;
+}
+
 async function authorizeMember(
   req: Request,
   res: Response,
@@ -69,43 +124,31 @@ async function authorizeMember(
   return { userId: user.id, isAdmin };
 }
 
-async function ensureModulesEnabled(
+/**
+ * Full AI KB Builder gate: granular KB permission → knowledge_base module →
+ * ai_assistant module → ai_kb_builder FEATURE → platform AI switch.
+ *
+ * Writes the canonical denial response and returns false when blocked, so no
+ * provider call, job creation, KB write or credit deduction can follow.
+ */
+async function gateAiKb(
+  res: Response,
   config: ServerConfig,
   workspaceId: string,
-  opts?: { isAdmin?: boolean; userId?: string; route?: string },
-): Promise<{ ok: true } | { ok: false; status: number; body: any }> {
-  for (const moduleKey of ['knowledge_base', 'ai_kb_builder']) {
-    const r = await checkModuleAccess(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      moduleKey,
-    );
-    if (!r.allowed) {
-      if (opts?.isAdmin && opts.userId) {
-        // Global admin bypass — log and continue.
-        await logGateBypass(config, {
-          userId: opts.userId,
-          workspaceId,
-          moduleKey,
-          route: opts.route || 'ai-kb',
-          reason: `plan=${r.plan || 'unknown'}`,
-        });
-        continue;
-      }
-      return {
-        ok: false,
-        status: 403,
-        body: {
-          error: `Module '${moduleKey}' is not enabled for this workspace`,
-          module: moduleKey,
-          plan: r.plan,
-          upgrade_required: true,
-        },
-      };
-    }
-  }
-  return { ok: true };
+  auth: { userId: string; isAdmin: boolean },
+  opts: { permissions?: KnowledgeBasePermission[]; route: string; customerFacing?: boolean },
+): Promise<boolean> {
+  const result: AiKbAccessResult = await checkAiKbAccess(config, workspaceId, {
+    permissions: opts.permissions,
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: opts.route,
+    customerFacing: opts.customerFacing,
+  });
+  if (result.ok) return true;
+  const denial = result.denial!;
+  res.status(denial.status).json(denial.body);
+  return false;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -121,16 +164,42 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
 
   const requestedDomainId = (req.query.domain_id as string) || undefined;
 
+  // This is the designated upgrade-discovery surface: when the workspace is
+  // not fully entitled it returns a REDACTED capability snapshot only — no
+  // private source, credit or job data.
+  const capabilities = await readAiKbCapabilities(config, workspaceId);
+  const entitled = await checkAiKbAccess(config, workspaceId, {
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: 'GET /api/ai-kb/source',
+  });
+  if (!entitled.ok) {
+    return res.json({
+      source: {
+        domain: null, kind: null, workspace_domain_id: null,
+        verified: false, is_primary: false, can_scan: false,
+        reason_if_blocked: entitled.denial?.body.error ?? 'not_entitled',
+        available_domains: [],
+      },
+      plan: {
+        slug: null,
+        limits: { maxPages: 0, maxDepth: 0, jobsPerMonth: 0, maxArticles: 0, maxChars: 0, monthlyCredits: 0 },
+        jobs_used_this_month: 0,
+        can_start_job: false,
+      },
+      credits: { used: 0, limit: 0, remaining: 0, period: '' },
+      modules: capabilities,
+      upgrade_required: true,
+      denial: entitled.denial?.body,
+      is_global_admin: auth.isAdmin,
+    });
+  }
+
   const [source, limitsInfo, credits, jobsThisMonth] = await Promise.all([
     resolveSourceDomain(config, workspaceId, requestedDomainId),
     resolveAiKbLimits(config, workspaceId),
     readAiCreditState(config, workspaceId),
     countJobsThisMonth(config, workspaceId),
-  ]);
-
-  const modules = await Promise.all([
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'knowledge_base'),
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_kb_builder'),
   ]);
 
   return res.json({
@@ -142,10 +211,7 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
       can_start_job: auth.isAdmin || jobsThisMonth < limitsInfo.limits.jobsPerMonth,
     },
     credits,
-    modules: {
-      knowledge_base: modules[0].allowed || auth.isAdmin,
-      ai_kb_builder: modules[1].allowed || auth.isAdmin,
-    },
+    modules: capabilities,
     is_global_admin: auth.isAdmin,
   });
 });
@@ -170,15 +236,10 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
-  const gate = await ensureModulesEnabled(config, workspaceId, {
-    isAdmin: auth.isAdmin,
-    userId: auth.userId,
+  if (!(await gateAiKb(res, config, workspaceId, auth, {
+    permissions: ['can_manage_knowledge_base'],
     route: 'POST /api/ai-kb/jobs',
-  });
-  if (!gate.ok) {
-    const blocked = gate as { ok: false; status: number; body: any };
-    return res.status(blocked.status).json(blocked.body);
-  }
+  }))) return;
 
   const source = await resolveSourceDomain(config, workspaceId, domain_id);
   if (!source.can_scan || !source.domain) {
@@ -242,7 +303,8 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
     .single();
 
   if (error || !job) {
-    return res.status(500).json({ error: 'job_create_failed', details: error?.message });
+    logInternal('job_create_failed', error, { workspaceId });
+    return res.status(500).json({ error: 'job_create_failed' });
   }
 
   await logAiKbUsage(config, workspaceId, 'job_created', { jobId: job.id, metadata: { domain: source.domain } });
@@ -261,6 +323,8 @@ aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
+  if (!(await gateAiKb(res, config, workspaceId, auth, { route: 'GET /api/ai-kb/jobs' }))) return;
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('ai_kb_jobs')
@@ -269,7 +333,10 @@ aiKbRouter.get('/jobs', async (req: Request, res: Response) => {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (error) return res.status(500).json({ error: 'list_failed', details: error.message });
+  if (error) {
+    logInternal('list_failed', error, { workspaceId });
+    return res.status(500).json({ error: 'list_failed' });
+  }
   return res.json({ jobs: data || [] });
 });
 
@@ -280,16 +347,20 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
 
-  const { data: job, error } = await sb
+  const auth = await authenticate(req, res, config);
+  if (!auth) return;
+
+  const { data: job } = await sb
     .from('ai_kb_jobs')
     .select('*')
     .eq('id', req.params.id)
     .maybeSingle();
 
-  if (error || !job) return res.status(404).json({ error: 'job_not_found' });
-
-  const auth = await authorizeMember(req, res, config, job.workspace_id);
-  if (!auth) return;
+  // Canonical 404 for both "missing" and "not yours" — no existence leak.
+  if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
+    return res.status(404).json({ error: 'job_not_found' });
+  }
+  if (!(await gateAiKb(res, config, job.workspace_id, auth, { route: 'GET /api/ai-kb/jobs/:id' }))) return;
 
   const [{ data: pages }, { data: generated }, { data: events }] = await Promise.all([
     sb.from('ai_kb_job_pages').select('*').eq('job_id', job.id).order('created_at', { ascending: true }).limit(500),
@@ -303,35 +374,39 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
 // ──────────────────────────────────────────────────────────────
 //  POST /api/ai-kb/generated/:id/(accept|reject|publish)
 // ──────────────────────────────────────────────────────────────
-async function loadGenerated(req: Request, res: Response, config: ServerConfig) {
+async function loadGenerated(
+  req: Request,
+  res: Response,
+  config: ServerConfig,
+  permissions: KnowledgeBasePermission[],
+) {
+  const auth = await authenticate(req, res, config);
+  if (!auth) return null;
+
   const sb = getServiceClient(config);
   const { data: gen } = await sb
     .from('ai_kb_generated_articles')
     .select('*')
     .eq('id', req.params.id)
     .maybeSingle();
-  if (!gen) {
+
+  // Canonical 404 for missing OR cross-workspace — no existence leak.
+  if (!gen || !(await isAuthorizedForWorkspace(config, auth, gen.workspace_id))) {
     res.status(404).json({ error: 'not_found' });
     return null;
   }
-  const auth = await authorizeMember(req, res, config, gen.workspace_id);
-  if (!auth) return null;
-  const gate = await ensureModulesEnabled(config, gen.workspace_id, {
-    isAdmin: auth.isAdmin,
-    userId: auth.userId,
+
+  const ok = await gateAiKb(res, config, gen.workspace_id, auth, {
+    permissions,
     route: `${req.method} ${req.baseUrl}${req.path}`,
   });
-  if (!gate.ok) {
-    const blocked = gate as { ok: false; status: number; body: any };
-    res.status(blocked.status).json(blocked.body);
-    return null;
-  }
+  if (!ok) return null;
   return { gen, sb, userId: auth.userId };
 }
 
 aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await loadGenerated(req, res, config);
+  const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
@@ -400,7 +475,7 @@ async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' |
 
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await loadGenerated(req, res, config);
+  const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
@@ -416,14 +491,18 @@ aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => 
       })
       .eq('id', gen.id);
     return res.json({ ok: true, kb_article_id: article.id });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'accept_failed', details: err?.message });
+  } catch (error: unknown) {
+    logInternal('accept_failed', error, { generatedId: gen.id });
+    return res.status(500).json({ error: 'accept_failed' });
   }
 });
 
 aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await loadGenerated(req, res, config);
+  const ctx = await loadGenerated(req, res, config, [
+    'can_manage_knowledge_base',
+    'can_publish_knowledge_base',
+  ]);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
@@ -457,8 +536,9 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
       slug: verify.slug,
       locale: verify.locale,
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'publish_failed', details: err?.message });
+  } catch (error: unknown) {
+    logInternal('publish_failed', error, { generatedId: gen.id });
+    return res.status(500).json({ error: 'publish_failed' });
   }
 });
 
@@ -470,25 +550,22 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
 
+  const auth = await authenticate(req, res, config);
+  if (!auth) return;
+
   const { data: job } = await sb
     .from('ai_kb_jobs')
     .select('id, workspace_id')
     .eq('id', req.params.jobId)
     .maybeSingle();
-  if (!job) return res.status(404).json({ error: 'job_not_found' });
-
-  const auth = await authorizeMember(req, res, config, job.workspace_id);
-  if (!auth) return;
-
-  const gate = await ensureModulesEnabled(config, job.workspace_id, {
-    isAdmin: auth.isAdmin,
-    userId: auth.userId,
-    route: 'POST /api/ai-kb/jobs/:jobId/publish-all',
-  });
-  if (!gate.ok) {
-    const blocked = gate as { ok: false; status: number; body: any };
-    return res.status(blocked.status).json(blocked.body);
+  if (!job || !(await isAuthorizedForWorkspace(config, auth, job.workspace_id))) {
+    return res.status(404).json({ error: 'job_not_found' });
   }
+
+  if (!(await gateAiKb(res, config, job.workspace_id, auth, {
+    permissions: ['can_manage_knowledge_base', 'can_publish_knowledge_base'],
+    route: 'POST /api/ai-kb/jobs/:jobId/publish-all',
+  }))) return;
 
   const { data: drafts } = await sb
     .from('ai_kb_generated_articles')
@@ -497,8 +574,8 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
     .eq('workspace_id', job.workspace_id)
     .in('status', ['pending', 'accepted']);
 
-  const published: any[] = [];
-  const failed: any[] = [];
+  const published: Array<{ generated_id: string; kb_article_id: string }> = [];
+  const failed: Array<{ generated_id: string; error: 'publish_failed' }> = [];
   for (const gen of drafts || []) {
     try {
       const article = await upsertKbArticleFromGenerated(sb, gen, 'published');
@@ -512,8 +589,9 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
         })
         .eq('id', gen.id);
       published.push({ generated_id: gen.id, kb_article_id: article.id });
-    } catch (err: any) {
-      failed.push({ generated_id: gen.id, error: err?.message || 'unknown' });
+    } catch (error: unknown) {
+      logInternal('bulk_publish_failed', error, { generatedId: gen.id });
+      failed.push({ generated_id: gen.id, error: 'publish_failed' });
     }
   }
   return res.json({ ok: true, published_count: published.length, failed_count: failed.length, published, failed });
@@ -524,16 +602,9 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
 // ──────────────────────────────────────────────────────────────
 aiKbRouter.get('/generated/:id/visibility', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const sb = getServiceClient(config);
-  const { data: gen } = await sb
-    .from('ai_kb_generated_articles')
-    .select('*')
-    .eq('id', req.params.id)
-    .maybeSingle();
-  if (!gen) return res.status(404).json({ error: 'not_found' });
-
-  const auth = await authorizeMember(req, res, config, gen.workspace_id);
-  if (!auth) return;
+  const ctx = await loadGenerated(req, res, config, []);
+  if (!ctx) return;
+  const { gen, sb } = ctx;
 
   const result: any = {
     generated_status: gen.status,
@@ -592,6 +663,10 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
+  if (!(await gateAiKb(res, config, workspaceId, auth, {
+    route: 'GET /api/ai-kb/worker/diagnostics',
+  }))) return;
+
   const sb = getServiceClient(config);
 
   const [
@@ -618,10 +693,7 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
     countJobsThisMonth(config, workspaceId),
   ]);
 
-  const modules = await Promise.all([
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'knowledge_base'),
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_kb_builder'),
-  ]);
+  const capabilities = await readAiKbCapabilities(config, workspaceId);
 
   const latest: any = (latestRes as any).data || null;
 
@@ -643,10 +715,7 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
       can_scan: source.can_scan,
       reason_if_blocked: source.reason_if_blocked,
     },
-    modules: {
-      knowledge_base: modules[0].allowed || auth.isAdmin,
-      ai_kb_builder: modules[1].allowed || auth.isAdmin,
-    },
+    modules: capabilities,
     plan: {
       slug: limitsInfo.planSlug,
       limits: limitsInfo.limits,
@@ -693,15 +762,10 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     }
   }
 
-  const gate = await ensureModulesEnabled(config, workspaceId, {
-    isAdmin: auth.isAdmin,
-    userId: auth.userId,
+  if (!(await gateAiKb(res, config, workspaceId, auth, {
+    permissions: ['can_manage_knowledge_base'],
     route: 'POST /api/ai-kb/jobs/test',
-  });
-  if (!gate.ok) {
-    const blocked = gate as { ok: false; status: number; body: any };
-    return res.status(blocked.status).json(blocked.body);
-  }
+  }))) return;
 
   const source = await resolveSourceDomain(config, workspaceId);
   if (!source.can_scan || !source.domain) {
@@ -747,7 +811,8 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     .single();
 
   if (error || !job) {
-    return res.status(500).json({ error: 'job_create_failed', details: error?.message });
+    logInternal('test_job_create_failed', error, { workspaceId });
+    return res.status(500).json({ error: 'job_create_failed' });
   }
 
   await logAiKbUsage(config, workspaceId, 'job_created', {

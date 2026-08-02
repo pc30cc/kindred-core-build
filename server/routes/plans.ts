@@ -21,7 +21,7 @@ import {
   USAGE_BACKED_LIMIT_KEYS,
 } from '../services/billing/capabilityRegistry.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
-import { enqueueKnowledgeBaseCatchup } from '../services/ai-agent/knowledgeIndex/kbEvents.js';
+import { handleWorkspaceEntitlementChanged } from '../services/billing/entitlementChange.js';
 
 export const plansRouter = Router();
 
@@ -357,10 +357,12 @@ plansRouter.post('/admin/assign', async (req, res) => {
     metadata: { source: 'admin_assign' },
   });
 
-  clearEntitlementCache(workspaceId);
-  // Deterministic catch-up: a plan upgrade may newly grant `ai_assistant`,
-  // so re-queue the workspace on the neutral KB outbox. One-way, best effort.
-  await enqueueKnowledgeBaseCatchup((req as any).serverConfig, workspaceId);
+  // Central entitlement-change funnel: clears the cache AND enqueues the
+  // deterministic KB catch-up (a plan change may newly grant `ai_assistant`).
+  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    workspaceId,
+    source: 'admin_assign',
+  });
   res.json({ subscription: data });
 });
 
@@ -390,7 +392,10 @@ plansRouter.post('/admin/revoke', async (req, res) => {
 
   const { error } = await supabase.from('workspace_subscriptions').delete().eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache(workspaceId);
+  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    workspaceId,
+    source: 'admin_revoke',
+  });
   res.json({ success: true });
 });
 
@@ -441,7 +446,10 @@ plansRouter.post('/admin/overrides/module', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache(workspaceId);
+  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    workspaceId,
+    source: 'workspace_module_override',
+  });
   res.json({ override: data });
 });
 
@@ -463,7 +471,10 @@ plansRouter.post('/admin/overrides/channel', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
-  clearEntitlementCache(workspaceId);
+  await handleWorkspaceEntitlementChanged((req as any).serverConfig, {
+    workspaceId,
+    source: 'workspace_channel_override',
+  });
   res.json({ override: data });
 });
 

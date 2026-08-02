@@ -4744,10 +4744,17 @@ export type Database = {
         Row: {
           article_id: string | null
           attempts: number
+          claim_expires_at: string | null
+          claim_token: string | null
+          claimed_at: string | null
+          claimed_by: string | null
           created_at: string
+          dead_lettered_at: string | null
           event_type: string
           id: string
           last_error: string | null
+          last_error_code: string | null
+          last_error_detail: string | null
           locale: string | null
           locked_at: string | null
           locked_by: string | null
@@ -4760,10 +4767,17 @@ export type Database = {
         Insert: {
           article_id?: string | null
           attempts?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
           created_at?: string
+          dead_lettered_at?: string | null
           event_type: string
           id?: string
           last_error?: string | null
+          last_error_code?: string | null
+          last_error_detail?: string | null
           locale?: string | null
           locked_at?: string | null
           locked_by?: string | null
@@ -4776,10 +4790,17 @@ export type Database = {
         Update: {
           article_id?: string | null
           attempts?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
           created_at?: string
+          dead_lettered_at?: string | null
           event_type?: string
           id?: string
           last_error?: string | null
+          last_error_code?: string | null
+          last_error_detail?: string | null
           locale?: string | null
           locked_at?: string | null
           locked_by?: string | null
@@ -8064,6 +8085,8 @@ export type Database = {
         Args: { _lease_seconds?: number; _limit?: number; _worker_id: string }
         Returns: {
           attempts: number
+          claim_expires_at: string
+          claim_token: string
           event_type: string
           id: string
           workspace_id: string
@@ -8071,7 +8094,10 @@ export type Database = {
       }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }
       cleanup_expired_widget_identity: { Args: never; Returns: undefined }
-      complete_kb_change_events: { Args: { _ids: string[] }; Returns: number }
+      complete_kb_change_events: {
+        Args: { _claim_token: string; _ids: string[]; _worker_id: string }
+        Returns: number
+      }
       count_recent_login_failures: {
         Args: { _email: string; _ip: string; _window_minutes?: number }
         Returns: number
@@ -8127,15 +8153,29 @@ export type Database = {
         Args: { _permission_key: string; _role: string }
         Returns: boolean
       }
+      defer_kb_change_events: {
+        Args: {
+          _claim_token: string
+          _error_code: string
+          _ids: string[]
+          _retry_seconds?: number
+          _worker_id: string
+        }
+        Returns: number
+      }
       enqueue_kb_catchup: { Args: { _workspace_id: string }; Returns: number }
       evaluate_alert_rules: { Args: never; Returns: Json }
       expire_stale_trials: { Args: never; Returns: number }
       fail_kb_change_events: {
         Args: {
-          _error: string
+          _claim_token: string
+          _error_code: string
+          _error_detail?: string
           _ids: string[]
           _max_attempts?: number
+          _permanent?: boolean
           _retry_seconds?: number
+          _worker_id: string
         }
         Returns: number
       }

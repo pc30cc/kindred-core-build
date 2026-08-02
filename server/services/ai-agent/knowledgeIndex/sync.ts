@@ -139,10 +139,17 @@ export async function syncKnowledgeSource(
 
 export interface RebuildSummary {
   ok: boolean;
+  /**
+   * Authoritative outcome for the outbox worker. `ok === false` NEVER means
+   * "nothing to do" — the caller must defer or fail the event accordingly.
+   */
+  terminalState: 'completed' | 'deferred_provider_unavailable' | 'failed';
   chunksCreated: number;
   chunksUpdated: number;
   chunksSkipped: number;
   chunksDeleted: number;
+  /** kb_article chunks removed because their article is no longer eligible. */
+  staleSourcesReconciled: number;
   embeddingsGenerated: number;
   embeddingFailures: number;
   embeddingProvider: string;
@@ -163,10 +170,12 @@ export async function rebuildWorkspaceIndex(
 
   const summary: RebuildSummary = {
     ok: true,
+    terminalState: 'completed',
     chunksCreated: 0,
     chunksUpdated: 0,
     chunksSkipped: 0,
     chunksDeleted: 0,
+    staleSourcesReconciled: 0,
     embeddingsGenerated: 0,
     embeddingFailures: 0,
     embeddingProvider: embedder.name,
@@ -184,6 +193,7 @@ export async function rebuildWorkspaceIndex(
     .eq('status', 'published')
     .eq('used_by_ai', true)
     .limit(2000);
+  const eligibleArticleIds = new Set<string>((articles || []).map((a) => a.id as string));
   for (const a of articles || []) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));
     const r = await indexSource(config, {
@@ -257,7 +267,54 @@ export async function rebuildWorkspaceIndex(
     summary.sourcesProcessed += 1;
   }
 
+  // 4) Reconciliation sweep — Phase 6-S5-R3.
+  //
+  // Indexing above only ADDS/UPDATES. Articles that were deleted, unpublished,
+  // archived or flagged used_by_ai=false leave stale chunks behind, so every
+  // kb_article chunk whose source_id is not in the eligible set is retired.
+  // Scoped to source_type='kb_article' — Q&A and business-profile chunks are
+  // never touched here.
+  const { data: kbChunks } = await sb
+    .from('ai_knowledge_chunks')
+    .select('source_id')
+    .eq('workspace_id', workspaceId)
+    .eq('source_type', 'kb_article')
+    .neq('status', 'deleted')
+    .limit(20000);
+  const staleSourceIds = Array.from(
+    new Set(
+      (kbChunks || [])
+        .map((c) => c.source_id as string)
+        .filter((id) => id && !eligibleArticleIds.has(id)),
+    ),
+  );
+  if (staleSourceIds.length > 0) {
+    const { data: retired } = await sb
+      .from('ai_knowledge_chunks')
+      .update({ status: 'deleted', updated_at: new Date().toISOString() })
+      .eq('workspace_id', workspaceId)
+      .eq('source_type', 'kb_article')
+      .neq('status', 'deleted')
+      .in('source_id', staleSourceIds)
+      .select('id');
+    summary.staleSourcesReconciled = staleSourceIds.length;
+    summary.chunksDeleted += (retired || []).length;
+  }
+
   summary.embeddingBudgetUsed = budget - remainingBudget;
+
+  // Provider truthfulness: a configured embedding provider that failed every
+  // attempt is an outage, not a success. Deployments with NO usable provider
+  // run a documented keyword-only index and complete normally.
+  if (
+    isUsableEmbeddingProvider(embedder) &&
+    summary.embeddingFailures > 0 &&
+    summary.embeddingsGenerated === 0
+  ) {
+    summary.ok = false;
+    summary.terminalState = 'deferred_provider_unavailable';
+  }
+
   return summary;
 }
 

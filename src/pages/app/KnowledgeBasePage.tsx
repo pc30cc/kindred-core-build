@@ -10,19 +10,34 @@ import { Switch } from '@/components/ui/switch';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
   FileText, Edit, X, Bold, Italic, Heading2, List, Link2, Code2, Quote, BarChart3,
-  CheckCircle2, AlertCircle, Sparkles, Bot, MonitorSmartphone, BookMarked
+  CheckCircle2, AlertCircle, MonitorSmartphone, BookMarked
 } from 'lucide-react';
-import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
-import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
+
+/**
+ * Phase 6-S5 — Knowledge Base is an INDEPENDENT product.
+ * This page must not import, query or depend on anything AI Agent related.
+ * `used_by_ai` stays in the database but is owned by AI Agent → Knowledge
+ * Sources; it is never displayed or written from here.
+ */
+export interface KnowledgeBaseArticleInput {
+  title: string;
+  slug: string;
+  content: string;
+  excerpt: string;
+  locale: string;
+  status: 'draft' | 'published' | 'archived';
+  category_id: string | null;
+  visible_in_widget: boolean;
+}
 
 type FormData = {
   title: string; slug: string; content: string; excerpt: string;
   locale: string; status: string; category_id: string;
-  visible_in_widget: boolean; used_by_ai: boolean;
+  visible_in_widget: boolean;
 };
 const emptyForm: FormData = {
   title: '', slug: '', content: '', excerpt: '', locale: 'en', status: 'draft', category_id: '',
-  visible_in_widget: true, used_by_ai: true,
+  visible_in_widget: true,
 };
 
 function calcSeoScore(form: FormData) {
@@ -43,17 +58,12 @@ function calcSeoScore(form: FormData) {
 export default function KnowledgeBasePage() {
   const { t, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
-  const { data: aiCapabilities } = useAiAgentCapabilities(workspace?.id);
-  const aiAgentEnabled = aiCapabilities?.ai_agent_enabled !== false;
   const [locale, setLocale] = useState('en');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showEditor, setShowEditor] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editorTab, setEditorTab] = useState<'editor' | 'preview'>('editor');
-  const [pageTab, setPageTab] = useState<'articles' | 'ai_builder'>('articles');
-  // If platform AI Agent is killed while user is on the AI Builder tab, fall back to Articles.
-  const effectivePageTab = pageTab === 'ai_builder' && !aiAgentEnabled ? 'articles' : pageTab;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: articles, isLoading } = useKBArticles(workspace?.id, locale, statusFilter);
@@ -66,7 +76,18 @@ export default function KnowledgeBasePage() {
 
   const handleSave = async () => {
     const slug = form.slug || form.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const payload = { ...form, slug, category_id: form.category_id || null } as any;
+    // NOTE: `used_by_ai` is intentionally NOT part of the payload so editing
+    // an article never overwrites the AI-consumption flag.
+    const payload: KnowledgeBaseArticleInput = {
+      title: form.title,
+      slug,
+      content: form.content,
+      excerpt: form.excerpt,
+      locale: form.locale,
+      status: form.status as KnowledgeBaseArticleInput['status'],
+      category_id: form.category_id || null,
+      visible_in_widget: form.visible_in_widget,
+    };
     if (editId) {
       await updateArticle.mutateAsync({ id: editId, ...payload });
     } else {
@@ -88,7 +109,6 @@ export default function KnowledgeBasePage() {
       status: article.status || 'draft',
       category_id: article.category_id || '',
       visible_in_widget: article.visible_in_widget !== false,
-      used_by_ai: article.used_by_ai !== false,
     });
     setEditorTab('editor');
     setShowEditor(true);
@@ -138,7 +158,7 @@ export default function KnowledgeBasePage() {
               </p>
             </div>
           </div>
-          {pageTab === 'articles' && (
+          {(
             <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
               <Plus className="w-4 h-4" />
               <span>{t('knowledgeBase.newArticle')}</span>
@@ -146,23 +166,8 @@ export default function KnowledgeBasePage() {
           )}
         </div>
 
-        {/* Page-level tabs */}
-        <div className="relative mt-5 inline-flex items-center gap-1 bg-card/60 backdrop-blur border border-border/60 rounded-xl p-1 shadow-sm">
-          <button onClick={() => setPageTab('articles')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'articles' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}>
-            <BookOpen className="w-3.5 h-3.5" /> {t('knowledgeBase.tabs.articles')}
-          </button>
-          {aiAgentEnabled && (
-            <button onClick={() => setPageTab('ai_builder')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'ai_builder' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}>
-              <Sparkles className="w-3.5 h-3.5" /> {t('knowledgeBase.tabs.aiBuilder')}
-            </button>
-          )}
-        </div>
       </div>
 
-      {effectivePageTab === 'ai_builder' ? <AiKbBuilderTab /> : (
-      <>
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2.5">

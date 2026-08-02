@@ -455,11 +455,22 @@ aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => 
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
 
-  await sb
-    .from('ai_kb_generated_articles')
-    .update({ status: 'rejected', reviewed_by: userId, reviewed_at: new Date().toISOString() })
-    .eq('id', gen.id);
-
+  // R7.1 §11 — a mutation whose result is never inspected reports success
+  // for a write that did not happen.
+  const { data, error } = await sb.rpc('reject_ai_kb_generated_article', {
+    _generated_id: gen.id,
+    _workspace_id: gen.workspace_id,
+    _reviewer: userId,
+  });
+  if (error) {
+    logInternal('reject_failed', error, { generatedId: gen.id });
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
+  const result = (data || {}) as { ok?: boolean; error?: string };
+  if (!result.ok) {
+    if (result.error === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'reject_failed' });
+  }
   return res.json({ ok: true });
 });
 

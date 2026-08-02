@@ -29,6 +29,25 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
     client = new Client({ connectionString: DSN });
     await client.connect();
     await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+    // Start from a clean install so the forward-only migration chain is
+    // proven in its real order (007 then 008), not against leftovers.
+    await client.query(`
+      DO $$
+      DECLARE r record;
+      BEGIN
+        FOR r IN
+          SELECT oid::regprocedure AS sig FROM pg_proc
+          WHERE pronamespace = 'public'::regnamespace
+            AND proname IN (
+              'enqueue_entitlement_fanout', 'claim_entitlement_fanout_jobs',
+              'advance_entitlement_fanout', 'complete_entitlement_fanout',
+              'fail_entitlement_fanout', 'entitlement_fanout_touch')
+        LOOP
+          EXECUTE 'DROP FUNCTION ' || r.sig || ' CASCADE';
+        END LOOP;
+      END $$;
+    `);
+    await client.query('DROP TABLE IF EXISTS public.entitlement_fanout_jobs CASCADE');
     for (const file of [
       'database/migrations/007_entitlement_fanout_jobs.sql',
       'database/migrations/008_entitlement_fanout_generations.sql',

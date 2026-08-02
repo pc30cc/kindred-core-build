@@ -58,7 +58,7 @@ describe('authoritative index rebuild', () => {
 
   it('blocks the destructive sweep after any prerequisite failure', () => {
     expect(sync).toContain(
-      'const reconciliationAllowed = articleSetTrustworthy && indexWritesTrustworthy;',
+      'rebuildTrustworthy && articleSetTrustworthy && indexWritesTrustworthy;',
     );
     expect(sync).toContain('summary.reconciliationSkipped = true;');
   });

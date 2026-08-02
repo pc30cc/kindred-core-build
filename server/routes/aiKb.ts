@@ -663,6 +663,10 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
+  if (!(await gateAiKb(res, config, workspaceId, auth, {
+    route: 'GET /api/ai-kb/worker/diagnostics',
+  }))) return;
+
   const sb = getServiceClient(config);
 
   const [
@@ -689,10 +693,7 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
     countJobsThisMonth(config, workspaceId),
   ]);
 
-  const modules = await Promise.all([
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'knowledge_base'),
-    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_kb_builder'),
-  ]);
+  const capabilities = await readAiKbCapabilities(config, workspaceId);
 
   const latest: any = (latestRes as any).data || null;
 
@@ -714,10 +715,7 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
       can_scan: source.can_scan,
       reason_if_blocked: source.reason_if_blocked,
     },
-    modules: {
-      knowledge_base: modules[0].allowed || auth.isAdmin,
-      ai_kb_builder: modules[1].allowed || auth.isAdmin,
-    },
+    modules: capabilities,
     plan: {
       slug: limitsInfo.planSlug,
       limits: limitsInfo.limits,

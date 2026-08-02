@@ -158,12 +158,10 @@ export default function KnowledgeBasePage() {
               </p>
             </div>
           </div>
-          {(
-            <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
+          <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
               <Plus className="w-4 h-4" />
-              <span>{t('knowledgeBase.newArticle')}</span>
-            </Button>
-          )}
+            <span>{t('knowledgeBase.newArticle')}</span>
+          </Button>
         </div>
 
       </div>

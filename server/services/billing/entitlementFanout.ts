@@ -618,8 +618,10 @@ export async function drainEntitlementFanoutJobs(
       _generation: generation, _error_code: 'fanout_requeued',
       _retry_seconds: 5, _max_attempts: 1000000,
     });
-    if (released === true) summary.requeued += 1;
-    else summary.leaseLost += 1;
+    const outcome = classifyReleaseOutcome(released);
+    if (outcome === 'requeued_new_generation') summary.requeuedNewGeneration += 1;
+    else if (outcome === 'lease_lost') summary.leaseLost += 1;
+    else summary.requeued += 1;
   }
 
   return summary;

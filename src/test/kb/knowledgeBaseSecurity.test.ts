@@ -156,8 +156,11 @@ describe('Index reconciliation', () => {
     expect(src).toMatch(/reconciliationSkipped/);
     // R5: the sweep additionally requires every index write to have succeeded.
     expect(src).toMatch(/indexWritesTrustworthy/);
+    // R7: a single canonical trust gate — ANY prerequisite failure (articles,
+    // Q&A, business profile, embeddings) blocks the destructive sweep.
+    expect(src).toMatch(/rebuildTrustworthy/);
     expect(src).toMatch(
-      /reconciliationAllowed = articleSetTrustworthy && indexWritesTrustworthy/,
+      /rebuildTrustworthy && articleSetTrustworthy && indexWritesTrustworthy/,
     );
     // The destructive update is only reachable inside the trusted branch.
     expect(src).toMatch(/if \(reconciliationAllowed\) \{/);

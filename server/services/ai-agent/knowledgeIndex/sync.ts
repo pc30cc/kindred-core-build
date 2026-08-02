@@ -145,6 +145,7 @@ export type RebuildErrorCode =
   | 'chunk_write_failed'
   | 'chunk_delete_failed'
   | 'chunk_reconciliation_failed'
+  | 'reconciliation_skipped_untrusted'
   | 'embedding_provider_unavailable'
   | 'embedding_failed';
 
@@ -211,6 +212,16 @@ export async function rebuildWorkspaceIndex(
   };
   /** Set when ANY required write failed — blocks destructive reconciliation. */
   let indexWritesTrustworthy = true;
+  /**
+   * Phase 6-S5-R7 — the SINGLE canonical predicate for "everything this
+   * rebuild depends on is verified". It starts true and can only ever go
+   * false: every prerequisite failure (article query, Q&A query, business
+   * profile lookup, chunk read/write/delete, embedding rejection) clears it,
+   * and the destructive sweep reads this one flag instead of re-deriving a
+   * partial condition per call site.
+   */
+  let rebuildTrustworthy = true;
+  const distrust = (): void => { rebuildTrustworthy = false; };
   const applyIndexResult = (r: Awaited<ReturnType<typeof indexSource>>): void => {
     summary.chunksCreated += r.chunksCreated;
     summary.chunksUpdated += r.chunksUpdated;
@@ -221,6 +232,7 @@ export async function rebuildWorkspaceIndex(
     summary.sourcesProcessed += 1;
     if (!r.ok) {
       indexWritesTrustworthy = false;
+      distrust();
       fail(
         r.errorCode === 'chunk_read_failed'
           ? 'chunk_query_failed'
@@ -229,6 +241,10 @@ export async function rebuildWorkspaceIndex(
             : 'chunk_write_failed',
       );
     }
+    // An embedding that failed or was rejected as invalid leaves a chunk
+    // without a usable vector. The index is therefore incomplete and must
+    // not be used as the basis for retiring anything.
+    if (r.embeddingFailures > 0) distrust();
   };
 
   // 1) Published KB articles
@@ -246,7 +262,7 @@ export async function rebuildWorkspaceIndex(
     .eq('used_by_ai', true)
     .limit(2000);
   const articleSetTrustworthy = !articlesError;
-  if (articlesError) fail('kb_article_query_failed');
+  if (articlesError) { distrust(); fail('kb_article_query_failed'); }
   const eligibleArticleIds = new Set<string>((articles || []).map((a) => a.id as string));
   for (const a of articles || []) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));
@@ -273,7 +289,7 @@ export async function rebuildWorkspaceIndex(
     .eq('workspace_id', workspaceId)
     .eq('enabled', true)
     .limit(5000);
-  if (qnasError) fail('qna_query_failed');
+  if (qnasError) { distrust(); fail('qna_query_failed'); }
   for (const q of qnasError ? [] : (qnas || [])) {
     const chunks = chunkQna(q.question as string, q.answer as string);
     const r = await indexSource(config, {
@@ -302,6 +318,7 @@ export async function rebuildWorkspaceIndex(
     ].filter(Boolean).join('\n\n');
   } catch {
     profileOk = false;
+    distrust();
     fail('business_profile_query_failed');
   }
   if (profileOk && profileText) {
@@ -325,13 +342,16 @@ export async function rebuildWorkspaceIndex(
   // Scoped to source_type='kb_article' — Q&A and business-profile chunks are
   // never touched here.
   //
-  // The sweep is DESTRUCTIVE, so it runs only when every prerequisite query
-  // succeeded. On any query error it is skipped entirely and the rebuild is
-  // reported as non-terminal so the outbox event is retried, never completed.
-  // Prerequisites: the eligible-article set is trustworthy AND every required
-  // KB source write succeeded. Otherwise no chunk may be retired.
-  const reconciliationAllowed = articleSetTrustworthy && indexWritesTrustworthy;
-  let reconciliationFailed = !reconciliationAllowed;
+  // The sweep is DESTRUCTIVE, so Phase 6-S5-R7 gates it on the single
+  // canonical `rebuildTrustworthy` predicate: ANY prerequisite failure
+  // anywhere above (article query, Q&A query, business-profile lookup, chunk
+  // read/write/delete, or a failed/invalid embedding) blocks it entirely.
+  // A blocked sweep is reported as non-terminal so the outbox event is
+  // retried rather than marked processed on unverified data.
+  const reconciliationAllowed =
+    rebuildTrustworthy && articleSetTrustworthy && indexWritesTrustworthy;
+  let reconciliationFailed = false;
+  let reconciliationBlocked = !reconciliationAllowed;
   if (reconciliationAllowed) {
     const { data: kbChunks, error: chunksError } = await sb
       .from('ai_knowledge_chunks')
@@ -342,6 +362,7 @@ export async function rebuildWorkspaceIndex(
       .limit(20000);
     if (chunksError) {
       reconciliationFailed = true;
+      distrust();
       fail('chunk_query_failed');
     } else {
       const staleSourceIds = Array.from(
@@ -362,6 +383,7 @@ export async function rebuildWorkspaceIndex(
           .select('id');
         if (retireError) {
           reconciliationFailed = true;
+          distrust();
           fail('chunk_reconciliation_failed');
         } else {
           summary.staleSourcesReconciled = staleSourceIds.length;
@@ -370,9 +392,18 @@ export async function rebuildWorkspaceIndex(
       }
     }
   }
-  if (reconciliationFailed) {
+  if (reconciliationBlocked || reconciliationFailed) {
     summary.reconciliationSkipped = true;
-    fail('chunk_reconciliation_failed');
+    if (reconciliationFailed) {
+      fail('chunk_reconciliation_failed');
+    } else if (summary.embeddingFailures === 0 || summary.terminalState === 'failed') {
+      // A block caused by a real prerequisite failure. `fail` keeps the FIRST
+      // code, so the precise upstream classification is preserved; a block
+      // with no earlier cause is attributed to the skip itself.
+      fail('reconciliation_skipped_untrusted');
+    }
+    // Otherwise the ONLY cause is incomplete embeddings, which the strict
+    // policy below turns into a retryable deferral rather than a hard failure.
   }
 
   summary.embeddingBudgetUsed = budget - remainingBudget;

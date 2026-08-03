@@ -4,6 +4,10 @@
 -- with ON_ERROR_STOP=1, against a pristine database.
 -- ============================================================
 
+-- Exact RPC signature inventory (single source of truth). This RAISEs when a
+-- signature is missing or an un-audited overload exists.
+\ir internal-rpc-signatures.sql
+
 DO $chain$
 DECLARE
   missing text;
@@ -33,17 +37,6 @@ BEGIN
 
   IF missing IS NOT NULL THEN
     RAISE EXCEPTION 'missing tables after self-host chain: %', missing;
-  END IF;
-
-  SELECT string_agg(f, ', ') INTO missing
-  FROM unnest(ARRAY[
-    'public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text, text)',
-    'public.enqueue_entitlement_fanout(uuid, text, jsonb)'
-  ]) AS f
-  WHERE to_regprocedure(f) IS NULL;
-
-  IF missing IS NOT NULL THEN
-    RAISE EXCEPTION 'missing self-host RPC signatures: %', missing;
   END IF;
 
   RAISE NOTICE 'self-host full-chain structural verification passed';

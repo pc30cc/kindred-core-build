@@ -199,7 +199,6 @@ export default function InboxPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectedSnapshotRef = useRef<any>(null);
   const pendingScrollConvRef = useRef<string | null>(null);
-  const convListRef = useRef<HTMLDivElement>(null);
 
   // Deep link: /inbox?c=<conversationId> — open that conversation directly
   // (e.g. coming from the contact detail page). We switch to the "all"

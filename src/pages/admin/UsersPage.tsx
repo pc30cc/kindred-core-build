@@ -1225,6 +1225,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
   const [paySize, setPaySize] = useState(20);
   const [evtPage, setEvtPage] = useState(1);
   const [evtSize, setEvtSize] = useState(20);
+  const [detail, setDetail] = useState<{ title: string; rows: { label: string; value: string | null | undefined }[]; json?: unknown } | null>(null);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-user-billing', userId],
     queryFn: () => adminGetUserBilling(userId, 200),
@@ -1292,6 +1293,31 @@ function UserFinanceCard({ userId }: { userId: string }) {
   const failedCount = data.payments.length - successCount;
   const hasAny = data.payments.length || data.events.length || data.subscriptions.length || data.planChanges.length;
 
+  // Gateway connection overview: configured gateways merged with every
+  // provider actually seen in payments / events / subscriptions.
+  const gatewayNames = Array.from(new Set([
+    ...(data.gateways ?? []).map(g => g.provider_name),
+    ...data.payments.map(p => p.provider_name),
+    ...data.events.map(e => e.provider_name),
+    ...data.subscriptions.map(s => s.provider_name),
+  ].filter(Boolean) as string[]));
+
+  const gatewayRows = gatewayNames.map(name => {
+    const cfg = (data.gateways ?? []).find(g => g.provider_name === name);
+    const pays = data.payments.filter(p => p.provider_name === name);
+    const evts = data.events.filter(e => e.provider_name === name);
+    const attempts = pays.length + evts.length;
+    const success = pays.filter(p => isPaid(p.status)).length + evts.filter(e => isPaid(e.status)).length;
+    const failed = attempts - success;
+    const lastAt = [...pays.map(p => p.created_at), ...evts.map(e => e.created_at)]
+      .filter(Boolean).sort().reverse()[0] as string | undefined;
+    const lastErrorItem = [...pays, ...evts].find(x => !isPaid((x as any).status) && (x as any).status);
+    const lastError = lastErrorItem
+      ? `${(lastErrorItem as any).status}${(lastErrorItem as any).metadata?.error ? ` — ${String((lastErrorItem as any).metadata.error)}` : ''}`
+      : null;
+    return { name, cfg, attempts, success, failed, lastAt, lastError };
+  });
+
   return (
     <div className="space-y-4" dir={dir}>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1314,6 +1340,78 @@ function UserFinanceCard({ userId }: { userId: string }) {
       {!hasAny && (
         <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">{t('admin.users.finNoData')}</p></CardContent></Card>
       )}
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finGateways')}
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finGatewaysHint')}</p>
+          </div>
+          {gatewayRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('admin.users.finNoGateways')}</p>
+          ) : (
+            <div className="space-y-2">
+              {gatewayRows.map(g => (
+                <div key={g.name} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{g.name}</span>
+                    <div className="flex items-center gap-2">
+                      {g.cfg ? (
+                        <>
+                          <Badge variant="outline" className="text-[10px]">{t('admin.users.finGatewayConfigured')}</Badge>
+                          <Badge variant={g.cfg.is_active ? 'secondary' : 'outline'} className="text-[10px]">
+                            {g.cfg.is_active ? t('admin.users.finGatewayActive') : t('admin.users.finGatewayInactive')}
+                          </Badge>
+                        </>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">{t('admin.users.finGatewayNotConfigured')}</Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewayAttempts')}</span>
+                      <span className="font-medium">{g.attempts}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewaySuccess')}</span>
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400">{g.success}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewayFailed')}</span>
+                      <span className="font-medium text-destructive">{g.failed}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewayLastAttempt')}</span>
+                      <span className="font-medium whitespace-nowrap">{fmt(g.lastAt ?? null)}</span>
+                    </div>
+                  </div>
+                  {g.lastError && (
+                    <p className="text-[11px] text-destructive break-all">
+                      {t('admin.users.finGatewayLastError')}: {g.lastError}
+                    </p>
+                  )}
+                  {g.cfg && g.cfg.config_summary.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-muted-foreground">{t('admin.users.finGatewaySettings')}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                        {g.cfg.config_summary.map(c => (
+                          <div key={c.key} className="flex items-center justify-between gap-2 rounded bg-muted/30 px-2 py-1 text-[11px]">
+                            <span className="text-muted-foreground font-mono">{c.key}</span>
+                            <span className="font-medium truncate max-w-[160px]" dir="ltr">{c.value ?? '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {data.subscriptions.length > 0 && (
         <Card>
@@ -1367,7 +1465,23 @@ function UserFinanceCard({ userId }: { userId: string }) {
                 </TableHeader>
                 <TableBody>
                   {data.payments.slice((payPage - 1) * paySize, payPage * paySize).map(p => (
-                    <TableRow key={p.id}>
+                    <TableRow
+                      key={p.id}
+                      className="cursor-pointer"
+                      onClick={() => setDetail({
+                        title: t('admin.users.finPaymentDetail'),
+                        rows: [
+                          { label: t('admin.users.finDate'), value: fmt(p.created_at) },
+                          { label: t('admin.users.finWorkspace'), value: wsName(p.workspace_id) },
+                          { label: t('admin.users.finGateway'), value: p.provider_name },
+                          { label: t('admin.users.finAmount'), value: money(p.amount, p.currency) },
+                          { label: t('admin.users.finRefund'), value: p.refund_amount ? money(p.refund_amount, p.currency) : null },
+                          { label: t('admin.users.finStatus'), value: p.status },
+                          { label: t('admin.users.finRefId'), value: p.provider_payment_id },
+                        ],
+                        json: p.metadata,
+                      })}
+                    >
                       <TableCell className="whitespace-nowrap text-xs">{fmt(p.created_at)}</TableCell>
                       <TableCell className="text-xs">{wsName(p.workspace_id)}</TableCell>
                       <TableCell className="text-xs">{p.provider_name || '—'}</TableCell>
@@ -1402,7 +1516,24 @@ function UserFinanceCard({ userId }: { userId: string }) {
             </div>
             <div className="space-y-2">
               {data.events.slice((evtPage - 1) * evtSize, evtPage * evtSize).map(e => (
-                <div key={e.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs">
+                <div
+                  key={e.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDetail({
+                    title: t('admin.users.finEventDetail'),
+                    rows: [
+                      { label: t('admin.users.finDate'), value: fmt(e.created_at) },
+                      { label: t('admin.users.finWorkspace'), value: wsName(e.workspace_id) },
+                      { label: t('admin.users.finGateway'), value: e.provider_name },
+                      { label: t('admin.users.finStatus'), value: e.status },
+                      { label: t('admin.users.finRefId'), value: e.provider_event_id },
+                      { label: t('admin.users.finAmount'), value: e.amount != null ? money(e.amount, e.currency) : null },
+                    ],
+                    json: e.metadata,
+                  })}
+                  className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs cursor-pointer hover:bg-muted/50 transition-colors"
+                >
                   <div className="min-w-0">
                     <p className="font-medium">{e.event_type || '—'}</p>
                     <p className="text-muted-foreground truncate">
@@ -1453,6 +1584,14 @@ function UserFinanceCard({ userId }: { userId: string }) {
           </CardContent>
         </Card>
       )}
+
+      <DetailDialog
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        title={detail?.title || ''}
+        rows={detail?.rows || []}
+        json={detail?.json}
+      />
     </div>
   );
 }

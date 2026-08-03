@@ -139,6 +139,35 @@ describe('CI verifiers — non-skippable', () => {
     expect(sql).toContain('service_role lacks % on entitlement_fanout_jobs');
   });
 
+  it('the queue matrix adds MAINTAIN on PostgreSQL 17+ and reports service_role privileges', () => {
+    const sql = read(VERIFIERS[0]);
+    expect(sql).toContain("current_setting('server_version_num')::integer >= 170000");
+    expect(sql).toContain("privs := privs || 'MAINTAIN'");
+    expect(sql).toContain('service_role privileges');
+  });
+
+  it('the fail/retry proof uses a real, non-null plan id', () => {
+    const sql = read(VERIFIERS[0]);
+    expect(sql).toContain('v_plan_id  uuid := gen_random_uuid()');
+    expect(sql).toContain("public.enqueue_entitlement_fanout('plan', 'ci-service-role-proof-fail', v_plan_id)");
+    expect(sql).not.toContain("enqueue_entitlement_fanout('plan', 'ci-service-role-proof-fail', NULL)");
+    for (const field of [
+      'j.plan_id IS DISTINCT FROM v_plan_id',
+      "j.scope IS DISTINCT FROM 'plan'",
+      'j.id IS DISTINCT FROM v_job2',
+    ]) {
+      expect(sql).toContain(field);
+    }
+  });
+
+  it('verifies SECURITY DEFINER ownership, search_path and public-schema posture', () => {
+    const sql = read(VERIFIERS[0]);
+    expect(sql).toContain("o.owner IN ('anon', 'authenticated', 'service_role')");
+    expect(sql).toContain('has no explicit search_path');
+    expect(sql).toContain("has_schema_privilege(role_name, 'public', 'CREATE')");
+    expect(sql).toContain('schema public is customer-writable');
+  });
+
   it('the fan-out lifecycle proof asserts exact row state, not just status', () => {
     const sql = read(VERIFIERS[0]);
     for (const field of [
@@ -156,18 +185,24 @@ describe('CI verifiers — non-skippable', () => {
 describe('self-host CI — official Auth image', () => {
   const workflow = read('.github/workflows/ci.yml');
 
-  it('pins the Auth image by immutable digest', () => {
-    expect(workflow).toMatch(
-      /supabase\/auth:v2\.194\.0@sha256:2b352c02adf11a2025cd5993c246ef85db73743553c39194d2b1862d1cc4d1fd/,
-    );
-    // No unpinned reference may survive next to the pinned one.
-    expect(workflow).not.toMatch(/supabase\/auth:v2\.194\.0(?!@sha256)/);
+  it('pins the registry-confirmed Auth repository by immutable digest, once', () => {
+    const pinned =
+      /supabase\/gotrue:v2\.194\.0@sha256:2b352c02adf11a2025cd5993c246ef85db73743553c39194d2b1862d1cc4d1fd/g;
+    // Exactly one occurrence: a single workflow-level env var, so preflight and
+    // the migration step cannot drift.
+    expect(workflow.match(pinned) ?? []).toHaveLength(1);
+    expect(workflow).toMatch(/^env:\n  AUTH_IMAGE: supabase\/gotrue:v2\.194\.0@sha256:/m);
+    // No unpinned or aliased reference may survive next to the pinned one.
+    expect(workflow).not.toMatch(/supabase\/gotrue:v2\.194\.0(?!@sha256)/);
+    expect(workflow).not.toContain('supabase/auth:');
   });
 
-  it('preflights that the image is pullable and exposes `migrate`', () => {
-    expect(workflow).toContain('docker image inspect');
-    expect(workflow).toContain('auth --help');
-    expect(workflow).toContain("grep -q 'migrate'");
+  it('preflights pullability, prints architecture + RepoDigest and proves `migrate`', () => {
+    expect(workflow).toContain('docker pull "$AUTH_IMAGE"');
+    expect(workflow).toContain("--format '{{.Architecture}} {{json .RepoDigests}}'");
+    expect(workflow).toContain('gotrue --help');
+    expect(workflow).toContain("grep -Eq '(^|[[:space:]])migrate([[:space:]]|$)'");
+    expect(workflow).toContain('"$AUTH_IMAGE" gotrue migrate');
   });
 
   it('passes require_ai_kb explicitly on both chains', () => {

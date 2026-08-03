@@ -43,10 +43,24 @@ try {
 }
 
 const results = JSON.parse(raw);
+if (!Array.isArray(results) || results.length === 0) {
+  console.error('[lint-baseline] eslint reported zero files — the gate would enforce nothing. Failing closed.');
+  process.exit(2);
+}
 const current = summarize(results, process.cwd());
 const { errors, warnings } = current.totals;
 
-if (update || !existsSync(BASELINE)) {
+if (!update && !existsSync(BASELINE)) {
+  // Fail closed: silently recording a fresh baseline in enforce mode would
+  // adopt whatever debt the current tree has and report success.
+  console.error(
+    `[lint-baseline] FAILED — ${BASELINE} is missing. The gate refuses to create it in enforce mode; ` +
+      'run `npm run lint:baseline:update` locally and commit the result.',
+  );
+  process.exit(2);
+}
+
+if (update) {
   writeFileSync(BASELINE, `${JSON.stringify(current, null, 2)}\n`);
   console.log(
     `[lint-baseline] recorded ${current.totals.problems} problems (${errors} errors, ${warnings} warnings) ` +

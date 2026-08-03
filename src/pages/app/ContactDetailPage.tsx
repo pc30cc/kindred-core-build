@@ -188,6 +188,20 @@ export default function ContactDetailPage() {
                   <Row icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at) : null} />
                   <Row icon={Clock} label={t('contacts.updatedAt')} value={contact.updated_at ? formatDateTime(contact.updated_at) : null} />
                 </div>
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
+                    {t('contacts.tags')}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(contact.tags ?? []).length ? (
+                      (contact.tags ?? []).map((tag) => (
+                        <Badge key={tag} variant="secondary" className="text-[10px]">{tag}</Badge>
+                      ))
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">{t('contacts.noTags')}</span>
+                    )}
+                  </div>
+                </div>
               </CardContent>
             </Card>
 

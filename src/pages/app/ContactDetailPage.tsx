@@ -437,6 +437,7 @@ export default function ContactDetailPage() {
                 </TabsContent>
 
                 <TabsContent value="notes" className="mt-4">
+                  {null}
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-3">
                       {editing ? (

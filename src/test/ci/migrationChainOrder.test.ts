@@ -296,4 +296,22 @@ describe('supabase migration chain — column contract', () => {
   it('never references a column, or violates nullability, before it is valid', () => {
     expect(problems).toEqual([]);
   });
+
+  // Negative control: the analyzer must genuinely detect the defect it was
+  // written for. Without the pre-seed compatibility migration the chain is the
+  // exact sequence that failed in CI.
+  it('detects the original email_templates defect when the compat step is absent', () => {
+    const withoutCompat = files.filter(
+      (f) => f !== '20260414134600_baseline_remote_only_tables.sql',
+    );
+    const broken = analyzeChain(dir, withoutCompat).problems;
+    expect(
+      broken.some((p) => p.includes('email_templates references missing column "is_active"')),
+    ).toBe(true);
+    expect(
+      broken.some((p) =>
+        p.includes('email_templates supplies NULL to NOT NULL column "workspace_id"'),
+      ),
+    ).toBe(true);
+  });
 });

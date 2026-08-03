@@ -18,6 +18,7 @@ export const MIGRATION_CHAIN = [
   'database/migrations/008_entitlement_fanout_generations.sql',
   'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
   'database/migrations/010_fanout_rpc_security_and_kb_state_machine.sql',
+  'database/migrations/011_ai_kb_slug_namespace_lock.sql',
 ];
 
 const MANAGED_FUNCTIONS = [

@@ -5,6 +5,10 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import {
+  parseEntitlementResponse,
+  isUnreadableEntitlementReason,
+} from '../services/billing/entitlementParse.js';
 
 interface EntitlementResult {
   allowed: boolean;
@@ -60,16 +64,21 @@ export async function checkEntitlementFromDB(
       _feature: feature,
     });
 
-    if (error) {
-      console.error('[FeatureGating] RPC error:', error.message);
-      return { allowed: false, plan: 'error', reason: 'rpc_error' };
+    const parsed = parseEntitlementResponse(data, error);
+
+    // Phase 6-S5-R7.3 §4 — an unreadable answer is NOT a denial and must
+    // never enter the cache, or one transient blip would deny the workspace
+    // for a full TTL.
+    if (parsed.outcome === 'unavailable') {
+      console.error('[FeatureGating] Unreadable entitlement result:', parsed.reason, error?.message);
+      return { allowed: false, plan: 'error', reason: parsed.reason };
     }
 
     const result: EntitlementResult = {
-      allowed: data?.allowed ?? false,
-      limit: data?.limit,
-      plan: data?.plan,
-      reason: data?.reason,
+      allowed: parsed.allowed === true,
+      limit: parsed.limit,
+      plan: parsed.plan,
+      reason: parsed.reason,
     };
 
     cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
@@ -93,11 +102,12 @@ export async function checkModuleAccess(
       _workspace_id: workspaceId,
       _module_key: moduleKey,
     });
-    if (error) {
-      console.error('[ModuleGating] RPC error:', error.message);
-      return { allowed: false, reason: 'rpc_error' };
+    const parsed = parseEntitlementResponse(data, error);
+    if (parsed.outcome === 'unavailable') {
+      console.error('[ModuleGating] Unreadable module result:', parsed.reason, error?.message);
+      return { allowed: false, reason: parsed.reason };
     }
-    return { allowed: data?.allowed ?? false, plan: data?.plan, reason: data?.source };
+    return { allowed: parsed.allowed === true, plan: parsed.plan, reason: parsed.reason };
   } catch {
     return { allowed: false, reason: 'exception' };
   }
@@ -187,6 +197,13 @@ export function requireFeature(feature: string) {
     }
 
     const result = await checkEntitlementFromDB(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, feature);
+
+    // Phase 6-S5-R7.3 §2 — an UNREADABLE entitlement is a retryable outage,
+    // not a plan denial. Answering 403 "upgrade required" sends the customer
+    // to a checkout page that cannot fix anything.
+    if (isUnreadableEntitlementReason(result.reason)) {
+      return res.status(503).json({ error: 'entitlement_status_unavailable', retryable: true });
+    }
 
     if (!result.allowed) {
       return res.status(403).json({
@@ -312,10 +329,12 @@ export function requireLimit(
       try {
         currentUsage = await currentUsageFn(req, workspaceId);
       } catch {
-        // FAIL-CLOSED: if we can't determine usage, deny
-        return res.status(403).json({
-          error: 'Could not determine current usage',
-          feature, upgrade_required: true,
+        // FAIL-CLOSED: if we cannot determine usage we deny the operation,
+        // but as a retryable 503 — the customer's plan is not the problem.
+        return res.status(503).json({
+          error: 'usage_status_unavailable',
+          feature,
+          retryable: true,
         });
       }
       if (currentUsage >= result.limit) {
@@ -371,4 +390,64 @@ export async function getWorkspacePlanInfo(
     entitlements: (plan?.entitlements as Record<string, boolean>) || {},
     limits: (plan?.limits as Record<string, number>) || {},
   };
+}
+
+/**
+ * Phase 6-S5-R7.3 §3 — fail-closed variant of {@link getWorkspacePlanInfo}.
+ *
+ * The legacy helper swallows query errors, so an unreachable
+ * `workspace_subscriptions` table silently degrades every workspace to the
+ * Free plan and the customer sees limits that are not theirs. This variant
+ * reports the failure instead.
+ */
+export async function getWorkspacePlanInfoDetailed(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string
+): Promise<
+  | { ok: true; value: { plan: any; subscription: any; entitlements: Record<string, boolean>; limits: Record<string, number> } }
+  | { ok: false; errorCode: 'plan_status_unavailable'; retryable: true }
+> {
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    const { data: sub, error: subError } = await supabase
+      .from('workspace_subscriptions')
+      .select('*, billing_plans(*)')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (subError) {
+      console.error('[FeatureGating] subscription read failed:', subError.message);
+      return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
+    }
+
+    let plan = (sub as any)?.billing_plans;
+
+    if (!plan || !sub || !['active', 'trialing'].includes((sub as any).status)) {
+      const { data: freePlan, error: freeError } = await supabase
+        .from('billing_plans')
+        .select('*')
+        .eq('slug', 'free')
+        .eq('is_active', true)
+        .maybeSingle();
+      if (freeError) {
+        console.error('[FeatureGating] free plan read failed:', freeError.message);
+        return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
+      }
+      plan = freePlan;
+    }
+
+    return {
+      ok: true,
+      value: {
+        plan: plan || null,
+        subscription: sub ? { ...(sub as any), billing_plans: undefined } : null,
+        entitlements: (plan?.entitlements as Record<string, boolean>) || {},
+        limits: (plan?.limits as Record<string, number>) || {},
+      },
+    };
+  } catch (err: any) {
+    console.error('[FeatureGating] plan info exception:', err?.message);
+    return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
+  }
 }

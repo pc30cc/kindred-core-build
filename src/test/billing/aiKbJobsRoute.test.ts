@@ -101,6 +101,17 @@ vi.mock("../../../server/services/ai-kb/sourceDomain.js", () => ({
     verified: true,
     kind: "workspace_domain",
   }),
+  // R7.3 — the route now consumes the fail-closed ReadResult variant.
+  resolveSourceDomainDetailed: async () => ({
+    ok: true,
+    value: {
+      can_scan: true,
+      domain: "example.com",
+      workspace_domain_id: "wd-1",
+      verified: true,
+      kind: "workspace_domain",
+    },
+  }),
 }));
 
 vi.mock("../../../server/services/ai-kb/limits.js", () => ({
@@ -108,12 +119,21 @@ vi.mock("../../../server/services/ai-kb/limits.js", () => ({
     planSlug: "pro",
     limits: { jobsPerMonth: 5, maxPagesPerJob: 50, maxArticlesPerJob: 10 },
   }),
+  resolveAiKbLimitsDetailed: async () => ({
+    ok: true,
+    value: {
+      planSlug: "pro",
+      limits: { jobsPerMonth: 5, maxPagesPerJob: 50, maxArticlesPerJob: 10 },
+    },
+  }),
   countJobsThisMonth: async () => 0,
+  countJobsThisMonthDetailed: async () => ({ ok: true, value: 0 }),
 }));
 
 vi.mock("../../../server/services/ai-kb/credits.js", () => ({
   logAiKbUsage: async () => {},
   readAiCreditState: async () => ({}),
+  readAiCreditStateDetailed: async () => ({ ok: true, value: {} }),
 }));
 
 import { aiKbRouter } from "../../../server/routes/aiKb";

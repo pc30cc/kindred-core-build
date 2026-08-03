@@ -95,7 +95,7 @@ export async function listRunsPaged(
   opts: { page?: number; pageSize?: number; search?: string; filter?: string } = {},
 ) {
   const sb = getServiceClient(config);
-  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), 100);
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 20, 1), 200);
   const page = Math.max(opts.page ?? 1, 1);
   const from = (page - 1) * pageSize;
 

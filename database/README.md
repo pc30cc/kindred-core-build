@@ -6,6 +6,11 @@ These SQL files are designed to run against your Supabase/Postgres database.
 
 ### Migration order (CRITICAL — run in order)
 
+0. `000_selfhost_roles_bootstrap.sql` — **self-host only prerequisite.** Creates
+   the Supabase-compatible `anon` / `authenticated` / `service_role` roles when
+   they are missing. No-op on hosted Supabase. Every later migration (and the
+   RLS policies in 001) references these roles by name, so the chain cannot
+   start without them.
 1. `001_core_tables.sql` — Profiles, workspaces, members, helper functions
 2. `002_workspace_features.sql` — Branding, domains, contacts, conversations, messages, widget settings
 3. `003_visitors_kb_config.sql` — Visitor sessions/presence, knowledge base, provider configs, translations, audit logs, feature flags, email templates
@@ -16,6 +21,27 @@ These SQL files are designed to run against your Supabase/Postgres database.
 8. `008_entitlement_fanout_generations.sql` — Generation-aware fan-out
 9. `009_fanout_cursor_generation_and_ai_kb_tx.sql` — Generation-bound cursors, concurrency-safe enqueue, transactional AI-KB draft mutations
 10. `010_fanout_rpc_security_and_kb_state_machine.sql` — `SECURITY DEFINER` privilege lockdown, generated-article state machine, slug-seed contract
+11. `011_ai_kb_slug_namespace_lock.sql` — (workspace, locale) slug-namespace lock + unique-violation retry
+12. `012_ai_kb_acl_reassert_guarded.sql` — re-asserts the 010/011 least-privileged ACL with `pg_roles`-guarded statements, so the chain also completes where a role is absent
+
+> **Why 012 exists instead of a fix to 011.** 011 has already shipped to the
+> hosted Supabase project (`supabase/migrations/20260803090000_…`), so under the
+> forward-only rule it is frozen. 012 achieves the same portability outcome
+> without touching it.
+
+### Self-host prerequisites
+
+The chain targets a Supabase-shaped database. Before `001`, a plain PostgreSQL
+cluster needs:
+
+- the three roles — handled automatically by `000_selfhost_roles_bootstrap.sql`;
+- Supabase's `auth` schema and `auth.uid()` / `auth.jwt()`, provided by GoTrue.
+  Run the Supabase Postgres image (or `supabase/postgres`) rather than stock
+  `postgres:16` if you want the RLS policies in 001–003 to apply.
+
+CI proves the role-dependent tail of the chain (`000` + `007`→`012`) against a
+pristine database in the **Clean-install migration chain** job — no function
+reset, no pre-seeded roles, filename order only.
 
 ### Rules
 

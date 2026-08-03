@@ -54,9 +54,12 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run typecheck:server
 
-      - name: Lint
+      # Non-regression gate, not a clean-tree gate: the repo carries thousands
+      # of pre-existing findings, so `eslint .` alone would be red forever and
+      # enforce nothing. This fails only when a commit ADDS problems.
+      - name: Lint (non-regression baseline)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: npm run lint
+        run: npm run lint:baseline
 
       - name: Tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

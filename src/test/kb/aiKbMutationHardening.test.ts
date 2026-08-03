@@ -115,8 +115,12 @@ describe('AI-KB routes — authoritative failure semantics', () => {
 
   it('never renders an upgrade prompt for a non-authoritative denial', () => {
     const source = src.match(/aiKbRouter\.get\('\/source'[\s\S]*?\n\}\);/)?.[0] ?? '';
-    expect(source).toMatch(/denial\?\.status \?\? 403\) >= 500/);
+    // A 503 denial means "unreadable", not "unentitled".
+    expect(source).toMatch(/denial\.status \?\? 403\) >= 500/);
     expect(source).toMatch(/retryable: true/);
+    // R7.3 — platform-side blocks are not an upgrade path either.
+    expect(source).toMatch(/isAiKbPlanDenial/);
+    expect(source).toMatch(/upgrade_required: false/);
   });
 
   it('diagnostics fail loudly instead of reporting a fabricated zero', () => {
@@ -135,10 +139,13 @@ describe('AI-KB routes — authoritative failure semantics', () => {
 
 describe('Entitlement lookups — outage is not a denial', () => {
   const src = read('server/services/ai-kb/access.ts');
+  // R7.3 moved the infrastructure classification into the shared parser so
+  // every entitlement caller inherits the same fail-closed semantics.
+  const parser = read('server/services/billing/entitlementParse.ts');
 
   it('classifies rpc_error/exception as unavailable, not denied', () => {
-    expect(src).toMatch(/INFRA_REASONS/);
-    expect(src).toMatch(/'rpc_error', 'exception'/);
+    expect(parser).toMatch(/outcome: 'unavailable'[\s\S]*?reason: 'rpc_error'/);
+    expect(parser).toMatch(/reason === 'rpc_error' \|\| reason === 'exception'/);
     expect(src).toMatch(/entitlement_status_unavailable/);
   });
 

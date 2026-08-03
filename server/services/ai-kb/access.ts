@@ -18,6 +18,7 @@ import type { ServerConfig } from '../../config.js';
 import { checkModuleAccess, checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { assertAiAgentPlatformEnabledForWorkspace } from '../ai-agent/platformGuards.js';
 import { logGateBypass } from '../../middleware/adminBypass.js';
+import { isUnreadableEntitlementReason } from '../billing/entitlementParse.js';
 import {
   checkKnowledgeBasePermissionDetailed,
   type KnowledgeBasePermission,
@@ -29,6 +30,9 @@ export type AiKbDenialCode =
   | 'ai_assistant_plan_required'
   | 'ai_kb_builder_feature_required'
   | 'ai_platform_disabled'
+  | 'ai_platform_kill_switch'
+  | 'ai_customer_visibility_disabled'
+  | 'ai_workspace_disabled'
   | 'ai_platform_status_unavailable'
   | 'entitlement_status_unavailable'
   | 'knowledge_base_permission_status_unavailable'
@@ -40,6 +44,45 @@ export interface AiKbDenialBody {
   feature?: 'ai_kb_builder';
   permission?: KnowledgeBasePermission;
   upgrade_required?: boolean;
+}
+
+/**
+ * Phase 6-S5-R7.3 §2 — platform denials are NOT upgrade paths. A customer
+ * whose access is blocked by the platform kill switch, by the customer
+ * visibility switch, or by a per-workspace disable cannot fix it by buying a
+ * bigger plan, so these codes are distinct from the plan denials above and
+ * never carry `upgrade_required`.
+ */
+export const AI_KB_PLATFORM_DENIAL_CODES: readonly AiKbDenialCode[] = [
+  'ai_platform_kill_switch',
+  'ai_customer_visibility_disabled',
+  'ai_workspace_disabled',
+  'ai_platform_disabled',
+];
+
+/** Plan/feature denials — the ONLY denials that may render an upgrade CTA. */
+export const AI_KB_PLAN_DENIAL_CODES: readonly AiKbDenialCode[] = [
+  'ai_assistant_plan_required',
+  'ai_kb_builder_feature_required',
+];
+
+export function isAiKbPlanDenial(code: AiKbDenialCode): boolean {
+  return AI_KB_PLAN_DENIAL_CODES.includes(code);
+}
+
+export function isAiKbPlatformDenial(code: AiKbDenialCode): boolean {
+  return AI_KB_PLATFORM_DENIAL_CODES.includes(code);
+}
+
+function platformDenialCode(
+  reason: 'kill_switch' | 'customer_hidden' | 'workspace_disabled' | 'lookup_failed' | undefined,
+): AiKbDenialCode {
+  switch (reason) {
+    case 'kill_switch': return 'ai_platform_kill_switch';
+    case 'customer_hidden': return 'ai_customer_visibility_disabled';
+    case 'workspace_disabled': return 'ai_workspace_disabled';
+    default: return 'ai_platform_disabled';
+  }
 }
 
 export interface AiKbAccessResult {
@@ -56,12 +99,12 @@ const OK: AiKbAccessResult = { ok: true };
  * it hides a real outage. Infrastructure failures surface as retryable 503s;
  * only an authoritative `allowed: false` produces a 403.
  */
-const INFRA_REASONS = new Set(['rpc_error', 'exception']);
-
 type LookupOutcome = 'allowed' | 'denied' | 'unavailable';
 
 function classifyLookup(r: { allowed?: boolean; reason?: string }): LookupOutcome {
-  if (INFRA_REASONS.has(r.reason ?? '')) return 'unavailable';
+  // Phase 6-S5-R7.3 §4 — a structurally invalid RPC payload is unreadable,
+  // exactly like an rpc_error, and must not read as an authoritative denial.
+  if (isUnreadableEntitlementReason(r.reason)) return 'unavailable';
   return r.allowed === true ? 'allowed' : 'denied';
 }
 
@@ -218,7 +261,10 @@ export async function checkAiKbAccess(
         denial: { status: 503, body: { error: 'ai_platform_status_unavailable' } },
       };
     }
-    return { ok: false, denial: { status: 403, body: { error: 'ai_platform_disabled' } } };
+    return {
+      ok: false,
+      denial: { status: 403, body: { error: platformDenialCode(platform.reason) } },
+    };
   }
 
   return OK;
@@ -243,11 +289,17 @@ export interface AiKbCapabilitySnapshot {
    * the UI must render a retry state, never an upgrade prompt.
    */
   entitlement_status_unavailable: boolean;
+  /**
+   * Non-null when the PLATFORM (not the plan) is what blocks this surface.
+   * The UI must render an operator/support message, never an upgrade CTA.
+   */
+  platform_denial_code: AiKbDenialCode | null;
 }
 
 export async function readAiKbCapabilities(
   config: ServerConfig,
   workspaceId: string,
+  opts: { customerFacing?: boolean } = {},
 ): Promise<AiKbCapabilitySnapshot> {
   const safeModule = async (key: 'ai_assistant'): Promise<LookupOutcome> => {
     try {
@@ -268,15 +320,22 @@ export async function readAiKbCapabilities(
   const [ai_assistant, ai_kb_builder, platform] = await Promise.all([
     safeModule('ai_assistant'),
     safeFeature(),
-    assertAiAgentPlatformEnabledForWorkspace(config, workspaceId),
+    assertAiAgentPlatformEnabledForWorkspace(config, workspaceId, {
+      customerFacing: opts.customerFacing,
+    }),
   ]);
+  const platformUnavailable = platform.ok === false && platform.reason === 'lookup_failed';
   return {
     knowledge_base: true,
     ai_assistant: ai_assistant === 'allowed',
     ai_kb_builder: ai_kb_builder === 'allowed',
     platform_enabled: platform.ok,
-    platform_status_unavailable: platform.ok === false && platform.reason === 'lookup_failed',
+    platform_status_unavailable: platformUnavailable,
     entitlement_status_unavailable:
       ai_assistant === 'unavailable' || ai_kb_builder === 'unavailable',
+    platform_denial_code:
+      platform.ok === false && !platformUnavailable
+        ? platformDenialCode(platform.reason)
+        : null,
   };
 }

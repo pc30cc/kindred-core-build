@@ -110,6 +110,17 @@ export interface AiKbGeneratedArticlePublicDto {
   confidence: number | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Phase 6-S5-R7.3 §6 — the AUTHORITATIVE published identity of this draft,
+   * resolved from `knowledge_base_articles`. The draft's own `slug` is a
+   * suggestion: the database may have de-duplicated it during publish, so a
+   * link built from it can 404. `public_path` is non-null only when the
+   * linked article is genuinely published.
+   */
+  kb_article_slug: string | null;
+  kb_article_locale: string | null;
+  kb_article_status: string | null;
+  public_path: string | null;
 }
 
 export interface AiKbJobEventPublicDto {
@@ -218,9 +229,30 @@ export function toPublicAiKbPage(row: AiKbPageRowLike): AiKbPagePublicDto {
   };
 }
 
+/** Resolved KB article identity for a generated draft (server-side lookup). */
+export interface AiKbLinkedArticle {
+  slug: string | null;
+  locale: string | null;
+  status: string | null;
+}
+
+/**
+ * Builds the canonical public Help Center path. Returns null unless the
+ * article is published AND has both a slug and a locale — a partial identity
+ * cannot produce a link that resolves.
+ */
+export function toPublicHelpPath(article: AiKbLinkedArticle | null | undefined): string | null {
+  if (!article) return null;
+  if (article.status !== 'published') return null;
+  if (!article.slug || !article.locale) return null;
+  return `/help/${article.locale}/a/${article.slug}`;
+}
+
 export function toPublicAiKbGenerated(
   row: AiKbGeneratedRowLike,
+  article?: AiKbLinkedArticle | null,
 ): AiKbGeneratedArticlePublicDto {
+  const linked = article ?? null;
   return {
     id: row.id,
     job_id: row.job_id,
@@ -234,6 +266,10 @@ export function toPublicAiKbGenerated(
     confidence: typeof row.confidence === 'number' ? row.confidence : null,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    kb_article_slug: linked?.slug ?? null,
+    kb_article_locale: linked?.locale ?? null,
+    kb_article_status: linked?.status ?? null,
+    public_path: toPublicHelpPath(linked),
   };
 }
 

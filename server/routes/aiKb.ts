@@ -26,12 +26,14 @@ import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import {
   checkAiKbAccess,
   readAiKbCapabilities,
+  isAiKbPlanDenial,
   type AiKbAccessResult,
 } from '../services/ai-kb/access.js';
 import type { KnowledgeBasePermission } from '../services/knowledge-base/access.js';
-import { resolveSourceDomain } from '../services/ai-kb/sourceDomain.js';
-import { resolveAiKbLimits, countJobsThisMonth } from '../services/ai-kb/limits.js';
-import { readAiCreditState, logAiKbUsage } from '../services/ai-kb/credits.js';
+import { resolveSourceDomainDetailed } from '../services/ai-kb/sourceDomain.js';
+import { resolveAiKbLimitsDetailed, countJobsThisMonthDetailed } from '../services/ai-kb/limits.js';
+import { readAiCreditStateDetailed, logAiKbUsage } from '../services/ai-kb/credits.js';
+import { firstReadFailure } from '../services/ai-kb/readResult.js';
 import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
 import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
 import {
@@ -47,6 +49,7 @@ import {
   toPublicErrorCode,
   type AiKbJobRowLike,
   toPublicAiKbVisibility,
+  type AiKbLinkedArticle,
 } from '../services/ai-kb/dto.js';
 
 export const aiKbRouter: Router = express.Router();
@@ -184,27 +187,46 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
   // This is the designated upgrade-discovery surface: when the workspace is
   // not fully entitled it returns a REDACTED capability snapshot only — no
   // private source, credit or job data.
-  const capabilities = await readAiKbCapabilities(config, workspaceId);
+  // Phase 6-S5-R7.3 §1 — the snapshot must be computed with the SAME customer
+  // context as the gate, or the UI would advertise a surface the platform has
+  // hidden from customers.
+  const capabilities = await readAiKbCapabilities(config, workspaceId, {
+    customerFacing: !auth.isAdmin,
+  });
   const entitled = await checkAiKbAccess(config, workspaceId, {
     isAdmin: auth.isAdmin,
     userId: auth.userId,
     route: 'GET /api/ai-kb/source',
+    customerFacing: true,
   });
   if (!entitled.ok) {
+    const denial = entitled.denial!;
     // R7.2 — the upgrade-discovery payload is only truthful when the denial is
     // AUTHORITATIVE. A 503 denial means the entitlement could not be read, and
     // rendering "upgrade required" for it would push the customer to pay for
     // something they may already own.
-    if ((entitled.denial?.status ?? 403) >= 500) {
+    if ((denial.status ?? 403) >= 500) {
       return res
-        .status(entitled.denial!.status)
-        .json({ error: entitled.denial!.body.error, retryable: true });
+        .status(denial.status)
+        .json({ error: denial.body.error, retryable: true });
+    }
+    // Phase 6-S5-R7.3 §2 — only a PLAN denial is an upgrade path. A platform
+    // kill switch, a hidden-from-customers switch or a per-workspace disable
+    // cannot be resolved by buying a bigger plan, so those are returned as a
+    // plain 403 with their own code and never as `upgrade_required`.
+    if (!isAiKbPlanDenial(denial.body.error)) {
+      return res.status(denial.status).json({
+        ...denial.body,
+        upgrade_required: false,
+        modules: capabilities,
+        is_global_admin: auth.isAdmin,
+      });
     }
     return res.json({
       source: {
         domain: null, kind: null, workspace_domain_id: null,
         verified: false, is_primary: false, can_scan: false,
-        reason_if_blocked: entitled.denial?.body.error ?? 'not_entitled',
+        reason_if_blocked: denial.body.error,
         available_domains: [],
       },
       plan: {
@@ -216,17 +238,28 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
       credits: { used: 0, limit: 0, remaining: 0, period: '' },
       modules: capabilities,
       upgrade_required: true,
-      denial: entitled.denial?.body,
+      denial: denial.body,
       is_global_admin: auth.isAdmin,
     });
   }
 
-  const [source, limitsInfo, credits, jobsThisMonth] = await Promise.all([
-    resolveSourceDomain(config, workspaceId, requestedDomainId),
-    resolveAiKbLimits(config, workspaceId),
-    readAiCreditState(config, workspaceId),
-    countJobsThisMonth(config, workspaceId),
+  // Phase 6-S5-R7.3 §3 — every business-state read is fail-closed. A failed
+  // read is reported as a retryable 503, never as "no domain", "Free plan",
+  // "0 jobs used" or "0 credits left", all of which the customer would act on.
+  const [sourceRead, limitsRead, creditsRead, jobsRead] = await Promise.all([
+    resolveSourceDomainDetailed(config, workspaceId, requestedDomainId),
+    resolveAiKbLimitsDetailed(config, workspaceId),
+    readAiCreditStateDetailed(config, workspaceId),
+    countJobsThisMonthDetailed(config, workspaceId),
   ]);
+  const readFailure = firstReadFailure([sourceRead, limitsRead, creditsRead, jobsRead]);
+  if (readFailure) {
+    return res.status(503).json({ error: readFailure.errorCode, retryable: true });
+  }
+  const source = sourceRead.ok ? sourceRead.value : null!;
+  const limitsInfo = limitsRead.ok ? limitsRead.value : null!;
+  const credits = creditsRead.ok ? creditsRead.value : null!;
+  const jobsThisMonth = jobsRead.ok ? jobsRead.value : 0;
 
   return res.json({
     source,
@@ -267,7 +300,12 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
     route: 'POST /api/ai-kb/jobs',
   }))) return;
 
-  const source = await resolveSourceDomain(config, workspaceId, domain_id);
+  const sourceRead = await resolveSourceDomainDetailed(config, workspaceId, domain_id);
+  if (!sourceRead.ok) {
+    // Starting a scan on an unread domain state could target the wrong site.
+    return res.status(503).json({ error: sourceRead.errorCode, retryable: true });
+  }
+  const source = sourceRead.value;
   if (!source.can_scan || !source.domain) {
     return res.status(409).json({
       error: 'no_scannable_domain',
@@ -276,7 +314,13 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
     });
   }
 
-  const limitsInfo = await resolveAiKbLimits(config, workspaceId);
+  const limitsRead = await resolveAiKbLimitsDetailed(config, workspaceId);
+  if (!limitsRead.ok) {
+    // Snapshotting fallback limits onto a real job would let the worker run
+    // with limits the customer never bought.
+    return res.status(503).json({ error: limitsRead.errorCode, retryable: true });
+  }
+  const limitsInfo = limitsRead.value;
 
   // ── Monthly job cap enforcement ────────────────────────────
   // Route-local Super Admin bypass + shared requireLimit/usageFnForLimit.
@@ -413,10 +457,41 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   const { data: generated } = generatedRes;
   const { data: events } = eventsRes;
 
+  // Phase 6-S5-R7.3 §6 — resolve the AUTHORITATIVE published identity for
+  // every draft that is linked to a KB article. The draft's own `slug` is a
+  // suggestion the database may have de-duplicated during publish, so a link
+  // built from it can 404. The lookup is scoped to this job's workspace.
+  const linkedIds = (generated || [])
+    .map((g: any) => g.kb_article_id)
+    .filter((id: unknown): id is string => typeof id === 'string' && !!id);
+  const articleById = new Map<string, AiKbLinkedArticle>();
+  if (linkedIds.length) {
+    const { data: articles, error: articlesError } = await sb
+      .from('knowledge_base_articles')
+      .select('id, slug, locale, status')
+      .eq('workspace_id', job.workspace_id)
+      .in('id', linkedIds);
+    if (articlesError) {
+      // Rendering "not published" for an unread article would tell the
+      // operator to republish content that is already live.
+      console.error('[ai-kb] linked article lookup failed', JSON.stringify({ code: articlesError.code }));
+      return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+    }
+    for (const a of articles || []) {
+      articleById.set((a as any).id, {
+        slug: (a as any).slug ?? null,
+        locale: (a as any).locale ?? null,
+        status: (a as any).status ?? null,
+      });
+    }
+  }
+
   return res.json({
     job: toPublicAiKbJob(job as any),
     pages: (pages || []).map((r) => toPublicAiKbPage(r as any)),
-    generated: (generated || []).map((r) => toPublicAiKbGenerated(r as any)),
+    generated: (generated || []).map((r) =>
+      toPublicAiKbGenerated(r as any, articleById.get((r as any).kb_article_id) ?? null),
+    ),
     events: (events || []).map((r) => toPublicAiKbJobEvent(r as any)),
   });
 });
@@ -757,10 +832,10 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
     runningRes,
     failedRes,
     latestRes,
-    source,
-    limitsInfo,
-    credits,
-    jobsThisMonth,
+    sourceRead,
+    limitsRead,
+    creditsRead,
+    jobsRead,
   ] = await Promise.all([
     sb.from('ai_kb_jobs').select('id', { count: 'exact', head: true })
       .eq('workspace_id', workspaceId).eq('status', 'queued'),
@@ -770,13 +845,15 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
       .eq('workspace_id', workspaceId).eq('status', 'failed'),
     sb.from('ai_kb_jobs').select(AI_KB_JOB_COLUMNS)
       .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1).maybeSingle<AiKbJobRowLike>(),
-    resolveSourceDomain(config, workspaceId),
-    resolveAiKbLimits(config, workspaceId),
-    readAiCreditState(config, workspaceId),
-    countJobsThisMonth(config, workspaceId),
+    resolveSourceDomainDetailed(config, workspaceId),
+    resolveAiKbLimitsDetailed(config, workspaceId),
+    readAiCreditStateDetailed(config, workspaceId),
+    countJobsThisMonthDetailed(config, workspaceId),
   ]);
 
-  const capabilities = await readAiKbCapabilities(config, workspaceId);
+  const capabilities = await readAiKbCapabilities(config, workspaceId, {
+    customerFacing: !auth.isAdmin,
+  });
 
   // R7.2 — diagnostics that silently report "0 queued, 0 running, 0 failed"
   // on an unreadable table are worse than no diagnostics: an operator uses
@@ -791,6 +868,14 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
   if (capabilities.platform_status_unavailable) {
     return res.status(503).json({ error: 'ai_platform_status_unavailable' });
   }
+  const readFailure = firstReadFailure([sourceRead, limitsRead, creditsRead, jobsRead]);
+  if (readFailure) {
+    return res.status(503).json({ error: readFailure.errorCode, retryable: true });
+  }
+  const source = sourceRead.ok ? sourceRead.value : null!;
+  const limitsInfo = limitsRead.ok ? limitsRead.value : null!;
+  const credits = creditsRead.ok ? creditsRead.value : null!;
+  const jobsThisMonth = jobsRead.ok ? jobsRead.value : 0;
 
   const latest: any = (latestRes as any).data || null;
 
@@ -865,7 +950,11 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     route: 'POST /api/ai-kb/jobs/test',
   }))) return;
 
-  const source = await resolveSourceDomain(config, workspaceId);
+  const testSourceRead = await resolveSourceDomainDetailed(config, workspaceId);
+  if (!testSourceRead.ok) {
+    return res.status(503).json({ error: testSourceRead.errorCode, retryable: true });
+  }
+  const source = testSourceRead.value;
   if (!source.can_scan || !source.domain) {
     return res.status(409).json({
       error: 'no_scannable_domain',
@@ -873,7 +962,11 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     });
   }
 
-  const limitsInfo = await resolveAiKbLimits(config, workspaceId);
+  const testLimitsRead = await resolveAiKbLimitsDetailed(config, workspaceId);
+  if (!testLimitsRead.ok) {
+    return res.status(503).json({ error: testLimitsRead.errorCode, retryable: true });
+  }
+  const limitsInfo = testLimitsRead.value;
   const planSnapshot: PlanSnapshot = {
     planSlug: limitsInfo.planSlug,
     ...limitsInfo.limits,

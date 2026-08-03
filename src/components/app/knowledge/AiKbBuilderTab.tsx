@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { aiKbApi, type AiKbSourceResponse } from '@/lib/ai-kb-api';
+import {
+  aiKbApi,
+  AiKbApiError,
+  AI_KB_PLATFORM_DENIAL_CODES,
+  type AiKbSourceResponse,
+  type AiKbJobDto,
+  type AiKbGeneratedDto,
+  type AiKbJobEventDto,
+} from '@/lib/ai-kb-api';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +22,21 @@ const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'You are not authorized to start a scan.',
   job_create_failed: 'Could not create the job. Please try again.',
   invalid_params: 'Invalid request. Please refresh and retry.',
+  ai_platform_kill_switch: 'AI features are currently switched off by the platform operator.',
+  ai_customer_visibility_disabled: 'AI features are not available on this platform right now.',
+  ai_workspace_disabled: 'AI features are switched off for this workspace.',
+};
+
+/**
+ * The API returns a stable, redacted `error_code` instead of raw worker or
+ * provider text (which can carry URLs, prompts and stack traces).
+ */
+const JOB_ERROR_MESSAGES: Record<string, string> = {
+  crawl_failed: 'Your website could not be crawled. Check that it is reachable and allows crawling.',
+  generation_failed: 'Article generation failed. Please try the scan again.',
+  publish_failed: 'Publishing to the Help Center failed.',
+  provider_unavailable: 'The AI provider is unavailable or not configured.',
+  job_failed: 'The scan failed. Please try again.',
 };
 
 function friendlyError(raw: string | undefined): string {
@@ -27,12 +50,19 @@ export default function AiKbBuilderTab() {
   const workspace = useCurrentWorkspace();
   const { locale } = useTranslation();
   const [src, setSrc] = useState<AiKbSourceResponse | null>(null);
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [activeJob, setActiveJob] = useState<any | null>(null);
-  const [generated, setGenerated] = useState<any[]>([]);
-  const [jobEvents, setJobEvents] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<AiKbJobDto[]>([]);
+  const [activeJob, setActiveJob] = useState<AiKbJobDto | null>(null);
+  const [generated, setGenerated] = useState<AiKbGeneratedDto[]>([]);
+  const [jobEvents, setJobEvents] = useState<AiKbJobEventDto[]>([]);
   const [busy, setBusy] = useState(false);
   const [stuckQueued, setStuckQueued] = useState(false);
+  /**
+   * Phase 6-S5-R7.3 — a 503 means the backend could not READ the business
+   * state. It is NOT "you have no plan" and NOT "you have no domain", so the
+   * surface must show a retry state rather than an upgrade CTA built on
+   * values the server never confirmed.
+   */
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!workspace?.id) return;
@@ -48,9 +78,14 @@ export default function AiKbBuilderTab() {
         const detail = await aiKbApi.getJob(latest.id);
         setActiveJob(detail.job);
         setGenerated(detail.generated || []);
-        setJobEvents((detail as any).events || []);
+        setJobEvents(detail.events || []);
       }
+      setStatusUnavailable(false);
     } catch (e: any) {
+      if (e instanceof AiKbApiError && e.retryable) {
+        setStatusUnavailable(true);
+        return;
+      }
       toast.error(e?.message || 'Failed to load AI Builder state');
     }
   }, [workspace?.id]);
@@ -138,32 +173,59 @@ export default function AiKbBuilderTab() {
     return <Badge variant="outline" className="text-[10px] capitalize">{status}</Badge>;
   };
 
-  const publicHelpUrl = (g: any) => {
-    const slug = g.slug || g.kb_article_slug;
-    if (!slug) return null;
-    const loc = g.locale || 'en';
-    return `${window.location.origin}/help/${loc}/a/${slug}`;
-  };
+  /**
+   * Phase 6-S5-R7.3 — the link is built ONLY from the server-resolved
+   * `public_path`, which comes from the real `knowledge_base_articles` row.
+   * The draft's own `slug` is a suggestion the database may have
+   * de-duplicated at publish time, so linking to it produces a 404.
+   */
+  const publicHelpUrl = (g: AiKbGeneratedDto) =>
+    g.public_path ? `${window.location.origin}${g.public_path}` : null;
+
+  if (statusUnavailable) {
+    return (
+      <div className="card-elevated p-6 flex flex-col items-center gap-3 text-center">
+        <AlertCircle className="w-5 h-5 text-warning" />
+        <div className="text-sm font-semibold text-foreground">Status temporarily unavailable</div>
+        <p className="text-xs text-muted-foreground max-w-sm">
+          We could not confirm your plan and usage right now, so nothing is shown rather than
+          showing something inaccurate. This is temporary — please retry.
+        </p>
+        <Button variant="outline" size="sm" onClick={refresh} className="gap-2">
+          <RefreshCcw className="w-3.5 h-3.5" /> Retry
+        </Button>
+      </div>
+    );
+  }
 
   if (!src) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
   }
 
   const isAdmin = !!src.is_global_admin;
+  // Unreadable platform / entitlement state is never a plan denial.
+  const readUnavailable =
+    src.modules.platform_status_unavailable || src.modules.entitlement_status_unavailable;
+  const platformDenialCode = src.modules.platform_denial_code || null;
+  const platformBlocked = !!platformDenialCode && AI_KB_PLATFORM_DENIAL_CODES.has(platformDenialCode);
   // Phase 6-S5-R4 — only the AI KB Builder feature gates this surface.
   // `knowledge_base` is a core product and is never an access requirement.
   const moduleBlocked = !src.modules.ai_kb_builder;
-  const blocked = moduleBlocked && !isAdmin;
+  const blocked = (moduleBlocked || platformBlocked) && !isAdmin;
 
   const noDomain = !src.source.can_scan || !src.source.domain;
   const limitReached = !src.plan.can_start_job && !isAdmin;
-  const disabledReason = blocked
-    ? 'AI Knowledge Builder module is disabled on your plan.'
-    : noDomain
-      ? 'No workspace domain available. Add a domain in workspace settings first.'
-      : limitReached
-        ? `Monthly scan limit reached (${src.plan.jobs_used_this_month}/${src.plan.limits.jobsPerMonth}).`
-        : '';
+  const disabledReason = readUnavailable
+    ? 'Plan status is temporarily unavailable. Please retry in a moment.'
+    : platformBlocked
+      ? ERROR_MESSAGES[platformDenialCode!] || 'AI features are switched off by the platform operator.'
+      : blocked
+        ? 'AI Knowledge Builder module is disabled on your plan.'
+        : noDomain
+          ? 'No workspace domain available. Add a domain in workspace settings first.'
+          : limitReached
+            ? `Monthly scan limit reached (${src.plan.jobs_used_this_month}/${src.plan.limits.jobsPerMonth}).`
+            : '';
 
   return (
     <div className="space-y-5">
@@ -198,7 +260,28 @@ export default function AiKbBuilderTab() {
         </div>
       </div>
 
-      {blocked && (
+      {readUnavailable && (
+        <div className="card-elevated p-4 flex items-start gap-3 border border-warning/30 bg-warning/5">
+          <AlertCircle className="w-4 h-4 text-warning mt-0.5" />
+          <div className="text-xs text-foreground flex-1">
+            Your plan status could not be confirmed. Values below may be incomplete — no upgrade is
+            implied.
+          </div>
+          <Button variant="ghost" size="sm" onClick={refresh}><RefreshCcw className="w-3.5 h-3.5" /></Button>
+        </div>
+      )}
+
+      {platformBlocked && !readUnavailable && (
+        <div className="card-elevated p-4 flex items-start gap-3 border border-warning/30 bg-warning/5">
+          <AlertCircle className="w-4 h-4 text-warning mt-0.5" />
+          <div className="text-xs text-foreground">
+            {ERROR_MESSAGES[platformDenialCode!] || 'AI features are switched off by the platform operator.'}
+            {' '}Upgrading your plan will not change this.
+          </div>
+        </div>
+      )}
+
+      {blocked && !platformBlocked && !readUnavailable && (
         <div className="card-elevated p-4 flex items-start gap-3 border border-warning/30 bg-warning/5">
           <AlertCircle className="w-4 h-4 text-warning mt-0.5" />
           <div className="text-xs text-foreground">
@@ -248,26 +331,29 @@ export default function AiKbBuilderTab() {
             <div className="h-full bg-primary transition-all" style={{ width: `${activeJob.progress || 0}%` }} />
           </div>
           <div className="text-xs text-muted-foreground">
-            Pages crawled: {activeJob.pages_crawled} · Drafts generated: {activeJob.articles_generated} · Credits used: {activeJob.credits_used}
+            Pages crawled: {activeJob.processed_pages ?? 0}
+            {typeof activeJob.total_pages === 'number' ? ` / ${activeJob.total_pages}` : ''}
+            {' · '}Drafts generated: {activeJob.generated_articles ?? 0}
+            {(activeJob.failed_pages ?? 0) > 0 ? ` · Pages failed: ${activeJob.failed_pages}` : ''}
           </div>
-          {activeJob.error_message && (
+          {activeJob.error_code && (
             <div className="text-xs text-destructive">
-              {activeJob.error_message}
-              {/AI provider is not configured/i.test(activeJob.error_message) && (
+              {JOB_ERROR_MESSAGES[activeJob.error_code] || 'The scan failed. Please try again.'}
+              {activeJob.error_code === 'provider_unavailable' && (
                 <a href="/admin/providers" className="ml-2 underline font-semibold">
-                  Configure AI provider
+                  Check AI provider
                 </a>
               )}
             </div>
           )}
-          {activeJob.status === 'failed' && !activeJob.error_message && (
-            <div className="text-xs text-destructive">Job failed without a specific error message — check worker logs.</div>
+          {activeJob.status === 'failed' && !activeJob.error_code && (
+            <div className="text-xs text-destructive">The scan failed. Ask an administrator to check the worker logs.</div>
           )}
-          {activeJob.status === 'completed' && (activeJob.articles_generated || 0) === 0 && (
+          {activeJob.status === 'completed' && (activeJob.generated_articles || 0) === 0 && (
             <div className="text-xs text-warning">
-              No articles were generated. {activeJob.plan_snapshot?.maxArticles === 0
-                ? 'Test crawl completed (crawl-only test).'
-                : 'See worker logs / events below for details.'}
+              No articles were generated. {src?.plan.limits.maxArticles === 0
+                ? 'Your plan does not include AI-generated drafts.'
+                : 'See the job events below for details.'}
             </div>
           )}
           {stuckQueued && (
@@ -287,19 +373,18 @@ export default function AiKbBuilderTab() {
                 {jobEvents.map((ev) => (
                   <div key={ev.id} className={
                     'text-[11px] font-mono rounded px-2 py-1 ' +
-                    (ev.level === 'error'
+                    (ev.event_type === 'error'
                       ? 'bg-destructive/10 text-destructive'
-                      : ev.level === 'warn'
+                      : ev.event_type === 'warn'
                         ? 'bg-warning/10 text-warning'
                         : 'bg-muted text-muted-foreground')
                   }>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold uppercase">{ev.level}</span>
+                      <span className="font-semibold uppercase">{ev.event_type}</span>
                       <span className="opacity-60">{new Date(ev.created_at).toLocaleTimeString()}</span>
                     </div>
-                    <div>{ev.message}</div>
-                    {ev.metadata && Object.keys(ev.metadata).length > 0 && (
-                      <pre className="mt-1 whitespace-pre-wrap opacity-80">{JSON.stringify(ev.metadata, null, 0)}</pre>
+                    {ev.error_code && (
+                      <div>{JOB_ERROR_MESSAGES[ev.error_code] || 'Step failed.'}</div>
                     )}
                   </div>
                 ))}
@@ -339,9 +424,11 @@ export default function AiKbBuilderTab() {
                       {statusBadge(g.status)}
                     </div>
                     {g.excerpt && <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{g.excerpt}</div>}
-                    <div className="text-[10px] text-muted-foreground mt-1">
-                      {Array.isArray(g.source_urls) && g.source_urls[0] ? `Source: ${g.source_urls[0]}` : null}
-                    </div>
+                    {g.public_path && (
+                      <div className="text-[10px] text-muted-foreground mt-1 truncate">
+                        Help Center path: <code>{g.public_path}</code>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {g.status === 'pending' && (

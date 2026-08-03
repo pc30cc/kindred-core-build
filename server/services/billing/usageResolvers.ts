@@ -30,7 +30,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Request } from 'express';
 import type { ServerConfig } from '../../config.js';
-import { countJobsThisMonth } from '../ai-kb/limits.js';
+import { countJobsThisMonthDetailed } from '../ai-kb/limits.js';
 
 /** Period source for a usage value. */
 export type UsagePeriodKind = 'calendar_month' | 'lifetime' | 'unknown';
@@ -169,9 +169,24 @@ async function resolveAiKbJobsPerMonth(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<UsageResolution> {
-  // `countJobsThisMonth` already lives in services/ai-kb/limits.ts and
-  // is the canonical implementation used by aiKb route gating.
-  const value = await countJobsThisMonth(config, workspaceId);
+  // `countJobsThisMonthDetailed` lives in services/ai-kb/limits.ts and is the
+  // canonical implementation used by aiKb route gating. Phase 6-S5-R7.3 §3 —
+  // an unreadable count must NOT resolve to 0, which would hand out unlimited
+  // scans during an outage; it is reported as unsupported so the limit check
+  // fails closed.
+  const read = await countJobsThisMonthDetailed(config, workspaceId);
+  if (!read.ok) {
+    return {
+      value: 0,
+      period: currentMonthPeriod(),
+      periodKind: 'calendar_month',
+      source: 'unsupported',
+      isExact: false,
+      supported: false,
+      reasonIfUnsupported: 'job_usage_status_unavailable',
+    };
+  }
+  const value = read.value;
   return {
     value,
     period: currentMonthPeriod(),

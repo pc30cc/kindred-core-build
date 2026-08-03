@@ -12,6 +12,7 @@ import { useTheme } from 'next-themes';
 import { useTranslation, useI18n } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG, SUPPORTED_LOCALES } from '@/i18n/config';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import {
@@ -127,7 +128,8 @@ export default function InterfacePage() {
       {/* Settings card */}
       <Card className="p-6">
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Language */}
+          {/* Language — hidden when the platform runs in a single-language region */}
+          {canSwitchLanguage && (
           <div className="space-y-2">
             <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
               <Languages className="h-4 w-4 text-muted-foreground" />
@@ -150,6 +152,7 @@ export default function InterfacePage() {
             </Select>
             <p className="text-xs text-muted-foreground">{t('interface.languageHelper')}</p>
           </div>
+          )}
 
           {/* Appearance */}
           <div className="space-y-2">

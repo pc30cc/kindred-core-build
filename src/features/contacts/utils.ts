@@ -1,4 +1,5 @@
 import type { Contact } from '@/types/models';
+import { formatRelative } from '@/lib/date';
 
 export function getInitials(name?: string | null, email?: string | null): string {
   if (name && name.trim()) {
@@ -13,20 +14,10 @@ export function getDisplayName(c: Contact): string {
   return c.name || c.email || c.phone || 'Anonymous';
 }
 
+/** Locale-aware relative time (Persian/Turkish/English follow the active UI locale). */
 export function timeAgo(dateStr?: string | null): string {
   if (!dateStr) return '—';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
+  return formatRelative(dateStr);
 }
 
 export function getCompanyFromMetadata(c: Contact): string | null {

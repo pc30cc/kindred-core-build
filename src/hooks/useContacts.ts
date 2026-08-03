@@ -53,7 +53,7 @@ export function useContactConversations(contactId: string | undefined) {
       // Who handled each conversation: AI replies vs. human operator replies.
       const { data: msgs } = await supabase
         .from('conversation_messages')
-        .select('conversation_id, sender_type, sender_id, created_at')
+        .select('conversation_id, sender_type, sender_id, body, created_at')
         .in('conversation_id', ids)
         .order('created_at', { ascending: true });
 

@@ -28,6 +28,8 @@ import {
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 import { useContactIp } from '@/hooks/useContactIp';
 import { Globe, Lock } from 'lucide-react';
+import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 
 /**
  * Conversation subjects are sometimes persisted with an English default
@@ -59,6 +61,9 @@ export default function ContactDetailPage() {
   const { data: ipState } = useContactIp(id);
   const updateMutation = useUpdateContact();
   const deleteMutation = useDeleteContact();
+  const workspace = useCurrentWorkspace();
+  const { data: ents } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const canEdit = ents?.features?.contact_edit?.value !== false;
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', tags: '' });
@@ -160,9 +165,21 @@ export default function ContactDetailPage() {
         </div>
         {!editing ? (
           <>
-            <Button size="sm" variant="outline" onClick={startEdit} className="gap-1.5">
-              <Edit3 className="w-3.5 h-3.5" />{t('contacts.edit')}
-            </Button>
+            {canEdit ? (
+              <Button size="sm" variant="outline" onClick={startEdit} className="gap-1.5">
+                <Edit3 className="w-3.5 h-3.5" />{t('contacts.edit')}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 opacity-60"
+                onClick={() => navigate(billingHref)}
+                title={t('contacts.featureLockedDesc')}
+              >
+                <Lock className="w-3.5 h-3.5" />{t('contacts.edit')}
+              </Button>
+            )}
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
@@ -170,13 +187,13 @@ export default function ContactDetailPage() {
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent dir={dir}>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t('contacts.deleteOneTitle')}</AlertDialogTitle>
-                  <AlertDialogDescription>
+                <AlertDialogHeader className="text-start sm:text-start">
+                  <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
+                  <AlertDialogDescription className="text-start">
                     {t('contacts.deleteOneDesc', { name: getDisplayName(contact) })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
-                <AlertDialogFooter>
+                <AlertDialogFooter className="sm:justify-start gap-2">
                   <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
                   <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                     {t('contacts.delete')}

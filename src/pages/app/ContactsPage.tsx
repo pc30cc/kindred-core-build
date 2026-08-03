@@ -5,6 +5,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import {
   useContacts, useCreateContact, useBulkDeleteContacts,
 } from '@/hooks/useContacts';
+import { useContactChannels } from '@/hooks/useContactChannels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,6 +25,7 @@ import {
 import {
   Plus, Search, Filter, Download, Upload, MoreHorizontal, Star, Eye,
   Mail, Phone, Users, ChevronDown, Trash2, Loader2, FileDown, X, Lock,
+  MessageSquare, PhoneCall,
 } from 'lucide-react';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { cn } from '@/lib/utils';
@@ -43,6 +45,7 @@ export default function ContactsPage() {
   const { slug: wsSlug } = useParams();
   const workspace = useCurrentWorkspace();
   const { data: contacts, isLoading } = useContacts(workspace?.id);
+  const { data: channels } = useContactChannels(workspace?.id);
   const createContact = useCreateContact(workspace?.id);
   const bulkDelete = useBulkDeleteContacts();
   const { data: ents } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
@@ -388,6 +391,7 @@ export default function ContactsPage() {
                 </th>
                 <Th label={t('contacts.colName')} sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
                 <Th label={t('contacts.colEmail')} sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
+                <th className="text-start p-3 font-semibold">{t('contacts.colSource')}</th>
                 <th className="text-start p-3 font-semibold">{t('contacts.colLocation')}</th>
                 <Th label={t('contacts.colCompany')} sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
                 <th className="text-start p-3 font-semibold">{t('contacts.colSegments')}</th>
@@ -427,6 +431,9 @@ export default function ContactsPage() {
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
+                    <td className="p-3">
+                      <SourceBadge info={channels?.[c.id]} t={t} />
+                    </td>
                     <td className="p-3 text-muted-foreground">
                       {loc.country || loc.city ? (
                         <div className="flex items-center gap-1.5">
@@ -549,5 +556,34 @@ function EmptyState({ t, hasContacts, onAdd, onImport }: { t: (k: any, p?: Recor
         </div>
       )}
     </div>
+  );
+}
+
+function SourceBadge({ info, t }: { info?: { chat: boolean; call: boolean; calls: number }; t: (k: any, v?: any) => string }) {
+  if (!info || (!info.chat && !info.call)) {
+    return <span className="text-muted-foreground/50 italic text-xs">{t('contacts.sourceUnknown')}</span>;
+  }
+  if (info.chat && info.call) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+        <MessageSquare className="w-3 h-3" />
+        <PhoneCall className="w-3 h-3" />
+        {t('contacts.sourceBoth')}
+      </span>
+    );
+  }
+  if (info.call) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success">
+        <PhoneCall className="w-3 h-3" />
+        {t('contacts.sourceCall')}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <MessageSquare className="w-3 h-3" />
+      {t('contacts.sourceChat')}
+    </span>
   );
 }

@@ -318,12 +318,19 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
       await db.query(readFileSync(resolve(process.cwd(), MIGRATIONS[1]), 'utf8'));
 
       const g = await seed();
-      await db.query('SET LOCAL ROLE kb_probe').catch(() => {});
+      // SET LOCAL ROLE only takes effect inside a transaction; outside one it
+      // is a silent no-op that would make this assertion pass vacuously.
+      await db.query('BEGIN');
+      await db.query('SET LOCAL ROLE kb_probe');
       await expect(db.query(
         'SELECT public.publish_ai_kb_generated_article($1,$2,$3,$4,$5)',
         [g.id, WS, REVIEWER, '<p>x</p>', null],
       )).rejects.toThrow(/permission denied/i);
-      await db.query('RESET ROLE');
+      await db.query('ROLLBACK');
+
+      // The very same call succeeds as the owning role: the refusal above is
+      // the ACL, not a broken statement.
+      expect((await publish(g.id)).ok).toBe(true);
     });
 
     it('the fan-out queue table is not readable by anon/authenticated', async () => {

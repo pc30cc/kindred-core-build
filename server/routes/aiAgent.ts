@@ -19,7 +19,7 @@ import {
 } from '../services/ai-agent/settings.js';
 import { getKnowledgeStatus } from '../services/ai-agent/retrieval.js';
 import { runPlayground } from '../services/ai-agent/playground.js';
-import { listRuns, summarize } from '../services/ai-agent/logs.js';
+import { listRuns, listRunsPaged, summarize } from '../services/ai-agent/logs.js';
 import { retrieveHybridSources } from '../services/ai-agent/retrievalHybrid.js';
 import { getSourceHealth, type HealthSourceType } from '../services/ai-agent/sourceHealth.js';
 import { resolveAIConfig } from '../services/ai/index.js';
@@ -753,6 +753,17 @@ aiAgentRouter.get('/runs', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
   const limit = parseInt(String(req.query.limit || '50'), 10);
+  const hasPaging = req.query.page !== undefined || req.query.pageSize !== undefined
+    || req.query.search !== undefined || req.query.filter !== undefined;
+  if (hasPaging) {
+    const result = await listRunsPaged(config, workspaceId, {
+      page: parseInt(String(req.query.page || '1'), 10) || 1,
+      pageSize: parseInt(String(req.query.pageSize || '25'), 10) || 25,
+      search: req.query.search ? String(req.query.search) : undefined,
+      filter: req.query.filter ? String(req.query.filter) : undefined,
+    });
+    return res.json(result);
+  }
   const runs = await listRuns(config, workspaceId, { limit });
   return res.json({ runs });
 });

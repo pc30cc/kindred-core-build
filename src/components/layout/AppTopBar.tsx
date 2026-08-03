@@ -31,7 +31,8 @@ const SEGMENT_KEYS: Record<string, string> = {
  * (theme, language, alerts, help, account) on the trailing side.
  */
 export function AppTopBar() {
-  const { t, locale, setLocale } = useI18n();
+  const { t: tRaw, locale, setLocale } = useI18n();
+  const t = tRaw as unknown as (key: string) => string;
   const { user } = useAuth();
   const { workspace } = useActiveWorkspace();
   const { theme, setTheme } = useTheme();

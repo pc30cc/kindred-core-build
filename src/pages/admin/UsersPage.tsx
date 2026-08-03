@@ -479,6 +479,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <TabsTrigger value="access">{t('admin.users.tabAccess')}</TabsTrigger>
           <TabsTrigger value="workspaces">{t('admin.users.tabWorkspaces')}</TabsTrigger>
           <TabsTrigger value="messages">{t('admin.users.tabMessages')}</TabsTrigger>
+          <TabsTrigger value="finance">{t('admin.users.tabFinance')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-0">
@@ -673,6 +674,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
         <TabsContent value="messages" className="mt-0">
           <UserMessagesCard userId={userId} />
+        </TabsContent>
+
+        <TabsContent value="finance" className="mt-0">
+          <UserFinanceCard userId={userId} />
         </TabsContent>
       </Tabs>
 

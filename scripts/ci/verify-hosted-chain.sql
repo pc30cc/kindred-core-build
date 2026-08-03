@@ -4,6 +4,11 @@
 -- supabase/migrations in real timestamp order.
 -- ============================================================
 
+-- Exact RPC signature inventory (single source of truth). This RAISEs when a
+-- signature is missing or an un-audited overload exists, so the hosted chain
+-- cannot pass while the RPC surface has drifted.
+\ir internal-rpc-signatures.sql
+
 DO $chain$
 DECLARE
   applied integer;
@@ -35,20 +40,6 @@ BEGIN
 
   IF missing IS NOT NULL THEN
     RAISE EXCEPTION 'missing tables after full chain: %', missing;
-  END IF;
-
-  -- Latest AI-KB RPC signatures (010 → 012 head).
-  SELECT string_agg(f, ', ') INTO missing
-  FROM unnest(ARRAY[
-    'public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text, text)',
-    'public.accept_ai_kb_generated_article(uuid, uuid, uuid)',
-    'public.publish_ai_kb_generated_article(uuid, uuid, uuid)',
-    'public.reject_ai_kb_generated_article(uuid, uuid, uuid)'
-  ]) AS f
-  WHERE to_regprocedure(f) IS NULL;
-
-  IF missing IS NOT NULL THEN
-    RAISE EXCEPTION 'missing AI-KB RPC signatures: %', missing;
   END IF;
 
   -- RLS must be on for the customer-facing tables.

@@ -159,6 +159,9 @@ describe('AI-KB response contract lint', () => {
     expect(ci).toMatch(/verify-hosted-chain\.sql/);
     expect(ci).toMatch(/verify-selfhost-chain\.sql/);
     expect(ci).toMatch(/verify-migration-security\.sql/);
+    // The Supabase CLI must be pinned so the hosted proof is reproducible.
+    expect(ci).toMatch(/version:\s*\d+\.\d+\.\d+/);
+    expect(ci).not.toMatch(/version:\s*latest/);
     const baseline = JSON.parse(read('.lint-baseline.json'));
     expect(typeof baseline.totals.problems).toBe('number');
     // Per-file enforcement requires a per-file map.

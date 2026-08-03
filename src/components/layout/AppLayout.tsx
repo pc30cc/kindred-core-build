@@ -111,9 +111,9 @@ function EmailVerificationBar() {
       : t('auth.resendEmail');
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3">
-      <div className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2 shadow-lg backdrop-blur-md supports-[backdrop-filter]:bg-amber-500/10">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/25 text-amber-600 dark:text-amber-400">
+    <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
           {sentTo ? <MailCheck className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
         </span>
         <p className="min-w-0 flex-1 text-sm leading-snug text-foreground">
@@ -168,10 +168,11 @@ export function AppLayout() {
         <AppSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <DegradedModeBanner />
-          <main className={`flex-1 overflow-y-auto ${showVerificationBanner ? 'pb-20' : ''}`}>
+          <main className="flex-1 overflow-y-auto">
             <Outlet />
           </main>
-          {/* Fixed floating toolbar pinned to the bottom of the viewport. */}
+          {/* Verification notice sits at the BOTTOM so it never pushes the
+              page header down; resend is wired to the self-hosted mailer. */}
           {showVerificationBanner && <EmailVerificationBar />}
         </div>
         {/* Survives route changes — reads the same LiveKit room as the

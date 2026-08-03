@@ -12,26 +12,35 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-/** Migration chain HEAD, in apply order. */
-export const MIGRATION_CHAIN = [
+/**
+ * Idempotent Supabase-compatible role bootstrap. Migration 011 (shipped, thus
+ * unmodifiable) legitimately assumes `anon`/`authenticated`/`service_role`
+ * exist, so every stock-PostgreSQL install must apply this first.
+ */
+export const ROLE_BOOTSTRAP = 'database/migrations/000_selfhost_roles_bootstrap.sql';
+
+/** AI-KB / fan-out TAIL, in apply order. */
+export const AI_KB_TAIL_MIGRATIONS = [
   'database/migrations/007_entitlement_fanout_jobs.sql',
   'database/migrations/008_entitlement_fanout_generations.sql',
   'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
   'database/migrations/010_fanout_rpc_security_and_kb_state_machine.sql',
   'database/migrations/011_ai_kb_slug_namespace_lock.sql',
   'database/migrations/012_ai_kb_acl_reassert_guarded.sql',
+  'database/migrations/013_public_schema_create_lockdown.sql',
 ];
 
+/** Back-compat alias: the tail without the bootstrap. */
+export const MIGRATION_CHAIN = AI_KB_TAIL_MIGRATIONS;
+
 /**
- * The AI-KB TAIL plus the role bootstrap. Used by the tail-compatibility
- * suite, which must NOT reset functions and must NOT inherit roles or schema
- * from another suite. This is NOT the full production chain — 001–003 require
- * Supabase's `auth` schema and are proven by the dedicated CI jobs.
+ * The AI-KB TAIL plus the role bootstrap, applied exactly once. Used by the
+ * tail-compatibility suite, which must NOT reset functions and must NOT
+ * inherit roles or schema from another suite. This is NOT the full production
+ * chain — 001–003 require Supabase's `auth` schema and are proven by the
+ * dedicated CI jobs.
  */
-export const CLEAN_INSTALL_CHAIN = [
-  'database/migrations/000_selfhost_roles_bootstrap.sql',
-  ...MIGRATION_CHAIN,
-];
+export const CLEAN_INSTALL_CHAIN = [ROLE_BOOTSTRAP, ...AI_KB_TAIL_MIGRATIONS];
 
 /** Minimal structural type for a connected `pg` client. */
 export interface PgQueryable {
@@ -76,10 +85,18 @@ export async function resetManagedFunctions(db: PgQueryable): Promise<void> {
   `);
 }
 
-/** Applies the chain in order from a clean function namespace. */
-export async function installMigrationChain(db: PgQueryable, files = MIGRATION_CHAIN): Promise<void> {
+/**
+ * Applies the role bootstrap, then the chain in order from a clean function
+ * namespace. The bootstrap is idempotent, so suites sharing one database never
+ * depend on another suite having created the roles.
+ */
+export async function installMigrationChain(
+  db: PgQueryable,
+  files = AI_KB_TAIL_MIGRATIONS,
+): Promise<void> {
+  await db.query(readFileSync(resolve(process.cwd(), ROLE_BOOTSTRAP), 'utf8'));
   await resetManagedFunctions(db);
-  for (const file of files) {
+  for (const file of files.filter((f) => f !== ROLE_BOOTSTRAP)) {
     await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
   }
 }

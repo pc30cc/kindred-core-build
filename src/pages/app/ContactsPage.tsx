@@ -23,8 +23,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Plus, Search, Filter, Download, Upload, MoreHorizontal, Star, Eye,
-  Mail, Phone, Users, ChevronDown, Trash2, Loader2, FileDown, X,
+  Mail, Phone, Users, ChevronDown, Trash2, Loader2, FileDown, X, Lock,
 } from 'lucide-react';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
@@ -44,6 +45,15 @@ export default function ContactsPage() {
   const { data: contacts, isLoading } = useContacts(workspace?.id);
   const createContact = useCreateContact(workspace?.id);
   const bulkDelete = useBulkDeleteContacts();
+  const { data: ents } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const can = (key: string) => ents?.features?.[key]?.value !== false;
+  const canCreate = can('contact_create');
+  const canImport = can('contact_import');
+  const canExport = can('contact_export');
+  const goBilling = () => navigate(`/app/w/${wsSlug}/billing`);
+  const lockedToast = () => {
+    toast({ title: t('contacts.featureLockedTitle'), description: t('contacts.featureLockedDesc'), variant: 'destructive' });
+  };
 
   const [importOpen, setImportOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -132,6 +142,7 @@ export default function ContactsPage() {
   };
 
   const handleExport = () => {
+    if (!canExport) { lockedToast(); goBilling(); return; }
     if (!filtered.length) {
       toast({ title: t('contacts.toastNothingToExport'), variant: 'destructive' });
       return;
@@ -240,16 +251,34 @@ export default function ContactsPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5" onClick={() => setImportOpen(true)}>
-              <Upload className="w-3.5 h-3.5" />{t('contacts.import')}
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn('h-9 text-xs gap-1.5', !canImport && 'opacity-60')}
+              onClick={() => (canImport ? setImportOpen(true) : (lockedToast(), goBilling()))}
+              title={canImport ? undefined : t('contacts.featureLockedDesc')}
+            >
+              {canImport ? <Upload className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+              {t('contacts.import')}
             </Button>
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="h-9 text-xs gap-1.5">
-                  <Plus className="w-3.5 h-3.5" />{t('contacts.newContact')}
+              {canCreate ? (
+                <DialogTrigger asChild>
+                  <Button size="sm" className="h-9 text-xs gap-1.5">
+                    <Plus className="w-3.5 h-3.5" />{t('contacts.newContact')}
+                  </Button>
+                </DialogTrigger>
+              ) : (
+                <Button
+                  size="sm"
+                  className="h-9 text-xs gap-1.5 opacity-60"
+                  onClick={() => { lockedToast(); goBilling(); }}
+                  title={t('contacts.featureLockedDesc')}
+                >
+                  <Lock className="w-3.5 h-3.5" />{t('contacts.newContact')}
                 </Button>
-              </DialogTrigger>
+              )}
               <DialogContent dir={dir}>
                 <DialogHeader>
                   <DialogTitle className="text-start">{t('contacts.addContact')}</DialogTitle>
@@ -285,7 +314,10 @@ export default function ContactsPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleExport}>
-                  <FileDown className="w-3.5 h-3.5 me-2" />{t('contacts.exportCsv')}
+                  {canExport
+                    ? <FileDown className="w-3.5 h-3.5 me-2" />
+                    : <Lock className="w-3.5 h-3.5 me-2" />}
+                  <span className={cn(!canExport && 'text-muted-foreground')}>{t('contacts.exportCsv')}</span>
                 </DropdownMenuItem>
                 {selected.size > 0 && (
                   <>

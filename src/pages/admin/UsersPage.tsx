@@ -1322,7 +1322,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.payments.map(p => (
+                  {data.payments.slice((payPage - 1) * paySize, payPage * paySize).map(p => (
                     <TableRow key={p.id}>
                       <TableCell className="whitespace-nowrap text-xs">{fmt(p.created_at)}</TableCell>
                       <TableCell className="text-xs">{wsName(p.workspace_id)}</TableCell>
@@ -1336,6 +1336,13 @@ function UserFinanceCard({ userId }: { userId: string }) {
                 </TableBody>
               </Table>
             </div>
+            <FinPager
+              total={data.payments.length}
+              page={payPage}
+              pageSize={paySize}
+              onPage={setPayPage}
+              onPageSize={setPaySize}
+            />
           </CardContent>
         </Card>
       )}
@@ -1343,11 +1350,14 @@ function UserFinanceCard({ userId }: { userId: string }) {
       {data.events.length > 0 && (
         <Card>
           <CardContent className="p-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <ScrollText className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finEvents')}
-            </h3>
+            <div>
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <ScrollText className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finEvents')}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finEventsHint')}</p>
+            </div>
             <div className="space-y-2">
-              {data.events.map(e => (
+              {data.events.slice((evtPage - 1) * evtSize, evtPage * evtSize).map(e => (
                 <div key={e.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs">
                   <div className="min-w-0">
                     <p className="font-medium">{e.event_type || '—'}</p>
@@ -1364,6 +1374,13 @@ function UserFinanceCard({ userId }: { userId: string }) {
                 </div>
               ))}
             </div>
+            <FinPager
+              total={data.events.length}
+              page={evtPage}
+              pageSize={evtSize}
+              onPage={setEvtPage}
+              onPageSize={setEvtSize}
+            />
           </CardContent>
         </Card>
       )}

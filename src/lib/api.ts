@@ -410,6 +410,46 @@ export async function adminGetUserStatus(userId: string) {
   });
 }
 
+export async function adminDeleteUserAvatar(userId: string) {
+  return request<{ success: boolean }>(`/api/admin/users/${userId}/avatar`, {
+    method: 'DELETE',
+    headers: await getAdminAuthHeaders(),
+  });
+}
+
+export interface AdminUserEmailLog {
+  id: string;
+  template_slug: string | null;
+  recipient_email: string | null;
+  subject: string | null;
+  status: string | null;
+  provider_name: string | null;
+  error_message: string | null;
+  created_at: string | null;
+  sent_at: string | null;
+}
+
+export interface AdminUserSmsLog {
+  id: string;
+  purpose: string | null;
+  delivery_status: string | null;
+  provider_name: string | null;
+  provider_message_id: string | null;
+  created_by: string | null;
+  sent_at: string | null;
+  created_at: string | null;
+  consumed_at: string | null;
+  expires_at: string | null;
+  phone_masked: string | null;
+}
+
+export async function adminGetUserMessages(userId: string, limit = 50) {
+  return request<{ emails: AdminUserEmailLog[]; sms: AdminUserSmsLog[] }>(
+    `/api/admin/users/${userId}/messages?limit=${limit}`,
+    { headers: await getAdminAuthHeaders() },
+  );
+}
+
 export async function adminImpersonateUser(userId: string) {
   return request<{ url: string }>('/api/admin/impersonate', {
     method: 'POST',

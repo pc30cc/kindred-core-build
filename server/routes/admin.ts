@@ -9,6 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
 import { issueRecoveryEmail } from '../services/auth-email.js';
+import { deleteFile } from '../services/storage/index.js';
 import { adminWidgetRouter } from './adminWidget.js';
 import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 import { adminMetricsRouter } from './adminMetrics.js';
@@ -294,5 +295,121 @@ adminRouter.post('/impersonate', async (req, res) => {
     res.json({ url: verifyUrl });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to impersonate user' });
+  }
+});
+
+// ─── Remove a user's avatar (super admin) ────────────────────────
+// Mirrors DELETE /api/account/avatar but acts on any user. The stored
+// object is removed through the active storage provider, then the
+// profile column is cleared.
+adminRouter.delete('/users/:userId/avatar', async (req, res) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const { data: profile, error: profileError } = await sb
+      .from('profiles')
+      .select('avatar_url')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profileError) return res.status(500).json({ error: profileError.message });
+    if (!profile) return res.status(404).json({ error: 'user_not_found' });
+
+    const prev = profile.avatar_url;
+    if (prev && typeof prev === 'string') {
+      const { data: membership } = await sb
+        .from('workspace_members')
+        .select('workspace_id')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle();
+      const workspaceId = membership?.workspace_id;
+      const marker = `/avatars/${userId}/`;
+      const idx = prev.indexOf(marker);
+      if (workspaceId && idx >= 0) {
+        const oldKey = prev.slice(idx + 1);
+        if (oldKey) await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+      }
+    }
+
+    const { error: updateError } = await sb
+      .from('profiles')
+      .update({ avatar_url: null, updated_at: new Date().toISOString() })
+      .eq('id', userId);
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to remove avatar' });
+  }
+});
+
+// ─── Sent messages (emails + SMS) for a user ─────────────────────
+// Emails come from `email_logs` (matched on the profile's email address),
+// SMS from `phone_verification_challenges` (delivery metadata only — the
+// code digest and full number are never returned).
+adminRouter.get('/users/:userId/messages', async (req, res) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const { data: profile } = await sb
+      .from('profiles')
+      .select('email')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const email = profile?.email?.trim().toLowerCase() || null;
+
+    const emailsQuery = email
+      ? sb
+          .from('email_logs')
+          .select('id, template_slug, recipient_email, subject, status, provider_name, error_message, created_at, sent_at')
+          .ilike('recipient_email', email)
+          .order('created_at', { ascending: false })
+          .limit(limit)
+      : null;
+
+    const [emailsRes, smsRes] = await Promise.all([
+      emailsQuery ? emailsQuery : Promise.resolve({ data: [], error: null } as any),
+      sb
+        .from('phone_verification_challenges')
+        .select('id, purpose, delivery_status, provider_name, provider_message_id, created_by, sent_at, created_at, consumed_at, expires_at, phone_e164')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit),
+    ]);
+
+    if (emailsRes.error) return res.status(500).json({ error: emailsRes.error.message });
+    if (smsRes.error) return res.status(500).json({ error: smsRes.error.message });
+
+    const maskPhone = (p: string | null) => {
+      if (!p) return null;
+      const digits = p.replace(/[^\d+]/g, '');
+      if (digits.length <= 5) return digits;
+      return `${digits.slice(0, 4)}****${digits.slice(-3)}`;
+    };
+
+    res.json({
+      emails: emailsRes.data ?? [],
+      sms: (smsRes.data ?? []).map((s: any) => ({
+        id: s.id,
+        purpose: s.purpose,
+        delivery_status: s.delivery_status,
+        provider_name: s.provider_name,
+        provider_message_id: s.provider_message_id,
+        created_by: s.created_by,
+        sent_at: s.sent_at,
+        created_at: s.created_at,
+        consumed_at: s.consumed_at,
+        expires_at: s.expires_at,
+        phone_masked: maskPhone(s.phone_e164 ?? null),
+      })),
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to load messages' });
   }
 });

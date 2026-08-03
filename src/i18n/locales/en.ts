@@ -2441,6 +2441,26 @@ const en = {
       generatedOffline: 'Generated (offline stub)',
       generationFailed: 'Generation failed',
     },
+    test: {
+      title: 'Test the AI Agent',
+      desc: 'Send a sample visitor message and see exactly what the AI would do. Nothing is sent to real visitors.',
+      messagePlaceholder: 'Type a visitor message...',
+      urlPlaceholder: 'Page URL (optional)',
+      run: 'Run test',
+      running: 'Testing...',
+      failed: 'Test failed',
+      previewAnswer: 'Preview answer',
+      sourcesUsed: 'Sources used',
+      sourcesHidden: 'The source list is hidden by your settings.',
+      confidence: 'Confidence',
+      bucket: { high: 'High', medium: 'Medium', low: 'Low' },
+      action: {
+        answer: 'AI would answer',
+        handoff: 'AI would transfer to an operator',
+        no_answer: 'AI would not answer',
+        clarification: 'AI would ask a clarifying question',
+      },
+    },
   },
   plan: {
     locked: {

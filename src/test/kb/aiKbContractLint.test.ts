@@ -9,7 +9,7 @@
  *   - fail-open reads that turn an unreadable state into an empty state
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');

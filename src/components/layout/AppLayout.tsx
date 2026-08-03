@@ -168,11 +168,10 @@ export function AppLayout() {
         <AppSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <DegradedModeBanner />
-          <main className="flex-1 overflow-y-auto">
+          <main className={`flex-1 overflow-y-auto ${showVerificationBanner ? 'pb-20' : ''}`}>
             <Outlet />
           </main>
-          {/* Verification notice sits at the BOTTOM so it never pushes the
-              page header down; resend is wired to the self-hosted mailer. */}
+          {/* Fixed floating toolbar pinned to the bottom of the viewport. */}
           {showVerificationBanner && <EmailVerificationBar />}
         </div>
         {/* Survives route changes — reads the same LiveKit room as the

@@ -107,13 +107,31 @@ export default function ContactDetailPage() {
   const BackIcon = rtl ? ArrowRight : ArrowLeft;
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-b from-secondary/40 to-background" dir={dir}>
+    <div className="flex flex-col h-full bg-background" dir={dir}>
       {/* Toolbar */}
-      <div className="sticky top-0 z-10 border-b border-border/70 bg-card/80 backdrop-blur px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/app/w/${wsSlug}/contacts`)} className="gap-1.5">
+      <div className="sticky top-0 z-10 border-b border-border bg-card px-4 sm:px-6 py-2.5 flex items-center gap-3 flex-wrap">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/app/w/${wsSlug}/contacts`)} className="gap-1.5 shrink-0">
           <BackIcon className="w-4 h-4" />{t('contacts.back')}
         </Button>
-        <div className="flex-1" />
+        <div className="w-8 h-8 rounded-md overflow-hidden bg-primary/10 flex items-center justify-center shrink-0">
+          {contact.avatar_url ? (
+            <img src={contact.avatar_url} alt={getDisplayName(contact)} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-[11px] font-bold text-primary">{getInitials(contact.name, contact.email)}</span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-sm font-semibold text-foreground truncate leading-tight">{getDisplayName(contact)}</h1>
+          <p className="text-[11px] text-muted-foreground truncate">
+            {[company, contact.email, contact.phone].filter(Boolean).join(' · ') || '—'}
+          </p>
+        </div>
+        <div className="hidden sm:flex items-center gap-3 text-[11px] text-muted-foreground shrink-0">
+          <span className="inline-flex items-center gap-1"><MessageSquare className="w-3.5 h-3.5" />{conversations?.length ?? 0}</span>
+          {contact.updated_at && (
+            <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{timeAgo(contact.updated_at)}</span>
+          )}
+        </div>
         {!editing ? (
           <>
             <Button size="sm" variant="outline" onClick={startEdit} className="gap-1.5">
@@ -154,49 +172,12 @@ export default function ContactDetailPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
-          {/* Hero */}
-          <Card className="overflow-hidden border-border/70 shadow-sm">
-            <div className="h-24 bg-gradient-to-r from-primary/80 via-primary to-primary/60" />
-            <CardContent className="p-5 sm:p-6 -mt-12">
-              <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-                <div className="w-24 h-24 rounded-2xl ring-4 ring-card bg-card shadow-md overflow-hidden flex items-center justify-center shrink-0">
-                  {contact.avatar_url ? (
-                    <img src={contact.avatar_url} alt={getDisplayName(contact)} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-2xl font-bold text-primary bg-primary/10 w-full h-full flex items-center justify-center">
-                      {getInitials(contact.name, contact.email)}
-                    </span>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0 pb-1">
-                  <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">{getDisplayName(contact)}</h1>
-                  <p className="text-sm text-muted-foreground mt-0.5 truncate">
-                    {company || contact.email || contact.phone || '—'}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {(contact.tags ?? []).length ? (
-                      (contact.tags ?? []).map((tag) => (
-                        <Badge key={tag} variant="secondary" className="text-[10px]">{tag}</Badge>
-                      ))
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">{t('contacts.noTags')}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex gap-2 sm:pb-1">
-                  <StatChip icon={MessageSquare} value={conversations?.length ?? 0} label={t('contacts.statConversations')} />
-                  <StatChip icon={Clock} value={contact.updated_at ? timeAgo(contact.updated_at) : '—'} label={t('contacts.updatedAt')} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="max-w-6xl mx-auto p-4 sm:p-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Sidebar */}
-            <Card className="lg:col-span-1 h-fit border-border/70">
-              <CardContent className="p-5">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-4">
+            <Card className="lg:col-span-1 h-fit">
+              <CardContent className="p-4">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-3">
                   {t('contacts.contactChannels')}
                 </p>
                 <div className="space-y-3.5">
@@ -206,6 +187,20 @@ export default function ContactDetailPage() {
                   <Row icon={MapPin} label={t('contacts.location')} value={location} />
                   <Row icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at) : null} />
                   <Row icon={Clock} label={t('contacts.updatedAt')} value={contact.updated_at ? formatDateTime(contact.updated_at) : null} />
+                </div>
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
+                    {t('contacts.tags')}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(contact.tags ?? []).length ? (
+                      (contact.tags ?? []).map((tag) => (
+                        <Badge key={tag} variant="secondary" className="text-[10px]">{tag}</Badge>
+                      ))
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">{t('contacts.noTags')}</span>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -311,18 +306,6 @@ export default function ContactDetailPage() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function StatChip({ icon: Icon, value, label }: { icon: any; value: string | number; label: string }) {
-  return (
-    <div className="rounded-xl border border-border/70 bg-card px-3 py-2 min-w-[104px]">
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        <Icon className="w-3.5 h-3.5" />
-        <span className="text-[10px] uppercase tracking-wide font-semibold">{label}</span>
-      </div>
-      <p className="text-sm font-bold text-foreground mt-0.5 truncate">{value}</p>
     </div>
   );
 }

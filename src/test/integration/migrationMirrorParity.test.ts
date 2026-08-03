@@ -7,9 +7,19 @@
  * functional SQL difference fails CI.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
+  {
+    label: '008 — fan-out generation semantics',
+    selfHost: 'database/migrations/008_entitlement_fanout_generations.sql',
+    hosted: 'supabase/migrations/20260803060000_entitlement_fanout_generations.sql',
+  },
+  {
+    label: '009 — fan-out cursor generation + AI-KB transactions',
+    selfHost: 'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
+    hosted: 'supabase/migrations/20260803070000_fanout_cursor_generation_and_ai_kb_tx.sql',
+  },
   {
     label: '011 — AI-KB slug namespace lock',
     selfHost: 'database/migrations/011_ai_kb_slug_namespace_lock.sql',
@@ -54,4 +64,42 @@ describe('migration mirror parity', () => {
       expect(functionalSql(hosted)).toBe(functionalSql(selfHost));
     });
   }
+});
+
+/**
+ * Chain completeness: every canonical self-host migration from 008 onward must
+ * have its hosted mirror present. A gap (as with the missing 009 mirror) is a
+ * hard failure even when the later mirrors are all there.
+ */
+const CANONICAL_ORDER = [
+  'database/migrations/008_entitlement_fanout_generations.sql',
+  'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
+  'database/migrations/010_fanout_rpc_security_and_kb_state_machine.sql',
+  'database/migrations/011_ai_kb_slug_namespace_lock.sql',
+  'database/migrations/012_ai_kb_acl_reassert_guarded.sql',
+  'database/migrations/013_public_schema_create_lockdown.sql',
+  'database/migrations/014_core_security_definer_acl_lockdown.sql',
+];
+
+describe('hosted mirror chain completeness', () => {
+  const bySelfHost = new Map(MIRRORS.map((m) => [m.selfHost, m.hosted]));
+
+  it('declares a hosted mirror for every canonical migration 008 → 014', () => {
+    const missing = CANONICAL_ORDER.filter((p) => !bySelfHost.has(p));
+    expect(missing).toEqual([]);
+  });
+
+  it('every declared hosted mirror file exists on disk', () => {
+    const absent = MIRRORS.filter((m) => !existsSync(m.hosted) || !existsSync(m.selfHost));
+    expect(absent.map((m) => m.label)).toEqual([]);
+  });
+
+  it('hosted mirror timestamps sort in canonical migration order', () => {
+    const stamps = CANONICAL_ORDER.map((p) => {
+      const hosted = bySelfHost.get(p);
+      return hosted ? hosted.split('/').pop()!.split('_')[0] : '';
+    });
+    expect(stamps).toEqual([...stamps].sort());
+    expect(new Set(stamps).size).toBe(stamps.length);
+  });
 });

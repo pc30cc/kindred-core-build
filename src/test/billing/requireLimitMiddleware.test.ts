@@ -148,6 +148,10 @@ describe("requireLimit middleware — runtime behavior", () => {
     const next = vi.fn();
     await mw(req, res, next);
     expect(next).not.toHaveBeenCalled();
-    expect(getResult().statusCode).toBe(403);
+    // R7.3 — an UNREADABLE usage counter is an outage, not a quota denial.
+    // 403 told the customer they were over a limit the server never read and
+    // pushed them toward an upgrade; 503 says "retry" and stays truthful.
+    expect(getResult().statusCode).toBe(503);
+    expect(getResult().body?.retryable).toBe(true);
   });
 });

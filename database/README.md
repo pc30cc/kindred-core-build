@@ -48,12 +48,35 @@ evidence for another:
 | --- | --- | --- |
 | **AI-KB tail migration compatibility** | `000` + `007`→`012` only | stock `postgres:16`, pristine, no function reset, no pre-seeded roles |
 | **Hosted Supabase full migration chain** | every file in `supabase/migrations`, real timestamp order, via `supabase db reset` | Supabase CLI stack |
-| **Self-host full migration chain** | every file in `database/migrations`, `000`→`012`, filename order, `ON_ERROR_STOP=1` | `supabase/postgres` image (ships the `auth` schema 001–003 need) |
+| **Self-host full migration chain** | every file in `database/migrations`, `000`→`012`, filename order, `ON_ERROR_STOP=1` | `supabase/postgres:15.8.1.060` + the **official** `supabase/auth:v2.194.0` (`auth migrate`) |
+
+The self-host job bootstraps auth the way a self-hoster does: the pinned GoTrue
+image runs `auth migrate` against the database *before* the chain is applied, so
+`auth.users` and `auth.schema_migrations` come from the official Auth migrations
+— never from a handcrafted fixture. `verify-selfhost-chain.sql` fails if
+`auth.users`, `auth.schema_migrations` (non-empty), `auth.uid()` or `auth.jwt()`
+is absent.
 
 Both full-chain jobs then run `scripts/ci/verify-hosted-chain.sql` /
 `scripts/ci/verify-selfhost-chain.sql` for structure and
 `scripts/ci/verify-migration-security.sql` for the privilege posture. The tail
 job is a compatibility check, **not** full-chain release evidence.
+
+### Live `service_role` execution proof
+
+`verify-migration-security.sql` proves both directions inside transactions that
+are rolled back:
+
+* **Denial** — `anon` and `authenticated` are `SET LOCAL ROLE`-ed into and每
+  each of the nine RPCs is really called (18 combinations).
+* **Execution** — `service_role` runs the complete fan-out lifecycle for real
+  (`enqueue → claim → advance → complete`, plus the `fail` retry path) and all
+  four AI-KB RPCs, asserting their actual return values.
+
+The script **requires** `-v require_ai_kb=0|1` and aborts without it. `1`
+(hosted chain) makes the live AI-KB proof mandatory; `0` (self-host chain,
+whose AI-KB tables ship only in `supabase/migrations`) limits the live proof to
+the fan-out lifecycle.
 
 ### Rules
 

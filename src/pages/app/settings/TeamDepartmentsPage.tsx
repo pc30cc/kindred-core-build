@@ -31,6 +31,7 @@ import {
 
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
+import { useTranslation } from '@/i18n';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { supabase } from '@/lib/supabase';
@@ -81,6 +82,7 @@ export function isCustomerFacingRole(role: string | null | undefined): boolean {
 }
 
 export default function TeamDepartmentsPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { workspace } = useActiveWorkspace();
   const wsPath = useWorkspacePath();
@@ -112,7 +114,7 @@ export default function TeamDepartmentsPage() {
 
   const removeDept = useMutation({
     mutationFn: (id: string) => deleteDepartment(wsId!, id),
-    onSuccess: () => { toast.success('Department deleted'); invalidateDepts(); },
+    onSuccess: () => { toast.success(t('teamDept.toastDeptDeleted')); invalidateDepts(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -189,7 +191,7 @@ export default function TeamDepartmentsPage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success('Member removed');
+      toast.success(t('teamDept.toastMemberRemoved'));
       qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -210,14 +212,12 @@ export default function TeamDepartmentsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground flex items-center gap-2">
             <Users className="h-6 w-6" />
-            Team & Departments
+            {t('teamDept.title')}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-            People who handle visitor chats and calls, and the departments
-            that route them. For internal access (billing, SEO, analytics,
-            developers), see{' '}
+            {t('teamDept.subtitleBefore')}
             <Link to={wsPath('/settings/staff-access')} className="text-primary hover:underline">
-              Staff Access
+              {t('teamDept.staffAccess')}
             </Link>.
           </p>
         </div>
@@ -229,14 +229,14 @@ export default function TeamDepartmentsPage() {
           <div>
             <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
               <Building2 className="h-4 w-4 text-muted-foreground" />
-              Departments
+              {t('teamDept.departments')}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Route visitors to the right team. Pick the channels each department handles.
+              {t('teamDept.departmentsHint')}
             </p>
           </div>
           <Button onClick={() => setShowCreateDept(true)} size="sm">
-            <Plus className="h-4 w-4 me-2" /> New department
+            <Plus className="h-4 w-4 me-2" /> {t('teamDept.newDepartment')}
           </Button>
         </div>
 
@@ -248,13 +248,12 @@ export default function TeamDepartmentsPage() {
               <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center">
                 <Building2 className="h-6 w-6 text-muted-foreground" />
               </div>
-              <p className="font-medium text-foreground">No departments yet</p>
+              <p className="font-medium text-foreground">{t('teamDept.noDepartments')}</p>
               <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
-                Without departments, every conversation goes to the General Pool.
-                Add one to route by team — Sales, Support, Billing.
+                {t('teamDept.noDepartmentsHint')}
               </p>
               <Button variant="outline" onClick={() => setShowCreateDept(true)}>
-                <Plus className="h-4 w-4 me-2" /> New department
+                <Plus className="h-4 w-4 me-2" /> {t('teamDept.newDepartment')}
               </Button>
             </div>
           ) : (
@@ -264,34 +263,34 @@ export default function TeamDepartmentsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-foreground truncate">{d.name}</span>
-                      {!d.enabled && <Badge variant="outline" className="text-[10px]">Disabled</Badge>}
+                      {!d.enabled && <Badge variant="outline" className="text-[10px]">{t('teamDept.disabledBadge')}</Badge>}
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                      {d.chat_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Live Chat</span>}
-                      {d.tickets_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Tickets</span>}
-                      {d.audio_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Chat Widget Voice</span>}
-                      {d.video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Chat Widget Video</span>}
-                      {d.cc_voice_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Call Center Voice</span>}
-                      {d.cc_video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Call Center Video</span>}
-                      {d.cc_callback_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Call Center Callback</span>}
+                      {d.chat_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {t('teamDept.chLiveChat')}</span>}
+                      {d.tickets_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {t('teamDept.chTickets')}</span>}
+                      {d.audio_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {t('teamDept.chWidgetVoice')}</span>}
+                      {d.video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> {t('teamDept.chWidgetVideo')}</span>}
+                      {d.cc_voice_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {t('teamDept.chCcVoice')}</span>}
+                      {d.cc_video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> {t('teamDept.chCcVideo')}</span>}
+                      {d.cc_callback_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {t('teamDept.chCcCallback')}</span>}
                       {!d.chat_enabled && !d.tickets_enabled && !d.audio_enabled && !d.video_enabled
                         && !d.cc_voice_enabled && !d.cc_video_enabled && !d.cc_callback_enabled && (
-                        <span className="italic">No channels enabled</span>
+                        <span className="italic">{t('teamDept.noChannels')}</span>
                       )}
                     </div>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => setMembersFor(d)}>
-                    <Users className="h-4 w-4 me-1" /> Members
+                    <Users className="h-4 w-4 me-1" /> {t('teamDept.membersBtn')}
                   </Button>
                   <Switch
                     checked={d.enabled}
                     onCheckedChange={(v) => toggleEnabled.mutate({ id: d.id, enabled: v })}
                   />
-                  <Button variant="ghost" size="sm" onClick={() => setEditingDept(d)}>Edit</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setEditingDept(d)}>{t('teamDept.editBtn')}</Button>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => { if (confirm(`Delete department "${d.name}"?`)) removeDept.mutate(d.id); }}
+                    onClick={() => { if (confirm(t('teamDept.deleteDeptConfirm', { name: d.name }))) removeDept.mutate(d.id); }}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -308,30 +307,29 @@ export default function TeamDepartmentsPage() {
           <div>
             <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
               <Users className="h-4 w-4 text-muted-foreground" />
-              Team members
+              {t('teamDept.teamMembers')}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              People who handle visitors. Assign departments inline — anyone
-              without one stays in the General Pool.
+              {t('teamDept.teamMembersHint')}
             </p>
           </div>
           <Button onClick={() => setShowInvite(true)} size="sm">
-            <UserPlus className="h-4 w-4 me-2" /> Invite member
+            <UserPlus className="h-4 w-4 me-2" /> {t('teamDept.inviteMember')}
           </Button>
         </div>
 
         <Card className="overflow-hidden border-border/60">
           <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
             <div className="text-xs text-muted-foreground">
-              {customerMembers.length} member{customerMembers.length === 1 ? '' : 's'}
+              {t('teamDept.memberCount', { count: String(customerMembers.length) })}
             </div>
             <div className="relative w-full max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search by name or email"
-                className="pl-9 h-9 text-xs"
+                placeholder={t('teamDept.searchPlaceholder')}
+                className="ps-9 h-9 text-xs"
               />
             </div>
           </div>
@@ -341,18 +339,18 @@ export default function TeamDepartmentsPage() {
           ) : visibleMembers.length === 0 ? (
             <div className="py-12 text-center">
               {search ? (
-                <p className="text-sm text-muted-foreground">No members match your search.</p>
+                <p className="text-sm text-muted-foreground">{t('teamDept.noSearchResults')}</p>
               ) : (
                 <>
                   <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center">
                     <UserPlus className="h-6 w-6 text-muted-foreground" />
                   </div>
-                  <p className="font-medium text-foreground">No team members yet</p>
+                  <p className="font-medium text-foreground">{t('teamDept.noMembers')}</p>
                   <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
-                    Invite the first person who will handle visitor chats and calls.
+                    {t('teamDept.noMembersHint')}
                   </p>
                   <Button variant="outline" onClick={() => setShowInvite(true)}>
-                    <UserPlus className="h-4 w-4 me-2" /> Invite member
+                    <UserPlus className="h-4 w-4 me-2" /> {t('teamDept.inviteMember')}
                   </Button>
                 </>
               )}
@@ -375,7 +373,7 @@ export default function TeamDepartmentsPage() {
                       </div>
                       <span
                         aria-hidden
-                        title={isOnline ? 'Online' : 'Offline'}
+                        title={isOnline ? t('teamDept.online') : t('teamDept.offline')}
                         className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background ${isOnline ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
                       />
                     </div>
@@ -384,7 +382,7 @@ export default function TeamDepartmentsPage() {
                         <span className="text-sm font-medium text-foreground truncate">
                           {m.profile?.full_name || '—'}
                         </span>
-                        {isCurrent && <Badge variant="outline" className="text-[9px] px-1.5 py-0">you</Badge>}
+                        {isCurrent && <Badge variant="outline" className="text-[9px] px-1.5 py-0">{t('teamDept.youBadge')}</Badge>}
                         {isOwner && <Crown className="w-3.5 h-3.5 text-amber-400" />}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
@@ -397,13 +395,13 @@ export default function TeamDepartmentsPage() {
                         userId: m.user_id,
                         name: m.profile?.full_name || m.profile?.email || 'member',
                       })}
-                      title={userDepts.length ? userDepts.join(', ') : 'No department — receives via General Pool'}
+                      title={userDepts.length ? userDepts.join(', ') : t('teamDept.noDeptTooltip')}
                       className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors max-w-[200px]"
                     >
                       <Building2 className="w-3 h-3 shrink-0" />
                       <span className="truncate">
                         {userDepts.length === 0
-                          ? 'General Pool'
+                          ? t('teamDept.generalPool')
                           : userDepts.length === 1
                             ? userDepts[0]
                             : `${userDepts[0]} +${userDepts.length - 1}`}
@@ -425,14 +423,14 @@ export default function TeamDepartmentsPage() {
                             })}
                           >
                             <Building2 className="w-3.5 h-3.5 me-2" />
-                            Manage departments
+                            {t('teamDept.manageDepartments')}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => removeMember.mutate(m.id)}
                             className="text-destructive focus:text-destructive"
                           >
                             <Trash2 className="w-3.5 h-3.5 me-2" />
-                            Remove member
+                            {t('teamDept.removeMember')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -450,10 +448,10 @@ export default function TeamDepartmentsPage() {
         <div className="flex items-start gap-3 text-sm">
           <ArrowRight className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
           <div className="text-muted-foreground">
-            <span className="text-foreground font-medium">Need to grant billing, SEO, or analytics access?</span>{' '}
-            Manage internal access on{' '}
+            <span className="text-foreground font-medium">{t('teamDept.pointerTitle')}</span>{' '}
+            {t('teamDept.pointerTextBefore')}
             <Link to={wsPath('/settings/staff-access')} className="text-primary hover:underline">
-              Staff Access
+              {t('teamDept.staffAccess')}
             </Link>.
           </div>
         </div>
@@ -517,6 +515,7 @@ function DepartmentDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     name: department?.name || '',
     enabled: department?.enabled ?? true,
@@ -535,7 +534,7 @@ function DepartmentDialog({
       ? createDepartment(workspaceId, form)
       : updateDepartment(workspaceId, department!.id, form),
     onSuccess: () => {
-      toast.success(mode === 'create' ? 'Department created' : 'Department updated');
+      toast.success(mode === 'create' ? t('teamDept.toastDeptCreated') : t('teamDept.toastDeptUpdated'));
       onSaved(); onClose();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -545,64 +544,64 @@ function DepartmentDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{mode === 'create' ? 'New department' : 'Edit department'}</DialogTitle>
+          <DialogTitle>{mode === 'create' ? t('teamDept.dlgNewDept') : t('teamDept.dlgEditDept')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-5 py-2">
           <div className="space-y-1.5">
-            <Label className="text-xs">Name</Label>
+            <Label className="text-xs">{t('teamDept.fieldName')}</Label>
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Sales, Support, Billing"
+              placeholder={t('teamDept.namePlaceholder')}
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Sort order</Label>
+            <Label className="text-xs">{t('teamDept.sortOrder')}</Label>
             <Input
               type="number"
               value={form.sort_order}
               onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) || 0 })}
             />
-            <p className="text-[11px] text-muted-foreground">Lower numbers appear first.</p>
+            <p className="text-[11px] text-muted-foreground">{t('teamDept.sortOrderHint')}</p>
           </div>
           <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Messaging</Label>
-            <ToggleRow label="Live Chat" checked={form.chat_enabled}
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpMessaging')}</Label>
+            <ToggleRow label={t('teamDept.chLiveChat')} checked={form.chat_enabled}
               onChange={(v) => setForm({ ...form, chat_enabled: v })} />
-            <ToggleRow label="Tickets" checked={form.tickets_enabled}
+            <ToggleRow label={t('teamDept.chTickets')} checked={form.tickets_enabled}
               onChange={(v) => setForm({ ...form, tickets_enabled: v })} />
           </div>
           <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Chat Widget Calls</Label>
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpWidgetCalls')}</Label>
             <p className="text-[11px] text-muted-foreground -mt-1">
-              Calls started from inside the chat widget / inbox.
+              {t('teamDept.grpWidgetCallsHint')}
             </p>
-            <ToggleRow label="Chat Widget Voice Call" checked={form.audio_enabled}
+            <ToggleRow label={t('teamDept.tgWidgetVoice')} checked={form.audio_enabled}
               onChange={(v) => setForm({ ...form, audio_enabled: v })} />
-            <ToggleRow label="Chat Widget Video Call" checked={form.video_enabled}
+            <ToggleRow label={t('teamDept.tgWidgetVideo')} checked={form.video_enabled}
               onChange={(v) => setForm({ ...form, video_enabled: v })} />
           </div>
           <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Standalone Call Center</Label>
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpCallCenter')}</Label>
             <p className="text-[11px] text-muted-foreground -mt-1">
-              Calls from the separate Call Center widget and Live Desk.
+              {t('teamDept.grpCallCenterHint')}
             </p>
-            <ToggleRow label="Call Center Voice Call" checked={form.cc_voice_enabled}
+            <ToggleRow label={t('teamDept.tgCcVoice')} checked={form.cc_voice_enabled}
               onChange={(v) => setForm({ ...form, cc_voice_enabled: v })} />
-            <ToggleRow label="Call Center Video Call" checked={form.cc_video_enabled}
+            <ToggleRow label={t('teamDept.tgCcVideo')} checked={form.cc_video_enabled}
               onChange={(v) => setForm({ ...form, cc_video_enabled: v })} />
-            <ToggleRow label="Call Center Callback" checked={form.cc_callback_enabled}
+            <ToggleRow label={t('teamDept.tgCcCallback')} checked={form.cc_callback_enabled}
               onChange={(v) => setForm({ ...form, cc_callback_enabled: v })} />
           </div>
           <div className="rounded-md border border-border/60 p-3">
-            <ToggleRow label="Department enabled" checked={form.enabled}
+            <ToggleRow label={t('teamDept.deptEnabled')} checked={form.enabled}
               onChange={(v) => setForm({ ...form, enabled: v })} />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{t('teamDept.cancel')}</Button>
           <Button onClick={() => save.mutate()} disabled={!form.name.trim() || save.isPending}>
-            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />} Save
+            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />} {t('teamDept.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -618,6 +617,7 @@ function DeptMembersDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const { data: allWsMembers = [] } = useWorkspaceMembers(workspaceId);
   // Departments are customer-facing routing buckets, so the picker only
   // surfaces customer-facing members. Internal staff (billing, SEO,
@@ -636,7 +636,7 @@ function DeptMembersDialog({
 
   const save = useMutation({
     mutationFn: () => setDepartmentMembers(workspaceId, department.id, Array.from(sel)),
-    onSuccess: () => { toast.success('Members updated'); onSaved(); onClose(); },
+    onSuccess: () => { toast.success(t('teamDept.toastMembersUpdated')); onSaved(); onClose(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -650,18 +650,18 @@ function DeptMembersDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{department.name} — members</DialogTitle>
+          <DialogTitle>{t('teamDept.dlgDeptMembersTitle', { name: department.name })}</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground -mt-2">
-          Pick the team members who handle this department.
+          {t('teamDept.dlgDeptMembersHint')}
         </p>
         <div className="space-y-1 max-h-[50vh] overflow-y-auto py-2">
           {members.length === 0 ? (
             <div className="text-center py-8">
               <Users className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
-              <p className="text-sm font-medium text-foreground">No team members yet</p>
+              <p className="text-sm font-medium text-foreground">{t('teamDept.noMembers')}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Invite one from Team members above.
+                {t('teamDept.dlgNoMembersHint')}
               </p>
             </div>
           ) : (
@@ -678,9 +678,9 @@ function DeptMembersDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{t('teamDept.cancel')}</Button>
           <Button onClick={() => save.mutate()} disabled={save.isPending}>
-            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />} Save
+            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />} {t('teamDept.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -696,6 +696,7 @@ function MemberDepartmentsDialog({
   memberName: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: departments = [] } = useQuery({
     queryKey: ['ws-departments-list', workspaceId],
@@ -750,7 +751,7 @@ function MemberDepartmentsDialog({
       }
     },
     onSuccess: () => {
-      toast.success('Departments updated');
+      toast.success(t('teamDept.toastDeptsUpdated'));
       queryClient.invalidateQueries({ queryKey: ['ws-departments-overview', workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['ws-department-member-assignments', workspaceId, memberUserId] });
       onClose();
@@ -768,15 +769,15 @@ function MemberDepartmentsDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Assign departments — {memberName}</DialogTitle>
+          <DialogTitle>{t('teamDept.dlgAssignDepts', { name: memberName })}</DialogTitle>
         </DialogHeader>
         <div className="space-y-1 max-h-[50vh] overflow-y-auto py-2">
           {departments.length === 0 ? (
             <div className="text-center py-8">
               <Building2 className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
-              <p className="text-sm font-medium text-foreground">No departments yet</p>
+              <p className="text-sm font-medium text-foreground">{t('teamDept.noDepartments')}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Create one from Departments above to assign members.
+                {t('teamDept.dlgNoDeptsHint')}
               </p>
             </div>
           ) : (
@@ -787,7 +788,7 @@ function MemberDepartmentsDialog({
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-foreground truncate">{d.name}</div>
                   {!d.enabled && (
-                    <div className="text-[10px] text-muted-foreground mt-0.5">Disabled</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{t('teamDept.disabledBadge')}</div>
                   )}
                 </div>
               </label>
@@ -795,12 +796,12 @@ function MemberDepartmentsDialog({
           )}
         </div>
         <p className="text-xs text-muted-foreground border-t border-border/60 pt-3">
-          With no departments selected, this member stays in the General Pool.
+          {t('teamDept.generalPoolNote')}
         </p>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{t('teamDept.cancel')}</Button>
           <Button onClick={() => save.mutate()} disabled={save.isPending}>
-            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />} Save
+            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />} {t('teamDept.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -829,6 +830,7 @@ export function InviteMemberDialog({
   mode: 'customer' | 'staff';
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   // Customer-facing members all share one base operator role
@@ -866,7 +868,7 @@ export function InviteMemberDialog({
       const url = `${window.location.origin}/auth/invite?token=${inv.token}`;
       setLink(url);
       navigator.clipboard.writeText(url);
-      toast.success('Invitation link copied');
+      toast.success(t('teamDept.toastInviteCopied'));
       queryClient.invalidateQueries({ queryKey: ['ws-invitations', workspaceId] });
       // Best-effort email
       if (email.trim() && API_BASE) {
@@ -893,23 +895,23 @@ export function InviteMemberDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {mode === 'customer' ? 'Invite team member' : 'Invite staff member'}
+            {mode === 'customer' ? t('teamDept.dlgInviteTeam') : t('teamDept.dlgInviteStaff')}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-5 py-2">
           <div className="space-y-1.5">
-            <Label className="text-xs">Email (optional)</Label>
+            <Label className="text-xs">{t('teamDept.emailOptional')}</Label>
             <Input type="email" value={email} dir="ltr"
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
               className="text-left text-xs" />
             <p className="text-[11px] text-muted-foreground">
-              If provided, we'll email the invitation automatically.
+              {t('teamDept.emailHint')}
             </p>
           </div>
           {mode === 'staff' ? (
             <div className="space-y-1.5">
-              <Label className="text-xs">Internal access</Label>
+              <Label className="text-xs">{t('teamDept.internalAccess')}</Label>
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -923,24 +925,23 @@ export function InviteMemberDialog({
             </div>
           ) : (
             <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground leading-relaxed">
-              Joins as a team member who handles visitor chats and calls.
-              Assign departments after they accept — without one, they stay in the General Pool.
+              {t('teamDept.customerInviteNote')}
             </div>
           )}
           {link && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1.5">
-              <p className="text-xs font-medium text-foreground">Invitation link (copied to clipboard)</p>
+              <p className="text-xs font-medium text-foreground">{t('teamDept.inviteLinkCopiedTitle')}</p>
               <Input value={link} readOnly dir="ltr" className="font-mono text-[11px]" />
             </div>
           )}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
+          <Button variant="ghost" onClick={onClose}>{t('teamDept.close')}</Button>
           <Button onClick={() => create.mutate()} disabled={create.isPending}>
             {create.isPending
               ? <Loader2 className="h-4 w-4 me-2 animate-spin" />
               : <Mail className="h-4 w-4 me-2" />}
-            {link ? 'Generate another' : 'Generate invite'}
+            {link ? t('teamDept.generateAnother') : t('teamDept.generateInvite')}
           </Button>
         </DialogFooter>
       </DialogContent>

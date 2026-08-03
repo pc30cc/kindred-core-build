@@ -479,7 +479,7 @@ export const aiAgentApi = {
   getRunsPaged: (workspaceId: string, opts: { page?: number; pageSize?: number; search?: string; filter?: string } = {}) => {
     const p = new URLSearchParams({ workspaceId });
     p.set('page', String(opts.page ?? 1));
-    p.set('pageSize', String(opts.pageSize ?? 25));
+    p.set('pageSize', String(opts.pageSize ?? 20));
     p.set('filter', opts.filter ?? 'all');
     if (opts.search) p.set('search', opts.search);
     return jsonFetch(`/api/ai-agent/runs?${p.toString()}`) as Promise<{ runs: any[]; page: number; pageSize: number; total: number; totalPages: number }>;

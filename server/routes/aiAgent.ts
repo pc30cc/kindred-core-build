@@ -758,7 +758,7 @@ aiAgentRouter.get('/runs', async (req: Request, res: Response) => {
   if (hasPaging) {
     const result = await listRunsPaged(config, workspaceId, {
       page: parseInt(String(req.query.page || '1'), 10) || 1,
-      pageSize: parseInt(String(req.query.pageSize || '25'), 10) || 25,
+      pageSize: parseInt(String(req.query.pageSize || '20'), 10) || 20,
       search: req.query.search ? String(req.query.search) : undefined,
       filter: req.query.filter ? String(req.query.filter) : undefined,
     });

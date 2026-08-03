@@ -191,6 +191,15 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
     route: 'GET /api/ai-kb/source',
   });
   if (!entitled.ok) {
+    // R7.2 — the upgrade-discovery payload is only truthful when the denial is
+    // AUTHORITATIVE. A 503 denial means the entitlement could not be read, and
+    // rendering "upgrade required" for it would push the customer to pay for
+    // something they may already own.
+    if ((entitled.denial?.status ?? 403) >= 500) {
+      return res
+        .status(entitled.denial!.status)
+        .json({ error: entitled.denial!.body.error, retryable: true });
+    }
     return res.json({
       source: {
         domain: null, kind: null, workspace_domain_id: null,
@@ -470,6 +479,15 @@ aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => 
   const result = (data || {}) as { ok?: boolean; error?: string };
   if (!result.ok) {
     if (result.error === 'not_found') return res.status(404).json({ error: 'not_found' });
+    // R7.2 §B — an illegal transition (e.g. rejecting an already published
+    // draft) is a client-visible conflict, not a server fault. Returning 500
+    // here made a deterministic refusal look like an outage worth retrying.
+    if (result.error === 'invalid_state') {
+      return res.status(409).json({
+        error: 'invalid_state',
+        current_status: (data as any)?.current_status ?? null,
+      });
+    }
     return res.status(500).json({ error: 'reject_failed' });
   }
   return res.json({ ok: true });
@@ -490,6 +508,7 @@ aiKbRouter.post('/generated/:id/reject', async (req: Request, res: Response) => 
 interface ApplyGeneratedResult {
   ok: boolean;
   error?: string;
+  current_status?: string;
   kb_article_id?: string;
   status?: string;
   slug?: string;
@@ -502,8 +521,10 @@ async function applyGeneratedDraft(
   userId: string,
   mode: 'accept' | 'publish',
 ): Promise<{ result?: ApplyGeneratedResult; transportError?: unknown }> {
-  // Ensure the row always has a usable slug seed before the RPC dedupes it.
-  if (!gen.slug) gen.slug = slugifyTitle(gen.title);
+  // R7.2 §C — the title-derived slug is a SEED handed to the transaction, not
+  // a local mutation of `gen`. Assigning `gen.slug` only changed an in-memory
+  // copy the RPC never saw, so a draft without a stored slug always fell back
+  // to the generic `article-<id>` slug inside the database.
   const { data, error } = await sb.rpc(
     mode === 'accept' ? 'accept_ai_kb_generated_article' : 'publish_ai_kb_generated_article',
     {
@@ -511,10 +532,29 @@ async function applyGeneratedDraft(
       _workspace_id: gen.workspace_id,
       _reviewer: userId,
       _content: normalizeArticleHtml(gen.content_md),
+      _slug_seed: gen.slug || slugifyTitle(gen.title),
     },
   );
   if (error) return { transportError: error };
   return { result: (data || { ok: false }) as ApplyGeneratedResult };
+}
+
+/** Shared terminal handling for an unsuccessful accept/publish transaction. */
+function respondApplyFailure(
+  res: Response,
+  result: ApplyGeneratedResult | undefined,
+  fallback: 'accept_failed' | 'publish_failed',
+  generatedId: string,
+): Response {
+  if (result?.error === 'not_found') return res.status(404).json({ error: 'not_found' });
+  if (result?.error === 'invalid_state') {
+    return res.status(409).json({
+      error: 'invalid_state',
+      current_status: result.current_status ?? null,
+    });
+  }
+  logInternal(fallback, new Error(result?.error || 'unknown'), { generatedId });
+  return res.status(500).json({ error: fallback });
 }
 
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
@@ -529,9 +569,7 @@ aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => 
     return res.status(503).json({ error: 'ai_kb_status_unavailable' });
   }
   if (!result?.ok) {
-    if (result?.error === 'not_found') return res.status(404).json({ error: 'not_found' });
-    logInternal('accept_failed', new Error(result?.error || 'unknown'), { generatedId: gen.id });
-    return res.status(500).json({ error: 'accept_failed' });
+    return respondApplyFailure(res, result, 'accept_failed', gen.id);
   }
   return res.json({ ok: true, kb_article_id: result.kb_article_id });
 });
@@ -551,9 +589,7 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
     return res.status(503).json({ error: 'ai_kb_status_unavailable' });
   }
   if (!result?.ok) {
-    if (result?.error === 'not_found') return res.status(404).json({ error: 'not_found' });
-    logInternal('publish_failed', new Error(result?.error || 'unknown'), { generatedId: gen.id });
-    return res.status(500).json({ error: 'publish_failed' });
+    return respondApplyFailure(res, result, 'publish_failed', gen.id);
   }
   // The transaction itself is the proof of publication: the article row was
   // written with status='published' in the same statement that linked it.
@@ -615,10 +651,24 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   }
 
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
-  const failed: Array<{ generated_id: string; error: 'publish_failed' }> = [];
+  const failed: Array<{
+    generated_id: string;
+    error: 'publish_failed' | 'invalid_state';
+    current_status?: string | null;
+  }> = [];
   for (const gen of drafts || []) {
     const { result, transportError } = await applyGeneratedDraft(sb, gen, auth.userId, 'publish');
     if (transportError || !result?.ok || !result.kb_article_id) {
+      // A draft another operator already rejected is reported as a conflict,
+      // not as an anonymous failure the caller cannot interpret.
+      if (!transportError && result?.error === 'invalid_state') {
+        failed.push({
+          generated_id: gen.id,
+          error: 'invalid_state',
+          current_status: result.current_status ?? null,
+        });
+        continue;
+      }
       logInternal(
         'bulk_publish_failed',
         transportError ?? new Error(result?.error || 'unknown'),
@@ -727,6 +777,20 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
   ]);
 
   const capabilities = await readAiKbCapabilities(config, workspaceId);
+
+  // R7.2 — diagnostics that silently report "0 queued, 0 running, 0 failed"
+  // on an unreadable table are worse than no diagnostics: an operator uses
+  // this page to decide whether the worker is stuck.
+  const countError =
+    (queuedRes as any).error || (runningRes as any).error ||
+    (failedRes as any).error || (latestRes as any).error;
+  if (countError) {
+    console.error('[ai-kb] diagnostics lookup failed', JSON.stringify({ code: countError.code }));
+    return res.status(503).json({ error: 'ai_kb_status_unavailable' });
+  }
+  if (capabilities.platform_status_unavailable) {
+    return res.status(503).json({ error: 'ai_platform_status_unavailable' });
+  }
 
   const latest: any = (latestRes as any).data || null;
 

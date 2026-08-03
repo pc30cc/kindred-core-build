@@ -97,6 +97,21 @@ export default function AiKbBuilderTab() {
       toast.success(action === 'publish' ? 'Published' : action === 'accept' ? 'Saved as KB draft' : 'Rejected');
       await refresh();
     } catch (e: any) {
+      // A refused transition means someone else already moved this draft —
+      // re-sync so the operator sees the real state instead of a stale row.
+      if (e?.code === 'invalid_state') {
+        toast.error(
+          e.currentStatus
+            ? `This draft is already "${e.currentStatus}" and can no longer be ${action}ed.`
+            : 'This draft was already reviewed by someone else.',
+        );
+        await refresh();
+        return;
+      }
+      if (e?.retryable) {
+        toast.error('The knowledge base is temporarily unavailable. Please try again.');
+        return;
+      }
       toast.error(e?.message || 'Action failed');
     }
   };

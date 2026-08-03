@@ -6,6 +6,36 @@ import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
+/**
+ * Phase 6-S5-R7.2 — review mutations return real HTTP status codes:
+ *   409 invalid_state          → another operator already moved this draft
+ *   503 ai_kb_status_unavailable → transient, retry
+ * Previously accept/reject/publish returned `res.json()` unconditionally, so
+ * a refused transition rendered as a success toast.
+ */
+export class AiKbApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly currentStatus: string | null;
+  readonly retryable: boolean;
+
+  constructor(status: number, body: Record<string, any>) {
+    const code = typeof body?.error === 'string' ? body.error : 'ai_kb_request_failed';
+    super(code);
+    this.name = 'AiKbApiError';
+    this.status = status;
+    this.code = code;
+    this.currentStatus = typeof body?.current_status === 'string' ? body.current_status : null;
+    this.retryable = status >= 500;
+  }
+}
+
+async function parse<T>(res: Response): Promise<T> {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new AiKbApiError(res.status, body);
+  return body as T;
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -33,7 +63,16 @@ export interface AiKbSourceResponse {
     can_start_job: boolean;
   };
   credits: { used: number; limit: number; remaining: number; period: string };
-  modules: { knowledge_base: boolean; ai_kb_builder: boolean };
+  modules: {
+    knowledge_base: boolean;
+    ai_assistant: boolean;
+    ai_kb_builder: boolean;
+    platform_enabled: boolean;
+    /** Platform state unreadable — show a retry state, never an upgrade CTA. */
+    platform_status_unavailable: boolean;
+    /** Plan lookup unreadable — the booleans above are NOT authoritative. */
+    entitlement_status_unavailable: boolean;
+  };
   is_global_admin?: boolean;
 }
 
@@ -67,16 +106,25 @@ export const aiKbApi = {
     return res.json();
   },
   async accept(id: string) {
-    const res = await fetch(`${API_BASE}/api/ai-kb/generated/${id}/accept`, { method: 'POST', headers: await authHeaders() });
-    return res.json();
+    return parse<{ ok: true; kb_article_id?: string }>(
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/accept`, {
+        method: 'POST', headers: await authHeaders(),
+      }),
+    );
   },
   async reject(id: string) {
-    const res = await fetch(`${API_BASE}/api/ai-kb/generated/${id}/reject`, { method: 'POST', headers: await authHeaders() });
-    return res.json();
+    return parse<{ ok: true }>(
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/reject`, {
+        method: 'POST', headers: await authHeaders(),
+      }),
+    );
   },
   async publish(id: string) {
-    const res = await fetch(`${API_BASE}/api/ai-kb/generated/${id}/publish`, { method: 'POST', headers: await authHeaders() });
-    return res.json();
+    return parse<{ ok: true; kb_article_id?: string; slug?: string; locale?: string }>(
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/publish`, {
+        method: 'POST', headers: await authHeaders(),
+      }),
+    );
   },
   async publishAll(jobId: string) {
     const res = await fetch(`${API_BASE}/api/ai-kb/jobs/${jobId}/publish-all`, {

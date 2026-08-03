@@ -37,6 +37,7 @@
     "public/widget/vendor/livekit-client.umd.min.js": {},
     "scripts/lint-baseline-core.mjs": {},
     "scripts/lint-baseline.mjs": {},
+    "scripts/lint-changed-core.mjs": {},
     "scripts/lint-changed.mjs": {},
     "scripts/widget-hash.js": {},
     "server/config.ts": {},
@@ -1667,6 +1668,7 @@
     },
     "src/test/billing/zarinpalProvider.test.ts": {},
     "src/test/billing/zibalProvider.test.ts": {},
+    "src/test/ci/verificationIntegrity.test.ts": {},
     "src/test/example.test.ts": {},
     "src/test/integration/aiKbMutationStateMachine.pg.test.ts": {
       "@typescript-eslint/no-explicit-any": 5

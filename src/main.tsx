@@ -3,6 +3,7 @@ import App from "./App.tsx";
 import "./index.css";
 import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
+import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";
 import { CALL_VIDEO_ORIENTATION_CORRECTION_MODE } from "./features/calls/videoOrientation";
 
 function logCallUiBuildVersion() {
@@ -46,6 +47,8 @@ function logCallUiBuildVersion() {
 
 // Set dir/lang immediately to prevent layout flash
 const storedLocale = getStoredLocale();
+installLocalizedDateDefaults();
+setAppDateLocale(storedLocale);
 loadFontsForLocale(storedLocale);
 document.documentElement.lang = storedLocale;
 document.documentElement.dir = ['fa', 'ar'].includes(storedLocale) ? 'rtl' : 'ltr';

@@ -15,8 +15,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import {
-  ArrowLeft, Mail, Phone, MapPin, Building2, Calendar, MessageSquare,
-  Trash2, Edit3, Save, X, Loader2, Activity, User as UserIcon,
+  ArrowLeft, ArrowRight, Mail, Phone, MapPin, Building2, Calendar, MessageSquare,
+  Trash2, Edit3, Save, X, Loader2, Activity, User as UserIcon, StickyNote, Clock,
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from '@/hooks/use-toast';
@@ -29,6 +29,7 @@ import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyAction
 
 export default function ContactDetailPage() {
   const { t, dir } = useTranslation();
+  const rtl = dir === 'rtl';
   const { id, slug: wsSlug } = useParams();
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id);
@@ -60,12 +61,12 @@ export default function ContactDetailPage() {
         email: form.email || null,
         phone: form.phone || null,
         notes: form.notes || null,
-        tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
       } as any);
-      toast({ title: 'Contact updated' });
+      toast({ title: t('contacts.toastUpdated') });
       setEditing(false);
     } catch (e: any) {
-      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
 
@@ -73,26 +74,28 @@ export default function ContactDetailPage() {
     if (!contact) return;
     try {
       await deleteMutation.mutateAsync(contact.id);
-      toast({ title: 'Contact deleted' });
+      toast({ title: t('contacts.toastDeleted') });
       navigate(`/app/w/${wsSlug}/contacts`);
     } catch (e: any) {
-      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
+      <div className="flex flex-col items-center justify-center py-24 gap-3" dir={dir}>
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">{t('contacts.loading')}</p>
       </div>
     );
   }
+
   if (!contact) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 gap-3">
-        <p className="text-muted-foreground">Contact not found</p>
+      <div className="flex flex-col items-center justify-center py-24 gap-3" dir={dir}>
+        <p className="text-muted-foreground">{t('contacts.notFound')}</p>
         <Link to={`/app/w/${wsSlug}/contacts`}>
-          <Button variant="outline">Back to contacts</Button>
+          <Button variant="outline">{t('contacts.backToContacts')}</Button>
         </Link>
       </div>
     );
@@ -100,36 +103,40 @@ export default function ContactDetailPage() {
 
   const company = getCompanyFromMetadata(contact);
   const loc = getLocationFromMetadata(contact);
+  const location = [loc.city, loc.country].filter(Boolean).join('، ') || null;
+  const BackIcon = rtl ? ArrowRight : ArrowLeft;
 
   return (
-    <div className="flex flex-col h-full bg-background" dir={dir}>
-      {/* Header */}
-      <div className="border-b border-border bg-card px-5 py-3 flex items-center gap-3">
+    <div className="flex flex-col h-full bg-gradient-to-b from-secondary/40 to-background" dir={dir}>
+      {/* Toolbar */}
+      <div className="sticky top-0 z-10 border-b border-border/70 bg-card/80 backdrop-blur px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap">
         <Button variant="ghost" size="sm" onClick={() => navigate(`/app/w/${wsSlug}/contacts`)} className="gap-1.5">
-          <ArrowLeft className="w-4 h-4" />Back
+          <BackIcon className="w-4 h-4" />{t('contacts.back')}
         </Button>
         <div className="flex-1" />
         {!editing ? (
           <>
             <Button size="sm" variant="outline" onClick={startEdit} className="gap-1.5">
-              <Edit3 className="w-3.5 h-3.5" />Edit
+              <Edit3 className="w-3.5 h-3.5" />{t('contacts.edit')}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
-                  <Trash2 className="w-3.5 h-3.5" />Delete
+                  <Trash2 className="w-3.5 h-3.5" />{t('contacts.delete')}
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent>
+              <AlertDialogContent dir={dir}>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete contact?</AlertDialogTitle>
+                  <AlertDialogTitle>{t('contacts.deleteOneTitle')}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete <strong>{getDisplayName(contact)}</strong>.
+                    {t('contacts.deleteOneDesc', { name: getDisplayName(contact) })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                  <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    {t('contacts.delete')}
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -137,144 +144,170 @@ export default function ContactDetailPage() {
         ) : (
           <>
             <Button size="sm" variant="outline" onClick={() => setEditing(false)} className="gap-1.5">
-              <X className="w-3.5 h-3.5" />Cancel
+              <X className="w-3.5 h-3.5" />{t('contacts.cancel')}
             </Button>
             <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} className="gap-1.5">
-              {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5" />Save</>}
+              {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5" />{t('contacts.save')}</>}
             </Button>
           </>
         )}
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Sidebar */}
-          <Card className="lg:col-span-1 h-fit">
-            <CardContent className="p-5">
-              <div className="flex flex-col items-center text-center">
-                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-2xl font-bold text-primary mb-3">
+        <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
+          {/* Hero */}
+          <Card className="overflow-hidden border-border/70 shadow-sm">
+            <div className="h-24 bg-gradient-to-r from-primary/80 via-primary to-primary/60" />
+            <CardContent className="p-5 sm:p-6 -mt-12">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+                <div className="w-24 h-24 rounded-2xl ring-4 ring-card bg-card shadow-md overflow-hidden flex items-center justify-center shrink-0">
                   {contact.avatar_url ? (
-                    <img src={contact.avatar_url} alt="" className="w-20 h-20 rounded-full object-cover" />
+                    <img src={contact.avatar_url} alt={getDisplayName(contact)} className="w-full h-full object-cover" />
                   ) : (
-                    getInitials(contact.name, contact.email)
+                    <span className="text-2xl font-bold text-primary bg-primary/10 w-full h-full flex items-center justify-center">
+                      {getInitials(contact.name, contact.email)}
+                    </span>
                   )}
                 </div>
-                <h2 className="text-base font-bold text-foreground">{getDisplayName(contact)}</h2>
-                {company && <p className="text-xs text-muted-foreground mt-0.5">{company}</p>}
-                <div className="flex flex-wrap gap-1 justify-center mt-3">
-                  {(contact.tags ?? []).map((tag) => (
-                    <Badge key={tag} variant="secondary" className="text-[10px]">{tag}</Badge>
-                  ))}
+                <div className="flex-1 min-w-0 pb-1">
+                  <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">{getDisplayName(contact)}</h1>
+                  <p className="text-sm text-muted-foreground mt-0.5 truncate">
+                    {company || contact.email || contact.phone || '—'}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {(contact.tags ?? []).length ? (
+                      (contact.tags ?? []).map((tag) => (
+                        <Badge key={tag} variant="secondary" className="text-[10px]">{tag}</Badge>
+                      ))
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">{t('contacts.noTags')}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              <div className="mt-5 pt-5 border-t border-border space-y-3">
-                <Row icon={Mail} label="Email" value={contact.email} />
-                <Row icon={Phone} label="Phone" value={contact.phone} />
-                <Row icon={Building2} label="Company" value={company} />
-                <Row icon={MapPin} label="Location" value={[loc.city, loc.country].filter(Boolean).join(', ') || null} />
-                <Row icon={Calendar} label="Created" value={contact.created_at ? new Date(contact.created_at).toLocaleString() : null} />
-                <Row icon={Calendar} label="Last update" value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
+                <div className="flex gap-2 sm:pb-1">
+                  <StatChip icon={MessageSquare} value={conversations?.length ?? 0} label={t('contacts.statConversations')} />
+                  <StatChip icon={Clock} value={contact.updated_at ? timeAgo(contact.updated_at) : '—'} label={t('contacts.updatedAt')} />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Main */}
-          <div className="lg:col-span-2">
-            <Tabs defaultValue={editing ? 'profile' : 'conversations'}>
-              <TabsList>
-                <TabsTrigger value="profile" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />Profile</TabsTrigger>
-                <TabsTrigger value="conversations" className="gap-1.5"><MessageSquare className="w-3.5 h-3.5" />Conversations</TabsTrigger>
-                <TabsTrigger value="activity" className="gap-1.5"><Activity className="w-3.5 h-3.5" />Activity</TabsTrigger>
-              </TabsList>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Sidebar */}
+            <Card className="lg:col-span-1 h-fit border-border/70">
+              <CardContent className="p-5">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-4">
+                  {t('contacts.contactChannels')}
+                </p>
+                <div className="space-y-3.5">
+                  <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
+                  <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
+                  <Row icon={Building2} label={t('contacts.company')} value={company} />
+                  <Row icon={MapPin} label={t('contacts.location')} value={location} />
+                  <Row icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at) : null} />
+                  <Row icon={Clock} label={t('contacts.updatedAt')} value={contact.updated_at ? formatDateTime(contact.updated_at) : null} />
+                </div>
+              </CardContent>
+            </Card>
 
-              <TabsContent value="profile" className="mt-4">
-                <Card>
-                  <CardContent className="p-5 space-y-4">
-                    {editing ? (
-                      <>
-                        <Field label="Name"><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} /></Field>
-                        <Field label="Email"><Input type="email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></Field>
-                        <Field label="Phone"><Input value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></Field>
-                        <Field label="Tags (comma-separated)"><Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} /></Field>
-                        <Field label="Notes"><Textarea rows={5} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field>
-                      </>
-                    ) : (
-                      <div className="space-y-3 text-sm">
-                        {(contact as any).notes ? (
-                          <div>
-                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Notes</p>
-                            <p className="whitespace-pre-wrap text-foreground">{(contact as any).notes}</p>
-                          </div>
-                        ) : (
-                          <p className="text-muted-foreground italic text-sm">No notes yet. Click Edit to add some.</p>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
+            {/* Main */}
+            <div className="lg:col-span-2">
+              <Tabs defaultValue={editing ? 'profile' : 'conversations'}>
+                <TabsList className="w-full justify-start flex-wrap h-auto">
+                  <TabsTrigger value="profile" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />{t('contacts.tabInfo')}</TabsTrigger>
+                  <TabsTrigger value="conversations" className="gap-1.5"><MessageSquare className="w-3.5 h-3.5" />{t('contacts.tabChats')}</TabsTrigger>
+                  <TabsTrigger value="activity" className="gap-1.5"><Activity className="w-3.5 h-3.5" />{t('contacts.tabActivity')}</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="conversations" className="mt-4">
-                <Card>
-                  <CardContent className="p-0">
-                    <ScrollArea className="max-h-[500px]">
-                      {!conversations?.length ? (
-                        <div className="text-center py-16 text-muted-foreground">
-                          <MessageSquare className="w-10 h-10 mx-auto mb-2 text-muted-foreground/30" />
-                          <p className="text-sm">No conversations yet</p>
-                        </div>
+                <TabsContent value="profile" className="mt-4">
+                  <Card className="border-border/70">
+                    <CardContent className="p-5 space-y-4">
+                      {editing ? (
+                        <>
+                          <Field label={t('contacts.name')}><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} /></Field>
+                          <Field label={t('contacts.email')}><Input type="email" dir="ltr" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></Field>
+                          <Field label={t('contacts.phone')}><Input dir="ltr" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></Field>
+                          <Field label={t('contacts.tagsComma')}><Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} /></Field>
+                          <Field label={t('contacts.notes')}><Textarea rows={5} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field>
+                        </>
                       ) : (
-                        <div className="divide-y divide-border">
-                          {conversations.map((conv: any) => (
-                            <div
-                              key={conv.id}
-                              className="p-4 hover:bg-secondary/40 cursor-pointer transition-colors"
-                              onClick={() => navigate(`/app/w/${wsSlug}/inbox`)}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium text-sm text-foreground line-clamp-1">
-                                    {conv.subject || `Conversation #${conv.id.slice(0, 8)}`}
-                                  </p>
-                                  <div className="flex items-center gap-2 mt-1.5">
-                                    <span className={cn(
-                                      'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
-                                      conv.status === 'open' ? 'bg-success/15 text-success' :
-                                      conv.status === 'pending' ? 'bg-warning/15 text-warning' :
-                                      'bg-muted text-muted-foreground'
-                                    )}>
-                                      {conv.status}
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground">
-                                      {timeAgo(conv.updated_at)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                        <div className="space-y-3 text-sm">
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <StickyNote className="w-3.5 h-3.5" />
+                            <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
+                          </div>
+                          {(contact as any).notes ? (
+                            <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
+                              {(contact as any).notes}
+                            </p>
+                          ) : (
+                            <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
+                              {t('contacts.notesEmpty')}
+                            </p>
+                          )}
                         </div>
                       )}
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
 
-              <TabsContent value="activity" className="mt-4">
-                <Card>
-                  <CardContent className="p-5 space-y-3">
-                    <ActivityRow time={contact.created_at} label="Contact was created" />
-                    {contact.updated_at !== contact.created_at && (
-                      <ActivityRow time={contact.updated_at} label="Contact was updated" />
-                    )}
-                  </CardContent>
-                </Card>
-                <div className="mt-4">
-                  <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact)} />
-                </div>
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="conversations" className="mt-4">
+                  <Card className="border-border/70">
+                    <CardContent className="p-0">
+                      <ScrollArea className="max-h-[500px]">
+                        {!conversations?.length ? (
+                          <div className="text-center py-16 text-muted-foreground">
+                            <MessageSquare className="w-10 h-10 mx-auto mb-2 text-muted-foreground/30" />
+                            <p className="text-sm">{t('contacts.noConversations')}</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-border">
+                            {conversations.map((conv: any) => (
+                              <div
+                                key={conv.id}
+                                className="p-4 hover:bg-secondary/50 cursor-pointer transition-colors"
+                                onClick={() => navigate(`/app/w/${wsSlug}/inbox`)}
+                              >
+                                <p className="font-medium text-sm text-foreground line-clamp-1">
+                                  {conv.subject || t('contacts.conversationFallback', { id: conv.id.slice(0, 8) })}
+                                </p>
+                                <div className="flex items-center gap-2 mt-1.5">
+                                  <span className={cn(
+                                    'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+                                    conv.status === 'open' ? 'bg-success/15 text-success' :
+                                    conv.status === 'pending' ? 'bg-warning/15 text-warning' :
+                                    'bg-muted text-muted-foreground'
+                                  )}>
+                                    {conv.status === 'open' ? t('contacts.statusOpen') :
+                                     conv.status === 'pending' ? t('contacts.statusPending') :
+                                     t('contacts.statusClosed')}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">{timeAgo(conv.updated_at)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="activity" className="mt-4">
+                  <Card className="border-border/70">
+                    <CardContent className="p-5 space-y-3">
+                      <ActivityRow time={contact.created_at} label={t('contacts.activityCreated')} />
+                      {contact.updated_at !== contact.created_at && (
+                        <ActivityRow time={contact.updated_at} label={t('contacts.activityUpdated')} />
+                      )}
+                    </CardContent>
+                  </Card>
+                  <div className="mt-4">
+                    <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact)} />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
           </div>
         </div>
       </div>
@@ -282,10 +315,24 @@ export default function ContactDetailPage() {
   );
 }
 
+function StatChip({ icon: Icon, value, label }: { icon: any; value: string | number; label: string }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-card px-3 py-2 min-w-[104px]">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <Icon className="w-3.5 h-3.5" />
+        <span className="text-[10px] uppercase tracking-wide font-semibold">{label}</span>
+      </div>
+      <p className="text-sm font-bold text-foreground mt-0.5 truncate">{value}</p>
+    </div>
+  );
+}
+
 function Row({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3">
-      <Icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+      <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+        <Icon className="w-4 h-4 text-muted-foreground" />
+      </div>
       <div className="flex-1 min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
         <p className="text-sm text-foreground truncate">{value || '—'}</p>
@@ -309,7 +356,7 @@ function ActivityRow({ time, label }: { time?: string | null; label: string }) {
       <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
       <div className="flex-1">
         <p className="text-sm text-foreground">{label}</p>
-        <p className="text-[11px] text-muted-foreground">{time ? new Date(time).toLocaleString() : ''}</p>
+        <p className="text-[11px] text-muted-foreground">{time ? formatDateTime(time) : ''}</p>
       </div>
     </div>
   );

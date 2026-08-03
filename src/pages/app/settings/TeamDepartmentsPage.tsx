@@ -324,12 +324,12 @@ export default function TeamDepartmentsPage() {
               {t('teamDept.memberCount', { count: String(customerMembers.length) })}
             </div>
             <div className="relative w-full max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={t('teamDept.searchPlaceholder')}
-                className="pl-9 h-9 text-xs"
+                className="ps-9 h-9 text-xs"
               />
             </div>
           </div>

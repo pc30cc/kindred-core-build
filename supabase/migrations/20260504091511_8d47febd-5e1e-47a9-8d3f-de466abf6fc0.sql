@@ -4,6 +4,14 @@ DECLARE
   ws uuid := '6ee40d07-32a3-4594-8a5f-d439f81afa5b';
 BEGIN
 
+-- Production-specific AI agent seed for a hosted tenant. On a pristine
+-- local/reset database that workspace does not exist, so this optional
+-- operational configuration is skipped cleanly instead of violating the
+-- workspace_id foreign keys below.
+IF NOT EXISTS (SELECT 1 FROM public.workspaces w WHERE w.id = ws) THEN
+  RETURN;
+END IF;
+
 UPDATE ai_agent_settings SET
   agent_name = 'Destekly Asistan',
   business_description = 'Destekly, küçük ve orta ölçekli işletmeler için tasarlanmış bir müşteri destek platformudur. Canlı sohbet widget''ı, AI agent, sesli/görüntülü görüşme, bilgi tabanı, ziyaretçi takibi ve operatör paneli sunar. Web sitemiz: https://destekly.tr',

@@ -28,8 +28,19 @@ const REVIEWER = '0000eeee-0000-4000-8000-0000000000ff';
 suite('AI-KB generated-article mutations (PostgreSQL)', () => {
   type PgClient = {
     query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
-    connect(): Promise<void>;
-    end(): Promise<void>;
+    connect(): Promise<unknown>;
+    end(): Promise<unknown>;
+  };
+  /** Loose shapes: these rows/JSON payloads come straight from PostgreSQL. */
+  type Row = { id: string; slug: string | null; [k: string]: unknown };
+  type Rpc = {
+    ok?: boolean;
+    error?: string;
+    current_status?: string;
+    kb_article_id?: string;
+    slug?: string;
+    status?: string;
+    [k: string]: unknown;
   };
   let db: PgClient;
   let Client: new (cfg: { connectionString?: string }) => PgClient;
@@ -81,7 +92,7 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
 
   afterAll(async () => { if (db) await db.end(); });
 
-  const seed = async (over: Record<string, unknown> = {}) => {
+  const seed = async (over: Record<string, unknown> = {}): Promise<Row> => {
     seq += 1;
     const r = await db.query(
       `INSERT INTO public.ai_kb_generated_articles
@@ -94,12 +105,12 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
         'summary', '<p>body</p>', over.locale ?? 'en',
       ],
     );
-    return r.rows[0];
+    return r.rows[0] as unknown as Row;
   };
 
-  const call = async (fn: string, args: unknown[], on: PgClient = db) => {
+  const call = async (fn: string, args: unknown[], on: PgClient = db): Promise<Rpc> => {
     const ph = args.map((_, i) => `$${i + 1}`).join(',');
-    return (await on.query(`SELECT public.${fn}(${ph}) AS r`, args)).rows[0].r;
+    return (await on.query(`SELECT public.${fn}(${ph}) AS r`, args)).rows[0].r as Rpc;
   };
   const accept = (id: string, ws = WS, content = '<p>x</p>', seed?: string) =>
     call('accept_ai_kb_generated_article', [id, ws, REVIEWER, content, seed ?? null]);
@@ -108,9 +119,9 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
   const reject = (id: string, ws = WS) =>
     call('reject_ai_kb_generated_article', [id, ws, REVIEWER]);
 
-  const statusOf = async (id: string) =>
+  const statusOf = async (id: string): Promise<string> =>
     (await db.query('SELECT status FROM public.ai_kb_generated_articles WHERE id=$1', [id]))
-      .rows[0].status;
+      .rows[0].status as string;
 
   // ── State machine ────────────────────────────────────────────
   describe('state machine', () => {
@@ -314,7 +325,7 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
       )).rows;
       expect(rows.length).toBe(SECDEF.length);
       for (const r of rows) {
-        expect(r.prosecdef, r.proname).toBe(true);
+        expect(r.prosecdef, String(r.proname)).toBe(true);
         // A NULL ACL means "default", i.e. EXECUTE granted to PUBLIC.
         expect(r.acl, `${r.proname} has a default (PUBLIC-executable) ACL`).not.toBeNull();
         expect(r.acl, `${r.proname} grants PUBLIC`).not.toMatch(/(^|,)=X/);

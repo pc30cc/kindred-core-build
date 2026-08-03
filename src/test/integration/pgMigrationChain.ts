@@ -23,17 +23,23 @@ export const MIGRATION_CHAIN = [
 ];
 
 /**
- * Phase 6-S5-R7.4 §11 — the chain a CLEAN self-host install runs, including
- * the role bootstrap. Used by the clean-install suite, which must NOT reset
- * functions and must NOT inherit roles or schema from another suite.
+ * The AI-KB TAIL plus the role bootstrap. Used by the tail-compatibility
+ * suite, which must NOT reset functions and must NOT inherit roles or schema
+ * from another suite. This is NOT the full production chain — 001–003 require
+ * Supabase's `auth` schema and are proven by the dedicated CI jobs.
  */
 export const CLEAN_INSTALL_CHAIN = [
   'database/migrations/000_selfhost_roles_bootstrap.sql',
   ...MIGRATION_CHAIN,
 ];
 
+/** Minimal structural type for a connected `pg` client. */
+export interface PgQueryable {
+  query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
+}
+
 /** Applies files in exact order WITHOUT resetting anything first. */
-export async function applyChainClean(db: any, files = CLEAN_INSTALL_CHAIN): Promise<void> {
+export async function applyChainClean(db: PgQueryable, files = CLEAN_INSTALL_CHAIN): Promise<void> {
   for (const file of files) {
     await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
   }
@@ -53,7 +59,7 @@ const MANAGED_FUNCTIONS = [
 ];
 
 /** Drops every overload of every function this chain owns. */
-export async function resetManagedFunctions(db: any): Promise<void> {
+export async function resetManagedFunctions(db: PgQueryable): Promise<void> {
   await db.query(`
     DO $reset$
     DECLARE r record;
@@ -71,7 +77,7 @@ export async function resetManagedFunctions(db: any): Promise<void> {
 }
 
 /** Applies the chain in order from a clean function namespace. */
-export async function installMigrationChain(db: any, files = MIGRATION_CHAIN): Promise<void> {
+export async function installMigrationChain(db: PgQueryable, files = MIGRATION_CHAIN): Promise<void> {
   await resetManagedFunctions(db);
   for (const file of files) {
     await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));

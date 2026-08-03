@@ -8,6 +8,7 @@
     "build": "vite build && node scripts/widget-hash.js",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
+    "lint:changed": "node scripts/lint-changed.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",

@@ -436,8 +436,83 @@ export default function ContactDetailPage() {
                   </Card>
                 </TabsContent>
 
+                <TabsContent value="calls" className="mt-4">
+                  <Card className="border-border/70">
+                    <CardContent className="p-0">
+                      {hasCalls && (
+                        <div className={cn('px-4 py-2.5 border-b border-border text-[11px] text-muted-foreground', rtl && 'text-right')}>
+                          {t('contacts.callTotals', { count: String(callList.length), duration: formatDuration(totalTalk) })}
+                        </div>
+                      )}
+                      <ScrollArea className="max-h-[500px]">
+                        {!hasCalls ? (
+                          <div className="text-center py-16 text-muted-foreground">
+                            <PhoneCall className="w-10 h-10 mx-auto mb-2 text-muted-foreground/30" />
+                            <p className="text-sm">{t('contacts.noCalls')}</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-border">
+                            {callList.map((call) => {
+                              const TypeIcon = call.call_type === 'video' || call.call_type === 'screenshare' ? Video : PhoneCall;
+                              return (
+                                <div
+                                  key={call.id}
+                                  className={cn('p-4 transition-colors', rtl && 'text-right', call.conversation_id && 'hover:bg-secondary/50 cursor-pointer')}
+                                  onClick={() => call.conversation_id && navigate(`/app/w/${wsSlug}/inbox?c=${call.conversation_id}`)}
+                                >
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+                                      <TypeIcon className="w-3.5 h-3.5 text-primary" />
+                                      {callTypeLabel(call.call_type, t)}
+                                    </span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-secondary text-muted-foreground">
+                                      {call.direction === 'outbound' ? t('contacts.callDirectionOutbound') : t('contacts.callDirectionInbound')}
+                                    </span>
+                                    <span className={cn(
+                                      'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+                                      call.state === 'ended' ? 'bg-muted text-muted-foreground' :
+                                      call.state === 'missed' || call.state === 'failed' ? 'bg-destructive/10 text-destructive' :
+                                      'bg-success/15 text-success',
+                                    )}>
+                                      {callStateLabel(call.state, t)}
+                                    </span>
+                                    {call.recording_available ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary">
+                                        <Mic className="w-3 h-3" />
+                                        {t('contacts.callRecordingAvailable')}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px] text-muted-foreground">
+                                    <span className="inline-flex items-center gap-1">
+                                      <Timer className="w-3 h-3" />
+                                      {t('contacts.callDuration')}: {formatDuration(call.duration_seconds)}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1">
+                                      <Hourglass className="w-3 h-3" />
+                                      {t('contacts.callWait')}: {formatDuration(call.wait_seconds)}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1">
+                                      <UserIcon className="w-3 h-3" />
+                                      {call.agent_name || t('contacts.callNoAgent')}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      {formatDateTime(call.created_at)}
+                                    </span>
+                                    <span>{formatRelative(call.created_at)}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
                 <TabsContent value="notes" className="mt-4">
-                  {null}
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-3">
                       {editing ? (

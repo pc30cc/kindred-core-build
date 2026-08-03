@@ -19,6 +19,26 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolveVisitorGeo, type GeoResult } from '../geo/index.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+
+/**
+ * Plan gate for IP exposure. The `contact_ip_visibility` capability governs
+ * every IP surface in the product (contacts *and* visitors). When the plan
+ * does not include it, no IP value — raw or masked — ever leaves the server.
+ */
+async function isIpVisibilityEntitled(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  try {
+    const r = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      workspaceId,
+      'contact_ip_visibility',
+    );
+    return r.allowed === true;
+  } catch {
+    return false;
+  }
+}
 
 export interface VisitorIntelligenceItem {
   // Identity
@@ -45,6 +65,7 @@ export interface VisitorIntelligenceItem {
   ip_display: string;            // always present (masked or hash-derived placeholder)
   ip_raw: string | null;         // populated only when can_view_raw_ip AND we have it
   can_view_raw_ip: boolean;      // role-based capability flag
+  ip_locked: boolean;            // true when the plan does not include IP visibility
 
   // Linkage
   contact: { id: string; name: string | null; email: string | null; avatar_url: string | null } | null;
@@ -108,7 +129,8 @@ export async function listVisitorIntelligence(
     }
   } catch { /* keep default */ }
   const since = new Date(Date.now() - staleMs).toISOString();
-  const canViewRaw = isAdminRole(opts.viewerRole ?? null);
+  const ipEntitled = await isIpVisibilityEntitled(config, workspaceId);
+  const canViewRaw = ipEntitled && isAdminRole(opts.viewerRole ?? null);
 
   const { data: rows, error } = await sb
     .from('visitor_presence')
@@ -203,11 +225,10 @@ export async function listVisitorIntelligence(
       geo,
       // Admin-only: surface real raw IP when the workspace toggle persisted it.
       // Everyone else gets a stable hash-anchored placeholder.
-      ip_display: canViewRaw && session.ip_raw
-        ? session.ip_raw
-        : buildIpDisplay(session.ip_hash),
-      ip_raw: canViewRaw ? (session.ip_raw ?? null) : null,
+      ip_display: !ipEntitled ? '' : (canViewRaw && (session as any).ip_raw ? (session as any).ip_raw : buildIpDisplay(session.ip_hash)),
+      ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
       can_view_raw_ip: canViewRaw,
+      ip_locked: !ipEntitled,
       contact,
       conversation: conv ? { id: conv.id, status: conv.status, subject: conv.subject } : null,
     });
@@ -223,7 +244,8 @@ export async function getVisitorIntelligence(
   opts: { viewerRole?: string | null } = {},
 ): Promise<VisitorIntelligenceItem | null> {
   const sb = getServiceClient(config);
-  const canViewRaw = isAdminRole(opts.viewerRole ?? null);
+  const ipEntitled = await isIpVisibilityEntitled(config, workspaceId);
+  const canViewRaw = ipEntitled && isAdminRole(opts.viewerRole ?? null);
 
   const { data: presence } = await sb
     .from('visitor_presence')
@@ -266,11 +288,10 @@ export async function getVisitorIntelligence(
       last_activity_at: session.last_seen_at, started_at: session.started_at,
       browser: session.browser, device: session.device, os: session.os, referrer: session.referrer,
       geo,
-      ip_display: canViewRaw && (session as any).ip_raw
-        ? (session as any).ip_raw
-        : buildIpDisplay(session.ip_hash),
+      ip_display: !ipEntitled ? '' : (canViewRaw && (session as any).ip_raw ? (session as any).ip_raw : buildIpDisplay(session.ip_hash)),
       ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
       can_view_raw_ip: canViewRaw,
+      ip_locked: !ipEntitled,
       contact: offlineContact, conversation: null,
     };
   }
@@ -308,11 +329,10 @@ export async function getVisitorIntelligence(
     started_at: session.started_at,
     browser: session.browser, device: session.device, os: session.os, referrer: session.referrer,
     geo,
-    ip_display: canViewRaw && session.ip_raw
-      ? session.ip_raw
-      : buildIpDisplay(session.ip_hash),
-    ip_raw: canViewRaw ? (session.ip_raw ?? null) : null,
+    ip_display: !ipEntitled ? '' : (canViewRaw && (session as any).ip_raw ? (session as any).ip_raw : buildIpDisplay(session.ip_hash)),
+    ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
     can_view_raw_ip: canViewRaw,
+    ip_locked: !ipEntitled,
     contact,
     conversation: conv ? { id: conv.id, status: conv.status, subject: conv.subject } : null,
   };

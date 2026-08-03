@@ -152,6 +152,6 @@ describe("requireLimit middleware — runtime behavior", () => {
     // 403 told the customer they were over a limit the server never read and
     // pushed them toward an upgrade; 503 says "retry" and stays truthful.
     expect(getResult().statusCode).toBe(503);
-    expect(getResult().body?.retryable).toBe(true);
+    expect(getResult().jsonBody?.retryable).toBe(true);
   });
 });

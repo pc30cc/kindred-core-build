@@ -79,6 +79,9 @@ vi.mock("../../../server/services/ai-agent/platformGuards.js", () => ({
 }));
 vi.mock("../../../server/services/knowledge-base/access.js", () => ({
   checkKnowledgeBasePermission: async () => null,
+  // R7.2 — the AI-KB gate now distinguishes "denied" from "could not be
+  // evaluated"; the granted path must be modelled explicitly.
+  checkKnowledgeBasePermissionDetailed: async () => "granted",
 }));
 
 vi.mock("../../../server/services/billing/usageResolvers.js", () => ({

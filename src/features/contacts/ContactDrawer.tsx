@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from '@/i18n';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ interface Props {
 
 export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const navigate = useNavigate();
+  const { t, dir } = useTranslation();
   const { wsSlug } = useParams();
   const { data: contact, isLoading } = useContact(contactId ?? undefined);
   const { data: conversations } = useContactConversations(contactId ?? undefined);
@@ -62,10 +64,10 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
         notes: form.notes || null,
         tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
       } as any);
-      toast({ title: 'Contact updated' });
+      toast({ title: t('contacts.toastUpdated') });
       setEditing(false);
     } catch (e: any) {
-      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
 
@@ -73,10 +75,10 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
     if (!contact) return;
     try {
       await deleteMutation.mutateAsync(contact.id);
-      toast({ title: 'Contact deleted' });
+      toast({ title: t('contacts.toastDeleted') });
       onOpenChange(false);
     } catch (e: any) {
-      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
 
@@ -85,14 +87,14 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+      <SheetContent side={dir === 'rtl' ? 'left' : 'right'} dir={dir} className="w-full sm:max-w-md p-0 flex flex-col">
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
           </div>
         ) : !contact ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            Contact not found
+            {t('contacts.notFound')}
           </div>
         ) : (
           <>
@@ -128,11 +130,11 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   }}
                 >
                   <ExternalLink className="w-3 h-3 me-1.5" />
-                  Open full page
+                  {t('contacts.openFullPage')}
                 </Button>
                 {!editing && (
                   <Button size="sm" className="h-8 text-xs" onClick={startEdit}>
-                    Edit
+                    {t('contacts.edit')}
                   </Button>
                 )}
               </div>
@@ -141,13 +143,13 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
             <Tabs defaultValue="info" className="flex-1 flex flex-col overflow-hidden">
               <TabsList className="mx-5 mt-3 grid grid-cols-3 h-9">
                 <TabsTrigger value="info" className="text-xs">
-                  <UserIcon className="w-3.5 h-3.5 me-1" />Info
+                  <UserIcon className="w-3.5 h-3.5 me-1" />{t('contacts.tabInfo')}
                 </TabsTrigger>
                 <TabsTrigger value="conversations" className="text-xs">
-                  <MessageSquare className="w-3.5 h-3.5 me-1" />Chats
+                  <MessageSquare className="w-3.5 h-3.5 me-1" />{t('contacts.tabChats')}
                 </TabsTrigger>
                 <TabsTrigger value="activity" className="text-xs">
-                  <Activity className="w-3.5 h-3.5 me-1" />Activity
+                  <Activity className="w-3.5 h-3.5 me-1" />{t('contacts.tabActivity')}
                 </TabsTrigger>
               </TabsList>
 
@@ -156,44 +158,44 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   {editing ? (
                     <div className="space-y-3">
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Name</Label>
+                        <Label className="text-xs">{t('contacts.name')}</Label>
                         <Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} className="h-9" />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Email</Label>
+                        <Label className="text-xs">{t('contacts.email')}</Label>
                         <Input type="email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} className="h-9" />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Phone</Label>
+                        <Label className="text-xs">{t('contacts.phone')}</Label>
                         <Input value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} className="h-9" />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Tags (comma-separated)</Label>
+                        <Label className="text-xs">{t('contacts.tagsComma')}</Label>
                         <Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} className="h-9" />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Notes</Label>
+                        <Label className="text-xs">{t('contacts.notes')}</Label>
                         <Textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={4} />
                       </div>
                       <div className="flex gap-2 pt-1">
                         <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} className="flex-1">
-                          {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5 me-1.5" />Save</>}
+                          {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5 me-1.5" />{t('contacts.save')}</>}
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditing(false)} className="flex-1">Cancel</Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditing(false)} className="flex-1">{t('contacts.cancel')}</Button>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <InfoRow icon={Mail} label="Email" value={contact.email} />
-                      <InfoRow icon={Phone} label="Phone" value={contact.phone} />
-                      <InfoRow icon={Building2} label="Company" value={company} />
-                      <InfoRow icon={MapPin} label="Location" value={[location.city, location.country].filter(Boolean).join(', ') || null} />
-                      <InfoRow icon={Calendar} label="Created" value={contact.created_at ? new Date(contact.created_at).toLocaleString() : null} />
-                      <InfoRow icon={Calendar} label="Updated" value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
+                      <InfoRow icon={Mail} label={t('contacts.email')} value={contact.email} />
+                      <InfoRow icon={Phone} label={t('contacts.phone')} value={contact.phone} />
+                      <InfoRow icon={Building2} label={t('contacts.company')} value={company} />
+                      <InfoRow icon={MapPin} label={t('contacts.location')} value={[location.city, location.country].filter(Boolean).join(', ') || null} />
+                      <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? new Date(contact.created_at).toLocaleString() : null} />
+                      <InfoRow icon={Calendar} label={t('contacts.updatedAt')} value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
                       {(contact.tags ?? []).length > 0 && (
                         <div className="space-y-1.5 pt-2">
                           <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1.5">
-                            <Tag className="w-3 h-3" />Tags
+                            <Tag className="w-3 h-3" />{t('contacts.tagsLabel')}
                           </p>
                           <div className="flex flex-wrap gap-1.5">
                             {(contact.tags ?? []).map((tag) => (
@@ -204,7 +206,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       )}
                       {(contact as any).notes && (
                         <div className="space-y-1.5 pt-2 border-t border-border">
-                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">Notes</p>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">{t('contacts.notes')}</p>
                           <p className="text-sm text-foreground whitespace-pre-wrap">{(contact as any).notes}</p>
                         </div>
                       )}
@@ -212,20 +214,20 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="outline" size="sm" className="w-full mt-4 text-destructive border-destructive/30 hover:bg-destructive/10">
-                            <Trash2 className="w-3.5 h-3.5 me-1.5" />Delete contact
+                            <Trash2 className="w-3.5 h-3.5 me-1.5" />{t('contacts.deleteContact')}
                           </Button>
                         </AlertDialogTrigger>
-                        <AlertDialogContent>
+                        <AlertDialogContent dir={dir}>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Delete this contact?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete <strong>{getDisplayName(contact)}</strong>. Conversations linked to them will remain but lose the contact reference.
+                            <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
+                            <AlertDialogDescription className="text-start">
+                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact) })}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
                             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                              Delete
+                              {t('contacts.delete')}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
@@ -241,7 +243,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   {!conversations?.length ? (
                     <div className="text-center py-12 text-sm text-muted-foreground">
                       <MessageSquare className="w-10 h-10 mx-auto mb-2 text-muted-foreground/30" />
-                      No conversations yet
+                      {t('contacts.noConversations')}
                     </div>
                   ) : (
                     conversations.map((conv: any) => (
@@ -255,7 +257,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-sm font-medium text-foreground line-clamp-1">
-                            {conv.subject || `Conversation #${conv.id.slice(0, 8)}`}
+                            {conv.subject || t('contacts.conversationFallback', { id: conv.id.slice(0, 8) })}
                           </p>
                           <span className="text-[10px] text-muted-foreground shrink-0">
                             {timeAgo(conv.updated_at)}
@@ -268,7 +270,9 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                             conv.status === 'pending' ? 'bg-warning/15 text-warning' :
                             'bg-muted text-muted-foreground'
                           )}>
-                            {conv.status}
+                            {conv.status === 'open' ? t('contacts.statusOpen')
+                              : conv.status === 'pending' ? t('contacts.statusPending')
+                              : t('contacts.statusClosed')}
                           </span>
                         </div>
                       </div>
@@ -278,9 +282,9 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
 
                 <TabsContent value="activity" className="p-5 mt-0">
                   <div className="space-y-3">
-                    <ActivityItem time={contact.created_at} label="Contact created" />
+                    <ActivityItem time={contact.created_at} label={t('contacts.activityCreated')} />
                     {contact.updated_at !== contact.created_at && (
-                      <ActivityItem time={contact.updated_at} label="Contact updated" />
+                      <ActivityItem time={contact.updated_at} label={t('contacts.activityUpdated')} />
                     )}
                   </div>
                 </TabsContent>

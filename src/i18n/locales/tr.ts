@@ -1,6 +1,16 @@
 import type { TranslationKeys } from './en';
 
 const tr: TranslationKeys = {
+  notFound: {
+    code: '404',
+    badge: 'Hata 404',
+    title: 'Bu sayfa bulunamadı',
+    description: 'Aradığınız sayfa taşınmış, adı değişmiş veya hiç var olmamış olabilir.',
+    pathLabel: 'İstenen adres',
+    home: 'Ana sayfaya dön',
+    back: 'Geri dön',
+    support: 'Destek ile iletişime geç',
+  },
   common: {
     loading: 'Yükleniyor...',
     save: 'Kaydet',

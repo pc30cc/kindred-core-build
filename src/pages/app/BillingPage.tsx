@@ -13,6 +13,8 @@ import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 import { useCapabilityCatalog } from '@/hooks/useEntitlements';
 import type { CapabilityDefinition } from '@/lib/entitlements-api';
 import { bt, capLabel as sharedCapLabel, formatLimitValue as sharedFormatLimit, type BillingLocale } from '@/lib/billing-i18n';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { displayCurrency } from '@/lib/region';
 
 const CURRENCY_MAP: Record<string, { symbol: string; locale: string; divider: number }> = {
   USD: { symbol: '$', locale: 'en-US', divider: 100 },
@@ -64,7 +66,10 @@ export default function BillingPage() {
   const L = locale as BillingLocale;
   const pageDir = L === 'fa' || dir === 'rtl' ? 'rtl' : 'ltr';
   const isRtl = pageDir === 'rtl';
-  const currency = locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : 'USD';
+  // Currency is decided by the platform region (Iran → Toman, Turkey → Lira,
+  // Global → USD); in multi-region mode it follows the active language.
+  const regionCurrency = displayCurrency(regionMode, (L === 'fa' || L === 'tr' ? L : 'en'));
+  const currency = regionCurrency === 'IRT' ? 'IRR' : regionCurrency;
 
   useEffect(() => {
     if (!workspace || !API_BASE) return;

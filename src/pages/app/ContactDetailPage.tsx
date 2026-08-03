@@ -310,18 +310,6 @@ export default function ContactDetailPage() {
   );
 }
 
-function StatChip({ icon: Icon, value, label }: { icon: any; value: string | number; label: string }) {
-  return (
-    <div className="rounded-xl border border-border/70 bg-card px-3 py-2 min-w-[104px]">
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        <Icon className="w-3.5 h-3.5" />
-        <span className="text-[10px] uppercase tracking-wide font-semibold">{label}</span>
-      </div>
-      <p className="text-sm font-bold text-foreground mt-0.5 truncate">{value}</p>
-    </div>
-  );
-}
-
 function Row({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3">

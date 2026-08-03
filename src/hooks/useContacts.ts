@@ -45,7 +45,53 @@ export function useContactConversations(contactId: string | undefined) {
         .eq('contact_id', contactId!)
         .order('updated_at', { ascending: false });
       if (error) throw error;
-      return data;
+      const convs = (data ?? []) as any[];
+      if (!convs.length) return convs;
+
+      const ids = convs.map((c) => c.id);
+
+      // Who handled each conversation: AI replies vs. human operator replies.
+      const { data: msgs } = await supabase
+        .from('conversation_messages')
+        .select('conversation_id, sender_type, sender_id, created_at')
+        .in('conversation_id', ids)
+        .order('created_at', { ascending: true });
+
+      const operatorIds = new Set<string>();
+      for (const c of convs) if (c.assigned_to) operatorIds.add(c.assigned_to);
+      for (const m of (msgs ?? []) as any[]) {
+        if (m.sender_type === 'agent' && m.sender_id) operatorIds.add(m.sender_id);
+      }
+
+      let profiles: Record<string, { full_name: string | null; email: string; avatar_url: string | null }> = {};
+      if (operatorIds.size) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, avatar_url')
+          .in('id', Array.from(operatorIds));
+        for (const p of (profs ?? []) as any[]) {
+          profiles[p.id] = { full_name: p.full_name, email: p.email, avatar_url: p.avatar_url };
+        }
+      }
+
+      return convs.map((c) => {
+        const mine = ((msgs ?? []) as any[]).filter((m) => m.conversation_id === c.id);
+        const hasAi = mine.some((m) => m.sender_type === 'ai' || m.sender_type === 'bot');
+        const agentMsgs = mine.filter((m) => m.sender_type === 'agent' && m.sender_id);
+        const lastAgentId = agentMsgs.length ? agentMsgs[agentMsgs.length - 1].sender_id : null;
+        const operatorId = lastAgentId || c.assigned_to || null;
+        const operator = operatorId ? profiles[operatorId] ?? null : null;
+        const lastMessage = mine.length ? mine[mine.length - 1] : null;
+        return {
+          ...c,
+          handled_by_ai: hasAi,
+          handled_by_operator: !!operator,
+          operator_name: operator ? operator.full_name || operator.email : null,
+          operator_avatar: operator?.avatar_url ?? null,
+          last_message_body: lastMessage?.body ?? null,
+          message_count: mine.length,
+        };
+      });
     },
     enabled: !!contactId,
   });

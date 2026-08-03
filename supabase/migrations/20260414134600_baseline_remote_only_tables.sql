@@ -379,3 +379,16 @@ CREATE POLICY "Admins+ can manage ws branding localized"
          = ANY (ARRAY['owner'::public.workspace_role, 'admin'::public.workspace_role]))
   WITH CHECK (public.get_workspace_role(workspace_id, auth.uid())
          = ANY (ARRAY['owner'::public.workspace_role, 'admin'::public.workspace_role]));
+
+-- ---------- public.email_templates pre-seed compatibility ----------
+-- The original creation migration (20260413202349) shipped `email_templates`
+-- with a NOT NULL `workspace_id` and without `is_active`, while the hosted
+-- project's live contract — and the seed at 20260414135136, which inserts
+-- global templates with `workspace_id = NULL` and `is_active = true` — needs
+-- the nullable/`is_active` shape. This idempotent block restores the exact
+-- hosted definition before the seed runs; hosted is unaffected.
+ALTER TABLE public.email_templates
+  ALTER COLUMN workspace_id DROP NOT NULL;
+
+ALTER TABLE public.email_templates
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;

@@ -60,6 +60,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const { mode: regionMode } = usePlatformRegion();
 
   // Always follow the active UI language so the page matches the sidebar / app shell.
   const locale = (uiLocale as string) || workspace?.panel_locale || workspace?.default_locale || 'en';

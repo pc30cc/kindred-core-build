@@ -1142,8 +1142,46 @@ function UserMessagesCard({ userId }: { userId: string }) {
 }
 
 /* ─── Financial overview (payments, events, subscriptions, plan changes) ─── */
+function FinPager({
+  total, page, pageSize, onPage, onPageSize,
+}: { total: number; page: number; pageSize: number; onPage: (p: number) => void; onPageSize: (n: number) => void }) {
+  const { t } = useTranslation();
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  return (
+    <div className="flex items-center justify-between gap-3 flex-wrap pt-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{t('admin.users.finShowing', { from: String(from), to: String(to), total: String(total) })}</span>
+        <span>·</span>
+        <span>{t('admin.users.finPerPage')}</span>
+        <select
+          className="h-7 rounded-md border bg-background px-1 text-xs"
+          value={pageSize}
+          onChange={e => { onPageSize(Number(e.target.value)); onPage(1); }}
+        >
+          {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          {t('admin.users.finPrev')}
+        </Button>
+        <span className="text-xs text-muted-foreground">{page} / {pages}</span>
+        <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+          {t('admin.users.finNext')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function UserFinanceCard({ userId }: { userId: string }) {
   const { t, dir, locale } = useTranslation();
+  const [payPage, setPayPage] = useState(1);
+  const [paySize, setPaySize] = useState(20);
+  const [evtPage, setEvtPage] = useState(1);
+  const [evtSize, setEvtSize] = useState(20);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-user-billing', userId],
     queryFn: () => adminGetUserBilling(userId, 200),
@@ -1154,14 +1192,27 @@ function UserFinanceCard({ userId }: { userId: string }) {
   const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
   const money = (amount: number | null | undefined, currency: string | null | undefined) => {
     const value = (amount ?? 0) / 100;
+    const code = (currency || 'USD').toUpperCase();
+    const intlLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
+    const isRialFamily = ['IRR', 'IRT', 'RIAL', 'TOMAN', 'TMN'].includes(code);
+    // Persian UI shows Iranian amounts in Toman (1 Toman = 10 Rial).
+    if (locale === 'fa' && isRialFamily) {
+      const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
+      return `${new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 0 }).format(Math.round(toman))} تومان`;
+    }
+    if (isRialFamily) {
+      const label = locale === 'tr' ? 'Toman' : 'Toman';
+      const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
+      return `${new Intl.NumberFormat(intlLocale, { maximumFractionDigits: 0 }).format(Math.round(toman))} ${label}`;
+    }
     try {
-      return new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US', {
+      return new Intl.NumberFormat(intlLocale, {
         style: 'currency',
-        currency: (currency || 'USD').toUpperCase(),
+        currency: code,
         maximumFractionDigits: 2,
       }).format(value);
     } catch {
-      return `${value.toFixed(2)} ${(currency || '').toUpperCase()}`;
+      return `${value.toFixed(2)} ${code}`;
     }
   };
 
@@ -1271,7 +1322,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.payments.map(p => (
+                  {data.payments.slice((payPage - 1) * paySize, payPage * paySize).map(p => (
                     <TableRow key={p.id}>
                       <TableCell className="whitespace-nowrap text-xs">{fmt(p.created_at)}</TableCell>
                       <TableCell className="text-xs">{wsName(p.workspace_id)}</TableCell>
@@ -1285,6 +1336,13 @@ function UserFinanceCard({ userId }: { userId: string }) {
                 </TableBody>
               </Table>
             </div>
+            <FinPager
+              total={data.payments.length}
+              page={payPage}
+              pageSize={paySize}
+              onPage={setPayPage}
+              onPageSize={setPaySize}
+            />
           </CardContent>
         </Card>
       )}
@@ -1292,11 +1350,14 @@ function UserFinanceCard({ userId }: { userId: string }) {
       {data.events.length > 0 && (
         <Card>
           <CardContent className="p-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <ScrollText className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finEvents')}
-            </h3>
+            <div>
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <ScrollText className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finEvents')}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finEventsHint')}</p>
+            </div>
             <div className="space-y-2">
-              {data.events.map(e => (
+              {data.events.slice((evtPage - 1) * evtSize, evtPage * evtSize).map(e => (
                 <div key={e.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs">
                   <div className="min-w-0">
                     <p className="font-medium">{e.event_type || '—'}</p>
@@ -1313,6 +1374,13 @@ function UserFinanceCard({ userId }: { userId: string }) {
                 </div>
               ))}
             </div>
+            <FinPager
+              total={data.events.length}
+              page={evtPage}
+              pageSize={evtSize}
+              onPage={setEvtPage}
+              onPageSize={setEvtSize}
+            />
           </CardContent>
         </Card>
       )}

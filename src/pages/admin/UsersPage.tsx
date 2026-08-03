@@ -1046,6 +1046,14 @@ function UserMessagesCard({ userId }: { userId: string }) {
   const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
   const statusVariant = (s: string | null) =>
     s === 'sent' || s === 'delivered' ? 'secondary' : s === 'failed' || s === 'error' ? 'destructive' : 'outline';
+  const [detail, setDetail] = useState<{ title: string; rows: { label: string; value: string | null | undefined }[]; json?: unknown } | null>(null);
+
+  const bodyOf = (meta: any): string | null => {
+    if (!meta || typeof meta !== 'object') return null;
+    const raw = meta.text || meta.body || meta.message || meta.content || meta.html;
+    if (typeof raw !== 'string') return null;
+    return raw.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || null;
+  };
 
   return (
     <Card>
@@ -1086,7 +1094,24 @@ function UserMessagesCard({ userId }: { userId: string }) {
                     </TableHeader>
                     <TableBody>
                       {data.emails.map(m => (
-                        <TableRow key={m.id}>
+                        <TableRow
+                          key={m.id}
+                          className="cursor-pointer"
+                          onClick={() => setDetail({
+                            title: t('admin.users.msgDetailEmail'),
+                            rows: [
+                              { label: t('admin.users.colSubject'), value: m.subject },
+                              { label: t('admin.users.msgRecipient'), value: m.recipient_email },
+                              { label: t('admin.users.colTemplate'), value: m.template_slug },
+                              { label: t('admin.users.colStatus'), value: m.status },
+                              { label: t('admin.users.colProvider'), value: m.provider_name },
+                              { label: t('admin.users.colSentAt'), value: fmt(m.sent_at || m.created_at) },
+                              { label: t('admin.users.msgError'), value: m.error_message },
+                              { label: t('admin.users.msgBody'), value: bodyOf(m.metadata) ?? t('admin.users.msgNoBody') },
+                            ],
+                            json: m.metadata,
+                          })}
+                        >
                           <TableCell className="text-sm max-w-[260px] truncate">{m.subject || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.template_slug || '—'}</TableCell>
                           <TableCell>
@@ -1119,7 +1144,20 @@ function UserMessagesCard({ userId }: { userId: string }) {
                     </TableHeader>
                     <TableBody>
                       {data.sms.map(m => (
-                        <TableRow key={m.id}>
+                        <TableRow
+                          key={m.id}
+                          className="cursor-pointer"
+                          onClick={() => setDetail({
+                            title: t('admin.users.msgDetailSms'),
+                            rows: [
+                              { label: t('admin.users.msgRecipient'), value: m.phone_masked },
+                              { label: t('admin.users.colPurpose'), value: m.purpose },
+                              { label: t('admin.users.colStatus'), value: m.delivery_status },
+                              { label: t('admin.users.colProvider'), value: m.provider_name },
+                              { label: t('admin.users.colSentAt'), value: fmt(m.sent_at || m.created_at) },
+                            ],
+                          })}
+                        >
                           <TableCell className="text-sm whitespace-nowrap" dir="ltr">{m.phone_masked || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.purpose || '—'}</TableCell>
                           <TableCell>
@@ -1136,6 +1174,13 @@ function UserMessagesCard({ userId }: { userId: string }) {
             </TabsContent>
           </Tabs>
         )}
+        <DetailDialog
+          open={!!detail}
+          onClose={() => setDetail(null)}
+          title={detail?.title || ''}
+          rows={detail?.rows || []}
+          json={detail?.json}
+        />
       </CardContent>
     </Card>
   );

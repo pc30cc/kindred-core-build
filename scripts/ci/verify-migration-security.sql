@@ -186,15 +186,21 @@ BEGIN
     RAISE EXCEPTION 'entitlement_fanout_jobs missing — the migration chain did not apply';
   END IF;
 
-  -- COMPLETE privilege matrix, not just the four DML verbs: a stray
-  -- TRUNCATE/REFERENCES/TRIGGER grant is an escalation too, and PUBLIC is
-  -- audited alongside the two customer roles.
+  -- COMPLETE privilege matrix for the running server version, not just the
+  -- four DML verbs: a stray TRUNCATE/REFERENCES/TRIGGER (or MAINTAIN on
+  -- PostgreSQL 17+) grant is an escalation too, and PUBLIC is audited
+  -- alongside the two customer roles.
+  IF current_setting('server_version_num')::integer >= 170000 THEN
+    privs := privs || 'MAINTAIN';
+  END IF;
+  RAISE NOTICE 'PostgreSQL % — auditing table privileges: %',
+    current_setting('server_version'), array_to_string(privs, ', ');
+
   SELECT string_agg(format('%s:%s', g.role_name, g.priv), ', ') INTO offenders
   FROM (
     SELECT r AS role_name, p AS priv
     FROM unnest(ARRAY['public', 'anon', 'authenticated']) AS r
-    CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
-                            'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS p
+    CROSS JOIN unnest(privs) AS p
   ) AS g
   WHERE has_table_privilege(g.role_name, 'public.entitlement_fanout_jobs', g.priv);
 
@@ -216,7 +222,16 @@ BEGIN
     RAISE EXCEPTION 'service_role lacks % on entitlement_fanout_jobs — the worker would be broken', missing;
   END IF;
 
-  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, PUBLIC/anon/authenticated hold no table privilege at all';
+  -- Explicit, per-privilege report of what service_role actually holds, across
+  -- the SAME version-aware privilege set.
+  SELECT string_agg(format('%s=%s', p,
+           has_table_privilege('service_role', 'public.entitlement_fanout_jobs', p)), ', ')
+    INTO granted
+  FROM unnest(privs) AS p;
+
+  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, PUBLIC/anon/authenticated hold no table privilege at all (privileges audited: %)',
+    array_to_string(privs, ', ');
+  RAISE NOTICE 'entitlement_fanout_jobs service_role privileges: %', granted;
 END
 $tbl$;
 

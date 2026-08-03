@@ -1205,15 +1205,16 @@ function UserFinanceCard({ userId }: { userId: string }) {
       const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
       return `${new Intl.NumberFormat(intlLocale, { maximumFractionDigits: 0 }).format(Math.round(toman))} ${label}`;
     }
-    try {
-      return new Intl.NumberFormat(intlLocale, {
-        style: 'currency',
-        currency: code,
-        maximumFractionDigits: 2,
-      }).format(value);
-    } catch {
-      return `${value.toFixed(2)} ${code}`;
+    // No currency symbols/icons — plain localized number plus the ISO code.
+    const formatted = new Intl.NumberFormat(intlLocale, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(value);
+    if (locale === 'fa') {
+      const faCode = code === 'USD' ? 'دلار' : code === 'EUR' ? 'یورو' : code;
+      return `${formatted} ${faCode}`;
     }
+    return `${formatted} ${code}`;
   };
 
   const isPaid = (s: string | null) => ['succeeded', 'paid', 'completed', 'success'].includes((s || '').toLowerCase());

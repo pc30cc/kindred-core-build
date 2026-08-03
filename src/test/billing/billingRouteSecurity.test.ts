@@ -46,14 +46,35 @@ let globalConfigValue: unknown = null;
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from(table: string) {
+      // R7.3 — the builder must terminate for EVERY chain the routes use.
+      // Previously only `limit`/`maybeSingle` resolved, so a route reaching
+      // `.insert(...)` or `.single()` returned a builder object the route
+      // awaited forever — surfacing as a 5s timeout and an unhandled
+      // rejection, i.e. a flaky suite rather than a real authorization result.
       const builder: any = {
         select: () => builder,
         eq: () => builder,
+        in: () => builder,
+        neq: () => builder,
+        gte: () => builder,
+        lte: () => builder,
+        order: () => builder,
+        range: () => builder,
+        insert: () => builder,
+        update: () => builder,
+        upsert: () => builder,
+        delete: () => builder,
+        single: async () => ({ data: null, error: null }),
+        then: undefined as unknown,
         limit: async () => ({ data: table === 'provider_configs' ? wsConfigRows : [] }),
         maybeSingle: async () => ({
           data: table === 'app_runtime_config' ? { value: globalConfigValue } : null,
+          error: null,
         }),
       };
+      // Make a bare `await supabase.from(x).insert(...)` resolve too.
+      builder.then = (resolve: (v: unknown) => void) =>
+        resolve({ data: [], error: null });
       return builder;
     },
   }),

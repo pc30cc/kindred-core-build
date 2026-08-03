@@ -207,6 +207,7 @@ export default function InboxPage() {
     if (!deepLinkConvId) return;
     setSelectedId(deepLinkConvId);
     setShowMobileList(false);
+    pendingScrollConvRef.current = deepLinkConvId;
     const next = new URLSearchParams(searchParams);
     next.delete('c');
     next.set('status', 'all');

@@ -452,8 +452,12 @@ suite('AI-KB transactional draft mutations (PostgreSQL)', () => {
         reviewed_at timestamptz
       );
     `);
-    await db.query(readFileSync(resolve(
-      process.cwd(), 'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql'), 'utf8'));
+    for (const file of [
+      'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
+      'database/migrations/010_fanout_rpc_security_and_kb_state_machine.sql',
+    ]) {
+      await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
+    }
   }, 120_000);
 
   afterAll(async () => { if (db) await db.end(); });

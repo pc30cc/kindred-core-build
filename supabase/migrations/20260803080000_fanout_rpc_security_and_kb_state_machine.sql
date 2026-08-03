@@ -53,10 +53,17 @@ END
 $secure$;
 
 -- Queue table: internal-only, no customer role may touch it directly.
-ALTER TABLE public.entitlement_fanout_jobs ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.entitlement_fanout_jobs FROM PUBLIC;
 DO $tbl$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class
+    WHERE relname = 'entitlement_fanout_jobs'
+      AND relnamespace = 'public'::regnamespace
+  ) THEN
+    RETURN;
+  END IF;
+  EXECUTE 'ALTER TABLE public.entitlement_fanout_jobs ENABLE ROW LEVEL SECURITY';
+  EXECUTE 'REVOKE ALL ON TABLE public.entitlement_fanout_jobs FROM PUBLIC';
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
     EXECUTE 'REVOKE ALL ON TABLE public.entitlement_fanout_jobs FROM anon';
   END IF;

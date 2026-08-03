@@ -1,6 +1,6 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { formatDateTime } from '@/lib/date';
+import { formatDateTime, formatRelative } from '@/lib/date';
 import { useContact, useContactConversations, useUpdateContact, useDeleteContact } from '@/hooks/useContacts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +22,7 @@ import { useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  getInitials, getDisplayName, timeAgo,
+  getInitials, getDisplayName,
   getCompanyFromMetadata, getLocationFromMetadata,
 } from '@/features/contacts/utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
@@ -129,7 +129,7 @@ export default function ContactDetailPage() {
         <div className="hidden sm:flex items-center gap-3 text-[11px] text-muted-foreground shrink-0">
           <span className="inline-flex items-center gap-1"><MessageSquare className="w-3.5 h-3.5" />{conversations?.length ?? 0}</span>
           {contact.updated_at && (
-            <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{timeAgo(contact.updated_at)}</span>
+            <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatRelative(contact.updated_at)}</span>
           )}
         </div>
         {!editing ? (
@@ -207,7 +207,7 @@ export default function ContactDetailPage() {
 
             {/* Main */}
             <div className="lg:col-span-2">
-              <Tabs defaultValue="overview">
+              <Tabs defaultValue="overview" dir={dir}>
                 <TabsList className="w-full justify-start flex-wrap h-auto">
                   <TabsTrigger value="overview" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />{t('contacts.tabOverview')}</TabsTrigger>
                   <TabsTrigger value="conversations" className="gap-1.5"><MessageSquare className="w-3.5 h-3.5" />{t('contacts.tabChats')}</TabsTrigger>
@@ -253,7 +253,7 @@ export default function ContactDetailPage() {
                             {conversations.map((conv: any) => (
                               <div
                                 key={conv.id}
-                                className="p-4 hover:bg-secondary/50 cursor-pointer transition-colors"
+                                className={cn('p-4 hover:bg-secondary/50 cursor-pointer transition-colors', rtl && 'text-right')}
                                 onClick={() => navigate(`/app/w/${wsSlug}/inbox`)}
                               >
                                 <p className="font-medium text-sm text-foreground line-clamp-1">
@@ -270,7 +270,7 @@ export default function ContactDetailPage() {
                                      conv.status === 'pending' ? t('contacts.statusPending') :
                                      t('contacts.statusClosed')}
                                   </span>
-                                  <span className="text-[10px] text-muted-foreground">{timeAgo(conv.updated_at)}</span>
+                                  <span className="text-[10px] text-muted-foreground">{formatRelative(conv.updated_at)}</span>
                                 </div>
                               </div>
                             ))}

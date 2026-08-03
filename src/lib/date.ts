@@ -152,6 +152,35 @@ export function formatPattern(
 
 let installed = false;
 
+/**
+ * Locale-aware relative time ("۱ ماه پیش", "5m ago", "2 saat önce").
+ * Uses Intl.RelativeTimeFormat with the active app locale.
+ */
+export function formatRelative(
+  value: Date | string | number | null | undefined,
+  locale?: string,
+): string {
+  const d = toDate(value);
+  if (!d) return '—';
+  const resolvedRaw = resolveDateLocale(locale);
+  const tag = (Array.isArray(resolvedRaw) ? resolvedRaw[0] : resolvedRaw) || 'en-US';
+  const rtf = new Intl.RelativeTimeFormat(tag, { numeric: 'auto' });
+  const seconds = Math.round((d.getTime() - Date.now()) / 1000);
+  const abs = Math.abs(seconds);
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ['year', 31536000],
+    ['month', 2592000],
+    ['week', 604800],
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ];
+  for (const [unit, secs] of units) {
+    if (abs >= secs) return rtf.format(Math.round(seconds / secs), unit);
+  }
+  return rtf.format(Math.round(seconds), 'second');
+}
+
 /** Patch global Intl/Date formatting so untagged calls follow the app locale. */
 export function installLocalizedDateDefaults() {
   if (installed || typeof Intl === 'undefined') return;

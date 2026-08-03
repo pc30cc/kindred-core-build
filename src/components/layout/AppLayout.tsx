@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
+import { AppTopBar } from './AppTopBar';
 import { useI18n } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
@@ -167,6 +168,7 @@ export function AppLayout() {
       <OperatorCallProvider>
         <AppSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
+          <AppTopBar />
           <DegradedModeBanner />
           <main className="flex-1 overflow-y-auto">
             <Outlet />

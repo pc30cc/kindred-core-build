@@ -56,6 +56,10 @@ import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/eng
 import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
 import { clearAiManagementForPlatformOff } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
+import {
+  pinContactOnVisitorSessions,
+  issueContinuityCookieForContact,
+} from '../services/widget/crossWidgetIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
@@ -1284,6 +1288,23 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
             metadata: { visitor_id: body.visitor_id, source: 'widget' },
           }).select('id').single();
         contactId = newContact?.id || null;
+      }
+
+      // Cross-widget continuity: pin the contact on this device's visitor
+      // sessions and refresh the continuity cookie so the CALL widget skips
+      // its pre-call form for the same person.
+      if (contactId) {
+        try {
+          const cookieVisitorId = readVisitorCookie(req, workspaceId) || body.visitor_id || null;
+          if (cookieVisitorId) {
+            await pinContactOnVisitorSessions(supabase, workspaceId, cookieVisitorId, contactId);
+          }
+          await issueContinuityCookieForContact(
+            supabase, req, res, workspaceId, contactId, 'chat_widget',
+          );
+        } catch (e: any) {
+          console.warn('[widget] cross-widget identity link failed:', e?.message || e);
+        }
       }
 
       const subjectText = body.message ? body.message.slice(0, 80) : (data.attachment_id ? '[Attachment]' : 'New conversation');

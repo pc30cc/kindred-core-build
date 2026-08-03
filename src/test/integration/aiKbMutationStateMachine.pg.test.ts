@@ -244,6 +244,7 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
           call('accept_ai_kb_generated_article', [g.id, WS, REVIEWER, '<p>a</p>', null], a),
           call('publish_ai_kb_generated_article', [g.id, WS, REVIEWER, '<p>b</p>', null], b),
         ]);
+        if (!x.ok || !y.ok) console.log("DBG", JSON.stringify([x,y]));
         expect(x.ok).toBe(true);
         expect(y.ok).toBe(true);
         expect(x.kb_article_id).toBe(y.kb_article_id);
@@ -265,6 +266,7 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
           call('accept_ai_kb_generated_article', [g1.id, WS, REVIEWER, '<p>a</p>', null], a),
           call('accept_ai_kb_generated_article', [g2.id, WS, REVIEWER, '<p>b</p>', null], b),
         ]);
+        if (!x.ok || !y.ok) console.log("DBG", JSON.stringify([x,y]));
         expect(x.ok).toBe(true);
         expect(y.ok).toBe(true);
         // Distinct drafts ⇒ distinct articles ⇒ distinct slugs.

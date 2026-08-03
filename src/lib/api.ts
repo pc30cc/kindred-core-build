@@ -417,8 +417,6 @@ export async function adminDeleteUserAvatar(userId: string) {
   });
 }
 
-export interface AdminUserBillingUnusedMarker { _?: never }
-
 export interface AdminUserBilling {
   workspaces: { id: string; name: string; slug: string }[];
   plans: { id: string; name: string; slug: string; localized: any }[];

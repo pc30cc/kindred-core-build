@@ -35,7 +35,7 @@ import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
   KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
-  ImageOff, MessageSquare, Trash2,
+  MessageSquare, Trash2,
 } from 'lucide-react';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -332,29 +332,57 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   return (
     <div className="space-y-6" dir={dir}>
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <Avatar className="w-12 h-12 shrink-0">
-            {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
-            <AvatarFallback className="bg-primary/10 text-lg font-bold text-primary">
-              {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold truncate">{p.full_name || '—'}</h1>
-              {isBanned && <Badge variant="destructive" className="shrink-0">{t('admin.users.blocked')}</Badge>}
+      <Button variant="ghost" size="sm" onClick={onBack} className="gap-2 -ms-2">
+        <ArrowLeft className="h-4 w-4 rtl:rotate-180" /> {t('admin.users.backToList')}
+      </Button>
+
+      <Card className="overflow-hidden border-primary/10">
+        <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-5">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="relative shrink-0">
+              <Avatar className="w-16 h-16 ring-2 ring-background shadow-sm">
+                {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
+                <AvatarFallback className="bg-primary/15 text-xl font-bold text-primary">
+                  {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              {p.avatar_url && (
+                <button
+                  type="button"
+                  title={t('admin.users.removeAvatar')}
+                  aria-label={t('admin.users.removeAvatar')}
+                  disabled={avatarLoading}
+                  onClick={() => setAvatarConfirm(true)}
+                  className="absolute -top-1 -end-1 h-6 w-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow hover:opacity-90 disabled:opacity-50"
+                >
+                  {avatarLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                </button>
+              )}
             </div>
-            <p className="text-sm text-muted-foreground truncate">{p.email}</p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-bold truncate">{p.full_name || '—'}</h1>
+                {isBanned
+                  ? <Badge variant="destructive">{t('admin.users.blocked')}</Badge>
+                  : <Badge variant="secondary">{t('admin.users.active')}</Badge>}
+                {currentRoles.map((role: string) => (
+                  <Badge key={role} variant={role === 'admin' ? 'destructive' : 'outline'}>{role}</Badge>
+                ))}
+              </div>
+              <button
+                onClick={() => copyToClipboard(p.email)}
+                className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Mail className="h-3.5 w-3.5" />
+                <span className="truncate">{p.email}</span>
+                <Copy className="h-3 w-3 shrink-0" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Action Buttons */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 border-t bg-card/60 p-4">
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setResetConfirm(true)} disabled={resetLinkLoading}>
           {resetLinkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {t('admin.users.sendResetLink')}
@@ -398,6 +426,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           {t('admin.users.loginAsUser')}
         </Button>
       </div>
+      </Card>
 
       <AlertDialog open={resetConfirm} onOpenChange={setResetConfirm}>
         <AlertDialogContent dir={dir} className={dir === 'rtl' ? 'text-right' : undefined}>
@@ -443,32 +472,6 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Profile photo */}
-      <Card>
-        <CardContent className="p-4">
-          <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
-            <ImageOff className="h-4 w-4 text-muted-foreground" />
-            {t('admin.users.avatarSection')}
-          </h3>
-          <div className="flex items-center gap-4 flex-wrap">
-            <Avatar className="h-16 w-16">
-              {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
-              <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            {p.avatar_url ? (
-              <Button variant="destructive" size="sm" className="gap-2" disabled={avatarLoading} onClick={() => setAvatarConfirm(true)}>
-                {avatarLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                {t('admin.users.removeAvatar')}
-              </Button>
-            ) : (
-              <span className="text-sm text-muted-foreground">{t('admin.users.avatarNone')}</span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
       <UserMessagesCard userId={userId} />
 

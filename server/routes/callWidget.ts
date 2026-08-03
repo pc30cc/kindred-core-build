@@ -38,6 +38,7 @@ import {
   isSecureRequest,
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
+import { findContactForVisitor } from '../services/widget/crossWidgetIdentity.js';
 import {
   createSignedContactContinuityToken,
   persistContinuityToken,
@@ -110,23 +111,11 @@ async function findLinkedContactForVisitor(
   workspaceId: string,
   visitorId: string,
 ): Promise<{ id: string; name: string | null; email: string | null; phone: string | null; avatar_url: string | null } | null> {
+  // Shared chain with the chat widget: visitor_sessions.contact_id first,
+  // then contacts.metadata->>visitor_id (covers a pre-chat merge that ran
+  // before this visitor had a session row).
   const sb = getServiceClient(config);
-  const { data: session } = await sb
-    .from('visitor_sessions')
-    .select('contact_id')
-    .eq('workspace_id', workspaceId)
-    .eq('visitor_id', visitorId)
-    .not('contact_id', 'is', null)
-    .order('last_seen_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!session?.contact_id) return null;
-  const { data: contact } = await sb
-    .from('contacts')
-    .select('id, name, email, phone, avatar_url')
-    .eq('id', session.contact_id)
-    .maybeSingle();
-  return contact || null;
+  return await findContactForVisitor(sb, workspaceId, visitorId);
 }
 
 async function findContactById(

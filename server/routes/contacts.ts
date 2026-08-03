@@ -27,6 +27,7 @@ import {
   assertContactsBatchFits,
 } from '../services/billing/contactsLimit.js';
 import { clearEntitlementCache } from '../middleware/featureGating.js';
+import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 
 export const contactsRouter = Router();
 

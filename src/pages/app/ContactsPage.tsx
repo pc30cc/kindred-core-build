@@ -27,7 +27,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import { ContactDrawer } from '@/features/contacts/ContactDrawer';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import {
   getInitials, getDisplayName, timeAgo,
@@ -46,8 +45,6 @@ export default function ContactsPage() {
   const createContact = useCreateContact(workspace?.id);
   const bulkDelete = useBulkDeleteContacts();
 
-  const [drawerId, setDrawerId] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -120,8 +117,7 @@ export default function ContactsPage() {
   };
 
   const openContact = (id: string) => {
-    setDrawerId(id);
-    setDrawerOpen(true);
+    navigate(`/app/w/${wsSlug}/contacts/${id}`);
   };
 
   const handleCreate = async () => {
@@ -452,13 +448,6 @@ export default function ContactsPage() {
           </table>
         )}
       </div>
-
-      {/* Drawer */}
-      <ContactDrawer
-        contactId={drawerId}
-        open={drawerOpen}
-        onOpenChange={(o) => { setDrawerOpen(o); if (!o) setDrawerId(null); }}
-      />
 
       {/* Import wizard */}
       <ContactImportWizard open={importOpen} onOpenChange={setImportOpen} workspaceId={workspace?.id} />

@@ -39,7 +39,7 @@ type SortKey = 'name' | 'email' | 'company' | 'last_active' | 'score';
 export default function ContactsPage() {
   const { t, dir } = useTranslation();
   const navigate = useNavigate();
-  const { wsSlug } = useParams();
+  const { slug: wsSlug } = useParams();
   const workspace = useCurrentWorkspace();
   const { data: contacts, isLoading } = useContacts(workspace?.id);
   const createContact = useCreateContact(workspace?.id);

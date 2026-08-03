@@ -28,7 +28,7 @@ import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyAction
 
 export default function ContactDetailPage() {
   const { dir } = useTranslation();
-  const { id, wsSlug } = useParams();
+  const { id, slug: wsSlug } = useParams();
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id);
   const { data: conversations } = useContactConversations(id);

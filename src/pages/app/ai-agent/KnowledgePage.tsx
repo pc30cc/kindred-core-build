@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
+import { formatDate } from '@/lib/date';
 import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 import { EntitlementAccessGate } from '@/components/plan/EntitlementAccessGate';
@@ -194,7 +195,7 @@ export default function KnowledgePage() {
                             )}
                             {updated && (
                               <span className="text-[11px] text-muted-foreground tabular-nums hidden sm:inline">
-                                {new Date(updated).toLocaleDateString()}
+                                {formatDate(updated)}
                               </span>
                             )}
                             <Badge variant="outline" className={`text-[10px] ${TONE[s.tone]}`}>{tr(`status.${s.key}`, s.key)}</Badge>

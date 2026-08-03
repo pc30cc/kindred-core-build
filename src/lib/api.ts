@@ -417,9 +417,7 @@ export async function adminDeleteUserAvatar(userId: string) {
   });
 }
 
-export interface AdminUserEmailLog {
-  id: string;
-}
+export interface AdminUserBillingUnusedMarker { _?: never }
 
 export interface AdminUserBilling {
   workspaces: { id: string; name: string; slug: string }[];
@@ -452,7 +450,7 @@ export async function adminGetUserBilling(userId: string, limit = 100) {
   });
 }
 
-interface AdminUserEmailLogFields {
+export interface AdminUserEmailLog {
   id: string;
   template_slug: string | null;
   recipient_email: string | null;

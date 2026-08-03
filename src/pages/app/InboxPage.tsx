@@ -400,6 +400,21 @@ export default function InboxPage() {
     setShowMobileList(true);
   }, [conversations, selectedId, activeCallConversationId]);
 
+  // Deep-link scroll: once the target conversation is rendered in the list,
+  // bring it into view (centered) so the operator lands right on it.
+  useEffect(() => {
+    const target = pendingScrollConvRef.current;
+    if (!target || !conversations) return;
+    if (!conversations.some(c => c.id === target)) return;
+    const raf = requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-conv-id="${target}"]`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      pendingScrollConvRef.current = null;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [conversations, selectedId]);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

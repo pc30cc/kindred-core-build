@@ -558,3 +558,32 @@ function EmptyState({ t, hasContacts, onAdd, onImport }: { t: (k: any, p?: Recor
     </div>
   );
 }
+
+function SourceBadge({ info, t }: { info?: { chat: boolean; call: boolean; calls: number }; t: (k: any, v?: any) => string }) {
+  if (!info || (!info.chat && !info.call)) {
+    return <span className="text-muted-foreground/50 italic text-xs">{t('contacts.sourceUnknown')}</span>;
+  }
+  if (info.chat && info.call) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+        <MessageSquare className="w-3 h-3" />
+        <PhoneCall className="w-3 h-3" />
+        {t('contacts.sourceBoth')}
+      </span>
+    );
+  }
+  if (info.call) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success">
+        <PhoneCall className="w-3 h-3" />
+        {t('contacts.sourceCall')}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <MessageSquare className="w-3 h-3" />
+      {t('contacts.sourceChat')}
+    </span>
+  );
+}

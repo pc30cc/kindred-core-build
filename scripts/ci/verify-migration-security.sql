@@ -249,6 +249,7 @@ DO $svc$
 DECLARE
   v_job      uuid;
   v_job2     uuid;
+  v_plan_id  uuid := gen_random_uuid();
   c          record;
   j          record;
   ok         boolean;
@@ -326,12 +327,29 @@ BEGIN
       j.status, j.completed_generation, j.claim_token, j.worker_id, j.processed_count, j.failed_count;
   END IF;
 
-  -- fail / retry path on a second, independently scoped job
-  v_job2 := public.enqueue_entitlement_fanout('plan', 'ci-service-role-proof-fail', NULL);
+  -- fail / retry path on a second job that is REALLY plan-scoped: a NULL plan
+  -- id would not exercise the plan branch at all.
+  v_job2 := public.enqueue_entitlement_fanout('plan', 'ci-service-role-proof-fail', v_plan_id);
+  IF v_job2 IS NULL THEN
+    RAISE EXCEPTION 'service_role: enqueue_entitlement_fanout(plan, %) returned NULL', v_plan_id;
+  END IF;
+
   SELECT * INTO c FROM public.claim_entitlement_fanout_jobs('ci-worker-2', 5, 300)
   WHERE id = v_job2;
-  IF c.id IS NULL THEN
-    RAISE EXCEPTION 'service_role: could not lease the fail-path job';
+  IF c.id IS DISTINCT FROM v_job2 THEN
+    RAISE EXCEPTION 'service_role: could not lease the plan-scoped fail-path job (claimed % expected %)',
+      c.id, v_job2;
+  END IF;
+
+  -- Exact pre-fail state, including the plan scope itself.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.scope IS DISTINCT FROM 'plan'
+     OR j.plan_id IS DISTINCT FROM v_plan_id
+     OR j.processing_generation IS NULL
+     OR j.claim_token IS NULL
+     OR j.worker_id IS DISTINCT FROM 'ci-worker-2' THEN
+    RAISE EXCEPTION 'service_role: plan-scoped leased state wrong (scope=%, plan=%, gen=%, token=%, worker=%)',
+      j.scope, j.plan_id, j.processing_generation, j.claim_token, j.worker_id;
   END IF;
 
   outcome := public.fail_entitlement_fanout(
@@ -340,17 +358,21 @@ BEGIN
     RAISE EXCEPTION 'service_role: fail_entitlement_fanout returned %, expected retry_same_generation', outcome;
   END IF;
 
-  -- Exact retry state: requeued, lease released, error recorded and backed off.
+  -- Exact retry state: same plan-scoped job, requeued, lease released, error
+  -- recorded and backed off.
   SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
-  IF j.status IS DISTINCT FROM 'pending'
+  IF j.id IS DISTINCT FROM v_job2
+     OR j.scope IS DISTINCT FROM 'plan'
+     OR j.plan_id IS DISTINCT FROM v_plan_id
+     OR j.status IS DISTINCT FROM 'pending'
      OR j.last_error_code IS DISTINCT FROM 'ci_proof'
      OR j.processing_generation IS DISTINCT FROM NULL
      OR j.claim_token IS DISTINCT FROM NULL
      OR j.worker_id IS DISTINCT FROM NULL
      OR j.claim_expires_at IS DISTINCT FROM NULL
      OR j.next_attempt_at <= now() THEN
-    RAISE EXCEPTION 'service_role: retry row state wrong (status=%, error=%, token=%, worker=%, next=%)',
-      j.status, j.last_error_code, j.claim_token, j.worker_id, j.next_attempt_at;
+    RAISE EXCEPTION 'service_role: plan retry row state wrong (id=%, scope=%, plan=%, status=%, error=%, token=%, worker=%, next=%)',
+      j.id, j.scope, j.plan_id, j.status, j.last_error_code, j.claim_token, j.worker_id, j.next_attempt_at;
   END IF;
   steps := steps + 1;
 

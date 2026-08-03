@@ -224,6 +224,74 @@ describe('self-host CI — official Auth image', () => {
   });
 });
 
+describe('chain profile — require_hosted_service_acl', () => {
+  const sql = read(VERIFIERS[0]);
+  const workflow = read('.github/workflows/ci.yml');
+
+  it('is mandatory: a missing flag aborts before any check runs', () => {
+    expect(sql).toContain('\\if :{?require_hosted_service_acl}');
+    expect(sql).toContain('FATAL: -v require_hosted_service_acl=0|1 is required');
+    expect(sql).toContain(
+      'verify-migration-security.sql invoked without -v require_hosted_service_acl=0|1',
+    );
+  });
+
+  it('accepts only the literals 0 and 1 — empty, `true` and `2` all fail', () => {
+    expect(sql).toContain('require_hosted_service_acl must be exactly 0 or 1');
+    // A single strict whitelist, validated up front as a session GUC.
+    expect(sql).toContain(
+      "set_config('ci.require_hosted_service_acl', :'require_hosted_service_acl', false)",
+    );
+    expect(sql).not.toContain(
+      "set_config('ci.require_hosted_service_acl', :'require_hosted_service_acl', true)",
+    );
+    // No implicit default, and the profile is never inferred from the schema.
+    expect(sql).not.toMatch(/coalesce\(current_setting\('ci\.require_hosted_service_acl'/i);
+  });
+
+  it('echoes the resolved profile into the log', () => {
+    expect(sql).toContain("RAISE NOTICE 'require_ai_kb = %'");
+    expect(sql).toContain("RAISE NOTICE 'require_hosted_service_acl = %'");
+  });
+
+  it('gates the hosted 22-function manifest and makes its count unreachable at 0', () => {
+    const block = sql.slice(sql.indexOf('DO $service_only_acl$'));
+    expect(block).toContain(
+      "required boolean := (current_setting('ci.require_hosted_service_acl', true) = '1')",
+    );
+    const guard = block.indexOf('IF NOT required THEN');
+    const notApplicable = block.indexOf(
+      'Hosted historical 22-function ACL surface: not applicable to this self-host chain profile',
+    );
+    const ret = block.indexOf('RETURN;');
+    const count = block.indexOf('service-only ACL surface incomplete');
+    expect(guard).toBeGreaterThan(-1);
+    expect(notApplicable).toBeGreaterThan(guard);
+    expect(ret).toBeGreaterThan(notApplicable);
+    // The checked = 22 assertion sits AFTER the early return, so it is
+    // unreachable in the self-host profile.
+    expect(count).toBeGreaterThan(ret);
+  });
+
+  it('keeps a single canonical hosted service-ACL manifest', () => {
+    const occurrences = sql.match(/'public\.activate_auto_actions\(\)'/g) ?? [];
+    expect(occurrences).toHaveLength(1);
+  });
+
+  it('keeps the global invariants ungated in both profiles', () => {
+    const gateStart = sql.indexOf('DO $service_only_acl$');
+    const publicSecdef = sql.indexOf('SECURITY DEFINER function');
+    const inventory = sql.indexOf('\\ir internal-rpc-signatures.sql');
+    expect(inventory).toBeGreaterThan(-1);
+    expect(inventory).toBeLessThan(gateStart);
+    expect(publicSecdef).toBeLessThan(gateStart);
+  });
+
+  it('is configured explicitly by both real jobs', () => {
+    expect(workflow).toContain('-v require_hosted_service_acl=1');
+    expect(workflow).toContain('-v require_hosted_service_acl=0');
+  });
+});
 describe('lint gates — fail closed', () => {
   it('the baseline runner refuses to create a missing baseline in enforce mode', () => {
     const src = read('scripts/lint-baseline.mjs');

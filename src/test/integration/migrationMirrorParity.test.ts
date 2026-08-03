@@ -7,9 +7,19 @@
  * functional SQL difference fails CI.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
+  {
+    label: '008 — fan-out generation semantics',
+    selfHost: 'database/migrations/008_entitlement_fanout_generations.sql',
+    hosted: 'supabase/migrations/20260803060000_entitlement_fanout_generations.sql',
+  },
+  {
+    label: '009 — fan-out cursor generation + AI-KB transactions',
+    selfHost: 'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
+    hosted: 'supabase/migrations/20260803070000_fanout_cursor_generation_and_ai_kb_tx.sql',
+  },
   {
     label: '011 — AI-KB slug namespace lock',
     selfHost: 'database/migrations/011_ai_kb_slug_namespace_lock.sql',

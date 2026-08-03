@@ -4,7 +4,8 @@ import { useI18n } from '@/i18n';
 import { usePublicBranding } from '@/hooks/usePublicBranding';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
-import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
+import { LOCALE_CONFIG } from '@/i18n/config';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Button } from '@/components/ui/button';
 import { Menu, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -12,6 +13,7 @@ import { useState, useEffect } from 'react';
 export function PublicLayout() {
   const { t } = useTranslation();
   const { locale, setLocale } = useI18n();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { branding, platformName } = usePublicBranding();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -50,16 +52,18 @@ export function PublicLayout() {
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
+            {canSwitchLanguage && (
             <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
               <SelectTrigger className="w-28 h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SUPPORTED_LOCALES.map(l => (
+                {allowedLocales.map(l => (
                   <SelectItem key={l} value={l}>{LOCALE_CONFIG[l].nativeLabel}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            )}
             <Button variant="ghost" size="sm" asChild>
               <Link to="/auth/login">{t('auth.login')}</Link>
             </Button>

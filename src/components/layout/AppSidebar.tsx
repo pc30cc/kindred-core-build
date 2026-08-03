@@ -3,7 +3,8 @@ import { useTranslation } from '@/i18n';
 import { useI18n } from '@/i18n';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
-import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
+import { LOCALE_CONFIG } from '@/i18n/config';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Settings, Rocket, Search, Package,
@@ -36,6 +37,7 @@ import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 export function AppSidebar() {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
@@ -564,19 +566,21 @@ export function AppSidebar() {
           </div>
         </button>
 
-        {/* Language selector — always visible below user */}
+        {/* Language selector — hidden in single-language regions */}
+        {canSwitchLanguage && (
         <div className="mt-2">
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
             <SelectTrigger className="h-7 text-xs w-full border-sidebar-border">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {SUPPORTED_LOCALES.map(l => (
+              {allowedLocales.map(l => (
                 <SelectItem key={l} value={l}>{LOCALE_CONFIG[l].nativeLabel}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
+        )}
       </div>
     </aside>
     <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} />

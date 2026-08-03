@@ -168,7 +168,39 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; label: string; d
 ];
 
 import { Switch } from '@/components/ui/switch';
-import { Globe, Wrench, CreditCard, Languages } from 'lucide-react';
+import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
+import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
+
+const REGION_META: Record<RegionMode, { title: string; desc: string; flag: string; currency: string; languages: string }> = {
+  multi: {
+    title: 'Multi-Region (all languages)',
+    desc: 'Every active language is selectable. Prices follow the language the user picked.',
+    flag: '🌍',
+    currency: 'Follows language',
+    languages: 'English · فارسی · Türkçe',
+  },
+  iran: {
+    title: 'Iran only — Persian',
+    desc: 'The platform is Persian only. No language switcher anywhere, all money in Toman, Iranian gateways.',
+    flag: '🇮🇷',
+    currency: 'Toman (IRT)',
+    languages: 'فارسی',
+  },
+  turkey: {
+    title: 'Turkey only — Turkish',
+    desc: 'The platform is Turkish only. No language switcher anywhere, all money in Turkish Lira.',
+    flag: '🇹🇷',
+    currency: 'Turkish Lira (TRY)',
+    languages: 'Türkçe',
+  },
+  global: {
+    title: 'Global — English only',
+    desc: 'The platform is English only. No language switcher anywhere, all money in US Dollar.',
+    flag: '🇺🇸',
+    currency: 'US Dollar (USD)',
+    languages: 'English',
+  },
+};
 
 function SettingsSection() {
   const { data: rows, isLoading: brandingLoading } = usePlatformBrandingLocalized();
@@ -193,6 +225,7 @@ function SettingsSection() {
   const [activeLocales, setActiveLocales] = useState<string[]>(['en']);
   const [timezone, setTimezone] = useState('UTC');
   const [siteMode, setSiteMode] = useState('multi_language');
+  const [regionMode, setRegionMode] = useState<RegionMode>('multi');
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState('');
   const [localeBillingProviders, setLocaleBillingProviders] = useState<Record<string, string>>({});
@@ -204,6 +237,7 @@ function SettingsSection() {
       setActiveLocales(settings.active_locales || ['en']);
       setTimezone(settings.timezone || 'UTC');
       setSiteMode(settings.site_mode || 'multi_language');
+      setRegionMode(isRegionMode((settings as any).region_mode) ? (settings as any).region_mode : 'multi');
       setMaintenanceMode((settings as any).maintenance_mode ?? false);
       setMaintenanceMessage((settings as any).maintenance_message ?? '');
       setLocaleBillingProviders((settings as any).locale_billing_providers ?? {});
@@ -242,6 +276,8 @@ function SettingsSection() {
       active_locales: activeLocales,
       timezone,
       site_mode: siteMode,
+      region_mode: regionMode,
+      region_currency: REGION_CURRENCY[regionMode],
       maintenance_mode: maintenanceMode,
       maintenance_message: maintenanceMessage || null,
       locale_billing_providers: localeBillingProviders,
@@ -255,6 +291,8 @@ function SettingsSection() {
       if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     }
     qc.invalidateQueries({ queryKey: ['platform_settings'] });
+    qc.invalidateQueries({ queryKey: ['platform_region_settings'] });
+    setCachedRegionMode(regionMode);
     toast({ title: 'Settings saved' });
     setSettingsDirty(false);
   };
@@ -268,6 +306,19 @@ function SettingsSection() {
     setSettingsDirty(true);
   };
 
+  const pickRegion = (mode: RegionMode) => {
+    setRegionMode(mode);
+    setSettingsDirty(true);
+    if (mode !== 'multi') {
+      const pinned = REGION_LOCALES[mode];
+      setActiveLocales(pinned as string[]);
+      setDefaultLocale(pinned[0]);
+      setSiteMode('single_language');
+    } else {
+      setSiteMode('multi_language');
+    }
+  };
+
   if (brandingLoading || settingsLoading) return <LoadingCard />;
 
   const current = forms[activeLocale] ?? {};
@@ -277,6 +328,7 @@ function SettingsSection() {
       <Tabs value={settingsTab} onValueChange={setSettingsTab}>
         <TabsList>
           <TabsTrigger value="general" className="gap-1.5"><Wrench className="h-4 w-4" /> General</TabsTrigger>
+          <TabsTrigger value="region" className="gap-1.5"><Flag className="h-4 w-4" /> Country / Region</TabsTrigger>
           <TabsTrigger value="languages" className="gap-1.5"><Languages className="h-4 w-4" /> Languages</TabsTrigger>
           <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="h-4 w-4" /> Payment Gateways</TabsTrigger>
           <TabsTrigger value="localized" className="gap-1.5"><Globe className="h-4 w-4" /> Localized Text</TabsTrigger>
@@ -346,8 +398,68 @@ function SettingsSection() {
           </Card>
         </TabsContent>
 
+        {/* ── Country / Region ── */}
+        <TabsContent value="region" className="mt-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2"><Flag className="h-5 w-5 text-primary" /><CardTitle>Country / Region Locale</CardTitle></div>
+                <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
+                  <Save className="h-4 w-4 mr-1" />Save
+                </Button>
+              </div>
+              <CardDescription>
+                Decides which languages exist on the whole platform and which currency every price, invoice and revenue figure uses.
+                A single-country mode removes the language switcher everywhere — users cannot pick another language.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {REGION_MODES.map((mode) => {
+                  const meta = REGION_META[mode];
+                  const selected = regionMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => pickRegion(mode)}
+                      className={`text-left rounded-xl border p-4 transition-colors ${
+                        selected ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' : 'border-border bg-muted/20 hover:bg-muted/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{meta.flag}</span>
+                        <span className="text-sm font-semibold text-foreground">{meta.title}</span>
+                        {selected && <Badge className="ms-auto text-[10px]">Active</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">{meta.desc}</p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <Badge variant="outline" className="text-[10px]">{meta.languages}</Badge>
+                        <Badge variant="secondary" className="text-[10px]">{meta.currency}</Badge>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <Separator />
+              <p className="text-xs text-muted-foreground">
+                Current mode: <strong className="text-foreground">{REGION_META[regionMode].title}</strong> — languages{' '}
+                <strong className="text-foreground">{REGION_META[regionMode].languages}</strong>, currency{' '}
+                <strong className="text-foreground">{REGION_META[regionMode].currency}</strong>.
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* ── Languages ── */}
         <TabsContent value="languages" className="mt-4">
+          {regionMode !== 'multi' && (
+            <Card className="bg-muted/30 border-border mb-4">
+              <CardContent className="p-4 text-sm text-muted-foreground">
+                {REGION_META[regionMode].flag} Language selection is locked by the <strong className="text-foreground">Country / Region</strong> mode
+                (<strong className="text-foreground">{REGION_META[regionMode].languages}</strong>). Switch to Multi-Region to edit languages.
+              </CardContent>
+            </Card>
+          )}
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">

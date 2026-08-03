@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useI18n } from '@/i18n';
-import type { Locale } from '@/i18n/config';
-import { LOCALE_CONFIG } from '@/i18n/config';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 
 const LOCALE_LABELS: Record<string, string> = {
   en: 'English',
@@ -11,8 +10,9 @@ const LOCALE_LABELS: Record<string, string> = {
 
 export function LanguageSelector({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   const { locale, setLocale } = useI18n();
+  const { allowedLocales: locales, canSwitchLanguage } = usePlatformRegion();
 
-  const locales = Object.keys(LOCALE_CONFIG) as Locale[];
+  if (!canSwitchLanguage) return null;
 
   return (
     <div

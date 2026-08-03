@@ -22,6 +22,8 @@ import {
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
 import { supabase } from '@/lib/supabase';
+import { formatMoney } from '@/lib/region';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
   adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
@@ -1266,6 +1268,7 @@ function FinPager({
 
 function UserFinanceCard({ userId }: { userId: string }) {
   const { t, dir, locale } = useTranslation();
+  const { mode: regionMode } = usePlatformRegion();
   const [payPage, setPayPage] = useState(1);
   const [paySize, setPaySize] = useState(20);
   const [evtPage, setEvtPage] = useState(1);
@@ -1279,32 +1282,10 @@ function UserFinanceCard({ userId }: { userId: string }) {
   });
 
   const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
-  const money = (amount: number | null | undefined, currency: string | null | undefined) => {
-    const value = (amount ?? 0) / 100;
-    const code = (currency || 'USD').toUpperCase();
-    const intlLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
-    const isRialFamily = ['IRR', 'IRT', 'RIAL', 'TOMAN', 'TMN'].includes(code);
-    // Persian UI shows Iranian amounts in Toman (1 Toman = 10 Rial).
-    if (locale === 'fa' && isRialFamily) {
-      const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
-      return `${new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 0 }).format(Math.round(toman))} تومان`;
-    }
-    if (isRialFamily) {
-      const label = locale === 'tr' ? 'Toman' : 'Toman';
-      const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
-      return `${new Intl.NumberFormat(intlLocale, { maximumFractionDigits: 0 }).format(Math.round(toman))} ${label}`;
-    }
-    // No currency symbols/icons — plain localized number plus the ISO code.
-    const formatted = new Intl.NumberFormat(intlLocale, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(value);
-    if (locale === 'fa') {
-      const faCode = code === 'USD' ? 'دلار' : code === 'EUR' ? 'یورو' : code;
-      return `${formatted} ${faCode}`;
-    }
-    return `${formatted} ${code}`;
-  };
+  // Currency follows the platform region (Iran → Toman, Turkey → Lira, Global → USD);
+  // in multi-region mode it follows the active language. No currency symbols/icons.
+  const money = (amount: number | null | undefined, currency?: string | null) =>
+    formatMoney(amount, locale, regionMode, { currency });
 
   const isPaid = (s: string | null) => ['succeeded', 'paid', 'completed', 'success'].includes((s || '').toLowerCase());
   const isRefund = (s: string | null) => ['refunded', 'partially_refunded'].includes((s || '').toLowerCase());

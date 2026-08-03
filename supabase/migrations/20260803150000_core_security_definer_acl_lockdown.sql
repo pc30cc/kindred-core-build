@@ -78,6 +78,18 @@ DECLARE
     'kb_search_articles',
     'workspace_has_knowledge_base'
   ];
+  -- Internal machine-only RPCs: service_role and nobody else, ever.
+  service_only text[] := ARRAY[
+    'enqueue_entitlement_fanout',
+    'claim_entitlement_fanout_jobs',
+    'advance_entitlement_fanout',
+    'complete_entitlement_fanout',
+    'fail_entitlement_fanout',
+    '_ai_kb_apply_generated',
+    'accept_ai_kb_generated_article',
+    'publish_ai_kb_generated_article',
+    'reject_ai_kb_generated_article'
+  ];
   has_explicit boolean;
 BEGIN
   FOR r IN
@@ -95,6 +107,19 @@ BEGIN
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', r.sig);
 
     IF r.is_trigger THEN
+      CONTINUE;
+    END IF;
+
+    IF r.proname = ANY (service_only) THEN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM anon', r.sig);
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM authenticated', r.sig);
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.sig);
+      END IF;
       CONTINUE;
     END IF;
 

@@ -367,6 +367,10 @@ export default function ContactDetailPage() {
                                      t('contacts.statusClosed')}
                                   </span>
                                   <span className="text-[10px] text-muted-foreground">{formatRelative(conv.updated_at)}</span>
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                                    <Clock className="w-3 h-3" />
+                                    {formatDateTime(conv.updated_at)}
+                                  </span>
                                 </div>
                               </div>
                             ))}

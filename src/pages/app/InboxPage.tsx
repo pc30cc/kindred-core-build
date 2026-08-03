@@ -198,6 +198,7 @@ export default function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectedSnapshotRef = useRef<any>(null);
+  const pendingScrollConvRef = useRef<string | null>(null);
 
   // Deep link: /inbox?c=<conversationId> — open that conversation directly
   // (e.g. coming from the contact detail page). We switch to the "all"
@@ -207,6 +208,7 @@ export default function InboxPage() {
     if (!deepLinkConvId) return;
     setSelectedId(deepLinkConvId);
     setShowMobileList(false);
+    pendingScrollConvRef.current = deepLinkConvId;
     const next = new URLSearchParams(searchParams);
     next.delete('c');
     next.set('status', 'all');
@@ -396,6 +398,21 @@ export default function InboxPage() {
     setSelectedId(null);
     setShowMobileList(true);
   }, [conversations, selectedId, activeCallConversationId]);
+
+  // Deep-link scroll: once the target conversation is rendered in the list,
+  // bring it into view (centered) so the operator lands right on it.
+  useEffect(() => {
+    const target = pendingScrollConvRef.current;
+    if (!target || !conversations) return;
+    if (!conversations.some(c => c.id === target)) return;
+    const raf = requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-conv-id="${target}"]`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      pendingScrollConvRef.current = null;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [conversations, selectedId]);
 
   // Auto-scroll
   useEffect(() => {
@@ -996,6 +1013,7 @@ export default function InboxPage() {
               return (
                 <div
                   key={conv.id}
+                  data-conv-id={conv.id}
                   onClick={() => { setSelectedId(conv.id); setShowMobileList(false); }}
                   className={cn(
                     'group/item relative px-3 py-3 cursor-pointer transition-colors border-b border-border/30',

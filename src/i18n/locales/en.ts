@@ -724,6 +724,8 @@ const en = {
     // IP & geo precision (drawer)
     ipAddress: 'IP address',
     ipMasked: 'masked',
+    ipPlanLocked: 'Not available on your plan',
+    ipPlanLockedHint: 'IP visibility is a plan feature. Upgrade your plan to see visitor IP addresses.',
     geoPrecise: 'Precise',
     geoApproximate: 'Approximate',
     geoUnavailable: 'Unavailable',

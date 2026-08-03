@@ -366,12 +366,7 @@ function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>)
   const then = new Date(iso).getTime();
   if (!Number.isFinite(then)) return '';
   const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
-  let when: string;
-  if (diffSec < 45) when = `${diffSec}s ago`;
-  else if (diffSec < 3600) when = `${Math.round(diffSec / 60)}m ago`;
-  else if (diffSec < 86400) when = `${Math.round(diffSec / 3600)}h ago`;
-  else if (diffSec < 7 * 86400) when = `${Math.round(diffSec / 86400)}d ago`;
-  else return formatDateTime(iso);
+  const when = diffSec < 7 * 86400 ? formatRelative(iso) : formatDateTime(iso);
   return t('visitors.landedAt', { when });
 }
 

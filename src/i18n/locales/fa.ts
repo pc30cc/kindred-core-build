@@ -717,6 +717,8 @@ const fa: TranslationKeys = {
     rtPolling: 'پل‌زنی',
     ipAddress: 'آدرس IP',
     ipMasked: 'پنهان‌شده',
+    ipPlanLocked: 'در پلن شما فعال نیست',
+    ipPlanLockedHint: 'نمایش آدرس IP یکی از امکانات پلن‌هاست. برای مشاهده IP بازدیدکنندگان پلن خود را ارتقا دهید.',
     geoPrecise: 'دقیق',
     geoApproximate: 'تقریبی',
     geoUnavailable: 'نامشخص',

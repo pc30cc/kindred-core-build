@@ -48,20 +48,31 @@ evidence for another:
 | --- | --- | --- |
 | **AI-KB tail migration compatibility** | `000` + `007`→`012` only | stock `postgres:16`, pristine, no function reset, no pre-seeded roles |
 | **Hosted Supabase full migration chain** | every file in `supabase/migrations`, real timestamp order, via `supabase db reset` | Supabase CLI stack |
-| **Self-host full migration chain** | every file in `database/migrations`, `000`→`012`, filename order, `ON_ERROR_STOP=1` | `supabase/postgres:15.8.1.060` + the **official** `supabase/auth:v2.194.0`, pinned by digest `sha256:2b352c02…` (`auth migrate`) |
+| **Self-host full migration chain** | every file in `database/migrations`, `000`→`013`, filename order, `ON_ERROR_STOP=1` | `supabase/postgres:15.8.1.060` + the **official** `supabase/gotrue:v2.194.0`, pinned by digest `sha256:2b352c02…` (`gotrue migrate`) |
 
 The self-host job bootstraps auth the way a self-hoster does: the pinned GoTrue
-image runs `auth migrate` against the database *before* the chain is applied, so
+image runs `gotrue migrate` against the database *before* the chain is applied, so
 `auth.users` and `auth.schema_migrations` come from the official Auth migrations
 — never from a handcrafted fixture. `verify-selfhost-chain.sql` fails if
 `auth.users`, `auth.schema_migrations` (non-empty), `auth.uid()` or `auth.jwt()`
 is absent.
 
-The Auth image is referenced by **immutable digest**, not by the mutable tag
-alone, and a preflight step pulls it, `docker image inspect`s it and runs
-`auth --help` asserting that the `migrate` subcommand exists — so an
-unpullable, repointed or renamed image fails as itself instead of masquerading
-as a migration failure.
+The Auth image is referenced by **immutable digest** in a single workflow-level
+`AUTH_IMAGE` variable — never by a mutable tag alone, and never from two places
+that could drift. A preflight step pulls it, prints the resolved architecture
+and `RepoDigests` via `docker image inspect`, and runs `gotrue --help`
+asserting that the `migrate` subcommand exists — so an unpullable, repointed or
+renamed image fails as itself instead of masquerading as a migration failure.
+
+`verify-migration-security.sql` additionally proves, live: a **plan-scoped**
+fail/retry lifecycle with a non-null plan id (scope, plan id, lease fields and
+backoff asserted with `IS DISTINCT FROM`), the complete queue privilege matrix
+for the running server version (`MAINTAIN` added on PostgreSQL 17+), and the
+SECURITY DEFINER posture of every internal RPC (definer, trusted non-customer
+owner, explicit `search_path`) together with the fact that neither `PUBLIC`,
+`anon` nor `authenticated` can `CREATE` in schema `public` — locked down by the
+forward-only migration `013_public_schema_create_lockdown.sql`, mirrored into
+`supabase/migrations`.
 
 Both full-chain jobs then run `scripts/ci/verify-hosted-chain.sql` /
 `scripts/ci/verify-selfhost-chain.sql` for structure and

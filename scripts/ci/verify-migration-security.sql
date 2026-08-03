@@ -119,6 +119,62 @@ BEGIN
 END
 $rpc$;
 
+-- 3b. SECURITY DEFINER posture: a definer function is only as safe as the role
+--     it runs AS and the search_path it resolves through. Every audited RPC
+--     must be definer-owned by a trusted (non-customer) role and must pin its
+--     search_path explicitly. Additionally, no customer role — and not PUBLIC —
+--     may CREATE in schema `public`, otherwise objects could be shadowed under
+--     that search_path.
+DO $posture$
+DECLARE
+  fn        text;
+  o         record;
+  role_name text;
+  offenders text;
+BEGIN
+  FOR fn IN SELECT sig FROM ci_internal_rpc ORDER BY sig LOOP
+    SELECT p.prosecdef,
+           pg_get_userbyid(p.proowner) AS owner,
+           r.rolsuper,
+           (SELECT string_agg(cfg, ' ') FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) AS cfg
+             WHERE cfg LIKE 'search\_path=%') AS search_path
+      INTO o
+    FROM pg_proc p
+    JOIN pg_roles r ON r.oid = p.proowner
+    WHERE p.oid = to_regprocedure(fn);
+
+    IF NOT o.prosecdef THEN
+      RAISE EXCEPTION 'internal RPC % is not SECURITY DEFINER', fn;
+    END IF;
+    IF o.owner IN ('anon', 'authenticated', 'service_role') THEN
+      RAISE EXCEPTION 'internal RPC % is owned by the untrusted role %', fn, o.owner;
+    END IF;
+    IF NOT (o.rolsuper OR o.owner IN ('postgres', 'supabase_admin')) THEN
+      RAISE EXCEPTION 'internal RPC % is owned by % which is not a trusted owner', fn, o.owner;
+    END IF;
+    IF o.search_path IS NULL THEN
+      RAISE EXCEPTION 'internal RPC % has no explicit search_path', fn;
+    END IF;
+
+    RAISE NOTICE 'definer posture ok: % (owner=%, %)', fn, o.owner, o.search_path;
+  END LOOP;
+
+  FOREACH role_name IN ARRAY ARRAY['public', 'anon', 'authenticated'] LOOP
+    IF has_schema_privilege(role_name, 'public', 'CREATE') THEN
+      offenders := concat_ws(', ', offenders, role_name);
+    END IF;
+    IF NOT has_schema_privilege(role_name, 'public', 'USAGE') AND role_name <> 'public' THEN
+      RAISE EXCEPTION '% lost USAGE on schema public — the Data API would break', role_name;
+    END IF;
+  END LOOP;
+
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'schema public is customer-writable: % hold CREATE', offenders;
+  END IF;
+  RAISE NOTICE 'schema public: PUBLIC/anon/authenticated cannot CREATE, USAGE intact';
+END
+$posture$;
+
 -- 4. Real-transaction denial proof: SET LOCAL ROLE and attempt an ACTUAL call
 --    of EVERY audited RPC as anon AND as authenticated. Arguments are typed
 --    NULLs derived from the signature itself. The block runs inside an
@@ -181,20 +237,29 @@ DO $tbl$
 DECLARE
   offenders text;
   missing   text;
+  granted   text;
+  privs     text[] := ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
+                            'TRUNCATE', 'REFERENCES', 'TRIGGER'];
 BEGIN
   IF to_regclass('public.entitlement_fanout_jobs') IS NULL THEN
     RAISE EXCEPTION 'entitlement_fanout_jobs missing — the migration chain did not apply';
   END IF;
 
-  -- COMPLETE privilege matrix, not just the four DML verbs: a stray
-  -- TRUNCATE/REFERENCES/TRIGGER grant is an escalation too, and PUBLIC is
-  -- audited alongside the two customer roles.
+  -- COMPLETE privilege matrix for the running server version, not just the
+  -- four DML verbs: a stray TRUNCATE/REFERENCES/TRIGGER (or MAINTAIN on
+  -- PostgreSQL 17+) grant is an escalation too, and PUBLIC is audited
+  -- alongside the two customer roles.
+  IF current_setting('server_version_num')::integer >= 170000 THEN
+    privs := privs || 'MAINTAIN';
+  END IF;
+  RAISE NOTICE 'PostgreSQL % — auditing table privileges: %',
+    current_setting('server_version'), array_to_string(privs, ', ');
+
   SELECT string_agg(format('%s:%s', g.role_name, g.priv), ', ') INTO offenders
   FROM (
     SELECT r AS role_name, p AS priv
     FROM unnest(ARRAY['public', 'anon', 'authenticated']) AS r
-    CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
-                            'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS p
+    CROSS JOIN unnest(privs) AS p
   ) AS g
   WHERE has_table_privilege(g.role_name, 'public.entitlement_fanout_jobs', g.priv);
 
@@ -216,7 +281,16 @@ BEGIN
     RAISE EXCEPTION 'service_role lacks % on entitlement_fanout_jobs — the worker would be broken', missing;
   END IF;
 
-  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, PUBLIC/anon/authenticated hold no table privilege at all';
+  -- Explicit, per-privilege report of what service_role actually holds, across
+  -- the SAME version-aware privilege set.
+  SELECT string_agg(format('%s=%s', p,
+           has_table_privilege('service_role', 'public.entitlement_fanout_jobs', p)), ', ')
+    INTO granted
+  FROM unnest(privs) AS p;
+
+  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, PUBLIC/anon/authenticated hold no table privilege at all (privileges audited: %)',
+    array_to_string(privs, ', ');
+  RAISE NOTICE 'entitlement_fanout_jobs service_role privileges: %', granted;
 END
 $tbl$;
 
@@ -231,6 +305,7 @@ DO $svc$
 DECLARE
   v_job      uuid;
   v_job2     uuid;
+  v_plan_id  uuid := gen_random_uuid();
   c          record;
   j          record;
   ok         boolean;
@@ -308,12 +383,29 @@ BEGIN
       j.status, j.completed_generation, j.claim_token, j.worker_id, j.processed_count, j.failed_count;
   END IF;
 
-  -- fail / retry path on a second, independently scoped job
-  v_job2 := public.enqueue_entitlement_fanout('plan', 'ci-service-role-proof-fail', NULL);
+  -- fail / retry path on a second job that is REALLY plan-scoped: a NULL plan
+  -- id would not exercise the plan branch at all.
+  v_job2 := public.enqueue_entitlement_fanout('plan', 'ci-service-role-proof-fail', v_plan_id);
+  IF v_job2 IS NULL THEN
+    RAISE EXCEPTION 'service_role: enqueue_entitlement_fanout(plan, %) returned NULL', v_plan_id;
+  END IF;
+
   SELECT * INTO c FROM public.claim_entitlement_fanout_jobs('ci-worker-2', 5, 300)
   WHERE id = v_job2;
-  IF c.id IS NULL THEN
-    RAISE EXCEPTION 'service_role: could not lease the fail-path job';
+  IF c.id IS DISTINCT FROM v_job2 THEN
+    RAISE EXCEPTION 'service_role: could not lease the plan-scoped fail-path job (claimed % expected %)',
+      c.id, v_job2;
+  END IF;
+
+  -- Exact pre-fail state, including the plan scope itself.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.scope IS DISTINCT FROM 'plan'
+     OR j.plan_id IS DISTINCT FROM v_plan_id
+     OR j.processing_generation IS NULL
+     OR j.claim_token IS NULL
+     OR j.worker_id IS DISTINCT FROM 'ci-worker-2' THEN
+    RAISE EXCEPTION 'service_role: plan-scoped leased state wrong (scope=%, plan=%, gen=%, token=%, worker=%)',
+      j.scope, j.plan_id, j.processing_generation, j.claim_token, j.worker_id;
   END IF;
 
   outcome := public.fail_entitlement_fanout(
@@ -322,17 +414,21 @@ BEGIN
     RAISE EXCEPTION 'service_role: fail_entitlement_fanout returned %, expected retry_same_generation', outcome;
   END IF;
 
-  -- Exact retry state: requeued, lease released, error recorded and backed off.
+  -- Exact retry state: same plan-scoped job, requeued, lease released, error
+  -- recorded and backed off.
   SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
-  IF j.status IS DISTINCT FROM 'pending'
+  IF j.id IS DISTINCT FROM v_job2
+     OR j.scope IS DISTINCT FROM 'plan'
+     OR j.plan_id IS DISTINCT FROM v_plan_id
+     OR j.status IS DISTINCT FROM 'pending'
      OR j.last_error_code IS DISTINCT FROM 'ci_proof'
      OR j.processing_generation IS DISTINCT FROM NULL
      OR j.claim_token IS DISTINCT FROM NULL
      OR j.worker_id IS DISTINCT FROM NULL
      OR j.claim_expires_at IS DISTINCT FROM NULL
      OR j.next_attempt_at <= now() THEN
-    RAISE EXCEPTION 'service_role: retry row state wrong (status=%, error=%, token=%, worker=%, next=%)',
-      j.status, j.last_error_code, j.claim_token, j.worker_id, j.next_attempt_at;
+    RAISE EXCEPTION 'service_role: plan retry row state wrong (id=%, scope=%, plan=%, status=%, error=%, token=%, worker=%, next=%)',
+      j.id, j.scope, j.plan_id, j.status, j.last_error_code, j.claim_token, j.worker_id, j.next_attempt_at;
   END IF;
   steps := steps + 1;
 

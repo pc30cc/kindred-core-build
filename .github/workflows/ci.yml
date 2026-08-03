@@ -14,6 +14,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Single, workflow-level, IMMUTABLE reference to the official Supabase Auth
+# (GoTrue) image. Preflight and the migration step both read this one variable,
+# so they can never drift apart. `supabase/gotrue` is the registry-confirmed
+# repository for this index digest; the tag alone is mutable, the digest is not.
+env:
+  AUTH_IMAGE: supabase/gotrue:v2.194.0@sha256:2b352c02adf11a2025cd5993c246ef85db73743553c39194d2b1862d1cc4d1fd
+
 jobs:
   validate:
     name: Validate (typecheck, lint, tests, build)
@@ -267,26 +274,27 @@ jobs:
 
       # The official Auth image, pinned by IMMUTABLE DIGEST (the tag alone is
       # mutable and could be repointed). Preflight proves the image is really
-      # pullable and that the binary really exposes `migrate` BEFORE the job
-      # depends on it, so an unpullable/renamed image fails loudly here rather
-      # than looking like a migration failure later.
+      # pullable, PRINTS the resolved architecture and RepoDigest, and proves
+      # the binary really exposes `migrate` BEFORE the job depends on it — so an
+      # unpullable/renamed image fails loudly here rather than looking like a
+      # migration failure later.
       - name: Preflight — official Auth image is pullable and exposes `migrate`
-        env:
-          AUTH_IMAGE: supabase/auth:v2.194.0@sha256:2b352c02adf11a2025cd5993c246ef85db73743553c39194d2b1862d1cc4d1fd
         run: |
           set -euo pipefail
+          echo "AUTH_IMAGE=$AUTH_IMAGE"
           docker pull "$AUTH_IMAGE"
-          docker image inspect "$AUTH_IMAGE" >/dev/null
-          docker run --rm "$AUTH_IMAGE" auth --help 2>&1 | tee /tmp/auth-help.txt
-          grep -q 'migrate' /tmp/auth-help.txt
+          docker image inspect \
+            --format '{{.Architecture}} {{json .RepoDigests}}' \
+            "$AUTH_IMAGE"
+          docker run --rm "$AUTH_IMAGE" gotrue --help 2>&1 | tee /tmp/gotrue-help.txt
+          grep -Eq '(^|[[:space:]])migrate([[:space:]]|$)' /tmp/gotrue-help.txt
 
-      # Official Supabase Auth (GoTrue) migrations, pinned. This is the same
-      # binary a self-hoster runs; `auth migrate` creates the `auth` schema
-      # objects (auth.users, auth.schema_migrations, …) that migration 001
-      # references. No mocked auth tables anywhere in this job.
+      # Official Supabase Auth (GoTrue) migrations, pinned by the same
+      # workflow-level digest. This is the same binary a self-hoster runs;
+      # `gotrue migrate` creates the `auth` schema objects (auth.users,
+      # auth.schema_migrations, …) that migration 001 references. No mocked
+      # auth tables anywhere in this job.
       - name: Bootstrap Supabase Auth schema (official GoTrue migrations)
-        env:
-          AUTH_IMAGE: supabase/auth:v2.194.0@sha256:2b352c02adf11a2025cd5993c246ef85db73743553c39194d2b1862d1cc4d1fd
         run: |
           set -euo pipefail
           docker run --rm --network host \
@@ -301,7 +309,7 @@ jobs:
             -e GOTRUE_DISABLE_SIGNUP=false \
             -e 'DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable&search_path=auth' \
             -e 'GOTRUE_DB_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable&search_path=auth' \
-            "$AUTH_IMAGE" auth migrate
+            "$AUTH_IMAGE" gotrue migrate
 
       - name: Fail if the Auth bootstrap did not produce real auth tables
         env:
@@ -327,7 +335,7 @@ jobs:
           shopt -s nullglob
           files=(database/migrations/*.sql)
           IFS=$'\n' files=($(printf '%s\n' "${files[@]}" | sort))
-          if [ "${#files[@]}" -lt 13 ]; then
+          if [ "${#files[@]}" -lt 14 ]; then
             echo "expected the full chain, found ${#files[@]} files"; exit 1
           fi
           for f in "${files[@]}"; do

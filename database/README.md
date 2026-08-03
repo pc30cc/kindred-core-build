@@ -48,7 +48,7 @@ evidence for another:
 | --- | --- | --- |
 | **AI-KB tail migration compatibility** | `000` + `007`→`012` only | stock `postgres:16`, pristine, no function reset, no pre-seeded roles |
 | **Hosted Supabase full migration chain** | every file in `supabase/migrations`, real timestamp order, via `supabase db reset` | Supabase CLI stack |
-| **Self-host full migration chain** | every file in `database/migrations`, `000`→`012`, filename order, `ON_ERROR_STOP=1` | `supabase/postgres:15.8.1.060` + the **official** `supabase/auth:v2.194.0` (`auth migrate`) |
+| **Self-host full migration chain** | every file in `database/migrations`, `000`→`012`, filename order, `ON_ERROR_STOP=1` | `supabase/postgres:15.8.1.060` + the **official** `supabase/auth:v2.194.0`, pinned by digest `sha256:2b352c02…` (`auth migrate`) |
 
 The self-host job bootstraps auth the way a self-hoster does: the pinned GoTrue
 image runs `auth migrate` against the database *before* the chain is applied, so
@@ -56,6 +56,12 @@ image runs `auth migrate` against the database *before* the chain is applied, so
 — never from a handcrafted fixture. `verify-selfhost-chain.sql` fails if
 `auth.users`, `auth.schema_migrations` (non-empty), `auth.uid()` or `auth.jwt()`
 is absent.
+
+The Auth image is referenced by **immutable digest**, not by the mutable tag
+alone, and a preflight step pulls it, `docker image inspect`s it and runs
+`auth --help` asserting that the `migrate` subcommand exists — so an
+unpullable, repointed or renamed image fails as itself instead of masquerading
+as a migration failure.
 
 Both full-chain jobs then run `scripts/ci/verify-hosted-chain.sql` /
 `scripts/ci/verify-selfhost-chain.sql` for structure and
@@ -73,10 +79,19 @@ are rolled back:
   (`enqueue → claim → advance → complete`, plus the `fail` retry path) and all
   four AI-KB RPCs, asserting their actual return values.
 
-The script **requires** `-v require_ai_kb=0|1` and aborts without it. `1`
-(hosted chain) makes the live AI-KB proof mandatory; `0` (self-host chain,
-whose AI-KB tables ship only in `supabase/migrations`) limits the live proof to
-the fan-out lifecycle.
+Each AI-KB RPC is called with a non-existent id and must return exactly
+`{"ok": false, "error": "not_found"}` — `ok=false` alone is rejected, because an
+unrelated body failure would report that too. The fan-out proof asserts the
+exact row state after every step (lease ownership, cursor generation, released
+claim, counters, backoff), not just the status string, and the queue table is
+audited across the complete privilege matrix (`SELECT/INSERT/UPDATE/DELETE/
+TRUNCATE/REFERENCES/TRIGGER`) for `PUBLIC`, `anon` and `authenticated`.
+
+The script **requires** `-v require_ai_kb=0|1`, aborts without it and accepts
+**only** the literals `0` and `1` — any other value (empty, `true`, a typo) is a
+hard error rather than a silent "not required". `1` (hosted chain) makes the
+live AI-KB proof mandatory; `0` (self-host chain, whose AI-KB tables ship only
+in `supabase/migrations`) limits the live proof to the fan-out lifecycle.
 
 ### Rules
 

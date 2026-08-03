@@ -117,7 +117,6 @@ describe('fixed-UUID inventory across supabase/migrations', () => {
     }
 
     // Reviewable inventory, not a silent allowlist.
-    // eslint-disable-next-line no-console
     console.table(inventory);
 
     expect(unclassified).toEqual([]);

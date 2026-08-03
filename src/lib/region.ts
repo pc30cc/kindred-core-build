@@ -97,8 +97,9 @@ export function formatMoney(
   options: FormatMoneyOptions = {},
 ): string {
   const { minor = true, currency } = options;
+  // Region pins the currency; otherwise the active language decides it.
   const pinned = REGION_CURRENCY[mode];
-  const code = (pinned ?? currency ?? LOCALE_CURRENCY[locale] ?? 'USD').toUpperCase();
+  const code = (pinned ?? LOCALE_CURRENCY[locale] ?? currency ?? 'USD').toUpperCase();
   let value = (amount ?? 0) / (minor ? 100 : 1);
 
   const isRial = RIAL_FAMILY.includes(code);

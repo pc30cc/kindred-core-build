@@ -139,7 +139,7 @@ export function SettingsLayout() {
                   )}
                 >
                   <group.icon className="h-[18px] w-[18px] shrink-0 opacity-70" />
-                  <span className="flex-1 text-start">{t(`settingsNav.groups.${group.key}`)}</span>
+                  <span className="flex-1 text-start">{t(`settingsNav.groups.${group.key}` as Parameters<typeof t>[0])}</span>
                   <ChevronDown
                     className={cn(
                       'h-3.5 w-3.5 shrink-0 transition-transform duration-200 opacity-50',
@@ -161,7 +161,7 @@ export function SettingsLayout() {
                             : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                         )}
                       >
-                        {t(`settingsNav.items.${item.labelKey}`)}
+                        {t(`settingsNav.items.${item.labelKey}` as Parameters<typeof t>[0])}
                       </Link>
                     ))}
                   </div>

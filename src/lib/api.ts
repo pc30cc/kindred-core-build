@@ -440,6 +440,11 @@ export interface AdminUserBilling {
     id: string; workspace_id: string; old_plan_id: string | null; new_plan_id: string | null;
     change_type: string | null; changed_by: string | null; metadata: any; created_at: string | null;
   }[];
+  gateways?: {
+    id: string; workspace_id: string; provider_type: string; provider_name: string;
+    is_active: boolean | null; created_at: string | null; updated_at: string | null;
+    config_summary: { key: string; value: string | null }[];
+  }[];
 }
 
 export async function adminGetUserBilling(userId: string, limit = 100) {
@@ -458,6 +463,7 @@ export interface AdminUserEmailLog {
   error_message: string | null;
   created_at: string | null;
   sent_at: string | null;
+  metadata?: any;
 }
 
 export interface AdminUserSmsLog {
@@ -494,7 +500,7 @@ export async function adminGetUserMessages(userId: string, limit = 50) {
     if (!email) return { emails: [], sms: [] };
     const { data, error } = await supabase
       .from('email_logs')
-      .select('id, template_slug, recipient_email, subject, status, provider_name, error_message, created_at, sent_at')
+      .select('id, template_slug, recipient_email, subject, status, provider_name, error_message, metadata, created_at, sent_at')
       .ilike('recipient_email', email)
       .order('created_at', { ascending: false })
       .limit(limit);

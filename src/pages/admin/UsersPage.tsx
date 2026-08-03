@@ -1046,6 +1046,14 @@ function UserMessagesCard({ userId }: { userId: string }) {
   const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
   const statusVariant = (s: string | null) =>
     s === 'sent' || s === 'delivered' ? 'secondary' : s === 'failed' || s === 'error' ? 'destructive' : 'outline';
+  const [detail, setDetail] = useState<{ title: string; rows: { label: string; value: string | null | undefined }[]; json?: unknown } | null>(null);
+
+  const bodyOf = (meta: any): string | null => {
+    if (!meta || typeof meta !== 'object') return null;
+    const raw = meta.text || meta.body || meta.message || meta.content || meta.html;
+    if (typeof raw !== 'string') return null;
+    return raw.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || null;
+  };
 
   return (
     <Card>
@@ -1086,7 +1094,24 @@ function UserMessagesCard({ userId }: { userId: string }) {
                     </TableHeader>
                     <TableBody>
                       {data.emails.map(m => (
-                        <TableRow key={m.id}>
+                        <TableRow
+                          key={m.id}
+                          className="cursor-pointer"
+                          onClick={() => setDetail({
+                            title: t('admin.users.msgDetailEmail'),
+                            rows: [
+                              { label: t('admin.users.colSubject'), value: m.subject },
+                              { label: t('admin.users.msgRecipient'), value: m.recipient_email },
+                              { label: t('admin.users.colTemplate'), value: m.template_slug },
+                              { label: t('admin.users.colStatus'), value: m.status },
+                              { label: t('admin.users.colProvider'), value: m.provider_name },
+                              { label: t('admin.users.colSentAt'), value: fmt(m.sent_at || m.created_at) },
+                              { label: t('admin.users.msgError'), value: m.error_message },
+                              { label: t('admin.users.msgBody'), value: bodyOf(m.metadata) ?? t('admin.users.msgNoBody') },
+                            ],
+                            json: m.metadata,
+                          })}
+                        >
                           <TableCell className="text-sm max-w-[260px] truncate">{m.subject || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.template_slug || '—'}</TableCell>
                           <TableCell>
@@ -1119,7 +1144,20 @@ function UserMessagesCard({ userId }: { userId: string }) {
                     </TableHeader>
                     <TableBody>
                       {data.sms.map(m => (
-                        <TableRow key={m.id}>
+                        <TableRow
+                          key={m.id}
+                          className="cursor-pointer"
+                          onClick={() => setDetail({
+                            title: t('admin.users.msgDetailSms'),
+                            rows: [
+                              { label: t('admin.users.msgRecipient'), value: m.phone_masked },
+                              { label: t('admin.users.colPurpose'), value: m.purpose },
+                              { label: t('admin.users.colStatus'), value: m.delivery_status },
+                              { label: t('admin.users.colProvider'), value: m.provider_name },
+                              { label: t('admin.users.colSentAt'), value: fmt(m.sent_at || m.created_at) },
+                            ],
+                          })}
+                        >
                           <TableCell className="text-sm whitespace-nowrap" dir="ltr">{m.phone_masked || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.purpose || '—'}</TableCell>
                           <TableCell>
@@ -1136,12 +1174,62 @@ function UserMessagesCard({ userId }: { userId: string }) {
             </TabsContent>
           </Tabs>
         )}
+        <DetailDialog
+          open={!!detail}
+          onClose={() => setDetail(null)}
+          title={detail?.title || ''}
+          rows={detail?.rows || []}
+          json={detail?.json}
+        />
       </CardContent>
     </Card>
   );
 }
 
 /* ─── Financial overview (payments, events, subscriptions, plan changes) ─── */
+function DetailDialog({
+  open, onClose, title, rows, json,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  rows: { label: string; value: string | null | undefined }[];
+  json?: unknown;
+}) {
+  const { t, dir } = useTranslation();
+  const hasJson = json != null && !(typeof json === 'object' && Object.keys(json as object).length === 0);
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto" dir={dir}>
+        <DialogHeader className={dir === 'rtl' ? 'text-right sm:text-right' : ''}>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2 text-sm">
+          {rows.filter(r => r.value).map(r => (
+            <div key={r.label} className="flex items-start justify-between gap-3 rounded-md bg-muted/50 px-3 py-2">
+              <span className="text-muted-foreground shrink-0">{r.label}</span>
+              <span className="font-medium break-all text-end">{r.value}</span>
+            </div>
+          ))}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">{t('admin.users.detailRaw')}</p>
+            {hasJson ? (
+              <pre dir="ltr" className="max-h-[40vh] overflow-auto rounded-md border bg-muted/40 p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-all">
+                {JSON.stringify(json, null, 2)}
+              </pre>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t('admin.users.detailNoRaw')}</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{t('admin.users.detailClose')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function FinPager({
   total, page, pageSize, onPage, onPageSize,
 }: { total: number; page: number; pageSize: number; onPage: (p: number) => void; onPageSize: (n: number) => void }) {
@@ -1182,6 +1270,7 @@ function UserFinanceCard({ userId }: { userId: string }) {
   const [paySize, setPaySize] = useState(20);
   const [evtPage, setEvtPage] = useState(1);
   const [evtSize, setEvtSize] = useState(20);
+  const [detail, setDetail] = useState<{ title: string; rows: { label: string; value: string | null | undefined }[]; json?: unknown } | null>(null);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-user-billing', userId],
     queryFn: () => adminGetUserBilling(userId, 200),
@@ -1205,15 +1294,16 @@ function UserFinanceCard({ userId }: { userId: string }) {
       const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
       return `${new Intl.NumberFormat(intlLocale, { maximumFractionDigits: 0 }).format(Math.round(toman))} ${label}`;
     }
-    try {
-      return new Intl.NumberFormat(intlLocale, {
-        style: 'currency',
-        currency: code,
-        maximumFractionDigits: 2,
-      }).format(value);
-    } catch {
-      return `${value.toFixed(2)} ${code}`;
+    // No currency symbols/icons — plain localized number plus the ISO code.
+    const formatted = new Intl.NumberFormat(intlLocale, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(value);
+    if (locale === 'fa') {
+      const faCode = code === 'USD' ? 'دلار' : code === 'EUR' ? 'یورو' : code;
+      return `${formatted} ${faCode}`;
     }
+    return `${formatted} ${code}`;
   };
 
   const isPaid = (s: string | null) => ['succeeded', 'paid', 'completed', 'success'].includes((s || '').toLowerCase());
@@ -1248,6 +1338,31 @@ function UserFinanceCard({ userId }: { userId: string }) {
   const failedCount = data.payments.length - successCount;
   const hasAny = data.payments.length || data.events.length || data.subscriptions.length || data.planChanges.length;
 
+  // Gateway connection overview: configured gateways merged with every
+  // provider actually seen in payments / events / subscriptions.
+  const gatewayNames = Array.from(new Set([
+    ...(data.gateways ?? []).map(g => g.provider_name),
+    ...data.payments.map(p => p.provider_name),
+    ...data.events.map(e => e.provider_name),
+    ...data.subscriptions.map(s => s.provider_name),
+  ].filter(Boolean) as string[]));
+
+  const gatewayRows = gatewayNames.map(name => {
+    const cfg = (data.gateways ?? []).find(g => g.provider_name === name);
+    const pays = data.payments.filter(p => p.provider_name === name);
+    const evts = data.events.filter(e => e.provider_name === name);
+    const attempts = pays.length + evts.length;
+    const success = pays.filter(p => isPaid(p.status)).length + evts.filter(e => isPaid(e.status)).length;
+    const failed = attempts - success;
+    const lastAt = [...pays.map(p => p.created_at), ...evts.map(e => e.created_at)]
+      .filter(Boolean).sort().reverse()[0] as string | undefined;
+    const lastErrorItem = [...pays, ...evts].find(x => !isPaid((x as any).status) && (x as any).status);
+    const lastError = lastErrorItem
+      ? `${(lastErrorItem as any).status}${(lastErrorItem as any).metadata?.error ? ` — ${String((lastErrorItem as any).metadata.error)}` : ''}`
+      : null;
+    return { name, cfg, attempts, success, failed, lastAt, lastError };
+  });
+
   return (
     <div className="space-y-4" dir={dir}>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1270,6 +1385,78 @@ function UserFinanceCard({ userId }: { userId: string }) {
       {!hasAny && (
         <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">{t('admin.users.finNoData')}</p></CardContent></Card>
       )}
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finGateways')}
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finGatewaysHint')}</p>
+          </div>
+          {gatewayRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('admin.users.finNoGateways')}</p>
+          ) : (
+            <div className="space-y-2">
+              {gatewayRows.map(g => (
+                <div key={g.name} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{g.name}</span>
+                    <div className="flex items-center gap-2">
+                      {g.cfg ? (
+                        <>
+                          <Badge variant="outline" className="text-[10px]">{t('admin.users.finGatewayConfigured')}</Badge>
+                          <Badge variant={g.cfg.is_active ? 'secondary' : 'outline'} className="text-[10px]">
+                            {g.cfg.is_active ? t('admin.users.finGatewayActive') : t('admin.users.finGatewayInactive')}
+                          </Badge>
+                        </>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">{t('admin.users.finGatewayNotConfigured')}</Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewayAttempts')}</span>
+                      <span className="font-medium">{g.attempts}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewaySuccess')}</span>
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400">{g.success}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewayFailed')}</span>
+                      <span className="font-medium text-destructive">{g.failed}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
+                      <span className="text-muted-foreground">{t('admin.users.finGatewayLastAttempt')}</span>
+                      <span className="font-medium whitespace-nowrap">{fmt(g.lastAt ?? null)}</span>
+                    </div>
+                  </div>
+                  {g.lastError && (
+                    <p className="text-[11px] text-destructive break-all">
+                      {t('admin.users.finGatewayLastError')}: {g.lastError}
+                    </p>
+                  )}
+                  {g.cfg && g.cfg.config_summary.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-muted-foreground">{t('admin.users.finGatewaySettings')}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                        {g.cfg.config_summary.map(c => (
+                          <div key={c.key} className="flex items-center justify-between gap-2 rounded bg-muted/30 px-2 py-1 text-[11px]">
+                            <span className="text-muted-foreground font-mono">{c.key}</span>
+                            <span className="font-medium truncate max-w-[160px]" dir="ltr">{c.value ?? '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {data.subscriptions.length > 0 && (
         <Card>
@@ -1323,7 +1510,23 @@ function UserFinanceCard({ userId }: { userId: string }) {
                 </TableHeader>
                 <TableBody>
                   {data.payments.slice((payPage - 1) * paySize, payPage * paySize).map(p => (
-                    <TableRow key={p.id}>
+                    <TableRow
+                      key={p.id}
+                      className="cursor-pointer"
+                      onClick={() => setDetail({
+                        title: t('admin.users.finPaymentDetail'),
+                        rows: [
+                          { label: t('admin.users.finDate'), value: fmt(p.created_at) },
+                          { label: t('admin.users.finWorkspace'), value: wsName(p.workspace_id) },
+                          { label: t('admin.users.finGateway'), value: p.provider_name },
+                          { label: t('admin.users.finAmount'), value: money(p.amount, p.currency) },
+                          { label: t('admin.users.finRefund'), value: p.refund_amount ? money(p.refund_amount, p.currency) : null },
+                          { label: t('admin.users.finStatus'), value: p.status },
+                          { label: t('admin.users.finRefId'), value: p.provider_payment_id },
+                        ],
+                        json: p.metadata,
+                      })}
+                    >
                       <TableCell className="whitespace-nowrap text-xs">{fmt(p.created_at)}</TableCell>
                       <TableCell className="text-xs">{wsName(p.workspace_id)}</TableCell>
                       <TableCell className="text-xs">{p.provider_name || '—'}</TableCell>
@@ -1358,7 +1561,24 @@ function UserFinanceCard({ userId }: { userId: string }) {
             </div>
             <div className="space-y-2">
               {data.events.slice((evtPage - 1) * evtSize, evtPage * evtSize).map(e => (
-                <div key={e.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs">
+                <div
+                  key={e.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDetail({
+                    title: t('admin.users.finEventDetail'),
+                    rows: [
+                      { label: t('admin.users.finDate'), value: fmt(e.created_at) },
+                      { label: t('admin.users.finWorkspace'), value: wsName(e.workspace_id) },
+                      { label: t('admin.users.finGateway'), value: e.provider_name },
+                      { label: t('admin.users.finStatus'), value: e.status },
+                      { label: t('admin.users.finRefId'), value: e.provider_event_id },
+                      { label: t('admin.users.finAmount'), value: e.amount != null ? money(e.amount, e.currency) : null },
+                    ],
+                    json: e.metadata,
+                  })}
+                  className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs cursor-pointer hover:bg-muted/50 transition-colors"
+                >
                   <div className="min-w-0">
                     <p className="font-medium">{e.event_type || '—'}</p>
                     <p className="text-muted-foreground truncate">
@@ -1409,6 +1629,14 @@ function UserFinanceCard({ userId }: { userId: string }) {
           </CardContent>
         </Card>
       )}
+
+      <DetailDialog
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        title={detail?.title || ''}
+        rows={detail?.rows || []}
+        json={detail?.json}
+      />
     </div>
   );
 }

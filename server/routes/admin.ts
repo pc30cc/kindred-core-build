@@ -367,7 +367,7 @@ adminRouter.get('/users/:userId/messages', async (req, res) => {
     const emailsQuery = email
       ? sb
           .from('email_logs')
-          .select('id, template_slug, recipient_email, subject, status, provider_name, error_message, created_at, sent_at')
+          .select('id, template_slug, recipient_email, subject, status, provider_name, error_message, metadata, created_at, sent_at')
           .ilike('recipient_email', email)
           .order('created_at', { ascending: false })
           .limit(limit)
@@ -430,10 +430,10 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
 
     const workspaceIds = Array.from(new Set((memberships ?? []).map((m: any) => m.workspace_id))).filter(Boolean);
     if (workspaceIds.length === 0) {
-      return res.json({ payments: [], events: [], subscriptions: [], planChanges: [], workspaces: [], plans: [] });
+      return res.json({ payments: [], events: [], subscriptions: [], planChanges: [], workspaces: [], plans: [], gateways: [] });
     }
 
-    const [wsRes, payRes, evRes, subRes, chgRes, planRes] = await Promise.all([
+    const [wsRes, payRes, evRes, subRes, chgRes, planRes, gwRes] = await Promise.all([
       sb.from('workspaces').select('id, name, slug').in('id', workspaceIds),
       sb.from('billing_payments')
         .select('id, workspace_id, provider_name, provider_payment_id, amount, currency, status, refund_amount, metadata, created_at')
@@ -448,10 +448,37 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
         .select('id, workspace_id, old_plan_id, new_plan_id, change_type, changed_by, metadata, created_at')
         .in('workspace_id', workspaceIds).order('created_at', { ascending: false }).limit(limit),
       sb.from('billing_plans').select('id, name, slug, localized'),
+      sb.from('provider_configs')
+        .select('id, workspace_id, provider_type, provider_name, config, is_active, created_at, updated_at')
+        .in('workspace_id', workspaceIds)
+        .in('provider_type', ['billing', 'payment', 'payments']),
     ]);
 
-    const firstError = [wsRes, payRes, evRes, subRes, chgRes, planRes].find((r: any) => r.error);
+    const firstError = [wsRes, payRes, evRes, subRes, chgRes, planRes, gwRes].find((r: any) => r.error);
     if (firstError) return res.status(500).json({ error: (firstError as any).error.message });
+
+    // Never leak provider secrets — only expose which config keys are set.
+    const SECRET_KEY_RE = /(secret|key|token|password|pin|signature)/i;
+    const gateways = (gwRes.data ?? []).map((g: any) => {
+      const cfg = (g.config ?? {}) as Record<string, unknown>;
+      return {
+        id: g.id,
+        workspace_id: g.workspace_id,
+        provider_type: g.provider_type,
+        provider_name: g.provider_name,
+        is_active: g.is_active,
+        created_at: g.created_at,
+        updated_at: g.updated_at,
+        config_summary: Object.keys(cfg).map((k) => ({
+          key: k,
+          value: SECRET_KEY_RE.test(k)
+            ? (cfg[k] ? '••••••' : null)
+            : typeof cfg[k] === 'object'
+              ? JSON.stringify(cfg[k])
+              : cfg[k] == null ? null : String(cfg[k]),
+        })),
+      };
+    });
 
     res.json({
       workspaces: wsRes.data ?? [],
@@ -460,6 +487,7 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
       subscriptions: subRes.data ?? [],
       planChanges: chgRes.data ?? [],
       plans: planRes.data ?? [],
+      gateways,
     });
   } catch (err: any) {
     res.status(400).json({ error: err?.message || 'Failed to load billing data' });

@@ -30,6 +30,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/013_public_schema_create_lockdown.sql',
     hosted: 'supabase/migrations/20260803130000_public_schema_create_lockdown.sql',
   },
+  {
+    label: '014 — core SECURITY DEFINER ACL lockdown',
+    selfHost: 'database/migrations/014_core_security_definer_acl_lockdown.sql',
+    hosted: 'supabase/migrations/20260803150000_core_security_definer_acl_lockdown.sql',
+  },
 ];
 
 /** Strips line comments, block comments and collapses whitespace. */

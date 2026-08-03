@@ -181,6 +181,9 @@ DO $tbl$
 DECLARE
   offenders text;
   missing   text;
+  granted   text;
+  privs     text[] := ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
+                            'TRUNCATE', 'REFERENCES', 'TRIGGER'];
 BEGIN
   IF to_regclass('public.entitlement_fanout_jobs') IS NULL THEN
     RAISE EXCEPTION 'entitlement_fanout_jobs missing — the migration chain did not apply';

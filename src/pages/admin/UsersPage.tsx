@@ -21,7 +21,7 @@ import { supabase } from '@/lib/supabase';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
 } from '@/lib/api';
-import { format } from 'date-fns';
+import { formatPattern as format } from '@/lib/date';
 import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
 import {

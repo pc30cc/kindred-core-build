@@ -74,6 +74,59 @@ export async function listRuns(
   return data || [];
 }
 
+const RUN_LIST_COLUMNS = 'id,run_type,mode,status,input_text,skip_reason,error_message,confidence,created_at,conversation_id';
+
+const RUN_FILTER_STATUSES: Record<string, string[]> = {
+  answered: ['replied'],
+  suggested: ['suggested'],
+  handoff: ['handoff'],
+  no_answer: ['no_answer', 'skipped'],
+  needs_review: ['failed'],
+};
+
+/**
+ * Paginated + searchable run listing for the Activity page.
+ * Filtering/searching happens in Postgres so the client never loads the
+ * full history into memory.
+ */
+export async function listRunsPaged(
+  config: ServerConfig,
+  workspaceId: string,
+  opts: { page?: number; pageSize?: number; search?: string; filter?: string } = {},
+) {
+  const sb = getServiceClient(config);
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), 100);
+  const page = Math.max(opts.page ?? 1, 1);
+  const from = (page - 1) * pageSize;
+
+  let q = sb
+    .from('ai_agent_runs')
+    .select(RUN_LIST_COLUMNS, { count: 'exact' })
+    .eq('workspace_id', workspaceId);
+
+  const statuses = opts.filter && opts.filter !== 'all' ? RUN_FILTER_STATUSES[opts.filter] : undefined;
+  if (statuses) q = q.in('status', statuses);
+
+  const search = (opts.search || '').trim();
+  if (search) {
+    const safe = search.replace(/[%,()]/g, ' ').slice(0, 120);
+    q = q.ilike('input_text', `%${safe}%`);
+  }
+
+  const { data, error, count } = await q
+    .order('created_at', { ascending: false })
+    .range(from, from + pageSize - 1);
+  if (error) throw new Error(error.message);
+  const total = count ?? 0;
+  return {
+    runs: data || [],
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
 export async function summarize(config: ServerConfig, workspaceId: string) {
   const sb = getServiceClient(config);
   // Last 30 days

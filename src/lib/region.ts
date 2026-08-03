@@ -103,7 +103,11 @@ export function formatMoney(
   let value = (amount ?? 0) / (minor ? 100 : 1);
 
   const isRial = RIAL_FAMILY.includes(code);
-  if (isRial && (code === 'IRR' || code === 'RIAL')) value = value / 10;
+  // Amounts stored in Rial are shown in Toman (1 Toman = 10 Rial).
+  const source = (currency || code).toUpperCase();
+  if (isRial && (source === 'IRR' || source === 'RIAL' || code === 'IRR' || code === 'RIAL')) {
+    value = value / 10;
+  }
 
   const nf = new Intl.NumberFormat(intlLocaleFor(locale), {
     minimumFractionDigits: 0,

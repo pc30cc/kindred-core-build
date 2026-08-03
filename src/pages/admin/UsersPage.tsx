@@ -35,7 +35,7 @@ import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
   KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
-  ImageOff, MessageSquare, Trash2,
+  MessageSquare, Trash2,
 } from 'lucide-react';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

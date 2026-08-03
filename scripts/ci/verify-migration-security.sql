@@ -39,6 +39,32 @@ BEGIN
 END
 $flag$;
 
+-- Second MANDATORY chain-profile flag. The 22-function service-only ACL
+-- manifest belongs to the historical HOSTED migration 20260731160434, which
+-- the self-host chain (database/migrations 000 → 015) never executes.
+-- `-v require_hosted_service_acl=1` demands the strict hosted proof;
+-- `0` declares the self-host profile. There is NO implicit default and the
+-- profile is never inferred from schema contents.
+\if :{?require_hosted_service_acl}
+\else
+\echo 'FATAL: -v require_hosted_service_acl=0|1 is required'
+DO $missing_acl_flag$ BEGIN
+  RAISE EXCEPTION 'verify-migration-security.sql invoked without -v require_hosted_service_acl=0|1';
+END $missing_acl_flag$;
+\endif
+
+SELECT set_config('ci.require_hosted_service_acl', :'require_hosted_service_acl', false);
+
+DO $acl_flag$
+DECLARE v text := current_setting('ci.require_hosted_service_acl', true);
+BEGIN
+  IF v IS NULL OR v NOT IN ('0', '1') THEN
+    RAISE EXCEPTION 'require_hosted_service_acl must be exactly 0 or 1, got %', coalesce(quote_literal(v), 'NULL');
+  END IF;
+  RAISE NOTICE 'require_hosted_service_acl = %', v;
+END
+$acl_flag$;
+
 \ir internal-rpc-signatures.sql
 
 -- 1. No SECURITY DEFINER function in ANY schema may be executable by PUBLIC.

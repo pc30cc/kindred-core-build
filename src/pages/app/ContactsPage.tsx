@@ -129,30 +129,30 @@ export default function ContactsPage() {
       await createContact.mutateAsync(createForm);
       setCreateForm({ name: '', email: '', phone: '' });
       setCreateOpen(false);
-      toast({ title: 'Contact created' });
+      toast({ title: t('contacts.toastCreated') });
     } catch (e: any) {
-      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
 
   const handleExport = () => {
     if (!filtered.length) {
-      toast({ title: 'Nothing to export', variant: 'destructive' });
+      toast({ title: t('contacts.toastNothingToExport'), variant: 'destructive' });
       return;
     }
     const csv = exportContactsToCSV(filtered);
     downloadFile(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, csv);
-    toast({ title: 'Exported', description: `${filtered.length} contacts exported` });
+    toast({ title: t('contacts.toastExported'), description: t('contacts.toastExportedDesc', { count: String(filtered.length) }) });
   };
 
   const handleBulkDelete = async () => {
     try {
       const res = await bulkDelete.mutateAsync(Array.from(selected));
-      toast({ title: 'Deleted', description: `${res.deleted} contact(s) removed` });
+      toast({ title: t('contacts.toastDeleted'), description: t('contacts.toastDeletedDesc', { count: String(res.deleted) }) });
       setSelected(new Set());
       setBulkDeleteOpen(false);
     } catch (e: any) {
-      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+      toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
 
@@ -169,7 +169,7 @@ export default function ContactsPage() {
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-primary" />
               <h1 className="text-base font-bold text-foreground">
-                {t('contacts.title') || 'Contacts'}
+                {t('contacts.title')}
               </h1>
             </div>
             <Badge variant="secondary" className="text-xs">{filtered.length}</Badge>
@@ -180,7 +180,7 @@ export default function ContactsPage() {
             <div className="relative">
               <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search contacts..."
+                placeholder={t('contacts.searchPlaceholder')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-9 ps-8 pe-3 w-[220px] text-xs"
@@ -192,7 +192,7 @@ export default function ContactsPage() {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
                   <Filter className="w-3.5 h-3.5" />
-                  Filters
+                  {t('contacts.filters')}
                   {activeFilters > 0 && (
                     <Badge variant="default" className="ms-1 h-4 px-1.5 text-[10px]">{activeFilters}</Badge>
                   )}
@@ -202,18 +202,18 @@ export default function ContactsPage() {
                 <div className="p-2 space-y-2">
                   <div className="flex items-center gap-2">
                     <Checkbox id="has-email" checked={filterHasEmail} onCheckedChange={(v) => setFilterHasEmail(!!v)} />
-                    <Label htmlFor="has-email" className="text-xs cursor-pointer flex-1">Has email</Label>
+                    <Label htmlFor="has-email" className="text-xs cursor-pointer flex-1">{t('contacts.hasEmail')}</Label>
                   </div>
                   <div className="flex items-center gap-2">
                     <Checkbox id="has-phone" checked={filterHasPhone} onCheckedChange={(v) => setFilterHasPhone(!!v)} />
-                    <Label htmlFor="has-phone" className="text-xs cursor-pointer flex-1">Has phone</Label>
+                    <Label htmlFor="has-phone" className="text-xs cursor-pointer flex-1">{t('contacts.hasPhone')}</Label>
                   </div>
                 </div>
                 {allTags.length > 0 && (
                   <>
                     <DropdownMenuSeparator />
                     <div className="p-2">
-                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Tags</Label>
+                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{t('contacts.tagsLabel')}</Label>
                       <div className="flex flex-wrap gap-1 mt-2 max-h-32 overflow-y-auto">
                         {allTags.map((tag) => (
                           <button
@@ -237,7 +237,7 @@ export default function ContactsPage() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => { setFilterTag(null); setFilterHasEmail(false); setFilterHasPhone(false); }}>
-                      <X className="w-3.5 h-3.5 me-2" />Clear filters
+                      <X className="w-3.5 h-3.5 me-2" />{t('contacts.clearFilters')}
                     </DropdownMenuItem>
                   </>
                 )}
@@ -245,37 +245,37 @@ export default function ContactsPage() {
             </DropdownMenu>
 
             <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5" onClick={() => setImportOpen(true)}>
-              <Upload className="w-3.5 h-3.5" />Import
+              <Upload className="w-3.5 h-3.5" />{t('contacts.import')}
             </Button>
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" className="h-9 text-xs gap-1.5">
-                  <Plus className="w-3.5 h-3.5" />New Contact
+                  <Plus className="w-3.5 h-3.5" />{t('contacts.newContact')}
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent dir={dir}>
                 <DialogHeader>
-                  <DialogTitle>{t('contacts.addContact') || 'New Contact'}</DialogTitle>
+                  <DialogTitle className="text-start">{t('contacts.addContact')}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs">{t('contacts.name') || 'Name'}</Label>
+                    <Label className="text-xs">{t('contacts.name')}</Label>
                     <Input value={createForm.name} onChange={(e) => setCreateForm((p) => ({ ...p, name: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">{t('contacts.email') || 'Email'}</Label>
+                    <Label className="text-xs">{t('contacts.email')}</Label>
                     <Input type="email" value={createForm.email} onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">{t('contacts.phone') || 'Phone'}</Label>
+                    <Label className="text-xs">{t('contacts.phone')}</Label>
                     <Input value={createForm.phone} onChange={(e) => setCreateForm((p) => ({ ...p, phone: e.target.value }))} />
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+                  <Button variant="outline" onClick={() => setCreateOpen(false)}>{t('contacts.cancel')}</Button>
                   <Button onClick={handleCreate} disabled={createContact.isPending}>
-                    {createContact.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create'}
+                    {createContact.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t('contacts.create')}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -284,18 +284,18 @@ export default function ContactsPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
-                  Actions <ChevronDown className="w-3.5 h-3.5" />
+                  {t('contacts.actions')} <ChevronDown className="w-3.5 h-3.5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleExport}>
-                  <FileDown className="w-3.5 h-3.5 me-2" />Export to CSV
+                  <FileDown className="w-3.5 h-3.5 me-2" />{t('contacts.exportCsv')}
                 </DropdownMenuItem>
                 {selected.size > 0 && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setBulkDeleteOpen(true)} className="text-destructive">
-                      <Trash2 className="w-3.5 h-3.5 me-2" />Delete selected ({selected.size})
+                      <Trash2 className="w-3.5 h-3.5 me-2" />{t('contacts.deleteSelected', { count: String(selected.size) })}
                     </DropdownMenuItem>
                   </>
                 )}
@@ -307,13 +307,13 @@ export default function ContactsPage() {
         {/* Stat strip */}
         <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5" /><span><strong className="text-foreground">{contacts?.length || 0}</strong> total</span>
+            <Users className="w-3.5 h-3.5" /><span>{t('contacts.statTotal', { count: String(contacts?.length || 0) })}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Mail className="w-3.5 h-3.5" /><span><strong className="text-foreground">{withEmail}</strong> with email</span>
+            <Mail className="w-3.5 h-3.5" /><span>{t('contacts.statWithEmail', { count: String(withEmail) })}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Phone className="w-3.5 h-3.5" /><span><strong className="text-foreground">{withPhone}</strong> with phone</span>
+            <Phone className="w-3.5 h-3.5" /><span>{t('contacts.statWithPhone', { count: String(withPhone) })}</span>
           </div>
         </div>
       </div>
@@ -322,14 +322,14 @@ export default function ContactsPage() {
       {selected.size > 0 && (
         <div className="bg-primary/10 border-b border-primary/20 px-5 py-2 flex items-center justify-between">
           <span className="text-xs font-medium text-foreground">
-            <strong>{selected.size}</strong> contact{selected.size > 1 ? 's' : ''} selected
+            {t('contacts.selectedCount', { count: String(selected.size) })}
           </span>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelected(new Set())}>
-              Clear
+              {t('contacts.clear')}
             </Button>
             <Button size="sm" variant="destructive" className="h-7 text-xs gap-1.5" onClick={() => setBulkDeleteOpen(true)}>
-              <Trash2 className="w-3.5 h-3.5" />Delete
+              <Trash2 className="w-3.5 h-3.5" />{t('contacts.delete')}
             </Button>
           </div>
         </div>
@@ -343,6 +343,7 @@ export default function ContactsPage() {
           </div>
         ) : !filtered.length ? (
           <EmptyState
+            t={t}
             hasContacts={!!contacts?.length}
             onAdd={() => setCreateOpen(true)}
             onImport={() => setImportOpen(true)}
@@ -357,14 +358,14 @@ export default function ContactsPage() {
                     onCheckedChange={toggleSelectAll}
                   />
                 </th>
-                <Th label="Full Name" sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
-                <Th label="Email" sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
-                <th className="text-start p-3 font-semibold">Location</th>
-                <Th label="Company" sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
-                <th className="text-start p-3 font-semibold">Segments</th>
-                <Th label="Last Active" sortKey="last_active" current={sortBy} dir={sortDir} onClick={toggleSort} />
-                <Th label="Score" sortKey="score" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Star} />
-                <th className="w-16 text-center p-3 font-semibold">Preview</th>
+                <Th label={t('contacts.colName')} sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
+                <Th label={t('contacts.colEmail')} sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
+                <th className="text-start p-3 font-semibold">{t('contacts.colLocation')}</th>
+                <Th label={t('contacts.colCompany')} sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
+                <th className="text-start p-3 font-semibold">{t('contacts.colSegments')}</th>
+                <Th label={t('contacts.colLastActive')} sortKey="last_active" current={sortBy} dir={sortDir} onClick={toggleSort} />
+                <Th label={t('contacts.colScore')} sortKey="score" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Star} />
+                <th className="w-16 text-center p-3 font-semibold">{t('contacts.colPreview')}</th>
               </tr>
             </thead>
             <tbody>
@@ -405,15 +406,15 @@ export default function ContactsPage() {
                           <span className="truncate">{[loc.city, loc.country].filter(Boolean).join(', ')}</span>
                         </div>
                       ) : (
-                        <span className="text-muted-foreground/50 italic text-xs">Unknown</span>
+                        <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>
                       )}
                     </td>
                     <td className="p-3 text-muted-foreground">
-                      {company || <span className="text-muted-foreground/50 italic text-xs">Unknown</span>}
+                      {company || <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>}
                     </td>
                     <td className="p-3">
                       {(c.tags ?? []).length === 0 ? (
-                        <span className="text-muted-foreground/50 italic text-xs">No segments</span>
+                        <span className="text-muted-foreground/50 italic text-xs">{t('contacts.noSegments')}</span>
                       ) : (
                         <div className="flex flex-wrap gap-1 max-w-[180px]">
                           {(c.tags ?? []).slice(0, 2).map((tag) => (
@@ -441,7 +442,7 @@ export default function ContactsPage() {
                     </td>
                     <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => openContact(c.id)}>
-                        <Eye className="w-3 h-3" />Preview
+                        <Eye className="w-3 h-3" />{t('contacts.preview')}
                       </Button>
                     </td>
                   </tr>
@@ -464,17 +465,17 @@ export default function ContactsPage() {
 
       {/* Bulk delete confirmation */}
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={dir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selected.size} contact{selected.size > 1 ? 's' : ''}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the selected contacts. This action cannot be undone.
+            <AlertDialogTitle className="text-start">{t('contacts.bulkDeleteTitle', { count: String(selected.size) })}</AlertDialogTitle>
+            <AlertDialogDescription className="text-start">
+              {t('contacts.bulkDeleteDesc')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+              {t('contacts.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -504,27 +505,25 @@ function Th({ label, sortKey, current, dir, onClick, icon: Icon }: {
   );
 }
 
-function EmptyState({ hasContacts, onAdd, onImport }: { hasContacts: boolean; onAdd: () => void; onImport: () => void }) {
+function EmptyState({ t, hasContacts, onAdd, onImport }: { t: (k: any, p?: Record<string, string>) => string; hasContacts: boolean; onAdd: () => void; onImport: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
       <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
         <Users className="w-8 h-8 text-primary" />
       </div>
       <h3 className="text-base font-semibold text-foreground">
-        {hasContacts ? 'No contacts match your filters' : 'No contacts yet'}
+        {hasContacts ? t('contacts.emptyFilteredTitle') : t('contacts.emptyTitle')}
       </h3>
       <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-        {hasContacts
-          ? 'Try adjusting your search or filters to find what you\'re looking for.'
-          : 'Build your audience by adding contacts manually or importing them from a CSV file.'}
+        {hasContacts ? t('contacts.emptyFilteredDesc') : t('contacts.emptyDesc')}
       </p>
       {!hasContacts && (
         <div className="flex gap-2 mt-5">
           <Button onClick={onAdd} className="gap-1.5">
-            <Plus className="w-4 h-4" />Add contact
+            <Plus className="w-4 h-4" />{t('contacts.addContact')}
           </Button>
           <Button variant="outline" onClick={onImport} className="gap-1.5">
-            <Upload className="w-4 h-4" />Import CSV
+            <Upload className="w-4 h-4" />{t('contacts.importCsv')}
           </Button>
         </div>
       )}

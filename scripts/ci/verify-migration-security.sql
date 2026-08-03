@@ -22,6 +22,23 @@ DO $missing_flag$ BEGIN
 END $missing_flag$;
 \endif
 
+-- The flag is a STRICT whitelist. Anything other than the literals `0` or `1`
+-- (empty string, `true`, `no`, a typo) aborts instead of being coerced into a
+-- silent "not required" — psql does not substitute variables inside
+-- dollar-quoted bodies, so the value is handed to SQL through a session GUC
+-- that the later AI-KB block reads back.
+SELECT set_config('ci.require_ai_kb', :'require_ai_kb', false);
+
+DO $flag$
+DECLARE v text := current_setting('ci.require_ai_kb', true);
+BEGIN
+  IF v IS NULL OR v NOT IN ('0', '1') THEN
+    RAISE EXCEPTION 'require_ai_kb must be exactly 0 or 1, got %', coalesce(quote_literal(v), 'NULL');
+  END IF;
+  RAISE NOTICE 'require_ai_kb = %', v;
+END
+$flag$;
+
 \ir internal-rpc-signatures.sql
 
 -- 1. No SECURITY DEFINER function in ANY schema may be executable by PUBLIC.

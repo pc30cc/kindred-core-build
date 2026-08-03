@@ -24,7 +24,7 @@ import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@
 import { supabase } from '@/lib/supabase';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
-  adminDeleteUserAvatar, adminGetUserMessages,
+  adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
 } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';

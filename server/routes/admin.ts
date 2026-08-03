@@ -430,7 +430,7 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
 
     const workspaceIds = Array.from(new Set((memberships ?? []).map((m: any) => m.workspace_id))).filter(Boolean);
     if (workspaceIds.length === 0) {
-      return res.json({ payments: [], events: [], subscriptions: [], planChanges: [], workspaces: [], plans: [] });
+      return res.json({ payments: [], events: [], subscriptions: [], planChanges: [], workspaces: [], plans: [], gateways: [] });
     }
 
     const [wsRes, payRes, evRes, subRes, chgRes, planRes, gwRes] = await Promise.all([

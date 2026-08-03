@@ -653,3 +653,44 @@ export async function adminManualVerifyUserPhone(userId: string, reason: string)
     { method: 'POST', headers: await getAdminAuthHeaders(), body: JSON.stringify({ reason }) },
   );
 }
+
+// ─── Account email verification ──────────────────────────────────
+
+export interface ResendVerificationResult {
+  success: boolean;
+  sent?: boolean;
+  already_verified?: boolean;
+  email?: string;
+}
+
+export class ResendVerificationError extends Error {
+  constructor(
+    public readonly code: 'too_many_requests' | 'email_send_failed' | 'unauthorized' | 'unknown',
+    public readonly retryAfterSeconds?: number,
+  ) {
+    super(code);
+    this.name = 'ResendVerificationError';
+  }
+}
+
+/**
+ * Re-send the verification email for the CURRENTLY signed-in account.
+ * Routed through the self-hosted backend (`/api/account/resend-verification`),
+ * which issues a fresh token and delivers it via the configured email
+ * provider — no Supabase built-in mail involved.
+ */
+export async function resendMyVerificationEmail(locale?: string): Promise<ResendVerificationResult> {
+  const res = await fetch(`${API_BASE}/api/account/resend-verification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await userAuthHeaders()) },
+    body: JSON.stringify({ locale: locale || 'en' }),
+  });
+  const body = await res.json().catch(() => ({} as any));
+  if (res.ok) return body as ResendVerificationResult;
+  if (res.status === 429) {
+    throw new ResendVerificationError('too_many_requests', Number(body?.retry_after_seconds) || 60);
+  }
+  if (res.status === 401) throw new ResendVerificationError('unauthorized');
+  if (res.status === 502) throw new ResendVerificationError('email_send_failed');
+  throw new ResendVerificationError('unknown');
+}

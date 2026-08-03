@@ -25,7 +25,7 @@ import {
   removeAccountAvatar,
   changeAccountPassword,
 } from '@/lib/account-api';
-import { resendVerificationEmail } from '@/lib/auth-email-api';
+import { resendMyVerificationEmail, ResendVerificationError } from '@/lib/api';
 import { AccountPhoneField } from '@/features/phone-verification/AccountPhoneField';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -205,10 +205,21 @@ export default function SettingsProfilePage() {
     if (!me?.email) return;
     setVerifySending(true);
     try {
-      await resendVerificationEmail(me.email, locale || 'en');
-      toast({ title: t('account.verificationSent') });
+      const result = await resendMyVerificationEmail(locale || 'en');
+      if (result.already_verified) {
+        toast({ title: t('auth.emailAlreadyVerified') });
+      } else {
+        toast({
+          title: t('account.verificationSent'),
+          description: t('auth.resendCheckInbox').replace('{email}', result.email || me.email),
+        });
+      }
     } catch (err: any) {
-      toast({ title: t('account.uploadFailed'), description: err?.message, variant: 'destructive' });
+      const description =
+        err instanceof ResendVerificationError && err.code === 'too_many_requests'
+          ? t('auth.resendCooldownSeconds').replace('{seconds}', String(err.retryAfterSeconds || 60))
+          : t('auth.resendFailed');
+      toast({ title: t('account.uploadFailed'), description, variant: 'destructive' });
     } finally {
       setVerifySending(false);
     }

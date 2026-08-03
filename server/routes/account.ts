@@ -19,6 +19,7 @@ import { getServiceClient } from '../supabase.js';
 import { uploadFile, deleteFile } from '../services/storage/index.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, maskIp } from '../utils/clientIp.js';
+import { issueVerificationEmail } from '../services/auth-email.js';
 
 export const accountRouter = Router();
 
@@ -360,6 +361,76 @@ accountRouter.post('/change-password', async (req, res) => {
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to change password' });
+  }
+});
+
+// ── POST /api/account/resend-verification ─────────────────────────
+// Authenticated re-send of the account verification email.
+//
+// Unlike the public /api/auth-email/resend-verification endpoint (which must
+// stay enumeration-safe and therefore always answers 200), this route knows
+// exactly who is asking, so it can report the REAL outcome back to the UI:
+//   - 200 { sent: true }            → the self-hosted email provider accepted it
+//   - 200 { already_verified: true }→ nothing to do
+//   - 429 { retry_after_seconds }   → server-side cooldown, still pending
+//   - 502 { error: 'email_send_failed' } → provider rejected / not configured
+//
+// Delivery goes through the same self-hosted registry as signup
+// (services/auth-email.ts → services/email → the active email provider),
+// so no Supabase built-in mail is involved.
+const RESEND_MIN_INTERVAL_MS = 60_000;
+
+accountRouter.post('/resend-verification', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const email: string | undefined = user?.email;
+    if (!email) return res.status(400).json({ error: 'Account has no email' });
+
+    if (user?.user_metadata?.app_email_verified === true) {
+      return res.json({ success: true, already_verified: true });
+    }
+
+    const sb = getServiceClient(config);
+
+    // Server-side cooldown so the button cannot be spammed from any client.
+    const { data: lastToken } = await sb
+      .from('auth_verify_tokens')
+      .select('created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastToken?.created_at) {
+      const elapsed = Date.now() - new Date(lastToken.created_at).getTime();
+      if (elapsed >= 0 && elapsed < RESEND_MIN_INTERVAL_MS) {
+        return res.status(429).json({
+          error: 'too_many_requests',
+          retry_after_seconds: Math.ceil((RESEND_MIN_INTERVAL_MS - elapsed) / 1000),
+        });
+      }
+    }
+
+    const rawLocale = typeof req.body?.locale === 'string' ? req.body.locale : 'en';
+    const locale = /^[a-zA-Z-]{2,5}$/.test(rawLocale) ? rawLocale : 'en';
+
+    const result = await issueVerificationEmail(config, {
+      userId: user.id,
+      email,
+      fullName: user?.user_metadata?.full_name || null,
+      locale,
+      ipAddress: (req as any).ip || null,
+    });
+
+    if (!result.success) {
+      console.error('[account] resend-verification failed:', result.error);
+      return res.status(502).json({ error: 'email_send_failed' });
+    }
+
+    return res.json({ success: true, sent: true, email });
+  } catch (err: any) {
+    console.error('[account] resend-verification error:', err?.message || err);
+    return res.status(500).json({ error: 'Failed to send verification email' });
   }
 });
 

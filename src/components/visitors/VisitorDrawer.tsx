@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
+import { formatDateTime, formatRelative } from '@/lib/date';
 
 interface Props {
   workspaceId: string | undefined;
@@ -97,7 +98,7 @@ export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
               <Row icon={<Monitor className="w-3.5 h-3.5" />} label="Device" value={data.device || '—'} />
               <Row icon={<ExternalLink className="w-3.5 h-3.5" />} label="Referrer" value={data.referrer || '—'} truncate />
               <Row icon={<Clock className="w-3.5 h-3.5" />} label="Last activity"
-                value={new Date(data.last_activity_at).toLocaleString()} />
+                value={formatDateTime(data.last_activity_at)} />
             </div>
 
             {/* Page-history timeline */}
@@ -130,7 +131,7 @@ export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
                             <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-primary/70 ring-2 ring-background" />
                             <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
                             <div className="text-[10px] text-muted-foreground">
-                              {new Date(p.viewed_at).toLocaleString()}
+                              {formatDateTime(p.viewed_at)}
                             </div>
                           </li>
                         ))}
@@ -229,6 +230,26 @@ function LocationRow({ data, t }: { data: any; t: (k: string) => string }) {
 function IpRow({ data, t, onCopy }: {
   data: any; t: (k: string) => string; onCopy: (label: string, value: string) => void;
 }) {
+  if (data.ip_locked) {
+    return (
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 text-muted-foreground"><Wifi className="w-3.5 h-3.5" /></span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] text-muted-foreground uppercase tracking-wide">
+            {t('visitors.ipAddress')}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 px-1.5 h-5 rounded text-[10px] border border-warning/30 bg-warning/10 text-warning">
+              {t('visitors.ipPlanLocked')}
+            </span>
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">
+            {t('visitors.ipPlanLockedHint')}
+          </div>
+        </div>
+      </div>
+    );
+  }
   const value = data.ip_raw || data.ip_display || '—';
   return (
     <div className="flex items-start gap-2.5">

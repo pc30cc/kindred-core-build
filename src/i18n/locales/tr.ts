@@ -717,6 +717,8 @@ const tr: TranslationKeys = {
     rtPolling: 'Yoklama',
     ipAddress: 'IP adresi',
     ipMasked: 'maskelendi',
+    ipPlanLocked: 'Planınızda mevcut değil',
+    ipPlanLockedHint: 'IP görünürlüğü bir plan özelliğidir. Ziyaretçi IP adreslerini görmek için planınızı yükseltin.',
     geoPrecise: 'Hassas',
     geoApproximate: 'Yaklaşık',
     geoUnavailable: 'Bilinmiyor',

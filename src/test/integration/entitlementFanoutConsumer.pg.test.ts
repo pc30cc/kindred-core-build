@@ -111,6 +111,7 @@ suite('entitlement fan-out consumer (PostgreSQL)', () => {
       'database/migrations/007_entitlement_fanout_jobs.sql',
       'database/migrations/008_entitlement_fanout_generations.sql',
       'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
+      'database/migrations/010_fanout_rpc_security_and_kb_state_machine.sql',
     ]) {
       await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
     }

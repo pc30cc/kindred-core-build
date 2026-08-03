@@ -288,11 +288,23 @@ suite('entitlement fan-out queue (PostgreSQL)', () => {
     const cursor = '99999999-9999-9999-9999-999999999999';
     await advance(job, 'worker-a', cursor, { p: 7 });
 
-    // Re-running the forward-only migration must be a no-op for live state.
-    await client.query(readFileSync(
-      resolve(process.cwd(), 'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql'),
-      'utf8',
-    ));
+    // Re-running the forward-only chain up to HEAD must be a no-op for live
+    // state. The chain is replayed IN ORDER, which is the only supported
+    // replay: 010 drops every stale overload 009 recreates, so the head is
+    // always left with exactly one signature per function.
+    for (const file of [
+      'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
+      'database/migrations/010_fanout_rpc_security_and_kb_state_machine.sql',
+    ]) {
+      await client.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
+    }
+
+    // Replaying the chain must not leave an ambiguous overload behind.
+    const overloads = (await client.query(
+      `SELECT count(*)::int AS n FROM pg_proc
+       WHERE pronamespace='public'::regnamespace AND proname='_ai_kb_apply_generated'`,
+    )).rows[0].n;
+    expect(overloads).toBe(1);
 
     const r = await row(id);
     expect(r.cursor_workspace_id).toBe(cursor);

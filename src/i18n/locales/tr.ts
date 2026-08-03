@@ -2428,6 +2428,26 @@ const tr: TranslationKeys = {
       generatedOffline: 'Oluşturuldu (çevrimdışı)',
       generationFailed: 'Oluşturma başarısız',
     },
+    test: {
+      title: 'AI Asistanı test edin',
+      desc: 'Örnek bir ziyaretçi mesajı gönderin ve yapay zekânın ne yapacağını görün. Gerçek ziyaretçilere hiçbir şey gönderilmez.',
+      messagePlaceholder: 'Ziyaretçi mesajı yazın...',
+      urlPlaceholder: 'Sayfa URL’si (isteğe bağlı)',
+      run: 'Testi çalıştır',
+      running: 'Test ediliyor...',
+      failed: 'Test başarısız',
+      previewAnswer: 'Yanıt önizlemesi',
+      sourcesUsed: 'Kullanılan kaynaklar',
+      sourcesHidden: 'Kaynak listesi ayarlarınız nedeniyle gizli.',
+      confidence: 'Güven düzeyi',
+      bucket: { high: 'Yüksek', medium: 'Orta', low: 'Düşük' },
+      action: {
+        answer: 'Yapay zekâ yanıt verirdi',
+        handoff: 'Yapay zekâ operatöre aktarırdı',
+        no_answer: 'Yapay zekâ yanıt vermezdi',
+        clarification: 'Yapay zekâ açıklayıcı bir soru sorardı',
+      },
+    },
   },
   plan: {
     locked: {

@@ -22,6 +22,23 @@ DO $missing_flag$ BEGIN
 END $missing_flag$;
 \endif
 
+-- The flag is a STRICT whitelist. Anything other than the literals `0` or `1`
+-- (empty string, `true`, `no`, a typo) aborts instead of being coerced into a
+-- silent "not required" — psql does not substitute variables inside
+-- dollar-quoted bodies, so the value is handed to SQL through a session GUC
+-- that the later AI-KB block reads back.
+SELECT set_config('ci.require_ai_kb', :'require_ai_kb', false);
+
+DO $flag$
+DECLARE v text := current_setting('ci.require_ai_kb', true);
+BEGIN
+  IF v IS NULL OR v NOT IN ('0', '1') THEN
+    RAISE EXCEPTION 'require_ai_kb must be exactly 0 or 1, got %', coalesce(quote_literal(v), 'NULL');
+  END IF;
+  RAISE NOTICE 'require_ai_kb = %', v;
+END
+$flag$;
+
 \ir internal-rpc-signatures.sql
 
 -- 1. No SECURITY DEFINER function in ANY schema may be executable by PUBLIC.
@@ -161,17 +178,23 @@ ROLLBACK;
 
 -- 5. The fan-out queue table itself stays internal-only.
 DO $tbl$
-DECLARE offenders text;
+DECLARE
+  offenders text;
+  missing   text;
 BEGIN
   IF to_regclass('public.entitlement_fanout_jobs') IS NULL THEN
     RAISE EXCEPTION 'entitlement_fanout_jobs missing — the migration chain did not apply';
   END IF;
 
+  -- COMPLETE privilege matrix, not just the four DML verbs: a stray
+  -- TRUNCATE/REFERENCES/TRIGGER grant is an escalation too, and PUBLIC is
+  -- audited alongside the two customer roles.
   SELECT string_agg(format('%s:%s', g.role_name, g.priv), ', ') INTO offenders
   FROM (
     SELECT r AS role_name, p AS priv
-    FROM unnest(ARRAY['anon', 'authenticated']) AS r
-    CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']) AS p
+    FROM unnest(ARRAY['public', 'anon', 'authenticated']) AS r
+    CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
+                            'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS p
   ) AS g
   WHERE has_table_privilege(g.role_name, 'public.entitlement_fanout_jobs', g.priv);
 
@@ -183,11 +206,17 @@ BEGIN
     RAISE EXCEPTION 'RLS disabled on entitlement_fanout_jobs';
   END IF;
 
-  IF NOT has_table_privilege('service_role', 'public.entitlement_fanout_jobs', 'SELECT') THEN
-    RAISE EXCEPTION 'service_role cannot read entitlement_fanout_jobs — the worker would be broken';
+  -- The worker needs the full DML set; a partial grant would break it in
+  -- production while still passing a SELECT-only check.
+  SELECT string_agg(p, ', ') INTO missing
+  FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']) AS p
+  WHERE NOT has_table_privilege('service_role', 'public.entitlement_fanout_jobs', p);
+
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'service_role lacks % on entitlement_fanout_jobs — the worker would be broken', missing;
   END IF;
 
-  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, anon/authenticated hold no table privileges';
+  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, PUBLIC/anon/authenticated hold no table privilege at all';
 END
 $tbl$;
 
@@ -203,6 +232,7 @@ DECLARE
   v_job      uuid;
   v_job2     uuid;
   c          record;
+  j          record;
   ok         boolean;
   outcome    text;
   steps      integer := 0;
@@ -222,6 +252,18 @@ BEGIN
   IF c.id IS NULL OR c.claim_token IS NULL THEN
     RAISE EXCEPTION 'service_role: claim_entitlement_fanout_jobs did not lease the enqueued job';
   END IF;
+
+  -- Exact leased state: the RPC must have taken real ownership of the row.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.status IS DISTINCT FROM 'running'
+     OR j.claim_token IS DISTINCT FROM c.claim_token
+     OR j.worker_id IS DISTINCT FROM 'ci-worker'
+     OR j.processing_generation IS DISTINCT FROM c.processing_generation
+     OR j.claim_expires_at IS NULL
+     OR j.claim_expires_at <= now() THEN
+    RAISE EXCEPTION 'service_role: claimed row state wrong (status=%, worker=%, token=%, gen=%, expires=%)',
+      j.status, j.worker_id, j.claim_token, j.processing_generation, j.claim_expires_at;
+  END IF;
   steps := steps + 1;
 
   -- advance (cursor stamped with the processing generation)
@@ -229,6 +271,16 @@ BEGIN
     c.id, c.claim_token, 'ci-worker', c.processing_generation, NULL, 1, 0, 0, 0, 300);
   IF NOT ok THEN
     RAISE EXCEPTION 'service_role: advance_entitlement_fanout rejected a valid lease';
+  END IF;
+
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.processed_count IS DISTINCT FROM 1
+     OR j.cursor_workspace_id IS DISTINCT FROM NULL
+     OR j.cursor_generation IS DISTINCT FROM NULL
+     OR j.status IS DISTINCT FROM 'running'
+     OR j.claim_token IS DISTINCT FROM c.claim_token THEN
+    RAISE EXCEPTION 'service_role: advance did not stamp the expected state (processed=%, cursor_gen=%, status=%)',
+      j.processed_count, j.cursor_generation, j.status;
   END IF;
   steps := steps + 1;
 
@@ -240,8 +292,20 @@ BEGIN
   END IF;
   steps := steps + 1;
 
-  IF (SELECT status FROM public.entitlement_fanout_jobs WHERE id = c.id) <> 'completed' THEN
-    RAISE EXCEPTION 'service_role: the job row was not moved to completed';
+  -- Exact terminal state: completed, generation recorded, lease fully
+  -- released and the counters carrying BOTH reported units.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.status IS DISTINCT FROM 'completed'
+     OR j.completed_generation IS DISTINCT FROM c.processing_generation
+     OR j.processing_generation IS DISTINCT FROM NULL
+     OR j.claim_token IS DISTINCT FROM NULL
+     OR j.worker_id IS DISTINCT FROM NULL
+     OR j.claim_expires_at IS DISTINCT FROM NULL
+     OR j.completed_at IS NULL
+     OR j.processed_count IS DISTINCT FROM 2
+     OR j.failed_count IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'service_role: terminal row state wrong (status=%, completed_gen=%, token=%, worker=%, processed=%, failed=%)',
+      j.status, j.completed_generation, j.claim_token, j.worker_id, j.processed_count, j.failed_count;
   END IF;
 
   -- fail / retry path on a second, independently scoped job
@@ -256,6 +320,19 @@ BEGIN
     c.id, c.claim_token, 'ci-worker-2', c.processing_generation, 'ci_proof', 300, 10);
   IF outcome <> 'retry_same_generation' THEN
     RAISE EXCEPTION 'service_role: fail_entitlement_fanout returned %, expected retry_same_generation', outcome;
+  END IF;
+
+  -- Exact retry state: requeued, lease released, error recorded and backed off.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.status IS DISTINCT FROM 'pending'
+     OR j.last_error_code IS DISTINCT FROM 'ci_proof'
+     OR j.processing_generation IS DISTINCT FROM NULL
+     OR j.claim_token IS DISTINCT FROM NULL
+     OR j.worker_id IS DISTINCT FROM NULL
+     OR j.claim_expires_at IS DISTINCT FROM NULL
+     OR j.next_attempt_at <= now() THEN
+    RAISE EXCEPTION 'service_role: retry row state wrong (status=%, error=%, token=%, worker=%, next=%)',
+      j.status, j.last_error_code, j.claim_token, j.worker_id, j.next_attempt_at;
   END IF;
   steps := steps + 1;
 
@@ -274,10 +351,9 @@ $svc$;
 -- 7. Live POSITIVE proof for the four AI-KB RPCs. Called with an id that does
 --    not exist: the BODY must run and report `not_found` — which is only
 --    possible when service_role really can execute it.
--- psql does not substitute variables inside dollar-quoted bodies, so the flag
--- is handed to the block through a GUC.
-SELECT set_config('ci.require_ai_kb', :'require_ai_kb', true);
-
+--    `ok=false` alone is NOT accepted: a body that failed for an unrelated
+--    reason would also report it, so the exact `not_found` discriminator is
+--    asserted. The flag arrives through the session GUC validated at the top.
 DO $kb$
 DECLARE
   required boolean := (current_setting('ci.require_ai_kb', true) = '1');
@@ -300,22 +376,28 @@ BEGIN
       'SELECT public.%I($1, $2, $3, $4, $5)', fn)
       INTO res
       USING gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'ci proof', NULL::text;
-    IF res IS NULL OR (res->>'ok')::boolean IS DISTINCT FROM false THEN
-      RAISE EXCEPTION 'service_role: %(…) returned %, expected ok=false/not_found', fn, res;
+    IF res IS NULL
+       OR (res->>'ok')::boolean IS DISTINCT FROM false
+       OR res->>'error' IS DISTINCT FROM 'not_found' THEN
+      RAISE EXCEPTION 'service_role: %(…) returned %, expected {"ok":false,"error":"not_found"}', fn, res;
     END IF;
     ran := ran + 1;
   END LOOP;
 
   res := public.reject_ai_kb_generated_article(gen_random_uuid(), gen_random_uuid(), gen_random_uuid());
-  IF res IS NULL OR (res->>'ok')::boolean IS DISTINCT FROM false THEN
-    RAISE EXCEPTION 'service_role: reject_ai_kb_generated_article returned %, expected ok=false', res;
+  IF res IS NULL
+     OR (res->>'ok')::boolean IS DISTINCT FROM false
+     OR res->>'error' IS DISTINCT FROM 'not_found' THEN
+    RAISE EXCEPTION 'service_role: reject_ai_kb_generated_article returned %, expected {"ok":false,"error":"not_found"}', res;
   END IF;
   ran := ran + 1;
 
   res := public._ai_kb_apply_generated(
     gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'ci proof', 'draft', 'accepted', NULL);
-  IF res IS NULL OR (res->>'ok')::boolean IS DISTINCT FROM false THEN
-    RAISE EXCEPTION 'service_role: _ai_kb_apply_generated returned %, expected ok=false', res;
+  IF res IS NULL
+     OR (res->>'ok')::boolean IS DISTINCT FROM false
+     OR res->>'error' IS DISTINCT FROM 'not_found' THEN
+    RAISE EXCEPTION 'service_role: _ai_kb_apply_generated returned %, expected {"ok":false,"error":"not_found"}', res;
   END IF;
   ran := ran + 1;
 

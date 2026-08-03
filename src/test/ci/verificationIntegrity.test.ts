@@ -111,6 +111,69 @@ describe('CI verifiers — non-skippable', () => {
   it('the security verifier fails when the audited roles are absent', () => {
     expect(read(VERIFIERS[0])).toContain('ACL verification would be vacuous');
   });
+
+  it('the security verifier accepts only the literals 0 or 1 for require_ai_kb', () => {
+    const sql = read(VERIFIERS[0]);
+    expect(sql).toContain("NOT IN ('0', '1')");
+    expect(sql).toContain('require_ai_kb must be exactly 0 or 1');
+    // The flag must be validated once, up front, as a session GUC — not
+    // re-read transaction-locally where an invalid value could slip past.
+    expect(sql).toContain("set_config('ci.require_ai_kb', :'require_ai_kb', false)");
+    expect(sql).not.toContain("set_config('ci.require_ai_kb', :'require_ai_kb', true)");
+  });
+
+  it('the AI-KB proof asserts the exact not_found discriminator', () => {
+    const sql = read(VERIFIERS[0]);
+    const occurrences = sql.match(/res->>'error' IS DISTINCT FROM 'not_found'/g) ?? [];
+    // accept + publish (loop), reject, _ai_kb_apply_generated
+    expect(occurrences).toHaveLength(3);
+    expect(sql).not.toMatch(/expected ok=false'/);
+  });
+
+  it('the queue check audits the complete privilege matrix including PUBLIC', () => {
+    const sql = read(VERIFIERS[0]);
+    expect(sql).toContain("ARRAY['public', 'anon', 'authenticated']");
+    for (const priv of ['TRUNCATE', 'REFERENCES', 'TRIGGER']) {
+      expect(sql).toContain(priv);
+    }
+    expect(sql).toContain('service_role lacks % on entitlement_fanout_jobs');
+  });
+
+  it('the fan-out lifecycle proof asserts exact row state, not just status', () => {
+    const sql = read(VERIFIERS[0]);
+    for (const field of [
+      'j.completed_generation IS DISTINCT FROM c.processing_generation',
+      'j.claim_token IS DISTINCT FROM NULL',
+      'j.worker_id IS DISTINCT FROM NULL',
+      'j.processed_count IS DISTINCT FROM 2',
+      "j.last_error_code IS DISTINCT FROM 'ci_proof'",
+    ]) {
+      expect(sql).toContain(field);
+    }
+  });
+});
+
+describe('self-host CI — official Auth image', () => {
+  const workflow = read('.github/workflows/ci.yml');
+
+  it('pins the Auth image by immutable digest', () => {
+    expect(workflow).toMatch(
+      /supabase\/auth:v2\.194\.0@sha256:2b352c02adf11a2025cd5993c246ef85db73743553c39194d2b1862d1cc4d1fd/,
+    );
+    // No unpinned reference may survive next to the pinned one.
+    expect(workflow).not.toMatch(/supabase\/auth:v2\.194\.0(?!@sha256)/);
+  });
+
+  it('preflights that the image is pullable and exposes `migrate`', () => {
+    expect(workflow).toContain('docker image inspect');
+    expect(workflow).toContain('auth --help');
+    expect(workflow).toContain("grep -q 'migrate'");
+  });
+
+  it('passes require_ai_kb explicitly on both chains', () => {
+    expect(workflow).toContain('-v require_ai_kb=1');
+    expect(workflow).toContain('-v require_ai_kb=0');
+  });
 });
 
 describe('lint gates — fail closed', () => {

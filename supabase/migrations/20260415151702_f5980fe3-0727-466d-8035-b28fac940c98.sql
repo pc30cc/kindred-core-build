@@ -1,7 +1,15 @@
 
--- Insert destekly.tr as primary verified domain for admin workspace
+-- Production-specific domain seed.
+-- A fresh local/reset database does not contain this hosted workspace, so the
+-- row is inserted only when its real parent workspace exists.
 INSERT INTO public.workspace_domains (workspace_id, domain, is_primary, verified)
-VALUES ('6ee40d07-32a3-4594-8a5f-d439f81afa5b', 'destekly.tr', true, true)
+SELECT
+  w.id,
+  'destekly.tr',
+  true,
+  true
+FROM public.workspaces AS w
+WHERE w.id = '6ee40d07-32a3-4594-8a5f-d439f81afa5b'::uuid
 ON CONFLICT DO NOTHING;
 
 -- Enable RLS

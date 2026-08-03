@@ -245,6 +245,155 @@ BEGIN
 END
 $live$;
 
+-- 8. Core SECURITY DEFINER helpers: exact caller matrix, live execution and a
+--    real auth trigger proof. `handle_new_user()` may never be callable by
+--    PUBLIC, anon or authenticated; the three RLS helpers must be callable by
+--    authenticated and service_role and by nobody else.
+DO $core$
+DECLARE
+  fn        text;
+  sig       text;
+  helpers   text[] := ARRAY[
+    'public.has_role(uuid, public.app_role)',
+    'public.is_workspace_member(uuid, uuid)',
+    'public.get_workspace_role(uuid, uuid)'
+  ];
+  audited   integer := 0;
+BEGIN
+  -- handle_new_user(): denied for every customer-facing role.
+  sig := to_regprocedure('public.handle_new_user()')::text;
+  IF sig IS NULL THEN
+    RAISE EXCEPTION 'public.handle_new_user() missing — core chain incomplete';
+  END IF;
+  IF has_function_privilege('public', sig, 'EXECUTE')
+     OR has_function_privilege('anon', sig, 'EXECUTE')
+     OR has_function_privilege('authenticated', sig, 'EXECUTE') THEN
+    RAISE EXCEPTION 'handle_new_user() is executable by PUBLIC/anon/authenticated';
+  END IF;
+
+  -- RLS helpers: deny PUBLIC + anon, allow authenticated + service_role.
+  FOREACH fn IN ARRAY helpers LOOP
+    sig := to_regprocedure(fn)::text;
+    IF sig IS NULL THEN
+      RAISE EXCEPTION 'core helper % missing — core chain incomplete', fn;
+    END IF;
+    IF has_function_privilege('public', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is PUBLIC-executable', fn;
+    END IF;
+    IF has_function_privilege('anon', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is anon-executable', fn;
+    END IF;
+    IF NOT has_function_privilege('authenticated', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is not executable by authenticated', fn;
+    END IF;
+    IF NOT has_function_privilege('service_role', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is not executable by service_role', fn;
+    END IF;
+    audited := audited + 1;
+  END LOOP;
+
+  IF audited <> 3 THEN
+    RAISE EXCEPTION 'core helper ACL audit incomplete: % of 3', audited;
+  END IF;
+  RAISE NOTICE 'core SECURITY DEFINER ACL matrix verified (handle_new_user + 3 helpers)';
+END
+$core$;
+
+-- 8b. Live execution: authenticated may run the RLS helpers and gets a safe
+--     negative answer; anon is refused with insufficient_privilege.
+DO $core_live$
+DECLARE
+  b boolean;
+  r text;
+BEGIN
+  SET LOCAL ROLE authenticated;
+  SELECT public.has_role(gen_random_uuid(), 'admin'::public.app_role) INTO b;
+  IF b IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'authenticated: has_role on a nonexistent user returned %', b;
+  END IF;
+  SELECT public.is_workspace_member(gen_random_uuid(), gen_random_uuid()) INTO b;
+  IF b IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'authenticated: is_workspace_member on nonexistent ids returned %', b;
+  END IF;
+  SELECT public.get_workspace_role(gen_random_uuid(), gen_random_uuid())::text INTO r;
+  IF r IS NOT NULL THEN
+    RAISE EXCEPTION 'authenticated: get_workspace_role on nonexistent ids returned %', r;
+  END IF;
+  RESET ROLE;
+  RAISE NOTICE 'authenticated executed all 3 RLS helpers live';
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  RAISE;
+END
+$core_live$;
+
+DO $core_anon$
+DECLARE
+  fn      text;
+  denied  integer := 0;
+BEGIN
+  FOREACH fn IN ARRAY ARRAY[
+    'SELECT public.has_role(gen_random_uuid(), ''admin''::public.app_role)',
+    'SELECT public.is_workspace_member(gen_random_uuid(), gen_random_uuid())',
+    'SELECT public.get_workspace_role(gen_random_uuid(), gen_random_uuid())'
+  ] LOOP
+    BEGIN
+      SET LOCAL ROLE anon;
+      EXECUTE fn;
+      RESET ROLE;
+      RAISE EXCEPTION 'anon was able to execute: %', fn;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RESET ROLE;
+      denied := denied + 1;
+    END;
+  END LOOP;
+
+  IF denied <> 3 THEN
+    RAISE EXCEPTION 'anon denial proof incomplete: % of 3', denied;
+  END IF;
+  RAISE NOTICE 'anon denied on all 3 RLS helpers';
+END
+$core_anon$;
+
+-- 8c. Auth trigger proof: a real insert into auth.users, performed by the
+--     trusted owner, must fire on_auth_user_created and create the profile —
+--     without the trigger being disabled and without handle_new_user() being
+--     PUBLIC-executable. Everything here is rolled back with the outer
+--     transaction.
+DO $auth_trigger$
+DECLARE
+  uid uuid := gen_random_uuid();
+  n   integer;
+BEGIN
+  IF to_regclass('auth.users') IS NULL OR to_regclass('public.profiles') IS NULL THEN
+    RAISE EXCEPTION 'auth.users / public.profiles missing — trigger proof impossible';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'on_auth_user_created' AND NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'on_auth_user_created trigger is absent';
+  END IF;
+
+  INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                          created_at, updated_at, raw_user_meta_data)
+  VALUES (uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+          'ci-proof-' || uid::text || '@example.test', 'x', now(), now(),
+          jsonb_build_object('full_name', 'CI Proof'));
+
+  SELECT count(*) INTO n FROM public.profiles WHERE id = uid;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'handle_new_user did not create the profile row (found %)', n;
+  END IF;
+
+  IF has_function_privilege('public', to_regprocedure('public.handle_new_user()')::text, 'EXECUTE') THEN
+    RAISE EXCEPTION 'handle_new_user() became PUBLIC-executable during the trigger proof';
+  END IF;
+
+  DELETE FROM auth.users WHERE id = uid;
+  RAISE NOTICE 'auth trigger proof passed (profile created, handle_new_user not PUBLIC-executable)';
+END
+$auth_trigger$;
+
 ROLLBACK;
 
 -- 5. The fan-out queue table itself stays internal-only.

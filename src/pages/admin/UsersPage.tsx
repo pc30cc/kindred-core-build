@@ -12,6 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   useAdminProfiles, useAdminProfileCount, useAdminUserDetail,
   useAdminUserRoles, useAssignRole, useRemoveRole,
 } from '@/hooks/useAdmin';
@@ -218,6 +222,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [blockLoading, setBlockLoading] = useState(false);
   const [loginLogsDialog, setLoginLogsDialog] = useState(false);
   const [impersonateLoading, setImpersonateLoading] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [blockConfirm, setBlockConfirm] = useState(false);
 
   // Get auth status (banned, etc.)
   const { data: authStatus, refetch: refetchStatus } = useQuery({
@@ -236,6 +242,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
   const handleSendResetLink = async () => {
     if (!detail?.profile?.email) return;
+    setResetConfirm(false);
     setResetLinkLoading(true);
     try {
       await adminSendResetLink(detail.profile.email);
@@ -266,6 +273,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   };
 
   const handleToggleBlock = async () => {
+    setBlockConfirm(false);
     setBlockLoading(true);
     try {
       const result = await adminBlockUser(userId, !isBanned);
@@ -325,7 +333,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" className="gap-2" onClick={handleSendResetLink} disabled={resetLinkLoading}>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => setResetConfirm(true)} disabled={resetLinkLoading}>
           {resetLinkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {t('admin.users.sendResetLink')}
         </Button>
@@ -337,7 +345,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           variant={isBanned ? 'outline' : 'destructive'}
           size="sm"
           className="gap-2"
-          onClick={handleToggleBlock}
+          onClick={() => setBlockConfirm(true)}
           disabled={blockLoading}
         >
           {blockLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
@@ -368,6 +376,38 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           {t('admin.users.loginAsUser')}
         </Button>
       </div>
+
+      <AlertDialog open={resetConfirm} onOpenChange={setResetConfirm}>
+        <AlertDialogContent dir={dir} className={dir === 'rtl' ? 'text-right' : undefined}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('admin.users.resetLinkConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('admin.users.resetLinkConfirmDesc').replace('{email}', p.email || '')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className={dir === 'rtl' ? 'sm:flex-row-reverse sm:justify-start' : undefined}>
+            <AlertDialogCancel>{t('admin.users.cancelAction')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSendResetLink}>{t('admin.users.confirmAction')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={blockConfirm} onOpenChange={setBlockConfirm}>
+        <AlertDialogContent dir={dir} className={dir === 'rtl' ? 'text-right' : undefined}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isBanned ? t('admin.users.unblockConfirmTitle') : t('admin.users.blockConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isBanned ? t('admin.users.unblockConfirmDesc') : t('admin.users.blockConfirmDesc')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className={dir === 'rtl' ? 'sm:flex-row-reverse sm:justify-start' : undefined}>
+            <AlertDialogCancel>{t('admin.users.cancelAction')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleToggleBlock}>{t('admin.users.confirmAction')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -48,6 +48,61 @@ export default function OverviewPage() {
     const v = t(key as any);
     return !v || v === key ? value : v;
   };
+  /** Sync-log status badge: prefer syncStatus, fall back to runStatus, then raw. */
+  const trSyncStatus = (value?: string | null): string => {
+    if (!value) return '—';
+    const s = trEnum('syncStatus', value);
+    if (s !== value) return s;
+    return trEnum('runStatus', value);
+  };
+  /** Translate a raw error/status code emitted by the sync worker. */
+  const trCode = (code: string): string => {
+    const clean = code.trim();
+    const key = `aiAgent.overview.syncCode.${clean}`;
+    const v = t(key as any);
+    if (v && v !== key) return v;
+    const s = trEnum('syncStatus', clean);
+    return s !== clean ? s : clean;
+  };
+  /** Translate free-form sync log messages produced by the server/worker. */
+  const trSyncMessage = (raw?: string | null): string => {
+    const msg = (raw || '').trim();
+    if (!msg) return '';
+    const m = (k: string, vars?: Record<string, string>) => {
+      const key = `aiAgent.overview.syncMessage.${k}`;
+      const v = t(key as any, vars as any);
+      return !v || v === key ? msg : v;
+    };
+    const exact: Record<string, string> = {
+      'Worker started': 'worker_started',
+      'Sync completed': 'sync_completed',
+      'Sync job queued': 'sync_queued',
+      'Sync job queued (admin bypass)': 'sync_queued_admin',
+      'Retry sync job queued': 'retry_queued',
+      'Retry sync job queued (admin bypass)': 'retry_queued_admin',
+      'Original stored': 'original_stored',
+      'Ingestion job queued': 'ingestion_queued',
+    };
+    if (exact[msg]) return m(exact[msg]);
+    const prefixed: Array<[RegExp, string, 'name' | 'value']> = [
+      [/^Upload accepted:\s*(.+)$/i, 'upload_accepted', 'name'],
+      [/^Crawl failed:\s*(.+)$/i, 'crawl_failed', 'value'],
+      [/^job_status=(.+)$/i, 'job_status', 'value'],
+      [/^source_status=(.+)$/i, 'source_status', 'value'],
+      [/^complete_lost_race:(.+)$/i, 'complete_lost_race', 'value'],
+      [/^fail_lost_race:(.+)$/i, 'fail_lost_race', 'value'],
+    ];
+    for (const [re, key, varName] of prefixed) {
+      const hit = msg.match(re);
+      if (hit) {
+        const val = hit[1].trim();
+        return m(key, { [varName]: varName === 'value' ? trCode(val) : val });
+      }
+    }
+    // Bare error/status codes (snake_case) coming from the worker.
+    if (/^[a-z0-9_]+$/.test(msg)) return trCode(msg);
+    return msg;
+  };
 
   const overview = useQuery({
     queryKey: ['ai-overview', wsId],
@@ -204,9 +259,9 @@ export default function OverviewPage() {
               <p className="text-xs text-muted-foreground py-4 text-center">{tr('noRecentSync', 'No sync logs yet.')}</p>
             ) : data.recentSyncLogs.map((l) => (
               <div key={l.id} className="flex items-start gap-2 text-xs py-2 border-b border-border/40 last:border-b-0 hover:bg-accent/30 -mx-2 px-2 rounded-md transition-colors">
-                <Badge variant="outline" className="text-[10px] shrink-0">{trEnum('runStatus', l.status)}</Badge>
+                <Badge variant="outline" className="text-[10px] shrink-0">{trSyncStatus(l.status)}</Badge>
                 <span className="flex-1 truncate">
-                  {l.message || t('aiAgent.overview.syncSummary' as any, { pages: String(l.pages_found ?? 0), chunks: String(l.chunks_created ?? 0) })}
+                  {trSyncMessage(l.message) || t('aiAgent.overview.syncSummary' as any, { pages: String(l.pages_found ?? 0), chunks: String(l.chunks_created ?? 0) })}
                 </span>
                 <span className="tabular-nums text-muted-foreground shrink-0">{new Date(l.created_at).toLocaleTimeString()}</span>
               </div>

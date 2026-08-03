@@ -24,7 +24,10 @@ import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@
 import { supabase } from '@/lib/supabase';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
+  adminDeleteUserAvatar, adminGetUserMessages,
 } from '@/lib/api';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPattern as format } from '@/lib/date';
 import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
@@ -32,6 +35,7 @@ import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
   KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
+  ImageOff, MessageSquare, Trash2,
 } from 'lucide-react';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -162,11 +166,12 @@ export default function AdminUsersPage() {
                 >
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                        <span className="text-xs font-semibold text-primary">
+                      <Avatar className="w-8 h-8 shrink-0">
+                        {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
+                        <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
                           {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
-                        </span>
-                      </div>
+                        </AvatarFallback>
+                      </Avatar>
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{p.full_name || '—'}</p>
                         <p className="text-xs text-muted-foreground truncate">{p.email}</p>
@@ -224,6 +229,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [impersonateLoading, setImpersonateLoading] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [blockConfirm, setBlockConfirm] = useState(false);
+  const [avatarConfirm, setAvatarConfirm] = useState(false);
+  const [avatarLoading, setAvatarLoading] = useState(false);
 
   // Get auth status (banned, etc.)
   const { data: authStatus, refetch: refetchStatus } = useQuery({
@@ -286,6 +293,20 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     }
   };
 
+  const handleRemoveAvatar = async () => {
+    setAvatarConfirm(false);
+    setAvatarLoading(true);
+    try {
+      await adminDeleteUserAvatar(userId);
+      toast.success(t('admin.users.avatarRemoved'));
+      refetch();
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.avatarRemoveFailed'));
+    } finally {
+      setAvatarLoading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -316,11 +337,12 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <span className="text-lg font-bold text-primary">
+          <Avatar className="w-12 h-12 shrink-0">
+            {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
+            <AvatarFallback className="bg-primary/10 text-lg font-bold text-primary">
               {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
-            </span>
-          </div>
+            </AvatarFallback>
+          </Avatar>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold truncate">{p.full_name || '—'}</h1>
@@ -408,6 +430,47 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={avatarConfirm} onOpenChange={setAvatarConfirm}>
+        <AlertDialogContent dir={dir} className={dir === 'rtl' ? 'text-right' : undefined}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('admin.users.removeAvatarConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('admin.users.removeAvatarConfirmDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className={dir === 'rtl' ? 'sm:flex-row-reverse sm:justify-start' : undefined}>
+            <AlertDialogCancel>{t('admin.users.cancelAction')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRemoveAvatar}>{t('admin.users.confirmAction')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Profile photo */}
+      <Card>
+        <CardContent className="p-4">
+          <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
+            <ImageOff className="h-4 w-4 text-muted-foreground" />
+            {t('admin.users.avatarSection')}
+          </h3>
+          <div className="flex items-center gap-4 flex-wrap">
+            <Avatar className="h-16 w-16">
+              {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
+              <AvatarFallback className="bg-primary/10 text-primary font-bold">
+                {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            {p.avatar_url ? (
+              <Button variant="destructive" size="sm" className="gap-2" disabled={avatarLoading} onClick={() => setAvatarConfirm(true)}>
+                {avatarLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {t('admin.users.removeAvatar')}
+              </Button>
+            ) : (
+              <span className="text-sm text-muted-foreground">{t('admin.users.avatarNone')}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <UserMessagesCard userId={userId} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -946,5 +1009,114 @@ function DetailRow({ icon: Icon, label, value, onCopy }: { icon: any; label: str
         )}
       </span>
     </div>
+  );
+}
+
+
+/* ─── Sent messages (emails + SMS) ─── */
+function UserMessagesCard({ userId }: { userId: string }) {
+  const { t, dir } = useTranslation();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin-user-messages', userId],
+    queryFn: () => adminGetUserMessages(userId, 100),
+    enabled: !!userId,
+    retry: false,
+  });
+
+  const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
+  const statusVariant = (s: string | null) =>
+    s === 'sent' || s === 'delivered' ? 'secondary' : s === 'failed' || s === 'error' ? 'destructive' : 'outline';
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3" dir={dir}>
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          {t('admin.users.messagesTitle')}
+        </h3>
+
+        {isLoading && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+        {isError && <p className="text-sm text-destructive">{t('admin.users.messagesLoadFailed')}</p>}
+
+        {data && (
+          <Tabs defaultValue="emails" dir={dir}>
+            <TabsList>
+              <TabsTrigger value="emails">
+                {t('admin.users.messagesEmails')} ({data.emails.length})
+              </TabsTrigger>
+              <TabsTrigger value="sms">
+                {t('admin.users.messagesSms')} ({data.sms.length})
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="emails" className="mt-3">
+              {data.emails.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">{t('admin.users.messagesNoEmails')}</p>
+              ) : (
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('admin.users.colSubject')}</TableHead>
+                        <TableHead>{t('admin.users.colTemplate')}</TableHead>
+                        <TableHead>{t('admin.users.colStatus')}</TableHead>
+                        <TableHead>{t('admin.users.colProvider')}</TableHead>
+                        <TableHead>{t('admin.users.colSentAt')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.emails.map(m => (
+                        <TableRow key={m.id}>
+                          <TableCell className="text-sm max-w-[260px] truncate">{m.subject || '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{m.template_slug || '—'}</TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(m.status) as any} className="text-xs">{m.status || '—'}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{m.provider_name || '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmt(m.sent_at || m.created_at)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="sms" className="mt-3">
+              {data.sms.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">{t('admin.users.messagesNoSms')}</p>
+              ) : (
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('admin.users.colRecipient')}</TableHead>
+                        <TableHead>{t('admin.users.colPurpose')}</TableHead>
+                        <TableHead>{t('admin.users.colStatus')}</TableHead>
+                        <TableHead>{t('admin.users.colProvider')}</TableHead>
+                        <TableHead>{t('admin.users.colSentAt')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.sms.map(m => (
+                        <TableRow key={m.id}>
+                          <TableCell className="text-sm whitespace-nowrap" dir="ltr">{m.phone_masked || '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{m.purpose || '—'}</TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(m.delivery_status) as any} className="text-xs">{m.delivery_status || '—'}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{m.provider_name || '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmt(m.sent_at || m.created_at)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        )}
+      </CardContent>
+    </Card>
   );
 }

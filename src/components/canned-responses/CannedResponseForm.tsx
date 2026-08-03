@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -56,6 +57,7 @@ export function CannedResponseForm({
   onSubmit,
   onCancel,
 }: Props) {
+  const { t } = useTranslation();
   const [locale, setLocale] = useState<CannedLocale>(initial?.locale ?? defaultLocale);
   const [shortcut, setShortcut] = useState(initial?.shortcut ?? '');
   const [title, setTitle] = useState(initial?.title ?? '');
@@ -75,14 +77,14 @@ export function CannedResponseForm({
   const errors = useMemo(() => {
     const e: Partial<Record<keyof CannedFormValues, string>> = {};
     if (!SHORTCUT_RE.test(shortcut)) {
-      e.shortcut = 'Lowercase letters, digits, _ or -. Must start with a letter or digit (max 41 chars).';
+      e.shortcut = t('canned.form.shortcutError');
     }
     const trimmedTitle = title.trim();
-    if (trimmedTitle.length < 1 || trimmedTitle.length > 120) e.title = 'Title is 1–120 chars.';
+    if (trimmedTitle.length < 1 || trimmedTitle.length > 120) e.title = t('canned.form.titleError');
     const trimmedBody = body.trim();
-    if (trimmedBody.length < 1 || trimmedBody.length > 4000) e.body = 'Body is 1–4000 chars.';
+    if (trimmedBody.length < 1 || trimmedBody.length > 4000) e.body = t('canned.form.bodyError');
     return e;
-  }, [shortcut, title, body]);
+  }, [shortcut, title, body, t]);
 
   const isValid = Object.keys(errors).length === 0;
 
@@ -104,7 +106,7 @@ export function CannedResponseForm({
     >
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="cr-locale">Locale</Label>
+          <Label htmlFor="cr-locale">{t('canned.form.locale')}</Label>
           <Select value={locale} onValueChange={(v) => setLocale(v as CannedLocale)}>
             <SelectTrigger id="cr-locale"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -115,13 +117,14 @@ export function CannedResponseForm({
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="cr-shortcut">Shortcut</Label>
+          <Label htmlFor="cr-shortcut">{t('canned.form.shortcut')}</Label>
           <Input
             id="cr-shortcut"
             value={shortcut}
             onChange={(e) => setShortcut(e.target.value.toLowerCase())}
-            placeholder="greeting"
+            placeholder={t('canned.form.shortcutPlaceholder')}
             autoComplete="off"
+            dir="ltr"
           />
           {touched && errors.shortcut && (
             <p className="text-xs text-destructive">{errors.shortcut}</p>
@@ -130,12 +133,12 @@ export function CannedResponseForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="cr-title">Title</Label>
+        <Label htmlFor="cr-title">{t('canned.form.titleLabel')}</Label>
         <Input
           id="cr-title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Initial greeting"
+          placeholder={t('canned.form.titlePlaceholder')}
         />
         {touched && errors.title && (
           <p className="text-xs text-destructive">{errors.title}</p>
@@ -144,7 +147,7 @@ export function CannedResponseForm({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <Label htmlFor="cr-body">Body</Label>
+          <Label htmlFor="cr-body">{t('canned.form.body')}</Label>
           <span className="text-xs text-muted-foreground">{body.length}/4000</span>
         </div>
         <Textarea
@@ -152,12 +155,14 @@ export function CannedResponseForm({
           value={body}
           onChange={(e) => setBody(e.target.value)}
           rows={6}
-          placeholder="Hi {{contact.name}}, welcome to {{workspace.name}}!"
+          placeholder={t('canned.form.bodyPlaceholder')}
           className="font-mono text-sm"
+          dir={locale === 'fa' ? 'rtl' : 'ltr'}
         />
         {touched && errors.body && (
           <p className="text-xs text-destructive">{errors.body}</p>
         )}
+        <p className="text-[11px] text-muted-foreground pt-1">{t('canned.form.variablesHint')}</p>
         <div className="flex flex-wrap gap-1.5 pt-1">
           {CANNED_VARIABLES.map((v) => (
             <button
@@ -173,25 +178,25 @@ export function CannedResponseForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase tracking-wide">Preview (sample data)</Label>
+        <Label className="text-xs text-muted-foreground uppercase tracking-wide">{t('canned.form.preview')}</Label>
         <div className={cn(
           'rounded-md border border-border/60 bg-muted/30 p-3 text-sm whitespace-pre-wrap min-h-[60px]',
           locale === 'fa' && 'text-end',
         )}
         dir={locale === 'fa' ? 'rtl' : 'ltr'}
         >
-          {preview || <span className="text-muted-foreground italic">Preview appears here…</span>}
+          {preview || <span className="text-muted-foreground italic">{t('canned.form.previewEmpty')}</span>}
         </div>
       </div>
 
       <div className="flex items-center justify-between pt-2 border-t border-border/40">
         <div className="flex items-center gap-2">
           <Switch id="cr-active" checked={isActive} onCheckedChange={setIsActive} />
-          <Label htmlFor="cr-active" className="text-sm">Active</Label>
-          {!isActive && <Badge variant="outline" className="text-[10px]">Hidden from picker</Badge>}
+          <Label htmlFor="cr-active" className="text-sm">{t('canned.form.active')}</Label>
+          {!isActive && <Badge variant="outline" className="text-[10px]">{t('canned.form.hiddenFromPicker')}</Badge>}
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="ghost" onClick={onCancel} disabled={submitting}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={submitting}>{t('canned.cancel')}</Button>
           <Button type="submit" disabled={submitting}>{submitLabel}</Button>
         </div>
       </div>

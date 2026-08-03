@@ -41,7 +41,10 @@ export default function TestAiPanel() {
       });
       setResult(r);
     } catch (e: any) {
-      setError(e?.message || tt('failed', 'Test failed'));
+      const raw = String(e?.message || '');
+      const code = (raw.match(/test_ai_rate_limited|test_ai_failed|invalid_params/) || [])[0];
+      const localized = code ? tt(`error.${code}`, '') : '';
+      setError(localized || tt('error.default', tt('failed', 'Test failed')));
     } finally {
       setLoading(false);
     }
@@ -78,7 +81,9 @@ export default function TestAiPanel() {
               </div>
             )}
             {!result.answer && result.action !== 'answer' && (
-              <p className="text-xs text-muted-foreground">{result.reason}</p>
+              <p className="text-xs text-muted-foreground">
+                {tt(`reason.${result.action}`, tt('reason.default', result.reason))}
+              </p>
             )}
             {result.sources?.length > 0 && (
               <div>

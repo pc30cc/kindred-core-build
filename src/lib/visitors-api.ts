@@ -50,6 +50,8 @@ export interface VisitorIntelItem {
   ip_raw: string | null;
   /** Whether the requester (workspace role) is allowed to see the raw IP. */
   can_view_raw_ip: boolean;
+  /** True when the workspace plan does not include IP visibility — no IP is sent. */
+  ip_locked?: boolean;
   contact: { id: string; name: string | null; email: string | null; avatar_url: string | null } | null;
   conversation: { id: string; status: string | null; subject: string | null } | null;
 }

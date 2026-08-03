@@ -14,6 +14,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Single, workflow-level, IMMUTABLE reference to the official Supabase Auth
+# (GoTrue) image. Preflight and the migration step both read this one variable,
+# so they can never drift apart. `supabase/gotrue` is the registry-confirmed
+# repository for this index digest; the tag alone is mutable, the digest is not.
+env:
+  AUTH_IMAGE: supabase/gotrue:v2.194.0@sha256:2b352c02adf11a2025cd5993c246ef85db73743553c39194d2b1862d1cc4d1fd
+
 jobs:
   validate:
     name: Validate (typecheck, lint, tests, build)

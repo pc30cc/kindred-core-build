@@ -199,6 +199,21 @@ export default function InboxPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectedSnapshotRef = useRef<any>(null);
 
+  // Deep link: /inbox?c=<conversationId> — open that conversation directly
+  // (e.g. coming from the contact detail page). We switch to the "all"
+  // status filter so the target conversation is guaranteed to be in the list.
+  const deepLinkConvId = searchParams.get('c');
+  useEffect(() => {
+    if (!deepLinkConvId) return;
+    setSelectedId(deepLinkConvId);
+    setShowMobileList(false);
+    const next = new URLSearchParams(searchParams);
+    next.delete('c');
+    next.set('status', 'all');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkConvId]);
+
   const { data: conversations, isLoading } = useConversations(
     workspace?.id,
     filter === 'all' ? undefined : filter,

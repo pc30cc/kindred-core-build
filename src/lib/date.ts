@@ -168,9 +168,10 @@ export function installLocalizedDateDefaults() {
     return new OriginalDTF(resolved as string | string[] | undefined, withTehran(resolved, options));
   } as unknown as typeof Intl.DateTimeFormat;
 
-  PatchedDTF.prototype = OriginalDTF.prototype;
-  PatchedDTF.supportedLocalesOf = OriginalDTF.supportedLocalesOf.bind(OriginalDTF);
-  Intl.DateTimeFormat = PatchedDTF;
+  Object.defineProperty(PatchedDTF, 'prototype', { value: OriginalDTF.prototype });
+  (PatchedDTF as { supportedLocalesOf: typeof OriginalDTF.supportedLocalesOf }).supportedLocalesOf =
+    OriginalDTF.supportedLocalesOf.bind(OriginalDTF);
+  (Intl as { DateTimeFormat: typeof Intl.DateTimeFormat }).DateTimeFormat = PatchedDTF;
 
   const DATE_DEFAULTS: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'numeric', day: 'numeric' };
   const TIME_DEFAULTS: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: 'numeric', second: 'numeric' };

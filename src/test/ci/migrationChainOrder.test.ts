@@ -299,7 +299,7 @@ describe('supabase migration chain — column contract', () => {
 
   // Negative control: the analyzer must genuinely detect the defect it was
   // written for. Without the pre-seed compatibility migration the chain is the
-  // exact sequence that failed in CI.
+  // exact sequence that failed in CI (`column "is_active" ... does not exist`).
   it('detects the original email_templates defect when the compat step is absent', () => {
     const withoutCompat = files.filter(
       (f) => f !== '20260414134600_baseline_remote_only_tables.sql',
@@ -308,10 +308,23 @@ describe('supabase migration chain — column contract', () => {
     expect(
       broken.some((p) => p.includes('email_templates references missing column "is_active"')),
     ).toBe(true);
+  });
+
+  // Second negative control: a seed supplying NULL to a still-NOT NULL column
+  // must fail too, proving the nullability tracking is not vacuous.
+  it('detects NULL supplied to a NOT NULL column', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'chain-'));
+    writeFileSync(
+      join(tmp, '0001_create.sql'),
+      'CREATE TABLE public.demo (id uuid PRIMARY KEY, workspace_id uuid NOT NULL, slug text NOT NULL);',
+    );
+    writeFileSync(
+      join(tmp, '0002_seed.sql'),
+      "INSERT INTO public.demo (workspace_id, slug) VALUES (NULL, 'a');",
+    );
+    const { problems: bad } = analyzeChain(tmp, ['0001_create.sql', '0002_seed.sql']);
     expect(
-      broken.some((p) =>
-        p.includes('email_templates supplies NULL to NOT NULL column "workspace_id"'),
-      ),
+      bad.some((p) => p.includes('demo supplies NULL to NOT NULL column "workspace_id"')),
     ).toBe(true);
   });
 });

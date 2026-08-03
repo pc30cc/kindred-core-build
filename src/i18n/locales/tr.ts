@@ -2258,6 +2258,11 @@ const tr: TranslationKeys = {
       },
       runStatus: {
         answered: 'Yanıtlandı',
+        replied: 'Yanıtlandı',
+        queued: 'Kuyrukta',
+        started: 'Başladı',
+        completed: 'Tamamlandı',
+        cancelled: 'İptal edildi',
         suggested: 'Önerildi',
         handoff: 'Operatöre aktarıldı',
         no_answer: 'Yanıt yok',

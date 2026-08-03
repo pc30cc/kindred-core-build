@@ -2271,6 +2271,11 @@ const en = {
       },
       runStatus: {
         answered: 'Answered',
+        replied: 'Replied',
+        queued: 'Queued',
+        started: 'Started',
+        completed: 'Completed',
+        cancelled: 'Cancelled',
         suggested: 'Suggested',
         handoff: 'Handoff',
         no_answer: 'No answer',

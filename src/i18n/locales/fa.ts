@@ -2258,6 +2258,11 @@ const fa: TranslationKeys = {
       },
       runStatus: {
         answered: 'پاسخ داده شد',
+        replied: 'پاسخ داده شد',
+        queued: 'در صف',
+        started: 'شروع شد',
+        completed: 'تکمیل شد',
+        cancelled: 'لغو شد',
         suggested: 'پیشنهاد شد',
         handoff: 'ارجاع به اپراتور',
         no_answer: 'بدون پاسخ',

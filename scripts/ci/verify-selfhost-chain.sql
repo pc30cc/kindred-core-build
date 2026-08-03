@@ -12,7 +12,28 @@ DO $chain$
 DECLARE
   missing text;
   r record;
+  auth_migrations integer;
 BEGIN
+  -- Official Supabase Auth (GoTrue) bootstrap must be REAL, not mocked:
+  -- the auth schema, its helper functions and its own migration ledger.
+  IF to_regprocedure('auth.uid()') IS NULL OR to_regprocedure('auth.jwt()') IS NULL THEN
+    RAISE EXCEPTION 'auth.uid()/auth.jwt() unavailable — not a Supabase-compatible database';
+  END IF;
+
+  IF to_regclass('auth.users') IS NULL THEN
+    RAISE EXCEPTION 'auth.users missing — the official Auth migrations did not run';
+  END IF;
+
+  IF to_regclass('auth.schema_migrations') IS NULL THEN
+    RAISE EXCEPTION 'auth.schema_migrations missing — auth tables were not produced by GoTrue';
+  END IF;
+
+  EXECUTE 'SELECT count(*) FROM auth.schema_migrations' INTO auth_migrations;
+  IF auth_migrations = 0 THEN
+    RAISE EXCEPTION 'auth.schema_migrations is empty — no official Auth migration was applied';
+  END IF;
+  RAISE NOTICE 'official Auth migrations applied: %', auth_migrations;
+
   -- Role bootstrap (000): three least-privileged, no-login roles.
   FOR r IN
     SELECT rolname, rolcanlogin, rolsuper FROM pg_roles

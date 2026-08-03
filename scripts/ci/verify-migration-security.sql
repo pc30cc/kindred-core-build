@@ -232,6 +232,7 @@ DECLARE
   v_job      uuid;
   v_job2     uuid;
   c          record;
+  j          record;
   ok         boolean;
   outcome    text;
   steps      integer := 0;
@@ -251,6 +252,18 @@ BEGIN
   IF c.id IS NULL OR c.claim_token IS NULL THEN
     RAISE EXCEPTION 'service_role: claim_entitlement_fanout_jobs did not lease the enqueued job';
   END IF;
+
+  -- Exact leased state: the RPC must have taken real ownership of the row.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.status IS DISTINCT FROM 'running'
+     OR j.claim_token IS DISTINCT FROM c.claim_token
+     OR j.worker_id IS DISTINCT FROM 'ci-worker'
+     OR j.processing_generation IS DISTINCT FROM c.processing_generation
+     OR j.claim_expires_at IS NULL
+     OR j.claim_expires_at <= now() THEN
+    RAISE EXCEPTION 'service_role: claimed row state wrong (status=%, worker=%, token=%, gen=%, expires=%)',
+      j.status, j.worker_id, j.claim_token, j.processing_generation, j.claim_expires_at;
+  END IF;
   steps := steps + 1;
 
   -- advance (cursor stamped with the processing generation)
@@ -258,6 +271,16 @@ BEGIN
     c.id, c.claim_token, 'ci-worker', c.processing_generation, NULL, 1, 0, 0, 0, 300);
   IF NOT ok THEN
     RAISE EXCEPTION 'service_role: advance_entitlement_fanout rejected a valid lease';
+  END IF;
+
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.processed_count IS DISTINCT FROM 1
+     OR j.cursor_workspace_id IS DISTINCT FROM NULL
+     OR j.cursor_generation IS DISTINCT FROM NULL
+     OR j.status IS DISTINCT FROM 'running'
+     OR j.claim_token IS DISTINCT FROM c.claim_token THEN
+    RAISE EXCEPTION 'service_role: advance did not stamp the expected state (processed=%, cursor_gen=%, status=%)',
+      j.processed_count, j.cursor_generation, j.status;
   END IF;
   steps := steps + 1;
 
@@ -269,8 +292,20 @@ BEGIN
   END IF;
   steps := steps + 1;
 
-  IF (SELECT status FROM public.entitlement_fanout_jobs WHERE id = c.id) <> 'completed' THEN
-    RAISE EXCEPTION 'service_role: the job row was not moved to completed';
+  -- Exact terminal state: completed, generation recorded, lease fully
+  -- released and the counters carrying BOTH reported units.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.status IS DISTINCT FROM 'completed'
+     OR j.completed_generation IS DISTINCT FROM c.processing_generation
+     OR j.processing_generation IS DISTINCT FROM NULL
+     OR j.claim_token IS DISTINCT FROM NULL
+     OR j.worker_id IS DISTINCT FROM NULL
+     OR j.claim_expires_at IS DISTINCT FROM NULL
+     OR j.completed_at IS NULL
+     OR j.processed_count IS DISTINCT FROM 2
+     OR j.failed_count IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'service_role: terminal row state wrong (status=%, completed_gen=%, token=%, worker=%, processed=%, failed=%)',
+      j.status, j.completed_generation, j.claim_token, j.worker_id, j.processed_count, j.failed_count;
   END IF;
 
   -- fail / retry path on a second, independently scoped job
@@ -285,6 +320,19 @@ BEGIN
     c.id, c.claim_token, 'ci-worker-2', c.processing_generation, 'ci_proof', 300, 10);
   IF outcome <> 'retry_same_generation' THEN
     RAISE EXCEPTION 'service_role: fail_entitlement_fanout returned %, expected retry_same_generation', outcome;
+  END IF;
+
+  -- Exact retry state: requeued, lease released, error recorded and backed off.
+  SELECT * INTO j FROM public.entitlement_fanout_jobs WHERE id = c.id;
+  IF j.status IS DISTINCT FROM 'pending'
+     OR j.last_error_code IS DISTINCT FROM 'ci_proof'
+     OR j.processing_generation IS DISTINCT FROM NULL
+     OR j.claim_token IS DISTINCT FROM NULL
+     OR j.worker_id IS DISTINCT FROM NULL
+     OR j.claim_expires_at IS DISTINCT FROM NULL
+     OR j.next_attempt_at <= now() THEN
+    RAISE EXCEPTION 'service_role: retry row state wrong (status=%, error=%, token=%, worker=%, next=%)',
+      j.status, j.last_error_code, j.claim_token, j.worker_id, j.next_attempt_at;
   END IF;
   steps := steps + 1;
 

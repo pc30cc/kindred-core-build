@@ -5560,6 +5560,8 @@ export type Database = {
           maintenance_message: string | null
           maintenance_mode: boolean
           panel_default_locale: string
+          region_currency: string | null
+          region_mode: string
           site_mode: string
           timezone: string
           updated_at: string | null
@@ -5575,6 +5577,8 @@ export type Database = {
           maintenance_message?: string | null
           maintenance_mode?: boolean
           panel_default_locale?: string
+          region_currency?: string | null
+          region_mode?: string
           site_mode?: string
           timezone?: string
           updated_at?: string | null
@@ -5590,6 +5594,8 @@ export type Database = {
           maintenance_message?: string | null
           maintenance_mode?: boolean
           panel_default_locale?: string
+          region_currency?: string | null
+          region_mode?: string
           site_mode?: string
           timezone?: string
           updated_at?: string | null

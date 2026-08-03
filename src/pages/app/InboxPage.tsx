@@ -189,6 +189,21 @@ export default function InboxPage() {
     updateUrl({ filter: c });
   }, [updateUrl]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Deep link: /inbox?c=<conversationId> — open that conversation directly
+  // (e.g. coming from the contact detail page). We switch to the "all"
+  // status filter so the target conversation is guaranteed to be in the list.
+  const deepLinkConvId = searchParams.get('c');
+  useEffect(() => {
+    if (!deepLinkConvId) return;
+    setSelectedId(deepLinkConvId);
+    setShowMobileList(false);
+    const next = new URLSearchParams(searchParams);
+    next.delete('c');
+    next.set('status', 'all');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkConvId]);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);

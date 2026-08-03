@@ -5,6 +5,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import {
   useContacts, useCreateContact, useBulkDeleteContacts,
 } from '@/hooks/useContacts';
+import { useContactChannels } from '@/hooks/useContactChannels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,6 +25,7 @@ import {
 import {
   Plus, Search, Filter, Download, Upload, MoreHorizontal, Star, Eye,
   Mail, Phone, Users, ChevronDown, Trash2, Loader2, FileDown, X, Lock,
+  MessageSquare, PhoneCall,
 } from 'lucide-react';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { cn } from '@/lib/utils';
@@ -43,6 +45,7 @@ export default function ContactsPage() {
   const { slug: wsSlug } = useParams();
   const workspace = useCurrentWorkspace();
   const { data: contacts, isLoading } = useContacts(workspace?.id);
+  const { data: channels } = useContactChannels(workspace?.id);
   const createContact = useCreateContact(workspace?.id);
   const bulkDelete = useBulkDeleteContacts();
   const { data: ents } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
@@ -388,6 +391,7 @@ export default function ContactsPage() {
                 </th>
                 <Th label={t('contacts.colName')} sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
                 <Th label={t('contacts.colEmail')} sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
+                <th className="text-start p-3 font-semibold">{t('contacts.colSource')}</th>
                 <th className="text-start p-3 font-semibold">{t('contacts.colLocation')}</th>
                 <Th label={t('contacts.colCompany')} sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
                 <th className="text-start p-3 font-semibold">{t('contacts.colSegments')}</th>
@@ -427,6 +431,9 @@ export default function ContactsPage() {
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
+                    <td className="p-3">
+                      <SourceBadge info={channels?.[c.id]} t={t} />
+                    </td>
                     <td className="p-3 text-muted-foreground">
                       {loc.country || loc.city ? (
                         <div className="flex items-center gap-1.5">

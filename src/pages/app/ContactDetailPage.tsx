@@ -29,6 +29,26 @@ import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyAction
 import { useContactIp } from '@/hooks/useContactIp';
 import { Globe, Lock } from 'lucide-react';
 
+/**
+ * Conversation subjects are sometimes persisted with an English default
+ * ("New conversation"). Map those defaults onto the active locale so the
+ * Persian UI never leaks English strings.
+ */
+const DEFAULT_SUBJECTS = new Set([
+  'new conversation',
+  'new chat',
+  'untitled conversation',
+  'untitled',
+]);
+
+function conversationTitle(conv: any, t: (k: any, v?: any) => string): string {
+  const subject = (conv?.subject ?? '').trim();
+  if (!subject || DEFAULT_SUBJECTS.has(subject.toLowerCase())) {
+    return t('contacts.conversationUntitled');
+  }
+  return subject;
+}
+
 export default function ContactDetailPage() {
   const { t, dir } = useTranslation();
   const rtl = dir === 'rtl';

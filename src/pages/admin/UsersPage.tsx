@@ -1142,6 +1142,49 @@ function UserMessagesCard({ userId }: { userId: string }) {
 }
 
 /* ─── Financial overview (payments, events, subscriptions, plan changes) ─── */
+function DetailDialog({
+  open, onClose, title, rows, json,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  rows: { label: string; value: string | null | undefined }[];
+  json?: unknown;
+}) {
+  const { t, dir } = useTranslation();
+  const hasJson = json != null && !(typeof json === 'object' && Object.keys(json as object).length === 0);
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto" dir={dir}>
+        <DialogHeader className={dir === 'rtl' ? 'text-right sm:text-right' : ''}>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2 text-sm">
+          {rows.filter(r => r.value).map(r => (
+            <div key={r.label} className="flex items-start justify-between gap-3 rounded-md bg-muted/50 px-3 py-2">
+              <span className="text-muted-foreground shrink-0">{r.label}</span>
+              <span className="font-medium break-all text-end">{r.value}</span>
+            </div>
+          ))}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">{t('admin.users.detailRaw')}</p>
+            {hasJson ? (
+              <pre dir="ltr" className="max-h-[40vh] overflow-auto rounded-md border bg-muted/40 p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-all">
+                {JSON.stringify(json, null, 2)}
+              </pre>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t('admin.users.detailNoRaw')}</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{t('admin.users.detailClose')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function FinPager({
   total, page, pageSize, onPage, onPageSize,
 }: { total: number; page: number; pageSize: number; onPage: (p: number) => void; onPageSize: (n: number) => void }) {

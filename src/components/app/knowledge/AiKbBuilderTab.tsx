@@ -137,6 +137,7 @@ export default function AiKbBuilderTab() {
       }
       toast.error(tr('job.loadFailed', 'Failed to load AI Builder jobs'));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace?.id]);
 
   useEffect(() => { refresh(); }, [refresh]);

@@ -19,7 +19,25 @@ export const MIGRATION_CHAIN = [
   'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
   'database/migrations/010_fanout_rpc_security_and_kb_state_machine.sql',
   'database/migrations/011_ai_kb_slug_namespace_lock.sql',
+  'database/migrations/012_ai_kb_acl_reassert_guarded.sql',
 ];
+
+/**
+ * Phase 6-S5-R7.4 §11 — the chain a CLEAN self-host install runs, including
+ * the role bootstrap. Used by the clean-install suite, which must NOT reset
+ * functions and must NOT inherit roles or schema from another suite.
+ */
+export const CLEAN_INSTALL_CHAIN = [
+  'database/migrations/000_selfhost_roles_bootstrap.sql',
+  ...MIGRATION_CHAIN,
+];
+
+/** Applies files in exact order WITHOUT resetting anything first. */
+export async function applyChainClean(db: any, files = CLEAN_INSTALL_CHAIN): Promise<void> {
+  for (const file of files) {
+    await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
+  }
+}
 
 const MANAGED_FUNCTIONS = [
   'enqueue_entitlement_fanout',

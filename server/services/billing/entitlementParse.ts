@@ -19,6 +19,12 @@ export interface ParsedEntitlement {
   limit?: number;
   plan?: string;
   reason?: string;
+  /**
+   * Phase 6-S5-R7.4 §8 — true only when `allowed` is true AND the payload
+   * carried a usable numeric `limit` (finite number, or -1 for unlimited).
+   * A numeric gate must treat `false` here as UNREADABLE, never as zero.
+   */
+  limitValid?: boolean;
 }
 
 /**
@@ -50,6 +56,7 @@ export function parseEntitlementResponse(
     outcome: obj.allowed ? 'allowed' : 'denied',
     allowed: obj.allowed,
     limit,
+    limitValid: typeof limit === 'number' && Number.isFinite(limit),
     plan: typeof obj.plan === 'string' ? obj.plan : undefined,
     reason:
       typeof obj.reason === 'string'
@@ -62,5 +69,30 @@ export function parseEntitlementResponse(
 
 /** True when this reason means "we could not evaluate", not "denied". */
 export function isUnreadableEntitlementReason(reason: string | undefined): boolean {
-  return reason === 'rpc_error' || reason === 'exception' || reason === INVALID_ENTITLEMENT_RESPONSE;
+  return (
+    reason === 'rpc_error' ||
+    reason === 'exception' ||
+    reason === INVALID_ENTITLEMENT_RESPONSE ||
+    reason === INVALID_ENTITLEMENT_LIMIT
+  );
+}
+
+/** Canonical internal reason for an `allowed:true` payload with no usable limit. */
+export const INVALID_ENTITLEMENT_LIMIT = 'invalid_entitlement_limit';
+
+/**
+ * Phase 6-S5-R7.4 §8 — numeric-feature view of a parsed entitlement.
+ *
+ * `allowed:true` is authoritative for a NUMERIC feature only when the RPC
+ * also reported a usable limit. Missing / NaN / Infinity / non-numeric string
+ * limits must degrade to `unavailable` (503), never to "limit zero" (403).
+ */
+export function parseNumericEntitlementResponse(
+  data: unknown,
+  rpcError?: unknown,
+): ParsedEntitlement {
+  const parsed = parseEntitlementResponse(data, rpcError);
+  if (parsed.outcome !== 'allowed') return parsed;
+  if (parsed.limitValid) return parsed;
+  return { outcome: 'unavailable', allowed: null, reason: INVALID_ENTITLEMENT_LIMIT };
 }

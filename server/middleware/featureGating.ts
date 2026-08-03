@@ -7,6 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import {
   parseEntitlementResponse,
+  parseNumericEntitlementResponse,
   isUnreadableEntitlementReason,
 } from '../services/billing/entitlementParse.js';
 
@@ -15,6 +16,8 @@ interface EntitlementResult {
   limit?: number;
   plan?: string;
   reason?: string;
+  /** True when a numeric `limit` was actually readable on the RPC payload. */
+  limitValid?: boolean;
 }
 
 // ─── Cache ───
@@ -51,9 +54,10 @@ export async function checkEntitlementFromDB(
   supabaseUrl: string,
   serviceRoleKey: string,
   workspaceId: string,
-  feature: string
+  feature: string,
+  opts: { numeric?: boolean } = {}
 ): Promise<EntitlementResult> {
-  const key = cacheKey(workspaceId, feature);
+  const key = `${cacheKey(workspaceId, feature)}:${opts.numeric ? 'num' : 'bool'}`;
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
@@ -64,7 +68,9 @@ export async function checkEntitlementFromDB(
       _feature: feature,
     });
 
-    const parsed = parseEntitlementResponse(data, error);
+    const parsed = opts.numeric
+      ? parseNumericEntitlementResponse(data, error)
+      : parseEntitlementResponse(data, error);
 
     // Phase 6-S5-R7.3 §4 — an unreadable answer is NOT a denial and must
     // never enter the cache, or one transient blip would deny the workspace
@@ -77,6 +83,7 @@ export async function checkEntitlementFromDB(
     const result: EntitlementResult = {
       allowed: parsed.allowed === true,
       limit: parsed.limit,
+      limitValid: parsed.limitValid === true,
       plan: parsed.plan,
       reason: parsed.reason,
     };
@@ -232,6 +239,15 @@ export function requireModule(moduleKey: string) {
 
     const result = await checkModuleAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, moduleKey);
 
+    // R7.4 §7 — an unreadable module RPC is an outage, not a plan denial.
+    if (isUnreadableEntitlementReason(result.reason)) {
+      return res.status(503).json({
+        error: 'module_status_unavailable',
+        module: moduleKey,
+        retryable: true,
+      });
+    }
+
     if (!result.allowed) {
       return res.status(403).json({
         error: `Module '${moduleKey}' is not enabled`,
@@ -284,6 +300,15 @@ export function requireAICredits(credits: number = 1) {
 
     const result = await deductAICredits(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, credits);
 
+    // R7.4 §7 — the credit RPC could not be evaluated. That is NOT credit
+    // exhaustion, so it must never render as "upgrade required".
+    if (!result.success && (result.reason === 'rpc_error' || result.reason === 'exception' || result.reason === 'no_response')) {
+      return res.status(503).json({
+        error: 'ai_credit_status_unavailable',
+        retryable: true,
+      });
+    }
+
     if (!result.success) {
       return res.status(403).json({
         error: 'AI credits exhausted or AI not available on your plan',
@@ -315,7 +340,23 @@ export function requireLimit(
       return res.status(400).json({ error: 'Missing workspaceId for limit check' });
     }
 
-    const result = await checkEntitlementFromDB(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, feature);
+    // R7.4 §6/§8 — numeric mode: `allowed:true` without a usable numeric
+    // limit is UNREADABLE, never "limit zero".
+    const result = await checkEntitlementFromDB(
+      sb.config.supabaseUrl,
+      sb.config.supabaseServiceRoleKey,
+      workspaceId,
+      feature,
+      { numeric: true },
+    );
+
+    if (isUnreadableEntitlementReason(result.reason)) {
+      return res.status(503).json({
+        error: 'entitlement_status_unavailable',
+        feature,
+        retryable: true,
+      });
+    }
 
     if (!result.allowed) {
       return res.status(403).json({
@@ -324,7 +365,7 @@ export function requireLimit(
       });
     }
 
-    if (result.limit !== undefined && result.limit !== -1) {
+    if (result.limit !== -1) {
       let currentUsage: number;
       try {
         currentUsage = await currentUsageFn(req, workspaceId);
@@ -434,13 +475,26 @@ export async function getWorkspacePlanInfoDetailed(
         console.error('[FeatureGating] free plan read failed:', freeError.message);
         return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
       }
+      // R7.4 §9 — "no active Free plan row" is a BROKEN catalogue, not a
+      // valid Free entitlement. Synthesising Free limits here would hand out
+      // an allowance the operator never configured.
+      if (!freePlan) {
+        console.error('[FeatureGating] no active free plan row found');
+        return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
+      }
       plan = freePlan;
+    }
+
+    // R7.4 §9 — a plan row without a usable slug cannot drive limits.
+    if (!plan || typeof (plan as any).slug !== 'string' || !(plan as any).slug.trim()) {
+      console.error('[FeatureGating] resolved plan row has no valid slug');
+      return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
     }
 
     return {
       ok: true,
       value: {
-        plan: plan || null,
+        plan,
         subscription: sub ? { ...(sub as any), billing_plans: undefined } : null,
         entitlements: (plan?.entitlements as Record<string, boolean>) || {},
         limits: (plan?.limits as Record<string, number>) || {},

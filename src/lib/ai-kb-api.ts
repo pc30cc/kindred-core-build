@@ -13,6 +13,17 @@ const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '';
  * Previously accept/reject/publish returned `res.json()` unconditionally, so
  * a refused transition rendered as a success toast.
  */
+/**
+ * Phase 6-S5-R7.4 §3 — the only fields the UI is allowed to read off an
+ * error body. Anything else stays server-side.
+ */
+export interface AiKbApiErrorBody {
+  error?: string;
+  retryable?: boolean;
+  upgrade_required?: boolean;
+  current_status?: string | null;
+}
+
 export class AiKbApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -26,7 +37,7 @@ export class AiKbApiError extends Error {
    */
   readonly upgradeRequired: boolean;
 
-  constructor(status: number, body: Record<string, any>) {
+  constructor(status: number, body: AiKbApiErrorBody) {
     const code = typeof body?.error === 'string' ? body.error : 'ai_kb_request_failed';
     super(code);
     this.name = 'AiKbApiError';
@@ -39,8 +50,8 @@ export class AiKbApiError extends Error {
 }
 
 async function parse<T>(res: Response): Promise<T> {
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new AiKbApiError(res.status, body);
+  const body: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) throw new AiKbApiError(res.status, (body ?? {}) as AiKbApiErrorBody);
   return body as T;
 }
 
@@ -121,9 +132,47 @@ export interface AiKbJobEventDto {
 
 export interface AiKbJobDetailDto {
   job: AiKbJobDto;
-  pages: unknown[];
+  pages: AiKbPageDto[];
   generated: AiKbGeneratedDto[];
   events: AiKbJobEventDto[];
+}
+
+/** Redacted crawl-page projection. No raw URLs or provider text. */
+export interface AiKbPageDto {
+  id: string;
+  job_id: string;
+  status: string;
+  path: string | null;
+  title: string | null;
+  chars: number | null;
+  error_code: string | null;
+  created_at: string;
+}
+
+/** Where a generated draft is actually visible today. */
+export interface AiKbVisibilityDto {
+  generated_status: string;
+  kb_article_id: string | null;
+  kb_article_status: string | null;
+  visible_in_widget: boolean;
+  used_by_ai: boolean;
+  public_path: string | null;
+}
+
+/** Worker/queue health projection for the operator surface. */
+export interface AiKbDiagnosticsDto {
+  worker_seen_at: string | null;
+  queued_jobs: number;
+  running_jobs: number;
+  stalled_jobs: number;
+  provider_configured: boolean;
+}
+
+export interface AiKbPublishAllResponse {
+  ok: true;
+  published_count: number;
+  failed_count: number;
+  failed: Array<{ generated_id: string; error: string; current_status?: string | null }>;
 }
 
 export interface AiKbSourceResponse {
@@ -213,24 +262,19 @@ export const aiKbApi = {
     );
   },
   async publishAll(jobId: string) {
-    return parse<{
-      ok: true;
-      published_count: number;
-      failed_count: number;
-      failed: Array<{ generated_id: string; error: string; current_status?: string | null }>;
-    }>(
+    return parse<AiKbPublishAllResponse>(
       await fetch(`${API_BASE}/api/ai-kb/jobs/${jobId}/publish-all`, {
         method: 'POST', headers: await authHeaders(),
       }),
     );
   },
   async getVisibility(id: string) {
-    return parse<Record<string, unknown>>(
+    return parse<AiKbVisibilityDto>(
       await fetch(`${API_BASE}/api/ai-kb/generated/${id}/visibility`, { headers: await authHeaders() }),
     );
   },
   async getDiagnostics(workspaceId: string) {
-    return parse<Record<string, unknown>>(
+    return parse<AiKbDiagnosticsDto>(
       await fetch(`${API_BASE}/api/ai-kb/worker/diagnostics?workspaceId=${workspaceId}`, {
         headers: await authHeaders(),
       }),

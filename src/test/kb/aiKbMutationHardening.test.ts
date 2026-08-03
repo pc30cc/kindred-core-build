@@ -156,7 +156,7 @@ describe('Entitlement lookups — outage is not a denial', () => {
 
   it('an admin cannot bypass a lookup that never ran', () => {
     // The `unavailable` return must precede the isAdmin bypass in both gates.
-    const gate = src.match(/for \(const m of modules\)[\s\S]*?\n  \}/)?.[0] ?? '';
+    const gate = src.match(/for \(const m of modules\)[\s\S]*?\n {2}\}/)?.[0] ?? '';
     expect(gate.indexOf("outcome === 'unavailable'")).toBeGreaterThan(-1);
     expect(gate.indexOf("outcome === 'unavailable'")).toBeLessThan(gate.indexOf('opts.isAdmin'));
   });

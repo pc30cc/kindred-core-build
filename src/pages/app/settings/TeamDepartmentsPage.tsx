@@ -678,6 +678,15 @@ function DeptMembersDialog({
               <label key={m.user_id}
                 className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/40 cursor-pointer">
                 <Checkbox checked={sel.has(m.user_id)} onCheckedChange={() => toggle(m.user_id)} />
+                <div className="w-7 h-7 shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                  {m.avatar_url ? (
+                    <img src={m.avatar_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <span className="text-xs font-semibold text-primary">
+                      {(m.full_name || m.email || '?').charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-foreground truncate">{m.full_name || m.email}</div>
                   <div className="text-xs text-muted-foreground truncate">{m.email}</div>

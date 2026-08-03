@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Activity, ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, X } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -14,7 +15,8 @@ import { formatDateTime } from '@/lib/date';
 type Filter = 'all' | 'answered' | 'suggested' | 'handoff' | 'no_answer' | 'needs_review';
 
 const FILTERS: Filter[] = ['all', 'answered', 'suggested', 'handoff', 'no_answer', 'needs_review'];
-const PAGE_SIZE = 25;
+const PAGE_SIZES = [20, 50, 100, 200];
+const PAGE_SIZE_KEY = 'ai-activity-page-size';
 
 function describeKey(run: any): { key: 'suggested' | 'handoff' | 'no_answer' | 'blocked' | 'answered' | 'unknown'; tone: string } {
   const action = run.action || run.status;
@@ -43,6 +45,10 @@ export default function ActivityPage() {
   const { workspace } = useActiveWorkspace();
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const stored = Number(typeof window !== 'undefined' ? window.localStorage.getItem(PAGE_SIZE_KEY) : '');
+    return PAGE_SIZES.includes(stored) ? stored : 20;
+  });
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const { t, dir } = useTranslation();
@@ -58,8 +64,8 @@ export default function ActivityPage() {
   }, [searchInput]);
 
   const runs = useQuery({
-    queryKey: ['ai-activity', workspace?.id, filter, search, page],
-    queryFn: () => aiAgentApi.getRunsPaged(workspace!.id, { page, pageSize: PAGE_SIZE, filter, search }),
+    queryKey: ['ai-activity', workspace?.id, filter, search, page, pageSize],
+    queryFn: () => aiAgentApi.getRunsPaged(workspace!.id, { page, pageSize, filter, search }),
     enabled: !!workspace?.id,
     staleTime: 15_000,
     placeholderData: keepPreviousData,
@@ -68,8 +74,13 @@ export default function ActivityPage() {
   const items = runs.data?.runs || [];
   const total = runs.data?.total ?? 0;
   const totalPages = runs.data?.totalPages ?? 1;
-  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const to = Math.min(page * PAGE_SIZE, total);
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = total === 0 ? 0 : Math.min((page - 1) * pageSize + items.length, total);
+
+  // Keep the current page valid when the size changes or rows disappear.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const labels = useMemo(() => ({
     suggested: tr('describe.suggested', 'suggested'),
@@ -100,6 +111,24 @@ export default function ActivityPage() {
             <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', runs.isFetching && 'animate-spin')} />{tr('refresh', 'Refresh')}
           </Button>
         </div>
+        <Select
+          value={String(pageSize)}
+          onValueChange={(v) => {
+            const n = Number(v);
+            setPageSize(n);
+            setPage(1);
+            try { window.localStorage.setItem(PAGE_SIZE_KEY, String(n)); } catch { /* ignore */ }
+          }}
+        >
+          <SelectTrigger className="w-full lg:w-40" aria-label={tr('perPage', 'Per page')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZES.map((n) => (
+              <SelectItem key={n} value={String(n)}>{`${n} / ${tr('perPage', 'Per page')}`}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col lg:flex-row lg:items-center gap-3">

@@ -12,66 +12,65 @@ import {
 
 interface SettingsGroup {
   key: string;
-  label: string;
   icon: React.ElementType;
-  items: { key: string; label: string; subPath: string }[];
+  items: { key: string; labelKey: string; subPath: string }[];
 }
 
 const settingsGroupsDef: SettingsGroup[] = [
   {
-    key: 'account', label: 'Account', icon: User,
+    key: 'account', icon: User,
     items: [
-      { key: 'profile', label: 'Account Information', subPath: '/settings/profile' },
-      { key: 'notifications', label: 'Notifications', subPath: '/settings/notifications' },
-      { key: 'availability', label: 'Availability', subPath: '/settings/availability' },
-      { key: 'security', label: 'Security', subPath: '/settings/security' },
-      { key: 'privacy', label: 'Privacy', subPath: '/settings/privacy' },
-      { key: 'interface', label: 'Interface', subPath: '/settings/interface' },
+      { key: 'profile', labelKey: 'profile', subPath: '/settings/profile' },
+      { key: 'notifications', labelKey: 'notifications', subPath: '/settings/notifications' },
+      { key: 'availability', labelKey: 'availability', subPath: '/settings/availability' },
+      { key: 'security', labelKey: 'security', subPath: '/settings/security' },
+      { key: 'privacy', labelKey: 'privacy', subPath: '/settings/privacy' },
+      { key: 'interface', labelKey: 'interface', subPath: '/settings/interface' },
     ],
   },
   {
-    key: 'billing', label: 'Billing', icon: CreditCard,
-    items: [{ key: 'billing', label: 'Billing & Plans', subPath: '/billing' }],
+    key: 'billing', icon: CreditCard,
+    items: [{ key: 'billing', labelKey: 'billing', subPath: '/billing' }],
   },
   {
-    key: 'workspace', label: 'Workspace Settings', icon: Settings,
+    key: 'workspace', icon: Settings,
     items: [
-      { key: 'general', label: 'Workspace Information', subPath: '/settings/general' },
-      { key: 'integrations', label: 'Setup & Integrations', subPath: '/settings/integrations' },
-      { key: 'branding', label: 'Branding', subPath: '/settings/branding' },
-      { key: 'domains', label: 'Domains', subPath: '/settings/domains' },
-      { key: 'privacyRequests', label: 'Privacy Requests', subPath: '/settings/privacy-requests' },
+      { key: 'general', labelKey: 'general', subPath: '/settings/general' },
+      { key: 'integrations', labelKey: 'integrations', subPath: '/settings/integrations' },
+      { key: 'branding', labelKey: 'branding', subPath: '/settings/branding' },
+      { key: 'domains', labelKey: 'domains', subPath: '/settings/domains' },
+      { key: 'privacyRequests', labelKey: 'privacyRequests', subPath: '/settings/privacy-requests' },
     ],
   },
   {
-    key: 'people', label: 'People & Access', icon: Users,
+    key: 'people', icon: Users,
     items: [
-      { key: 'teamDepartments', label: 'Team & Departments', subPath: '/settings/team-departments' },
-      { key: 'staffAccess', label: 'Staff Access', subPath: '/settings/staff-access' },
+      { key: 'teamDepartments', labelKey: 'teamDepartments', subPath: '/settings/team-departments' },
+      { key: 'staffAccess', labelKey: 'staffAccess', subPath: '/settings/staff-access' },
     ],
   },
   {
-    key: 'chatbox', label: 'Chatbox Settings', icon: MessageSquare,
-    items: [{ key: 'widget', label: 'Widget', subPath: '/widget' }],
+    key: 'chatbox', icon: MessageSquare,
+    items: [{ key: 'widget', labelKey: 'widget', subPath: '/widget' }],
   },
   {
-    key: 'inbox', label: 'Inbox', icon: Inbox,
+    key: 'inbox', icon: Inbox,
     items: [
-      { key: 'canned-responses', label: 'Canned Responses', subPath: '/settings/canned-responses' },
+      { key: 'canned-responses', labelKey: 'cannedResponses', subPath: '/settings/canned-responses' },
     ],
   },
   {
-    key: 'integrations', label: 'Integrations', icon: Plug,
-    items: [{ key: 'providers', label: 'Provider Settings', subPath: '/settings/providers' }],
+    key: 'integrations', icon: Plug,
+    items: [{ key: 'providers', labelKey: 'providers', subPath: '/settings/providers' }],
   },
   {
-    key: 'email', label: 'Email Settings', icon: Mail,
-    items: [{ key: 'email', label: 'Email', subPath: '/email' }],
+    key: 'email', icon: Mail,
+    items: [{ key: 'email', labelKey: 'email', subPath: '/email' }],
   },
   {
-    key: 'knowledgeBase', label: 'Knowledge Base', icon: BookOpen,
+    key: 'knowledgeBase', icon: BookOpen,
     items: [
-      { key: 'translations', label: 'Translations', subPath: '/settings/translations' },
+      { key: 'translations', labelKey: 'translations', subPath: '/settings/translations' },
     ],
   },
 ];
@@ -140,7 +139,7 @@ export function SettingsLayout() {
                   )}
                 >
                   <group.icon className="h-[18px] w-[18px] shrink-0 opacity-70" />
-                  <span className="flex-1 text-start">{group.label}</span>
+                  <span className="flex-1 text-start">{t(`settingsNav.groups.${group.key}` as Parameters<typeof t>[0])}</span>
                   <ChevronDown
                     className={cn(
                       'h-3.5 w-3.5 shrink-0 transition-transform duration-200 opacity-50',
@@ -162,7 +161,7 @@ export function SettingsLayout() {
                             : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                         )}
                       >
-                        {item.label}
+                        {t(`settingsNav.items.${item.labelKey}` as Parameters<typeof t>[0])}
                       </Link>
                     ))}
                   </div>

@@ -165,7 +165,20 @@ describe('CI verifiers — non-skippable', () => {
     expect(sql).toContain("o.owner IN ('anon', 'authenticated', 'service_role')");
     expect(sql).toContain('has no explicit search_path');
     expect(sql).toContain("has_schema_privilege(role_name, 'public', 'CREATE')");
+    expect(sql).toContain("ARRAY['anon', 'authenticated'] LOOP");
     expect(sql).toContain('schema public is customer-writable');
+  });
+
+  it('never asks has_schema_privilege about the PUBLIC pseudo-role', () => {
+    for (const file of VERIFIERS) {
+      const sql = read(file);
+      expect(sql).not.toMatch(/has_schema_privilege\(\s*'public'/);
+      expect(sql).not.toMatch(/ARRAY\['public',\s*'anon',\s*'authenticated'\]\s*LOOP/);
+    }
+    // PUBLIC must be audited through the schema ACL instead.
+    const posture = read(VERIFIERS[0]);
+    expect(posture).toContain("aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner)))");
+    expect(posture).toContain('acl.grantee = 0');
   });
 
   it('the fan-out lifecycle proof asserts exact row state, not just status', () => {

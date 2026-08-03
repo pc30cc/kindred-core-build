@@ -33,6 +33,7 @@ const SEGMENT_KEYS: Record<string, string> = {
  */
 export function AppTopBar() {
   const { t: tRaw, locale, setLocale } = useI18n();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const t = tRaw as unknown as (key: string) => string;
   const { user } = useAuth();
   const { workspace } = useActiveWorkspace();

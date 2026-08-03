@@ -42,6 +42,7 @@ const APPEARANCE_ICONS: Record<Appearance, typeof Sun> = {
 export default function InterfacePage() {
   const { t } = useTranslation();
   const { locale, setLocale } = useI18n();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   const [savingLocale, setSavingLocale] = useState(false);
@@ -50,12 +51,12 @@ export default function InterfacePage() {
   const currentTheme = (theme as Appearance) || 'system';
 
   const localeOptions = useMemo(
-    () => SUPPORTED_LOCALES.map((loc) => ({
+    () => allowedLocales.map((loc) => ({
       value: loc,
       label: LOCALE_CONFIG[loc].nativeLabel,
       flag: LOCALE_FLAGS[loc] || '🌐',
     })),
-    []
+    [allowedLocales]
   );
 
   const appearanceOptions: Array<{ value: Appearance; label: string }> = [

@@ -165,7 +165,20 @@ describe('CI verifiers — non-skippable', () => {
     expect(sql).toContain("o.owner IN ('anon', 'authenticated', 'service_role')");
     expect(sql).toContain('has no explicit search_path');
     expect(sql).toContain("has_schema_privilege(role_name, 'public', 'CREATE')");
+    expect(sql).toContain("ARRAY['anon', 'authenticated'] LOOP");
     expect(sql).toContain('schema public is customer-writable');
+  });
+
+  it('never asks has_schema_privilege about the PUBLIC pseudo-role', () => {
+    for (const file of VERIFIERS) {
+      const sql = read(file);
+      expect(sql).not.toMatch(/has_schema_privilege\(\s*'public'/);
+      expect(sql).not.toMatch(/ARRAY\['public',\s*'anon',\s*'authenticated'\]\s*LOOP/);
+    }
+    // PUBLIC must be audited through the schema ACL instead.
+    const posture = read(VERIFIERS[0]);
+    expect(posture).toContain("aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner)))");
+    expect(posture).toContain('acl.grantee = 0');
   });
 
   it('the fan-out lifecycle proof asserts exact row state, not just status', () => {
@@ -191,7 +204,7 @@ describe('self-host CI — official Auth image', () => {
     // Exactly one occurrence: a single workflow-level env var, so preflight and
     // the migration step cannot drift.
     expect(workflow.match(pinned) ?? []).toHaveLength(1);
-    expect(workflow).toMatch(/^env:\n  AUTH_IMAGE: supabase\/gotrue:v2\.194\.0@sha256:/m);
+    expect(workflow).toMatch(/^env:\n {2}AUTH_IMAGE: supabase\/gotrue:v2\.194\.0@sha256:/m);
     // No unpinned or aliased reference may survive next to the pinned one.
     expect(workflow).not.toMatch(/supabase\/gotrue:v2\.194\.0(?!@sha256)/);
     expect(workflow).not.toContain('supabase/auth:');

@@ -159,11 +159,26 @@ BEGIN
     RAISE NOTICE 'definer posture ok: % (owner=%, %)', fn, o.owner, o.search_path;
   END LOOP;
 
-  FOREACH role_name IN ARRAY ARRAY['public', 'anon', 'authenticated'] LOOP
+  -- PUBLIC is a pseudo-role, not a role has_schema_privilege() may be asked
+  -- about: inspect the schema ACL directly (falling back to the built-in
+  -- default ACL when nspacl is NULL).
+  IF EXISTS (
+    SELECT 1
+    FROM pg_namespace n
+    CROSS JOIN LATERAL
+      aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) acl
+    WHERE n.nspname = 'public'
+      AND acl.grantee = 0
+      AND acl.privilege_type = 'CREATE'
+  ) THEN
+    offenders := concat_ws(', ', offenders, 'PUBLIC');
+  END IF;
+
+  FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated'] LOOP
     IF has_schema_privilege(role_name, 'public', 'CREATE') THEN
       offenders := concat_ws(', ', offenders, role_name);
     END IF;
-    IF NOT has_schema_privilege(role_name, 'public', 'USAGE') AND role_name <> 'public' THEN
+    IF NOT has_schema_privilege(role_name, 'public', 'USAGE') THEN
       RAISE EXCEPTION '% lost USAGE on schema public — the Data API would break', role_name;
     END IF;
   END LOOP;
@@ -250,7 +265,7 @@ BEGIN
   -- PostgreSQL 17+) grant is an escalation too, and PUBLIC is audited
   -- alongside the two customer roles.
   IF current_setting('server_version_num')::integer >= 170000 THEN
-    privs := privs || 'MAINTAIN';
+    privs := privs || 'MAINTAIN'::text;
   END IF;
   RAISE NOTICE 'PostgreSQL % — auditing table privileges: %',
     current_setting('server_version'), array_to_string(privs, ', ');

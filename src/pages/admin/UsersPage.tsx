@@ -545,6 +545,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             <DetailRow icon={Calendar} label={t('admin.users.joined')} value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null} />
           </div>
         </CardContent>
+      </Card>
 
       {detail.account && (
         <Card>
@@ -579,6 +580,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             </button>
           </div>
         </CardContent>
+      </Card>
 
         </TabsContent>
 
@@ -665,6 +667,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             ))}
           </div>
         </CardContent>
+      </Card>
         </TabsContent>
 
         <TabsContent value="messages" className="mt-0">

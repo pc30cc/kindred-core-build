@@ -400,6 +400,14 @@ function SettingsSection() {
 
         {/* ── Languages ── */}
         <TabsContent value="languages" className="mt-4">
+          {regionMode !== 'multi' && (
+            <Card className="bg-muted/30 border-border mb-4">
+              <CardContent className="p-4 text-sm text-muted-foreground">
+                {REGION_META[regionMode].flag} Language selection is locked by the <strong className="text-foreground">Country / Region</strong> mode
+                (<strong className="text-foreground">{REGION_META[regionMode].languages}</strong>). Switch to Multi-Region to edit languages.
+              </CardContent>
+            </Card>
+          )}
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">

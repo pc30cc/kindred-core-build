@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { installMigrationChain } from './pgMigrationChain';
 
 const DSN = process.env.TEST_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
@@ -107,13 +108,7 @@ suite('entitlement fan-out consumer (PostgreSQL)', () => {
     await db.query('DROP TABLE IF EXISTS public.entitlement_fanout_jobs CASCADE');
     await db.query('DROP TABLE IF EXISTS public.workspaces CASCADE');
     await db.query('CREATE TABLE public.workspaces (id uuid PRIMARY KEY)');
-    for (const file of [
-      'database/migrations/007_entitlement_fanout_jobs.sql',
-      'database/migrations/008_entitlement_fanout_generations.sql',
-      'database/migrations/009_fanout_cursor_generation_and_ai_kb_tx.sql',
-    ]) {
-      await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
-    }
+    await installMigrationChain(db);
   }, 120_000);
 
   afterAll(async () => { if (db) await db.end(); });

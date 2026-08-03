@@ -51,6 +51,34 @@ export interface KnowledgeBasePermissionDenial {
 }
 
 /**
+ * Phase 6-S5-R7.2 — permission evaluation outcome.
+ *
+ * `unavailable` means the permission RPC itself could not be evaluated. It is
+ * deliberately distinct from `denied`: the caller must surface a retryable
+ * 503 rather than telling the user they lack a permission they may well have.
+ */
+export type KnowledgeBasePermissionOutcome = 'granted' | 'denied' | 'unavailable';
+
+export async function checkKnowledgeBasePermissionDetailed(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+  permission: KnowledgeBasePermission,
+): Promise<KnowledgeBasePermissionOutcome> {
+  try {
+    const { data, error } = await getServiceClient(config).rpc('has_workspace_permission', {
+      _workspace_id: workspaceId,
+      _user_id: userId,
+      _permission_key: permission,
+    });
+    if (error) return 'unavailable';
+    return data === true ? 'granted' : 'denied';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+/**
  * Fail-closed granular permission check backed by
  * `public.has_workspace_permission` (role_permissions override + role default).
  * Returns null when allowed, otherwise the canonical denial body.

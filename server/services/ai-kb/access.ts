@@ -19,7 +19,7 @@ import { checkModuleAccess, checkEntitlementFromDB } from '../../middleware/feat
 import { assertAiAgentPlatformEnabledForWorkspace } from '../ai-agent/platformGuards.js';
 import { logGateBypass } from '../../middleware/adminBypass.js';
 import {
-  checkKnowledgeBasePermission,
+  checkKnowledgeBasePermissionDetailed,
   type KnowledgeBasePermission,
 } from '../knowledge-base/access.js';
 
@@ -30,6 +30,8 @@ export type AiKbDenialCode =
   | 'ai_kb_builder_feature_required'
   | 'ai_platform_disabled'
   | 'ai_platform_status_unavailable'
+  | 'entitlement_status_unavailable'
+  | 'knowledge_base_permission_status_unavailable'
   | 'knowledge_base_permission_denied';
 
 export interface AiKbDenialBody {
@@ -46,6 +48,26 @@ export interface AiKbAccessResult {
 }
 
 const OK: AiKbAccessResult = { ok: true };
+
+/**
+ * Phase 6-S5-R7.2 — an entitlement lookup that could not be evaluated is NOT
+ * a denial. Reporting "your plan does not include this" when the RPC failed
+ * is a lie the customer cannot act on (they upgrade and nothing changes), and
+ * it hides a real outage. Infrastructure failures surface as retryable 503s;
+ * only an authoritative `allowed: false` produces a 403.
+ */
+const INFRA_REASONS = new Set(['rpc_error', 'exception']);
+
+type LookupOutcome = 'allowed' | 'denied' | 'unavailable';
+
+function classifyLookup(r: { allowed?: boolean; reason?: string }): LookupOutcome {
+  if (INFRA_REASONS.has(r.reason ?? '')) return 'unavailable';
+  return r.allowed === true ? 'allowed' : 'denied';
+}
+
+function unavailable(error: AiKbDenialCode): AiKbAccessResult {
+  return { ok: false, denial: { status: 503, body: { error } } };
+}
 
 export interface AiKbAccessOptions {
   /** Granular KB permissions required for this route (evaluated first). */
@@ -98,8 +120,13 @@ export async function checkAiKbAccess(
         },
       };
     }
-    const denied = await checkKnowledgeBasePermission(config, workspaceId, opts.userId, permission);
-    if (denied) {
+    const outcome = await checkKnowledgeBasePermissionDetailed(
+      config, workspaceId, opts.userId, permission,
+    );
+    if (outcome === 'unavailable') {
+      return unavailable('knowledge_base_permission_status_unavailable');
+    }
+    if (outcome === 'denied') {
       return {
         ok: false,
         denial: {
@@ -115,7 +142,7 @@ export async function checkAiKbAccess(
     { key: 'ai_assistant', error: 'ai_assistant_plan_required' },
   ];
   for (const m of modules) {
-    let allowed = false;
+    let outcome: LookupOutcome = 'unavailable';
     try {
       const r = await checkModuleAccess(
         config.supabaseUrl,
@@ -123,11 +150,14 @@ export async function checkAiKbAccess(
         workspaceId,
         m.key,
       );
-      allowed = r.allowed === true;
+      outcome = classifyLookup(r);
     } catch {
-      allowed = false; // fail closed on lookup error
+      outcome = 'unavailable';
     }
-    if (allowed) continue;
+    if (outcome === 'allowed') continue;
+    // A lookup that could not run is retryable, and is NOT bypassable by an
+    // admin either: nobody should act on state the system failed to read.
+    if (outcome === 'unavailable') return unavailable('entitlement_status_unavailable');
     if (opts.isAdmin) {
       await bypass(config, opts, workspaceId, m.key);
       continue;
@@ -142,7 +172,7 @@ export async function checkAiKbAccess(
   }
 
   // 3. Feature — ai_kb_builder, via the entitlement RPC (never the module RPC).
-  let featureAllowed = false;
+  let featureOutcome: LookupOutcome = 'unavailable';
   try {
     const r = await checkEntitlementFromDB(
       config.supabaseUrl,
@@ -150,11 +180,12 @@ export async function checkAiKbAccess(
       workspaceId,
       'ai_kb_builder',
     );
-    featureAllowed = r.allowed === true && r.reason !== 'rpc_error' && r.reason !== 'exception';
+    featureOutcome = classifyLookup(r);
   } catch {
-    featureAllowed = false;
+    featureOutcome = 'unavailable';
   }
-  if (!featureAllowed) {
+  if (featureOutcome === 'unavailable') return unavailable('entitlement_status_unavailable');
+  if (featureOutcome === 'denied') {
     if (opts.isAdmin) {
       await bypass(config, opts, workspaceId, 'ai_kb_builder');
     } else {
@@ -206,27 +237,33 @@ export interface AiKbCapabilitySnapshot {
   platform_enabled: boolean;
   /** True when platform state could NOT be resolved (transient, retryable). */
   platform_status_unavailable: boolean;
+  /**
+   * True when a plan/module entitlement lookup could not be resolved. The
+   * `ai_assistant` / `ai_kb_builder` booleans are then NOT authoritative and
+   * the UI must render a retry state, never an upgrade prompt.
+   */
+  entitlement_status_unavailable: boolean;
 }
 
 export async function readAiKbCapabilities(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<AiKbCapabilitySnapshot> {
-  const safeModule = async (key: 'ai_assistant'): Promise<boolean> => {
+  const safeModule = async (key: 'ai_assistant'): Promise<LookupOutcome> => {
     try {
       const r = await checkModuleAccess(
         config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, key,
       );
-      return r.allowed === true;
-    } catch { return false; }
+      return classifyLookup(r);
+    } catch { return 'unavailable'; }
   };
-  const safeFeature = async (): Promise<boolean> => {
+  const safeFeature = async (): Promise<LookupOutcome> => {
     try {
       const r = await checkEntitlementFromDB(
         config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_kb_builder',
       );
-      return r.allowed === true && r.reason !== 'rpc_error' && r.reason !== 'exception';
-    } catch { return false; }
+      return classifyLookup(r);
+    } catch { return 'unavailable'; }
   };
   const [ai_assistant, ai_kb_builder, platform] = await Promise.all([
     safeModule('ai_assistant'),
@@ -235,9 +272,11 @@ export async function readAiKbCapabilities(
   ]);
   return {
     knowledge_base: true,
-    ai_assistant,
-    ai_kb_builder,
+    ai_assistant: ai_assistant === 'allowed',
+    ai_kb_builder: ai_kb_builder === 'allowed',
     platform_enabled: platform.ok,
     platform_status_unavailable: platform.ok === false && platform.reason === 'lookup_failed',
+    entitlement_status_unavailable:
+      ai_assistant === 'unavailable' || ai_kb_builder === 'unavailable',
   };
 }

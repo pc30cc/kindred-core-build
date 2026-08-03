@@ -1,5 +1,6 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
+import { formatDateTime } from '@/lib/date';
 import { useContact, useContactConversations, useUpdateContact, useDeleteContact } from '@/hooks/useContacts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +28,7 @@ import {
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 
 export default function ContactDetailPage() {
-  const { dir } = useTranslation();
+  const { t, dir } = useTranslation();
   const { id, slug: wsSlug } = useParams();
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id);

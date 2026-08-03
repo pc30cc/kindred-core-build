@@ -1014,6 +1014,7 @@ export default function InboxPage() {
               return (
                 <div
                   key={conv.id}
+                  data-conv-id={conv.id}
                   onClick={() => { setSelectedId(conv.id); setShowMobileList(false); }}
                   className={cn(
                     'group/item relative px-3 py-3 cursor-pointer transition-colors border-b border-border/30',

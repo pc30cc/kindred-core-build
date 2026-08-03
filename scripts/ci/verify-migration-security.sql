@@ -714,7 +714,13 @@ DECLARE
   fn       regprocedure;
   overloads integer;
   checked  integer := 0;
+  required boolean := (current_setting('ci.require_hosted_service_acl', true) = '1');
 BEGIN
+  IF NOT required THEN
+    RAISE NOTICE 'Hosted historical 22-function ACL surface: not applicable to this self-host chain profile';
+    RETURN;
+  END IF;
+
   FOR item IN
     SELECT * FROM (VALUES
       ('public.activate_auto_actions()', 'REQUIRED_BEFORE_ACL'),

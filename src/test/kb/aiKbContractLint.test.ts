@@ -145,11 +145,24 @@ describe('AI-KB response contract lint', () => {
     expect(sql).not.toMatch(/\bALTER ROLE\b/);
   });
 
-  it('enforces the lint baseline and the clean-install proof in CI', () => {
+  it('enforces the lint gates and every migration proof in CI', () => {
     const ci = read('.github/workflows/ci.yml');
     expect(ci).toMatch(/npm run lint:baseline/);
-    expect(ci).toMatch(/cleanInstallMigrationChain\.pg\.test\.ts/);
+    // Per-file strict gate on touched files, on top of the baseline.
+    expect(ci).toMatch(/npm run lint:changed/);
+    // CI must never regenerate the baseline.
+    expect(ci).not.toMatch(/lint:baseline:update/);
+    // Tail compatibility + BOTH full-chain proofs.
+    expect(ci).toMatch(/aiKbTailMigrationCompatibility\.pg\.test\.ts/);
+    expect(ci).toMatch(/supabase db reset/);
+    expect(ci).toMatch(/database\/migrations/);
+    expect(ci).toMatch(/verify-hosted-chain\.sql/);
+    expect(ci).toMatch(/verify-selfhost-chain\.sql/);
+    expect(ci).toMatch(/verify-migration-security\.sql/);
     const baseline = JSON.parse(read('.lint-baseline.json'));
     expect(typeof baseline.totals.problems).toBe('number');
+    // Per-file enforcement requires a per-file map.
+    expect(typeof baseline.files).toBe('object');
+    expect(Object.keys(baseline.files).length).toBeGreaterThan(0);
   });
 });

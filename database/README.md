@@ -39,9 +39,21 @@ cluster needs:
   Run the Supabase Postgres image (or `supabase/postgres`) rather than stock
   `postgres:16` if you want the RLS policies in 001–003 to apply.
 
-CI proves the role-dependent tail of the chain (`000` + `007`→`012`) against a
-pristine database in the **Clean-install migration chain** job — no function
-reset, no pre-seeded roles, filename order only.
+### What CI actually proves
+
+Three separate jobs, with deliberately distinct scopes — do not cite one as
+evidence for another:
+
+| Job | Chain | Database |
+| --- | --- | --- |
+| **AI-KB tail migration compatibility** | `000` + `007`→`012` only | stock `postgres:16`, pristine, no function reset, no pre-seeded roles |
+| **Hosted Supabase full migration chain** | every file in `supabase/migrations`, real timestamp order, via `supabase db reset` | Supabase CLI stack |
+| **Self-host full migration chain** | every file in `database/migrations`, `000`→`012`, filename order, `ON_ERROR_STOP=1` | `supabase/postgres` image (ships the `auth` schema 001–003 need) |
+
+Both full-chain jobs then run `scripts/ci/verify-hosted-chain.sql` /
+`scripts/ci/verify-selfhost-chain.sql` for structure and
+`scripts/ci/verify-migration-security.sql` for the privilege posture. The tail
+job is a compatibility check, **not** full-chain release evidence.
 
 ### Rules
 
@@ -53,8 +65,9 @@ reset, no pre-seeded roles, filename order only.
   idempotent.
 - **Mirrored for hosted Supabase.** Files that must also run on the managed
   Supabase project have a byte-identical copy under `supabase/migrations/`.
-  `src/test/kb/aiKbMutationHardening.test.ts` fails the build if the two
-  copies drift apart.
+  `src/test/kb/aiKbMutationHardening.test.ts` and
+  `src/test/integration/migrationMirrorParity.test.ts` fail the build if the
+  two copies drift apart functionally.
 - **Least privilege is re-asserted, not assumed.** Dropping a function
   destroys its ACL and the recreated function is `EXECUTE`-able by `PUBLIC`.
   Any migration that drops/recreates a `SECURITY DEFINER` function must

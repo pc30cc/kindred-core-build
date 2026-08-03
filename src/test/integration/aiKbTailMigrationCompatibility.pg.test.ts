@@ -1,31 +1,43 @@
 /**
- * Phase 6-S5-R7.4 §11 — CLEAN-INSTALL migration proof.
+ * Phase 6-S5-R7.5 §3 — AI-KB TAIL migration compatibility.
  *
- * A genuinely fresh database, the self-host role bootstrap, then every
- * migration in exact filename order. No `resetManagedFunctions()`, no
- * handcrafted schema, no roles inherited from another suite — this is the
- * only suite that may be cited as production migration proof.
+ * Scope, stated honestly: this suite applies the role bootstrap (000) and the
+ * AI-KB / fan-out TAIL (007 → 012) onto a fresh database, with no function
+ * reset and no handcrafted schema. It proves the tail is self-consistent and
+ * role-portable on stock PostgreSQL.
  *
- * Driven by CLEAN_INSTALL_DATABASE_URL (a database created for this job).
+ * It is NOT full-chain evidence and must never be cited as such: migrations
+ * 001–003 need Supabase's `auth` schema, so the complete chains are proven by
+ * the dedicated CI jobs — "Hosted Supabase full migration chain"
+ * (supabase CLI + supabase/migrations) and "Self-host full migration chain"
+ * (supabase/postgres + database/migrations 000→012).
+ *
+ * Driven by TAIL_MIGRATION_DATABASE_URL (or the legacy
+ * CLEAN_INSTALL_DATABASE_URL / TEST_DATABASE_URL).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { CLEAN_INSTALL_CHAIN, applyChainClean } from './pgMigrationChain';
+import { CLEAN_INSTALL_CHAIN, applyChainClean, type PgQueryable } from './pgMigrationChain';
 
-const DSN = process.env.CLEAN_INSTALL_DATABASE_URL || process.env.TEST_DATABASE_URL;
+const DSN =
+  process.env.TAIL_MIGRATION_DATABASE_URL ||
+  process.env.CLEAN_INSTALL_DATABASE_URL ||
+  process.env.TEST_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
 
-let db: any;
+type PgTestClient = PgQueryable & { connect(): Promise<void>; end(): Promise<void> };
 
-suite('clean-install migration chain (plain PostgreSQL)', () => {
+let db: PgTestClient;
+
+suite('AI-KB tail migration compatibility (000 + 007→012, plain PostgreSQL)', () => {
   beforeAll(async () => {
     const { Client } = await import('pg');
-    db = new Client({ connectionString: DSN });
+    db = new Client({ connectionString: DSN }) as unknown as PgTestClient;
     await db.connect();
   });
 
   afterAll(async () => { if (db) await db.end(); });
 
-  it('applies the whole chain in filename order without a function reset', async () => {
+  it('applies the tail in filename order without a function reset', async () => {
     await expect(applyChainClean(db, CLEAN_INSTALL_CHAIN)).resolves.toBeUndefined();
   });
 
@@ -34,7 +46,7 @@ suite('clean-install migration chain (plain PostgreSQL)', () => {
       `SELECT rolname, rolcanlogin, rolsuper FROM pg_roles
        WHERE rolname IN ('anon','authenticated','service_role') ORDER BY rolname`,
     );
-    expect(rows.map((r: any) => r.rolname)).toEqual(['anon', 'authenticated', 'service_role']);
+    expect(rows.map((r) => r.rolname)).toEqual(['anon', 'authenticated', 'service_role']);
     for (const r of rows) {
       expect(r.rolcanlogin).toBe(false);
       expect(r.rolsuper).toBe(false);
@@ -48,7 +60,7 @@ suite('clean-install migration chain (plain PostgreSQL)', () => {
         AND prosecdef
         AND (proacl IS NULL OR proacl::text ~ '(^|,)=X')
     `);
-    expect(rows.map((r: any) => r.proname)).toEqual([]);
+    expect(rows.map((r) => r.proname)).toEqual([]);
   });
 
   it('lets service_role — and only service_role — execute the internal AI-KB RPCs', async () => {

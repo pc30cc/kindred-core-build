@@ -528,7 +528,58 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </Card>
       )}
 
-      {/* Platform Roles Management */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            {t('admin.users.profileInfo')}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            <DetailRow icon={Mail} label={t('admin.users.email')} value={p.email} onCopy={() => copyToClipboard(p.email)} />
+            <DetailRow icon={Building2} label={t('admin.users.company')} value={p.company_name} />
+            <DetailRow icon={Link2} label={t('admin.users.website')} value={p.website_domain} />
+            <DetailRow icon={Globe} label={t('admin.users.preferredLocale')} value={p.preferred_locale} />
+            <DetailRow icon={Globe} label={t('admin.users.signupLocale')} value={p.signup_locale} />
+            <DetailRow icon={Bot} label={t('admin.users.aiMode')} value={p.ai_mode} />
+            <DetailRow icon={MapPin} label={t('admin.users.signupIp')} value={p.signup_ip} />
+            <DetailRow icon={Calendar} label={t('admin.users.joined')} value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null} />
+          </div>
+        </CardContent>
+
+      {detail.account && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Briefcase className="h-4 w-4 text-muted-foreground" />
+              {t('admin.users.account')}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              <InfoRow label={t('admin.users.accountName')} value={detail.account.name} />
+              <InfoRow label={t('admin.users.accountSlug')} value={detail.account.slug} />
+              <InfoRow label={t('admin.users.accountRole')} value={detail.account.role} />
+              <InfoRow label={t('admin.users.accountId')} value={detail.account.id} />
+            </div>
+          </CardContent>
+        </Card>
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Shield className="h-4 w-4 text-muted-foreground" />
+            {t('admin.users.technicalDetails')}
+          </h3>
+          <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+            <span className="text-xs text-muted-foreground">{t('admin.users.userId')}</span>
+            <button
+              onClick={() => copyToClipboard(p.id)}
+              className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <span className="truncate max-w-[250px]">{p.id}</span>
+              <Copy className="h-3 w-3 shrink-0" />
+            </button>
+          </div>
+        </CardContent>
+
         </TabsContent>
 
         <TabsContent value="access" className="space-y-4 mt-0">
@@ -584,36 +635,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           </CardContent>
         </Card>
       )}
-        </TabsContent>
 
-        <TabsContent value="messages" className="mt-0">
-          <UserMessagesCard userId={userId} />
-        </TabsContent>
-      </Tabs>
-
-      {/* legacy sections moved into tabs above */}
-      {false && (
-      <>
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            {t('admin.users.profileInfo')}
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-            <DetailRow icon={Mail} label={t('admin.users.email')} value={p.email} onCopy={() => copyToClipboard(p.email)} />
-            <DetailRow icon={Building2} label={t('admin.users.company')} value={p.company_name} />
-            <DetailRow icon={Link2} label={t('admin.users.website')} value={p.website_domain} />
-            <DetailRow icon={Globe} label={t('admin.users.preferredLocale')} value={p.preferred_locale} />
-            <DetailRow icon={Globe} label={t('admin.users.signupLocale')} value={p.signup_locale} />
-            <DetailRow icon={Bot} label={t('admin.users.aiMode')} value={p.ai_mode} />
-            <DetailRow icon={MapPin} label={t('admin.users.signupIp')} value={p.signup_ip} />
-            <DetailRow icon={Calendar} label={t('admin.users.joined')} value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null} />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Workspaces */}
       <Card>
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -643,45 +665,12 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             ))}
           </div>
         </CardContent>
-      </Card>
+        </TabsContent>
 
-      {/* Account info */}
-      {detail.account && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Briefcase className="h-4 w-4 text-muted-foreground" />
-              {t('admin.users.account')}
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <InfoRow label={t('admin.users.accountName')} value={detail.account.name} />
-              <InfoRow label={t('admin.users.accountSlug')} value={detail.account.slug} />
-              <InfoRow label={t('admin.users.accountRole')} value={detail.account.role} />
-              <InfoRow label={t('admin.users.accountId')} value={detail.account.id} />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* User ID */}
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Shield className="h-4 w-4 text-muted-foreground" />
-            {t('admin.users.technicalDetails')}
-          </h3>
-          <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-            <span className="text-xs text-muted-foreground">{t('admin.users.userId')}</span>
-            <button
-              onClick={() => copyToClipboard(p.id)}
-              className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <span className="truncate max-w-[250px]">{p.id}</span>
-              <Copy className="h-3 w-3 shrink-0" />
-            </button>
-          </div>
-        </CardContent>
-      </Card>
+        <TabsContent value="messages" className="mt-0">
+          <UserMessagesCard userId={userId} />
+        </TabsContent>
+      </Tabs>
 
       {/* Change Password Dialog */}
       <Dialog open={passwordDialog} onOpenChange={setPasswordDialog}>

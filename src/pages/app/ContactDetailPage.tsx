@@ -207,14 +207,16 @@ export default function ContactDetailPage() {
 
             {/* Main */}
             <div className="lg:col-span-2">
-              <Tabs defaultValue={editing ? 'profile' : 'conversations'}>
+              <Tabs defaultValue="overview">
                 <TabsList className="w-full justify-start flex-wrap h-auto">
-                  <TabsTrigger value="profile" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />{t('contacts.tabInfo')}</TabsTrigger>
+                  <TabsTrigger value="overview" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />{t('contacts.tabOverview')}</TabsTrigger>
                   <TabsTrigger value="conversations" className="gap-1.5"><MessageSquare className="w-3.5 h-3.5" />{t('contacts.tabChats')}</TabsTrigger>
+                  <TabsTrigger value="notes" className="gap-1.5"><StickyNote className="w-3.5 h-3.5" />{t('contacts.tabNotes')}</TabsTrigger>
+                  <TabsTrigger value="tags" className="gap-1.5"><Tag className="w-3.5 h-3.5" />{t('contacts.tabTags')}</TabsTrigger>
                   <TabsTrigger value="activity" className="gap-1.5"><Activity className="w-3.5 h-3.5" />{t('contacts.tabActivity')}</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="profile" className="mt-4">
+                <TabsContent value="overview" className="mt-4">
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-4">
                       {editing ? (
@@ -222,24 +224,15 @@ export default function ContactDetailPage() {
                           <Field label={t('contacts.name')}><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} /></Field>
                           <Field label={t('contacts.email')}><Input type="email" dir="ltr" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></Field>
                           <Field label={t('contacts.phone')}><Input dir="ltr" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></Field>
-                          <Field label={t('contacts.tagsComma')}><Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} /></Field>
-                          <Field label={t('contacts.notes')}><Textarea rows={5} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field>
                         </>
                       ) : (
-                        <div className="space-y-3 text-sm">
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <StickyNote className="w-3.5 h-3.5" />
-                            <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
-                          </div>
-                          {(contact as any).notes ? (
-                            <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
-                              {(contact as any).notes}
-                            </p>
-                          ) : (
-                            <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
-                              {t('contacts.notesEmpty')}
-                            </p>
-                          )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Row icon={UserIcon} label={t('contacts.name')} value={getDisplayName(contact)} />
+                          <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
+                          <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
+                          <Row icon={Building2} label={t('contacts.company')} value={company} />
+                          <Row icon={MapPin} label={t('contacts.location')} value={location} />
+                          <Row icon={MessageSquare} label={t('contacts.tabChats')} value={String(conversations?.length ?? 0)} />
                         </div>
                       )}
                     </CardContent>
@@ -284,6 +277,56 @@ export default function ContactDetailPage() {
                           </div>
                         )}
                       </ScrollArea>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="notes" className="mt-4">
+                  <Card className="border-border/70">
+                    <CardContent className="p-5 space-y-3">
+                      {editing ? (
+                        <Field label={t('contacts.notes')}>
+                          <Textarea rows={8} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />
+                        </Field>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <StickyNote className="w-3.5 h-3.5" />
+                            <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
+                          </div>
+                          {(contact as any).notes ? (
+                            <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
+                              {(contact as any).notes}
+                            </p>
+                          ) : (
+                            <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
+                              {t('contacts.notesEmpty')}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="tags" className="mt-4">
+                  <Card className="border-border/70">
+                    <CardContent className="p-5 space-y-3">
+                      {editing ? (
+                        <Field label={t('contacts.tagsComma')}>
+                          <Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} />
+                        </Field>
+                      ) : (contact.tags ?? []).length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {(contact.tags ?? []).map((tag) => (
+                            <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
+                          {t('contacts.noTags')}
+                        </p>
+                      )}
                     </CardContent>
                   </Card>
                 </TabsContent>

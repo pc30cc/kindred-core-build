@@ -8,7 +8,7 @@
 --
 -- Drift protection, enforced here and mirrored by
 -- `src/test/ci/verificationIntegrity.test.ts`:
---   • every listed signature MUST exist (no skip, no CONTINUE WHEN NULL)
+--   • every listed signature MUST exist (no skip path of any kind)
 --   • the listed signature MUST be the ONLY overload of that function name,
 --     so a legacy overload cannot survive un-audited next to the new one.
 -- ============================================================

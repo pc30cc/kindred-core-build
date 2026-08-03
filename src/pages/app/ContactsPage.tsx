@@ -120,8 +120,7 @@ export default function ContactsPage() {
   };
 
   const openContact = (id: string) => {
-    setDrawerId(id);
-    setDrawerOpen(true);
+    navigate(`/app/w/${wsSlug}/contacts/${id}`);
   };
 
   const handleCreate = async () => {
@@ -452,13 +451,6 @@ export default function ContactsPage() {
           </table>
         )}
       </div>
-
-      {/* Drawer */}
-      <ContactDrawer
-        contactId={drawerId}
-        open={drawerOpen}
-        onOpenChange={(o) => { setDrawerOpen(o); if (!o) setDrawerId(null); }}
-      />
 
       {/* Import wizard */}
       <ContactImportWizard open={importOpen} onOpenChange={setImportOpen} workspaceId={workspace?.id} />

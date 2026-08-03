@@ -328,7 +328,7 @@ jobs:
 
       # Exact filename order, ON_ERROR_STOP, no skipping, no function reset,
       # no handcrafted fixtures.
-      - name: Apply database/migrations 000 → 012 in filename order
+      - name: Apply database/migrations 000 → 015 in filename order
         env:
           PGPASSWORD: postgres
         run: |
@@ -336,7 +336,7 @@ jobs:
           shopt -s nullglob
           files=(database/migrations/*.sql)
           IFS=$'\n' files=($(printf '%s\n' "${files[@]}" | sort))
-          if [ "${#files[@]}" -lt 14 ]; then
+          if [ "${#files[@]}" -lt 16 ]; then
             echo "expected the full chain, found ${#files[@]} files"; exit 1
           fi
           for f in "${files[@]}"; do

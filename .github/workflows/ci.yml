@@ -113,4 +113,50 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
-        run: bunx vitest run src/test/integration --no-file-parallelism
+        run: bunx vitest run src/test/integration --exclude '**/cleanInstallMigrationChain.pg.test.ts' --no-file-parallelism
+
+  clean-install:
+    name: Clean-install migration chain (PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Install dependencies (frozen lockfile)
+        id: install
+        run: bun install --frozen-lockfile
+
+      # A database that has never seen a migration, and roles that do not exist
+      # yet: the only honest proof that a self-hoster can run the chain.
+      - name: Create a pristine database
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'DROP DATABASE IF EXISTS clean_install' -c 'CREATE DATABASE clean_install'
+
+      - name: Clean-install migration proof
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          CLEAN_INSTALL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/clean_install
+        run: bunx vitest run src/test/integration/cleanInstallMigrationChain.pg.test.ts

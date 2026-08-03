@@ -109,6 +109,21 @@ contactsRouter.post('/', async (req, res) => {
     const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
     if (!auth) return;
 
+    // Plan gate: manual contact creation must be entitled.
+    const createGate = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      parsed.data.workspace_id,
+      'contact_create',
+    );
+    if (!createGate.allowed) {
+      return res.status(403).json({
+        error: 'feature_not_entitled',
+        feature: 'contact_create',
+        reason: createGate.reason ?? 'not_entitled',
+      });
+    }
+
     // Canonical TS limit check. The middleware reads workspace_id off
     // req.body — already validated above.
     const ok = await enforceMaxContactsCreate(req, res);

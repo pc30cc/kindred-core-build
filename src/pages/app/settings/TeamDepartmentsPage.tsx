@@ -366,10 +366,19 @@ export default function TeamDepartmentsPage() {
                 return (
                   <div key={m.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
                     <div className="relative shrink-0">
-                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                        <span className="text-sm font-semibold text-primary">
-                          {(m.profile?.full_name || m.profile?.email || '?').charAt(0).toUpperCase()}
-                        </span>
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                        {m.profile?.avatar_url ? (
+                          <img
+                            src={m.profile.avatar_url}
+                            alt={m.profile?.full_name || m.profile?.email || ''}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <span className="text-sm font-semibold text-primary">
+                            {(m.profile?.full_name || m.profile?.email || '?').charAt(0).toUpperCase()}
+                          </span>
+                        )}
                       </div>
                       <span
                         aria-hidden

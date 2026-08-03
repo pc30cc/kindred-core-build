@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Locale } from '@/i18n/config';
-import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
+import { LOCALE_CONFIG } from '@/i18n/config';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 
 /** Maps the first workspace-scoped path segment to an existing nav.* i18n key. */
 const SEGMENT_KEYS: Record<string, string> = {
@@ -74,18 +75,20 @@ export function AppTopBar() {
 
         {/* Utilities */}
         <div className="flex items-center gap-1.5">
+          {canSwitchLanguage && (
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
             <SelectTrigger className="h-8 w-[104px] border-border/60 bg-muted/40 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
-              {SUPPORTED_LOCALES.map((l) => (
+              {allowedLocales.map((l) => (
                 <SelectItem key={l} value={l} className="text-xs">
                   {LOCALE_CONFIG[l].nativeLabel}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>

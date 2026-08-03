@@ -39,6 +39,11 @@ import {
   revokeContinuityToken,
 } from '../services/widget/continuity.js';
 import {
+  ensureVisitorSessionRow,
+  issueContinuityCookieForContact,
+  resolveKnownContact,
+} from '../services/widget/crossWidgetIdentity.js';
+import {
   enforceWidgetToken,
   enforceOrigin,
   widgetRateLimit,
@@ -133,26 +138,13 @@ widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request,
   const supabase = getServiceClient(config);
   const { visitorId, isNew } = resolveVisitorIdentity(req, res, workspaceId);
 
-  // Look up linked contact (if any)
-  let contact: any = null;
-  const { data: session } = await supabase
-    .from('visitor_sessions')
-    .select('contact_id, identity_state')
-    .eq('workspace_id', workspaceId)
-    .eq('visitor_id', visitorId)
-    .not('contact_id', 'is', null)
-    .order('last_seen_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (session?.contact_id) {
-    const { data: c } = await supabase
-      .from('contacts')
-      .select('id, name, email, phone, avatar_url')
-      .eq('id', session.contact_id)
-      .maybeSingle();
-    contact = c;
-  }
+  // Look up the linked contact through the shared cross-widget chain
+  // (visitor session → contact metadata → continuity cookie). This is what
+  // makes a visitor identified in the CALL widget skip the chat pre-chat
+  // form, and vice-versa.
+  const contact = await resolveKnownContact(
+    supabase, req, res, workspaceId, visitorId, 'chat_widget',
+  );
 
   const prechat = await getPrechatSettings(supabase, workspaceId);
 
@@ -239,6 +231,9 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
 
   // Resolve / create visitor cookie
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
+  // Guarantee a session row exists so the merge can pin contact_id on it —
+  // otherwise the call widget would not see this visitor as identified.
+  await ensureVisitorSessionRow(supabase, workspaceId, visitorId, null, 'chat_widget');
 
   try {
     const merge = await mergeVisitorIdentity(supabase, {
@@ -254,6 +249,11 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
     });
 
     void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
+    // Hand the call widget a continuity cookie for the same contact so its
+    // pre-call form is skipped on the very next open.
+    await issueContinuityCookieForContact(
+      supabase, req, res, workspaceId, merge.contactId, 'chat_widget',
+    );
 
     return res.json({
       success: true,

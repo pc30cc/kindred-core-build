@@ -4,6 +4,11 @@
 -- supabase/migrations in real timestamp order.
 -- ============================================================
 
+-- Exact RPC signature inventory (single source of truth). This RAISEs when a
+-- signature is missing or an un-audited overload exists, so the hosted chain
+-- cannot pass while the RPC surface has drifted.
+\ir internal-rpc-signatures.sql
+
 DO $chain$
 DECLARE
   applied integer;

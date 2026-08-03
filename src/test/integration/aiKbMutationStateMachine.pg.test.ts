@@ -27,7 +27,7 @@ const REVIEWER = '0000eeee-0000-4000-8000-0000000000ff';
 
 suite('AI-KB generated-article mutations (PostgreSQL)', () => {
   type PgClient = {
-    query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, any>> }>;
+    query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
     connect(): Promise<void>;
     end(): Promise<void>;
   };

@@ -1142,8 +1142,46 @@ function UserMessagesCard({ userId }: { userId: string }) {
 }
 
 /* ─── Financial overview (payments, events, subscriptions, plan changes) ─── */
+function FinPager({
+  total, page, pageSize, onPage, onPageSize,
+}: { total: number; page: number; pageSize: number; onPage: (p: number) => void; onPageSize: (n: number) => void }) {
+  const { t } = useTranslation();
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  return (
+    <div className="flex items-center justify-between gap-3 flex-wrap pt-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{t('admin.users.finShowing', { from: String(from), to: String(to), total: String(total) })}</span>
+        <span>·</span>
+        <span>{t('admin.users.finPerPage')}</span>
+        <select
+          className="h-7 rounded-md border bg-background px-1 text-xs"
+          value={pageSize}
+          onChange={e => { onPageSize(Number(e.target.value)); onPage(1); }}
+        >
+          {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          {t('admin.users.finPrev')}
+        </Button>
+        <span className="text-xs text-muted-foreground">{page} / {pages}</span>
+        <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+          {t('admin.users.finNext')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function UserFinanceCard({ userId }: { userId: string }) {
   const { t, dir, locale } = useTranslation();
+  const [payPage, setPayPage] = useState(1);
+  const [paySize, setPaySize] = useState(20);
+  const [evtPage, setEvtPage] = useState(1);
+  const [evtSize, setEvtSize] = useState(20);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-user-billing', userId],
     queryFn: () => adminGetUserBilling(userId, 200),

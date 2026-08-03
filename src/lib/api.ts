@@ -417,6 +417,37 @@ export async function adminDeleteUserAvatar(userId: string) {
   });
 }
 
+export interface AdminUserBilling {
+  workspaces: { id: string; name: string; slug: string }[];
+  plans: { id: string; name: string; slug: string; localized: any }[];
+  payments: {
+    id: string; workspace_id: string; provider_name: string | null; provider_payment_id: string | null;
+    amount: number | null; currency: string | null; status: string | null; refund_amount: number | null;
+    metadata: any; created_at: string | null;
+  }[];
+  events: {
+    id: string; workspace_id: string; event_type: string | null; provider_name: string | null;
+    provider_event_id: string | null; amount: number | null; currency: string | null; status: string | null;
+    metadata: any; processed_at: string | null; created_at: string | null;
+  }[];
+  subscriptions: {
+    id: string; workspace_id: string; plan_id: string | null; provider_name: string | null;
+    provider_subscription_id: string | null; provider_customer_id: string | null; status: string | null;
+    cancel_at_period_end: boolean | null; current_period_start: string | null; current_period_end: string | null;
+    trial_end: string | null; created_at: string | null; updated_at: string | null;
+  }[];
+  planChanges: {
+    id: string; workspace_id: string; old_plan_id: string | null; new_plan_id: string | null;
+    change_type: string | null; changed_by: string | null; metadata: any; created_at: string | null;
+  }[];
+}
+
+export async function adminGetUserBilling(userId: string, limit = 100) {
+  return request<AdminUserBilling>(`/api/admin/users/${userId}/billing?limit=${limit}`, {
+    headers: await getAdminAuthHeaders(),
+  });
+}
+
 export interface AdminUserEmailLog {
   id: string;
   template_slug: string | null;

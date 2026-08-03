@@ -24,7 +24,7 @@ import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@
 import { supabase } from '@/lib/supabase';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
-  adminDeleteUserAvatar, adminGetUserMessages,
+  adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
 } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -479,6 +479,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <TabsTrigger value="access">{t('admin.users.tabAccess')}</TabsTrigger>
           <TabsTrigger value="workspaces">{t('admin.users.tabWorkspaces')}</TabsTrigger>
           <TabsTrigger value="messages">{t('admin.users.tabMessages')}</TabsTrigger>
+          <TabsTrigger value="finance">{t('admin.users.tabFinance')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-0">
@@ -673,6 +674,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
         <TabsContent value="messages" className="mt-0">
           <UserMessagesCard userId={userId} />
+        </TabsContent>
+
+        <TabsContent value="finance" className="mt-0">
+          <UserFinanceCard userId={userId} />
         </TabsContent>
       </Tabs>
 
@@ -1133,5 +1138,209 @@ function UserMessagesCard({ userId }: { userId: string }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/* ─── Financial overview (payments, events, subscriptions, plan changes) ─── */
+function UserFinanceCard({ userId }: { userId: string }) {
+  const { t, dir, locale } = useTranslation();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin-user-billing', userId],
+    queryFn: () => adminGetUserBilling(userId, 200),
+    enabled: !!userId,
+    retry: false,
+  });
+
+  const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
+  const money = (amount: number | null | undefined, currency: string | null | undefined) => {
+    const value = (amount ?? 0) / 100;
+    try {
+      return new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US', {
+        style: 'currency',
+        currency: (currency || 'USD').toUpperCase(),
+        maximumFractionDigits: 2,
+      }).format(value);
+    } catch {
+      return `${value.toFixed(2)} ${(currency || '').toUpperCase()}`;
+    }
+  };
+
+  const isPaid = (s: string | null) => ['succeeded', 'paid', 'completed', 'success'].includes((s || '').toLowerCase());
+  const isRefund = (s: string | null) => ['refunded', 'partially_refunded'].includes((s || '').toLowerCase());
+  const statusVariant = (s: string | null) =>
+    isPaid(s) ? 'secondary' : isRefund(s) ? 'outline' : ['failed', 'canceled', 'cancelled', 'error'].includes((s || '').toLowerCase()) ? 'destructive' : 'outline';
+
+  if (isLoading) {
+    return (
+      <Card><CardContent className="p-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></CardContent></Card>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <Card><CardContent className="p-6"><p className="text-sm text-destructive">{t('admin.users.finLoadFailed')}</p></CardContent></Card>
+    );
+  }
+
+  const wsName = (id: string) => data.workspaces.find(w => w.id === id)?.name || '—';
+  const planName = (id: string | null) => {
+    if (!id) return '—';
+    const plan = data.plans.find(p => p.id === id);
+    if (!plan) return '—';
+    const loc = (plan.localized as any)?.[locale]?.name;
+    return loc || plan.name;
+  };
+
+  const currency = data.payments.find(p => p.currency)?.currency || 'USD';
+  const grossPaid = data.payments.filter(p => isPaid(p.status)).reduce((s, p) => s + (p.amount ?? 0), 0);
+  const refunded = data.payments.reduce((s, p) => s + (p.refund_amount ?? 0), 0);
+  const successCount = data.payments.filter(p => isPaid(p.status)).length;
+  const failedCount = data.payments.length - successCount;
+  const hasAny = data.payments.length || data.events.length || data.subscriptions.length || data.planChanges.length;
+
+  return (
+    <div className="space-y-4" dir={dir}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card className="border-primary/20 bg-gradient-to-br from-primary/10 to-transparent">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">{t('admin.users.finTotalRevenue')}</p>
+            <p className="text-xl font-bold mt-1">{money(grossPaid - refunded, currency)}</p>
+          </CardContent>
+        </Card>
+        <StatCard icon={CheckCircle2} label={t('admin.users.finSuccessful')} value={successCount} />
+        <StatCard icon={XCircle} label={t('admin.users.finFailed')} value={failedCount} />
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">{t('admin.users.finRefunded')}</p>
+            <p className="text-xl font-bold mt-1">{money(refunded, currency)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {!hasAny && (
+        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">{t('admin.users.finNoData')}</p></CardContent></Card>
+      )}
+
+      {data.subscriptions.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finSubs')}
+            </h3>
+            <div className="space-y-2">
+              {data.subscriptions.map(s => (
+                <div key={s.id} className="rounded-lg border p-3 space-y-1 text-sm">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-medium">{wsName(s.workspace_id)} — {planName(s.plan_id)}</span>
+                    <Badge variant={s.status === 'active' || s.status === 'trialing' ? 'secondary' : 'outline'}>{s.status || '—'}</Badge>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 text-xs text-muted-foreground">
+                    <span>{t('admin.users.finGateway')}: {s.provider_name || '—'}</span>
+                    <span>{t('admin.users.finPeriod')}: {fmt(s.current_period_start)} → {fmt(s.current_period_end)}</span>
+                    <span>{t('admin.users.finTrialEnd')}: {fmt(s.trial_end)}</span>
+                    <span>{t('admin.users.finCancelAtEnd')}: {s.cancel_at_period_end ? '✓' : '—'}</span>
+                    {s.provider_subscription_id && <span className="font-mono truncate">{t('admin.users.finRefId')}: {s.provider_subscription_id}</span>}
+                    {s.provider_customer_id && <span className="font-mono truncate">customer: {s.provider_customer_id}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.payments.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finPayments')}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finPaymentsHint')}</p>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('admin.users.finDate')}</TableHead>
+                    <TableHead>{t('admin.users.finWorkspace')}</TableHead>
+                    <TableHead>{t('admin.users.finGateway')}</TableHead>
+                    <TableHead>{t('admin.users.finAmount')}</TableHead>
+                    <TableHead>{t('admin.users.finRefund')}</TableHead>
+                    <TableHead>{t('admin.users.finStatus')}</TableHead>
+                    <TableHead>{t('admin.users.finRefId')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.payments.map(p => (
+                    <TableRow key={p.id}>
+                      <TableCell className="whitespace-nowrap text-xs">{fmt(p.created_at)}</TableCell>
+                      <TableCell className="text-xs">{wsName(p.workspace_id)}</TableCell>
+                      <TableCell className="text-xs">{p.provider_name || '—'}</TableCell>
+                      <TableCell className="text-xs font-medium">{money(p.amount, p.currency)}</TableCell>
+                      <TableCell className="text-xs">{p.refund_amount ? money(p.refund_amount, p.currency) : '—'}</TableCell>
+                      <TableCell><Badge variant={statusVariant(p.status) as any}>{p.status || '—'}</Badge></TableCell>
+                      <TableCell className="text-[11px] font-mono max-w-[160px] truncate">{p.provider_payment_id || '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.events.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <ScrollText className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finEvents')}
+            </h3>
+            <div className="space-y-2">
+              {data.events.map(e => (
+                <div key={e.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-medium">{e.event_type || '—'}</p>
+                    <p className="text-muted-foreground truncate">
+                      {wsName(e.workspace_id)} · {e.provider_name || '—'}
+                      {e.provider_event_id ? ` · ${e.provider_event_id}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-end shrink-0 space-y-1">
+                    {e.amount != null && <p className="font-medium">{money(e.amount, e.currency)}</p>}
+                    <Badge variant={statusVariant(e.status) as any}>{e.status || '—'}</Badge>
+                    <p className="text-muted-foreground">{fmt(e.created_at)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.planChanges.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Clock className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finPlanChanges')}
+            </h3>
+            <div className="space-y-2">
+              {data.planChanges.map(c => (
+                <div key={c.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs flex-wrap">
+                  <span>
+                    <span className="text-muted-foreground">{t('admin.users.finFrom')}:</span> {planName(c.old_plan_id)}{' '}
+                    <span className="text-muted-foreground">{t('admin.users.finTo')}:</span> {planName(c.new_plan_id)}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <Badge variant="outline">{c.change_type || '—'}</Badge>
+                    <span className="text-muted-foreground">{wsName(c.workspace_id)}</span>
+                    <span className="text-muted-foreground">{fmt(c.created_at)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

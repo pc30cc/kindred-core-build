@@ -413,3 +413,55 @@ adminRouter.get('/users/:userId/messages', async (req, res) => {
     res.status(400).json({ error: err?.message || 'Failed to load messages' });
   }
 });
+
+// ─── Financial overview for a user (payments, events, plan history) ───
+adminRouter.get('/users/:userId/billing', async (req, res) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const { data: memberships, error: memErr } = await sb
+      .from('workspace_members')
+      .select('workspace_id')
+      .eq('user_id', userId);
+    if (memErr) return res.status(500).json({ error: memErr.message });
+
+    const workspaceIds = Array.from(new Set((memberships ?? []).map((m: any) => m.workspace_id))).filter(Boolean);
+    if (workspaceIds.length === 0) {
+      return res.json({ payments: [], events: [], subscriptions: [], planChanges: [], workspaces: [], plans: [] });
+    }
+
+    const [wsRes, payRes, evRes, subRes, chgRes, planRes] = await Promise.all([
+      sb.from('workspaces').select('id, name, slug').in('id', workspaceIds),
+      sb.from('billing_payments')
+        .select('id, workspace_id, provider_name, provider_payment_id, amount, currency, status, refund_amount, metadata, created_at')
+        .in('workspace_id', workspaceIds).order('created_at', { ascending: false }).limit(limit),
+      sb.from('billing_events')
+        .select('id, workspace_id, event_type, provider_name, provider_event_id, amount, currency, status, metadata, processed_at, created_at')
+        .in('workspace_id', workspaceIds).order('created_at', { ascending: false }).limit(limit),
+      sb.from('workspace_subscriptions')
+        .select('id, workspace_id, plan_id, provider_name, provider_subscription_id, provider_customer_id, status, cancel_at_period_end, current_period_start, current_period_end, trial_end, created_at, updated_at')
+        .in('workspace_id', workspaceIds),
+      sb.from('plan_change_log')
+        .select('id, workspace_id, old_plan_id, new_plan_id, change_type, changed_by, metadata, created_at')
+        .in('workspace_id', workspaceIds).order('created_at', { ascending: false }).limit(limit),
+      sb.from('billing_plans').select('id, name, slug, localized'),
+    ]);
+
+    const firstError = [wsRes, payRes, evRes, subRes, chgRes, planRes].find((r: any) => r.error);
+    if (firstError) return res.status(500).json({ error: (firstError as any).error.message });
+
+    res.json({
+      workspaces: wsRes.data ?? [],
+      payments: payRes.data ?? [],
+      events: evRes.data ?? [],
+      subscriptions: subRes.data ?? [],
+      planChanges: chgRes.data ?? [],
+      plans: planRes.data ?? [],
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to load billing data' });
+  }
+});

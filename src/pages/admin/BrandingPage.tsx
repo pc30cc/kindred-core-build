@@ -398,6 +398,58 @@ function SettingsSection() {
           </Card>
         </TabsContent>
 
+        {/* ── Country / Region ── */}
+        <TabsContent value="region" className="mt-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2"><Flag className="h-5 w-5 text-primary" /><CardTitle>Country / Region Locale</CardTitle></div>
+                <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
+                  <Save className="h-4 w-4 mr-1" />Save
+                </Button>
+              </div>
+              <CardDescription>
+                Decides which languages exist on the whole platform and which currency every price, invoice and revenue figure uses.
+                A single-country mode removes the language switcher everywhere — users cannot pick another language.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {REGION_MODES.map((mode) => {
+                  const meta = REGION_META[mode];
+                  const selected = regionMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => pickRegion(mode)}
+                      className={`text-left rounded-xl border p-4 transition-colors ${
+                        selected ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' : 'border-border bg-muted/20 hover:bg-muted/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{meta.flag}</span>
+                        <span className="text-sm font-semibold text-foreground">{meta.title}</span>
+                        {selected && <Badge className="ms-auto text-[10px]">Active</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">{meta.desc}</p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <Badge variant="outline" className="text-[10px]">{meta.languages}</Badge>
+                        <Badge variant="secondary" className="text-[10px]">{meta.currency}</Badge>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <Separator />
+              <p className="text-xs text-muted-foreground">
+                Current mode: <strong className="text-foreground">{REGION_META[regionMode].title}</strong> — languages{' '}
+                <strong className="text-foreground">{REGION_META[regionMode].languages}</strong>, currency{' '}
+                <strong className="text-foreground">{REGION_META[regionMode].currency}</strong>.
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* ── Languages ── */}
         <TabsContent value="languages" className="mt-4">
           {regionMode !== 'multi' && (

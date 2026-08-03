@@ -1,4 +1,14 @@
 const en = {
+  notFound: {
+    code: '404',
+    badge: 'Error 404',
+    title: 'This page went missing',
+    description: 'The page you are looking for may have been moved, renamed, or never existed.',
+    pathLabel: 'Requested address',
+    home: 'Back to home',
+    back: 'Go back',
+    support: 'Contact support',
+  },
   common: {
     loading: 'Loading...',
     save: 'Save',

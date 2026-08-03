@@ -1,6 +1,16 @@
 import type { TranslationKeys } from './en';
 
 const fa: TranslationKeys = {
+  notFound: {
+    code: '۴۰۴',
+    badge: 'خطای ۴۰۴',
+    title: 'این صفحه پیدا نشد',
+    description: 'صفحه‌ای که دنبال آن هستید ممکن است جابه‌جا یا حذف شده باشد، یا اصلاً وجود نداشته باشد.',
+    pathLabel: 'نشانی درخواست‌شده',
+    home: 'بازگشت به خانه',
+    back: 'صفحه قبل',
+    support: 'تماس با پشتیبانی',
+  },
   common: {
     loading: 'در حال بارگذاری...',
     save: 'ذخیره',

@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Building2, Calendar, MessageSquare,
-  Trash2, Edit3, Save, X, Loader2, Activity, User as UserIcon, StickyNote, Clock,
+  Trash2, Edit3, Save, X, Loader2, Activity, User as UserIcon, StickyNote, Clock, Tag,
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from '@/hooks/use-toast';

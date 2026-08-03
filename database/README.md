@@ -106,3 +106,21 @@ The query must return **zero rows**. The same invariant is asserted in CI by
 2. Create a workspace via the onboarding page
 3. This automatically creates default branding and widget settings records
 4. Configure branding in Settings → Branding
+
+## Verification integrity (Phase 6-S5-R7.5.1)
+
+`scripts/ci/internal-rpc-signatures.sql` is the **single source of truth** for the
+internal RPC surface (5 entitlement fan-out RPCs + 4 AI-KB RPCs). Every CI
+verification script `\ir`s it, and it fails hard when
+
+* a declared signature does not resolve (`to_regprocedure` → NULL), or
+* a second, un-audited overload of an audited function name exists.
+
+Consequently none of the three database proofs (hosted full chain, self-host
+full chain, security audit) can pass while auditing zero functions.
+`scripts/ci/verify-migration-security.sql` additionally requires `anon`,
+`authenticated` and `service_role` to exist, and proves denial **live** by
+`SET LOCAL ROLE`-ing into each customer role and actually calling all nine RPCs
+inside a rolled-back transaction. `src/test/ci/verificationIntegrity.test.ts`
+re-derives the signatures from `database/migrations/*.sql` so the inventory
+cannot drift away from the schema.

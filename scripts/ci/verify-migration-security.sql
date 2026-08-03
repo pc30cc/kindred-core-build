@@ -265,7 +265,7 @@ BEGIN
   -- PostgreSQL 17+) grant is an escalation too, and PUBLIC is audited
   -- alongside the two customer roles.
   IF current_setting('server_version_num')::integer >= 170000 THEN
-    privs := privs || 'MAINTAIN';
+    privs := privs || 'MAINTAIN'::text;
   END IF;
   RAISE NOTICE 'PostgreSQL % — auditing table privileges: %',
     current_setting('server_version'), array_to_string(privs, ', ');

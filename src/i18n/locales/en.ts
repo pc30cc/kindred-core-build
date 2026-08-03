@@ -2488,6 +2488,7 @@ const en = {
     },
     knowledge: {
       title: 'Knowledge Sources',
+*** placeholder ***
       subtitle: 'Health of the sources your AI Agent uses to answer visitors. To edit help articles, open the Articles tab.',
       contactAdmin: 'To add or change knowledge sources, contact your platform admin. Advanced knowledge management is available from the admin tools.',
       actions: {

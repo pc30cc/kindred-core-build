@@ -1266,6 +1266,7 @@ function FinPager({
 
 function UserFinanceCard({ userId }: { userId: string }) {
   const { t, dir, locale } = useTranslation();
+  const { mode: regionMode } = usePlatformRegion();
   const [payPage, setPayPage] = useState(1);
   const [paySize, setPaySize] = useState(20);
   const [evtPage, setEvtPage] = useState(1);

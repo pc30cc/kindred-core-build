@@ -351,10 +351,9 @@ $svc$;
 -- 7. Live POSITIVE proof for the four AI-KB RPCs. Called with an id that does
 --    not exist: the BODY must run and report `not_found` — which is only
 --    possible when service_role really can execute it.
--- psql does not substitute variables inside dollar-quoted bodies, so the flag
--- is handed to the block through a GUC.
-SELECT set_config('ci.require_ai_kb', :'require_ai_kb', true);
-
+--    `ok=false` alone is NOT accepted: a body that failed for an unrelated
+--    reason would also report it, so the exact `not_found` discriminator is
+--    asserted. The flag arrives through the session GUC validated at the top.
 DO $kb$
 DECLARE
   required boolean := (current_setting('ci.require_ai_kb', true) = '1');
@@ -377,22 +376,28 @@ BEGIN
       'SELECT public.%I($1, $2, $3, $4, $5)', fn)
       INTO res
       USING gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'ci proof', NULL::text;
-    IF res IS NULL OR (res->>'ok')::boolean IS DISTINCT FROM false THEN
-      RAISE EXCEPTION 'service_role: %(…) returned %, expected ok=false/not_found', fn, res;
+    IF res IS NULL
+       OR (res->>'ok')::boolean IS DISTINCT FROM false
+       OR res->>'error' IS DISTINCT FROM 'not_found' THEN
+      RAISE EXCEPTION 'service_role: %(…) returned %, expected {"ok":false,"error":"not_found"}', fn, res;
     END IF;
     ran := ran + 1;
   END LOOP;
 
   res := public.reject_ai_kb_generated_article(gen_random_uuid(), gen_random_uuid(), gen_random_uuid());
-  IF res IS NULL OR (res->>'ok')::boolean IS DISTINCT FROM false THEN
-    RAISE EXCEPTION 'service_role: reject_ai_kb_generated_article returned %, expected ok=false', res;
+  IF res IS NULL
+     OR (res->>'ok')::boolean IS DISTINCT FROM false
+     OR res->>'error' IS DISTINCT FROM 'not_found' THEN
+    RAISE EXCEPTION 'service_role: reject_ai_kb_generated_article returned %, expected {"ok":false,"error":"not_found"}', res;
   END IF;
   ran := ran + 1;
 
   res := public._ai_kb_apply_generated(
     gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'ci proof', 'draft', 'accepted', NULL);
-  IF res IS NULL OR (res->>'ok')::boolean IS DISTINCT FROM false THEN
-    RAISE EXCEPTION 'service_role: _ai_kb_apply_generated returned %, expected ok=false', res;
+  IF res IS NULL
+     OR (res->>'ok')::boolean IS DISTINCT FROM false
+     OR res->>'error' IS DISTINCT FROM 'not_found' THEN
+    RAISE EXCEPTION 'service_role: _ai_kb_apply_generated returned %, expected {"ok":false,"error":"not_found"}', res;
   END IF;
   ran := ran + 1;
 

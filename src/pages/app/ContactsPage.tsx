@@ -27,7 +27,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import { ContactDrawer } from '@/features/contacts/ContactDrawer';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import {
   getInitials, getDisplayName, timeAgo,
@@ -46,8 +45,6 @@ export default function ContactsPage() {
   const createContact = useCreateContact(workspace?.id);
   const bulkDelete = useBulkDeleteContacts();
 
-  const [drawerId, setDrawerId] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);

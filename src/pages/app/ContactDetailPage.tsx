@@ -323,12 +323,39 @@ export default function ContactDetailPage() {
                               <div
                                 key={conv.id}
                                 className={cn('p-4 hover:bg-secondary/50 cursor-pointer transition-colors', rtl && 'text-right')}
-                                onClick={() => navigate(`/app/w/${wsSlug}/inbox`)}
+                                onClick={() => navigate(`/app/w/${wsSlug}/inbox?c=${conv.id}`)}
+                                title={t('contacts.openConversation')}
                               >
                                 <p className="font-medium text-sm text-foreground line-clamp-1">
                                   {conversationTitle(conv, t)}
                                 </p>
+                                {conv.last_message_body ? (
+                                  <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                    {conv.last_message_body}
+                                  </p>
+                                ) : null}
                                 <div className="flex items-center gap-2 mt-1.5">
+                                  {conv.handled_by_operator ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary">
+                                      <UserIcon className="w-3 h-3" />
+                                      {conv.operator_name || t('contacts.handledByOperator')}
+                                    </span>
+                                  ) : conv.handled_by_ai ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-accent/15 text-accent-foreground">
+                                      <Bot className="w-3 h-3" />
+                                      {t('contacts.handledByAi')}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">
+                                      {t('contacts.handledByUnassigned')}
+                                    </span>
+                                  )}
+                                  {conv.handled_by_operator && conv.handled_by_ai ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-accent/15 text-accent-foreground">
+                                      <Bot className="w-3 h-3" />
+                                      {t('contacts.handledByAi')}
+                                    </span>
+                                  ) : null}
                                   <span className={cn(
                                     'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
                                     conv.status === 'open' ? 'bg-success/15 text-success' :

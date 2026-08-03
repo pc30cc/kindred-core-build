@@ -18,7 +18,7 @@ import { Globe, Sparkles, AlertCircle, CheckCircle2, RefreshCcw, FileText, Clock
 const ERROR_MESSAGES: Record<string, string> = {
   no_scannable_domain: 'No verified workspace domain. Add and verify a domain first.',
   monthly_job_limit_reached: 'You have reached this month\u2019s scan limit for your plan.',
-  module_disabled: 'AI Knowledge Builder is not enabled on your plan.',
+  module_disabled: 'AI Assistant is not included in this plan.',
   unauthorized: 'You are not authorized to start a scan.',
   job_create_failed: 'Could not create the job. Please try again.',
   invalid_params: 'Invalid request. Please refresh and retry.',
@@ -42,55 +42,121 @@ const JOB_ERROR_MESSAGES: Record<string, string> = {
 function friendlyError(raw: string | undefined): string {
   if (!raw) return 'Failed to start scan';
   if (ERROR_MESSAGES[raw]) return ERROR_MESSAGES[raw];
-  if (raw.includes('Module ')) return raw;
   return raw;
 }
+
+/**
+ * Phase 6-S5-R7.4 §1 — the surface has ONE authoritative access state,
+ * resolved from `/source` BEFORE any private job data is requested. Using
+ * `src === null` for "loading", "blocked" and "outage" alike is what made the
+ * upgrade and platform states render as an endless "Loading…".
+ */
+export type AiKbSurfaceState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; source: AiKbSourceResponse }
+  | { kind: 'upgrade_required'; source: AiKbSourceResponse }
+  | { kind: 'platform_disabled'; code: string }
+  | { kind: 'customer_visibility_disabled'; code: string }
+  | { kind: 'temporarily_unavailable'; code: string }
+  | { kind: 'forbidden'; code: string };
 
 export default function AiKbBuilderTab() {
   const workspace = useCurrentWorkspace();
   const { locale } = useTranslation();
-  const [src, setSrc] = useState<AiKbSourceResponse | null>(null);
-  const [jobs, setJobs] = useState<AiKbJobDto[]>([]);
+  const [state, setState] = useState<AiKbSurfaceState>({ kind: 'loading' });
   const [activeJob, setActiveJob] = useState<AiKbJobDto | null>(null);
   const [generated, setGenerated] = useState<AiKbGeneratedDto[]>([]);
   const [jobEvents, setJobEvents] = useState<AiKbJobEventDto[]>([]);
   const [busy, setBusy] = useState(false);
   const [stuckQueued, setStuckQueued] = useState(false);
-  /**
-   * Phase 6-S5-R7.3 — a 503 means the backend could not READ the business
-   * state. It is NOT "you have no plan" and NOT "you have no domain", so the
-   * surface must show a retry state rather than an upgrade CTA built on
-   * values the server never confirmed.
-   */
-  const [statusUnavailable, setStatusUnavailable] = useState(false);
 
+  /**
+   * Resolves the access state from `/source`, and only loads private job data
+   * once the workspace is genuinely entitled AND the platform allows it.
+   */
   const refresh = useCallback(async () => {
     if (!workspace?.id) return;
+
+    let source: AiKbSourceResponse;
     try {
-      const [s, j] = await Promise.all([
-        aiKbApi.getSource(workspace.id),
-        aiKbApi.listJobs(workspace.id),
-      ]);
-      setSrc(s);
-      setJobs(j.jobs || []);
+      source = await aiKbApi.getSource(workspace.id);
+    } catch (e) {
+      if (e instanceof AiKbApiError) {
+        if (e.retryable) { setState({ kind: 'temporarily_unavailable', code: e.code }); return; }
+        if (e.code === 'ai_customer_visibility_disabled') {
+          setState({ kind: 'customer_visibility_disabled', code: e.code });
+          return;
+        }
+        if (AI_KB_PLATFORM_DENIAL_CODES.has(e.code)) {
+          setState({ kind: 'platform_disabled', code: e.code });
+          return;
+        }
+        setState({ kind: 'forbidden', code: e.code });
+        return;
+      }
+      setState({ kind: 'temporarily_unavailable', code: 'ai_kb_status_unavailable' });
+      return;
+    }
+
+    const isAdmin = !!source.is_global_admin;
+
+    // Unreadable platform / entitlement state is an outage, never a denial.
+    if (source.modules.platform_status_unavailable) {
+      setState({ kind: 'temporarily_unavailable', code: 'ai_platform_status_unavailable' });
+      return;
+    }
+    if (source.modules.entitlement_status_unavailable) {
+      setState({ kind: 'temporarily_unavailable', code: 'entitlement_status_unavailable' });
+      return;
+    }
+
+    const platformDenialCode = source.modules.platform_denial_code || null;
+    if (platformDenialCode && AI_KB_PLATFORM_DENIAL_CODES.has(platformDenialCode)) {
+      setState(
+        platformDenialCode === 'ai_customer_visibility_disabled'
+          ? { kind: 'customer_visibility_disabled', code: platformDenialCode }
+          : { kind: 'platform_disabled', code: platformDenialCode },
+      );
+      return;
+    }
+
+    // R7.4 §4 — AI KB Builder availability is `ai_assistant && ai_kb_builder`.
+    // `ai_assistant` is a MODULE; `ai_kb_builder` is a FEATURE of it.
+    const assistantBlocked = !source.modules.ai_assistant;
+    const builderFeatureBlocked = !source.modules.ai_kb_builder;
+    const planBlocked = assistantBlocked || builderFeatureBlocked;
+
+    if ((planBlocked || source.upgrade_required === true) && !isAdmin) {
+      setState({ kind: 'upgrade_required', source });
+      setActiveJob(null); setGenerated([]); setJobEvents([]);
+      return;
+    }
+
+    setState({ kind: 'ready', source });
+
+    try {
+      const j = await aiKbApi.listJobs(workspace.id);
       const latest = (j.jobs || [])[0];
       if (latest) {
         const detail = await aiKbApi.getJob(latest.id);
         setActiveJob(detail.job);
         setGenerated(detail.generated || []);
         setJobEvents(detail.events || []);
+      } else {
+        setActiveJob(null); setGenerated([]); setJobEvents([]);
       }
-      setStatusUnavailable(false);
-    } catch (e: any) {
+    } catch (e) {
       if (e instanceof AiKbApiError && e.retryable) {
-        setStatusUnavailable(true);
+        setState({ kind: 'temporarily_unavailable', code: e.code });
         return;
       }
-      toast.error(e?.message || 'Failed to load AI Builder state');
+      toast.error(e instanceof Error ? e.message : 'Failed to load AI Builder jobs');
     }
   }, [workspace?.id]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  const src = state.kind === 'ready' || state.kind === 'upgrade_required' ? state.source : null;
 
   // Poll while a job is running.
   useEffect(() => {
@@ -109,8 +175,8 @@ export default function AiKbBuilderTab() {
       toast.success(id ? `Scan queued (job ${id.slice(0, 8)}). Waiting for worker…` : 'Scan queued.');
       setStuckQueued(false);
       await refresh();
-    } catch (e: any) {
-      toast.error(friendlyError(e?.message));
+    } catch (e) {
+      toast.error(friendlyError(e instanceof Error ? e.message : undefined));
     } finally { setBusy(false); }
   };
 
@@ -131,23 +197,24 @@ export default function AiKbBuilderTab() {
       await (action === 'accept' ? aiKbApi.accept(id) : action === 'reject' ? aiKbApi.reject(id) : aiKbApi.publish(id));
       toast.success(action === 'publish' ? 'Published' : action === 'accept' ? 'Saved as KB draft' : 'Rejected');
       await refresh();
-    } catch (e: any) {
+    } catch (e) {
+      const err = e instanceof AiKbApiError ? e : null;
       // A refused transition means someone else already moved this draft —
       // re-sync so the operator sees the real state instead of a stale row.
-      if (e?.code === 'invalid_state') {
+      if (err?.code === 'invalid_state') {
         toast.error(
-          e.currentStatus
-            ? `This draft is already "${e.currentStatus}" and can no longer be ${action}ed.`
+          err.currentStatus
+            ? `This draft is already "${err.currentStatus}" and can no longer be ${action}ed.`
             : 'This draft was already reviewed by someone else.',
         );
         await refresh();
         return;
       }
-      if (e?.retryable) {
+      if (err?.retryable) {
         toast.error('The knowledge base is temporarily unavailable. Please try again.');
         return;
       }
-      toast.error(e?.message || 'Action failed');
+      toast.error(e instanceof Error ? e.message : 'Action failed');
     }
   };
 
@@ -160,8 +227,8 @@ export default function AiKbBuilderTab() {
       const r = await aiKbApi.publishAll(activeJob.id);
       toast.success(`Published ${r.published_count} draft(s)${r.failed_count ? ` · ${r.failed_count} failed` : ''}`);
       await refresh();
-    } catch (e: any) {
-      toast.error(e?.message || 'Publish all failed');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Publish all failed');
     }
   };
 
@@ -174,58 +241,78 @@ export default function AiKbBuilderTab() {
   };
 
   /**
-   * Phase 6-S5-R7.3 — the link is built ONLY from the server-resolved
-   * `public_path`, which comes from the real `knowledge_base_articles` row.
-   * The draft's own `slug` is a suggestion the database may have
-   * de-duplicated at publish time, so linking to it produces a 404.
+   * The link is built ONLY from the server-resolved `public_path`, which comes
+   * from the real `knowledge_base_articles` row. The draft's own `slug` is a
+   * suggestion the database may have de-duplicated at publish time.
    */
   const publicHelpUrl = (g: AiKbGeneratedDto) =>
     g.public_path ? `${window.location.origin}${g.public_path}` : null;
 
-  if (statusUnavailable) {
+  if (state.kind === 'loading') {
+    return <div className="p-6 text-sm text-muted-foreground" data-testid="aikb-loading">Loading…</div>;
+  }
+
+  if (state.kind === 'temporarily_unavailable') {
     return (
-      <div className="card-elevated p-6 flex flex-col items-center gap-3 text-center">
+      <div className="card-elevated p-6 flex flex-col items-center gap-3 text-center" data-testid="aikb-temporarily-unavailable">
         <AlertCircle className="w-5 h-5 text-warning" />
         <div className="text-sm font-semibold text-foreground">Status temporarily unavailable</div>
         <p className="text-xs text-muted-foreground max-w-sm">
-          We could not confirm your plan and usage right now, so nothing is shown rather than
-          showing something inaccurate. This is temporary — please retry.
+          We could not confirm your plan, domain or credit status right now. This is not a plan
+          limitation — please retry in a moment.
         </p>
-        <Button variant="outline" size="sm" onClick={refresh} className="gap-2">
+        <Button size="sm" variant="outline" onClick={refresh} className="gap-2" data-testid="aikb-retry">
           <RefreshCcw className="w-3.5 h-3.5" /> Retry
         </Button>
       </div>
     );
   }
 
-  if (!src) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  if (state.kind === 'platform_disabled' || state.kind === 'customer_visibility_disabled') {
+    return (
+      <div
+        className="card-elevated p-6 flex flex-col items-center gap-3 text-center border border-warning/30 bg-warning/5"
+        data-testid={state.kind === 'platform_disabled' ? 'aikb-platform-disabled' : 'aikb-customer-hidden'}
+      >
+        <AlertCircle className="w-5 h-5 text-warning" />
+        <div className="text-sm font-semibold text-foreground">AI features are switched off</div>
+        <p className="text-xs text-muted-foreground max-w-sm">
+          {ERROR_MESSAGES[state.code] || 'AI features are switched off by the platform operator.'}
+          {' '}Upgrading your plan will not change this — please contact the platform operator.
+        </p>
+      </div>
+    );
   }
 
-  const isAdmin = !!src.is_global_admin;
-  // Unreadable platform / entitlement state is never a plan denial.
-  const readUnavailable =
-    src.modules.platform_status_unavailable || src.modules.entitlement_status_unavailable;
-  const platformDenialCode = src.modules.platform_denial_code || null;
-  const platformBlocked = !!platformDenialCode && AI_KB_PLATFORM_DENIAL_CODES.has(platformDenialCode);
-  // Phase 6-S5-R4 — only the AI KB Builder feature gates this surface.
-  // `knowledge_base` is a core product and is never an access requirement.
-  const moduleBlocked = !src.modules.ai_kb_builder;
-  const blocked = (moduleBlocked || platformBlocked) && !isAdmin;
+  if (state.kind === 'forbidden') {
+    return (
+      <div className="card-elevated p-6 text-center space-y-2" data-testid="aikb-forbidden">
+        <AlertCircle className="w-5 h-5 text-warning mx-auto" />
+        <div className="text-sm font-semibold text-foreground">You do not have access to this surface</div>
+        <p className="text-xs text-muted-foreground">{ERROR_MESSAGES[state.code] || state.code}</p>
+      </div>
+    );
+  }
 
-  const noDomain = !src.source.can_scan || !src.source.domain;
-  const limitReached = !src.plan.can_start_job && !isAdmin;
-  const disabledReason = readUnavailable
-    ? 'Plan status is temporarily unavailable. Please retry in a moment.'
-    : platformBlocked
-      ? ERROR_MESSAGES[platformDenialCode!] || 'AI features are switched off by the platform operator.'
-      : blocked
-        ? 'AI Knowledge Builder module is disabled on your plan.'
-        : noDomain
-          ? 'No workspace domain available. Add a domain in workspace settings first.'
-          : limitReached
-            ? `Monthly scan limit reached (${src.plan.jobs_used_this_month}/${src.plan.limits.jobsPerMonth}).`
-            : '';
+  // ─── ready / upgrade_required ───
+  const source = state.source;
+  const isAdmin = !!source.is_global_admin;
+  const assistantBlocked = !source.modules.ai_assistant;
+  const builderFeatureBlocked = !source.modules.ai_kb_builder;
+  const planBlocked = state.kind === 'upgrade_required';
+
+  const noDomain = !source.source.can_scan || !source.source.domain;
+  const limitReached = !source.plan.can_start_job && !isAdmin;
+  const blocked = planBlocked;
+  const disabledReason = planBlocked
+    ? assistantBlocked
+      ? 'AI Assistant is not included in this plan.'
+      : 'AI Knowledge Builder feature is not included in this plan.'
+    : noDomain
+      ? 'No workspace domain available. Add a domain in workspace settings first.'
+      : limitReached
+        ? `Monthly scan limit reached (${source.plan.jobs_used_this_month}/${source.plan.limits.jobsPerMonth}).`
+        : '';
 
   return (
     <div className="space-y-5">
@@ -236,66 +323,53 @@ export default function AiKbBuilderTab() {
             <div className="p-2 rounded-lg bg-primary/10"><Globe className="w-4 h-4 text-primary" /></div>
             <div>
               <div className="text-xs text-muted-foreground">Scan source (workspace domain only)</div>
-              <div className="text-sm font-semibold text-foreground">{src.source.domain || '— No domain available —'}</div>
+              <div className="text-sm font-semibold text-foreground">{source.source.domain || '— No domain available —'}</div>
               <div className="mt-1 flex items-center gap-2">
-                {src.source.verified
+                {source.source.verified
                   ? <Badge className="bg-success/10 text-success border-success/20">Verified</Badge>
-                  : src.source.kind === 'profile_domain'
+                  : source.source.kind === 'profile_domain'
                     ? <Badge variant="outline">Pending verification</Badge>
                     : <Badge variant="outline">Unverified</Badge>}
-                {src.source.is_primary && <Badge variant="secondary">Primary</Badge>}
+                {source.source.is_primary && <Badge variant="secondary">Primary</Badge>}
               </div>
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={refresh}><RefreshCcw className="w-4 h-4" /></Button>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          <div><div className="text-muted-foreground">Plan</div><div className="font-semibold capitalize">{src.plan.slug || '—'}</div></div>
-          <div><div className="text-muted-foreground">Pages / scan</div><div className="font-semibold">{src.plan.limits.maxPages}</div></div>
-          <div><div className="text-muted-foreground">Drafts / scan</div><div className="font-semibold">{src.plan.limits.maxArticles}</div></div>
-          <div><div className="text-muted-foreground">Jobs this month</div><div className="font-semibold">{src.plan.jobs_used_this_month} / {src.plan.limits.jobsPerMonth}</div></div>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          AI credits remaining: <span className="font-semibold text-foreground">{src.credits.limit === -1 ? 'unlimited' : src.credits.remaining}</span> · 1 credit per generated draft
-        </div>
+        {!planBlocked && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div><div className="text-muted-foreground">Plan</div><div className="font-semibold capitalize">{source.plan.slug || '—'}</div></div>
+              <div><div className="text-muted-foreground">Pages / scan</div><div className="font-semibold">{source.plan.limits.maxPages}</div></div>
+              <div><div className="text-muted-foreground">Drafts / scan</div><div className="font-semibold">{source.plan.limits.maxArticles}</div></div>
+              <div><div className="text-muted-foreground">Jobs this month</div><div className="font-semibold">{source.plan.jobs_used_this_month} / {source.plan.limits.jobsPerMonth}</div></div>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              AI credits remaining: <span className="font-semibold text-foreground">{source.credits.limit === -1 ? 'unlimited' : source.credits.remaining}</span> · 1 credit per generated draft
+            </div>
+          </>
+        )}
       </div>
 
-      {readUnavailable && (
-        <div className="card-elevated p-4 flex items-start gap-3 border border-warning/30 bg-warning/5">
-          <AlertCircle className="w-4 h-4 text-warning mt-0.5" />
-          <div className="text-xs text-foreground flex-1">
-            Your plan status could not be confirmed. Values below may be incomplete — no upgrade is
-            implied.
-          </div>
-          <Button variant="ghost" size="sm" onClick={refresh}><RefreshCcw className="w-3.5 h-3.5" /></Button>
-        </div>
-      )}
-
-      {platformBlocked && !readUnavailable && (
-        <div className="card-elevated p-4 flex items-start gap-3 border border-warning/30 bg-warning/5">
+      {planBlocked && (
+        <div
+          className="card-elevated p-4 flex items-start gap-3 border border-warning/30 bg-warning/5"
+          data-testid="aikb-upgrade-required"
+        >
           <AlertCircle className="w-4 h-4 text-warning mt-0.5" />
           <div className="text-xs text-foreground">
-            {ERROR_MESSAGES[platformDenialCode!] || 'AI features are switched off by the platform operator.'}
-            {' '}Upgrading your plan will not change this.
+            {assistantBlocked
+              ? 'AI Assistant is not included in this plan. Upgrade to enable AI features.'
+              : 'AI Knowledge Builder feature is not included in this plan. Upgrade to enable the AI Knowledge Builder feature.'}
           </div>
         </div>
       )}
 
-      {blocked && !platformBlocked && !readUnavailable && (
-        <div className="card-elevated p-4 flex items-start gap-3 border border-warning/30 bg-warning/5">
-          <AlertCircle className="w-4 h-4 text-warning mt-0.5" />
-          <div className="text-xs text-foreground">
-            AI Knowledge Builder is not enabled on your plan. Upgrade or ask an admin to enable the
-            <code className="mx-1">ai_kb_builder</code> module.
-          </div>
-        </div>
-      )}
-
-      {isAdmin && moduleBlocked && (
+      {isAdmin && builderFeatureBlocked && (
         <div className="card-elevated p-4 flex items-start gap-3 border border-primary/30 bg-primary/5">
           <AlertCircle className="w-4 h-4 text-primary mt-0.5" />
           <div className="text-xs text-foreground">
-            Global Admin override active — module gating is bypassed for diagnostic use. Bypasses are written to the audit log.
+            Global Admin override active — plan gating is bypassed for diagnostic use. Bypasses are written to the audit log.
           </div>
         </div>
       )}

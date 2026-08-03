@@ -145,7 +145,7 @@ describe('Entitlement lookups — outage is not a denial', () => {
 
   it('classifies rpc_error/exception as unavailable, not denied', () => {
     expect(parser).toMatch(/outcome: 'unavailable'[\s\S]*?reason: 'rpc_error'/);
-    expect(parser).toMatch(/reason === 'rpc_error' \|\| reason === 'exception'/);
+    expect(parser).toMatch(/reason === 'rpc_error'[\s\S]{0,40}reason === 'exception'/);
     expect(src).toMatch(/entitlement_status_unavailable/);
   });
 

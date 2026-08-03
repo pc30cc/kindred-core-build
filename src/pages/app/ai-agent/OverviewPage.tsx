@@ -35,6 +35,19 @@ export default function OverviewPage() {
     return !v || v === `aiAgent.overview.${k}` ? fb : v;
   };
   const isRtl = dir === 'rtl';
+  const trWarning = (w: { code: string; message: string }): string => {
+    const key = `aiAgent.overview.warning.${w.code}`;
+    const count = (w.message.match(/\d+/) || [])[0] || '';
+    const name = (w.message.match(/"([^"]+)"/) || [])[1] || '';
+    const v = t(key as any, { count, name });
+    return !v || v === key ? w.message : v;
+  };
+  const trEnum = (group: string, value?: string | null): string => {
+    if (!value) return '—';
+    const key = `aiAgent.overview.${group}.${value}`;
+    const v = t(key as any);
+    return !v || v === key ? value : v;
+  };
 
   const overview = useQuery({
     queryKey: ['ai-overview', wsId],
@@ -53,7 +66,7 @@ export default function OverviewPage() {
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
   const data = overview.data;
-  if (!data) return <p className="text-sm text-muted-foreground">No data.</p>;
+  if (!data) return <p className="text-sm text-muted-foreground">{tr('noData', 'No data available yet.')}</p>;
   const c = data.counts;
   const ready = data.settings.enabled && c.activeChunks > 0;
 
@@ -102,7 +115,7 @@ export default function OverviewPage() {
       <Section title={tr('sectionStatus', 'Status & configuration')}>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard tone="emerald" icon={ready ? CheckCircle2 : AlertCircle} label={tr('stat.status', 'Status')} value={ready ? tr('statusReady', 'Ready') : tr('statusNotReady', 'Not ready')} />
-          <StatCard tone="violet" icon={Sparkles} label={tr('stat.mode', 'Mode')} value={data.settings.mode} />
+          <StatCard tone="violet" icon={Sparkles} label={tr('stat.mode', 'Mode')} value={trEnum('mode', data.settings.mode)} />
           <StatCard tone="sky" icon={Database} label={tr('stat.chunks', 'Knowledge chunks')} value={`${c.embeddedChunks}/${c.activeChunks}`} hint={tr('embedded', 'embedded / active')} />
           <StatCard tone="amber" icon={MessageSquare} label={tr('stat.qna', 'Q&A pairs')} value={String(c.qna)} />
         </div>
@@ -138,7 +151,7 @@ export default function OverviewPage() {
           <CardContent className="space-y-2">
             {data.warnings.map((w) => (
               <div key={w.code} className={cn('rounded-lg border px-3 py-2 text-sm', SEVERITY_STYLES[w.severity] || '')}>
-                {w.message}
+                {trWarning(w as any)}
               </div>
             ))}
           </CardContent>
@@ -173,8 +186,8 @@ export default function OverviewPage() {
               <p className="text-xs text-muted-foreground py-4 text-center">{tr('noRecentRuns', 'No recent activity yet.')}</p>
             ) : data.recentRuns.slice(0, 10).map((r) => (
               <div key={r.id} className="flex items-start gap-2 text-xs py-2 border-b border-border/40 last:border-b-0 hover:bg-accent/30 -mx-2 px-2 rounded-md transition-colors">
-                <Badge variant="outline" className="text-[10px] shrink-0">{r.status || '—'}</Badge>
-                <span className="text-muted-foreground shrink-0">{r.run_type || ''}</span>
+                <Badge variant="outline" className="text-[10px] shrink-0">{trEnum('runStatus', r.status)}</Badge>
+                <span className="text-muted-foreground shrink-0">{r.run_type ? trEnum('runType', r.run_type) : ''}</span>
                 <span className="flex-1 truncate">{r.input_text || ''}</span>
                 <span className="tabular-nums text-muted-foreground shrink-0">{new Date(r.created_at).toLocaleTimeString()}</span>
               </div>
@@ -191,8 +204,10 @@ export default function OverviewPage() {
               <p className="text-xs text-muted-foreground py-4 text-center">{tr('noRecentSync', 'No sync logs yet.')}</p>
             ) : data.recentSyncLogs.map((l) => (
               <div key={l.id} className="flex items-start gap-2 text-xs py-2 border-b border-border/40 last:border-b-0 hover:bg-accent/30 -mx-2 px-2 rounded-md transition-colors">
-                <Badge variant="outline" className="text-[10px] shrink-0">{l.status}</Badge>
-                <span className="flex-1 truncate">{l.message || `pages: ${l.pages_found}, chunks: ${l.chunks_created}`}</span>
+                <Badge variant="outline" className="text-[10px] shrink-0">{trEnum('runStatus', l.status)}</Badge>
+                <span className="flex-1 truncate">
+                  {l.message || t('aiAgent.overview.syncSummary' as any, { pages: String(l.pages_found ?? 0), chunks: String(l.chunks_created ?? 0) })}
+                </span>
                 <span className="tabular-nums text-muted-foreground shrink-0">{new Date(l.created_at).toLocaleTimeString()}</span>
               </div>
             ))}

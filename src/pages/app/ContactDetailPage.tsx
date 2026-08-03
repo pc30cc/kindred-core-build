@@ -26,6 +26,8 @@ import {
   getCompanyFromMetadata, getLocationFromMetadata,
 } from '@/features/contacts/utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
+import { useContactIp } from '@/hooks/useContactIp';
+import { Globe, Lock } from 'lucide-react';
 
 export default function ContactDetailPage() {
   const { t, dir } = useTranslation();
@@ -34,6 +36,7 @@ export default function ContactDetailPage() {
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id);
   const { data: conversations } = useContactConversations(id);
+  const { data: ipState } = useContactIp(id);
   const updateMutation = useUpdateContact();
   const deleteMutation = useDeleteContact();
 
@@ -105,6 +108,9 @@ export default function ContactDetailPage() {
   const loc = getLocationFromMetadata(contact);
   const location = [loc.city, loc.country].filter(Boolean).join('، ') || null;
   const BackIcon = rtl ? ArrowRight : ArrowLeft;
+  const billingHref = `/app/w/${wsSlug}/billing`;
+  const ipLocked = ipState?.status === 'locked';
+  const ipValue = ipState?.status === 'ok' ? ipState.ip : null;
 
   return (
     <div className="flex flex-col h-full bg-background" dir={dir}>
@@ -232,6 +238,32 @@ export default function ContactDetailPage() {
                           <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
                           <Row icon={Building2} label={t('contacts.company')} value={company} />
                           <Row icon={MapPin} label={t('contacts.location')} value={location} />
+                          {ipLocked ? (
+                            <div className="flex items-start gap-2.5">
+                              <Lock className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-[11px] text-muted-foreground">{t('contacts.ipAddress')}</p>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toast({
+                                      title: t('contacts.ipLockedTitle'),
+                                      description: t('contacts.ipLockedDesc'),
+                                      action: undefined,
+                                    })
+                                  }
+                                  className="mt-0.5 inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted"
+                                >
+                                  <span className="select-none tracking-widest">•••••••</span>
+                                  <Link to={billingHref} className="text-primary hover:underline">
+                                    {t('contacts.ipLocked')}
+                                  </Link>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <Row icon={Globe} label={t('contacts.ipAddress')} value={ipValue || t('contacts.ipUnavailable')} />
+                          )}
                           <Row icon={MessageSquare} label={t('contacts.tabChats')} value={String(conversations?.length ?? 0)} />
                         </div>
                       )}
@@ -257,7 +289,7 @@ export default function ContactDetailPage() {
                                 onClick={() => navigate(`/app/w/${wsSlug}/inbox`)}
                               >
                                 <p className="font-medium text-sm text-foreground line-clamp-1">
-                                  {conv.subject || t('contacts.conversationFallback', { id: conv.id.slice(0, 8) })}
+                                  {conversationTitle(conv, t)}
                                 </p>
                                 <div className="flex items-center gap-2 mt-1.5">
                                   <span className={cn(

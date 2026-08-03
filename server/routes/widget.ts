@@ -1295,7 +1295,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // its pre-call form for the same person.
       if (contactId) {
         try {
-          const cookieVisitorId = readVisitorCookie(req, workspaceId) || body.visitor_id || null;
+          const cookieVisitorId = readVisitorCookie(req, workspaceId)?.v || body.visitor_id || null;
           if (cookieVisitorId) {
             await pinContactOnVisitorSessions(supabase, workspaceId, cookieVisitorId, contactId);
           }

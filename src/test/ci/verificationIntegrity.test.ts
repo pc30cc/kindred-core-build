@@ -204,7 +204,7 @@ describe('self-host CI — official Auth image', () => {
     // Exactly one occurrence: a single workflow-level env var, so preflight and
     // the migration step cannot drift.
     expect(workflow.match(pinned) ?? []).toHaveLength(1);
-    expect(workflow).toMatch(/^env:\n  AUTH_IMAGE: supabase\/gotrue:v2\.194\.0@sha256:/m);
+    expect(workflow).toMatch(/^env:\n {2}AUTH_IMAGE: supabase\/gotrue:v2\.194\.0@sha256:/m);
     // No unpinned or aliased reference may survive next to the pinned one.
     expect(workflow).not.toMatch(/supabase\/gotrue:v2\.194\.0(?!@sha256)/);
     expect(workflow).not.toContain('supabase/auth:');

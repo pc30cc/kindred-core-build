@@ -26,8 +26,13 @@ const OTHER_WS = '0000eeee-0000-4000-8000-000000000002';
 const REVIEWER = '0000eeee-0000-4000-8000-0000000000ff';
 
 suite('AI-KB generated-article mutations (PostgreSQL)', () => {
-  let db: any;
-  let Client: any;
+  type PgClient = {
+    query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, any>> }>;
+    connect(): Promise<void>;
+    end(): Promise<void>;
+  };
+  let db: PgClient;
+  let Client: new (cfg: { connectionString?: string }) => PgClient;
   let seq = 0;
 
   const newClient = async () => {
@@ -76,7 +81,7 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
 
   afterAll(async () => { if (db) await db.end(); });
 
-  const seed = async (over: Record<string, any> = {}) => {
+  const seed = async (over: Record<string, unknown> = {}) => {
     seq += 1;
     const r = await db.query(
       `INSERT INTO public.ai_kb_generated_articles
@@ -92,7 +97,7 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
     return r.rows[0];
   };
 
-  const call = async (fn: string, args: any[], on: any = db) => {
+  const call = async (fn: string, args: unknown[], on: PgClient = db) => {
     const ph = args.map((_, i) => `$${i + 1}`).join(',');
     return (await on.query(`SELECT public.${fn}(${ph}) AS r`, args)).rows[0].r;
   };

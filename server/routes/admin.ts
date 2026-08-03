@@ -8,6 +8,7 @@ import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
+import { issueRecoveryEmail } from '../services/auth-email.js';
 import { adminWidgetRouter } from './adminWidget.js';
 import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 import { adminMetricsRouter } from './adminMetrics.js';
@@ -137,20 +138,32 @@ adminRouter.post('/send-reset-link', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const appBase = await resolveAppBaseUrl(config, req);
-    if (!appBase) {
-      return res.status(500).json({
-        error: 'app_base_url_unconfigured',
-        message: 'Configure platform_domains.app_base_url or APP_BASE_URL before sending reset links.',
-      });
+    // Fully self-hosted recovery: custom token table + configured email provider.
+    // Supabase's built-in reset mailer is never used.
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const { data: profile, error: profileError } = await sb
+      .from('profiles')
+      .select('id, email, full_name, preferred_locale')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (profileError) {
+      return res.status(500).json({ error: profileError.message });
+    }
+    if (!profile?.id) {
+      return res.status(404).json({ error: 'user_not_found' });
     }
 
-    const { error } = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: `${appBase}/reset-password`,
+    const result = await issueRecoveryEmail(config, {
+      userId: profile.id,
+      email: profile.email || normalizedEmail,
+      fullName: profile.full_name ?? null,
+      locale: profile.preferred_locale || 'en',
     });
 
-    if (error) {
-      return res.status(400).json({ error: error.message });
+    if (!result.success) {
+      return res.status(502).json({ error: result.error || 'Failed to send reset email' });
     }
 
     res.json({ success: true });

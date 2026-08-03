@@ -67,8 +67,8 @@ job is a compatibility check, **not** full-chain release evidence.
 `verify-migration-security.sql` proves both directions inside transactions that
 are rolled back:
 
-* **Denial** — `anon` and `authenticated` are `SET LOCAL ROLE`-ed into and每
-  each of the nine RPCs is really called (18 combinations).
+* **Denial** — `anon` and `authenticated` are `SET LOCAL ROLE`-ed into and each
+  of the nine RPCs is really called (18 combinations).
 * **Execution** — `service_role` runs the complete fan-out lifecycle for real
   (`enqueue → claim → advance → complete`, plus the `fail` retry path) and all
   four AI-KB RPCs, asserting their actual return values.

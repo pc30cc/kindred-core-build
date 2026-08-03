@@ -119,6 +119,62 @@ BEGIN
 END
 $rpc$;
 
+-- 3b. SECURITY DEFINER posture: a definer function is only as safe as the role
+--     it runs AS and the search_path it resolves through. Every audited RPC
+--     must be definer-owned by a trusted (non-customer) role and must pin its
+--     search_path explicitly. Additionally, no customer role — and not PUBLIC —
+--     may CREATE in schema `public`, otherwise objects could be shadowed under
+--     that search_path.
+DO $posture$
+DECLARE
+  fn        text;
+  o         record;
+  role_name text;
+  offenders text;
+BEGIN
+  FOR fn IN SELECT sig FROM ci_internal_rpc ORDER BY sig LOOP
+    SELECT p.prosecdef,
+           pg_get_userbyid(p.proowner) AS owner,
+           r.rolsuper,
+           (SELECT string_agg(cfg, ' ') FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) AS cfg
+             WHERE cfg LIKE 'search\_path=%') AS search_path
+      INTO o
+    FROM pg_proc p
+    JOIN pg_roles r ON r.oid = p.proowner
+    WHERE p.oid = to_regprocedure(fn);
+
+    IF NOT o.prosecdef THEN
+      RAISE EXCEPTION 'internal RPC % is not SECURITY DEFINER', fn;
+    END IF;
+    IF o.owner IN ('anon', 'authenticated', 'service_role') THEN
+      RAISE EXCEPTION 'internal RPC % is owned by the untrusted role %', fn, o.owner;
+    END IF;
+    IF NOT (o.rolsuper OR o.owner IN ('postgres', 'supabase_admin')) THEN
+      RAISE EXCEPTION 'internal RPC % is owned by % which is not a trusted owner', fn, o.owner;
+    END IF;
+    IF o.search_path IS NULL THEN
+      RAISE EXCEPTION 'internal RPC % has no explicit search_path', fn;
+    END IF;
+
+    RAISE NOTICE 'definer posture ok: % (owner=%, %)', fn, o.owner, o.search_path;
+  END LOOP;
+
+  FOREACH role_name IN ARRAY ARRAY['public', 'anon', 'authenticated'] LOOP
+    IF has_schema_privilege(role_name, 'public', 'CREATE') THEN
+      offenders := concat_ws(', ', offenders, role_name);
+    END IF;
+    IF NOT has_schema_privilege(role_name, 'public', 'USAGE') AND role_name <> 'public' THEN
+      RAISE EXCEPTION '% lost USAGE on schema public — the Data API would break', role_name;
+    END IF;
+  END LOOP;
+
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'schema public is customer-writable: % hold CREATE', offenders;
+  END IF;
+  RAISE NOTICE 'schema public: PUBLIC/anon/authenticated cannot CREATE, USAGE intact';
+END
+$posture$;
+
 -- 4. Real-transaction denial proof: SET LOCAL ROLE and attempt an ACTUAL call
 --    of EVERY audited RPC as anon AND as authenticated. Arguments are typed
 --    NULLs derived from the signature itself. The block runs inside an

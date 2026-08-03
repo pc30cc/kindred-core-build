@@ -208,7 +208,7 @@ export default function ContactDetailPage() {
             {/* Main */}
             <div className="lg:col-span-2">
               <Tabs defaultValue="overview" dir={dir}>
-                <TabsList className={cn('w-full flex-wrap h-auto', rtl ? 'justify-end flex-row-reverse' : 'justify-start')}>
+                <TabsList className="w-full justify-start flex-wrap h-auto">
                   <TabsTrigger value="overview" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />{t('contacts.tabOverview')}</TabsTrigger>
                   <TabsTrigger value="conversations" className="gap-1.5"><MessageSquare className="w-3.5 h-3.5" />{t('contacts.tabChats')}</TabsTrigger>
                   <TabsTrigger value="notes" className="gap-1.5"><StickyNote className="w-3.5 h-3.5" />{t('contacts.tabNotes')}</TabsTrigger>

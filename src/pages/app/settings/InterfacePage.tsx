@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from 'next-themes';
 import { useTranslation, useI18n } from '@/i18n';
 import type { Locale } from '@/i18n/config';
-import { LOCALE_CONFIG, SUPPORTED_LOCALES } from '@/i18n/config';
+import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';

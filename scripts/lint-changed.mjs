@@ -13,8 +13,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-
-const LINTABLE = /\.(ts|tsx|js|mjs|cjs)$/;
+import { isLintable, parseNameStatus, baseResolution } from './lint-changed-core.mjs';
 
 function git(args, allowFail = false) {
   try {
@@ -50,26 +49,26 @@ function resolveBase() {
 }
 
 const base = resolveBase();
-if (!base) {
-  console.log('[lint:changed] no base revision available (shallow or root commit) — nothing to compare.');
+const resolution = baseResolution(base, process.env);
+if (resolution.action === 'fail') {
+  console.error(`[lint:changed] FAILED — ${resolution.message}`);
+  process.exit(2);
+}
+if (resolution.action === 'skip') {
+  console.log(`[lint:changed] ${resolution.message}`);
   process.exit(0);
 }
 
 // -M detects renames; the status letter tells us which side to keep.
 const raw = git(['diff', '--name-status', '-M', '--diff-filter=ACMRT', base, 'HEAD'], true);
 const changed = new Set();
-for (const line of raw.split('\n')) {
-  if (!line.trim()) continue;
-  const parts = line.split('\t');
-  const status = parts[0];
-  // Renames/copies list old and new path; only the NEW path is linted.
-  const file = status.startsWith('R') || status.startsWith('C') ? parts[2] : parts[1];
-  if (file && LINTABLE.test(file) && existsSync(file)) changed.add(file);
+for (const file of parseNameStatus(raw)) {
+  if (existsSync(file)) changed.add(file);
 }
 
 // Also include not-yet-committed work so the gate is usable locally.
 for (const line of git(['diff', '--name-only', 'HEAD'], true).split('\n')) {
-  if (line && LINTABLE.test(line) && existsSync(line)) changed.add(line);
+  if (line && isLintable(line) && existsSync(line)) changed.add(line);
 }
 
 const files = [...changed].sort();

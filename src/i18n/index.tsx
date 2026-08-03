@@ -3,6 +3,7 @@ import type { Locale, Direction } from './config';
 import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS } from './config';
 import en, { type TranslationKeys } from './locales/en';
 import { loadFontsForLocale } from '@/lib/fonts';
+import { installLocalizedDateDefaults, setAppDateLocale } from '@/lib/date';
 
 const localeModules: Record<Locale, () => Promise<{ default: TranslationKeys }>> = {
   en: () => Promise.resolve({ default: en }),
@@ -95,6 +96,8 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     document.documentElement.lang = locale;
     document.documentElement.dir = dir;
     loadFontsForLocale(locale);
+    installLocalizedDateDefaults();
+    setAppDateLocale(locale);
   }, [locale, dir]);
 
   const loadLocale = useCallback(async (newLocale: Locale) => {

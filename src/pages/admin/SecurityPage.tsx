@@ -9,7 +9,7 @@ import {
   Shield, AlertTriangle, Ban, Activity, Eye, Lock,
   CheckCircle, XCircle, Clock, TrendingUp
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatPattern as format } from '@/lib/date';
 import {
   useSecurityStats,
   useSecurityEvents,

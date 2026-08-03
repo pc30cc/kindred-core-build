@@ -46,7 +46,7 @@ export default function OverviewPage() {
           <p className="page-subtitle">{workspace?.name ?? platformName}</p>
         </div>
         <div className="text-sm text-muted-foreground">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAdminAuditLogs } from '@/hooks/useAdmin';
-import { format } from 'date-fns';
+import { formatPattern as format } from '@/lib/date';
 
 export default function AdminAuditLogsPage() {
   const { data: logs, isLoading } = useAdminAuditLogs(100);

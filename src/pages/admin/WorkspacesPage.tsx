@@ -16,7 +16,7 @@ import {
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
-import { format } from 'date-fns';
+import { formatPattern as format } from '@/lib/date';
 import { toast } from 'sonner';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,

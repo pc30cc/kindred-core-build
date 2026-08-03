@@ -406,15 +406,15 @@ export default function ContactsPage() {
                           <span className="truncate">{[loc.city, loc.country].filter(Boolean).join(', ')}</span>
                         </div>
                       ) : (
-                        <span className="text-muted-foreground/50 italic text-xs">Unknown</span>
+                        <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>
                       )}
                     </td>
                     <td className="p-3 text-muted-foreground">
-                      {company || <span className="text-muted-foreground/50 italic text-xs">Unknown</span>}
+                      {company || <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>}
                     </td>
                     <td className="p-3">
                       {(c.tags ?? []).length === 0 ? (
-                        <span className="text-muted-foreground/50 italic text-xs">No segments</span>
+                        <span className="text-muted-foreground/50 italic text-xs">{t('contacts.noSegments')}</span>
                       ) : (
                         <div className="flex flex-wrap gap-1 max-w-[180px]">
                           {(c.tags ?? []).slice(0, 2).map((tag) => (
@@ -442,7 +442,7 @@ export default function ContactsPage() {
                     </td>
                     <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => openContact(c.id)}>
-                        <Eye className="w-3 h-3" />Preview
+                        <Eye className="w-3 h-3" />{t('contacts.preview')}
                       </Button>
                     </td>
                   </tr>
@@ -465,17 +465,17 @@ export default function ContactsPage() {
 
       {/* Bulk delete confirmation */}
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent dir={dir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selected.size} contact{selected.size > 1 ? 's' : ''}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the selected contacts. This action cannot be undone.
+            <AlertDialogTitle className="text-start">{t('contacts.bulkDeleteTitle', { count: String(selected.size) })}</AlertDialogTitle>
+            <AlertDialogDescription className="text-start">
+              {t('contacts.bulkDeleteDesc')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+              {t('contacts.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -505,27 +505,25 @@ function Th({ label, sortKey, current, dir, onClick, icon: Icon }: {
   );
 }
 
-function EmptyState({ hasContacts, onAdd, onImport }: { hasContacts: boolean; onAdd: () => void; onImport: () => void }) {
+function EmptyState({ t, hasContacts, onAdd, onImport }: { t: (k: any, p?: Record<string, string>) => string; hasContacts: boolean; onAdd: () => void; onImport: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
       <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
         <Users className="w-8 h-8 text-primary" />
       </div>
       <h3 className="text-base font-semibold text-foreground">
-        {hasContacts ? 'No contacts match your filters' : 'No contacts yet'}
+        {hasContacts ? t('contacts.emptyFilteredTitle') : t('contacts.emptyTitle')}
       </h3>
       <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-        {hasContacts
-          ? 'Try adjusting your search or filters to find what you\'re looking for.'
-          : 'Build your audience by adding contacts manually or importing them from a CSV file.'}
+        {hasContacts ? t('contacts.emptyFilteredDesc') : t('contacts.emptyDesc')}
       </p>
       {!hasContacts && (
         <div className="flex gap-2 mt-5">
           <Button onClick={onAdd} className="gap-1.5">
-            <Plus className="w-4 h-4" />Add contact
+            <Plus className="w-4 h-4" />{t('contacts.addContact')}
           </Button>
           <Button variant="outline" onClick={onImport} className="gap-1.5">
-            <Upload className="w-4 h-4" />Import CSV
+            <Upload className="w-4 h-4" />{t('contacts.importCsv')}
           </Button>
         </div>
       )}

@@ -178,17 +178,23 @@ ROLLBACK;
 
 -- 5. The fan-out queue table itself stays internal-only.
 DO $tbl$
-DECLARE offenders text;
+DECLARE
+  offenders text;
+  missing   text;
 BEGIN
   IF to_regclass('public.entitlement_fanout_jobs') IS NULL THEN
     RAISE EXCEPTION 'entitlement_fanout_jobs missing — the migration chain did not apply';
   END IF;
 
+  -- COMPLETE privilege matrix, not just the four DML verbs: a stray
+  -- TRUNCATE/REFERENCES/TRIGGER grant is an escalation too, and PUBLIC is
+  -- audited alongside the two customer roles.
   SELECT string_agg(format('%s:%s', g.role_name, g.priv), ', ') INTO offenders
   FROM (
     SELECT r AS role_name, p AS priv
-    FROM unnest(ARRAY['anon', 'authenticated']) AS r
-    CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']) AS p
+    FROM unnest(ARRAY['public', 'anon', 'authenticated']) AS r
+    CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
+                            'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS p
   ) AS g
   WHERE has_table_privilege(g.role_name, 'public.entitlement_fanout_jobs', g.priv);
 
@@ -200,11 +206,17 @@ BEGIN
     RAISE EXCEPTION 'RLS disabled on entitlement_fanout_jobs';
   END IF;
 
-  IF NOT has_table_privilege('service_role', 'public.entitlement_fanout_jobs', 'SELECT') THEN
-    RAISE EXCEPTION 'service_role cannot read entitlement_fanout_jobs — the worker would be broken';
+  -- The worker needs the full DML set; a partial grant would break it in
+  -- production while still passing a SELECT-only check.
+  SELECT string_agg(p, ', ') INTO missing
+  FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']) AS p
+  WHERE NOT has_table_privilege('service_role', 'public.entitlement_fanout_jobs', p);
+
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'service_role lacks % on entitlement_fanout_jobs — the worker would be broken', missing;
   END IF;
 
-  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, anon/authenticated hold no table privileges';
+  RAISE NOTICE 'entitlement_fanout_jobs: RLS on, PUBLIC/anon/authenticated hold no table privilege at all';
 END
 $tbl$;
 

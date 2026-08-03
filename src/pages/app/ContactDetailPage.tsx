@@ -2,6 +2,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { formatDateTime, formatRelative } from '@/lib/date';
 import { useContact, useContactConversations, useUpdateContact, useDeleteContact } from '@/hooks/useContacts';
+import { useContactCalls, type ContactCall } from '@/hooks/useContactChannels';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,6 +18,7 @@ import {
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Building2, Calendar, MessageSquare,
   Trash2, Edit3, Save, X, Loader2, Activity, User as UserIcon, StickyNote, Clock, Tag, Bot,
+  PhoneCall, Video, Mic, Timer, Hourglass,
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from '@/hooks/use-toast';
@@ -51,6 +53,35 @@ function conversationTitle(conv: any, t: (k: any, v?: any) => string): string {
   return subject;
 }
 
+function formatDuration(seconds?: number | null): string {
+  const s = Math.max(0, Math.round(seconds ?? 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
+function callTypeLabel(type: string, t: (k: any) => string): string {
+  switch (type) {
+    case 'video': return t('contacts.callTypeVideo');
+    case 'screenshare': return t('contacts.callTypeScreenshare');
+    case 'meeting': return t('contacts.callTypeMeeting');
+    default: return t('contacts.callTypeAudio');
+  }
+}
+
+function callStateLabel(state: string, t: (k: any) => string): string {
+  switch (state) {
+    case 'ended': return t('contacts.callStateEnded');
+    case 'active': case 'connecting': case 'ringing': case 'pending': return t('contacts.callStateActive');
+    case 'missed': return t('contacts.callStateMissed');
+    case 'failed': return t('contacts.callStateFailed');
+    case 'cancelled': return t('contacts.callStateCancelled');
+    default: return t('contacts.callStateOther');
+  }
+}
+
 export default function ContactDetailPage() {
   const { t, dir } = useTranslation();
   const rtl = dir === 'rtl';
@@ -58,6 +89,7 @@ export default function ContactDetailPage() {
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id);
   const { data: conversations } = useContactConversations(id);
+  const { data: calls } = useContactCalls(id);
   const { data: ipState } = useContactIp(id);
   const updateMutation = useUpdateContact();
   const deleteMutation = useDeleteContact();
@@ -136,6 +168,19 @@ export default function ContactDetailPage() {
   const billingHref = `/app/w/${wsSlug}/billing`;
   const ipLocked = ipState?.status === 'locked';
   const ipValue = ipState?.status === 'ok' ? ipState.ip : null;
+  const callList = (calls ?? []) as ContactCall[];
+  const totalTalk = callList.reduce((acc, c) => acc + (c.duration_seconds ?? 0), 0);
+  const hasCalls = callList.length > 0;
+  const hasChat = (conversations ?? []).some(
+    (c: any) => !callList.some((call) => call.conversation_id === c.id),
+  );
+  const sourceLabel = hasCalls && hasChat
+    ? t('contacts.sourceBoth')
+    : hasCalls
+      ? t('contacts.sourceCall')
+      : (conversations ?? []).length
+        ? t('contacts.sourceChat')
+        : t('contacts.sourceUnknown');
 
   return (
     <div className="flex flex-col h-full bg-background" dir={dir}>
@@ -159,6 +204,7 @@ export default function ContactDetailPage() {
         </div>
         <div className="hidden sm:flex items-center gap-3 text-[11px] text-muted-foreground shrink-0">
           <span className="inline-flex items-center gap-1"><MessageSquare className="w-3.5 h-3.5" />{conversations?.length ?? 0}</span>
+          <span className="inline-flex items-center gap-1"><PhoneCall className="w-3.5 h-3.5" />{callList.length}</span>
           {contact.updated_at && (
             <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatRelative(contact.updated_at)}</span>
           )}
@@ -223,6 +269,12 @@ export default function ContactDetailPage() {
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-3">
                   {t('contacts.contactChannels')}
                 </p>
+                <div className="mb-3">
+                  <Badge variant="secondary" className="text-[10px] gap-1">
+                    {hasCalls ? <PhoneCall className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
+                    {sourceLabel}
+                  </Badge>
+                </div>
                 <div className="space-y-3.5">
                   <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
                   <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
@@ -254,6 +306,7 @@ export default function ContactDetailPage() {
                 <TabsList className="w-full justify-start flex-wrap h-auto">
                   <TabsTrigger value="overview" className="gap-1.5"><UserIcon className="w-3.5 h-3.5" />{t('contacts.tabOverview')}</TabsTrigger>
                   <TabsTrigger value="conversations" className="gap-1.5"><MessageSquare className="w-3.5 h-3.5" />{t('contacts.tabChats')}</TabsTrigger>
+                  <TabsTrigger value="calls" className="gap-1.5"><PhoneCall className="w-3.5 h-3.5" />{t('contacts.tabCalls')}</TabsTrigger>
                   <TabsTrigger value="notes" className="gap-1.5"><StickyNote className="w-3.5 h-3.5" />{t('contacts.tabNotes')}</TabsTrigger>
                   <TabsTrigger value="tags" className="gap-1.5"><Tag className="w-3.5 h-3.5" />{t('contacts.tabTags')}</TabsTrigger>
                   <TabsTrigger value="activity" className="gap-1.5"><Activity className="w-3.5 h-3.5" />{t('contacts.tabActivity')}</TabsTrigger>
@@ -302,6 +355,8 @@ export default function ContactDetailPage() {
                             <Row icon={Globe} label={t('contacts.ipAddress')} value={ipValue || t('contacts.ipUnavailable')} />
                           )}
                           <Row icon={MessageSquare} label={t('contacts.tabChats')} value={String(conversations?.length ?? 0)} />
+                          <Row icon={PhoneCall} label={t('contacts.tabCalls')} value={String(callList.length)} />
+                          <Row icon={Activity} label={t('contacts.colSource')} value={sourceLabel} />
                         </div>
                       )}
                     </CardContent>

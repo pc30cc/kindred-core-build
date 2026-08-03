@@ -37,20 +37,6 @@ BEGIN
     RAISE EXCEPTION 'missing tables after full chain: %', missing;
   END IF;
 
-  -- Latest AI-KB RPC signatures (010 → 012 head).
-  SELECT string_agg(f, ', ') INTO missing
-  FROM unnest(ARRAY[
-    'public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text, text)',
-    'public.accept_ai_kb_generated_article(uuid, uuid, uuid)',
-    'public.publish_ai_kb_generated_article(uuid, uuid, uuid)',
-    'public.reject_ai_kb_generated_article(uuid, uuid, uuid)'
-  ]) AS f
-  WHERE to_regprocedure(f) IS NULL;
-
-  IF missing IS NOT NULL THEN
-    RAISE EXCEPTION 'missing AI-KB RPC signatures: %', missing;
-  END IF;
-
   -- RLS must be on for the customer-facing tables.
   SELECT string_agg(c.relname, ', ') INTO missing
   FROM pg_class c

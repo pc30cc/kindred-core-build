@@ -189,6 +189,15 @@ export default function InboxPage() {
     updateUrl({ filter: c });
   }, [updateUrl]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const [search, setSearch] = useState('');
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
+  const [showMobileList, setShowMobileList] = useState(true);
+  const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const selectedSnapshotRef = useRef<any>(null);
 
   // Deep link: /inbox?c=<conversationId> — open that conversation directly
   // (e.g. coming from the contact detail page). We switch to the "all"
@@ -204,15 +213,6 @@ export default function InboxPage() {
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkConvId]);
-  const [message, setMessage] = useState('');
-  const [search, setSearch] = useState('');
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
-  const [showMobileList, setShowMobileList] = useState(true);
-  const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const selectedSnapshotRef = useRef<any>(null);
 
   const { data: conversations, isLoading } = useConversations(
     workspace?.id,

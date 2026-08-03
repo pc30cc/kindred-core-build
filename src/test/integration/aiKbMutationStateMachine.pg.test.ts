@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { installMigrationChain } from './pgMigrationChain';
 
 const DSN = process.env.TEST_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
@@ -69,14 +70,8 @@ suite('AI-KB generated-article mutations (PostgreSQL)', () => {
         reviewed_at timestamptz
       );
     `);
-    // 010 locks down the fan-out RPCs too, so 007/008 must exist first.
-    for (const file of [
-      'database/migrations/007_entitlement_fanout_jobs.sql',
-      'database/migrations/008_entitlement_fanout_generations.sql',
-      ...MIGRATIONS,
-    ]) {
-      await db.query(readFileSync(resolve(process.cwd(), file), 'utf8'));
-    }
+    // 010 locks down the fan-out RPCs too, so the whole chain is installed.
+    await installMigrationChain(db);
   }, 180_000);
 
   afterAll(async () => { if (db) await db.end(); });

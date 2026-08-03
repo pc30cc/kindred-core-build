@@ -80,37 +80,64 @@ END $$;
 
 -- 5b. Backend/service-only functions: revoke anon + authenticated,
 --     grant to service_role (the Express server uses the service key).
-DO $$
-DECLARE fn text;
+--     Every signature is classified by the provenance audit; the manifest is
+--     resolved through to_regprocedure(), and a REQUIRED_BEFORE_ACL signature
+--     that is missing is a hard failure (no silent skip, no swallowed
+--     exception). All 22 signatures below are created by migrations that sort
+--     before this file, so all are REQUIRED_BEFORE_ACL.
+DO $service_acl$
+DECLARE
+  item record;
+  fn_oid regprocedure;
 BEGIN
-  FOREACH fn IN ARRAY ARRAY[
-    'public.activate_auto_actions()',
-    'public.business_metrics_rollup_and_prune()',
-    'public.cleanup_expired_auth_tokens()',
-    'public.cleanup_expired_widget_identity()',
-    'public.evaluate_alert_rules()',
-    'public.expire_stale_trials()',
-    'public.perf_metrics_rollup_and_prune()',
-    'public.realtime_metrics_rollup_and_prune()',
-    'public.sla_reliability_rollup_and_prune()',
-    'public.workspace_health_snapshot_compute()',
-    'public.admin_list_realtime_audit(integer)',
-    'public.count_recent_login_failures(text, text, integer)',
-    'public.is_ip_blocked(text)',
-    'public.deduct_ai_credits(uuid, integer, text)',
-    'public.increment_usage_counter(uuid, text, integer)',
-    'public.merge_visitor_into_contact(uuid, text, uuid, text, jsonb)',
-    'public.resolve_privacy_subject(uuid, text, text)',
-    'public.register_workspace_domain(uuid, text, boolean)',
-    'public.bulk_create_contacts(uuid, jsonb)',
-    'public.create_contact(uuid, text, text, text, text, text[], text, jsonb)',
-    'public.check_channel_access(uuid, text)',
-    'public.kb_search_articles(uuid, text, text, integer)'
-  ] LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
+  FOR item IN
+    SELECT *
+    FROM (
+      VALUES
+        ('public.activate_auto_actions()', 'REQUIRED_BEFORE_ACL'),
+        ('public.business_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+        ('public.cleanup_expired_auth_tokens()', 'REQUIRED_BEFORE_ACL'),
+        ('public.cleanup_expired_widget_identity()', 'REQUIRED_BEFORE_ACL'),
+        ('public.evaluate_alert_rules()', 'REQUIRED_BEFORE_ACL'),
+        ('public.expire_stale_trials()', 'REQUIRED_BEFORE_ACL'),
+        ('public.perf_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+        ('public.realtime_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+        ('public.sla_reliability_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+        ('public.workspace_health_snapshot_compute()', 'REQUIRED_BEFORE_ACL'),
+        ('public.admin_list_realtime_audit(integer)', 'REQUIRED_BEFORE_ACL'),
+        ('public.count_recent_login_failures(text, text, integer)', 'REQUIRED_BEFORE_ACL'),
+        ('public.is_ip_blocked(text)', 'REQUIRED_BEFORE_ACL'),
+        ('public.deduct_ai_credits(uuid, integer, text)', 'REQUIRED_BEFORE_ACL'),
+        ('public.increment_usage_counter(uuid, text, integer)', 'REQUIRED_BEFORE_ACL'),
+        ('public.merge_visitor_into_contact(uuid, text, uuid, text, jsonb)', 'REQUIRED_BEFORE_ACL'),
+        ('public.resolve_privacy_subject(uuid, text, text)', 'REQUIRED_BEFORE_ACL'),
+        ('public.register_workspace_domain(uuid, text, boolean)', 'REQUIRED_BEFORE_ACL'),
+        ('public.bulk_create_contacts(uuid, jsonb)', 'REQUIRED_BEFORE_ACL'),
+        ('public.create_contact(uuid, text, text, text, text, text[], text, jsonb)', 'REQUIRED_BEFORE_ACL'),
+        ('public.check_channel_access(uuid, text)', 'REQUIRED_BEFORE_ACL'),
+        ('public.kb_search_articles(uuid, text, text, integer)', 'REQUIRED_BEFORE_ACL')
+    ) AS v(signature, classification)
+  LOOP
+    fn_oid := to_regprocedure(item.signature);
+
+    IF fn_oid IS NULL THEN
+      IF item.classification = 'REQUIRED_BEFORE_ACL' THEN
+        RAISE EXCEPTION
+          'required function missing before ACL migration: %', item.signature;
+      END IF;
+
+      RAISE NOTICE
+        'optional/later function absent at this point: % (%)',
+        item.signature, item.classification;
+
+      CONTINUE;
+    END IF;
+
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn_oid);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn_oid);
   END LOOP;
-END $$;
+END
+$service_acl$;
 
 -- 5c. Functions the signed-in app legitimately calls from the browser:
 --     revoke anon (and PUBLIC), keep authenticated + service_role.

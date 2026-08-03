@@ -673,4 +673,92 @@ EXCEPTION WHEN OTHERS THEN
 END
 $kb$;
 
+-- ============================================================
+-- Service-only ACL surface (classified manifest from the historical ACL
+-- migration 20260731160434). For every REQUIRED_BEFORE_ACL signature:
+--   • it must exist, with exactly one overload of that name
+--   • PUBLIC / anon / authenticated are denied EXECUTE
+--   • service_role is allowed EXECUTE
+-- Optional / later / obsolete entries would be reported, never silently
+-- skipped — the manifest currently declares none.
+-- ============================================================
+DO $service_only_acl$
+DECLARE
+  item     record;
+  fn       regprocedure;
+  overloads integer;
+  checked  integer := 0;
+BEGIN
+  FOR item IN
+    SELECT * FROM (VALUES
+      ('public.activate_auto_actions()', 'REQUIRED_BEFORE_ACL'),
+      ('public.business_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+      ('public.cleanup_expired_auth_tokens()', 'REQUIRED_BEFORE_ACL'),
+      ('public.cleanup_expired_widget_identity()', 'REQUIRED_BEFORE_ACL'),
+      ('public.evaluate_alert_rules()', 'REQUIRED_BEFORE_ACL'),
+      ('public.expire_stale_trials()', 'REQUIRED_BEFORE_ACL'),
+      ('public.perf_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+      ('public.realtime_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+      ('public.sla_reliability_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
+      ('public.workspace_health_snapshot_compute()', 'REQUIRED_BEFORE_ACL'),
+      ('public.admin_list_realtime_audit(integer)', 'REQUIRED_BEFORE_ACL'),
+      ('public.count_recent_login_failures(text, text, integer)', 'REQUIRED_BEFORE_ACL'),
+      ('public.is_ip_blocked(text)', 'REQUIRED_BEFORE_ACL'),
+      ('public.deduct_ai_credits(uuid, integer, text)', 'REQUIRED_BEFORE_ACL'),
+      ('public.increment_usage_counter(uuid, text, integer)', 'REQUIRED_BEFORE_ACL'),
+      ('public.merge_visitor_into_contact(uuid, text, uuid, text, jsonb)', 'REQUIRED_BEFORE_ACL'),
+      ('public.resolve_privacy_subject(uuid, text, text)', 'REQUIRED_BEFORE_ACL'),
+      ('public.register_workspace_domain(uuid, text, boolean)', 'REQUIRED_BEFORE_ACL'),
+      ('public.bulk_create_contacts(uuid, jsonb)', 'REQUIRED_BEFORE_ACL'),
+      ('public.create_contact(uuid, text, text, text, text, text[], text, jsonb)', 'REQUIRED_BEFORE_ACL'),
+      ('public.check_channel_access(uuid, text)', 'REQUIRED_BEFORE_ACL'),
+      ('public.kb_search_articles(uuid, text, text, integer)', 'REQUIRED_BEFORE_ACL')
+    ) AS v(signature, classification)
+  LOOP
+    fn := to_regprocedure(item.signature);
+
+    IF fn IS NULL THEN
+      IF item.classification = 'REQUIRED_BEFORE_ACL' THEN
+        RAISE EXCEPTION 'required service-only function missing: %', item.signature;
+      END IF;
+      RAISE NOTICE 'service-only function absent (%): %', item.classification, item.signature;
+      CONTINUE;
+    END IF;
+
+    SELECT count(*) INTO overloads
+    FROM pg_proc p
+    WHERE p.pronamespace = 'public'::regnamespace
+      AND p.proname = split_part(replace(item.signature, 'public.', ''), '(', 1);
+
+    IF item.classification = 'REQUIRED_BEFORE_ACL' AND overloads <> 1 THEN
+      RAISE EXCEPTION 'service-only function % has % overloads, expected exactly 1',
+        item.signature, overloads;
+    END IF;
+
+    IF has_function_privilege('public', fn, 'EXECUTE') THEN
+      RAISE EXCEPTION 'PUBLIC can execute service-only function %', fn;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+       AND has_function_privilege('anon', fn, 'EXECUTE') THEN
+      RAISE EXCEPTION 'anon can execute service-only function %', fn;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+       AND has_function_privilege('authenticated', fn, 'EXECUTE') THEN
+      RAISE EXCEPTION 'authenticated can execute service-only function %', fn;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
+       AND NOT has_function_privilege('service_role', fn, 'EXECUTE') THEN
+      RAISE EXCEPTION 'service_role CANNOT execute service-only function %', fn;
+    END IF;
+
+    checked := checked + 1;
+  END LOOP;
+
+  IF checked <> 22 THEN
+    RAISE EXCEPTION 'service-only ACL surface incomplete: % of 22 verified', checked;
+  END IF;
+  RAISE NOTICE 'service-only ACL surface verified: % functions (PUBLIC/anon/authenticated denied, service_role allowed)', checked;
+END
+$service_only_acl$;
+
 ROLLBACK;

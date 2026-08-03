@@ -1154,14 +1154,27 @@ function UserFinanceCard({ userId }: { userId: string }) {
   const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
   const money = (amount: number | null | undefined, currency: string | null | undefined) => {
     const value = (amount ?? 0) / 100;
+    const code = (currency || 'USD').toUpperCase();
+    const intlLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
+    const isRialFamily = ['IRR', 'IRT', 'RIAL', 'TOMAN', 'TMN'].includes(code);
+    // Persian UI shows Iranian amounts in Toman (1 Toman = 10 Rial).
+    if (locale === 'fa' && isRialFamily) {
+      const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
+      return `${new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 0 }).format(Math.round(toman))} تومان`;
+    }
+    if (isRialFamily) {
+      const label = locale === 'tr' ? 'Toman' : 'Toman';
+      const toman = code === 'IRR' || code === 'RIAL' ? value / 10 : value;
+      return `${new Intl.NumberFormat(intlLocale, { maximumFractionDigits: 0 }).format(Math.round(toman))} ${label}`;
+    }
     try {
-      return new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US', {
+      return new Intl.NumberFormat(intlLocale, {
         style: 'currency',
-        currency: (currency || 'USD').toUpperCase(),
+        currency: code,
         maximumFractionDigits: 2,
       }).format(value);
     } catch {
-      return `${value.toFixed(2)} ${(currency || '').toUpperCase()}`;
+      return `${value.toFixed(2)} ${code}`;
     }
   };
 

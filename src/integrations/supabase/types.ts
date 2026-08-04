@@ -4938,6 +4938,33 @@ export type Database = {
         }
         Relationships: []
       }
+      operator_activity_samples: {
+        Row: {
+          available: boolean
+          bucket: string
+          created_at: string
+          id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          available?: boolean
+          bucket: string
+          created_at?: string
+          id?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          available?: boolean
+          bucket?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       operator_call_availability: {
         Row: {
           active_call_session_id: string | null

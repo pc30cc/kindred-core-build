@@ -1127,6 +1127,11 @@ const fa: TranslationKeys = {
     tipBody: 'اگر دستگاه یا موقعیتی را نمی‌شناسید، آن نشست را لغو کنید و بلافاصله رمز عبور خود را تغییر دهید.',
     loadError: 'دریافت اطلاعات امنیتی انجام نشد',
     thisDevice: 'همین دستگاه',
+    deviceDesktop: 'رایانه رومیزی',
+    deviceMobile: 'موبایل',
+    deviceTablet: 'تبلت',
+    unknownBrowser: 'مرورگر نامشخص',
+    unknownOs: 'سیستم‌عامل نامشخص',
   },
   interface: {
     title: 'رابط کاربری',

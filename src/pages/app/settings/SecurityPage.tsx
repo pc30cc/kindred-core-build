@@ -46,6 +46,12 @@ import {
 import { ShieldAlert, ShieldCheck, LogIn, Clock, Globe2, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+function deviceLabel(device: string, t: (k: any) => any): string {
+  if (device === 'Mobile') return t('security.deviceMobile' as any) as string;
+  if (device === 'Tablet') return t('security.deviceTablet' as any) as string;
+  return t('security.deviceDesktop' as any) as string;
+}
+
 function deviceIcon(device: string) {
   if (device === 'Mobile') return Smartphone;
   if (device === 'Tablet') return Tablet;
@@ -73,6 +79,29 @@ function formatDate(iso: string | null, locale: string): string {
   } catch {
     return iso;
   }
+}
+
+/** Locale-aware numbers (Persian digits for fa). */
+function formatNumber(n: number, locale: string): string {
+  try {
+    return new Intl.NumberFormat(locale).format(n);
+  } catch {
+    return String(n);
+  }
+}
+
+/** Translate a country code into the user's language, falling back to the raw name. */
+function localizedCountry(code: string | null, name: string | null, locale: string): string | null {
+  if (code && code.length === 2) {
+    try {
+      const dn = new Intl.DisplayNames([locale], { type: 'region' });
+      const label = dn.of(code.toUpperCase());
+      if (label && label.toUpperCase() !== code.toUpperCase()) return label;
+    } catch {
+      /* ignore */
+    }
+  }
+  return name;
 }
 
 function formatRelative(iso: string | null, locale: string): string {
@@ -127,25 +156,30 @@ function LocationCell({
   city,
   ip,
   unknownLabel,
+  locale,
 }: {
   country: string | null;
   countryCode: string | null;
   city: string | null;
   ip: string;
   unknownLabel: string;
+  locale: string;
 }) {
   if (!country && !ip) {
     return <span className="text-muted-foreground">{unknownLabel}</span>;
   }
   const emoji = flagEmoji(countryCode);
+  const countryLabel = localizedCountry(countryCode, country, locale);
   return (
     <div className="flex items-center gap-2">
       {emoji && <span aria-hidden className="text-base leading-none">{emoji}</span>}
       <span className="text-foreground">
-        {country || unknownLabel}
+        {countryLabel || unknownLabel}
         {city ? <span className="text-muted-foreground"> · {city}</span> : null}
       </span>
-      {ip && <span className="text-xs text-muted-foreground">({ip})</span>}
+      {ip && (
+        <span dir="ltr" className="font-mono text-xs text-muted-foreground">({ip})</span>
+      )}
     </div>
   );
 }
@@ -237,12 +271,12 @@ export default function SettingsSecurityPage() {
           icon={ShieldCheck}
           tone="success"
           label={t('security.overviewSessions' as any) as string}
-          value={sessionsQ.isLoading ? '…' : String(sessions.length)}
+          value={sessionsQ.isLoading ? '…' : formatNumber(sessions.length, locale)}
         />
         <StatTile
           icon={Globe2}
           label={t('security.overviewOther' as any) as string}
-          value={sessionsQ.isLoading ? '…' : String(otherCount)}
+          value={sessionsQ.isLoading ? '…' : formatNumber(otherCount, locale)}
         />
         <StatTile
           icon={LogIn}
@@ -253,7 +287,7 @@ export default function SettingsSecurityPage() {
           icon={KeyRound}
           tone={stats.failed24 > 0 ? 'danger' : 'default'}
           label={t('security.overviewFailed' as any) as string}
-          value={historyQ.isLoading ? '…' : String(stats.failed24)}
+          value={historyQ.isLoading ? '…' : formatNumber(stats.failed24, locale)}
         />
       </div>
 
@@ -322,7 +356,17 @@ export default function SettingsSecurityPage() {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-foreground">
-                                {s.browser} <span className="text-muted-foreground">({s.os})</span>
+                                {s.browser && s.browser !== 'Unknown'
+                                  ? s.browser
+                                  : (t('security.unknownBrowser' as any) as string)}{' '}
+                                <span className="text-muted-foreground">
+                                  ({s.os && s.os !== 'Unknown'
+                                    ? s.os
+                                    : (t('security.unknownOs' as any) as string)})
+                                </span>
+                              </span>
+                              <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                {deviceLabel(s.device, t)}
                               </span>
                               {s.is_current && (
                                 <Badge variant="secondary" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
@@ -346,6 +390,7 @@ export default function SettingsSecurityPage() {
                           city={s.city}
                           ip={s.ip}
                           unknownLabel={t('security.unknownLocation' as any)}
+                          locale={locale}
                         />
                       </td>
                       <td className="px-6 py-4 text-muted-foreground" title={formatDate(s.last_active_at, locale)}>
@@ -427,6 +472,7 @@ export default function SettingsSecurityPage() {
                         city={h.city}
                         ip={h.ip}
                         unknownLabel={t('security.unknownLocation' as any)}
+                        locale={locale}
                       />
                     </td>
                     <td className="px-6 py-4 text-end">

@@ -22,6 +22,7 @@ import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
+import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 
 export const adminRouter = Router();
 

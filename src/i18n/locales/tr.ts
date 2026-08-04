@@ -262,6 +262,7 @@ const tr: TranslationKeys = {
     availability: 'Müsaitlik ayarları',
     userProfile: 'Kullanıcı profili',
     manageAccount: 'Hesabı yönet',
+    sessions: 'Oturumlar ve güvenlik',
     workspaceSettings: 'Çalışma alanı ayarları',
     inviteOperator: 'Operatör davet et',
     getHelp: 'Yardım al',

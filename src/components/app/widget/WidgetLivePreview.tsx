@@ -69,6 +69,25 @@ function esc(v: unknown): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
+// Mirrors server/routes/widget.ts: English seed values are treated as unset
+// for non-English widgets so the localized default is shown instead.
+const SEED_TEXTS: Record<'launcher' | 'welcome', string[]> = {
+  launcher: ['chat with us', 'support', 'hello!'],
+  welcome: ['hello! how can we help you?', 'how can we help you?'],
+};
+
+function localizedValue(
+  value: unknown,
+  kind: 'launcher' | 'welcome',
+  locale: string,
+): string {
+  const lang = (locale || 'en').toLowerCase().split('-')[0];
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (lang === 'en') return raw;
+  if (!raw || SEED_TEXTS[kind].includes(raw.toLowerCase())) return '';
+  return raw;
+}
+
 export interface WidgetLivePreviewProps {
   settings: Record<string, any> | null | undefined;
   prechat?: WidgetPrechatSettings | null;
@@ -86,8 +105,10 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
 
     const primary: string = s.primary_color || '#3B82F6';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
-    const title = (s.launcher_text || s.fab_label || brandName || d.brandFallback) as string;
-    const welcome = (s.welcome_message || s.greeting_message || d.welcomeFallback) as string;
+    const title = (localizedValue(s.launcher_text, 'launcher', locale) || s.fab_label || brandName || d.brandFallback) as string;
+    const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
+      || localizedValue(s.greeting_message, 'welcome', locale)
+      || d.welcomeFallback) as string;
     const placeholder = (s.placeholder_text || d.input) as string;
     const offlineMsg =
       (s.offline_message_localized && s.offline_message_localized[locale]) || s.offline_message || d.offline;

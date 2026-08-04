@@ -73,21 +73,6 @@ export function AppTopBar() {
         {/* Accent hairline */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
-        {/* Context */}
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/25 via-primary/10 to-transparent text-primary shadow-sm ring-1 ring-primary/20">
-            <Sparkles className="h-4 w-4" />
-          </span>
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-sm font-semibold tracking-tight text-foreground">
-              {pageTitle || workspace?.name || ''}
-            </p>
-            {workspace?.name && pageTitle ? (
-              <p className="truncate text-[11px] text-muted-foreground">{workspace.name}</p>
-            ) : null}
-          </div>
-        </div>
-
         <div className="flex-1" />
 
         {/* Plan / trial badge */}
@@ -96,7 +81,6 @@ export function AppTopBar() {
             to={wsPath('/billing')}
             className="hidden items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition-colors hover:bg-primary/10 lg:flex"
           >
-            <Sparkles className="h-3.5 w-3.5" />
             <span className="max-w-[120px] truncate">{planName}</span>
             {trialDaysLeft !== null && (
               <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold">

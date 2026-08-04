@@ -449,6 +449,7 @@ export default function SettingsSecurityPage() {
       </Card>
 
       {/* Revoke single session */}
+      {/* Safety tip */}
       <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

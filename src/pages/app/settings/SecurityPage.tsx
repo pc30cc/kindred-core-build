@@ -326,10 +326,16 @@ export default function SettingsSecurityPage() {
                               </span>
                               {s.is_current && (
                                 <Badge variant="secondary" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-                                  {t('security.currentSession' as any)}
+                                  {t('security.thisDevice' as any)}
                                 </Badge>
                               )}
                             </div>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {t('security.signedInAt' as any)}: {formatDate(s.created_at, locale)}
+                              {' · '}
+                              {t('security.expiresAt' as any)}:{' '}
+                              {s.not_after ? formatDate(s.not_after, locale) : (t('security.neverExpires' as any) as string)}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -342,8 +348,11 @@ export default function SettingsSecurityPage() {
                           unknownLabel={t('security.unknownLocation' as any)}
                         />
                       </td>
-                      <td className="px-6 py-4 text-muted-foreground">
-                        {formatDate(s.last_active_at, locale)}
+                      <td className="px-6 py-4 text-muted-foreground" title={formatDate(s.last_active_at, locale)}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5" />
+                          {formatRelative(s.last_active_at, locale)}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-end">
                         {s.is_current ? (

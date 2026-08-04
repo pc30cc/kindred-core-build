@@ -229,7 +229,7 @@ function ToggleRow({ label, description, checked, disabled, onChange }: ToggleRo
   );
 }
 
-export default function AvailabilityPage() {
+export function PersonalAvailabilityPanel() {
   const { t } = useTranslation();
   const { locale, dir } = useI18n();
   const rtl = dir === 'rtl';

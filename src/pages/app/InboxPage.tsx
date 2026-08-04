@@ -774,7 +774,7 @@ export default function InboxPage() {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {
       if (!search) return true;
-      const name = c.contacts?.name || c.contacts?.email || c.subject || '';
+      const name = conversationTitle(c, t);
       return name.toLowerCase().includes(search.toLowerCase());
     });
     // Float unread conversations to the top — within each group keep the
@@ -1055,7 +1055,7 @@ export default function InboxPage() {
           ) : (
             filteredConvos.map(conv => {
               const isActive = selectedId === conv.id;
-              const name = conv.contacts?.name || conv.contacts?.email || conv.subject || `#${conv.id.slice(0, 8)}`;
+              const name = conversationTitle(conv, t);
               const unreadCount = (conv as any).unread_count ?? 0;
               const hasUnread = unreadCount > 0 && !isActive;
 
@@ -1133,8 +1133,9 @@ export default function InboxPage() {
                           hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground',
                         )}>
                           {(conv as any).last_visitor_message?.body
-                            || conv.subject
-                            || (t('inbox.noMessages') || 'No messages yet')}
+                            || (isPlaceholderSubject(conv.subject)
+                              ? (t('inbox.noMessages') || 'No messages yet')
+                              : conv.subject)}
                         </p>
                         {hasUnread && unreadCount > 0 && (
                           <span
@@ -1299,7 +1300,7 @@ export default function InboxPage() {
                 </div>
                 <div>
                   <div className="text-[14.5px] font-bold text-foreground">
-                    {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
+                    {conversationTitle(selected, t)}
                   </div>
                   <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
                     {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
@@ -1514,7 +1515,7 @@ export default function InboxPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] font-bold text-foreground truncate">
-                  {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
+                  {conversationTitle(selected, t)}
                 </div>
                 <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <span className={cn('px-1.5 py-0.5 rounded-full text-[10.5px] font-medium border', statusColors[selected.status ?? 'open'])}>

@@ -56,14 +56,17 @@ export function AppTopBar() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+      <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border/60 bg-background/70 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
+        {/* Accent hairline */}
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+
         {/* Context */}
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 text-primary ring-1 ring-primary/15">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/25 via-primary/10 to-transparent text-primary shadow-sm ring-1 ring-primary/20">
             <Sparkles className="h-4 w-4" />
           </span>
           <div className="min-w-0 leading-tight">
-            <p className="truncate text-[13px] font-semibold text-foreground">
+            <p className="truncate text-sm font-semibold tracking-tight text-foreground">
               {pageTitle || workspace?.name || ''}
             </p>
             {workspace?.name && pageTitle ? (
@@ -82,11 +85,11 @@ export function AppTopBar() {
               new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }),
             )
           }
-          className="hidden items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted md:flex"
+          className="hidden w-[240px] items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground shadow-sm transition-all hover:border-primary/40 hover:bg-muted hover:text-foreground md:flex lg:w-[300px]"
         >
           <Search className="h-3.5 w-3.5" />
           <span>{t('common.quickSearch') || 'Quick search'}</span>
-          <kbd className="ms-2 rounded border border-border/70 bg-background px-1.5 py-0.5 font-sans text-[10px]">
+          <kbd className="ms-auto rounded-md border border-border/70 bg-background px-1.5 py-0.5 font-sans text-[10px]">
             ⌘K
           </kbd>
         </button>
@@ -95,7 +98,7 @@ export function AppTopBar() {
         <div className="flex items-center gap-1.5">
           {canSwitchLanguage && (
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-            <SelectTrigger className="h-8 w-[104px] border-border/60 bg-muted/40 text-xs">
+            <SelectTrigger className="h-9 w-[108px] rounded-xl border-border/60 bg-muted/40 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
@@ -113,7 +116,7 @@ export function AppTopBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
                 aria-label="theme"
               >
@@ -129,10 +132,11 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                className="relative h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               >
                 <Link to={wsPath('/settings/notifications')} aria-label="alerts">
                   <Bell className="h-4 w-4" />
+                  <span className="absolute end-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
                 </Link>
               </Button>
             </TooltipTrigger>
@@ -145,7 +149,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               >
                 <Link to={wsPath('/settings')} aria-label="settings">
                   <Settings2 className="h-4 w-4" />
@@ -163,7 +167,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="hidden h-8 w-8 text-muted-foreground hover:text-foreground sm:inline-flex"
+                className="hidden h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:inline-flex"
               >
                 <Link to={wsPath('/knowledge-base')} aria-label="help">
                   <LifeBuoy className="h-4 w-4" />
@@ -177,9 +181,9 @@ export function AppTopBar() {
 
           <Link
             to={wsPath('/settings/profile')}
-            className="flex items-center gap-2 rounded-full py-1 ps-1 pe-2.5 transition-colors hover:bg-muted/60"
+            className="flex items-center gap-2 rounded-full border border-border/60 bg-card/60 py-1 ps-1 pe-3 shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/60"
           >
-            <Avatar className="h-7 w-7">
+            <Avatar className="h-7 w-7 ring-2 ring-primary/15">
               {avatarUrl ? <AvatarImage src={avatarUrl} alt={userName} /> : null}
               <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
                 {userName.charAt(0).toUpperCase()}

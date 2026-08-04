@@ -1,0 +1,1 @@
+UPDATE public.widget_settings SET position = 'bottom-right', updated_at = now() WHERE position = 'bottom-left';

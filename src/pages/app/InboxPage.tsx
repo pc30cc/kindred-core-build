@@ -330,6 +330,11 @@ export default function InboxPage() {
     onMessage: () => {
       if (selectedId) qc.invalidateQueries({ queryKey: ['messages', selectedId] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
+      // Keep the tab counters live so a new message lights up its tab.
+      if (workspace?.id) {
+        qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
+        qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+      }
     },
     onTyping: (payload) => {
       // Only react to visitor typing (ignore agent self-echo just in case).

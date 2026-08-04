@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { useWorkspacePlan } from '@/hooks/usePlans';
 
 /** Maps the first workspace-scoped path segment to an existing nav.* i18n key. */
 const SEGMENT_KEYS: Record<string, string> = {
@@ -40,6 +41,23 @@ export function AppTopBar() {
   const { theme, setTheme } = useTheme();
   const { pathname } = useLocation();
   const wsPath = useWorkspacePath();
+  const { data: planData } = useWorkspacePlan(workspace?.id);
+
+  const planLocalized = (planData?.plan?.localized || {}) as Record<string, { name?: string }>;
+  const planName =
+    planLocalized[locale]?.name?.trim() ||
+    planLocalized['en']?.name?.trim() ||
+    planData?.plan?.name ||
+    '';
+  const trialEnd =
+    (planData?.subscription as any)?.trial_ends_at ||
+    (planData?.subscription as any)?.current_period_end ||
+    null;
+  const trialDaysLeft = useMemo(() => {
+    if (!trialEnd || (planData?.subscription as any)?.status !== 'trialing') return null;
+    const diff = new Date(trialEnd).getTime() - Date.now();
+    return diff > 0 ? Math.ceil(diff / 86_400_000) : 0;
+  }, [trialEnd, planData]);
 
   const pageTitle = useMemo(() => {
     const parts = pathname.split('/').filter(Boolean);
@@ -76,6 +94,22 @@ export function AppTopBar() {
         </div>
 
         <div className="flex-1" />
+
+        {/* Plan / trial badge */}
+        {planName ? (
+          <Link
+            to={wsPath('/billing')}
+            className="hidden items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition-colors hover:bg-primary/10 lg:flex"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span className="max-w-[120px] truncate">{planName}</span>
+            {trialDaysLeft !== null && (
+              <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold">
+                {trialDaysLeft} {t('common.days') || ''}
+              </span>
+            )}
+          </Link>
+        ) : null}
 
         {/* Global quick search — opens the Cmd/Ctrl+K palette */}
         <button

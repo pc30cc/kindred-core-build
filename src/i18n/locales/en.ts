@@ -233,6 +233,7 @@ const en = {
   },
   nav: {
     overview: 'Overview',
+    dashboard: 'Dashboard',
     inbox: 'Inbox',
     contacts: 'Contacts',
     visitors: 'Visitors',
@@ -277,6 +278,7 @@ const en = {
     quickActions: 'Quick actions',
     statOpenConversations: 'Open conversations',
     statOnlineVisitors: 'Online visitors',
+    statVisitsToday: 'Visits today',
     statTotalConversations: 'Total conversations',
     statKbArticles: 'Knowledge base articles',
     openInbox: 'Open inbox',

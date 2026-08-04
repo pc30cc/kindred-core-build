@@ -5,7 +5,7 @@ import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useConversations } from '@/hooks/useConversations';
-import { useOnlineVisitors } from '@/hooks/useVisitors';
+import { useOnlineVisitors, useVisitorSessions } from '@/hooks/useVisitors';
 import { useKBArticles } from '@/hooks/useKnowledgeBase';
 import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
@@ -21,15 +21,6 @@ import {
   Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio,
 } from 'lucide-react';
 
-const MODULES = [
-  { key: 'inbox', icon: Inbox, labelKey: 'nav.inbox', path: '/inbox' },
-  { key: 'visitors', icon: Eye, labelKey: 'nav.visitors', path: '/visitors' },
-  { key: 'contacts', icon: Users, labelKey: 'nav.contacts', path: '/contacts' },
-  { key: 'ai', icon: Bot, labelKey: 'nav.aiAgent', path: '/ai-agent' },
-  { key: 'call', icon: Phone, labelKey: 'nav.callCenter', path: '/call-center' },
-  { key: 'kb', icon: BookOpen, labelKey: 'nav.knowledgeBase', path: '/knowledge-base' },
-] as const;
-
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
@@ -39,6 +30,7 @@ export default function OverviewPage() {
 
   const { data: conversations } = useConversations(workspace?.id);
   const { data: visitors } = useOnlineVisitors(workspace?.id);
+  const { data: sessions } = useVisitorSessions(workspace?.id);
   const { data: articles } = useKBArticles(workspace?.id);
   const { data: contacts } = useContacts(workspace?.id);
   const { data: teamData } = useTeamPresence(workspace?.id);
@@ -53,7 +45,24 @@ export default function OverviewPage() {
   const list = conversations ?? [];
   const openConvos = list.filter((c: any) => c.status === 'open').length;
   const resolved = list.filter((c: any) => c.status === 'resolved' || c.status === 'closed').length;
-  const onlineVisitors = (visitors ?? []).filter((v: any) => v.status === 'online').length;
+  // Truly online right now: presence status online AND seen in the last 5 minutes
+  const onlineVisitors = (visitors ?? []).filter((v: any) => {
+    if (v.status !== 'online') return false;
+    const ts = v.updated_at || v.last_seen_at;
+    if (!ts) return true;
+    return Date.now() - new Date(ts).getTime() < 5 * 60 * 1000;
+  }).length;
+  // Distinct visitors seen today (total visits today)
+  const visitsToday = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const ids = new Set<string>();
+    for (const s of (sessions ?? []) as any[]) {
+      const ts = s.started_at || s.created_at || s.first_seen_at || s.last_seen_at;
+      if (ts && new Date(ts).getTime() >= start.getTime()) ids.add(s.id ?? s.visitor_id ?? String(ts));
+    }
+    return ids.size;
+  }, [sessions]);
   const teamOnline = team.filter((m: any) => m.state === 'online' || m.status === 'online').length;
 
   const userName =
@@ -101,24 +110,10 @@ export default function OverviewPage() {
   const contactLimit = Number(limits.max_contacts ?? 0);
   const contactUsed = (contacts ?? []).length;
 
-  const moduleAllowed = (key: string) => {
-    const map: Record<string, string[]> = {
-      inbox: ['inbox', 'live_chat'],
-      visitors: ['visitors', 'visitor_intelligence'],
-      contacts: ['contacts', 'crm'],
-      ai: ['ai_agent', 'ai_assistant'],
-      call: ['call_center', 'voice_calls'],
-      kb: ['knowledge_base'],
-    };
-    const candidates = map[key] || [key];
-    if (!Object.keys(entitlements).length) return true;
-    const hit = candidates.find((c) => c in entitlements);
-    return hit ? Boolean(entitlements[hit]) : true;
-  };
-
   const stats = [
     { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, tone: 'primary', path: '/inbox' },
     { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, tone: 'success', path: '/visitors' },
+    { label: tr('dashboard.statVisitsToday'), value: visitsToday, icon: Eye, tone: 'info', path: '/visitors' },
     { label: tr('dashboard.statContacts'), value: contactUsed, icon: Users, tone: 'info', path: '/contacts' },
     { label: tr('dashboard.statTeamOnline'), value: teamOnline, icon: ShieldCheck, tone: 'warning', path: '/settings/team' },
   ];
@@ -197,7 +192,7 @@ export default function OverviewPage() {
       </section>
 
       {/* ── KPI cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {stats.map((s) => {
           const tone = toneCls[s.tone];
           return (
@@ -404,40 +399,6 @@ export default function OverviewPage() {
               })}
             </ul>
           )}
-        </div>
-      </div>
-
-      {/* ── Modules ──────────────────────────────────────── */}
-      <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold text-foreground">{tr('dashboard.modules')}</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {MODULES.map((m) => {
-            const allowed = moduleAllowed(m.key);
-            const inner = (
-              <>
-                <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${allowed ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                  <m.icon className="h-4.5 w-4.5" />
-                </span>
-                <span className="mt-2 block truncate text-xs font-medium text-foreground">{tr(m.labelKey)}</span>
-                <span className="block text-[10px] text-muted-foreground">
-                  {allowed ? tr('dashboard.open') : tr('dashboard.moduleLocked')}
-                </span>
-              </>
-            );
-            return allowed ? (
-              <Link
-                key={m.key}
-                to={wsPath(m.path)}
-                className="rounded-xl border border-border/60 p-3 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm"
-              >
-                {inner}
-              </Link>
-            ) : (
-              <div key={m.key} className="cursor-not-allowed rounded-xl border border-dashed border-border/60 p-3 text-center opacity-60">
-                {inner}
-              </div>
-            );
-          })}
         </div>
       </div>
 

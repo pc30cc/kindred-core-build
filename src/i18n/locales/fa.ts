@@ -235,6 +235,7 @@ const fa: TranslationKeys = {
   },
   nav: {
     overview: 'نمای کلی',
+    dashboard: 'داشبورد',
     inbox: 'صندوق ورودی',
     contacts: 'مخاطبین',
     visitors: 'بازدیدکنندگان',
@@ -279,6 +280,7 @@ const fa: TranslationKeys = {
     quickActions: 'دسترسی سریع',
     statOpenConversations: 'مکالمات باز',
     statOnlineVisitors: 'بازدیدکنندگان آنلاین',
+    statVisitsToday: 'بازدیدهای امروز',
     statTotalConversations: 'کل مکالمات',
     statKbArticles: 'مقالات پایگاه دانش',
     openInbox: 'صندوق ورودی',

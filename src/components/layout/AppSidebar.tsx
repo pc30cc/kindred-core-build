@@ -382,7 +382,7 @@ export function AppSidebar() {
 
         {isActive('/inbox') && !collapsed && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
-            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">Default Inboxes</p>
+            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">{t('inbox.defaultInboxes') || 'Default inboxes'}</p>
             <Link
               to={wsPath('/inbox')}
               className={cn(
@@ -393,11 +393,11 @@ export function AppSidebar() {
               )}
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              <span>Main Inbox</span>
+              <span>{t('inbox.mainInbox') || 'Main inbox'}</span>
               {(inboxCounts?.needs_human ?? 0) > 0 && (
                 <span
                   className="ms-auto bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center"
-                  title="Conversations needing a human"
+                  title={t('inbox.needsHuman') || 'Needs human'}
                 >
                   {inboxCounts!.needs_human}
                 </span>
@@ -406,7 +406,7 @@ export function AppSidebar() {
 
             {automatedInboxVisible && (
               <>
-                <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">AI Inboxes</p>
+                <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">{t('inbox.aiInboxes') || 'AI inboxes'}</p>
                 <Link
                   to={wsPath('/inbox?queue=automated')}
                   className={cn(
@@ -417,7 +417,7 @@ export function AppSidebar() {
                   )}
                 >
                   <Bot className="h-3.5 w-3.5 shrink-0" />
-                  <span>Automated</span>
+                  <span>{t('inbox.automatedInbox') || 'Automated'}</span>
                   {(inboxCounts?.automated ?? 0) > 0 && (
                     <span className="ms-auto bg-secondary text-foreground/70 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
                       {inboxCounts!.automated}
@@ -427,7 +427,7 @@ export function AppSidebar() {
               </>
             )}
 
-            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">Other Inboxes</p>
+            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">{t('inbox.otherInboxes') || 'Other inboxes'}</p>
             <Link
               to={wsPath('/inbox?queue=spam')}
               className={cn(
@@ -438,7 +438,7 @@ export function AppSidebar() {
               )}
             >
               <Ban className="h-3.5 w-3.5 shrink-0" />
-              <span>Spam</span>
+              <span>{t('inbox.spamInbox') || 'Spam'}</span>
               {(inboxCounts?.spam ?? 0) > 0 && (
                 <span className="ms-auto bg-secondary text-foreground/70 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
                   {inboxCounts!.spam}

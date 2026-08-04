@@ -1035,7 +1035,14 @@ export default function InboxPage() {
               )}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
-              <AlertCircle className="w-4 h-4" />
+              {liveTabs.needs_human ? (
+                <span className="relative flex w-2 h-2 items-center justify-center">
+                  <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+                  <span className="relative inline-flex w-2 h-2 rounded-full bg-success animate-pulse" />
+                </span>
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
               {t('inbox.needsHuman') || 'Needs human'}
               <span
                 aria-hidden={(stableCounts.needs_human || 0) === 0}

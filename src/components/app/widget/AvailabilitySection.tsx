@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, useI18n } from '@/i18n';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -35,6 +35,28 @@ const TIMEZONES = [
   'Asia/Singapore',
   'Australia/Sydney',
 ];
+
+function tzLabel(tz: string, locale: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat(locale, { timeZone: tz, timeZoneName: 'long' }).formatToParts(new Date());
+    const name = parts.find((p) => p.type === 'timeZoneName')?.value;
+    if (name && name !== tz) return name;
+  } catch {
+    /* ignore */
+  }
+  return tz;
+}
+
+function tzOffset(tz: string): string {
+  try {
+    const part = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
+      .formatToParts(new Date())
+      .find((p) => p.type === 'timeZoneName');
+    return part?.value?.replace('GMT', 'UTC') || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
 
 interface Interval {
   from: string;
@@ -148,6 +170,7 @@ export function AvailabilitySection({
   saving: boolean;
 }) {
   const { t, dir } = useTranslation();
+  const { locale } = useI18n();
   const DAY_LABELS: Record<DayKey, string> = {
     mon: t('widgetPage.availability.days.mon'),
     tue: t('widgetPage.availability.days.tue'),
@@ -333,7 +356,7 @@ export function AvailabilitySection({
               <SelectContent>
                 {TIMEZONES.map((tz) => (
                   <SelectItem key={tz} value={tz}>
-                    {tz}
+                    {tzLabel(tz, locale)} <span dir="ltr">({tzOffset(tz)})</span>
                   </SelectItem>
                 ))}
               </SelectContent>

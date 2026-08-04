@@ -27,6 +27,7 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
   adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
+  adminUpdateUserProfile, adminSetUserEmailVerified,
 } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -37,7 +38,7 @@ import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
   KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
-  MessageSquare, Trash2,
+  MessageSquare, Trash2, Pencil,
 } from 'lucide-react';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

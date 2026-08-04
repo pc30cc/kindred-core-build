@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
@@ -40,6 +40,13 @@ export function useConversations(
   const assignedToMe = extra.assignedToMe || null;
   return useQuery({
     queryKey: ['conversations', workspaceId, queue, status, needsHuman, assignedToMe],
+    // Tab switching must feel instant: keep showing the previous tab's rows
+    // while the new one loads instead of flashing the skeleton, and treat
+    // recently fetched data as fresh so going back to a tab is free.
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       let q = supabase
         .from('conversations')
@@ -231,6 +238,50 @@ export function useInboxCounts(workspaceId: string | undefined) {
         needs_human: needsRes.count ?? 0,
         spam: spamRes.count ?? 0,
       };
+    },
+  });
+}
+
+/**
+ * Per-tab counters for the Main Inbox status tabs.
+ *
+ * All tabs get their number up-front (no more "count appears only after you
+ * click the tab"). Implemented as parallel HEAD count queries — the server
+ * does the counting, no conversation rows travel over the wire.
+ *
+ * Scope matches `useConversations(queue='main')`: spam excluded, AI-managed
+ * threads excluded.
+ */
+export function useInboxTabCounts(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['inbox-tab-counts', workspaceId],
+    enabled: !!workspaceId,
+    staleTime: 15_000,
+    gcTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      const base = () =>
+        supabase
+          .from('conversations')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId!)
+          .eq('is_spam', false)
+          .or('ai_state.is.null,ai_state.neq.ai_managed');
+      const [openRes, pendingRes, resolvedRes, allRes, needsRes] = await Promise.all([
+        base().eq('status', 'open'),
+        base().eq('status', 'pending'),
+        base().in('status', ['resolved', 'closed']),
+        base(),
+        base().eq('ai_state', 'needs_human'),
+      ]);
+      return {
+        open: openRes.count ?? 0,
+        pending: pendingRes.count ?? 0,
+        resolved: resolvedRes.count ?? 0,
+        all: allRes.count ?? 0,
+        needs_human: needsRes.count ?? 0,
+      } as Record<string, number>;
     },
   });
 }

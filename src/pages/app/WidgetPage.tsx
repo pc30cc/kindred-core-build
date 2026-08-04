@@ -520,7 +520,6 @@ function WidgetPageContent() {
               </Card>
               </div>
             </TabsContent>
-          </Tabs>
         </div>
 
         {/* Live Preview — full-size, reflects every edit instantly */}
@@ -560,7 +559,8 @@ function WidgetPageContent() {
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>
           </div>
         </div>
-      </div>
+        </div>
+      </Tabs>
     </div>
   );
 }

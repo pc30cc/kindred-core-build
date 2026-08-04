@@ -2175,6 +2175,7 @@ const tr: TranslationKeys = {
       ownerPhoneVerification: 'Sahip telefon doğrulaması',
       openOwnerInUsers: 'Sahibi Kullanıcılar sayfasında aç',
       ownerPhoneNote: 'Bu durum mevcut çalışma alanı sahibine aittir. Çalışma alanı ayrı bir telefon doğrulama durumu saklamaz.',
+      phoneNumber: 'Telefon numarası',
       phoneFull: 'Tam telefon numarası',
       phoneCountry: 'Ülke',
       phoneVerifiedById: 'Onaylayan kimliği',

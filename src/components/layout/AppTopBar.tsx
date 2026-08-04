@@ -214,28 +214,7 @@ export function AppTopBar() {
 
           <span className="mx-1 hidden h-5 w-px bg-border/70 sm:block" />
 
-          <Link
-            to={wsPath('/settings/profile')}
-            className="flex items-center gap-2.5 rounded-full border border-border/60 bg-card/60 py-1 ps-1 pe-3 shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/60"
-          >
-            <span className="relative">
-              <Avatar className="h-8 w-8 ring-2 ring-primary/15">
-                {avatarUrl ? <AvatarImage src={avatarUrl} alt={userName} /> : null}
-                <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
-                  {userName.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-success" />
-            </span>
-            <span className="hidden min-w-0 leading-tight md:block">
-              <span className="block max-w-[150px] truncate text-xs font-medium text-foreground">
-                {userName}
-              </span>
-              <span className="block max-w-[150px] truncate text-[11px] text-muted-foreground">
-                {userEmail}
-              </span>
-            </span>
-          </Link>
+          <UserAccountMenu />
         </div>
       </header>
     </TooltipProvider>

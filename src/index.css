@@ -67,6 +67,7 @@
     /* Gradients & Shadows */
     --gradient-primary: linear-gradient(135deg, hsl(164 80% 26%), hsl(168 72% 18%));
     --gradient-gold: linear-gradient(135deg, hsl(44 58% 60%), hsl(40 48% 46%));
+    --gradient-auth-hero: linear-gradient(135deg, hsl(164 78% 24%), hsl(168 66% 16%) 55%, hsl(44 48% 38%));
     --gradient-sidebar: linear-gradient(180deg, hsl(166 68% 13%), hsl(168 72% 9%));
     --gradient-card-hover: linear-gradient(135deg, hsl(150 24% 98%), hsl(150 20% 95%));
     --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%), hsl(150 22% 98.5%));
@@ -152,6 +153,7 @@
 
     --gradient-primary: linear-gradient(135deg, hsl(160 55% 40%), hsl(166 62% 26%));
     --gradient-gold: linear-gradient(135deg, hsl(44 55% 58%), hsl(40 45% 44%));
+    --gradient-auth-hero: linear-gradient(135deg, hsl(164 60% 20%), hsl(168 55% 12%) 55%, hsl(44 40% 32%));
     --gradient-sidebar: linear-gradient(180deg, hsl(168 45% 9%), hsl(168 50% 6%));
     --gradient-card-hover: linear-gradient(135deg, hsl(168 22% 14%), hsl(168 20% 17%));
     --gradient-surface: linear-gradient(180deg, hsl(168 24% 12%), hsl(168 26% 10%));

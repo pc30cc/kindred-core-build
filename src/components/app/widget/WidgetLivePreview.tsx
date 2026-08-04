@@ -227,10 +227,15 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
   /* Panel keeps production geometry (380px wide, anchored 92px above the
      launcher) — only the height clamp differs because the preview frame is
      smaller than a real browser viewport. */
-  .panel{position:fixed;top:auto;width:min(380px, calc(100% - 32px));max-width:calc(100% - 32px);
-    height:min(620px, calc(100vh - 124px));}
-  .panel.bottom-right{bottom:${24 + fabSize + 12}px;right:24px;left:auto;}
-  .panel.bottom-left{bottom:${24 + fabSize + 12}px;left:24px;right:auto;}
+  /* Override the runtime's <=480px full-screen rule: inside this small preview
+     frame the panel must stay a floating card, otherwise it covers the FAB. */
+  .panel,
+  @media-guard{}
+  .panel{position:fixed!important;top:auto!important;width:min(360px, calc(100% - 28px))!important;
+    max-width:calc(100% - 28px)!important;border-radius:20px!important;
+    height:min(560px, calc(100% - ${24 + fabSize + 12 + 24}px))!important;}
+  .panel.bottom-right{bottom:${24 + fabSize + 12}px!important;right:24px!important;left:auto!important;}
+  .panel.bottom-left{bottom:${24 + fabSize + 12}px!important;left:24px!important;right:auto!important;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
   .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
     width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;

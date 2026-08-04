@@ -9,6 +9,28 @@
  *   project's allowed range (matches the blue-leaning palette).
  */
 import { cn } from '@/lib/utils';
+import { OsIcon } from '@/components/visitors/OsIcon';
+
+/** OS brand identity used when a contact has no picture but we know the device. */
+type OsKind = 'apple' | 'windows' | 'linux' | 'android' | null;
+
+function osKindOf(os?: string | null, device?: string | null): OsKind {
+  const o = (os || '').toLowerCase();
+  if (!o) return null;
+  if (o.includes('mac') || o.includes('ios') || /iphone|ipad/.test(o)) return 'apple';
+  if (o.includes('win')) return 'windows';
+  if (o.includes('android')) return 'android';
+  if (o.includes('linux') || o.includes('ubuntu')) return 'linux';
+  return null;
+}
+
+/** Rich, brand-accurate gradients (kept in sync with the visitors OS chips). */
+const OS_GRADIENT: Record<Exclude<OsKind, null>, string> = {
+  apple:   'linear-gradient(140deg, hsl(220 8% 42%), hsl(220 12% 16%))',
+  windows: 'linear-gradient(140deg, hsl(201 92% 56%), hsl(217 90% 44%))',
+  linux:   'linear-gradient(140deg, hsl(38 96% 58%), hsl(22 90% 48%))',
+  android: 'linear-gradient(140deg, hsl(150 68% 50%), hsl(142 72% 34%))',
+};
 
 function djb2(str: string): number {
   let h = 5381;
@@ -48,6 +70,10 @@ export interface ContactAvatarProps {
   name?: string | null;
   email?: string | null;
   avatarUrl?: string | null;
+  /** Visitor OS string (e.g. "Windows", "macOS", "Android"). */
+  os?: string | null;
+  /** Visitor device class ("desktop" | "mobile" | "tablet"). */
+  device?: string | null;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   presence?: AvatarPresence;
   className?: string;
@@ -76,6 +102,8 @@ export function ContactAvatar({
   name,
   email,
   avatarUrl,
+  os,
+  device,
   size = 'md',
   presence = 'none',
   className,
@@ -83,8 +111,10 @@ export function ContactAvatar({
 }: ContactAvatarProps) {
   const sz = SIZE_PX[size];
   const seed = (name || email || '').toLowerCase();
-  const bg = avatarUrl ? undefined : gradientFor(seed);
   const initials = initialsOf(name, email);
+  const osKind = avatarUrl ? null : osKindOf(os, device);
+  const bg = avatarUrl ? undefined : osKind ? OS_GRADIENT[osKind] : gradientFor(seed);
+  const glyphPx = Math.round(sz.px * 0.5);
 
   return (
     <div
@@ -116,6 +146,21 @@ export function ContactAvatar({
             loading="lazy"
             referrerPolicy="no-referrer"
           />
+        ) : osKind ? (
+          <span className="relative flex items-center justify-center w-full h-full">
+            {/* soft top-light for a glossy, premium finish */}
+            <span
+              className="absolute inset-0 opacity-70"
+              style={{ backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 55%)' }}
+            />
+            <OsIcon
+              os={os}
+              device={device}
+              className="relative drop-shadow-[0_1px_2px_rgba(0,0,0,.35)]"
+              style={{ width: glyphPx, height: glyphPx }}
+              {...(osKind === 'apple' ? { fill: 'currentColor' } : null)}
+            />
+          </span>
         ) : (
           <span className="leading-none drop-shadow-sm">{initials}</span>
         )}

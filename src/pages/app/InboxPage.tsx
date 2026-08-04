@@ -1084,6 +1084,8 @@ export default function InboxPage() {
                         name={conv.contacts?.name}
                         email={conv.contacts?.email}
                         avatarUrl={conv.contacts?.avatar_url}
+                        os={(conv as any).visitor_os}
+                        device={(conv as any).visitor_device}
                         size="lg"
                         ringClassName={
                           isActive ? 'ring-primary/40'
@@ -1678,6 +1680,8 @@ export default function InboxPage() {
                           name={selected?.contacts?.name}
                           email={selected?.contacts?.email}
                           avatarUrl={selected?.contacts?.avatar_url}
+                          os={(selected as any)?.visitor_os}
+                          device={(selected as any)?.visitor_device}
                           size="sm"
                           className="mt-0.5"
                         />

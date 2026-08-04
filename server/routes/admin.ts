@@ -347,6 +347,112 @@ adminRouter.delete('/users/:userId/avatar', async (req, res) => {
 
 // ─── Sent messages (emails + SMS) for a user ─────────────────────
 
+// ─── Edit a user's profile / identity (super admin) ──────────────
+const adminProfilePatchSchema = z.object({
+  full_name: z.string().trim().max(120).nullable().optional(),
+  company_name: z.string().trim().max(160).nullable().optional(),
+  website_domain: z.string().trim().max(255).nullable().optional(),
+  preferred_locale: z.enum(['fa', 'en', 'tr']).nullable().optional(),
+  email: z.string().trim().email().max(255).optional(),
+});
+
+adminRouter.patch('/users/:userId/profile', async (req, res) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const body = adminProfilePatchSchema.parse(req.body ?? {});
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    for (const key of ['full_name', 'company_name', 'website_domain', 'preferred_locale'] as const) {
+      if (key in body) patch[key] = (body as any)[key] || null;
+    }
+
+    if (body.email) {
+      const nextEmail = body.email.toLowerCase();
+      const { error: authErr } = await sb.auth.admin.updateUserById(userId, { email: nextEmail });
+      if (authErr) return res.status(400).json({ error: authErr.message });
+      patch.email = nextEmail;
+    }
+
+    const { error } = await sb.from('profiles').update(patch).eq('id', userId);
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to update user' });
+  }
+});
+
+// ─── Force-confirm (or unconfirm) a user's email ─────────────────
+adminRouter.post('/users/:userId/email-verification', async (req, res) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const { verified } = z.object({ verified: z.boolean() }).parse(req.body ?? {});
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const { error } = verified
+      ? await sb.auth.admin.updateUserById(userId, { email_confirm: true })
+      : await sb.auth.admin.updateUserById(userId, { email_confirm: false } as any);
+    if (error) return res.status(400).json({ error: error.message });
+
+    res.json({ success: true, verified });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to update email verification' });
+  }
+});
+
+// ─── Set / edit a user's phone number (super admin) ──────────────
+// Storing a new number always resets verification: the admin must either
+// send an SMS challenge or manually verify with a reason afterwards.
+adminRouter.put('/users/:userId/phone', async (req, res) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const { phone, country } = z
+      .object({ phone: z.string().trim().min(4).max(32), country: z.string().trim().min(2).max(2).default('IR') })
+      .parse(req.body ?? {});
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const normalized = normalizePhoneToE164(phone, country.toUpperCase());
+    if (normalized.ok !== true) return res.status(400).json({ error: normalized.reason });
+
+    const now = new Date().toISOString();
+    const { error } = await sb.from('user_phone_verifications').upsert(
+      {
+        user_id: userId,
+        phone_e164: normalized.e164,
+        country_code: normalized.country,
+        phone_verified_at: null,
+        verification_method: null,
+        verified_by_admin_id: null,
+        manual_verification_reason: null,
+        updated_at: now,
+      },
+      { onConflict: 'user_id' },
+    );
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ success: true, phone: normalized.e164, country: normalized.country });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to save phone' });
+  }
+});
+
+adminRouter.delete('/users/:userId/phone', async (req, res) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+    const { error } = await sb.from('user_phone_verifications').delete().eq('user_id', userId);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to remove phone' });
+  }
+});
+
 // Emails come from `email_logs` (matched on the profile's email address),
 // SMS from `phone_verification_challenges` (delivery metadata only — the
 // code digest and full number are never returned).

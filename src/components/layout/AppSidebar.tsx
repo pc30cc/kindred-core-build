@@ -321,18 +321,22 @@ export function AppSidebar() {
       <div className="px-3 mb-1">
         <Link
           to={wsPath('')}
+          title={t('wizard.getStarted')}
           className={cn(
             'flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
-              ? 'bg-primary text-primary-foreground shadow-sm'
-              : 'bg-primary/10 text-primary hover:bg-primary/15'
+              ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
+              : 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/70',
+            collapsed && 'justify-center px-0'
           )}
         >
           <div className="flex items-center gap-2">
             <Rocket className="h-4 w-4 shrink-0" />
-            <span>{t('wizard.getStarted')}</span>
+            {!collapsed && <span>{t('wizard.getStarted')}</span>}
           </div>
-          <span className="bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">10</span>
+          {!collapsed && (
+            <span className="bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">10</span>
+          )}
         </Link>
       </div>
 
@@ -340,18 +344,20 @@ export function AppSidebar() {
       <div className="px-3 mt-2">
         <Link
           to={wsPath('/inbox')}
+          title={t('nav.inbox')}
           className={cn(
             'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
               ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-              : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
+            collapsed && 'justify-center px-0'
           )}
         >
           <Inbox className="h-[18px] w-[18px] shrink-0" />
-          <span>{t('nav.inbox')}</span>
+          {!collapsed && <span>{t('nav.inbox')}</span>}
         </Link>
 
-        {isActive('/inbox') && (
+        {isActive('/inbox') && !collapsed && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
             <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">Default Inboxes</p>
             <Link

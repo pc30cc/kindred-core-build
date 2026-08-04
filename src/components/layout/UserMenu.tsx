@@ -67,7 +67,7 @@ export function UserMenu() {
         className="flex items-center gap-2.5 rounded-2xl border border-border/60 bg-muted/40 px-2.5 py-2 transition-colors hover:bg-muted"
       >
         <div className="relative">
-          <Avatar className="h-9 w-9 shrink-0">
+          <Avatar className="h-10 w-10 shrink-0">
             {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
             <AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">
               {userName.charAt(0).toUpperCase()}
@@ -76,8 +76,8 @@ export function UserMenu() {
           <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-success" />
         </div>
         <div className="hidden min-w-0 text-start leading-tight lg:block">
-          <p className="max-w-[150px] truncate text-[11px] text-muted-foreground">{t('nav.userProfile') || 'User profile'}</p>
-          <p className="max-w-[150px] truncate text-sm font-semibold text-foreground">{userName}</p>
+          <p className="max-w-[150px] truncate text-sm font-bold text-foreground">{t('nav.userProfile') || 'User profile'}</p>
+          <p className="max-w-[150px] truncate text-[11px] text-muted-foreground">{userName}</p>
         </div>
         <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
@@ -92,20 +92,20 @@ export function UserMenu() {
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="truncate text-xs text-muted-foreground">{t('nav.userProfile') || 'User profile'}</p>
-              <p className="truncate text-sm font-semibold text-foreground">{userName}</p>
+              <p className="truncate text-sm font-bold text-foreground">{t('nav.userProfile') || 'User profile'}</p>
+              <p className="truncate text-xs text-muted-foreground">{userName}</p>
             </div>
           </div>
 
           <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-accent">
-            <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
+            <AlertCircle className="h-5 w-5 shrink-0 text-warning" />
             <span className="font-medium text-warning">{t('auth.verifyEmail')}</span>
           </button>
 
           <div className="my-1 border-t border-border" />
 
           <RouterLink to={wsPath('/settings/notifications')} onClick={() => setOpen(false)} className={itemCls}>
-            <Bell className="h-4 w-4 text-muted-foreground" />
+            <Bell className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.viewAlerts') || 'View alerts'}</span>
           </RouterLink>
           <button
@@ -113,38 +113,38 @@ export function UserMenu() {
             disabled={toggleInvisible.isPending || !availability}
             className={cn(itemCls, 'disabled:cursor-not-allowed disabled:opacity-60')}
           >
-            <EyeOff className={cn('h-4 w-4', invisible ? 'text-primary' : 'text-muted-foreground')} />
+            <EyeOff className={cn('h-5 w-5', invisible ? 'text-primary' : 'text-muted-foreground')} />
             <span className="flex-1 text-start">{t('nav.invisibleMode') || 'Invisible mode'}</span>
             {invisible && <Check className="h-4 w-4 shrink-0 text-primary" />}
           </button>
           <RouterLink to={wsPath('/settings/availability')} onClick={() => setOpen(false)} className={itemCls}>
-            <Clock className="h-4 w-4 text-muted-foreground" />
+            <Clock className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.availability') || 'Availability settings'}</span>
           </RouterLink>
 
           <div className="my-1 border-t border-border" />
 
           <RouterLink to={wsPath('/settings/profile')} onClick={() => setOpen(false)} className={itemCls}>
-            <UserCog className="h-4 w-4 text-muted-foreground" />
+            <UserCog className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.manageAccount') || 'Manage account'}</span>
           </RouterLink>
           <RouterLink to={wsPath('/settings/general')} onClick={() => setOpen(false)} className={itemCls}>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
+            <Building2 className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.workspaceSettings') || 'Workspace settings'}</span>
           </RouterLink>
           <RouterLink to={wsPath('/team')} onClick={() => setOpen(false)} className={itemCls}>
-            <UserPlus className="h-4 w-4 text-muted-foreground" />
+            <UserPlus className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.inviteOperator') || 'Invite an operator'}</span>
           </RouterLink>
 
           <div className="my-1 border-t border-border" />
 
           <RouterLink to={wsPath('/knowledge-base')} onClick={() => setOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-accent">
-            <HelpCircle className="h-4 w-4 text-primary" />
+            <HelpCircle className="h-5 w-5 text-primary" />
             <span className="font-medium text-primary">{t('nav.getHelp') || `Get help using ${platformName}`}</span>
           </RouterLink>
           <button className={itemCls}>
-            <Sparkles className="h-4 w-4 text-muted-foreground" />
+            <Sparkles className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.whatsNew') || "What's new?"}</span>
           </button>
 
@@ -154,7 +154,7 @@ export function UserMenu() {
             onClick={() => { setOpen(false); signOut(); }}
             className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-5 w-5" />
             <span>{t('auth.logout')}</span>
           </button>
         </div>

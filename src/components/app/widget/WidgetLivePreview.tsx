@@ -92,7 +92,13 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const offlineMsg =
       (s.offline_message_localized && s.offline_message_localized[locale]) || s.offline_message || d.offline;
 
-    const fabScale = Math.min(1.4, Math.max(0.8, Number(s.fab_scale) || 1));
+    // Scale is stored as percent (80–140) or multiplier (0.8–1.4) — normalize
+    // exactly like public/widget/loader.js does.
+    const rawScale = Number(s.fab_scale);
+    const fabScale = Math.min(
+      1.4,
+      Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
+    );
     const fabSize = Math.round(56 * fabScale);
     const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
@@ -108,9 +114,9 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
          </div>`
       : '';
 
-    const avatar = logo
-      ? `<span class="header-op-avatar has-img is-online"><img src="${esc(logo)}" alt="" /><span class="header-op-dot"></span></span>`
-      : `<span class="header-op-avatar is-online"><span>${esc(initial)}</span><span class="header-op-dot"></span></span>`;
+    // Production renders the operator team stack here (runtime.js) — never the
+    // workspace logo. Mirror that: a single online operator avatar.
+    const avatar = `<span class="header-op-avatar is-online"><span aria-hidden="true">${esc(initial)}</span><span class="header-op-dot"></span></span>`;
 
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">

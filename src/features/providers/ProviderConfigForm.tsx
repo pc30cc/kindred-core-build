@@ -88,8 +88,23 @@ export function ProviderConfigForm({
     (f) => f.required && !values[f.key]?.trim()
   );
 
+  // Credentials travel in HTTP headers: a masked placeholder ("••••") or any
+  // non-ASCII char (RTL/zero-width paste artifacts) makes the gateway reject
+  // the request with "invalid credentials" — block it at the source.
+  const isCredentialField = (f: ProviderField) =>
+    f.type === 'password' ||
+    /token|key|secret|password|merchant/i.test(f.key);
+
+  const invalidCredential = vendor.fields.filter((f) => {
+    const v = values[f.key]?.trim();
+    if (!v) return false;
+    if (/[•●∙·*]{2,}/.test(v)) return true;
+    return isCredentialField(f) && !/^[\x21-\x7E]+$/.test(v);
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (invalidCredential.length > 0) return;
     const cleaned: Record<string, string> = {};
     for (const [k, v] of Object.entries(values)) {
       if (v.trim()) cleaned[k] = v.trim();
@@ -141,6 +156,11 @@ export function ProviderConfigForm({
           {field.hint && (
             <p className="text-[11px] text-muted-foreground">{field.hint}</p>
           )}
+          {invalidCredential.some((f) => f.key === field.key) && (
+            <p className="text-[11px] text-destructive">
+              مقدار واردشده ماسک‌شده یا دارای کاراکتر نامعتبر است — کلید/توکن کامل را از پنل درگاه کپی و اینجا وارد کنید.
+            </p>
+          )}
         </div>
       ))}
 
@@ -148,7 +168,7 @@ export function ProviderConfigForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={isPending || missingRequired.length > 0}>
+        <Button type="submit" disabled={isPending || missingRequired.length > 0 || invalidCredential.length > 0}>
           {isPending ? 'Saving...' : submitLabel}
         </Button>
       </div>

@@ -559,7 +559,7 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://docs.irandargah.com/',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'api_token', label: 'توکن API آزمایشی', type: 'password', required: true, hint: 'توکن سندباکس با پیشوند idg_test_ که از پنل ایران‌درگاه دریافت می‌کنید' },
+      { key: 'api_token', label: 'توکن API آزمایشی', type: 'password', required: true, hint: 'توکن کامل سندباکس با پیشوند idg_test_ از پنل ایران‌درگاه — مقدار ماسک‌شده (idg_test_••••) قابل استفاده نیست و خطای «اطلاعات احراز هویت نامعتبر است» می‌دهد' },
       { key: 'currency', label: 'واحد پول تنظیم‌شده در پلن‌ها', type: 'select', options: [
         { value: 'IRR', label: 'ریال (IRR)' }, { value: 'IRT', label: 'تومان (IRT)' },
       ], hint: 'مبلغ نهایی همیشه به ریال ارسال می‌شود؛ اگر پلن‌ها تومانی است تومان را انتخاب کنید' },

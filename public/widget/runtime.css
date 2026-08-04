@@ -358,6 +358,8 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 6px;
   min-height: 100%;
+  /* Alignment axis is physical (see .msg-row) so sides never flip in RTL. */
+  direction: ltr;
 }
 .msg {
   max-width: 80%;
@@ -401,9 +403,8 @@ textarea:focus-visible {
 .msg-row.operator { justify-content: flex-start; }
 .msg-row.visitor  { justify-content: flex-end; }
 /* Text inside bubbles follows the panel's reading direction again. */
-.msg-row > .msg { direction: inherit; }
-.panel-rtl .msg-row > .msg,
-[dir="rtl"] .msg-row > .msg { direction: rtl; text-align: right; }
+.panel-rtl .msg,
+[dir="rtl"] .msg { direction: rtl; text-align: right; }
 .msg-avatar {
   width: 28px;
   height: 28px;

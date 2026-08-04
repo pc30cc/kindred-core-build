@@ -19,6 +19,7 @@ import { workspaceMembersRouter } from './routes/workspaceMembers.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
+import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { phoneVerificationRouter } from './routes/phoneVerification.js';
@@ -282,6 +283,7 @@ app.use('/api/workspace-alerts', workspaceAlertsRouter);
 
 // Self-service per-user availability schedule
 app.use('/api/availability', availabilityRouter);
+app.use('/api/operator-activity', operatorActivityRouter);
 
 // Billing — checkout, webhooks, subscription management
 app.use('/api/billing', billingRouter);

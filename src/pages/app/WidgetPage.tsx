@@ -155,7 +155,7 @@ function WidgetPageContent() {
 
   return (
     <div className="animate-fade-in" dir={dir}>
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={setTab} dir={dir as 'rtl' | 'ltr'}>
         <div className="mb-6 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 items-center gap-4">
             <div className="min-w-0">

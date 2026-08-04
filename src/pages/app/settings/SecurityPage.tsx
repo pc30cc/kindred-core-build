@@ -7,7 +7,7 @@
  * No Edge Functions. All reads/writes go through /api/account/security/*.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation, useI18n } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -43,6 +43,7 @@ import {
   Tablet,
   X,
 } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, LogIn, Clock, Globe2, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function deviceIcon(device: string) {
@@ -72,6 +73,52 @@ function formatDate(iso: string | null, locale: string): string {
   } catch {
     return iso;
   }
+}
+
+function formatRelative(iso: string | null, locale: string): string {
+  if (!iso) return '—';
+  try {
+    const diffMs = new Date(iso).getTime() - Date.now();
+    const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+    const abs = Math.abs(diffMs);
+    const min = 60_000, hour = 3_600_000, day = 86_400_000;
+    if (abs < hour) return rtf.format(Math.round(diffMs / min), 'minute');
+    if (abs < day) return rtf.format(Math.round(diffMs / hour), 'hour');
+    return rtf.format(Math.round(diffMs / day), 'day');
+  } catch {
+    return formatDate(iso, locale);
+  }
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  tone = 'default',
+}: {
+  icon: any;
+  label: string;
+  value: string;
+  tone?: 'default' | 'success' | 'danger';
+}) {
+  return (
+    <Card className="flex items-center gap-3 border-border/60 p-4 shadow-sm">
+      <div
+        className={cn(
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+          tone === 'success' && 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+          tone === 'danger' && 'bg-destructive/10 text-destructive',
+          tone === 'default' && 'bg-primary/10 text-primary',
+        )}
+      >
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="truncate text-sm font-semibold text-foreground">{value}</p>
+      </div>
+    </Card>
+  );
 }
 
 function LocationCell({
@@ -150,6 +197,17 @@ export default function SettingsSecurityPage() {
   const loading = sessionsQ.isLoading || historyQ.isLoading;
   const history = historyQ.data?.entries ?? [];
 
+  const stats = useMemo(() => {
+    const lastSuccess = history.find((h) => h.success)?.created_at ?? null;
+    const since = Date.now() - 24 * 3600_000;
+    const failed24 = history.filter(
+      (h) => !h.success && h.created_at && new Date(h.created_at).getTime() >= since,
+    ).length;
+    return { lastSuccess, failed24 };
+  }, [history]);
+
+  const hasError = sessionsQ.isError || historyQ.isError;
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -164,6 +222,39 @@ export default function SettingsSecurityPage() {
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
           {t('security.autoSaved' as any)}
         </div>
+      </div>
+
+      {hasError && (
+        <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <ShieldAlert className="h-4 w-4 shrink-0" />
+          {t('security.loadError' as any)}
+        </div>
+      )}
+
+      {/* Overview */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          icon={ShieldCheck}
+          tone="success"
+          label={t('security.overviewSessions' as any) as string}
+          value={sessionsQ.isLoading ? '…' : String(sessions.length)}
+        />
+        <StatTile
+          icon={Globe2}
+          label={t('security.overviewOther' as any) as string}
+          value={sessionsQ.isLoading ? '…' : String(otherCount)}
+        />
+        <StatTile
+          icon={LogIn}
+          label={t('security.overviewLastLogin' as any) as string}
+          value={historyQ.isLoading ? '…' : formatRelative(stats.lastSuccess, locale)}
+        />
+        <StatTile
+          icon={KeyRound}
+          tone={stats.failed24 > 0 ? 'danger' : 'default'}
+          label={t('security.overviewFailed' as any) as string}
+          value={historyQ.isLoading ? '…' : String(stats.failed24)}
+        />
       </div>
 
       {/* Active sessions */}
@@ -235,10 +326,16 @@ export default function SettingsSecurityPage() {
                               </span>
                               {s.is_current && (
                                 <Badge variant="secondary" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-                                  {t('security.currentSession' as any)}
+                                  {t('security.thisDevice' as any)}
                                 </Badge>
                               )}
                             </div>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {t('security.signedInAt' as any)}: {formatDate(s.created_at, locale)}
+                              {' · '}
+                              {t('security.expiresAt' as any)}:{' '}
+                              {s.not_after ? formatDate(s.not_after, locale) : (t('security.neverExpires' as any) as string)}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -251,8 +348,11 @@ export default function SettingsSecurityPage() {
                           unknownLabel={t('security.unknownLocation' as any)}
                         />
                       </td>
-                      <td className="px-6 py-4 text-muted-foreground">
-                        {formatDate(s.last_active_at, locale)}
+                      <td className="px-6 py-4 text-muted-foreground" title={formatDate(s.last_active_at, locale)}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5" />
+                          {formatRelative(s.last_active_at, locale)}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-end">
                         {s.is_current ? (
@@ -347,6 +447,15 @@ export default function SettingsSecurityPage() {
           </div>
         )}
       </Card>
+
+      {/* Safety tip */}
+      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+        <Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <div>
+          <p className="text-sm font-medium text-foreground">{t('security.tipTitle' as any)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{t('security.tipBody' as any)}</p>
+        </div>
+      </div>
 
       {/* Revoke single session */}
       <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>

@@ -3,7 +3,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle, Bell, EyeOff, Check, Clock, UserCog, Building2,
-  UserPlus, HelpCircle, Sparkles, LogOut, ChevronDown,
+  UserPlus, HelpCircle, Sparkles, LogOut, ChevronDown, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
@@ -141,6 +141,10 @@ export function UserMenu() {
           <RouterLink to={wsPath('/settings/profile')} onClick={() => setOpen(false)} className={itemCls}>
             <UserCog className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.manageAccount') || 'Manage account'}</span>
+          </RouterLink>
+          <RouterLink to={wsPath('/settings/security')} onClick={() => setOpen(false)} className={itemCls}>
+            <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+            <span>{t('nav.sessions') || 'Sessions & security'}</span>
           </RouterLink>
           <RouterLink to={wsPath('/settings/general')} onClick={() => setOpen(false)} className={itemCls}>
             <Building2 className="h-5 w-5 text-muted-foreground" />

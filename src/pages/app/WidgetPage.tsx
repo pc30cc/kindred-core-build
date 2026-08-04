@@ -24,6 +24,7 @@ import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { useWorkspaceWidgetTemplates } from '@/hooks/useWorkspaceWidgetTemplates';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -47,6 +48,7 @@ function WidgetPageContent() {
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const { data: availableTemplates } = useWorkspaceWidgetTemplates();
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -156,49 +158,55 @@ function WidgetPageContent() {
   return (
     <div className="animate-fade-in" dir={dir}>
       <Tabs value={tab} onValueChange={setTab} dir={dir as 'rtl' | 'ltr'}>
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="page-header truncate">{t('widgetPage.title')}</h1>
-            <p className="page-subtitle mt-1 truncate">{t('widgetPage.subtitle')}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant={widget?.enabled ? 'default' : 'secondary'} className="text-xs">
-              {widget?.enabled ? t('widgetPage.active') : t('widgetPage.inactive')}
-            </Badge>
-            <Switch
-              checked={widget?.enabled ?? false}
-              onCheckedChange={v => handleToggle('enabled', v)}
-            />
-          </div>
-        </div>
-
-        {/* Full-width tab bar */}
-        <TabsList className="mb-6 grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border bg-secondary/40 p-2 sm:grid-cols-3 xl:flex xl:items-stretch">
-          {([
-            { v: 'appearance', icon: Palette },
-            { v: 'behavior', icon: Settings },
-            { v: 'prechat', icon: MessageSquare },
-            { v: 'availability', icon: Clock },
-            { v: 'domains', icon: Shield },
-            { v: 'install', icon: Code },
-          ] as const).map(({ v, icon: Icon }) => (
-            <TabsTrigger
-              key={v}
-              value={v}
-              title={t(`widgetPage.tabDesc.${v}` as any)}
-              className={cn(
-                'flex h-auto items-center justify-center gap-2 rounded-xl px-4 py-3 xl:flex-1',
-                'transition-all hover:bg-background/60',
-                'data-[state=active]:bg-background data-[state=active]:shadow-md data-[state=active]:text-primary',
-              )}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              <span className="text-sm font-semibold leading-tight whitespace-nowrap">
-                {t(`widgetPage.tabs.${v}` as any)}
+        {/* Header: title, live status and the segmented section switcher */}
+        <div className="mb-5 rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">{t('widgetPage.title')}</h1>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{t('widgetPage.subtitle')}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-secondary/50 px-3 py-1.5">
+              <span
+                className={cn(
+                  'h-2 w-2 rounded-full',
+                  widget?.enabled ? 'bg-success animate-pulse' : 'bg-muted-foreground/50',
+                )}
+              />
+              <span className="text-xs font-medium">
+                {widget?.enabled ? t('widgetPage.active') : t('widgetPage.inactive')}
               </span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+              <Switch
+                checked={widget?.enabled ?? false}
+                onCheckedChange={v => handleToggle('enabled', v)}
+              />
+            </div>
+          </div>
+
+          <TabsList className="mt-4 flex h-auto w-full flex-wrap items-center justify-start gap-1 rounded-full border border-border/70 bg-secondary/40 p-1">
+            {([
+              { v: 'appearance', icon: Palette },
+              { v: 'behavior', icon: Settings },
+              { v: 'prechat', icon: MessageSquare },
+              { v: 'availability', icon: Clock },
+              { v: 'domains', icon: Shield },
+              { v: 'install', icon: Code },
+            ] as const).map(({ v, icon: Icon }) => (
+              <TabsTrigger
+                key={v}
+                value={v}
+                title={t(`widgetPage.tabDesc.${v}` as any)}
+                className={cn(
+                  'flex h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] font-medium',
+                  'transition-all hover:bg-background/70',
+                  'data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm',
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">{t(`widgetPage.tabs.${v}` as any)}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
           {/* Main config area */}
@@ -206,7 +214,9 @@ function WidgetPageContent() {
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
               <div className="space-y-4">
-              {/* Template gallery — wired to the platform-registered templates registry. */}
+              {/* Single unified template by default — the gallery only appears when the
+                  platform actually registered more than one template. */}
+              {(availableTemplates?.length ?? 0) > 1 && (
               <Card className="card-elevated">
                 <CardContent className="p-6">
                   <TemplateGallery
@@ -225,11 +235,18 @@ function WidgetPageContent() {
                   />
                 </CardContent>
               </Card>
+              )}
 
               {/* Per-template customization — settings here apply to whichever template is active. */}
               <Card className="card-elevated">
-                <CardContent className="p-6 space-y-5">
-                  <div className="grid grid-cols-2 gap-4">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Palette className="h-4 w-4 text-primary" /> {t('widgetPage.tabs.appearance')}
+                  </CardTitle>
+                  <CardDescription>{t('widgetPage.tabDesc.appearance')}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5 p-6 pt-0">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widget.primaryColor')}</Label>
                       <div className="flex gap-2">
@@ -237,13 +254,29 @@ function WidgetPageContent() {
                           type="color"
                           value={primaryColor}
                           onChange={e => setField('primary_color', e.target.value)}
-                          className="w-12 h-10 p-1 cursor-pointer"
+                          className="h-10 w-12 shrink-0 cursor-pointer p-1"
                         />
                         <Input
                           value={primaryColor}
+                          dir="ltr"
                           onChange={e => setField('primary_color', e.target.value)}
-                          className="font-mono text-xs"
+                          className="text-start font-mono text-xs"
                         />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {['#3B82F6', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#111827'].map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            aria-label={c}
+                            onClick={() => setField('primary_color', c, 0)}
+                            className={cn(
+                              'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110',
+                              primaryColor.toLowerCase() === c.toLowerCase() ? 'border-foreground' : 'border-transparent',
+                            )}
+                            style={{ background: c }}
+                          />
+                        ))}
                       </div>
                     </div>
                     <div className="space-y-2">

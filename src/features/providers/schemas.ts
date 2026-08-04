@@ -555,14 +555,13 @@ const billingVendors: ProviderVendor[] = [
   },
   {
     name: 'iranpardakht_sandbox', label: 'ایران‌پرداخت — سندباکس (IranPardakht-Sandbox)',
-    description: 'اتصال به محیط آزمایشی ایران‌درگاه (IranDargah IPG v2) برای تست پرداخت — بدون تراکنش واقعی',
-    docsUrl: 'https://docs.irandargah.com/',
+    description: 'اتصال مستقیم به محیط آزمایشی رسمی ایران‌درگاه با مرچنت TEST — بدون تراکنش واقعی',
+    docsUrl: 'https://docs.irandargah.com/#8614460e98',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'api_token', label: 'توکن API آزمایشی', type: 'password', required: true, hint: 'توکن کامل سندباکس با پیشوند idg_test_ از پنل ایران‌درگاه — مقدار ماسک‌شده (idg_test_••••) قابل استفاده نیست و خطای «اطلاعات احراز هویت نامعتبر است» می‌دهد' },
       { key: 'currency', label: 'واحد پول تنظیم‌شده در پلن‌ها', type: 'select', options: [
         { value: 'IRR', label: 'ریال (IRR)' }, { value: 'IRT', label: 'تومان (IRT)' },
-      ], hint: 'مبلغ نهایی همیشه به ریال ارسال می‌شود؛ اگر پلن‌ها تومانی است تومان را انتخاب کنید' },
+      ], hint: 'مرچنت سندباکس طبق مستندات به‌صورت خودکار TEST است؛ مبلغ نهایی همیشه به ریال ارسال می‌شود' },
     ],
   },
   {

@@ -247,21 +247,15 @@ billingRouter.post('/verify-callback', async (req, res) => {
   const provider = getProvider(providerName);
   if (!provider || !provider.verifyPayment) return res.status(400).json({ error: 'Provider does not support payment verification' });
 
-  const supabase = createClient(url, key);
-  const { data: config } = await supabase
-    .from('provider_configs')
-    .select('config')
-    .eq('workspace_id', workspaceId)
-    .eq('provider_type', 'billing')
-    .eq('provider_name', providerName)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  if (!config) return res.status(400).json({ error: 'Provider not configured' });
-
   try {
+    // Use the same workspace/global resolution chain as checkout. Reading only
+    // provider_configs here broke verification for platform-default gateways.
+    const resolved = await resolveBillingConfig(url, key, workspaceId);
+    if (!resolved || resolved.provider.name !== providerName) {
+      return res.status(400).json({ error: 'Provider not configured' });
+    }
     const result = await provider.verifyPayment(
-      { provider: providerName, ...(config.config as Record<string, unknown>) },
+      resolved.config,
       params
     );
 

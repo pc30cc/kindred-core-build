@@ -156,37 +156,10 @@ function WidgetPageContent() {
   return (
     <div className="animate-fade-in" dir={dir}>
       <Tabs value={tab} onValueChange={setTab} dir={dir as 'rtl' | 'ltr'}>
-        <div className="mb-6 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="min-w-0">
-              <h1 className="page-header truncate">{t('widgetPage.title')}</h1>
-              <p className="page-subtitle mt-1 truncate">{t('widgetPage.subtitle')}</p>
-            </div>
-            <TabsList className="hidden h-auto flex-wrap gap-1 rounded-xl border border-border bg-secondary/40 p-1 xl:flex">
-              {([
-                { v: 'appearance', icon: Palette },
-                { v: 'behavior', icon: Settings },
-                { v: 'prechat', icon: MessageSquare },
-                { v: 'availability', icon: Clock },
-                { v: 'domains', icon: Shield },
-                { v: 'install', icon: Code },
-              ] as const).map(({ v, icon: Icon }) => (
-                <TabsTrigger
-                  key={v}
-                  value={v}
-                  title={t(`widgetPage.tabDesc.${v}` as any)}
-                  className={cn(
-                    'flex h-auto items-center gap-1.5 rounded-lg px-2.5 py-2',
-                    'data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary',
-                  )}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="text-[12px] font-semibold leading-tight whitespace-nowrap">
-                    {t(`widgetPage.tabs.${v}` as any)}
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="page-header truncate">{t('widgetPage.title')}</h1>
+            <p className="page-subtitle mt-1 truncate">{t('widgetPage.subtitle')}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Badge variant={widget?.enabled ? 'default' : 'secondary'} className="text-xs">
@@ -199,8 +172,8 @@ function WidgetPageContent() {
           </div>
         </div>
 
-        {/* Compact tab bar for smaller screens */}
-        <TabsList className="mb-5 grid h-auto w-full grid-cols-3 gap-2 rounded-xl border border-border bg-secondary/40 p-2 xl:hidden">
+        {/* Full-width tab bar */}
+        <TabsList className="mb-6 grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border bg-secondary/40 p-2 sm:grid-cols-3 xl:flex xl:items-stretch">
           {([
             { v: 'appearance', icon: Palette },
             { v: 'behavior', icon: Settings },
@@ -212,13 +185,17 @@ function WidgetPageContent() {
             <TabsTrigger
               key={v}
               value={v}
+              title={t(`widgetPage.tabDesc.${v}` as any)}
               className={cn(
-                'flex h-auto flex-col items-center gap-1 rounded-lg px-2 py-2.5 text-center',
-                'data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary',
+                'flex h-auto items-center justify-center gap-2 rounded-xl px-4 py-3 xl:flex-1',
+                'transition-all hover:bg-background/60',
+                'data-[state=active]:bg-background data-[state=active]:shadow-md data-[state=active]:text-primary',
               )}
             >
-              <Icon className="h-4 w-4" />
-              <span className="text-[12px] font-semibold leading-tight">{t(`widgetPage.tabs.${v}` as any)}</span>
+              <Icon className="h-5 w-5 shrink-0" />
+              <span className="text-sm font-semibold leading-tight whitespace-nowrap">
+                {t(`widgetPage.tabs.${v}` as any)}
+              </span>
             </TabsTrigger>
           ))}
         </TabsList>

@@ -776,30 +776,31 @@ export default function InboxPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Inbox className="w-[18px] h-[18px] text-primary" />
-              <h2 className="text-[0.9rem] font-bold text-foreground">{t('inbox.title') || 'Inbox'}</h2>
-              <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold">
+              <h2 className="text-[15px] font-bold text-foreground">{t('inbox.title') || 'Inbox'}</h2>
+              <span className="text-[11px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
                 {conversations?.length || 0}
               </span>
               {totalUnread > 0 && (
                 <span
-                  className="text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold shadow-sm animate-fade-in"
-                  title={`${totalUnread} unread`}
+                  className="text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold shadow-sm animate-fade-in"
+                  title={`${totalUnread} ${t('inbox.unread') || 'Unread'}`}
                 >
-                  {totalUnread > 99 ? '99+' : totalUnread} new
+                  {totalUnread > 99 ? '99+' : totalUnread} {t('inbox.newBadge') || 'new'}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-1">
               <button
-                aria-label="Refresh"
+                aria-label={t('inbox.refresh') || 'Refresh'}
+                title={t('inbox.refresh') || 'Refresh'}
                 onClick={() => qc.invalidateQueries({ queryKey: ['conversations'] })}
                 className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-4 h-4" />
               </button>
               <button
-                aria-label={soundOn ? 'Mute message sound' : 'Unmute message sound'}
-                title={soundOn ? 'Mute message sound' : 'Unmute message sound'}
+                aria-label={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
+                title={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
                 onClick={() => {
                   const next = !soundOn;
                   setOperatorMessageSoundEnabled(next);
@@ -810,41 +811,43 @@ export default function InboxPage() {
                   soundOn ? 'text-muted-foreground hover:text-foreground' : 'text-destructive hover:text-destructive'
                 )}
               >
-                {soundOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               </button>
               <button
-                aria-label="New conversation"
+                aria-label={t('inbox.newConversation') || 'New conversation'}
+                title={t('inbox.newConversation') || 'New conversation'}
                 className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
               </button>
               {isGlobalAdmin && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button
-                    title="Delete all conversations"
+                    title={t('inbox.deleteAllTip') || 'Delete all conversations'}
+                    aria-label={t('inbox.deleteAllTip') || 'Delete all conversations'}
                     disabled={!conversations?.length || deleteAll.isPending}
-                    className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="p-2 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {deleteAll.isPending
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Trash2 className="w-3.5 h-3.5" />}
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Trash2 className="w-4 h-4" />}
                   </button>
                 </AlertDialogTrigger>
-                <AlertDialogContent>
+                <AlertDialogContent dir={dir}>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Delete all conversations?</AlertDialogTitle>
+                    <AlertDialogTitle>{t('inbox.deleteAllTitle') || 'Delete all conversations?'}</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will permanently delete <strong>all {conversations?.length || 0} conversation(s)</strong> and their messages for this workspace. This action cannot be undone.
+                      {(t('inbox.deleteAllDesc') || 'This will permanently delete all {{count}} conversation(s).').replace('{{count}}', String(conversations?.length || 0))}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel>{t('inbox.cancel') || 'Cancel'}</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={handleDeleteAll}
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                      Delete all
+                      {t('inbox.deleteAllConfirm') || 'Delete all'}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -860,7 +863,7 @@ export default function InboxPage() {
               placeholder={t('inbox.search') || 'Search conversations...'}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className={cn('h-8 text-xs bg-secondary/50 border-transparent focus:border-primary/30', dir === 'rtl' ? 'pr-8' : 'pl-8')}
+              className={cn('h-9 text-[13px] bg-secondary/50 border-transparent focus:border-primary/30', dir === 'rtl' ? 'pr-8' : 'pl-8')}
               dir={dir}
             />
           </div>
@@ -871,17 +874,17 @@ export default function InboxPage() {
               {queue === 'automated' ? (
                 <>
                   <Bot className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-[11px] font-semibold text-foreground">Automated</span>
-                  <span className="text-[10px] text-muted-foreground">AI-managed conversations</span>
+                  <span className="text-[12px] font-semibold text-foreground">{t('inbox.automatedInbox') || 'Automated'}</span>
+                  <span className="text-[11px] text-muted-foreground truncate">{t('inbox.automatedDesc') || 'AI-managed conversations'}</span>
                 </>
               ) : (
                 <>
                   <Ban className="w-3.5 h-3.5 text-warning" />
-                  <span className="text-[11px] font-semibold text-foreground">Spam</span>
-                  <span className="text-[10px] text-muted-foreground">Quarantined conversations</span>
+                  <span className="text-[12px] font-semibold text-foreground">{t('inbox.spamInbox') || 'Spam'}</span>
+                  <span className="text-[11px] text-muted-foreground truncate">{t('inbox.spamDesc') || 'Quarantined conversations'}</span>
                 </>
               )}
-              <span className="ms-auto text-[10px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">
+              <span className="ms-auto text-[11px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">
                 {conversations?.length || 0}
               </span>
             </div>
@@ -1051,7 +1054,7 @@ export default function InboxPage() {
                         name={conv.contacts?.name}
                         email={conv.contacts?.email}
                         avatarUrl={conv.contacts?.avatar_url}
-                        size="md"
+                        size="lg"
                         ringClassName={
                           isActive ? 'ring-primary/40'
                           : hasUnread ? 'ring-primary/50'
@@ -1071,18 +1074,18 @@ export default function InboxPage() {
                       <div className="flex items-baseline justify-between gap-2 mb-0.5">
                         <span className={cn(
                           'truncate leading-tight flex items-center gap-1.5 min-w-0',
-                          hasUnread ? 'text-[13.5px] font-bold text-foreground' : 'text-[13px] font-medium text-foreground/85',
+                          hasUnread ? 'text-[14px] font-bold text-foreground' : 'text-[14px] font-medium text-foreground/85',
                         )}>
                           {hasUnread && (
                             <span
                               className="w-2 h-2 rounded-full bg-primary shrink-0 shadow-[0_0_0_3px_hsl(var(--primary)/0.18)] animate-pulse"
-                              aria-label="unread"
+                              aria-label={t('inbox.unread') || 'Unread'}
                             />
                           )}
                           <span className="truncate">{name}</span>
                         </span>
                         <span className={cn(
-                          'text-[10.5px] shrink-0 tabular-nums',
+                          'text-[11px] shrink-0 tabular-nums',
                           hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground',
                         )} dir="ltr">
                           {conv.updated_at ? timeAgo(conv.updated_at) : ''}
@@ -1091,7 +1094,7 @@ export default function InboxPage() {
                       {/* Row 2: Subject / preview */}
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <p className={cn(
-                          'text-[12px] truncate leading-snug flex-1 min-w-0',
+                          'text-[12.5px] truncate leading-snug flex-1 min-w-0',
                           hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground',
                         )}>
                           {(conv as any).last_visitor_message?.body
@@ -1100,8 +1103,8 @@ export default function InboxPage() {
                         </p>
                         {hasUnread && unreadCount > 0 && (
                           <span
-                            className="shrink-0 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold tabular-nums shadow-sm"
-                            aria-label={`${unreadCount} unread messages`}
+                            className="shrink-0 inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold tabular-nums shadow-sm"
+                            aria-label={`${unreadCount} ${t('inbox.unreadAria') || 'unread messages'}`}
                           >
                             {unreadCount > 99 ? '99+' : unreadCount}
                           </span>
@@ -1110,7 +1113,7 @@ export default function InboxPage() {
                       {/* Row 3: Status + meta */}
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className={cn(
-                          'inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium',
+                          'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium',
                           'bg-secondary/60 text-foreground/70',
                         )}>
                           <span className={cn('w-1.5 h-1.5 rounded-full', statusDots[conv.status ?? 'open'])} />
@@ -1118,15 +1121,15 @@ export default function InboxPage() {
                         </span>
                         {conv.priority && conv.priority !== 'normal' && (
                           <span className={cn(
-                            'text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary/60',
+                            'text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary/60',
                             priorityColors[conv.priority] || 'text-muted-foreground',
                           )}>
-                            {conv.priority}
+                            {t(`inbox.priority_${conv.priority}`) || conv.priority}
                           </span>
                         )}
                         {conv.assigned_to && (
-                          <span className="text-[10px] text-muted-foreground/60 flex items-center" title="Assigned">
-                            <UserCheck className="w-3 h-3" />
+                          <span className="text-[11px] text-muted-foreground/60 flex items-center" title={t('inbox.assigned') || 'Assigned'}>
+                            <UserCheck className="w-3.5 h-3.5" />
                           </span>
                         )}
                         {/* AI lifecycle badge — Automated / Needs human / Human active */}
@@ -1138,42 +1141,33 @@ export default function InboxPage() {
                           if (aiState === 'ai_managed') {
                             return (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-primary/10 text-primary border border-primary/20"
-                                title="AI is currently handling this conversation"
+                                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-primary/10 text-primary border border-primary/20"
+                                title={t('inbox.aiManagedTip') || 'AI is currently handling this conversation'}
                               >
-                                <Bot className="w-2.5 h-2.5" /> AI
+                                <Bot className="w-3 h-3" /> AI
                               </span>
                             );
                           }
                           if (aiState === 'needs_human') {
-                            const limitReasonLabel: Record<string, string> = {
-                              max_replies_reached: 'AI handed off: reply limit reached',
-                              rate_limited: 'AI handed off: rate limit reached',
-                              no_credits: 'AI handed off: out of AI credits',
-                              plan_limit_reached: 'AI handed off: plan limit reached',
-                              human_request: 'AI handed off: visitor requested a human',
-                              low_confidence: 'AI handed off: low confidence',
-                              no_kb_match: 'AI handed off: no answer in knowledge base',
-                            };
                             const titleText = reason
-                              ? (limitReasonLabel[reason] || `Handoff reason: ${reason}`)
-                              : 'AI handed off — needs human';
+                              ? `${t('inbox.handoffReason') || 'Handoff reason'}: ${reason}`
+                              : (t('inbox.needsHumanTip') || 'AI handed off — needs human');
                             return (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-destructive/10 text-destructive border border-destructive/20"
+                                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-destructive/10 text-destructive border border-destructive/20"
                                 title={titleText}
                               >
-                                <AlertCircle className="w-2.5 h-2.5" /> Needs human
+                                <AlertCircle className="w-3 h-3" /> {t('inbox.needsHuman') || 'Needs human'}
                               </span>
                             );
                           }
                           if (aiState === 'human_active') {
                             return (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary text-foreground/70 border border-border"
-                                title="Operator has taken over"
+                                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary text-foreground/70 border border-border"
+                                title={t('inbox.humanActiveTip') || 'Operator has taken over'}
                               >
-                                <UserCheck className="w-2.5 h-2.5" /> Human
+                                <UserCheck className="w-3 h-3" /> {t('inbox.human') || 'Human'}
                               </span>
                             );
                           }
@@ -1193,32 +1187,32 @@ export default function InboxPage() {
                                 if (!workspace?.id) return;
                                 try {
                                   await aiAgentApi.takeOverConversation(workspace.id, conv.id, true);
-                                  toast({ title: 'Taken over', description: 'AI will stop auto-replying.' });
+                                  toast({ title: t('inbox.takenOverTitle') || 'Taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                                   qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                 } catch (err: any) {
-                                  toast({ title: 'Take-over failed', description: err?.message || 'unknown', variant: 'destructive' });
+                                  toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: err?.message || '—', variant: 'destructive' });
                                 }
                               }}
-                              className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground/70 transition-colors"
-                              title="Take over this conversation"
+                              className="text-[11px] px-2 py-0.5 rounded-md font-semibold bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground/70 transition-colors"
+                              title={t('inbox.takeOverTip') || 'Take over this conversation'}
                             >
-                              Take over
+                              {t('inbox.takeOver') || 'Take over'}
                             </button>
                           );
                         })()}
                         {/* Spam badge — visible in any queue when flagged */}
                         {(conv as any)?.is_spam && (
                           <span
-                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-warning/15 text-warning border border-warning/30"
-                            title="Marked as spam"
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-warning/15 text-warning border border-warning/30"
+                            title={t('inbox.markedSpamTitle') || 'Marked as spam'}
                           >
-                            <Ban className="w-2.5 h-2.5" /> Spam
+                            <Ban className="w-3 h-3" /> {t('inbox.spam') || 'Spam'}
                           </span>
                         )}
                         {/* Selected-conversation typing indicator (live) */}
                         {isActive && visitorTypingActive && (
-                          <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">
+                          <span className="ms-auto inline-flex items-center gap-1 text-[11px] text-primary font-medium" aria-label={t('inbox.visitorTyping') || 'typing…'}>
                             <span className="flex gap-0.5">
                               <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
                               <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '120ms' }} />
@@ -1257,22 +1251,22 @@ export default function InboxPage() {
             <div className="hidden md:flex px-4 py-2.5 border-b border-border items-center justify-between shrink-0 bg-card/50">
               <div className="flex items-center gap-2.5">
                 <div className="relative">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
                     {selected.contacts?.avatar_url ? (
-                      <img src={selected.contacts.avatar_url} className="w-10 h-10 rounded-full object-cover" alt="" />
+                      <img src={selected.contacts.avatar_url} className="w-full h-full rounded-full object-cover" alt="" />
                     ) : (
-                      <span className="text-sm font-semibold text-primary">
+                      <span className="text-[15px] font-bold text-primary">
                         {getInitials(selected.contacts?.name, selected.contacts?.email)}
                       </span>
                     )}
                   </div>
-                  <div className={cn('absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full border-2 border-card', statusDots[selected.status ?? 'open'])} />
+                  <div className={cn('absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card', statusDots[selected.status ?? 'open'])} />
                 </div>
                 <div>
-                  <div className="text-[13px] font-bold text-foreground">
+                  <div className="text-[14.5px] font-bold text-foreground">
                     {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
                   </div>
-                  <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                  <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
                     {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
                     {presence && presence.status !== 'unknown' && (
                       <>
@@ -1306,32 +1300,32 @@ export default function InboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <Badge className={cn('text-[10px] border', statusColors[selected.status ?? 'open'])}>
+                <Badge className={cn('text-[11px] border', statusColors[selected.status ?? 'open'])}>
                   {statusLabels[selected.status ?? 'open']}
                 </Badge>
                 {(selected as any)?.metadata?.ai_state === 'ai_managed' && (
                   <>
-                    <Badge variant="secondary" className="text-[10px] gap-1">
-                      <Bot className="w-3 h-3" /> AI managed
+                    <Badge variant="secondary" className="text-[11px] gap-1">
+                      <Bot className="w-3.5 h-3.5" /> {t('inbox.aiManaged') || 'AI managed'}
                     </Badge>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      className="h-8 px-3 text-[11.5px] font-semibold"
                       onClick={async () => {
                         if (!workspace?.id || !selectedId) return;
                         try {
                           await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
-                          toast({ title: 'Conversation taken over', description: 'AI will stop auto-replying.' });
+                          toast({ title: t('inbox.takenOverTitle') || 'Conversation taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                         } catch (e: any) {
-                          toast({ title: 'Take-over failed', description: e?.message || 'unknown', variant: 'destructive' });
+                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
                         }
                       }}
                     >
-                      <UserCheck className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
-                      Take over
+                      <UserCheck className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      {t('inbox.takeOver') || 'Take over'}
                     </Button>
                   </>
                 )}
@@ -1339,54 +1333,54 @@ export default function InboxPage() {
                   <>
                     <Badge
                       variant="destructive"
-                      className="text-[10px] gap-1"
+                      className="text-[11px] gap-1"
                       title={
                         ((selected as any)?.metadata?.ai_handoff_reason as string)
-                          ? `Handoff reason: ${(selected as any).metadata.ai_handoff_reason}`
-                          : 'AI handed off — needs human'
+                          ? `${t('inbox.handoffReason') || 'Handoff reason'}: ${(selected as any).metadata.ai_handoff_reason}`
+                          : (t('inbox.needsHumanTip') || 'AI handed off — needs human')
                       }
                     >
-                      <AlertCircle className="w-3 h-3" /> Needs human
+                      <AlertCircle className="w-3.5 h-3.5" /> {t('inbox.needsHuman') || 'Needs human'}
                     </Badge>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      className="h-8 px-3 text-[11.5px] font-semibold"
                       onClick={async () => {
                         if (!workspace?.id || !selectedId) return;
                         try {
                           await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
-                          toast({ title: 'Conversation taken over', description: 'Assigned to you.' });
+                          toast({ title: t('inbox.takenOverTitle') || 'Conversation taken over', description: t('inbox.takenOverDesc') || 'Assigned to you.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                         } catch (e: any) {
-                          toast({ title: 'Take-over failed', description: e?.message || 'unknown', variant: 'destructive' });
+                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
                         }
                       }}
                     >
-                      <UserCheck className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
-                      Take over
+                      <UserCheck className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      {t('inbox.takeOver') || 'Take over'}
                     </Button>
                   </>
                 )}
                 {(selected as any)?.metadata?.ai_state === 'human_active' && (
-                  <Badge variant="outline" className="text-[10px] gap-1">
-                    <UserCheck className="w-3 h-3" /> Human active
+                  <Badge variant="outline" className="text-[11px] gap-1">
+                    <UserCheck className="w-3.5 h-3.5" /> {t('inbox.humanActive') || 'Human active'}
                   </Badge>
                 )}
                 {(selected as any)?.is_spam ? (
                   <>
                     <Badge
                       variant="outline"
-                      className="text-[10px] gap-1 border-warning/40 text-warning bg-warning/10"
-                      title="This conversation is marked as spam — AI will not auto-reply."
+                      className="text-[11px] gap-1 border-warning/40 text-warning bg-warning/10"
+                      title={t('inbox.spamTip') || 'This conversation is marked as spam.'}
                     >
-                      <Ban className="w-3 h-3" /> Spam
+                      <Ban className="w-3.5 h-3.5" /> {t('inbox.spam') || 'Spam'}
                     </Badge>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      className="h-8 px-3 text-[11.5px] font-semibold"
                       onClick={async () => {
                         if (!workspace?.id || !selectedId) return;
                         try {
@@ -1394,22 +1388,22 @@ export default function InboxPage() {
                             workspace_id: workspace.id,
                             conversation_id: selectedId,
                           });
-                          toast({ title: 'Removed from spam' });
+                          toast({ title: t('inbox.removedFromSpam') || 'Removed from spam' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                         } catch (e: any) {
-                          toast({ title: 'Action failed', description: e?.message || 'unknown', variant: 'destructive' });
+                          toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
                         }
                       }}
                     >
-                      <ShieldOff className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
-                      Not spam
+                      <ShieldOff className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      {t('inbox.notSpam') || 'Not spam'}
                     </Button>
                   </>
                 ) : (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 px-2.5 text-[10px] font-semibold text-muted-foreground hover:text-warning hover:border-warning/40"
+                    className="h-8 px-3 text-[11.5px] font-semibold text-muted-foreground hover:text-warning hover:border-warning/40"
                     onClick={async () => {
                       if (!workspace?.id || !selectedId) return;
                       try {
@@ -1418,21 +1412,18 @@ export default function InboxPage() {
                           conversation_id: selectedId,
                         });
                         toast({
-                          title: 'Marked as spam',
-                          description:
-                            r.conversation_ids.length > 1
-                              ? `${r.conversation_ids.length} conversations from this contact moved to Spam.`
-                              : 'Conversation moved to Spam. AI will not auto-reply.',
+                          title: t('inbox.markedSpamTitle') || 'Marked as spam',
+                          description: t('inbox.markedSpamDesc') || 'Conversation moved to Spam.',
                         });
                         qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                       } catch (e: any) {
-                        toast({ title: 'Action failed', description: e?.message || 'unknown', variant: 'destructive' });
+                        toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
                       }
                     }}
-                    title="Mark as spam (does not block the visitor)"
+                    title={t('inbox.markSpamTip') || 'Mark as spam'}
                   >
-                    <Ban className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
-                    Mark as spam
+                    <Ban className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                    {t('inbox.markSpam') || 'Mark as spam'}
                   </Button>
                 )}
                 {selected.status === 'open' && (
@@ -1440,28 +1431,30 @@ export default function InboxPage() {
                     size="sm"
                     variant="outline"
                     onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
-                    className="h-7 px-2.5 text-[10px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
+                    className="h-8 px-3 text-[11.5px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
                   >
-                    <CheckCircle2 className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                    <CheckCircle2 className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
                     {t('inbox.resolve') || 'Resolve'}
                   </Button>
                 )}
                 {selected.status === 'resolved' && (
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'open' })}>
+                  <Button size="sm" variant="outline" className="h-8 px-3 text-[11.5px] font-semibold" onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'open' })}>
                     {t('inbox.reopen') || 'Reopen'}
                   </Button>
                 )}
                 <button
+                  aria-label={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}
+                  title={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}
                   onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(!showSidebar)}
                   className={cn(
-                    'p-1.5 rounded-md transition-colors',
+                    'p-2 rounded-md transition-colors',
                     showSidebar ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                   )}
                 >
-                  <Eye className="w-3.5 h-3.5" />
+                  <Eye className="w-4 h-4" />
                 </button>
-                <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
-                  <MoreHorizontal className="w-3.5 h-3.5" />
+                <button className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+                  <MoreHorizontal className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -1469,27 +1462,27 @@ export default function InboxPage() {
             {/* ── Chat Header — Mobile ── */}
             <div className="md:hidden flex items-center gap-2 px-2 py-2 bg-card/60 border-b border-border/50 shrink-0">
               <button
-                aria-label="Back to conversations"
+                aria-label={t('inbox.back') || 'Back to conversations'}
                 onClick={() => { setSelectedId(null); setShowMobileList(true); }}
                 className="p-2 -m-1 rounded-xl hover:bg-secondary text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {dir === 'rtl' ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
               </button>
-              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
                 {selected.contacts?.avatar_url ? (
                   <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
                 ) : (
-                <span className="text-sm font-semibold text-primary">
+                <span className="text-sm font-bold text-primary">
                   {getInitials(selected.contacts?.name, selected.contacts?.email)}
                 </span>
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-bold text-foreground truncate">
+                <div className="text-[14px] font-bold text-foreground truncate">
                   {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
                 </div>
-                <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                  <span className={cn('px-1.5 py-0.5 rounded-full text-[9px] font-medium border', statusColors[selected.status ?? 'open'])}>
+                <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <span className={cn('px-1.5 py-0.5 rounded-full text-[10.5px] font-medium border', statusColors[selected.status ?? 'open'])}>
                     {statusLabels[selected.status ?? 'open']}
                   </span>
                 </div>
@@ -1505,7 +1498,7 @@ export default function InboxPage() {
                   </button>
                 )}
                 <button
-                  aria-label={showSidebar ? 'Hide details' : 'Show details'}
+                  aria-label={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}
                   aria-expanded={showSidebar}
                   onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(!showSidebar)}
                   className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -1601,7 +1594,7 @@ export default function InboxPage() {
                   {showDaySeparator && (
                     <div className="flex items-center gap-3 my-3">
                       <div className="h-px flex-1 bg-border/70" />
-                      <span className="text-[10px] font-medium text-muted-foreground px-2 py-0.5 rounded-full bg-muted/60 border border-border/50">
+                      <span className="text-[11px] font-medium text-muted-foreground px-2.5 py-0.5 rounded-full bg-muted/60 border border-border/50">
                         {dayLabel}
                       </span>
                       <div className="h-px flex-1 bg-border/70" />
@@ -1618,7 +1611,7 @@ export default function InboxPage() {
                     {showAvatar ? (
                       isAgent ? (
                         <div className={cn(
-                          'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1 overflow-hidden text-[11px] font-semibold',
+                          'w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1 overflow-hidden text-[12px] font-bold',
                           isAi
                             ? 'bg-accent/30 text-accent-foreground ring-accent/40'
                             : 'bg-primary/15 text-primary ring-primary/20',
@@ -1628,36 +1621,36 @@ export default function InboxPage() {
                           {!isAi && senderAvatar ? (
                             <img src={senderAvatar} alt={agentLabel} className="w-full h-full object-cover" />
                           ) : isAi ? (
-                            <Bot className="w-4 h-4" />
+                            <Bot className="w-[18px] h-[18px]" />
                           ) : senderName ? (
                             <span>{getInitials(senderName)}</span>
                           ) : (
-                            <User className="w-4 h-4" />
+                            <User className="w-[18px] h-[18px]" />
                           )}
                         </div>
                       ) : (
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
                           {selected?.contacts?.avatar_url ? (
                             <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
                           ) : (
-                            <User className="w-4 h-4" />
+                            <User className="w-[18px] h-[18px]" />
                           )}
                         </div>
                       )
                     ) : (
-                      <div className="w-8 shrink-0" aria-hidden />
+                      <div className="w-9 shrink-0" aria-hidden />
                     )}
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
                       {showMeta && (
-                        <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1.5">
+                        <div className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1.5">
                           <span className="font-medium">
                             {isAgent
                               ? agentLabel
                               : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
                           </span>
                           {isAi && (
-                            <span className="px-1 py-px rounded bg-accent/40 text-accent-foreground text-[9px] font-semibold uppercase tracking-wide">
-                              AUTO
+                            <span className="px-1.5 py-px rounded bg-accent/40 text-accent-foreground text-[10px] font-semibold uppercase tracking-wide">
+                              {t('inbox.auto') || 'AUTO'}
                             </span>
                           )}
                           <span className="opacity-30">•</span>
@@ -1665,7 +1658,7 @@ export default function InboxPage() {
                         </div>
                       )}
                       <div className={cn(
-                        'rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-sm',
+                        'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent
                           ? 'bg-primary text-primary-foreground rounded-ee-sm'
                           : 'bg-secondary text-foreground rounded-es-sm'
@@ -1689,8 +1682,8 @@ export default function InboxPage() {
                           <Copy className="w-3 h-3" />
                         </button>
                         {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
-                          <span className="text-[10px] text-primary/70 font-medium flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> {t('inbox.seen') || 'Seen'}
+                          <span className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
                           </span>
                         )}
                       </div>
@@ -1855,8 +1848,8 @@ export default function InboxPage() {
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
                   )}
-                  title="Canned responses (type / for shortcut)"
-                  aria-label="Canned responses"
+                  title={t('inbox.cannedResponsesTip') || 'Canned responses'}
+                  aria-label={t('inbox.cannedResponses') || 'Canned responses'}
                 >
                   <Sparkles className="w-4 h-4" />
                 </button>
@@ -1931,7 +1924,7 @@ export default function InboxPage() {
           {/* Mobile/tablet backdrop — only below lg */}
           <button
             type="button"
-            aria-label="Close panel"
+            aria-label={t('inbox.closePanel') || 'Close panel'}
             onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
@@ -1964,13 +1957,13 @@ export default function InboxPage() {
                 key={tab.id}
                 onClick={() => setSidebarTab(tab.id)}
                 className={cn(
-                  'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold transition-all border-b-2',
+                  'flex-1 flex items-center justify-center gap-1.5 py-3 text-[12.5px] font-semibold transition-all border-b-2',
                   sidebarTab === tab.id
                     ? 'border-primary text-primary bg-primary/5'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
               >
-                <tab.icon className="w-3.5 h-3.5" />
+                <tab.icon className="w-4 h-4" />
                 {tab.label}
               </button>
             ))}
@@ -1983,7 +1976,7 @@ export default function InboxPage() {
                 <div className="rounded-xl bg-gradient-to-b from-primary/5 to-transparent border border-border/50 p-4">
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
-                      <div className="w-12 h-12 rounded-xl bg-secondary ring-2 ring-primary/20 flex items-center justify-center text-sm font-bold text-secondary-foreground overflow-hidden">
+                      <div className="w-14 h-14 rounded-2xl bg-secondary ring-2 ring-primary/20 flex items-center justify-center text-base font-bold text-secondary-foreground overflow-hidden">
                         {selected.contacts?.avatar_url ? (
                           <img src={selected.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
                         ) : (
@@ -1991,16 +1984,16 @@ export default function InboxPage() {
                         )}
                       </div>
                       <div className={cn(
-                        'absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full border-2 border-card',
+                        'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                         statusDots[selected.status ?? 'open']
                       )} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-sm font-bold text-foreground truncate">
+                      <h3 className="text-[15px] font-bold text-foreground truncate">
                         {selected.contacts?.name || `#${selectedId?.slice(0, 8)}`}
                       </h3>
                       <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                        <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>
+                        <span className={cn('text-[11px] px-2 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>
                           {statusLabels[selected.status ?? 'open']}
                         </span>
                       </div>
@@ -2012,13 +2005,13 @@ export default function InboxPage() {
                 <div className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">
                   {selected.contacts?.email && (
                     <div className="flex items-center gap-2.5 px-3 py-2.5 group/row hover:bg-secondary/20">
-                      <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
-                      <span className="text-[11px] text-foreground truncate flex-1 font-medium" dir="ltr">{selected.contacts.email}</span>
+                      <Mail className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-[12.5px] text-foreground truncate flex-1 font-medium" dir="ltr">{selected.contacts.email}</span>
                       <button
-                        onClick={() => { navigator.clipboard.writeText(selected.contacts?.email || ''); toast({ title: 'Copied!' }); }}
+                        onClick={() => { navigator.clipboard.writeText(selected.contacts?.email || ''); toast({ title: t('inbox.copiedShort') || 'Copied!' }); }}
                         className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-foreground"
                       >
-                        <Copy className="w-3 h-3" />
+                        <Copy className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
@@ -2028,12 +2021,12 @@ export default function InboxPage() {
                 <div className="rounded-xl border border-border/50 bg-card/60 p-2.5">
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
-                      <div className="text-base font-extrabold text-foreground">{rawMessages?.length || 0}</div>
-                      <div className="text-[9px] text-muted-foreground">{t('inbox.messages') || 'Messages'}</div>
+                      <div className="text-lg font-extrabold text-foreground tabular-nums">{rawMessages?.length || 0}</div>
+                      <div className="text-[11px] text-muted-foreground">{t('inbox.messages') || 'Messages'}</div>
                     </div>
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
-                      <div className="text-xs font-extrabold text-foreground">{selected.created_at ? timeAgo(selected.created_at) : '—'}</div>
-                      <div className="text-[9px] text-muted-foreground">{t('inbox.duration') || 'Duration'}</div>
+                      <div className="text-[13px] font-extrabold text-foreground">{selected.created_at ? timeAgo(selected.created_at) : '—'}</div>
+                      <div className="text-[11px] text-muted-foreground">{t('inbox.duration') || 'Duration'}</div>
                     </div>
                   </div>
                 </div>
@@ -2069,10 +2062,10 @@ export default function InboxPage() {
                   dir={dir}
                 />
                 <div className="rounded-xl border border-border/50 bg-card/60 px-3 py-2 flex items-center justify-between">
-                  <span className="text-[11px] text-muted-foreground">{t('inbox.created') || 'Created'}</span>
-                  <span className="text-[11px] font-medium text-foreground" dir="ltr">
-                    {selected.created_at ? new Date(selected.created_at).toLocaleDateString() : '—'}
-                  </span>
+                  <span className="text-[12px] text-muted-foreground">{t('inbox.created') || 'Created'}</span>
+                  <bdi className="text-[12px] font-medium text-foreground">
+                    {selected.created_at ? formatLongDate(selected.created_at) : '—'}
+                  </bdi>
                 </div>
               </div>
             )}

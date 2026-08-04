@@ -346,6 +346,7 @@ adminRouter.delete('/users/:userId/avatar', async (req, res) => {
 });
 
 // ─── Sent messages (emails + SMS) for a user ─────────────────────
+
 // Emails come from `email_logs` (matched on the profile's email address),
 // SMS from `phone_verification_challenges` (delivery metadata only — the
 // code digest and full number are never returned).

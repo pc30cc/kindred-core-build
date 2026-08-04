@@ -776,30 +776,31 @@ export default function InboxPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Inbox className="w-[18px] h-[18px] text-primary" />
-              <h2 className="text-[0.9rem] font-bold text-foreground">{t('inbox.title') || 'Inbox'}</h2>
-              <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold">
+              <h2 className="text-[15px] font-bold text-foreground">{t('inbox.title') || 'Inbox'}</h2>
+              <span className="text-[11px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
                 {conversations?.length || 0}
               </span>
               {totalUnread > 0 && (
                 <span
-                  className="text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold shadow-sm animate-fade-in"
-                  title={`${totalUnread} unread`}
+                  className="text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold shadow-sm animate-fade-in"
+                  title={`${totalUnread} ${t('inbox.unread') || 'Unread'}`}
                 >
-                  {totalUnread > 99 ? '99+' : totalUnread} new
+                  {totalUnread > 99 ? '99+' : totalUnread} {t('inbox.newBadge') || 'new'}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-1">
               <button
-                aria-label="Refresh"
+                aria-label={t('inbox.refresh') || 'Refresh'}
+                title={t('inbox.refresh') || 'Refresh'}
                 onClick={() => qc.invalidateQueries({ queryKey: ['conversations'] })}
                 className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-4 h-4" />
               </button>
               <button
-                aria-label={soundOn ? 'Mute message sound' : 'Unmute message sound'}
-                title={soundOn ? 'Mute message sound' : 'Unmute message sound'}
+                aria-label={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
+                title={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
                 onClick={() => {
                   const next = !soundOn;
                   setOperatorMessageSoundEnabled(next);
@@ -810,41 +811,43 @@ export default function InboxPage() {
                   soundOn ? 'text-muted-foreground hover:text-foreground' : 'text-destructive hover:text-destructive'
                 )}
               >
-                {soundOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               </button>
               <button
-                aria-label="New conversation"
+                aria-label={t('inbox.newConversation') || 'New conversation'}
+                title={t('inbox.newConversation') || 'New conversation'}
                 className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
               </button>
               {isGlobalAdmin && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button
-                    title="Delete all conversations"
+                    title={t('inbox.deleteAllTip') || 'Delete all conversations'}
+                    aria-label={t('inbox.deleteAllTip') || 'Delete all conversations'}
                     disabled={!conversations?.length || deleteAll.isPending}
-                    className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="p-2 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {deleteAll.isPending
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Trash2 className="w-3.5 h-3.5" />}
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Trash2 className="w-4 h-4" />}
                   </button>
                 </AlertDialogTrigger>
-                <AlertDialogContent>
+                <AlertDialogContent dir={dir}>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Delete all conversations?</AlertDialogTitle>
+                    <AlertDialogTitle>{t('inbox.deleteAllTitle') || 'Delete all conversations?'}</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will permanently delete <strong>all {conversations?.length || 0} conversation(s)</strong> and their messages for this workspace. This action cannot be undone.
+                      {(t('inbox.deleteAllDesc') || 'This will permanently delete all {{count}} conversation(s).').replace('{{count}}', String(conversations?.length || 0))}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel>{t('inbox.cancel') || 'Cancel'}</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={handleDeleteAll}
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                      Delete all
+                      {t('inbox.deleteAllConfirm') || 'Delete all'}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -860,7 +863,7 @@ export default function InboxPage() {
               placeholder={t('inbox.search') || 'Search conversations...'}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className={cn('h-8 text-xs bg-secondary/50 border-transparent focus:border-primary/30', dir === 'rtl' ? 'pr-8' : 'pl-8')}
+              className={cn('h-9 text-[13px] bg-secondary/50 border-transparent focus:border-primary/30', dir === 'rtl' ? 'pr-8' : 'pl-8')}
               dir={dir}
             />
           </div>
@@ -871,17 +874,17 @@ export default function InboxPage() {
               {queue === 'automated' ? (
                 <>
                   <Bot className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-[11px] font-semibold text-foreground">Automated</span>
-                  <span className="text-[10px] text-muted-foreground">AI-managed conversations</span>
+                  <span className="text-[12px] font-semibold text-foreground">{t('inbox.automatedInbox') || 'Automated'}</span>
+                  <span className="text-[11px] text-muted-foreground truncate">{t('inbox.automatedDesc') || 'AI-managed conversations'}</span>
                 </>
               ) : (
                 <>
                   <Ban className="w-3.5 h-3.5 text-warning" />
-                  <span className="text-[11px] font-semibold text-foreground">Spam</span>
-                  <span className="text-[10px] text-muted-foreground">Quarantined conversations</span>
+                  <span className="text-[12px] font-semibold text-foreground">{t('inbox.spamInbox') || 'Spam'}</span>
+                  <span className="text-[11px] text-muted-foreground truncate">{t('inbox.spamDesc') || 'Quarantined conversations'}</span>
                 </>
               )}
-              <span className="ms-auto text-[10px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">
+              <span className="ms-auto text-[11px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">
                 {conversations?.length || 0}
               </span>
             </div>

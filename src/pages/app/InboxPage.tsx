@@ -1645,6 +1645,7 @@ export default function InboxPage() {
                     </div>
                   )}
                   <div
+                    dir="ltr"
                     className={cn(
                       'flex gap-2.5 group',
                       isAgent ? 'flex-row-reverse' : 'flex-row',
@@ -1705,11 +1706,11 @@ export default function InboxPage() {
                           <bdi title={formatDateTime(msg.created_at)}>{formatTime(msg.created_at)}</bdi>
                         </div>
                       )}
-                      <div className={cn(
+                      <div dir={dir} className={cn(
                         'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent
-                          ? 'bg-primary text-primary-foreground rounded-ee-sm'
-                          : 'bg-secondary text-foreground rounded-es-sm'
+                          ? 'bg-primary text-primary-foreground rounded-br-sm'
+                          : 'bg-secondary text-foreground rounded-bl-sm'
                       )}>
                         {(msg as { attachment?: MessageAttachment | null }).attachment && (
                           <MessageAttachmentView att={(msg as { attachment: MessageAttachment }).attachment} t={t} />

@@ -237,8 +237,8 @@ export default function AvailabilityPage() {
   const num = (n: number) => new Intl.NumberFormat(locale).format(n);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['availability'],
-    queryFn: fetchAvailability,
+    queryKey: ['availability', locale],
+    queryFn: () => fetchAvailability(locale),
   });
 
   const [prefs, setPrefs] = useState<AvailabilityPrefs | null>(null);
@@ -251,7 +251,7 @@ export default function AvailabilityPage() {
   const mutation = useMutation({
     mutationFn: updateAvailability,
     onSuccess: (resp: AvailabilityResponse) => {
-      qc.setQueryData(['availability'], resp);
+      qc.setQueryData(['availability', locale], resp);
       setPrefs(resp.prefs);
       setSavingKey(null);
       // Invalidate workspace-wide team presence so the dot in Team

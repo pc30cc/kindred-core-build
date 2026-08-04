@@ -56,8 +56,13 @@ export interface AvailabilityResponse {
   status: LiveStatus;
 }
 
-export function fetchAvailability() {
-  return request<AvailabilityResponse>('/api/availability');
+/**
+ * `locale` lets the server pick a sensible default timezone for operators who
+ * have never saved one (fa → Asia/Tehran, tr → Europe/Istanbul, else UTC).
+ */
+export function fetchAvailability(locale?: string) {
+  const qs = locale ? `?locale=${encodeURIComponent(locale)}` : '';
+  return request<AvailabilityResponse>(`/api/availability${qs}`);
 }
 
 export function updateAvailability(updates: Partial<AvailabilityPrefs>) {

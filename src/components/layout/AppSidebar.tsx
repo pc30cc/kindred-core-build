@@ -125,7 +125,7 @@ export function AppSidebar() {
   const queryClient = useQueryClient();
   const { data: availability } = useQuery({
     queryKey: ['availability', 'me'],
-    queryFn: fetchAvailability,
+    queryFn: () => fetchAvailability(),
     enabled: !!user,
     staleTime: 30_000,
   });

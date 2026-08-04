@@ -47,9 +47,24 @@ const DEFAULT_WEEKLY = {
   wed: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
   thu: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
   fri: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
-  sat: { enabled: true, intervals: [] as Array<{ from: string; to: string }> },
-  sun: { enabled: false, intervals: [] as Array<{ from: string; to: string }> },
+  sat: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
+  sun: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
 };
+
+/**
+ * Default timezone per UI locale. Persian operators default to Tehran,
+ * Turkish to Istanbul; everyone else falls back to UTC.
+ */
+const LOCALE_TIMEZONES: Record<string, string> = {
+  fa: 'Asia/Tehran',
+  tr: 'Europe/Istanbul',
+  en: 'UTC',
+};
+
+function defaultTimezone(locale?: unknown): string {
+  const key = typeof locale === 'string' ? locale.slice(0, 2).toLowerCase() : '';
+  return LOCALE_TIMEZONES[key] || 'UTC';
+}
 
 const DEFAULTS = {
   force_offline: false,
@@ -129,7 +144,7 @@ function computeLiveStatus(prefs: typeof DEFAULTS): { state: 'online' | 'offline
     : { state: 'offline', reason: 'outside_schedule' };
 }
 
-function mergeWithDefaults(row: any) {
+function mergeWithDefaults(row: any, locale?: unknown) {
   const weekly = (row?.weekly_schedule && typeof row.weekly_schedule === 'object')
     ? { ...DEFAULT_WEEKLY, ...row.weekly_schedule }
     : DEFAULT_WEEKLY;
@@ -137,7 +152,9 @@ function mergeWithDefaults(row: any) {
     force_offline: !!row?.force_offline,
     available_when_using_app: row?.available_when_using_app ?? true,
     schedule_enabled: !!row?.schedule_enabled,
-    timezone: typeof row?.timezone === 'string' && row.timezone ? row.timezone : 'UTC',
+    timezone: typeof row?.timezone === 'string' && row.timezone
+      ? row.timezone
+      : defaultTimezone(locale),
     weekly_schedule: weekly,
   };
 }
@@ -157,7 +174,7 @@ availabilityRouter.get('/', async (req, res) => {
       .maybeSingle();
 
     if (error) return res.status(500).json({ error: error.message });
-    const prefs = mergeWithDefaults(data);
+    const prefs = mergeWithDefaults(data, req.query?.locale);
     const status = computeLiveStatus(prefs);
     return res.json({ prefs, status });
   } catch (err: any) {

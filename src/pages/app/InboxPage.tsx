@@ -789,6 +789,31 @@ export default function InboxPage() {
   const { data: tabCounts } = useInboxTabCounts(workspace?.id);
   const stableCounts: Record<string, number> = tabCounts ?? {};
 
+  /* Live tabs: when a tab's counter grows (new conversation/message landed in
+     that bucket) its dot blinks green until the operator opens that tab. */
+  const prevCountsRef = useRef<Record<string, number> | null>(null);
+  const [liveTabs, setLiveTabs] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!tabCounts) return;
+    const prev = prevCountsRef.current;
+    prevCountsRef.current = { ...tabCounts };
+    if (!prev) return;
+    const grown: Record<string, boolean> = {};
+    for (const key of Object.keys(tabCounts)) {
+      if ((tabCounts[key] ?? 0) > (prev[key] ?? 0)) grown[key] = true;
+    }
+    if (Object.keys(grown).length) setLiveTabs((s) => ({ ...s, ...grown }));
+  }, [tabCounts]);
+  // Opening a tab clears its "new activity" pulse.
+  useEffect(() => {
+    setLiveTabs((s) => (s[filter] ? { ...s, [filter]: false } : s));
+  }, [filter]);
+  useEffect(() => {
+    if (extraChip === 'needs_human') {
+      setLiveTabs((s) => (s.needs_human ? { ...s, needs_human: false } : s));
+    }
+  }, [extraChip]);
+
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {

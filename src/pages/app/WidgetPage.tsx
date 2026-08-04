@@ -18,13 +18,11 @@ import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { cn } from '@/lib/utils';
-import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
-import { useWorkspaceWidgetTemplates } from '@/hooks/useWorkspaceWidgetTemplates';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -48,7 +46,6 @@ function WidgetPageContent() {
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
-  const { data: availableTemplates } = useWorkspaceWidgetTemplates();
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');

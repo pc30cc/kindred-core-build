@@ -166,9 +166,25 @@ function conversationTitle(conv: any, t: (k: any) => string): string {
 type ExtraChip = 'needs_human' | 'assigned_to_me';
 type SidebarTab = 'info' | 'activity';
 
-/** Renders children into the app top bar slot when available. */
-function ToolbarPortal({ slot, children }: { slot: HTMLElement | null; children: React.ReactNode }) {
-  return slot ? createPortal(children, slot) : <>{children}</>;
+/**
+ * Renders children into the app top bar slot when available.
+ * The slot node is re-resolved whenever the DOM changes so the portal never
+ * points at a detached element (which silently hides the filter tabs after a
+ * navigation / re-render of the top bar).
+ */
+function ToolbarPortal({ children }: { children: React.ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const resolve = () => {
+      const el = document.getElementById('topbar-page-slot');
+      setSlot((prev) => (prev === el && el && el.isConnected ? prev : el));
+    };
+    resolve();
+    const mo = new MutationObserver(resolve);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
+  return slot && slot.isConnected ? createPortal(children, slot) : <>{children}</>;
 }
 
 export default function InboxPage() {
@@ -227,11 +243,6 @@ export default function InboxPage() {
     updateUrl({ filter: c });
   }, [updateUrl]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Toolbar slot in the app top bar — filter tabs are rendered up there.
-  const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    setTopbarSlot(document.getElementById('topbar-page-slot'));
-  }, []);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);
@@ -921,7 +932,7 @@ export default function InboxPage() {
             </div>
           ) : (
           /* Filter tabs (status + extra chips) — hosted in the app top bar */
-          <ToolbarPortal slot={topbarSlot}>
+          <ToolbarPortal>
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}

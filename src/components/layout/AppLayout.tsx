@@ -172,7 +172,7 @@ export function AppLayout() {
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />
           <DegradedModeBanner />
-          <main className="flex-1 overflow-y-auto">
+          <main className="flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5 lg:px-8">
             <Outlet />
           </main>
           {/* Verification notice sits at the BOTTOM so it never pushes the

@@ -159,7 +159,8 @@ export function AppLayout() {
   const { workspace, notFound, isLoading } = useActiveWorkspace();
   const showVerificationBanner = user && !user.emailVerified;
   // Inbox is a full-bleed workspace surface: no page gutters, no page scroll.
-  const isFullBleed = /\/inbox(\/|$)/.test(window.location.pathname);
+  const { pathname } = useLocation();
+  const isFullBleed = /\/inbox(\/|$)/.test(pathname);
 
   // Strict: if slug doesn't match any workspace, show 404
   if (!isLoading && notFound) {

@@ -75,21 +75,6 @@ export function AppTopBar() {
 
         <div className="flex-1" />
 
-        {/* Plan / trial badge */}
-        {planName ? (
-          <Link
-            to={wsPath('/billing')}
-            className="hidden items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition-colors hover:bg-primary/10 lg:flex"
-          >
-            <span className="max-w-[120px] truncate">{planName}</span>
-            {trialDaysLeft !== null && (
-              <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold">
-                {trialDaysLeft} {t('common.days') || ''}
-              </span>
-            )}
-          </Link>
-        ) : null}
-
         {/* Global quick search — opens the Cmd/Ctrl+K palette */}
         <button
           type="button"

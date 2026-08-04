@@ -432,16 +432,18 @@ export function AppSidebar() {
           <Link
             key={item.key}
             to={wsPath(item.path)}
+            title={t(`nav.${item.key}` as any)}
             className={cn(
               'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+              collapsed && 'justify-center px-0'
             )}
           >
             <item.icon className="h-[18px] w-[18px] shrink-0" />
-            <span className="flex-1">{t(`nav.${item.key}` as any)}</span>
-            {item.locked && (
+            {!collapsed && <span className="flex-1">{t(`nav.${item.key}` as any)}</span>}
+            {item.locked && !collapsed && (
               <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
             )}
           </Link>
@@ -454,25 +456,35 @@ export function AppSidebar() {
           <Link
             key={item.key}
             to={item.path === '#' ? '#' : wsPath(item.path)}
+            title={t(`nav.${item.key}` as any)}
+            onClick={item.key === 'search' ? (e) => {
+              e.preventDefault();
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
+            } : undefined}
             className={cn(
               'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+              collapsed && 'justify-center px-0'
             )}
           >
             <item.icon className="h-[18px] w-[18px] shrink-0" />
-            <span>{t(`nav.${item.key}` as any)}</span>
+            {!collapsed && <span>{t(`nav.${item.key}` as any)}</span>}
           </Link>
         ))}
 
         {isAdmin && (
           <Link
             to="/admin"
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-all"
+            title="Super Admin"
+            className={cn(
+              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
+              collapsed && 'justify-center px-0'
+            )}
           >
             <Shield className="h-[18px] w-[18px] shrink-0" />
-            <span>Super Admin</span>
+            {!collapsed && <span>Super Admin</span>}
           </Link>
         )}
       </div>

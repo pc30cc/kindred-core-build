@@ -37,7 +37,6 @@ const settingsGroupsDef: SettingsGroup[] = [
     items: [
       { key: 'general', labelKey: 'general', subPath: '/settings/general' },
       { key: 'integrations', labelKey: 'integrations', subPath: '/settings/integrations' },
-      { key: 'branding', labelKey: 'branding', subPath: '/settings/branding' },
       { key: 'domains', labelKey: 'domains', subPath: '/settings/domains' },
       { key: 'privacyRequests', labelKey: 'privacyRequests', subPath: '/settings/privacy-requests' },
     ],

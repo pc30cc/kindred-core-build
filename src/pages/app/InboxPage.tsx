@@ -1924,7 +1924,7 @@ export default function InboxPage() {
           {/* Mobile/tablet backdrop — only below lg */}
           <button
             type="button"
-            aria-label="Close panel"
+            aria-label={t('inbox.closePanel') || 'Close panel'}
             onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
@@ -1957,13 +1957,13 @@ export default function InboxPage() {
                 key={tab.id}
                 onClick={() => setSidebarTab(tab.id)}
                 className={cn(
-                  'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold transition-all border-b-2',
+                  'flex-1 flex items-center justify-center gap-1.5 py-3 text-[12.5px] font-semibold transition-all border-b-2',
                   sidebarTab === tab.id
                     ? 'border-primary text-primary bg-primary/5'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
               >
-                <tab.icon className="w-3.5 h-3.5" />
+                <tab.icon className="w-4 h-4" />
                 {tab.label}
               </button>
             ))}
@@ -1976,7 +1976,7 @@ export default function InboxPage() {
                 <div className="rounded-xl bg-gradient-to-b from-primary/5 to-transparent border border-border/50 p-4">
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
-                      <div className="w-12 h-12 rounded-xl bg-secondary ring-2 ring-primary/20 flex items-center justify-center text-sm font-bold text-secondary-foreground overflow-hidden">
+                      <div className="w-14 h-14 rounded-2xl bg-secondary ring-2 ring-primary/20 flex items-center justify-center text-base font-bold text-secondary-foreground overflow-hidden">
                         {selected.contacts?.avatar_url ? (
                           <img src={selected.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
                         ) : (
@@ -1984,16 +1984,16 @@ export default function InboxPage() {
                         )}
                       </div>
                       <div className={cn(
-                        'absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full border-2 border-card',
+                        'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                         statusDots[selected.status ?? 'open']
                       )} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-sm font-bold text-foreground truncate">
+                      <h3 className="text-[15px] font-bold text-foreground truncate">
                         {selected.contacts?.name || `#${selectedId?.slice(0, 8)}`}
                       </h3>
                       <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                        <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>
+                        <span className={cn('text-[11px] px-2 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>
                           {statusLabels[selected.status ?? 'open']}
                         </span>
                       </div>
@@ -2005,13 +2005,13 @@ export default function InboxPage() {
                 <div className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">
                   {selected.contacts?.email && (
                     <div className="flex items-center gap-2.5 px-3 py-2.5 group/row hover:bg-secondary/20">
-                      <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
-                      <span className="text-[11px] text-foreground truncate flex-1 font-medium" dir="ltr">{selected.contacts.email}</span>
+                      <Mail className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-[12.5px] text-foreground truncate flex-1 font-medium" dir="ltr">{selected.contacts.email}</span>
                       <button
-                        onClick={() => { navigator.clipboard.writeText(selected.contacts?.email || ''); toast({ title: 'Copied!' }); }}
+                        onClick={() => { navigator.clipboard.writeText(selected.contacts?.email || ''); toast({ title: t('inbox.copiedShort') || 'Copied!' }); }}
                         className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-foreground"
                       >
-                        <Copy className="w-3 h-3" />
+                        <Copy className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
@@ -2021,12 +2021,12 @@ export default function InboxPage() {
                 <div className="rounded-xl border border-border/50 bg-card/60 p-2.5">
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
-                      <div className="text-base font-extrabold text-foreground">{rawMessages?.length || 0}</div>
-                      <div className="text-[9px] text-muted-foreground">{t('inbox.messages') || 'Messages'}</div>
+                      <div className="text-lg font-extrabold text-foreground tabular-nums">{rawMessages?.length || 0}</div>
+                      <div className="text-[11px] text-muted-foreground">{t('inbox.messages') || 'Messages'}</div>
                     </div>
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
-                      <div className="text-xs font-extrabold text-foreground">{selected.created_at ? timeAgo(selected.created_at) : '—'}</div>
-                      <div className="text-[9px] text-muted-foreground">{t('inbox.duration') || 'Duration'}</div>
+                      <div className="text-[13px] font-extrabold text-foreground">{selected.created_at ? timeAgo(selected.created_at) : '—'}</div>
+                      <div className="text-[11px] text-muted-foreground">{t('inbox.duration') || 'Duration'}</div>
                     </div>
                   </div>
                 </div>
@@ -2062,10 +2062,10 @@ export default function InboxPage() {
                   dir={dir}
                 />
                 <div className="rounded-xl border border-border/50 bg-card/60 px-3 py-2 flex items-center justify-between">
-                  <span className="text-[11px] text-muted-foreground">{t('inbox.created') || 'Created'}</span>
-                  <span className="text-[11px] font-medium text-foreground" dir="ltr">
-                    {selected.created_at ? new Date(selected.created_at).toLocaleDateString() : '—'}
-                  </span>
+                  <span className="text-[12px] text-muted-foreground">{t('inbox.created') || 'Created'}</span>
+                  <bdi className="text-[12px] font-medium text-foreground">
+                    {selected.created_at ? formatLongDate(selected.created_at) : '—'}
+                  </bdi>
                 </div>
               </div>
             )}

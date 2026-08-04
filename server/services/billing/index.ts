@@ -93,7 +93,23 @@ export async function resolveBillingConfig(
   }
 
   const wsConfig = wsConfigs?.[0];
-  if (wsConfig) {
+
+  // 2. Check global default (app_runtime_config).
+  // Two historical shapes are supported:
+  //   key `default_billing_provider` → { provider_name, config }  (admin UI)
+  //   key `billing_default_provider` → { provider, ...config }    (legacy)
+  const { data: globalRows } = await supabase
+    .from('app_runtime_config')
+    .select('key, value, updated_at')
+    .in('key', ['default_billing_provider', 'billing_default_provider']);
+
+  const modernGlobalRow = (globalRows || []).find((r: { key: string }) => r.key === 'default_billing_provider');
+  const workspaceUpdatedAt = wsConfig?.updated_at ? Date.parse(wsConfig.updated_at) : 0;
+  const globalUpdatedAt = modernGlobalRow?.updated_at ? Date.parse(modernGlobalRow.updated_at) : 0;
+
+  // A newly saved platform default must replace a stale legacy workspace row.
+  // A workspace override saved afterwards still takes precedence as intended.
+  if (wsConfig && workspaceUpdatedAt >= globalUpdatedAt) {
     const handler = getProvider(wsConfig.provider_name);
     if (handler) {
       if ((wsConfigs?.length || 0) > 1) {
@@ -114,15 +130,6 @@ export async function resolveBillingConfig(
     }
   }
 
-  // 2. Check global default (app_runtime_config).
-  // Two historical shapes are supported:
-  //   key `default_billing_provider` → { provider_name, config }  (admin UI)
-  //   key `billing_default_provider` → { provider, ...config }    (legacy)
-  const { data: globalRows } = await supabase
-    .from('app_runtime_config')
-    .select('key, value')
-    .in('key', ['default_billing_provider', 'billing_default_provider']);
-
   for (const key of ['default_billing_provider', 'billing_default_provider']) {
     const row = (globalRows || []).find((r: { key: string }) => r.key === key);
     const value = row?.value as Record<string, unknown> | null | undefined;
@@ -138,6 +145,12 @@ export async function resolveBillingConfig(
       configKey: key,
     });
     return { provider: handler, config: { ...value, ...inner, provider: name } as BillingProviderConfig };
+  }
+
+  // Preserve an older workspace override when no usable global provider exists.
+  if (wsConfig) {
+    const handler = getProvider(wsConfig.provider_name);
+    if (handler) return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
   }
 
   return null;

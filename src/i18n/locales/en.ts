@@ -1139,6 +1139,11 @@ const en = {
     tipBody: 'If you see a device or location you do not recognize, revoke that session and change your password immediately.',
     loadError: 'Could not load security data',
     thisDevice: 'This device',
+    deviceDesktop: 'Desktop',
+    deviceMobile: 'Mobile',
+    deviceTablet: 'Tablet',
+    unknownBrowser: 'Unknown browser',
+    unknownOs: 'Unknown OS',
   },
   interface: {
     title: 'Interface',

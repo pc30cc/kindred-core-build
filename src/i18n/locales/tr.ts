@@ -1127,6 +1127,11 @@ const tr: TranslationKeys = {
     tipBody: 'Tanımadığınız bir cihaz veya konum görürseniz o oturumu iptal edin ve şifrenizi hemen değiştirin.',
     loadError: 'Güvenlik verileri yüklenemedi',
     thisDevice: 'Bu cihaz',
+    deviceTablet: 'Tablet',
+    deviceDesktop: 'Masaüstü',
+    deviceMobile: 'Mobil',
+    unknownBrowser: 'Bilinmeyen tarayıcı',
+    unknownOs: 'Bilinmeyen işletim sistemi',
   },
   interface: {
     title: 'Arayüz',

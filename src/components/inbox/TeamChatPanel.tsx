@@ -40,7 +40,7 @@ export default function TeamChatPanel() {
 
   const { data: dirData, isLoading } = useColleagues(workspace?.id);
   const { data: presence } = useTeamPresence(workspace?.id);
-  const pMap = useMemo(() => presenceMap(presence as any), [presence]);
+  const pMap = useMemo(() => presenceMap(presence?.presence), [presence]);
   const { data: threadData, isLoading: threadLoading } = useTeamThread(workspace?.id, peerId);
   const send = useSendTeamMessage(workspace?.id);
   const markRead = useMarkTeamThreadRead(workspace?.id);

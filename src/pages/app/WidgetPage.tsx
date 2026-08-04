@@ -261,6 +261,16 @@ function WidgetPageContent() {
 
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.inputPlaceholder')}</Label>
+                    <Input
+                      value={live?.placeholder_text || ''}
+                      onChange={e => setField('placeholder_text', e.target.value)}
+                      placeholder={t('widgetPage.preview.inputPlaceholder')}
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Select
                       value={live?.locale || 'en'}
                       onValueChange={v => setField('locale', v, 0)}

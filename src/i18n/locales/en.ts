@@ -1018,6 +1018,11 @@ const en = {
       operators: 'Operators',
     },
     state: { online: 'Online', offline: 'Offline' },
+    export: {
+      summary: 'Export CSV',
+      detailed: 'Detailed export',
+      one: 'Export this operator',
+    },
     col: {
       online: 'Online time',
       activeDays: 'Active days',

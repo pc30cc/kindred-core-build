@@ -1006,6 +1006,11 @@ const tr: TranslationKeys = {
       operators: 'Operatörler',
     },
     state: { online: 'Çevrimiçi', offline: 'Çevrimdışı' },
+    export: {
+      summary: 'CSV dışa aktar',
+      detailed: 'Ayrıntılı dışa aktarma',
+      one: 'Bu operatörü dışa aktar',
+    },
     col: {
       online: 'Çevrimiçi süre',
       activeDays: 'Aktif günler',

@@ -281,7 +281,7 @@ export default function InboxPage() {
 
   const { data: conversations, isLoading } = useConversations(
     workspace?.id,
-    filter === 'all' ? undefined : filter,
+    filter === 'all' ? undefined : filter === 'resolved' ? 'resolved,closed' : filter,
     queue,
     queue === 'main'
       ? {
@@ -968,8 +968,10 @@ export default function InboxPage() {
             aria-label={t('inbox.title') || 'Inbox'}
             className="flex h-full w-full items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
           >
-            {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
-              const count = stableCounts[s] || 0;
+            {(['open', 'pending', 'resolved', 'all'] as FilterStatus[]).map(s => {
+              const count = s === 'resolved'
+                ? (stableCounts.resolved || 0) + (stableCounts.closed || 0)
+                : stableCounts[s] || 0;
               const isActive = filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
               return (

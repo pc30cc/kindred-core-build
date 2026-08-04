@@ -245,6 +245,17 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     company_name: '',
     website_domain: '',
     preferred_locale: '',
+    phone: '',
+    phone_country: defaultPhoneCountry(),
+  });
+
+  const qc = useQueryClient();
+  const { locale: uiLocale } = useTranslation();
+
+  const { data: phoneState } = useQuery({
+    queryKey: ['admin-phone-verification', userId],
+    queryFn: () => adminGetUserPhoneVerification(userId),
+    enabled: !!userId,
   });
 
   const openEditDialog = () => {
@@ -255,6 +266,9 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       company_name: pr?.company_name || '',
       website_domain: pr?.website_domain || '',
       preferred_locale: pr?.preferred_locale || '',
+      phone: phoneState?.phone || '',
+      phone_country:
+        countryFromE164(phoneState?.phone) || phoneState?.country || defaultPhoneCountry(uiLocale),
     });
     setEditDialog(true);
   };

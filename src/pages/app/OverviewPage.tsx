@@ -10,6 +10,7 @@ import { useKBArticles } from '@/hooks/useKnowledgeBase';
 import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspacePlan } from '@/hooks/usePlans';
+import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
@@ -157,10 +158,11 @@ export default function OverviewPage() {
         <div className="pointer-events-none absolute bottom-[-6rem] start-1/3 h-48 w-48 rounded-full bg-info/10 blur-3xl" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur">
-              {new Date().toLocaleDateString(undefined, {
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-              })}
+            <div
+              dir={dir}
+              className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur"
+            >
+              <bdi>{formatLongDate(new Date())}</bdi>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               {greeting}{userName ? `، ${userName}` : ''}

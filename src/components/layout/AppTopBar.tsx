@@ -211,22 +211,6 @@ export function AppTopBar() {
             <TooltipContent side="bottom">{t('nav.getHelp') || 'Help'}</TooltipContent>
           </Tooltip>
 
-          <span className="mx-1 hidden h-5 w-px bg-border/70 sm:block" />
-
-          <Link
-            to={wsPath('/settings/profile')}
-            className="flex items-center gap-2 rounded-full border border-border/60 bg-card/60 py-1 ps-1 pe-3 shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/60"
-          >
-            <Avatar className="h-7 w-7 ring-2 ring-primary/15">
-              {avatarUrl ? <AvatarImage src={avatarUrl} alt={userName} /> : null}
-              <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
-                {userName.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span className="hidden max-w-[140px] truncate text-xs font-medium text-foreground md:block">
-              {userName}
-            </span>
-          </Link>
         </div>
       </header>
     </TooltipProvider>

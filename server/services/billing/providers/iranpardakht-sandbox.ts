@@ -60,6 +60,15 @@ function token(config: BillingProviderConfig): string {
   const t = typeof config.api_token === 'string' ? config.api_token.trim()
     : typeof config.api_key === 'string' ? (config.api_key as string).trim() : '';
   if (!t) throw new Error('IranPardakht sandbox: API token (idg_test_...) is not configured');
+  // HTTP headers are ByteStrings: any non-ASCII char (e.g. a masked "••••"
+  // placeholder accidentally saved from the admin UI, or RTL/zero-width chars
+  // pasted with the token) would throw a cryptic ByteString conversion error.
+  if (!/^[\x21-\x7E]+$/.test(t)) {
+    throw new Error(
+      'IranPardakht sandbox: the saved API token contains invalid (non-ASCII or masked) characters. ' +
+      'Re-enter the full sandbox token (idg_test_...) in provider settings.',
+    );
+  }
   return t;
 }
 
@@ -68,7 +77,7 @@ function headers(config: BillingProviderConfig, idempotencyKey: string): Record<
     Authorization: `Bearer ${token(config)}`,
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    'Idempotency-Key': idempotencyKey,
+    'Idempotency-Key': idempotencyKey.replace(/[^\x21-\x7E]/g, '') || `idem-${Date.now()}`,
   };
 }
 

@@ -217,6 +217,16 @@ export function billingError(locale: BillingLocale, message?: unknown): string {
   const lower = raw.toLowerCase();
   const hit = ERROR_MAP[lower];
   if (hit) return hit[locale] ?? hit.en;
+  // Invalid credentials characters (masked placeholder / non-ASCII token) —
+  // surfaces from fetch as a ByteString conversion error.
+  if (lower.includes('bytestring') || lower.includes('non-ascii') ||
+      lower.includes('masked) characters') || lower.includes('invalid (non-ascii')) {
+    return locale === 'fa'
+      ? 'کلید/توکن درگاه پرداخت نامعتبر است (کاراکترهای مخفی یا غیرانگلیسی در آن ذخیره شده). لطفاً توکن کامل را دوباره در تنظیمات ارائه‌دهنده وارد و ذخیره کنید.'
+      : locale === 'tr'
+        ? 'Ödeme sağlayıcı anahtarı geçersiz (maskelenmiş veya ASCII olmayan karakterler içeriyor). Lütfen tam token’ı sağlayıcı ayarlarında yeniden girin.'
+        : 'The payment gateway token is invalid (it contains masked or non-ASCII characters). Re-enter the full token in provider settings.';
+  }
   // Network / gateway unreachable (server could not reach the payment provider)
   if (lower.includes('fetch failed') || lower.includes('timeout') || lower.includes('etimedout') ||
       lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network') ||

@@ -262,6 +262,7 @@ const fa: TranslationKeys = {
     availability: 'تنظیمات دسترسی',
     userProfile: 'پروفایل کاربری',
     manageAccount: 'مدیریت حساب کاربری',
+    sessions: 'نشست‌ها و امنیت',
     workspaceSettings: 'تنظیمات فضای کاری',
     inviteOperator: 'دعوت از اپراتور',
     getHelp: 'دریافت کمک',

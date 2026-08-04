@@ -260,6 +260,7 @@ const en = {
     availability: 'Availability settings',
     userProfile: 'User profile',
     manageAccount: 'Manage account',
+    sessions: 'Sessions & security',
     workspaceSettings: 'Workspace settings',
     inviteOperator: 'Invite an operator',
     getHelp: 'Get help',

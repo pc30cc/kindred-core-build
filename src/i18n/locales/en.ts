@@ -233,6 +233,7 @@ const en = {
   },
   nav: {
     overview: 'Overview',
+    dashboard: 'Dashboard',
     inbox: 'Inbox',
     contacts: 'Contacts',
     visitors: 'Visitors',

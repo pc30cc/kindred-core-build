@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from '@/i18n';
 import { useWorkspaceWidgetTemplates } from '@/hooks/useWorkspaceWidgetTemplates';
 import type { WidgetTemplate } from '@/lib/widget-templates-api';
 import { Card } from '@/components/ui/card';
@@ -38,6 +39,10 @@ function TemplateThumb({
   primaryColor: string;
   brandLabel: string;
 }) {
+  const { t } = useTranslation();
+  const sampleMessage = t('widgetPage.preview.sampleMessage');
+  const sampleReply = t('widgetPage.preview.sampleReply');
+  const sampleOnline = t('widgetPage.preview.onlineNow');
   // Per-template visual variants — each slug renders a faithful mini-mock
   // that mirrors what the visitor will actually see.
   const slug = template.slug;
@@ -62,7 +67,7 @@ function TemplateThumb({
         >
           <div className="relative px-2 pt-2 pb-3" style={{ background: grad }}>
             <div className="text-white text-[8px] font-bold truncate">{brandLabel}</div>
-            <div className="text-white/80 text-[6.5px] mt-0.5">Online now</div>
+            <div className="text-white/80 text-[6.5px] mt-0.5">{sampleOnline}</div>
             <div
               className="absolute left-0 right-0 -bottom-px h-2 bg-white"
               style={{ borderTopLeftRadius: 10, borderTopRightRadius: 10 }}
@@ -70,13 +75,13 @@ function TemplateThumb({
           </div>
           <div className="p-1.5 space-y-1 pt-2">
             <div className="rounded-[8px] px-1.5 py-1 text-[7px] text-foreground bg-muted max-w-[88%]" style={{ borderBottomLeftRadius: 3 }}>
-              Hi! How can we help?
+              {sampleMessage}
             </div>
             <div
               className="rounded-[8px] px-1.5 py-1 text-[7px] text-white max-w-[78%] ms-auto"
               style={{ background: tplPrimary, borderBottomRightRadius: 3, boxShadow: '0 2px 6px rgba(0,82,255,0.25)' }}
             >
-              I have a question
+              {sampleReply}
             </div>
           </div>
           <div className="absolute bottom-0 inset-x-0 border-t border-border bg-white px-1.5 py-1">
@@ -115,14 +120,14 @@ function TemplateThumb({
         </div>
         <div className="p-1.5 space-y-1">
           <div className="bg-muted rounded px-1.5 py-1 text-[7px] text-muted-foreground max-w-[90%]">
-            Hi! How can we help?
+            {sampleMessage}
           </div>
           {previewKind !== 'minimal' && (
             <div
               className="rounded px-1.5 py-1 text-[7px] text-white max-w-[80%] ms-auto"
               style={{ background: tplPrimary }}
             >
-              I have a question
+              {sampleReply}
             </div>
           )}
         </div>
@@ -147,6 +152,7 @@ export function TemplateGallery({
   onSelect,
   saving,
 }: TemplateGalleryProps) {
+  const { t, dir } = useTranslation();
   const { data: templates, isLoading, error } = useWorkspaceWidgetTemplates();
 
   // Always guarantee 'default' is selectable, even if the platform admin
@@ -157,8 +163,8 @@ export function TemplateGallery({
       arr.unshift({
         id: 'builtin-default',
         slug: 'default',
-        name: 'Default Widget',
-        description: 'Built-in widget template — always available.',
+        name: t('widgetPage.template.defaultName'),
+        description: t('widgetPage.template.defaultDescription'),
         status: 'active',
         enabled: true,
         is_builtin: true,
@@ -169,7 +175,7 @@ export function TemplateGallery({
       });
     }
     return arr;
-  }, [templates]);
+  }, [templates, t]);
 
   const activeSlug = selectedSlug || 'default';
 
@@ -191,16 +197,16 @@ export function TemplateGallery({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" dir={dir}>
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium">Widget Template</h3>
+          <h3 className="text-sm font-medium">{t('widgetPage.template.heading')}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Choose the visual template used for your widget. More templates can be added by the platform admin.
+            {t('widgetPage.template.description')}
           </p>
         </div>
         <Badge variant="outline" className="text-[10px]">
-          {list.length} available
+          {t('widgetPage.template.available', { count: String(list.length) })}
         </Badge>
       </div>
 
@@ -221,7 +227,7 @@ export function TemplateGallery({
               {isActive && (
                 <div className="absolute top-2 end-2 z-10">
                   <Badge className="gap-1 text-[10px] bg-primary text-primary-foreground border-transparent">
-                    <Check className="h-2.5 w-2.5" /> Active
+                    <Check className="h-2.5 w-2.5" /> {t('widgetPage.template.active')}
                   </Badge>
                 </div>
               )}
@@ -233,12 +239,12 @@ export function TemplateGallery({
                   <h4 className="text-sm font-medium leading-none">{tpl.name}</h4>
                   {tpl.is_builtin && (
                     <Badge variant="outline" className="text-[9px] gap-0.5">
-                      <Star className="h-2 w-2" /> Built-in
+                      <Star className="h-2 w-2" /> {t('widgetPage.template.builtin')}
                     </Badge>
                   )}
                   {tpl.status === 'beta' && (
                     <Badge variant="outline" className="text-[9px] gap-0.5 border-primary/40 text-primary">
-                      <Sparkles className="h-2 w-2" /> Beta
+                      <Sparkles className="h-2 w-2" /> {t('widgetPage.template.beta')}
                     </Badge>
                   )}
                 </div>
@@ -258,7 +264,7 @@ export function TemplateGallery({
                     onSelect(tpl.slug);
                   }}
                 >
-                  {isActive ? 'Currently in use' : 'Use this template'}
+                  {isActive ? t('widgetPage.template.inUse') : t('widgetPage.template.use')}
                 </Button>
               </div>
             </Card>

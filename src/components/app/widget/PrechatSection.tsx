@@ -1,3 +1,4 @@
+import { useTranslation } from '@/i18n';
 import { useWidgetPrechatSettings, useUpdateWidgetPrechatSettings, type WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { useWidgetPlatformSettings, type PreChatPolicy } from '@/hooks/useWidgetPlatformSettings';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -14,10 +15,10 @@ interface Props {
 
 type FieldKey = 'name' | 'email' | 'phone';
 
-const FIELD_META: Record<FieldKey, { label: string; icon: React.ComponentType<{ className?: string }>; canVerify: boolean }> = {
-  name: { label: 'Name', icon: User, canVerify: false },
-  email: { label: 'Email', icon: Mail, canVerify: true },
-  phone: { label: 'Phone', icon: Phone, canVerify: true },
+const FIELD_META: Record<FieldKey, { icon: React.ComponentType<{ className?: string }>; canVerify: boolean }> = {
+  name: { icon: User, canVerify: false },
+  email: { icon: Mail, canVerify: true },
+  phone: { icon: Phone, canVerify: true },
 };
 
 /**
@@ -27,24 +28,25 @@ const FIELD_META: Record<FieldKey, { label: string; icon: React.ComponentType<{ 
  *  - default_* → workspace can override freely
  */
 function resolveLock(policy: PreChatPolicy | undefined) {
-  if (policy === 'force_on') return { askLocked: true, askValue: true, requireLocked: true, requireValue: true, label: 'Forced ON by admin' };
-  if (policy === 'force_off') return { askLocked: true, askValue: false, requireLocked: true, requireValue: false, label: 'Forced OFF by admin' };
-  return { askLocked: false, askValue: undefined, requireLocked: false, requireValue: undefined, label: '' };
+  if (policy === 'force_on') return { askLocked: true, askValue: true, requireLocked: true, requireValue: true, labelKey: 'forcedOn' as const };
+  if (policy === 'force_off') return { askLocked: true, askValue: false, requireLocked: true, requireValue: false, labelKey: 'forcedOff' as const };
+  return { askLocked: false, askValue: undefined, requireLocked: false, requireValue: undefined, labelKey: null };
 }
 
 export function PrechatSection({ workspaceId }: Props) {
+  const { t, dir } = useTranslation();
   const { data: settings, isLoading } = useWidgetPrechatSettings(workspaceId);
   const { data: platform } = useWidgetPlatformSettings();
   const updateMut = useUpdateWidgetPrechatSettings(workspaceId);
 
   const update = (patch: Partial<WidgetPrechatSettings>) => {
     updateMut.mutate(patch, {
-      onSuccess: () => toast({ title: 'Saved', description: 'Pre-chat settings updated' }),
-      onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+      onSuccess: () => toast({ title: t('widgetPage.prechat.saved'), description: t('widgetPage.prechat.savedDescription') }),
+      onError: (e: any) => toast({ title: t('common.error'), description: e.message, variant: 'destructive' }),
     });
   };
 
-  if (isLoading) return <div className="text-sm text-muted-foreground">Loading…</div>;
+  if (isLoading) return <div dir={dir} className="text-sm text-muted-foreground">{t('widgetPage.loading')}</div>;
 
   // Defaults if no row yet — match server fallback in widgetIdentity.ts
   const s: WidgetPrechatSettings = settings || {
@@ -62,20 +64,20 @@ export function PrechatSection({ workspaceId }: Props) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" dir={dir}>
       <Card className="card-elevated">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4" /> Pre-chat form fields
+            <ShieldCheck className="h-4 w-4" /> {t('widgetPage.prechat.title')}
           </CardTitle>
           <CardDescription>
-            Choose what visitors must provide before they can send the first message. Fields locked by your platform
-            admin cannot be changed here.
+            {t('widgetPage.prechat.description')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {(Object.keys(FIELD_META) as FieldKey[]).map((key) => {
             const meta = FIELD_META[key];
+            const fieldLabel = t(`widgetPage.prechat.${key}` as any);
             const Icon = meta.icon;
             const lock = resolveLock(policyByField[key]);
             const askField = `ask_${key}` as keyof WidgetPrechatSettings;
@@ -92,10 +94,10 @@ export function PrechatSection({ workspaceId }: Props) {
                     <div className="p-2 rounded-lg bg-primary/10">
                       <Icon className="h-4 w-4 text-primary" />
                     </div>
-                    <Label className="text-sm font-medium">{meta.label}</Label>
+                    <Label className="text-sm font-medium">{fieldLabel}</Label>
                     {lock.askLocked && (
                       <Badge variant="destructive" className="gap-1 text-[10px]">
-                        <Lock className="h-3 w-3" /> {lock.label}
+                        <Lock className="h-3 w-3" /> {lock.labelKey ? t(`widgetPage.prechat.${lock.labelKey}` as any) : ''}
                       </Badge>
                     )}
                   </div>
@@ -109,7 +111,7 @@ export function PrechatSection({ workspaceId }: Props) {
                 {askValue && (
                   <div className="ms-11 space-y-2 pt-1">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Required field</Label>
+                      <Label className="text-xs text-muted-foreground">{t('widgetPage.prechat.required')}</Label>
                       <Switch
                         checked={requireValue}
                         disabled={lock.requireLocked || updateMut.isPending}
@@ -120,10 +122,10 @@ export function PrechatSection({ workspaceId }: Props) {
                       <div className="flex items-center justify-between">
                         <div>
                           <Label className="text-xs text-muted-foreground">
-                            Verify {meta.label.toLowerCase()} (OTP)
+                            {t('widgetPage.prechat.verify', { field: fieldLabel })}
                           </Label>
                           <p className="text-[11px] text-muted-foreground/80">
-                            Send a one-time code before the conversation starts.
+                            {t('widgetPage.prechat.verifyHint')}
                           </p>
                         </div>
                         <Switch
@@ -144,14 +146,14 @@ export function PrechatSection({ workspaceId }: Props) {
       <Card className="card-elevated">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Clock className="h-4 w-4" /> Conversation continuity
+            <Clock className="h-4 w-4" /> {t('widgetPage.prechat.continuityTitle')}
           </CardTitle>
           <CardDescription>
-            How long a returning visitor can resume their previous conversation without re-entering pre-chat info.
+            {t('widgetPage.prechat.continuityDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Label className="text-xs font-medium">Continue window (hours)</Label>
+          <Label className="text-xs font-medium">{t('widgetPage.prechat.continueWindow')}</Label>
           <Input
             type="number"
             min={0}
@@ -161,7 +163,7 @@ export function PrechatSection({ workspaceId }: Props) {
             className="max-w-32"
           />
           <p className="text-[11px] text-muted-foreground">
-            Set to 0 to always show the pre-chat form on a new visit.
+            {t('widgetPage.prechat.continueWindowHint')}
           </p>
         </CardContent>
       </Card>
@@ -169,8 +171,7 @@ export function PrechatSection({ workspaceId }: Props) {
       <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 text-xs text-muted-foreground">
         <Info className="h-4 w-4 mt-0.5 shrink-0" />
         <p>
-          Platform admins set field policies under <strong>Super Admin → Widget Settings → Pre-chat fields</strong>. Any
-          field marked <strong>Force ON / Force OFF</strong> is locked here.
+          {t('widgetPage.prechat.adminNote')}
         </p>
       </div>
     </div>

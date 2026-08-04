@@ -94,6 +94,14 @@ export function AppSidebar() {
       return !v;
     });
   };
+
+  // The Inbox is a dense 3-pane workspace: collapse the nav rail automatically
+  // while it is open, then restore the user's own preference on leaving.
+  const onInbox = /\/inbox(\/|$)/.test(location.pathname);
+  useEffect(() => {
+    if (onInbox) setCollapsed(true);
+    else setCollapsed(localStorage.getItem('sidebar_collapsed') === '1');
+  }, [onInbox]);
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 

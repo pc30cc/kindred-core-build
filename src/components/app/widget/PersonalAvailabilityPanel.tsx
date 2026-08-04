@@ -327,14 +327,14 @@ export function PersonalAvailabilityPanel() {
   const intervalsLocked = scheduleLocked || !prefs.schedule_enabled;
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
+    <div className="space-y-5" dir={dir}>
+      {/* Section header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
             {t('availabilityPage.title' as any)}
-          </h1>
-          <p className="mt-1 text-[13.5px] text-muted-foreground">
+          </h2>
+          <p className="mt-1 text-[13px] text-muted-foreground">
             {t('availabilityPage.subtitle' as any)}
           </p>
         </div>

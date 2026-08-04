@@ -11,6 +11,7 @@ import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useWorkspacePlan } from '@/hooks/usePlans';
+import { UserMenu } from '@/components/layout/UserMenu';
 
 /** Maps the first workspace-scoped path segment to an existing nav.* i18n key. */
 const SEGMENT_KEYS: Record<string, string> = {
@@ -204,6 +205,9 @@ export function AppTopBar() {
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('nav.getHelp') || 'Help'}</TooltipContent>
           </Tooltip>
+
+          <div className="mx-1 hidden h-6 w-px bg-border/70 sm:block" />
+          <UserMenu />
 
         </div>
       </header>

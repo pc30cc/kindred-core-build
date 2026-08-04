@@ -554,6 +554,18 @@ const billingVendors: ProviderVendor[] = [
     ],
   },
   {
+    name: 'iranpardakht_sandbox', label: 'ایران‌پرداخت — سندباکس (IranPardakht-Sandbox)',
+    description: 'اتصال به محیط آزمایشی ایران‌درگاه (IranDargah IPG v2) برای تست پرداخت — بدون تراکنش واقعی',
+    docsUrl: 'https://docs.irandargah.com/',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_token', label: 'توکن API آزمایشی', type: 'password', required: true, hint: 'توکن سندباکس با پیشوند idg_test_ که از پنل ایران‌درگاه دریافت می‌کنید' },
+      { key: 'currency', label: 'واحد پول تنظیم‌شده در پلن‌ها', type: 'select', options: [
+        { value: 'IRR', label: 'ریال (IRR)' }, { value: 'IRT', label: 'تومان (IRT)' },
+      ], hint: 'مبلغ نهایی همیشه به ریال ارسال می‌شود؛ اگر پلن‌ها تومانی است تومان را انتخاب کنید' },
+    ],
+  },
+  {
     name: 'nextpay', label: 'نکست‌پی (NextPay)',
     description: 'درگاه پرداخت واسط — بدون نیاز به نماد اعتماد',
     docsUrl: 'https://nextpay.org/docs',

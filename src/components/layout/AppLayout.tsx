@@ -158,6 +158,8 @@ export function AppLayout() {
   const { user } = useAuth();
   const { workspace, notFound, isLoading } = useActiveWorkspace();
   const showVerificationBanner = user && !user.emailVerified;
+  // Inbox is a full-bleed workspace surface: no page gutters, no page scroll.
+  const isFullBleed = /\/inbox(\/|$)/.test(window.location.pathname);
 
   // Strict: if slug doesn't match any workspace, show 404
   if (!isLoading && notFound) {
@@ -172,7 +174,13 @@ export function AppLayout() {
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />
           <DegradedModeBanner />
-          <main className="flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5 lg:px-8">
+          <main
+            className={
+              isFullBleed
+                ? 'flex-1 overflow-hidden p-0'
+                : 'flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5 lg:px-8'
+            }
+          >
             <Outlet />
           </main>
           {/* Verification notice sits at the BOTTOM so it never pushes the

@@ -9,7 +9,10 @@
  * is what visitors will actually see.
  */
 import { useMemo } from 'react';
-import { MessageSquare, HelpCircle, Send, Paperclip, X, ChevronDown, Minus } from 'lucide-react';
+import {
+  MessageSquare, MessageCircle, HelpCircle, Headphones, Phone, Sparkles, Smile,
+  Send, Paperclip, X, ChevronDown, Minus,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
@@ -105,9 +108,14 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
 
   const radius = s.fab_shape === 'square' ? 14 : 9999;
   const fabScale = Math.min(1.4, Math.max(0.8, Number(s.fab_scale) || 1));
-  const fabSize = Math.round(56 * fabScale);
+  const fabSize = Math.round(44 * fabScale);
   const fabIconColor = s.fab_icon_color || onPrimary;
   const fabTextColor = s.fab_text_color || onPrimary;
+  const IconMap: Record<string, typeof MessageSquare> = {
+    chat: MessageCircle, message: MessageSquare, help: HelpCircle,
+    headset: Headphones, phone: Phone, sparkles: Sparkles, smile: Smile,
+  };
+  const FabIcon = IconMap[(s.fab_icon as string) || (view === 'kb' ? 'help' : 'chat')] || MessageCircle;
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-xl border border-border bg-gradient-to-b from-muted/40 to-muted/10">
@@ -136,21 +144,20 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
 
       {/* Launcher */}
       <div
-        className={cn('absolute bottom-5 flex items-center gap-2', left ? 'start-5 flex-row' : 'end-5 flex-row-reverse')}
+        dir="ltr"
+        className={cn('absolute bottom-5 flex items-center gap-2', left ? 'flex-row' : 'flex-row-reverse')}
         style={{ [left ? 'left' : 'right']: 20 } as any}
       >
         <div
-          className={cn('flex items-center justify-center shadow-lg', s.fab_animation !== false && 'animate-pulse')}
+          className={cn('flex items-center justify-center shadow-lg', s.fab_animation === true && 'animate-pulse')}
           style={{
             width: fabSize, height: fabSize, borderRadius: radius, background: primary, color: fabIconColor,
           }}
         >
           {s.show_logo !== false && s.logo_url ? (
             <img src={s.logo_url} alt="" className="h-2/3 w-2/3 rounded-full object-cover" />
-          ) : view === 'kb' ? (
-            <HelpCircle className="h-6 w-6" />
           ) : (
-            <MessageSquare className="h-6 w-6" />
+            <FabIcon className="h-5 w-5" />
           )}
         </div>
         {s.fab_label && (

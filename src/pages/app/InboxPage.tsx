@@ -786,6 +786,27 @@ export default function InboxPage() {
     }, {});
   }, [conversations]);
 
+  /* Tabs must not resize when switching filters. The conversation list is
+     scoped to the active filter, so counts for the other tabs would drop to 0
+     and the badges would collapse/expand, shifting every tab. Cache the last
+     known count per status and only refresh the ones the current response can
+     actually observe (all statuses when viewing "all", otherwise just the
+     active status). */
+  const countsCacheRef = useRef<Record<string, number>>({});
+  const stableCounts = useMemo(() => {
+    const cache = { ...countsCacheRef.current };
+    if (conversations) {
+      if (filter === 'all') {
+        for (const s of ['open', 'pending', 'resolved', 'closed']) cache[s] = statusCounts[s] || 0;
+        cache.all = conversations.length;
+      } else {
+        cache[filter] = statusCounts[filter] || 0;
+      }
+    }
+    countsCacheRef.current = cache;
+    return cache;
+  }, [conversations, statusCounts, filter]);
+
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {
@@ -948,7 +969,7 @@ export default function InboxPage() {
             className="flex h-full w-full items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
           >
             {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
-              const count = s === 'all' ? (conversations?.length || 0) : (statusCounts[s] || 0);
+              const count = stableCounts[s] || 0;
               const isActive = filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
               return (
@@ -968,12 +989,16 @@ export default function InboxPage() {
                 >
                   {s !== 'all' && <span className={cn('w-2.5 h-2.5 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
                   {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
-                  {count > 0 && (
-                    <span className={cn(
-                      'text-[11.5px] min-w-[22px] h-[22px] flex items-center justify-center rounded-full px-2 py-0.5 font-bold',
+                  {/* Always rendered (invisible at 0) so the tab width never
+                      changes when counts load or the active tab switches. */}
+                  <span
+                    aria-hidden={count === 0}
+                    className={cn(
+                      'text-[11.5px] min-w-[22px] h-[22px] flex items-center justify-center rounded-full px-2 py-0.5 font-bold tabular-nums transition-opacity duration-150',
+                      count === 0 && 'opacity-0',
                       isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
-                    )}>{count}</span>
-                  )}
+                    )}
+                  >{count}</span>
                 </button>
               );
             })}

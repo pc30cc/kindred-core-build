@@ -1597,8 +1597,17 @@ export default function InboxPage() {
                   );
                 }
                 return (
+                  <div key={msg.id}>
+                  {showDaySeparator && (
+                    <div className="flex items-center gap-3 my-3">
+                      <div className="h-px flex-1 bg-border/70" />
+                      <span className="text-[10px] font-medium text-muted-foreground px-2 py-0.5 rounded-full bg-muted/60 border border-border/50">
+                        {dayLabel}
+                      </span>
+                      <div className="h-px flex-1 bg-border/70" />
+                    </div>
+                  )}
                   <div
-                    key={msg.id}
                     className={cn(
                       'flex gap-2.5 group',
                       isAgent ? 'flex-row-reverse' : 'flex-row',
@@ -1609,12 +1618,22 @@ export default function InboxPage() {
                     {showAvatar ? (
                       isAgent ? (
                         <div className={cn(
-                          'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1',
+                          'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1 overflow-hidden text-[11px] font-semibold',
                           isAi
                             ? 'bg-accent/30 text-accent-foreground ring-accent/40'
                             : 'bg-primary/15 text-primary ring-primary/20',
-                        )}>
-                          <Bot className="w-4 h-4" />
+                        )}
+                          title={agentLabel}
+                        >
+                          {!isAi && senderAvatar ? (
+                            <img src={senderAvatar} alt={agentLabel} className="w-full h-full object-cover" />
+                          ) : isAi ? (
+                            <Bot className="w-4 h-4" />
+                          ) : senderName ? (
+                            <span>{getInitials(senderName)}</span>
+                          ) : (
+                            <User className="w-4 h-4" />
+                          )}
                         </div>
                       ) : (
                         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
@@ -1633,7 +1652,7 @@ export default function InboxPage() {
                         <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1.5">
                           <span className="font-medium">
                             {isAgent
-                              ? (isAi ? 'AI' : (t('inbox.support') || 'Support'))
+                              ? agentLabel
                               : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
                           </span>
                           {isAi && (
@@ -1642,7 +1661,7 @@ export default function InboxPage() {
                             </span>
                           )}
                           <span className="opacity-30">•</span>
-                          <span dir="ltr">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <bdi title={formatDateTime(msg.created_at)}>{formatTime(msg.created_at)}</bdi>
                         </div>
                       )}
                       <div className={cn(
@@ -1662,19 +1681,21 @@ export default function InboxPage() {
                         isAgent ? 'flex-row-reverse' : 'flex-row',
                       )}>
                         <button
-                          onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: 'Copied!' }); }}
+                          onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-0.5 rounded"
-                          aria-label="Copy"
+                          aria-label={t('inbox.copy') || 'Copy message'}
+                          title={t('inbox.copy') || 'Copy message'}
                         >
                           <Copy className="w-3 h-3" />
                         </button>
                         {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
-                          <span className="text-[10px] text-primary/70 font-medium flex items-center gap-1" dir="ltr">
-                            <CheckCircle2 className="w-3 h-3" /> Seen
+                          <span className="text-[10px] text-primary/70 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> {t('inbox.seen') || 'Seen'}
                           </span>
                         )}
                       </div>
                     </div>
+                  </div>
                   </div>
                 );
               })}

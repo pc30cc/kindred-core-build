@@ -13,7 +13,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
 import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
@@ -687,9 +686,6 @@ function WidgetPageContent() {
               <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Eye className="h-3.5 w-3.5" /> {t('widgetPage.preview.title')}
               </p>
-              <Badge variant="outline" className="text-[10px] capitalize">
-                {live?.template_slug || 'default'}
-              </Badge>
             </div>
 
             <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">

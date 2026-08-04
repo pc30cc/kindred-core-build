@@ -41,7 +41,8 @@ export default function OverviewPage() {
   const { data: visitors } = useOnlineVisitors(workspace?.id);
   const { data: articles } = useKBArticles(workspace?.id);
   const { data: contacts } = useContacts(workspace?.id);
-  const { data: team } = useTeamPresence(workspace?.id);
+  const { data: teamData } = useTeamPresence(workspace?.id);
+  const team = teamData?.presence ?? [];
   const { data: planData } = useWorkspacePlan(workspace?.id);
 
   const tr = t as unknown as (k: string) => string;
@@ -53,7 +54,7 @@ export default function OverviewPage() {
   const openConvos = list.filter((c: any) => c.status === 'open').length;
   const resolved = list.filter((c: any) => c.status === 'resolved' || c.status === 'closed').length;
   const onlineVisitors = (visitors ?? []).filter((v: any) => v.status === 'online').length;
-  const teamOnline = (team ?? []).filter((m: any) => m.state === 'online' || m.status === 'online').length;
+  const teamOnline = team.filter((m: any) => m.state === 'online' || m.status === 'online').length;
 
   const userName =
     (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
@@ -96,7 +97,7 @@ export default function OverviewPage() {
   const limits = (planData?.limits || {}) as Record<string, number>;
 
   const seatLimit = Number(limits.max_operators ?? limits.max_seats ?? 0);
-  const seatUsed = (team ?? []).length;
+  const seatUsed = team.length;
   const contactLimit = Number(limits.max_contacts ?? 0);
   const contactUsed = (contacts ?? []).length;
 
@@ -374,11 +375,11 @@ export default function OverviewPage() {
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>
           </div>
-          {(team ?? []).length === 0 ? (
+          {team.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-muted-foreground">{tr('dashboard.noTeam')}</div>
           ) : (
             <ul className="max-h-[280px] divide-y divide-border/60 overflow-y-auto">
-              {(team ?? []).slice(0, 8).map((m: any) => {
+              {team.slice(0, 8).map((m: any) => {
                 const st = m.state || m.status || 'offline';
                 const dot =
                   st === 'online' ? 'bg-success' : st === 'away' || st === 'idle' ? 'bg-warning' : 'bg-muted-foreground/40';

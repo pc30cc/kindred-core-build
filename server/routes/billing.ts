@@ -349,14 +349,17 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   for (const row of (wsConfigs || []) as Array<{ workspace_id: string | null; config: unknown }>) {
     if (isRecord(row.config)) candidates.push({ workspaceId: row.workspace_id, config: row.config });
   }
-  const { data: globalConfig } = await supabase
+  const { data: globalRows } = await supabase
     .from('app_runtime_config')
-    .select('value')
-    .eq('key', 'billing_default_provider')
-    .maybeSingle();
-  const globalValue = (globalConfig as { value?: unknown } | null)?.value;
-  if (isRecord(globalValue) && globalValue.provider === providerName) {
-    candidates.push({ workspaceId: null, config: globalValue });
+    .select('key, value')
+    .in('key', ['default_billing_provider', 'billing_default_provider']);
+  for (const row of (globalRows || []) as Array<{ key: string; value: unknown }>) {
+    const globalValue = row.value;
+    if (!isRecord(globalValue)) continue;
+    const name = (globalValue.provider_name || globalValue.provider) as unknown;
+    if (name !== providerName) continue;
+    const inner = isRecord(globalValue.config) ? globalValue.config : {};
+    candidates.push({ workspaceId: null, config: { ...globalValue, ...inner } });
   }
 
   // Evaluate EVERY candidate: stopping at the first verifying config would

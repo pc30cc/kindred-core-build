@@ -78,6 +78,8 @@ export function useConversations(
         unread_count?: number;
         visitor_os?: string | null;
         visitor_device?: string | null;
+        visitor_country_code?: string | null;
+        visitor_country_name?: string | null;
       })[];
 
       // Enrich each conversation with the latest visitor (sender_type='contact')
@@ -136,19 +138,29 @@ export function useConversations(
       if (contactIds.length > 0) {
         const { data: sessions } = await supabase
           .from('visitor_sessions')
-          .select('contact_id, os, device, last_seen_at')
+          .select('contact_id, os, device, last_seen_at, geo_country_code, geo_country_name, country')
           .in('contact_id', contactIds)
           .order('last_seen_at', { ascending: false })
           .limit(500);
-        const osByContact: Record<string, { os: string | null; device: string | null }> = {};
-        for (const s of (sessions || []) as Array<{ contact_id: string | null; os: string | null; device: string | null }>) {
+        const osByContact: Record<string, { os: string | null; device: string | null; cc: string | null; cn: string | null }> = {};
+        for (const s of (sessions || []) as Array<{
+          contact_id: string | null; os: string | null; device: string | null;
+          geo_country_code: string | null; geo_country_name: string | null; country: string | null;
+        }>) {
           if (!s.contact_id || osByContact[s.contact_id]) continue;
-          osByContact[s.contact_id] = { os: s.os ?? null, device: s.device ?? null };
+          osByContact[s.contact_id] = {
+            os: s.os ?? null,
+            device: s.device ?? null,
+            cc: s.geo_country_code ?? null,
+            cn: s.geo_country_name ?? s.country ?? null,
+          };
         }
         for (const c of convos) {
           const info = osByContact[(c as any).contact_id as string];
           c.visitor_os = info?.os ?? null;
           c.visitor_device = info?.device ?? null;
+          c.visitor_country_code = info?.cc ?? null;
+          c.visitor_country_name = info?.cn ?? null;
         }
       }
       if (queue === 'main') {

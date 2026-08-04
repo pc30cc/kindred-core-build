@@ -224,9 +224,13 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
   .site .block{height:120px;border-radius:14px;background:#E2E8F0;margin:16px 0;}
   .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:#E2E8F0}
   .shell{--gs-primary:${esc(primary)};color:#1F2937;}
-  /* Panel keeps production geometry (380px / min(620px, viewport)) — only the
-     viewport height clamp differs because the preview frame is smaller. */
-  .panel{max-width:calc(100% - 32px);height:min(620px, calc(100% - 100px));}
+  /* Panel keeps production geometry (380px wide, anchored 92px above the
+     launcher) — only the height clamp differs because the preview frame is
+     smaller than a real browser viewport. */
+  .panel{position:fixed;top:auto;width:min(380px, calc(100% - 32px));max-width:calc(100% - 32px);
+    height:min(620px, calc(100vh - 124px));}
+  .panel.bottom-right{bottom:${24 + fabSize + 12}px;right:24px;left:auto;}
+  .panel.bottom-left{bottom:${24 + fabSize + 12}px;left:24px;right:auto;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
   .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
     width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;

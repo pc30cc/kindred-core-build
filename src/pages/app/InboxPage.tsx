@@ -1594,7 +1594,7 @@ export default function InboxPage() {
                   {showDaySeparator && (
                     <div className="flex items-center gap-3 my-3">
                       <div className="h-px flex-1 bg-border/70" />
-                      <span className="text-[10px] font-medium text-muted-foreground px-2 py-0.5 rounded-full bg-muted/60 border border-border/50">
+                      <span className="text-[11px] font-medium text-muted-foreground px-2.5 py-0.5 rounded-full bg-muted/60 border border-border/50">
                         {dayLabel}
                       </span>
                       <div className="h-px flex-1 bg-border/70" />
@@ -1611,7 +1611,7 @@ export default function InboxPage() {
                     {showAvatar ? (
                       isAgent ? (
                         <div className={cn(
-                          'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1 overflow-hidden text-[11px] font-semibold',
+                          'w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1 overflow-hidden text-[12px] font-bold',
                           isAi
                             ? 'bg-accent/30 text-accent-foreground ring-accent/40'
                             : 'bg-primary/15 text-primary ring-primary/20',
@@ -1621,36 +1621,36 @@ export default function InboxPage() {
                           {!isAi && senderAvatar ? (
                             <img src={senderAvatar} alt={agentLabel} className="w-full h-full object-cover" />
                           ) : isAi ? (
-                            <Bot className="w-4 h-4" />
+                            <Bot className="w-[18px] h-[18px]" />
                           ) : senderName ? (
                             <span>{getInitials(senderName)}</span>
                           ) : (
-                            <User className="w-4 h-4" />
+                            <User className="w-[18px] h-[18px]" />
                           )}
                         </div>
                       ) : (
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
                           {selected?.contacts?.avatar_url ? (
                             <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
                           ) : (
-                            <User className="w-4 h-4" />
+                            <User className="w-[18px] h-[18px]" />
                           )}
                         </div>
                       )
                     ) : (
-                      <div className="w-8 shrink-0" aria-hidden />
+                      <div className="w-9 shrink-0" aria-hidden />
                     )}
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
                       {showMeta && (
-                        <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1.5">
+                        <div className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1.5">
                           <span className="font-medium">
                             {isAgent
                               ? agentLabel
                               : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
                           </span>
                           {isAi && (
-                            <span className="px-1 py-px rounded bg-accent/40 text-accent-foreground text-[9px] font-semibold uppercase tracking-wide">
-                              AUTO
+                            <span className="px-1.5 py-px rounded bg-accent/40 text-accent-foreground text-[10px] font-semibold uppercase tracking-wide">
+                              {t('inbox.auto') || 'AUTO'}
                             </span>
                           )}
                           <span className="opacity-30">•</span>
@@ -1658,7 +1658,7 @@ export default function InboxPage() {
                         </div>
                       )}
                       <div className={cn(
-                        'rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-sm',
+                        'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent
                           ? 'bg-primary text-primary-foreground rounded-ee-sm'
                           : 'bg-secondary text-foreground rounded-es-sm'
@@ -1682,8 +1682,8 @@ export default function InboxPage() {
                           <Copy className="w-3 h-3" />
                         </button>
                         {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
-                          <span className="text-[10px] text-primary/70 font-medium flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> {t('inbox.seen') || 'Seen'}
+                          <span className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
                           </span>
                         )}
                       </div>

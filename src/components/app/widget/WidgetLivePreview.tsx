@@ -229,8 +229,6 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
      smaller than a real browser viewport. */
   /* Override the runtime's <=480px full-screen rule: inside this small preview
      frame the panel must stay a floating card, otherwise it covers the FAB. */
-  .panel,
-  @media-guard{}
   .panel{position:fixed!important;top:auto!important;width:min(360px, calc(100% - 28px))!important;
     max-width:calc(100% - 28px)!important;border-radius:20px!important;
     height:min(560px, calc(100% - ${24 + fabSize + 12 + 24}px))!important;}

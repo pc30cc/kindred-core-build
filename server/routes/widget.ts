@@ -1307,7 +1307,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         }
       }
 
-      const subjectText = body.message ? body.message.slice(0, 80) : (data.attachment_id ? '[Attachment]' : 'New conversation');
+      const subjectText = body.message ? body.message.slice(0, 80) : (data.attachment_id ? '[Attachment]' : null);
       const { data: conv, error: convErr } = await supabase
         .from('conversations').insert({
           workspace_id: workspaceId,

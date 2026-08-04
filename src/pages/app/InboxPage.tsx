@@ -152,11 +152,6 @@ function isPlaceholderSubject(subject?: string | null): boolean {
   return !s || PLACEHOLDER_SUBJECTS.has(s);
 }
 
-/** Localized subject — placeholder subjects become the translated default. */
-function localizedSubject(subject: string | null | undefined, t: (k: any) => string): string {
-  return isPlaceholderSubject(subject) ? t('contacts.conversationUntitled') : String(subject);
-}
-
 /** Display title for a conversation: contact identity first, subject second. */
 function conversationTitle(conv: any, t: (k: any) => string): string {
   return (

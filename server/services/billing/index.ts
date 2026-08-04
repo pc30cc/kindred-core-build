@@ -73,19 +73,45 @@ export async function resolveBillingConfig(
 ): Promise<{ provider: BillingProviderHandler; config: BillingProviderConfig } | null> {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  // 1. Check workspace-level billing provider
-  const { data: wsConfig } = await supabase
+  // 1. Check workspace-level billing providers. Legacy data can contain more
+  // than one active row for the same workspace/type, so always resolve the
+  // newest row deterministically instead of letting PostgREST pick one.
+  const { data: wsConfigs, error: wsConfigError } = await supabase
     .from('provider_configs')
     .select('*')
     .eq('workspace_id', workspaceId)
     .eq('provider_type', 'billing')
     .eq('is_active', true)
-    .limit(1)
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(2);
 
+  if (wsConfigError) {
+    console.error('[billing] failed to resolve workspace provider config', {
+      workspaceId,
+      error: wsConfigError.message,
+    });
+  }
+
+  const wsConfig = wsConfigs?.[0];
   if (wsConfig) {
     const handler = getProvider(wsConfig.provider_name);
-    if (handler) return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
+    if (handler) {
+      if ((wsConfigs?.length || 0) > 1) {
+        console.warn('[billing] multiple active workspace provider configs; using newest', {
+          workspaceId,
+          selectedProvider: wsConfig.provider_name,
+          selectedConfigId: wsConfig.id,
+          activeConfigCountAtLeast: wsConfigs?.length,
+        });
+      }
+      console.info('[billing] resolved workspace provider', {
+        workspaceId,
+        provider: wsConfig.provider_name,
+        configId: wsConfig.id,
+        updatedAt: wsConfig.updated_at,
+      });
+      return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
+    }
   }
 
   // 2. Check global default (app_runtime_config).
@@ -106,6 +132,11 @@ export async function resolveBillingConfig(
     const handler = getProvider(name);
     if (!handler) continue;
     const inner = (value.config && typeof value.config === 'object' ? value.config : {}) as Record<string, unknown>;
+    console.info('[billing] resolved global provider', {
+      workspaceId,
+      provider: name,
+      configKey: key,
+    });
     return { provider: handler, config: { ...value, ...inner, provider: name } as BillingProviderConfig };
   }
 

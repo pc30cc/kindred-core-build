@@ -197,6 +197,17 @@ export default function SettingsSecurityPage() {
   const loading = sessionsQ.isLoading || historyQ.isLoading;
   const history = historyQ.data?.entries ?? [];
 
+  const stats = useMemo(() => {
+    const lastSuccess = history.find((h) => h.success)?.created_at ?? null;
+    const since = Date.now() - 24 * 3600_000;
+    const failed24 = history.filter(
+      (h) => !h.success && h.created_at && new Date(h.created_at).getTime() >= since,
+    ).length;
+    return { lastSuccess, failed24 };
+  }, [history]);
+
+  const hasError = sessionsQ.isError || historyQ.isError;
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -211,6 +222,39 @@ export default function SettingsSecurityPage() {
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
           {t('security.autoSaved' as any)}
         </div>
+      </div>
+
+      {hasError && (
+        <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <ShieldAlert className="h-4 w-4 shrink-0" />
+          {t('security.loadError' as any)}
+        </div>
+      )}
+
+      {/* Overview */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          icon={ShieldCheck}
+          tone="success"
+          label={t('security.overviewSessions' as any) as string}
+          value={sessionsQ.isLoading ? '…' : String(sessions.length)}
+        />
+        <StatTile
+          icon={Globe2}
+          label={t('security.overviewOther' as any) as string}
+          value={sessionsQ.isLoading ? '…' : String(otherCount)}
+        />
+        <StatTile
+          icon={LogIn}
+          label={t('security.overviewLastLogin' as any) as string}
+          value={historyQ.isLoading ? '…' : formatRelative(stats.lastSuccess, locale)}
+        />
+        <StatTile
+          icon={KeyRound}
+          tone={stats.failed24 > 0 ? 'danger' : 'default'}
+          label={t('security.overviewFailed' as any) as string}
+          value={historyQ.isLoading ? '…' : String(stats.failed24)}
+        />
       </div>
 
       {/* Active sessions */}

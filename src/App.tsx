@@ -1,4 +1,3 @@
-import AvatarProbe from '@/pages/__AvatarProbe';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
@@ -169,8 +168,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               <Route path="/help/:locale/c/:slug" element={<HelpCategoryPage />} />
               <Route path="/help/:locale/a/:slug" element={<HelpArticlePage />} />
               <Route path="/help/:locale/search" element={<HelpSearchPage />} />
-
-              <Route path="/__avatar-probe" element={<AvatarProbe />} />
 
               {/* Auth */}
               <Route element={<AuthLayout />}>

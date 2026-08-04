@@ -5,7 +5,6 @@ import { Moon, Sun, Bell, LifeBuoy, Settings2, Sparkles, Search } from 'lucide-r
 import { useI18n } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -67,9 +66,6 @@ export function AppTopBar() {
     return key ? t(key) : '';
   }, [pathname, t]);
 
-  const userName =
-    (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
-  const avatarUrl = (user?.metadata?.avatar_url as string) || undefined;
   const isDark = theme === 'dark';
 
   return (

@@ -994,18 +994,28 @@ export default function InboxPage() {
                       : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
                   )}
                 >
-                  {s !== 'all' && <span className={cn('w-2 h-2 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
+                  {s !== 'all' && (
+                    <span className="relative flex w-2 h-2 items-center justify-center">
+                      {liveTabs[s] && (
+                        <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+                      )}
+                      <span className={cn(
+                        'relative inline-flex w-2 h-2 rounded-full',
+                        liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/30',
+                      )} />
+                    </span>
+                  )}
                   {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
                   {/* Always rendered (invisible at 0) so the tab width never
                       changes when counts load or the active tab switches. */}
-                  <span
+                  {s !== 'all' && <span
                     aria-hidden={count === 0}
                     className={cn(
                       'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
                       count === 0 && 'opacity-0',
                       isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
                     )}
-                  >{count}</span>
+                  >{count}</span>}
                 </button>
               );
             })}

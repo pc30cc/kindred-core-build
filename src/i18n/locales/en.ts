@@ -74,6 +74,7 @@ const en = {
     confirm: 'Confirm',
     next: 'Next',
     submit: 'Submit',
+    back: 'Back',
     close: 'Close',
     copy: 'Copy',
     copied: 'Copied!',

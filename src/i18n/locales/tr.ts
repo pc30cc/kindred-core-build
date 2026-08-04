@@ -76,6 +76,7 @@ const tr: TranslationKeys = {
     confirm: 'Onayla',
     next: 'İleri',
     submit: 'Gönder',
+    back: 'Geri',
     close: 'Kapat',
     copy: 'Kopyala',
     copied: 'Kopyalandı!',

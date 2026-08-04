@@ -76,6 +76,7 @@ const fa: TranslationKeys = {
     confirm: 'تأیید',
     next: 'بعدی',
     submit: 'ارسال',
+    back: 'بازگشت',
     close: 'بستن',
     copy: 'کپی',
     copied: 'کپی شد!',

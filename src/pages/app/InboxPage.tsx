@@ -134,6 +134,11 @@ type FilterStatus = 'all' | 'open' | 'pending' | 'resolved' | 'closed';
 type ExtraChip = 'needs_human' | 'assigned_to_me';
 type SidebarTab = 'info' | 'activity';
 
+/** Renders children into the app top bar slot when available. */
+function ToolbarPortal({ slot, children }: { slot: HTMLElement | null; children: React.ReactNode }) {
+  return slot ? createPortal(children, slot) : <>{children}</>;
+}
+
 export default function InboxPage() {
   const { t, dir } = useTranslation();
   const { user } = useAuth();
@@ -883,7 +888,8 @@ export default function InboxPage() {
               </span>
             </div>
           ) : (
-          /* Filter tabs (status + extra chips) */
+          /* Filter tabs (status + extra chips) — hosted in the app top bar */
+          <ToolbarPortal slot={topbarSlot}>
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
@@ -954,6 +960,7 @@ export default function InboxPage() {
               Assigned to me
             </button>
           </div>
+          </ToolbarPortal>
           )}
         </div>
 

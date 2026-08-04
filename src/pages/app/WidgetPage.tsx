@@ -309,41 +309,14 @@ function WidgetPageContent() {
 
             {/* ─── Availability ─── */}
             <TabsContent value="availability">
-              <Tabs defaultValue="workspace" className="space-y-4">
-                <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border bg-secondary/40 p-2">
-                  <TabsTrigger
-                    value="workspace"
-                    className="flex h-auto flex-col items-center gap-1 rounded-lg px-2 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary"
-                  >
-                    <span className="text-[13px] font-semibold">{t('widgetPage.availabilityScope.workspace')}</span>
-                    <span className="text-[11px] font-normal text-muted-foreground">{t('widgetPage.availabilityScope.workspaceDesc')}</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="personal"
-                    className="flex h-auto flex-col items-center gap-1 rounded-lg px-2 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary"
-                  >
-                    <span className="text-[13px] font-semibold">{t('widgetPage.availabilityScope.personal')}</span>
-                    <span className="text-[11px] font-normal text-muted-foreground">{t('widgetPage.availabilityScope.personalDesc')}</span>
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="workspace">
-                  {widget && (
-                    <AvailabilitySection
-                      workspaceId={workspace?.id}
-                      settings={widget}
-                      onSave={(patch) => updateWidget.mutate(patch as any)}
-                      saving={updateWidget.isPending}
-                    />
-                  )}
-                </TabsContent>
-                <TabsContent value="personal">
-                  <Card className="card-elevated">
-                    <CardContent className="p-6">
-                      <PersonalAvailabilityPanel />
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </Tabs>
+              {widget && (
+                <AvailabilitySection
+                  workspaceId={workspace?.id}
+                  settings={widget}
+                  onSave={(patch) => updateWidget.mutate(patch as any)}
+                  saving={updateWidget.isPending}
+                />
+              )}
             </TabsContent>
 
             {/* ─── Pre-chat ─── */}

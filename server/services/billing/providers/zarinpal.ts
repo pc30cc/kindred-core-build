@@ -65,6 +65,22 @@ const baseUrl = (config: BillingProviderConfig) =>
 const gatewayUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://sandbox.zarinpal.com/pg/StartPay' : 'https://www.zarinpal.com/pg/StartPay';
 
+// ZarinPal (or an upstream WAF / filtering proxy) can answer with an HTML page
+// instead of JSON. res.json() would then throw a cryptic "Unexpected token '<'"
+// SyntaxError, so read the body as text and raise a descriptive error instead.
+async function readZarinpalJson(res: Response, context: string): Promise<unknown> {
+  const text = (await res.text()).trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const snippet = text.replace(/\s+/g, ' ').slice(0, 160);
+    throw new Error(
+      `ZarinPal gateway unreachable: ${context} returned a non-JSON response (HTTP ${res.status})` +
+      (snippet ? `: ${snippet}` : ''),
+    );
+  }
+}
+
 export const zarinpalProvider: BillingProviderHandler = {
   name: 'zarinpal',
   capabilities: {
@@ -87,7 +103,7 @@ export const zarinpalProvider: BillingProviderHandler = {
         currency,
       }),
     });
-    const data = await res.json();
+    const data = await readZarinpalJson(res, 'create payment');
     const code = readZarinpalCreateCode(data);
     if (code !== 100) throw new Error(readZarinpalErrorMessage(data) || `ZarinPal error code: ${code}`);
     const authority = readZarinpalAuthority(data);
@@ -109,7 +125,7 @@ export const zarinpalProvider: BillingProviderHandler = {
         amount,
       }),
     });
-    const data = await res.json();
+    const data = await readZarinpalJson(res, 'verify payment');
     const code = readZarinpalVerifyCode(data);
     return {
       verified: code === 100 || code === 101,
@@ -149,7 +165,7 @@ export const zarinpalProvider: BillingProviderHandler = {
           description: 'Connection test',
         }),
       });
-      const data = await res.json();
+      const data = await readZarinpalJson(res, 'test connection');
       const createCode = readZarinpalCreateCode(data);
       // Code 100 = success, or any non-auth error means credentials work
       if (createCode === 100 || createCode === -9) {

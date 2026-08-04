@@ -946,9 +946,7 @@ export default function InboxPage() {
             className="flex h-full w-full items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
           >
             {(['open', 'pending', 'resolved', 'all'] as FilterStatus[]).map(s => {
-              const count = s === 'resolved'
-                ? (stableCounts.resolved || 0) + (stableCounts.closed || 0)
-                : stableCounts[s] || 0;
+              const count = stableCounts[s] || 0;
               const isActive = filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
               return (
@@ -999,6 +997,14 @@ export default function InboxPage() {
             >
               <AlertCircle className="w-4 h-4" />
               {t('inbox.needsHuman') || 'Needs human'}
+              <span
+                aria-hidden={(stableCounts.needs_human || 0) === 0}
+                className={cn(
+                  'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
+                  (stableCounts.needs_human || 0) === 0 && 'opacity-0',
+                  extraChip === 'needs_human' ? 'bg-destructive/20 text-destructive' : 'bg-secondary text-muted-foreground'
+                )}
+              >{stableCounts.needs_human || 0}</span>
             </button>
           </div>
           </ToolbarPortal>

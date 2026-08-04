@@ -723,11 +723,8 @@ export default function InboxPage() {
     const diff = Date.now() - new Date(date).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return t('inbox.now') || 'now';
-    if (mins < 60) return `${mins}m`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h`;
-    const days = Math.floor(hrs / 24);
-    return `${days}d`;
+    // Locale-aware relative time (Jalali/Tehran aware for Persian).
+    return formatRelative(date);
   };
 
   const statusCounts = useMemo(() => {

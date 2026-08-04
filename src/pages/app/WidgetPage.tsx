@@ -24,6 +24,7 @@ import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { useWorkspaceWidgetTemplates } from '@/hooks/useWorkspaceWidgetTemplates';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -47,6 +48,7 @@ function WidgetPageContent() {
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const { data: availableTemplates } = useWorkspaceWidgetTemplates();
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -212,7 +214,9 @@ function WidgetPageContent() {
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
               <div className="space-y-4">
-              {/* Template gallery — wired to the platform-registered templates registry. */}
+              {/* Single unified template by default — the gallery only appears when the
+                  platform actually registered more than one template. */}
+              {(availableTemplates?.length ?? 0) > 1 && (
               <Card className="card-elevated">
                 <CardContent className="p-6">
                   <TemplateGallery
@@ -231,11 +235,18 @@ function WidgetPageContent() {
                   />
                 </CardContent>
               </Card>
+              )}
 
               {/* Per-template customization — settings here apply to whichever template is active. */}
               <Card className="card-elevated">
-                <CardContent className="p-6 space-y-5">
-                  <div className="grid grid-cols-2 gap-4">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Palette className="h-4 w-4 text-primary" /> {t('widgetPage.tabs.appearance')}
+                  </CardTitle>
+                  <CardDescription>{t('widgetPage.tabDesc.appearance')}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5 p-6 pt-0">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widget.primaryColor')}</Label>
                       <div className="flex gap-2">
@@ -243,13 +254,29 @@ function WidgetPageContent() {
                           type="color"
                           value={primaryColor}
                           onChange={e => setField('primary_color', e.target.value)}
-                          className="w-12 h-10 p-1 cursor-pointer"
+                          className="h-10 w-12 shrink-0 cursor-pointer p-1"
                         />
                         <Input
                           value={primaryColor}
+                          dir="ltr"
                           onChange={e => setField('primary_color', e.target.value)}
-                          className="font-mono text-xs"
+                          className="text-start font-mono text-xs"
                         />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {['#3B82F6', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#111827'].map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            aria-label={c}
+                            onClick={() => setField('primary_color', c, 0)}
+                            className={cn(
+                              'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110',
+                              primaryColor.toLowerCase() === c.toLowerCase() ? 'border-foreground' : 'border-transparent',
+                            )}
+                            style={{ background: c }}
+                          />
+                        ))}
                       </div>
                     </div>
                     <div className="space-y-2">

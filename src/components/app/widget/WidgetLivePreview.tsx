@@ -104,6 +104,10 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
   );
 
   const radius = s.fab_shape === 'square' ? 14 : 9999;
+  const fabScale = Math.min(1.4, Math.max(0.8, Number(s.fab_scale) || 1));
+  const fabSize = Math.round(56 * fabScale);
+  const fabIconColor = s.fab_icon_color || onPrimary;
+  const fabTextColor = s.fab_text_color || onPrimary;
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-xl border border-border bg-gradient-to-b from-muted/40 to-muted/10">
@@ -136,17 +140,23 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         style={{ [left ? 'left' : 'right']: 20 } as any}
       >
         <div
-          className="flex items-center justify-center shadow-lg"
+          className={cn('flex items-center justify-center shadow-lg', s.fab_animation !== false && 'animate-pulse')}
           style={{
-            width: 56, height: 56, borderRadius: radius, background: primary, color: onPrimary,
+            width: fabSize, height: fabSize, borderRadius: radius, background: primary, color: fabIconColor,
           }}
         >
-          {view === 'kb' ? <HelpCircle className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
+          {s.show_logo !== false && s.logo_url ? (
+            <img src={s.logo_url} alt="" className="h-2/3 w-2/3 rounded-full object-cover" />
+          ) : view === 'kb' ? (
+            <HelpCircle className="h-6 w-6" />
+          ) : (
+            <MessageSquare className="h-6 w-6" />
+          )}
         </div>
         {s.fab_label && (
           <span
             className="rounded-full px-3 py-1.5 text-xs font-medium shadow"
-            style={{ background: primary, color: onPrimary }}
+            style={{ background: primary, color: fabTextColor }}
           >
             {s.fab_label}
           </span>

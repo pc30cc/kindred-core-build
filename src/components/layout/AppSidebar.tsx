@@ -339,7 +339,7 @@ export function AppSidebar() {
           )}
         >
           <div className="flex items-center gap-2">
-            <LayoutDashboard className="h-4 w-4 shrink-0" />
+            <LayoutDashboard className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
             {!collapsed && <span>{t('nav.dashboard')}</span>}
           </div>
         </Link>
@@ -358,7 +358,7 @@ export function AppSidebar() {
             collapsed && 'justify-center px-0'
           )}
         >
-          <Inbox className="h-[18px] w-[18px] shrink-0" />
+          <Inbox className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
           {!collapsed && <span>{t('nav.inbox')}</span>}
         </Link>
 
@@ -446,7 +446,7 @@ export function AppSidebar() {
               collapsed && 'justify-center px-0'
             )}
           >
-            <item.icon className="h-[18px] w-[18px] shrink-0" />
+            <item.icon className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
             {!collapsed && <span className="flex-1">{t(`nav.${item.key}` as any)}</span>}
             {item.locked && !collapsed && (
               <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
@@ -474,7 +474,7 @@ export function AppSidebar() {
               collapsed && 'justify-center px-0'
             )}
           >
-            <item.icon className="h-[18px] w-[18px] shrink-0" />
+            <item.icon className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
             {!collapsed && <span>{t(`nav.${item.key}` as any)}</span>}
           </Link>
         ))}
@@ -488,7 +488,7 @@ export function AppSidebar() {
               collapsed && 'justify-center px-0'
             )}
           >
-            <Shield className="h-[18px] w-[18px] shrink-0" />
+            <Shield className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
             {!collapsed && <span>Super Admin</span>}
           </Link>
         )}

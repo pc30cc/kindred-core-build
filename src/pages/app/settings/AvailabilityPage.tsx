@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, useI18n } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchAvailability,
@@ -82,6 +82,18 @@ const TIMEZONES = [
   'Pacific/Auckland',
 ];
 
+function tzLabel(tz: string, locale: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat(locale, { timeZone: tz, timeZoneName: 'long' })
+      .formatToParts(new Date());
+    const name = parts.find((p) => p.type === 'timeZoneName')?.value;
+    if (name && name !== tz) return name;
+  } catch {
+    /* ignore */
+  }
+  return tz;
+}
+
 function formatTzOffset(tz: string): string {
   try {
     const fmt = new Intl.DateTimeFormat('en-US', {
@@ -127,11 +139,16 @@ interface IntervalRowProps {
   disabled?: boolean;
   onChange: (next: AvailabilityInterval) => void;
   onRemove: () => void;
+  fromLabel: string;
+  toLabel: string;
+  removeLabel: string;
+  rtl: boolean;
 }
 
-function IntervalRow({ interval, disabled, onChange, onRemove }: IntervalRowProps) {
+function IntervalRow({ interval, disabled, onChange, onRemove, fromLabel, toLabel, removeLabel, rtl }: IntervalRowProps) {
   return (
     <div className="flex items-center gap-2">
+      <span className="text-[11.5px] text-muted-foreground">{fromLabel}</span>
       <Input
         type="time"
         value={interval.from}
@@ -139,7 +156,8 @@ function IntervalRow({ interval, disabled, onChange, onRemove }: IntervalRowProp
         onChange={(e) => onChange({ ...interval, from: e.target.value })}
         className="w-32"
       />
-      <span className="text-xs text-muted-foreground">→</span>
+      <span className="text-xs text-muted-foreground">{rtl ? '←' : '→'}</span>
+      <span className="text-[11.5px] text-muted-foreground">{toLabel}</span>
       <Input
         type="time"
         value={interval.to}
@@ -152,6 +170,8 @@ function IntervalRow({ interval, disabled, onChange, onRemove }: IntervalRowProp
         size="icon"
         disabled={disabled}
         onClick={onRemove}
+        aria-label={removeLabel}
+        title={removeLabel}
         className="h-8 w-8 text-muted-foreground hover:text-destructive"
       >
         <Trash2 className="h-3.5 w-3.5" />
@@ -211,7 +231,10 @@ function ToggleRow({ label, description, checked, disabled, onChange }: ToggleRo
 
 export default function AvailabilityPage() {
   const { t } = useTranslation();
+  const { locale, dir } = useI18n();
+  const rtl = dir === 'rtl';
   const qc = useQueryClient();
+  const num = (n: number) => new Intl.NumberFormat(locale).format(n);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['availability'],
@@ -238,7 +261,7 @@ export default function AvailabilityPage() {
     onError: (err: Error) => {
       setSavingKey(null);
       toast({
-        title: 'Failed to save',
+        title: t('availabilityPage.saveError' as any) as string,
         description: err.message,
         variant: 'destructive',
       });
@@ -294,7 +317,7 @@ export default function AvailabilityPage() {
   if (isError) {
     return (
       <Card className="border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
-        {(error as Error)?.message || 'Failed to load availability'}
+        {(error as Error)?.message || (t('availabilityPage.loadError' as any) as string)}
       </Card>
     );
   }
@@ -309,11 +332,10 @@ export default function AvailabilityPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Availability
+            {t('availabilityPage.title' as any)}
           </h1>
           <p className="mt-1 text-[13.5px] text-muted-foreground">
-            Set your operator presence schedule. Visitors see you as available
-            during the time windows you define below.
+            {t('availabilityPage.subtitle' as any)}
           </p>
         </div>
         {headerStatus}
@@ -346,7 +368,7 @@ export default function AvailabilityPage() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm">
-                You are currently seen as:{' '}
+                {t('availabilityPage.seenAs' as any)}{' '}
                 <span
                   className={cn(
                     'font-semibold',
@@ -355,17 +377,15 @@ export default function AvailabilityPage() {
                       : 'text-amber-600 dark:text-amber-400',
                   )}
                 >
-                  {status.state === 'online' ? 'Online' : 'Offline'}
+                  {status.state === 'online'
+                    ? (t('availabilityPage.online' as any) as string)
+                    : (t('availabilityPage.offline' as any) as string)}
                 </span>
               </div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                Set yourself available on schedule by configuring days and times
-                (in your timezone). Visitors will see you as away outside scheduled
-                hours, but they can still send you messages.{' '}
+                {t('availabilityPage.statusHelp' as any)}{' '}
                 <span className="font-medium text-foreground">
-                  If you are a member of a workspace with multiple operators, the
-                  chatbox will be seen as online if at least one operator is
-                  available, and away if all operators are unavailable.
+                  {t('availabilityPage.statusHelpTeam' as any)}
                 </span>
               </p>
             </div>
@@ -377,21 +397,21 @@ export default function AvailabilityPage() {
       <Card className="overflow-hidden">
         <div className="px-6 divide-y divide-border/60">
           <ToggleRow
-            label="Force offline (invisible mode)"
-            description="When enabled, you will appear offline to visitors regardless of your schedule."
+            label={t('availabilityPage.forceOffline' as any) as string}
+            description={t('availabilityPage.forceOfflineDesc' as any) as string}
             checked={prefs.force_offline}
             onChange={(v) => update('force_offline', v)}
           />
           <ToggleRow
-            label="Set me available when using the app"
-            description="Automatically mark you as online while the app is open in your browser."
+            label={t('availabilityPage.availableWhenUsingApp' as any) as string}
+            description={t('availabilityPage.availableWhenUsingAppDesc' as any) as string}
             checked={prefs.available_when_using_app}
             disabled={prefs.force_offline}
             onChange={(v) => update('available_when_using_app', v)}
           />
           <ToggleRow
-            label="Enable availability schedule"
-            description="Use the weekly schedule below to define when you are available."
+            label={t('availabilityPage.scheduleEnabled' as any) as string}
+            description={t('availabilityPage.scheduleEnabledDesc' as any) as string}
             checked={prefs.schedule_enabled}
             disabled={prefs.force_offline}
             onChange={(v) => update('schedule_enabled', v)}
@@ -403,15 +423,15 @@ export default function AvailabilityPage() {
       <Card className="p-6">
         <SectionHeader
           icon={Clock}
-          title="Days"
-          hint={`${DAY_KEYS.filter((d) => prefs.weekly_schedule[d]?.enabled).length}/7`}
+          title={t('availabilityPage.days' as any) as string}
+          hint={`${num(DAY_KEYS.filter((d) => prefs.weekly_schedule[d]?.enabled).length)}/${num(7)}`}
         />
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {DAY_KEYS.map((day) => (
             <DayChip
               key={day}
               day={day}
-              label={DAY_LABELS_DEFAULT[day]}
+              label={(t(`availabilityPage.dayShort.${day}` as any) as string) || DAY_LABELS_DEFAULT[day]}
               active={!!prefs.weekly_schedule[day]?.enabled}
               disabled={scheduleLocked}
               onToggle={() =>
@@ -426,8 +446,8 @@ export default function AvailabilityPage() {
       <Card className="p-6">
         <SectionHeader
           icon={Globe2}
-          title="Timezone"
-          hint={`Currently ${formatTzOffset(prefs.timezone)}`}
+          title={t('availabilityPage.timezone' as any) as string}
+          hint={String(t('availabilityPage.timezoneHint' as any)).replace('{offset}', formatTzOffset(prefs.timezone))}
         />
         <div className="mt-4 max-w-sm">
           <Select
@@ -441,7 +461,7 @@ export default function AvailabilityPage() {
             <SelectContent>
               {TIMEZONES.map((tz) => (
                 <SelectItem key={tz} value={tz}>
-                  {tz} ({formatTzOffset(tz)})
+                  {tzLabel(tz, locale)} <span dir="ltr">({formatTzOffset(tz)})</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -453,8 +473,8 @@ export default function AvailabilityPage() {
       <Card className="p-6">
         <SectionHeader
           icon={Clock}
-          title="Hours"
-          hint="Time intervals during which you are available, per day."
+          title={t('availabilityPage.hours' as any) as string}
+          hint={t('availabilityPage.hoursHint' as any) as string}
         />
         <div className="mt-4 space-y-3">
           {DAY_KEYS.map((day) => {
@@ -471,12 +491,12 @@ export default function AvailabilityPage() {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="w-12 text-sm font-medium">
-                      {DAY_LABELS_DEFAULT[day]}
+                    <span className="min-w-[68px] text-sm font-medium">
+                      {(t(`availabilityPage.dayShort.${day}` as any) as string) || DAY_LABELS_DEFAULT[day]}
                     </span>
                     {!active && (
                       <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10.5px] uppercase tracking-wide text-muted-foreground">
-                        Off
+                        {t('availabilityPage.off' as any)}
                       </span>
                     )}
                   </div>
@@ -493,7 +513,7 @@ export default function AvailabilityPage() {
                     }}
                     className="h-7 text-[12px]"
                   >
-                    <Plus className="me-1 h-3 w-3" /> Add an interval
+                    <Plus className="me-1 h-3 w-3" /> {t('availabilityPage.addInterval' as any)}
                   </Button>
                 </div>
                 {(cfg?.intervals?.length ?? 0) > 0 && (
@@ -503,6 +523,10 @@ export default function AvailabilityPage() {
                         key={idx}
                         interval={it}
                         disabled={intervalsLocked || !active}
+                        fromLabel={t('availabilityPage.from' as any) as string}
+                        toLabel={t('availabilityPage.to' as any) as string}
+                        removeLabel={t('availabilityPage.removeInterval' as any) as string}
+                        rtl={rtl}
                         onChange={(next) => {
                           const list = cfg.intervals.slice();
                           list[idx] = next;

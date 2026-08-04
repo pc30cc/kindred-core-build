@@ -329,6 +329,8 @@ const fa: TranslationKeys = {
   },
   inbox: {
     title: 'صندوق ورودی',
+    needsHuman: 'نیازمند اپراتور',
+    assignedToMe: 'ارجاع به من',
     conversations: 'مکالمات',
     newConversation: 'مکالمه جدید',
     noMessages: 'هنوز پیامی نیست',

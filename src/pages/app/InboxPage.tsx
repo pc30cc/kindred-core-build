@@ -893,7 +893,7 @@ export default function InboxPage() {
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
-            className="flex gap-1 overflow-x-auto pb-0.5 scrollbar-hide -mx-1 px-1"
+            className="flex h-full items-center gap-1.5 overflow-x-auto scrollbar-hide px-1"
           >
             {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
               const count = s === 'all' ? (conversations?.length || 0) : (statusCounts[s] || 0);
@@ -906,18 +906,18 @@ export default function InboxPage() {
                   aria-selected={isActive}
                   onClick={() => setFilter(s)}
                   className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-semibold transition-all whitespace-nowrap border',
+                    'flex items-center gap-2 px-3.5 h-9 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap border',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
                     isActive
                       ? 'bg-primary/10 text-primary border-primary/25 shadow-sm'
                       : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
                   )}
                 >
-                  {s !== 'all' && <span className={cn('w-1.5 h-1.5 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
+                  {s !== 'all' && <span className={cn('w-2 h-2 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
                   {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
                   {count > 0 && (
                     <span className={cn(
-                      'text-[9px] min-w-[16px] h-4 flex items-center justify-center rounded-full px-1 font-bold',
+                      'text-[11px] min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 font-bold',
                       isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
                     )}>{count}</span>
                   )}
@@ -931,16 +931,16 @@ export default function InboxPage() {
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
               className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-semibold transition-all whitespace-nowrap border',
+                'flex items-center gap-2 px-3.5 h-9 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap border',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
                 extraChip === 'needs_human'
                   ? 'bg-destructive/10 text-destructive border-destructive/25 shadow-sm'
                   : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
               )}
-              title="Show only conversations the AI handed off to a human"
+              title={t('inbox.needsHuman') || 'Needs human'}
             >
-              <AlertCircle className="w-3 h-3" />
-              Needs human
+              <AlertCircle className="w-4 h-4" />
+              {t('inbox.needsHuman') || 'Needs human'}
             </button>
             <button
               role="tab"
@@ -948,16 +948,16 @@ export default function InboxPage() {
               onClick={() => setExtraChip(extraChip === 'assigned_to_me' ? null : 'assigned_to_me')}
               disabled={!user?.id}
               className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-semibold transition-all whitespace-nowrap border',
+                'flex items-center gap-2 px-3.5 h-9 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap border',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
                 extraChip === 'assigned_to_me'
                   ? 'bg-primary/10 text-primary border-primary/25 shadow-sm'
                   : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
               )}
-              title="Show only conversations assigned to me"
+              title={t('inbox.assignedToMe') || 'Assigned to me'}
             >
-              <UserCheck className="w-3 h-3" />
-              Assigned to me
+              <UserCheck className="w-4 h-4" />
+              {t('inbox.assignedToMe') || 'Assigned to me'}
             </button>
           </div>
           </ToolbarPortal>

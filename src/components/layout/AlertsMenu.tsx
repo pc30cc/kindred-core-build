@@ -21,10 +21,11 @@ import {
   Check,
   CheckCheck,
   Lock,
+  X,
 } from 'lucide-react';
 import { useI18n } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetClose, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
@@ -112,7 +113,7 @@ export function AlertsMenu() {
       <SheetContent
         side={dir === 'rtl' ? 'left' : 'right'}
         dir={dir}
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-md [&>button.absolute]:hidden"
       >
         {/* Header */}
         <div className="border-b border-border/60 bg-gradient-to-b from-muted/50 to-background px-5 py-4">
@@ -133,6 +134,16 @@ export function AlertsMenu() {
                 {total > 0 ? t('alerts.subtitle', { count: String(total) }) : t('alerts.empty.title')}
               </p>
             </div>
+            <SheetClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t('common.close')}
+                className="h-10 w-10 shrink-0 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </SheetClose>
           </div>
 
           {dismissableCount > 0 && (

@@ -132,6 +132,41 @@ const priorityColors: Record<string, string> = {
 };
 
 type FilterStatus = 'all' | 'open' | 'pending' | 'resolved' | 'closed';
+
+/**
+ * Some conversations are persisted with an English placeholder subject
+ * ("New conversation") by the widget/AI. Map those onto the active locale so
+ * the UI never leaks English, and drop them entirely once the conversation
+ * has real content (a contact name or an actual message).
+ */
+const PLACEHOLDER_SUBJECTS = new Set([
+  'new conversation',
+  'new chat',
+  'untitled conversation',
+  'untitled',
+  '[attachment]',
+]);
+
+function isPlaceholderSubject(subject?: string | null): boolean {
+  const s = (subject ?? '').trim().toLowerCase();
+  return !s || PLACEHOLDER_SUBJECTS.has(s);
+}
+
+/** Localized subject — placeholder subjects become the translated default. */
+function localizedSubject(subject: string | null | undefined, t: (k: any) => string): string {
+  return isPlaceholderSubject(subject) ? t('contacts.conversationUntitled') : String(subject);
+}
+
+/** Display title for a conversation: contact identity first, subject second. */
+function conversationTitle(conv: any, t: (k: any) => string): string {
+  return (
+    conv?.contacts?.name
+    || conv?.contacts?.email
+    || (isPlaceholderSubject(conv?.subject) ? '' : conv.subject)
+    || t('contacts.conversationUntitled')
+  );
+}
+
 type ExtraChip = 'needs_human' | 'assigned_to_me';
 type SidebarTab = 'info' | 'activity';
 

@@ -53,6 +53,8 @@ import { Sparkles } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
+import TeamChatPanel from '@/components/inbox/TeamChatPanel';
+import { useColleagues } from '@/hooks/useTeamChat';
 import {
   useOperatorMessageChime,
   getOperatorMessageSoundEnabled,
@@ -163,7 +165,7 @@ function conversationTitle(conv: any, t: (k: any) => string): string {
   );
 }
 
-type ExtraChip = 'needs_human' | 'assigned_to_me';
+type ExtraChip = 'needs_human' | 'assigned_to_me' | 'colleagues';
 type SidebarTab = 'info' | 'activity';
 
 /**
@@ -215,6 +217,7 @@ export default function InboxPage() {
   const extraChip: ExtraChip | null =
     filterParam === 'needs_human' ? 'needs_human'
       : filterParam === 'assigned_to_me' ? 'assigned_to_me'
+      : filterParam === 'colleagues' ? 'colleagues'
       : null;
 
   // Legacy URL redirect: /inbox?queue=needs_human → /inbox?filter=needs_human.
@@ -787,6 +790,8 @@ export default function InboxPage() {
      server-side HEAD counts, not from the (filter-scoped) conversation list.
      This also keeps tab widths stable while switching filters. */
   const { data: tabCounts } = useInboxTabCounts(workspace?.id);
+  const { data: colleagueDir } = useColleagues(workspace?.id);
+  const colleagueUnread = colleagueDir?.total_unread ?? 0;
   const stableCounts: Record<string, number> = tabCounts ?? {};
 
   /* Live tabs: when a tab's counter grows (new conversation/message landed in
@@ -1052,6 +1057,39 @@ export default function InboxPage() {
                   extraChip === 'needs_human' ? 'bg-destructive/20 text-destructive' : 'bg-secondary text-muted-foreground'
                 )}
               >{stableCounts.needs_human || 0}</span>
+            </button>
+            {/* Colleagues — internal operator-to-operator chat */}
+            <button
+              role="tab"
+              aria-selected={extraChip === 'colleagues'}
+              onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
+              className={cn(
+                'relative flex items-center gap-1.5 px-3 h-10 rounded-t-lg text-[12.5px] font-semibold whitespace-nowrap',
+                'border border-b-0 transition-colors duration-150',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                extraChip === 'colleagues'
+                  ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-2 before:top-0 before:h-[2px] before:rounded-full before:bg-primary'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
+              )}
+              title={t('inbox.colleagues') || 'Colleagues'}
+            >
+              {colleagueUnread > 0 && extraChip !== 'colleagues' ? (
+                <span className="relative flex w-2 h-2 items-center justify-center">
+                  <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+                  <span className="relative inline-flex w-2 h-2 rounded-full bg-success animate-pulse" />
+                </span>
+              ) : (
+                <Users className="w-4 h-4" />
+              )}
+              {t('inbox.colleagues') || 'Colleagues'}
+              <span
+                aria-hidden={colleagueUnread === 0}
+                className={cn(
+                  'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
+                  colleagueUnread === 0 && 'opacity-0',
+                  extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground'
+                )}
+              >{colleagueUnread > 99 ? '99+' : colleagueUnread}</span>
             </button>
           </div>
           </ToolbarPortal>

@@ -280,6 +280,7 @@ const tr: TranslationKeys = {
     quickActions: 'Hızlı işlemler',
     statOpenConversations: 'Açık konuşmalar',
     statOnlineVisitors: 'Çevrimiçi ziyaretçiler',
+    statVisitsToday: 'Bugünkü ziyaretler',
     statTotalConversations: 'Toplam konuşmalar',
     statKbArticles: 'Bilgi bankası makaleleri',
     openInbox: 'Gelen kutusu',

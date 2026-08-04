@@ -280,6 +280,7 @@ const fa: TranslationKeys = {
     quickActions: 'دسترسی سریع',
     statOpenConversations: 'مکالمات باز',
     statOnlineVisitors: 'بازدیدکنندگان آنلاین',
+    statVisitsToday: 'بازدیدهای امروز',
     statTotalConversations: 'کل مکالمات',
     statKbArticles: 'مقالات پایگاه دانش',
     openInbox: 'صندوق ورودی',

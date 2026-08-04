@@ -6,7 +6,7 @@
  * defaults sourced from `app_runtime_config.global_advanced_routing`.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Activity, Info, Loader2 } from 'lucide-react';
 
 import {

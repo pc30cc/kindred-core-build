@@ -5,7 +5,7 @@ import { Mail, FolderSearch, Clock, MousePointerClick, Home, RefreshCw } from 'l
 import { Button } from '@/components/ui/button';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import { resendVerificationEmail } from '@/lib/auth-email-api';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 export default function CheckEmailPage() {
   const navigate = useNavigate();

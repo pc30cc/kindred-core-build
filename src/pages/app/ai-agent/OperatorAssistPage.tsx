@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Loader2, Sparkles, TrendingUp, ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 
 export default function OperatorAssistPage() {

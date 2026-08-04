@@ -17,7 +17,7 @@ import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { formatPattern as format } from '@/lib/date';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,
   Globe, Palette, Bot, Loader2, Shield, ArrowLeft,

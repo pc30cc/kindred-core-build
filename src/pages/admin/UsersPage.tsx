@@ -31,7 +31,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPattern as format } from '@/lib/date';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,

@@ -3,7 +3,7 @@ import { useIsGlobalAdmin, useBootstrapAdmin } from '@/hooks/useAdmin';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Navigate } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Shield } from 'lucide-react';
 
 export default function AdminBootstrapPage() {

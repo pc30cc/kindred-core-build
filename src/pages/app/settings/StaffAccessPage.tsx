@@ -21,7 +21,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
   Shield, UserPlus, Search, Crown, Loader2, Trash2, Settings2,
   ArrowRight, Users,

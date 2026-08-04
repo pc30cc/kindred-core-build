@@ -11,7 +11,7 @@ import {
   CreditCard, Users, TrendingUp, AlertCircle, Loader2, Activity,
   DollarSign, CheckCircle, XCircle, Shield,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 function formatPrice(amount: number, currency: string): string {
   if (currency === 'IRR') return `${amount.toLocaleString('fa-IR')} ریال`;

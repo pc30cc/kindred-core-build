@@ -15,7 +15,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Mail, Brain, Webhook, Check, AlertCircle, Loader2, Trash2, Eye, EyeOff } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
   useWorkspaceProviders, useUpsertWsProvider, useDeleteWsProvider,
   maskSecret, getProviderStatus,

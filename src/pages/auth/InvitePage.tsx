@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import { API_BASE } from '@/lib/api';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
   Loader2, CheckCircle2, XCircle, Building2, LogIn, UserPlus,
   Clock, ShieldAlert, AlertTriangle, ArrowRight,

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Loader2, Sliders, MessageSquare, HelpCircle, FileText, Heart, Languages } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import type { AgentMode, AnswerGuidance } from '@/lib/ai-agent-api';
 import { useTranslation } from '@/i18n';
 

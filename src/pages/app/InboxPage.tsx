@@ -1308,7 +1308,13 @@ export default function InboxPage() {
                       </span>
                     )}
                   </div>
-                  <div className={cn('absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card', statusDots[selected.status ?? 'open'])} />
+                  {presence && presence.status !== 'unknown' ? (
+                    <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-card p-[1.5px] shadow-sm">
+                      <PresenceDot state={presence.status as 'online' | 'idle' | 'offline'} size={12} />
+                    </span>
+                  ) : (
+                    <div className={cn('absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card', statusDots[selected.status ?? 'open'])} />
+                  )}
                 </div>
                 <div>
                   <div className="text-[14.5px] font-bold text-foreground">

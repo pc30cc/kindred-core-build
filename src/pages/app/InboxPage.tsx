@@ -1679,7 +1679,7 @@ export default function InboxPage() {
                     className={cn(
                       'flex gap-2.5 group',
                       isAgent ? 'flex-row-reverse' : 'flex-row',
-                      sameSenderAsPrev ? '-mt-1' : '',
+                      sameSenderAsPrev ? '-mt-3' : '',
                     )}
                   >
                     {/* Avatar — hidden on grouped follow-ups, replaced by spacer */}

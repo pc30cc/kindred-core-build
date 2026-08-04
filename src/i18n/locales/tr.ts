@@ -3168,6 +3168,7 @@ const tr: TranslationKeys = {
       currentPlanLabel: 'Mevcut plan',
       currentPlan: 'Ücretsiz plan',
       action: 'Planı yükselt',
+      back: 'Geri',
       module: {
         ai_assistant: 'AI Asistanı',
         call_center: 'Çağrı Merkezi',

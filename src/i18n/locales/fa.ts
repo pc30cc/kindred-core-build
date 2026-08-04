@@ -3168,6 +3168,7 @@ const fa: TranslationKeys = {
       currentPlanLabel: 'پلن فعلی',
       currentPlan: 'پلن رایگان',
       action: 'ارتقای پلن',
+      back: 'بازگشت',
       module: {
         ai_assistant: 'دستیار هوشمند',
         call_center: 'مرکز تماس',

@@ -178,10 +178,13 @@ export function EntitlementAccessGate({
     tr('plan.locked.currentPlan', '—');
 
   const title =
-    lockedTitle || tr(`plan.upgrade.${capKey}.title`, `${capLabel} is not included in your plan`);
+    lockedTitle ||
+    tr('plan.locked.title', `${capLabel} is not included in your plan`);
   const description =
     lockedDescription ||
-    tr(`plan.upgrade.${capKey}.body`, 'Upgrade your plan to unlock this feature.');
+    tr('plan.locked.message', 'Upgrade your plan to unlock this feature.')
+      .replace('{{module}}', capLabel)
+      .replace('{module}', capLabel);
 
   return (
     <GateShell mode={mode} className={className} dir={dir}>

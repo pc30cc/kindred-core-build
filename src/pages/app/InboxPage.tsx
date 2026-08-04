@@ -925,7 +925,7 @@ export default function InboxPage() {
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
-            className="flex items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px pt-1"
+            className="flex items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
           >
             {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
               const count = s === 'all' ? (conversations?.length || 0) : (statusCounts[s] || 0);
@@ -938,19 +938,19 @@ export default function InboxPage() {
                   aria-selected={isActive}
                   onClick={() => setFilter(s)}
                   className={cn(
-                    'relative flex items-center gap-2 px-4 h-10 rounded-t-xl text-[13px] font-semibold whitespace-nowrap',
-                    'border border-b-0 transition-all duration-200',
+                    'relative flex items-center gap-2.5 px-5 h-11 rounded-t-xl text-[14px] font-semibold whitespace-nowrap',
+                    'border border-b-0 transition-colors duration-150',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     isActive
                       ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-3 before:top-0 before:h-[3px] before:rounded-full before:bg-primary'
                       : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
                   )}
                 >
-                  {s !== 'all' && <span className={cn('w-2 h-2 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
+                  {s !== 'all' && <span className={cn('w-2.5 h-2.5 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
                   {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
                   {count > 0 && (
                     <span className={cn(
-                      'text-[11px] min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 font-bold',
+                      'text-[11.5px] min-w-[22px] h-5.5 flex items-center justify-center rounded-full px-2 py-0.5 font-bold',
                       isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
                     )}>{count}</span>
                   )}
@@ -964,8 +964,8 @@ export default function InboxPage() {
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
               className={cn(
-                'relative flex items-center gap-2 px-4 h-10 rounded-t-xl text-[13px] font-semibold whitespace-nowrap',
-                'border border-b-0 transition-all duration-200',
+                'relative flex items-center gap-2.5 px-5 h-11 rounded-t-xl text-[14px] font-semibold whitespace-nowrap',
+                'border border-b-0 transition-colors duration-150',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 extraChip === 'needs_human'
                   ? 'bg-card text-destructive border-border shadow-[0_-2px_10px_-4px_hsl(var(--destructive)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-3 before:top-0 before:h-[3px] before:rounded-full before:bg-destructive'
@@ -973,7 +973,7 @@ export default function InboxPage() {
               )}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
-              <AlertCircle className="w-4 h-4" />
+              <AlertCircle className="w-[18px] h-[18px]" />
               {t('inbox.needsHuman') || 'Needs human'}
             </button>
             <button
@@ -982,8 +982,8 @@ export default function InboxPage() {
               onClick={() => setExtraChip(extraChip === 'assigned_to_me' ? null : 'assigned_to_me')}
               disabled={!user?.id}
               className={cn(
-                'relative flex items-center gap-2 px-4 h-10 rounded-t-xl text-[13px] font-semibold whitespace-nowrap',
-                'border border-b-0 transition-all duration-200',
+                'relative flex items-center gap-2.5 px-5 h-11 rounded-t-xl text-[14px] font-semibold whitespace-nowrap',
+                'border border-b-0 transition-colors duration-150',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 extraChip === 'assigned_to_me'
                   ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-3 before:top-0 before:h-[3px] before:rounded-full before:bg-primary'
@@ -991,7 +991,7 @@ export default function InboxPage() {
               )}
               title={t('inbox.assignedToMe') || 'Assigned to me'}
             >
-              <UserCheck className="w-4 h-4" />
+              <UserCheck className="w-[18px] h-[18px]" />
               {t('inbox.assignedToMe') || 'Assigned to me'}
             </button>
           </div>

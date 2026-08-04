@@ -632,14 +632,20 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',
       logoUrl: ws.logo_url || branding?.logo_url || null,
-      launcherText: ws.launcher_text || '',
+      launcherText: resolveLocalizedDefault(
+        ws.launcher_text,
+        'launcher',
+        ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
+      ),
       // Three-tier resolution: workspace override → platform default → hardcoded fallback.
       // Stored in `widget_settings.welcome_message` (per-workspace) or
       // `widget_platform_settings.default_welcome_message` (platform-wide).
       welcomeMessage:
-        (typeof ws.welcome_message === 'string' && ws.welcome_message.trim().length > 0
-          ? ws.welcome_message
-          : null)
+        resolveLocalizedDefault(
+          ws.welcome_message,
+          'welcome',
+          ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
+        )
         || platformWidget?.default_welcome_message
         || '',
       greetingMessage: ws.greeting_message || '',

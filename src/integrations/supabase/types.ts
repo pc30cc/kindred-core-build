@@ -7149,6 +7149,36 @@ export type Database = {
         }
         Relationships: []
       }
+      workspace_alert_dismissals: {
+        Row: {
+          alert_key: string
+          dismissed_at: string
+          dismissed_until: string | null
+          id: string
+          signature: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          alert_key: string
+          dismissed_at?: string
+          dismissed_until?: string | null
+          id?: string
+          signature?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          alert_key?: string
+          dismissed_at?: string
+          dismissed_until?: string | null
+          id?: string
+          signature?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       workspace_branding: {
         Row: {
           accent_color: string | null

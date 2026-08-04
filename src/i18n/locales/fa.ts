@@ -3163,6 +3163,11 @@ const fa: TranslationKeys = {
   },
   alerts: {
     title: 'هشدارهای کاری',
+    subtitle: '{{count}} مورد نیازمند بررسی',
+    markRead: 'خوانده شد',
+    markAllRead: 'همه را خوانده‌شده کن',
+    notDismissible: 'تا رفع مشکل باقی می‌ماند',
+    review: 'بررسی',
     settings: 'تنظیمات اعلان‌ها',
     empty: {
       title: 'همه‌چیز مرتب است',

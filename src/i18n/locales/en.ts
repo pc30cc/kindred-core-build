@@ -3176,6 +3176,11 @@ const en = {
   },
   alerts: {
     title: 'Operational alerts',
+    subtitle: '{{count}} item(s) need your attention',
+    markRead: 'Mark as read',
+    markAllRead: 'Mark all as read',
+    notDismissible: 'Stays until resolved',
+    review: 'Review',
     settings: 'Notification settings',
     empty: {
       title: 'Everything looks good',

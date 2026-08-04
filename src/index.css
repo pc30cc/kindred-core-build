@@ -7,27 +7,30 @@
     --font-family-base: 'Manrope', system-ui, sans-serif;
     --font-heading: 'Sora', 'Manrope', system-ui, sans-serif;
 
-    /* Cloud White — crisp whites, blue-tinted grays, electric blue accent */
-    --background: 210 25% 99%;
-    --foreground: 217 33% 12%;
+    /* Emerald Prestige — warm ivory canvas, deep emerald, gold accent */
+    --background: 150 22% 98.5%;
+    --foreground: 165 32% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 217 33% 12%;
+    --card-foreground: 165 32% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 217 33% 12%;
+    --popover-foreground: 165 32% 11%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 164 80% 26%;
+    --primary-foreground: 45 60% 97%;
 
-    --secondary: 213 29% 94%;
-    --secondary-foreground: 217 33% 16%;
+    --secondary: 150 20% 94%;
+    --secondary-foreground: 165 30% 16%;
 
-    --muted: 213 27% 95%;
-    --muted-foreground: 215 18% 46%;
+    --muted: 150 18% 95%;
+    --muted-foreground: 165 12% 42%;
 
-    --accent: 217 91% 96%;
-    --accent-foreground: 217 80% 42%;
+    --accent: 152 38% 94%;
+    --accent-foreground: 164 70% 22%;
+
+    --gold: 44 52% 54%;
+    --gold-foreground: 45 60% 97%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -41,34 +44,36 @@
     --info: 212 55% 52%;
     --info-foreground: 0 0% 100%;
 
-    --border: 214 28% 91%;
-    --input: 214 28% 91%;
-    --ring: 217 91% 60%;
+    --border: 152 18% 89%;
+    --input: 152 18% 89%;
+    --ring: 164 80% 26%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 217 33% 12%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 91% 96%;
-    --sidebar-accent-foreground: 217 80% 42%;
-    --sidebar-border: 214 28% 93%;
-    --sidebar-ring: 217 91% 60%;
-    --sidebar-muted-foreground: 215 18% 50%;
+    /* Sidebar — deep emerald rail with gold highlights */
+    --sidebar-background: 166 68% 12%;
+    --sidebar-foreground: 150 22% 88%;
+    --sidebar-primary: 44 52% 60%;
+    --sidebar-primary-foreground: 166 70% 10%;
+    --sidebar-accent: 166 45% 18%;
+    --sidebar-accent-foreground: 45 55% 88%;
+    --sidebar-border: 166 40% 18%;
+    --sidebar-ring: 44 52% 54%;
+    --sidebar-muted-foreground: 150 14% 65%;
 
     --surface-elevated: 0 0% 100%;
-    --surface-sunken: 213 30% 97%;
+    --surface-sunken: 150 20% 96.5%;
 
     /* Gradients & Shadows */
-    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(224 84% 52%));
-    --gradient-sidebar: linear-gradient(180deg, hsl(0 0% 100%), hsl(213 30% 98%));
-    --gradient-card-hover: linear-gradient(135deg, hsl(213 30% 98%), hsl(213 26% 95%));
-    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%), hsl(213 30% 98.5%));
+    --gradient-primary: linear-gradient(135deg, hsl(164 80% 26%), hsl(168 72% 18%));
+    --gradient-gold: linear-gradient(135deg, hsl(44 58% 60%), hsl(40 48% 46%));
+    --gradient-sidebar: linear-gradient(180deg, hsl(166 68% 13%), hsl(168 72% 9%));
+    --gradient-card-hover: linear-gradient(135deg, hsl(150 24% 98%), hsl(150 20% 95%));
+    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%), hsl(150 22% 98.5%));
 
-    --shadow-card: 0 1px 2px 0 hsl(215 30% 60% / 0.06), 0 4px 14px -6px hsl(215 30% 55% / 0.12);
-    --shadow-glow: 0 0 0 1px hsl(217 91% 60% / 0.12), 0 8px 24px -10px hsl(217 91% 60% / 0.28);
-    --shadow-elevated: 0 8px 30px -10px hsl(215 30% 45% / 0.18);
+    --shadow-card: 0 1px 2px 0 hsl(165 25% 35% / 0.06), 0 4px 14px -6px hsl(165 30% 25% / 0.12);
+    --shadow-glow: 0 0 0 1px hsl(164 60% 30% / 0.14), 0 8px 24px -10px hsl(164 70% 24% / 0.3);
+    --shadow-elevated: 0 8px 30px -10px hsl(165 30% 20% / 0.18);
 
     /* Admin panel tokens */
     --admin-background: 225 14% 11%;
@@ -83,8 +88,8 @@
     --admin-sidebar-foreground: 220 6% 68%;
     --admin-sidebar-active: 225 10% 15%;
     --admin-sidebar-hover: 225 10% 15%;
-    --admin-accent: 174 50% 44%;
-    --admin-accent-foreground: 225 15% 6%;
+    --admin-accent: 44 52% 56%;
+    --admin-accent-foreground: 166 70% 8%;
 
     --call-stage: 225 15% 4%;
     --call-stage-foreground: 0 0% 98%;

@@ -250,7 +250,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   });
 
   const qc = useQueryClient();
-  const { locale: uiLocale } = useTranslation();
+  const uiLocale = (useTranslation() as { locale?: string }).locale ?? 'en';
 
   const { data: phoneState } = useQuery({
     queryKey: ['admin-phone-verification', userId],

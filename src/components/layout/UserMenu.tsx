@@ -65,26 +65,26 @@ export function UserMenu() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-2 py-1.5 transition-colors hover:bg-muted"
+        className="flex items-center gap-2.5 rounded-2xl border border-border/60 bg-muted/40 px-2.5 py-2 transition-colors hover:bg-muted"
       >
         <div className="relative">
-          <Avatar className="h-7 w-7 shrink-0">
+          <Avatar className="h-9 w-9 shrink-0">
             {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
-            <AvatarFallback className="bg-primary text-[11px] font-bold text-primary-foreground">
+            <AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">
               {userName.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
           <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-success" />
         </div>
         <div className="hidden min-w-0 text-start leading-tight lg:block">
-          <p className="max-w-[130px] truncate text-xs font-medium text-foreground">{userName}</p>
-          <p className="max-w-[130px] truncate text-[10px] text-muted-foreground">{userEmail}</p>
+          <p className="max-w-[150px] truncate text-sm font-semibold text-foreground">{userName}</p>
+          <p className="max-w-[150px] truncate text-[11px] text-muted-foreground">{userEmail}</p>
         </div>
-        <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (
-        <div className="absolute end-0 top-full z-50 mt-2 max-h-[75vh] w-[280px] overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-2xl animate-fade-in">
+        <div className="absolute end-0 top-full z-50 mt-2 max-h-[75vh] w-[300px] overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-2xl animate-fade-in">
           <div className="flex items-center gap-3 border-b border-border px-4 py-3">
             <Avatar className="h-10 w-10 shrink-0">
               {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}

@@ -761,6 +761,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
       {/* Change Password Dialog */}
       <Dialog open={passwordDialog} onOpenChange={setPasswordDialog}>
+        {null}
+      </Dialog>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

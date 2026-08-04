@@ -661,6 +661,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </CardContent>
       </Card>
 
+      <AdminPhoneVerificationCard userId={userId} />
+
         </TabsContent>
 
         <TabsContent value="access" className="space-y-4 mt-0">
@@ -694,7 +696,6 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </CardContent>
       </Card>
 
-      <AdminPhoneVerificationCard userId={userId} />
         </TabsContent>
 
         <TabsContent value="workspaces" className="space-y-4 mt-0">

@@ -1848,8 +1848,8 @@ export default function InboxPage() {
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
                   )}
-                  title="Canned responses (type / for shortcut)"
-                  aria-label="Canned responses"
+                  title={t('inbox.cannedResponsesTip') || 'Canned responses'}
+                  aria-label={t('inbox.cannedResponses') || 'Canned responses'}
                 >
                   <Sparkles className="w-4 h-4" />
                 </button>

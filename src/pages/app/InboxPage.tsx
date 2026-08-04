@@ -1253,6 +1253,7 @@ export default function InboxPage() {
                                   toast({ title: t('inbox.takenOverTitle') || 'Taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                                   qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                                 } catch (err: any) {
                                   toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: err?.message || '—', variant: 'destructive' });
                                 }
@@ -1376,6 +1377,7 @@ export default function InboxPage() {
                           toast({ title: t('inbox.takenOverTitle') || 'Conversation taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                         } catch (e: any) {
                           toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
                         }
@@ -1410,6 +1412,7 @@ export default function InboxPage() {
                           toast({ title: t('inbox.takenOverTitle') || 'Conversation taken over', description: t('inbox.takenOverDesc') || 'Assigned to you.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                         } catch (e: any) {
                           toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
                         }

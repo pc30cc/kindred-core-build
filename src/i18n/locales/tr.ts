@@ -3380,6 +3380,20 @@ const tr: TranslationKeys = {
       domains: 'Alan adları',
       install: 'Kurulum',
     },
+    tabDesc: {
+      appearance: 'Şablon, renkler ve metinler',
+      behavior: 'Modüller ve gizlilik',
+      prechat: 'Sohbet öncesi alanlar',
+      availability: 'Çalışma saatleri ve durum',
+      domains: 'Widget’ın yükleneceği alan adları',
+      install: 'Yerleştirme kodu',
+    },
+    availabilityScope: {
+      workspace: 'Widget çalışma saatleri',
+      workspaceDesc: 'Web sitenizdeki sohbet widget’ı için geçerlidir',
+      personal: 'Uygunluğum',
+      personalDesc: 'Kişisel operatör durumunuz ve programınız',
+    },
     template: {
       heading: 'Widget şablonu',
       description: 'Widget\'ınız için görsel şablonu seçin. Daha fazla şablon platform yöneticisi tarafından eklenebilir.',

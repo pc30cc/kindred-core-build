@@ -55,7 +55,7 @@ export function AppTopBar() {
         {/* Page-owned toolbar slot (e.g. Inbox filter tabs) */}
         <div
           id="topbar-page-slot"
-          className="flex h-full min-w-0 flex-1 items-end overflow-x-auto overflow-y-visible scrollbar-hide"
+          className="relative z-10 flex h-full min-w-0 flex-1 items-stretch"
         />
 
         {/* Group 2 — Preferences: language + theme */}

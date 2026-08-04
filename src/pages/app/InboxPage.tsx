@@ -925,7 +925,7 @@ export default function InboxPage() {
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
-            className="flex items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
+            className="flex h-full w-full items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
           >
             {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
               const count = s === 'all' ? (conversations?.length || 0) : (statusCounts[s] || 0);

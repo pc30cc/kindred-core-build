@@ -9,6 +9,7 @@ import { paddleProvider } from './providers/paddle.js';
 import { lemonSqueezyProvider } from './providers/lemonsqueezy.js';
 import { paypalProvider } from './providers/paypal.js';
 import { zarinpalProvider } from './providers/zarinpal.js';
+import { zarinpalTestProvider } from './providers/zarinpal-test.js';
 import { idpayProvider } from './providers/idpay.js';
 import { idpayTestProvider } from './providers/idpay-test.js';
 import { nextpayProvider } from './providers/nextpay.js';
@@ -33,6 +34,7 @@ const providers: Record<string, BillingProviderHandler> = {
   lemon_squeezy: lemonSqueezyProvider,
   paypal: paypalProvider,
   zarinpal: zarinpalProvider,
+  zarinpal_test: zarinpalTestProvider,
   idpay: idpayProvider,
   idpay_test: idpayTestProvider,
   nextpay: nextpayProvider,

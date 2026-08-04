@@ -329,6 +329,8 @@ const tr: TranslationKeys = {
   },
   inbox: {
     title: 'Gelen Kutusu',
+    needsHuman: 'Operatör gerekli',
+    assignedToMe: 'Bana atanan',
     conversations: 'Konuşmalar',
     newConversation: 'Yeni konuşma',
     noMessages: 'Henüz mesaj yok',

@@ -327,6 +327,8 @@ const en = {
   },
   inbox: {
     title: 'Inbox',
+    needsHuman: 'Needs human',
+    assignedToMe: 'Assigned to me',
     conversations: 'Conversations',
     newConversation: 'New conversation',
     noMessages: 'No messages yet',

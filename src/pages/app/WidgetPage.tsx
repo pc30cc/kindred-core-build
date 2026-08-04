@@ -154,10 +154,10 @@ function WidgetPageContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         {/* Main config area */}
         <div className="space-y-6">
-          <Tabs defaultValue="appearance" className="space-y-5">
+          <Tabs value={tab} onValueChange={setTab} className="space-y-5">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border bg-secondary/40 p-2 sm:grid-cols-3 lg:grid-cols-6">
               {([
                 { v: 'appearance', icon: Palette },
@@ -193,7 +193,7 @@ function WidgetPageContent() {
                   <TemplateGallery
                     selectedSlug={(widget as any)?.template_slug || 'default'}
                     primaryColor={primaryColor}
-                    brandLabel={widget?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
+                    brandLabel={live?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
                     saving={updateWidget.isPending}
                     onSelect={(slug) => {
                       updateWidget.mutate({ template_slug: slug } as any, {
@@ -215,12 +215,12 @@ function WidgetPageContent() {
                         <Input
                           type="color"
                           value={primaryColor}
-                          onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
+                          onChange={e => setField('primary_color', e.target.value)}
                           className="w-12 h-10 p-1 cursor-pointer"
                         />
                         <Input
                           value={primaryColor}
-                          onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
+                          onChange={e => setField('primary_color', e.target.value)}
                           className="font-mono text-xs"
                         />
                       </div>
@@ -228,8 +228,8 @@ function WidgetPageContent() {
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widget.position')}</Label>
                       <Select
-                        value={widget?.position || 'bottom-right'}
-                        onValueChange={v => updateWidget.mutate({ position: v } as any)}
+                        value={live?.position || 'bottom-right'}
+                        onValueChange={v => setField('position', v, 0)}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -243,8 +243,8 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
                     <Input
-                      value={widget?.launcher_text || ''}
-                      onChange={e => updateWidget.mutate({ launcher_text: e.target.value } as any)}
+                      value={live?.launcher_text || ''}
+                      onChange={e => setField('launcher_text', e.target.value)}
                       placeholder={platformName}
                     />
                   </div>
@@ -252,8 +252,8 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
-                      value={widget?.welcome_message || ''}
-                      onChange={e => updateWidget.mutate({ welcome_message: e.target.value } as any)}
+                      value={live?.welcome_message || ''}
+                      onChange={e => setField('welcome_message', e.target.value)}
                       rows={3}
                       placeholder={t('widgetPage.appearance.welcomePlaceholder')}
                     />
@@ -262,8 +262,8 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
                     <Select
-                      value={widget?.locale || 'en'}
-                      onValueChange={v => updateWidget.mutate({ locale: v } as any)}
+                      value={live?.locale || 'en'}
+                      onValueChange={v => setField('locale', v, 0)}
                     >
                       <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                       <SelectContent>

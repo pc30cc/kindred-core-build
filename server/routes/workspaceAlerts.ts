@@ -227,7 +227,7 @@ workspaceAlertsRouter.get('/:workspaceId', async (req, res) => {
       if (!a.dismissible) return true;
       const d = dismissed.get(a.id);
       if (!d) return true;
-      if (d.until !== null && d.until <= now) return false || true; // expired → show again
+      if (d.until !== null && d.until <= now) return true; // dismissal expired → show again
       return d.signature !== a.signature; // condition changed → show again
     });
 

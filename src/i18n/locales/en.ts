@@ -69,6 +69,8 @@ const en = {
     create: 'Create',
     search: 'Search...',
     noResults: 'No results found',
+    searchEverything: 'Search pages and settings…',
+    quickSearch: 'Quick search',
     confirm: 'Confirm',
     back: 'Back',
     next: 'Next',

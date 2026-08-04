@@ -71,6 +71,8 @@ const fa: TranslationKeys = {
     create: 'ایجاد',
     search: 'جستجو...',
     noResults: 'نتیجه‌ای یافت نشد',
+    searchEverything: 'جست‌وجوی صفحه‌ها و تنظیمات…',
+    quickSearch: 'جست‌وجوی سریع',
     confirm: 'تأیید',
     back: 'بازگشت',
     next: 'بعدی',

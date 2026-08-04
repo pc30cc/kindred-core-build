@@ -1,6 +1,6 @@
 import { useState, useDeferredValue, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
@@ -28,7 +28,9 @@ import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
   adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
   adminUpdateUserProfile, adminSetUserEmailVerified,
+  adminGetUserPhoneVerification, adminSetUserPhone, adminRemoveUserPhone,
 } from '@/lib/api';
+import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPattern as format } from '@/lib/date';

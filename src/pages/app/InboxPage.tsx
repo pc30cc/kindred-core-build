@@ -281,7 +281,7 @@ export default function InboxPage() {
 
   const { data: conversations, isLoading } = useConversations(
     workspace?.id,
-    filter === 'all' ? undefined : filter,
+    filter === 'all' ? undefined : filter === 'resolved' ? 'resolved,closed' : filter,
     queue,
     queue === 'main'
       ? {
@@ -800,7 +800,12 @@ export default function InboxPage() {
         for (const s of ['open', 'pending', 'resolved', 'closed']) cache[s] = statusCounts[s] || 0;
         cache.all = conversations.length;
       } else {
-        cache[filter] = statusCounts[filter] || 0;
+        if (filter === 'resolved') {
+          cache.resolved = statusCounts.resolved || 0;
+          cache.closed = statusCounts.closed || 0;
+        } else {
+          cache[filter] = statusCounts[filter] || 0;
+        }
       }
     }
     countsCacheRef.current = cache;
@@ -968,8 +973,10 @@ export default function InboxPage() {
             aria-label={t('inbox.title') || 'Inbox'}
             className="flex h-full w-full items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
           >
-            {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
-              const count = stableCounts[s] || 0;
+            {(['open', 'pending', 'resolved', 'all'] as FilterStatus[]).map(s => {
+              const count = s === 'resolved'
+                ? (stableCounts.resolved || 0) + (stableCounts.closed || 0)
+                : stableCounts[s] || 0;
               const isActive = filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
               return (
@@ -1020,24 +1027,6 @@ export default function InboxPage() {
             >
               <AlertCircle className="w-4 h-4" />
               {t('inbox.needsHuman') || 'Needs human'}
-            </button>
-            <button
-              role="tab"
-              aria-selected={extraChip === 'assigned_to_me'}
-              onClick={() => setExtraChip(extraChip === 'assigned_to_me' ? null : 'assigned_to_me')}
-              disabled={!user?.id}
-              className={cn(
-                'relative flex items-center gap-1.5 px-3 h-10 rounded-t-lg text-[12.5px] font-semibold whitespace-nowrap',
-                'border border-b-0 transition-colors duration-150',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                extraChip === 'assigned_to_me'
-                  ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-2 before:top-0 before:h-[2px] before:rounded-full before:bg-primary'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
-              )}
-              title={t('inbox.assignedToMe') || 'Assigned to me'}
-            >
-              <UserCheck className="w-4 h-4" />
-              {t('inbox.assignedToMe') || 'Assigned to me'}
             </button>
           </div>
           </ToolbarPortal>

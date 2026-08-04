@@ -67,7 +67,12 @@ export function useConversations(
           q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
         }
         if (assignedToMe) q = q.eq('assigned_to', assignedToMe);
-        if (status && status !== 'all') q = q.eq('status', status);
+        // `status` may be a comma-separated group (e.g. 'resolved,closed')
+        // so one tab can cover several underlying statuses.
+        if (status && status !== 'all') {
+          const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
+          q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
+        }
       }
       const { data, error } = await q;
       if (error) throw error;

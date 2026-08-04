@@ -448,8 +448,16 @@ export default function SettingsSecurityPage() {
         )}
       </Card>
 
-      {/* Revoke single session */}
       {/* Safety tip */}
+      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+        <Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <div>
+          <p className="text-sm font-medium text-foreground">{t('security.tipTitle' as any)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{t('security.tipBody' as any)}</p>
+        </div>
+      </div>
+
+      {/* Revoke single session */}
       <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

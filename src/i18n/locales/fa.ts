@@ -1006,6 +1006,11 @@ const fa: TranslationKeys = {
       operators: 'تعداد اپراتورها',
     },
     state: { online: 'آنلاین', offline: 'آفلاین' },
+    export: {
+      summary: 'خروجی CSV',
+      detailed: 'خروجی کامل با جزئیات',
+      one: 'خروجی این اپراتور',
+    },
     col: {
       online: 'زمان آنلاین',
       activeDays: 'روزهای فعال',

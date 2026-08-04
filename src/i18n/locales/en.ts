@@ -3181,6 +3181,7 @@ const en = {
       currentPlanLabel: 'Current plan',
       currentPlan: 'Free plan',
       action: 'Upgrade plan',
+      back: 'Back',
       module: {
         ai_assistant: 'AI Agent',
         call_center: 'Call Center',

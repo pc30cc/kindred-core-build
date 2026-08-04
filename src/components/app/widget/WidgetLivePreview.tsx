@@ -224,15 +224,18 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
   .site .block{height:120px;border-radius:14px;background:#E2E8F0;margin:16px 0;}
   .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:#E2E8F0}
   .shell{--gs-primary:${esc(primary)};color:#1F2937;}
-  .panel{width:min(380px, calc(100% - 32px));height:calc(100% - 116px);}
+  /* Panel keeps production geometry (380px / min(620px, viewport)) — only the
+     viewport height clamp differs because the preview frame is smaller. */
+  .panel{max-width:calc(100% - 32px);height:min(620px, calc(100% - 100px));}
+  /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
   .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
-    width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;
+    width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;
     box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);
+    transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;
     background:${esc(primary)};color:${esc(fabIconColor)};z-index:5;}
   .launcher.bottom-right{bottom:24px;right:24px;}
   .launcher.bottom-left{bottom:24px;left:24px;}
   .launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
-  .launcher img{width:60%;height:60%;border-radius:50%;object-fit:cover;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}
   .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
     background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;

@@ -17,7 +17,6 @@ import { Badge } from '@/components/ui/badge';
 import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
-import { PersonalAvailabilityPanel } from '@/components/app/widget/PersonalAvailabilityPanel';
 import { cn } from '@/lib/utils';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';

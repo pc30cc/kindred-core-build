@@ -4,28 +4,30 @@
 
 @layer base {
   :root {
-    --font-family-base: 'Inter', system-ui, sans-serif;
+    --font-family-base: 'Manrope', system-ui, sans-serif;
+    --font-heading: 'Sora', 'Manrope', system-ui, sans-serif;
 
-    --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    /* Cloud White — crisp whites, blue-tinted grays, electric blue accent */
+    --background: 210 25% 99%;
+    --foreground: 217 33% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 217 33% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 217 33% 12%;
 
-    --primary: 221 83% 53%;
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 214 32% 94%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 213 29% 94%;
+    --secondary-foreground: 217 33% 16%;
 
-    --muted: 214 20% 94%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 213 27% 95%;
+    --muted-foreground: 215 18% 46%;
 
-    --accent: 221 83% 96%;
-    --accent-foreground: 221 83% 40%;
+    --accent: 217 91% 96%;
+    --accent-foreground: 217 80% 42%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -39,33 +41,34 @@
     --info: 212 55% 52%;
     --info-foreground: 0 0% 100%;
 
-    --border: 214 25% 90%;
-    --input: 214 25% 90%;
-    --ring: 221 83% 53%;
+    --border: 214 28% 91%;
+    --input: 214 28% 91%;
+    --ring: 217 91% 60%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222 47% 11%;
-    --sidebar-primary: 221 83% 53%;
+    --sidebar-foreground: 217 33% 12%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 221 83% 96%;
-    --sidebar-accent-foreground: 221 83% 40%;
-    --sidebar-border: 214 25% 92%;
-    --sidebar-ring: 221 83% 53%;
-    --sidebar-muted-foreground: 215 16% 52%;
+    --sidebar-accent: 217 91% 96%;
+    --sidebar-accent-foreground: 217 80% 42%;
+    --sidebar-border: 214 28% 93%;
+    --sidebar-ring: 217 91% 60%;
+    --sidebar-muted-foreground: 215 18% 50%;
 
     --surface-elevated: 0 0% 100%;
-    --surface-sunken: 210 40% 98%;
+    --surface-sunken: 213 30% 97%;
 
     /* Gradients & Shadows */
-    --gradient-primary: linear-gradient(135deg, hsl(221 83% 53%), hsl(221 83% 45%));
-    --gradient-sidebar: linear-gradient(180deg, hsl(0 0% 100%), hsl(220 16% 98%));
-    --gradient-card-hover: linear-gradient(135deg, hsl(220 14% 97%), hsl(220 12% 95%));
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(224 84% 52%));
+    --gradient-sidebar: linear-gradient(180deg, hsl(0 0% 100%), hsl(213 30% 98%));
+    --gradient-card-hover: linear-gradient(135deg, hsl(213 30% 98%), hsl(213 26% 95%));
+    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%), hsl(213 30% 98.5%));
 
-    --shadow-card: 0 1px 4px 0 hsl(225 14% 70% / 0.1), 0 1px 2px -1px hsl(225 14% 70% / 0.06);
-    --shadow-glow: 0 0 10px -4px hsl(221 83% 53% / 0.12);
-    --shadow-elevated: 0 4px 16px -4px hsl(225 14% 70% / 0.15);
+    --shadow-card: 0 1px 2px 0 hsl(215 30% 60% / 0.06), 0 4px 14px -6px hsl(215 30% 55% / 0.12);
+    --shadow-glow: 0 0 0 1px hsl(217 91% 60% / 0.12), 0 8px 24px -10px hsl(217 91% 60% / 0.28);
+    --shadow-elevated: 0 8px 30px -10px hsl(215 30% 45% / 0.18);
 
     /* Admin panel tokens */
     --admin-background: 225 14% 11%;

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Bell, LifeBuoy, Settings2, Sparkles } from 'lucide-react';
+import { Moon, Sun, Bell, LifeBuoy, Settings2, Sparkles, Search } from 'lucide-react';
 import { useI18n } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
@@ -73,6 +73,23 @@ export function AppTopBar() {
         </div>
 
         <div className="flex-1" />
+
+        {/* Global quick search — opens the Cmd/Ctrl+K palette */}
+        <button
+          type="button"
+          onClick={() =>
+            document.dispatchEvent(
+              new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }),
+            )
+          }
+          className="hidden items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted md:flex"
+        >
+          <Search className="h-3.5 w-3.5" />
+          <span>{t('common.quickSearch') || 'Quick search'}</span>
+          <kbd className="ms-2 rounded border border-border/70 bg-background px-1.5 py-0.5 font-sans text-[10px]">
+            ⌘K
+          </kbd>
+        </button>
 
         {/* Utilities */}
         <div className="flex items-center gap-1.5">

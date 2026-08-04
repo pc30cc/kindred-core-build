@@ -13,6 +13,7 @@ import {
   Clock, UserCog, Building2, HelpCircle, Sparkles,
   AlertCircle, Check, Ban, Lock,
   PhoneCall,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -84,6 +85,15 @@ export function AppSidebar() {
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => localStorage.getItem('sidebar_collapsed') === '1',
+  );
+  const toggleCollapsed = () => {
+    setCollapsed((v) => {
+      localStorage.setItem('sidebar_collapsed', v ? '0' : '1');
+      return !v;
+    });
+  };
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -196,11 +206,26 @@ export function AppSidebar() {
 
   return (
     <>
-    <aside className="flex h-screen w-[220px] flex-col bg-sidebar border-e border-sidebar-border">
+    <aside
+      className={cn(
+        'flex h-screen flex-col border-e border-sidebar-border bg-sidebar transition-[width] duration-200',
+        collapsed ? 'w-[68px]' : 'w-[220px]',
+      )}
+      style={{ backgroundImage: 'var(--gradient-sidebar)' }}
+    >
+      {/* Collapse toggle */}
+      <button
+        onClick={toggleCollapsed}
+        aria-label="toggle sidebar"
+        className="mx-3 mt-3 flex h-7 w-7 items-center justify-center self-end rounded-lg text-sidebar-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+      >
+        {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+      </button>
+
       {/* Workspace header with dropdown */}
-      <div className="relative px-3 pt-4 pb-2" ref={wsMenuRef}>
+      <div className="relative px-3 pt-1 pb-2" ref={wsMenuRef}>
         <button
-          onClick={() => setWsMenuOpen(!wsMenuOpen)}
+          onClick={() => (collapsed ? toggleCollapsed() : setWsMenuOpen(!wsMenuOpen))}
           className="flex items-center gap-2.5 w-full rounded-lg px-2 py-2 hover:bg-sidebar-accent/50 transition-colors"
         >
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-primary/20 shadow-sm">
@@ -210,15 +235,19 @@ export function AppSidebar() {
               <Building2 className="h-[18px] w-[18px] text-primary-foreground" strokeWidth={2.25} />
             )}
           </div>
-          <div className="min-w-0 text-start flex-1">
-            <p className="text-sm font-semibold text-sidebar-foreground truncate">{companyName}</p>
-            <p className="text-[11px] text-sidebar-muted-foreground truncate">{workspaceDomain}</p>
-          </div>
-          <ChevronDown className={cn('h-3.5 w-3.5 text-sidebar-muted-foreground shrink-0 transition-transform', wsMenuOpen && 'rotate-180')} />
+          {!collapsed && (
+            <>
+              <div className="min-w-0 text-start flex-1">
+                <p className="text-sm font-semibold text-sidebar-foreground truncate">{companyName}</p>
+                <p className="text-[11px] text-sidebar-muted-foreground truncate">{workspaceDomain}</p>
+              </div>
+              <ChevronDown className={cn('h-3.5 w-3.5 text-sidebar-muted-foreground shrink-0 transition-transform', wsMenuOpen && 'rotate-180')} />
+            </>
+          )}
         </button>
 
         {/* Dropdown menu */}
-        {wsMenuOpen && (
+        {wsMenuOpen && !collapsed && (
           <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 animate-fade-in max-h-[60vh] overflow-y-auto">
             {/* Workspace list */}
             {workspaces.map(ws => {
@@ -292,18 +321,22 @@ export function AppSidebar() {
       <div className="px-3 mb-1">
         <Link
           to={wsPath('')}
+          title={t('wizard.getStarted')}
           className={cn(
             'flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
-              ? 'bg-primary text-primary-foreground shadow-sm'
-              : 'bg-primary/10 text-primary hover:bg-primary/15'
+              ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
+              : 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/70',
+            collapsed && 'justify-center px-0'
           )}
         >
           <div className="flex items-center gap-2">
             <Rocket className="h-4 w-4 shrink-0" />
-            <span>{t('wizard.getStarted')}</span>
+            {!collapsed && <span>{t('wizard.getStarted')}</span>}
           </div>
-          <span className="bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">10</span>
+          {!collapsed && (
+            <span className="bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">10</span>
+          )}
         </Link>
       </div>
 
@@ -311,18 +344,20 @@ export function AppSidebar() {
       <div className="px-3 mt-2">
         <Link
           to={wsPath('/inbox')}
+          title={t('nav.inbox')}
           className={cn(
             'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
               ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-              : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
+            collapsed && 'justify-center px-0'
           )}
         >
           <Inbox className="h-[18px] w-[18px] shrink-0" />
-          <span>{t('nav.inbox')}</span>
+          {!collapsed && <span>{t('nav.inbox')}</span>}
         </Link>
 
-        {isActive('/inbox') && (
+        {isActive('/inbox') && !collapsed && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
             <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">Default Inboxes</p>
             <Link
@@ -397,16 +432,18 @@ export function AppSidebar() {
           <Link
             key={item.key}
             to={wsPath(item.path)}
+            title={t(`nav.${item.key}` as any)}
             className={cn(
               'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+              collapsed && 'justify-center px-0'
             )}
           >
             <item.icon className="h-[18px] w-[18px] shrink-0" />
-            <span className="flex-1">{t(`nav.${item.key}` as any)}</span>
-            {item.locked && (
+            {!collapsed && <span className="flex-1">{t(`nav.${item.key}` as any)}</span>}
+            {item.locked && !collapsed && (
               <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
             )}
           </Link>
@@ -419,25 +456,35 @@ export function AppSidebar() {
           <Link
             key={item.key}
             to={item.path === '#' ? '#' : wsPath(item.path)}
+            title={t(`nav.${item.key}` as any)}
+            onClick={item.key === 'search' ? (e) => {
+              e.preventDefault();
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
+            } : undefined}
             className={cn(
               'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+              collapsed && 'justify-center px-0'
             )}
           >
             <item.icon className="h-[18px] w-[18px] shrink-0" />
-            <span>{t(`nav.${item.key}` as any)}</span>
+            {!collapsed && <span>{t(`nav.${item.key}` as any)}</span>}
           </Link>
         ))}
 
         {isAdmin && (
           <Link
             to="/admin"
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-all"
+            title="Super Admin"
+            className={cn(
+              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
+              collapsed && 'justify-center px-0'
+            )}
           >
             <Shield className="h-[18px] w-[18px] shrink-0" />
-            <span>Super Admin</span>
+            {!collapsed && <span>Super Admin</span>}
           </Link>
         )}
       </div>
@@ -554,20 +601,22 @@ export function AppSidebar() {
           <div className="relative">
             <Avatar className="w-8 h-8 shrink-0">
               {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
-              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+              <AvatarFallback className="bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">
                 {userName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
             <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
-          <div className="min-w-0 flex-1 text-start">
-            <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>
-            <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1 text-start">
+              <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>
+              <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
+            </div>
+          )}
         </button>
 
         {/* Language selector — hidden in single-language regions */}
-        {canSwitchLanguage && (
+        {canSwitchLanguage && !collapsed && (
         <div className="mt-2">
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
             <SelectTrigger className="h-7 text-xs w-full border-sidebar-border">

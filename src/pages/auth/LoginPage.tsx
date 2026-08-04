@@ -226,7 +226,7 @@ export default function LoginPage() {
       </div>
 
       <div className={`hidden lg:flex w-[42%] xl:w-[45%] relative overflow-hidden ${isRtl ? 'order-1' : 'order-2'}`}
-        style={{ background: 'linear-gradient(135deg, hsl(221 83% 53%), hsl(250 80% 55%), hsl(221 83% 45%))' }}
+        style={{ background: 'var(--gradient-auth-hero, var(--gradient-primary))' }}
       >
         <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute bottom-0 -left-20 w-[500px] h-[500px] rounded-full bg-white/5 blur-2xl" />

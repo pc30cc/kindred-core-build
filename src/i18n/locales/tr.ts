@@ -71,6 +71,8 @@ const tr: TranslationKeys = {
     create: 'Oluştur',
     search: 'Ara...',
     noResults: 'Sonuç bulunamadı',
+    searchEverything: 'Sayfa ve ayarlarda ara…',
+    quickSearch: 'Hızlı arama',
     confirm: 'Onayla',
     back: 'Geri',
     next: 'İleri',

@@ -563,12 +563,26 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               {t('admin.users.authStatus')}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+              <div className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-3 py-2">
                 <span className="text-muted-foreground">{t('admin.users.emailVerified')}</span>
-                <span className="flex items-center gap-1.5">
-                  {authStatus.email_confirmed_at
-                    ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> {t('admin.users.yes')}</>
-                    : <><XCircle className="h-3.5 w-3.5 text-destructive" /> {t('admin.users.no')}</>}
+                <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
+                    {authStatus.email_confirmed_at
+                      ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> {t('admin.users.yes')}</>
+                      : <><XCircle className="h-3.5 w-3.5 text-destructive" /> {t('admin.users.no')}</>}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={emailVerifyLoading}
+                    onClick={() => handleToggleEmailVerified(!authStatus.email_confirmed_at)}
+                  >
+                    {emailVerifyLoading && <Loader2 className="h-3 w-3 animate-spin me-1" />}
+                    {authStatus.email_confirmed_at
+                      ? t('admin.users.markEmailUnverified')
+                      : t('admin.users.markEmailVerified')}
+                  </Button>
                 </span>
               </div>
               <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">

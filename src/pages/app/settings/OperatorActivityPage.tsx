@@ -8,13 +8,14 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, Clock, Users, MessageSquare, Loader2, TrendingUp, CircleDot,
+  Activity, Clock, Users, MessageSquare, Loader2, TrendingUp, CircleDot, Download, FileSpreadsheet,
 } from 'lucide-react';
 
 import { useI18n, useTranslation } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { fetchOperatorActivity, type OperatorActivityRow } from '@/lib/operator-activity-api';
+import { exportSummaryCsv, exportDetailedCsv, exportOperatorCsv } from '@/lib/operator-activity-export';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -102,6 +103,27 @@ export default function OperatorActivityPage() {
               {t(`operatorActivity.range.d${r}` as Parameters<typeof t>[0])}
             </Button>
           ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 gap-2 text-xs"
+            disabled={!data?.operators.length}
+            onClick={() => data && exportSummaryCsv(data)}
+          >
+            <Download className="h-4 w-4" />
+            {t('operatorActivity.export.summary')}
+          </Button>
+          <Button
+            size="sm"
+            className="h-9 gap-2 text-xs"
+            disabled={!data?.operators.length}
+            onClick={() => data && exportDetailedCsv(data)}
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            {t('operatorActivity.export.detailed')}
+          </Button>
         </div>
       </div>
 

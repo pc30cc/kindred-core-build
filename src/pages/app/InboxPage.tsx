@@ -51,6 +51,7 @@ import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
 import { Sparkles } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
 import {
   useOperatorMessageChime,
@@ -1307,7 +1308,13 @@ export default function InboxPage() {
                       </span>
                     )}
                   </div>
-                  <div className={cn('absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card', statusDots[selected.status ?? 'open'])} />
+                  {presence && presence.status !== 'unknown' ? (
+                    <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-card p-[1.5px] shadow-sm">
+                      <PresenceDot state={presence.status as 'online' | 'idle' | 'offline'} size={12} />
+                    </span>
+                  ) : (
+                    <div className={cn('absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card', statusDots[selected.status ?? 'open'])} />
+                  )}
                 </div>
                 <div>
                   <div className="text-[14.5px] font-bold text-foreground">
@@ -1318,29 +1325,17 @@ export default function InboxPage() {
                     {presence && presence.status !== 'unknown' && (
                       <>
                         {selected.contacts?.email && <span className="opacity-30">•</span>}
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 font-medium',
-                            presence.status === 'online' && 'text-success',
-                            presence.status === 'idle' && 'text-warning',
-                            presence.status === 'offline' && 'text-muted-foreground',
-                          )}
+                        <PresenceBadge
+                          state={presence.status as 'online' | 'idle' | 'offline'}
                           title={presence.current_page || undefined}
-                        >
-                          <span
-                            className={cn(
-                              'w-1.5 h-1.5 rounded-full',
-                              presence.status === 'online' && 'bg-success',
-                              presence.status === 'idle' && 'bg-warning',
-                              presence.status === 'offline' && 'bg-muted-foreground',
-                            )}
-                          />
-                          {presence.status === 'online'
-                            ? (t('inbox.presenceOnline') || 'Online')
-                            : presence.status === 'idle'
-                              ? (t('inbox.presenceIdle') || 'Idle')
-                              : (t('inbox.presenceOffline') || 'Offline')}
-                        </span>
+                          label={
+                            presence.status === 'online'
+                              ? (t('inbox.presenceOnline') || 'Online')
+                              : presence.status === 'idle'
+                                ? (t('inbox.presenceIdle') || 'Idle')
+                                : (t('inbox.presenceOffline') || 'Offline')
+                          }
+                        />
                       </>
                     )}
                   </div>

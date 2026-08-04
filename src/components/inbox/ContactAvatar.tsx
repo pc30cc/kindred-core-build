@@ -10,6 +10,7 @@
  */
 import { cn } from '@/lib/utils';
 import { OsIcon } from '@/components/visitors/OsIcon';
+import { PresenceDot } from '@/components/inbox/PresenceIndicator';
 
 /** OS brand identity used when a contact has no picture but we know the device. */
 type OsKind = 'apple' | 'windows' | 'linux' | 'android' | null;
@@ -102,11 +103,8 @@ const SIZE_PX: Record<NonNullable<ContactAvatarProps['size']>, { box: string; px
   lg: { box: 'w-12 h-12', px: 48, text: 'text-[15px]', dot: 'w-3.5 h-3.5', flag: 18 },
 };
 
-const PRESENCE_DOT: Record<AvatarPresence, string> = {
-  online: 'bg-emerald-500',
-  idle:   'bg-amber-500',
-  offline:'bg-muted-foreground/40',
-  none:   '',
+const PRESENCE_PX: Record<NonNullable<ContactAvatarProps['size']>, number> = {
+  xs: 9, sm: 11, md: 12, lg: 14,
 };
 
 export function ContactAvatar({
@@ -180,14 +178,9 @@ export function ContactAvatar({
         )}
       </div>
       {presence !== 'none' && (
-        <span
-          className={cn(
-            'absolute -bottom-0.5 -end-0.5 rounded-full border-2 border-card',
-            sz.dot,
-            PRESENCE_DOT[presence],
-          )}
-          aria-label={presence}
-        />
+        <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-card p-[1.5px] shadow-sm">
+          <PresenceDot state={presence} size={PRESENCE_PX[size]} />
+        </span>
       )}
       {flag && (
         <span

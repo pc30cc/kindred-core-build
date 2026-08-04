@@ -321,7 +321,7 @@ export function AppSidebar() {
       <div className="px-3 mb-1">
         <Link
           to={wsPath('')}
-          title={t('wizard.getStarted')}
+          title={t('nav.dashboard')}
           className={cn(
             'flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
@@ -331,8 +331,8 @@ export function AppSidebar() {
           )}
         >
           <div className="flex items-center gap-2">
-            <Rocket className="h-4 w-4 shrink-0" />
-            {!collapsed && <span>{t('wizard.getStarted')}</span>}
+            <LayoutDashboard className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>{t('nav.dashboard')}</span>}
           </div>
           {!collapsed && (
             <span className="bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">10</span>

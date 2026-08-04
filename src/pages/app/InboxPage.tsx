@@ -1105,7 +1105,7 @@ export default function InboxPage() {
             </div>
           ) : (
           /* Filter tabs (status + extra chips) — hosted in the app top bar */
-          {filterTabsNode}
+          filterTabsNode
           )}
         </div>
 

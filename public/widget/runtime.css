@@ -2658,7 +2658,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   background: #FBFCFE;
 }
 .shell[data-template="default"] .header {
-  padding: 20px 20px 22px;
+  padding: 20px 20px 32px;
 }
 .shell[data-template="default"] .header::before {
   background:

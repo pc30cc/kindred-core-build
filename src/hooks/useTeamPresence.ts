@@ -33,8 +33,9 @@ export function useTeamPresence(workspaceId: string | undefined) {
  * Build a fast lookup map keyed by user_id for components that render
  * many member rows.
  */
-export function presenceMap(list: OperatorPresence[] | undefined) {
+export function presenceMap(list: OperatorPresence[] | undefined | null) {
   const m = new Map<string, OperatorPresence>();
-  for (const p of list || []) m.set(p.user_id, p);
+  if (!Array.isArray(list)) return m;
+  for (const p of list) if (p?.user_id) m.set(p.user_id, p);
   return m;
 }

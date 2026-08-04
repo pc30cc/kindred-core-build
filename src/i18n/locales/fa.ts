@@ -235,6 +235,7 @@ const fa: TranslationKeys = {
   },
   nav: {
     overview: 'نمای کلی',
+    dashboard: 'داشبورد',
     inbox: 'صندوق ورودی',
     contacts: 'مخاطبین',
     visitors: 'بازدیدکنندگان',

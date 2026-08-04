@@ -533,6 +533,18 @@ const billingVendors: ProviderVendor[] = [
     ],
   },
   {
+    name: 'zarinpal_test', label: 'زرین‌پال — سندباکس (ZarinPal-Test)',
+    description: 'اتصال به محیط سندباکس زرین‌پال برای تست پرداخت — بدون تراکنش واقعی (sandbox.zarinpal.com)',
+    docsUrl: 'https://www.zarinpal.com/docs/paymentGateway/sandBox.html',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'merchant_id', label: 'مرچنت آیدی سندباکس (UUID)', type: 'text', required: false, hint: 'اختیاری — در سندباکس هر UUID دلخواهی پذیرفته می‌شود؛ در صورت خالی بودن یک UUID پیش‌فرض استفاده می‌شود' },
+      { key: 'currency', label: 'واحد پول', type: 'select', options: [
+        { value: 'IRR', label: 'ریال (IRR)' }, { value: 'IRT', label: 'تومان (IRT)' },
+      ]},
+    ],
+  },
+  {
     name: 'idpay_test', label: 'آیدی پی — آزمایشگاه (IDPay-Test)',
     description: 'اتصال به محیط آزمایشگاه IDPay برای تست پرداخت — بدون تراکنش واقعی (X-SANDBOX: 1)',
     docsUrl: 'https://idpay.ir/web-service/v1.1/',

@@ -1127,10 +1127,22 @@ export default function InboxPage() {
                           'text-[12.5px] truncate leading-snug flex-1 min-w-0',
                           hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground',
                         )}>
-                          {(conv as any).last_visitor_message?.body
-                            || (isPlaceholderSubject(conv.subject)
+                          {(() => {
+                            const last = (conv as any).last_message as
+                              | { body: string; sender_type: string }
+                              | null
+                              | undefined;
+                            if (last?.body) {
+                              const prefix =
+                                last.sender_type === 'agent' ? `${t('inbox.previewYou') || 'You'}: `
+                                : (last.sender_type === 'ai' || last.sender_type === 'bot') ? `${t('inbox.previewAi') || 'AI'}: `
+                                : '';
+                              return `${prefix}${last.body}`;
+                            }
+                            return isPlaceholderSubject(conv.subject)
                               ? (t('inbox.noMessages') || 'No messages yet')
-                              : conv.subject)}
+                              : conv.subject;
+                          })()}
                         </p>
                         {hasUnread && unreadCount > 0 && (
                           <span

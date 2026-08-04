@@ -12,6 +12,7 @@ import { zarinpalProvider } from './providers/zarinpal.js';
 import { zarinpalTestProvider } from './providers/zarinpal-test.js';
 import { idpayProvider } from './providers/idpay.js';
 import { idpayTestProvider } from './providers/idpay-test.js';
+import { iranPardakhtSandboxProvider } from './providers/iranpardakht-sandbox.js';
 import { nextpayProvider } from './providers/nextpay.js';
 import { paypingProvider } from './providers/payping.js';
 import { zibalProvider } from './providers/zibal.js';
@@ -37,6 +38,7 @@ const providers: Record<string, BillingProviderHandler> = {
   zarinpal_test: zarinpalTestProvider,
   idpay: idpayProvider,
   idpay_test: idpayTestProvider,
+  iranpardakht_sandbox: iranPardakhtSandboxProvider,
   nextpay: nextpayProvider,
   payping: paypingProvider,
   zibal: zibalProvider,

@@ -51,6 +51,7 @@ import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
 import { Sparkles } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
 import {
   useOperatorMessageChime,

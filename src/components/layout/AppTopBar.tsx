@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from 'next-themes';
 import { Moon, Sun, Bell, LifeBuoy, Settings2, Search } from 'lucide-react';
 import { useI18n } from '@/i18n';
@@ -22,6 +22,8 @@ export function AppTopBar() {
   const t = tRaw as unknown as (key: string) => string;
   const { theme, setTheme } = useTheme();
   const wsPath = useWorkspacePath();
+  const location = useLocation();
+  const isInbox = /\/inbox(\/|$|\?)/.test(location.pathname);
 
   const isDark = theme === 'dark';
 
@@ -31,7 +33,8 @@ export function AppTopBar() {
         {/* Accent hairline */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
-        {/* Group 1 — Search */}
+        {/* Group 1 — Search (hidden on Inbox, where the toolbar hosts filter tabs) */}
+        {!isInbox && (
         <button
           type="button"
           onClick={() =>
@@ -47,8 +50,13 @@ export function AppTopBar() {
             ⌘K
           </kbd>
         </button>
+        )}
 
-        <div className="flex-1" />
+        {/* Page-owned toolbar slot (e.g. Inbox filter tabs) */}
+        <div
+          id="topbar-page-slot"
+          className="flex min-w-0 flex-1 items-center overflow-x-auto scrollbar-hide"
+        />
 
         {/* Group 2 — Preferences: language + theme */}
         <div className="flex items-center gap-2">

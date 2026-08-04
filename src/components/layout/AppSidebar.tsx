@@ -486,11 +486,11 @@ export function AppSidebar() {
         )}
       </div>
 
-      {/* User profile — click to open menu */}
-      <div className="relative border-t border-sidebar-border px-3 py-3" ref={userMenuRef}>
+      {/* Sidebar footer */}
+      <div className="relative border-t border-sidebar-border px-3 py-3">
         {/* Language selector — hidden in single-language regions */}
         {canSwitchLanguage && !collapsed && (
-        <div className="mt-2">
+        <div>
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
             <SelectTrigger className="h-7 text-xs w-full border-sidebar-border">
               <SelectValue />

@@ -811,6 +811,27 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               <Input dir="ltr" value={editForm.website_domain} onChange={e => setEditForm(f => ({ ...f, website_domain: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.phoneNumber')}</label>
+              <div className="flex gap-2">
+                <Select value={editForm.phone_country} onValueChange={v => setEditForm(f => ({ ...f, phone_country: v }))}>
+                  <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PHONE_COUNTRIES.map(c => (
+                      <SelectItem key={c.code} value={c.code}>{phoneCountryLabel(c.code, uiLocale)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  dir="ltr"
+                  className="font-mono flex-1"
+                  placeholder={editForm.phone_country === 'IR' ? '09121234567' : '5xxxxxxxxx'}
+                  value={editForm.phone}
+                  onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">{t('admin.users.phoneEditHint')}</p>
+            </div>
+            <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{t('admin.users.preferredLocale')}</label>
               <Select value={editForm.preferred_locale || 'en'} onValueChange={v => setEditForm(f => ({ ...f, preferred_locale: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>

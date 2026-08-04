@@ -116,7 +116,7 @@ export function SettingsLayout() {
             onClick={() => navigate(wsPath(''))}
             className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground transition-colors"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
           </button>
           <h2 className="text-sm font-semibold text-foreground">{t('settings.title')}</h2>
         </div>

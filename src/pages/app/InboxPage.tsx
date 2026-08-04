@@ -786,6 +786,27 @@ export default function InboxPage() {
     }, {});
   }, [conversations]);
 
+  /* Tabs must not resize when switching filters. The conversation list is
+     scoped to the active filter, so counts for the other tabs would drop to 0
+     and the badges would collapse/expand, shifting every tab. Cache the last
+     known count per status and only refresh the ones the current response can
+     actually observe (all statuses when viewing "all", otherwise just the
+     active status). */
+  const countsCacheRef = useRef<Record<string, number>>({});
+  const stableCounts = useMemo(() => {
+    const cache = { ...countsCacheRef.current };
+    if (conversations) {
+      if (filter === 'all') {
+        for (const s of ['open', 'pending', 'resolved', 'closed']) cache[s] = statusCounts[s] || 0;
+        cache.all = conversations.length;
+      } else {
+        cache[filter] = statusCounts[filter] || 0;
+      }
+    }
+    countsCacheRef.current = cache;
+    return cache;
+  }, [conversations, statusCounts, filter]);
+
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {

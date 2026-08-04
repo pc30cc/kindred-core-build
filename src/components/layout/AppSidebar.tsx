@@ -7,7 +7,7 @@ import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   Inbox, Users, Eye, BookOpen, MessageSquare,
-  Bot, Settings, Rocket, Search, Package,
+  Bot, Settings, Rocket, Search, Package, LayoutDashboard,
   LogOut, Shield, ChevronDown, UserPlus, Plus,
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, Building2, HelpCircle, Sparkles,

@@ -156,6 +156,11 @@ export function ProviderConfigForm({
           {field.hint && (
             <p className="text-[11px] text-muted-foreground">{field.hint}</p>
           )}
+          {invalidCredential.some((f) => f.key === field.key) && (
+            <p className="text-[11px] text-destructive">
+              مقدار واردشده ماسک‌شده یا دارای کاراکتر نامعتبر است — کلید/توکن کامل را از پنل درگاه کپی و اینجا وارد کنید.
+            </p>
+          )}
         </div>
       ))}
 
@@ -163,7 +168,7 @@ export function ProviderConfigForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={isPending || missingRequired.length > 0}>
+        <Button type="submit" disabled={isPending || missingRequired.length > 0 || invalidCredential.length > 0}>
           {isPending ? 'Saving...' : submitLabel}
         </Button>
       </div>

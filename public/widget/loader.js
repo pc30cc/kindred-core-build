@@ -383,6 +383,7 @@
   }
 
   function applyConfigToShell(config) {
+    // (see applyFabConfig below)
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
     if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");

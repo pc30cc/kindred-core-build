@@ -1122,7 +1122,7 @@ export default function InboxPage() {
                         <span className={cn(
                           'text-[11px] shrink-0 tabular-nums',
                           hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground',
-                        )} dir="ltr">
+                        )} dir="auto">
                           {conv.updated_at ? timeAgo(conv.updated_at) : ''}
                         </span>
                       </div>

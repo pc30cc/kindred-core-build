@@ -3,7 +3,6 @@ import { useLocation, Link } from 'react-router-dom';
 import { useTheme } from 'next-themes';
 import { Moon, Sun, Bell, LifeBuoy, Settings2, Sparkles, Search } from 'lucide-react';
 import { useI18n } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -35,7 +34,6 @@ export function AppTopBar() {
   const { t: tRaw, locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const t = tRaw as unknown as (key: string) => string;
-  const { user } = useAuth();
   const { workspace } = useActiveWorkspace();
   const { theme, setTheme } = useTheme();
   const { pathname } = useLocation();

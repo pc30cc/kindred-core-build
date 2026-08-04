@@ -14,6 +14,9 @@ export interface WorkspaceAlert {
   severity: AlertSeverity;
   params?: Record<string, string>;
   action?: string;
+  /** Critical alerts cannot be dismissed — they clear only when resolved. */
+  dismissible?: boolean;
+  signature?: string;
 }
 
 export interface WorkspaceAlertsResponse {
@@ -22,13 +25,34 @@ export interface WorkspaceAlertsResponse {
   generatedAt: string;
 }
 
-export async function fetchWorkspaceAlerts(workspaceId: string): Promise<WorkspaceAlertsResponse> {
+async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
+  return { Authorization: `Bearer ${data?.session?.access_token || ''}` };
+}
+
+export async function fetchWorkspaceAlerts(workspaceId: string): Promise<WorkspaceAlertsResponse> {
   const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: await authHeaders(),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
   return body as WorkspaceAlertsResponse;
+}
+
+/**
+ * Marks alerts as read. Dismissals are stored per user in the database, so they
+ * follow the operator across devices; critical alerts are ignored server-side.
+ */
+export async function dismissWorkspaceAlerts(
+  workspaceId: string,
+  payload: { alertId?: string; all?: boolean },
+): Promise<{ dismissed: number }> {
+  const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}/dismiss`, {
+    method: 'POST',
+    headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
+  return body as { dismissed: number };
 }

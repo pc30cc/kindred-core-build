@@ -55,7 +55,6 @@ export function UserMenu() {
 
   const userName =
     ((user as any)?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
-  const userEmail = user?.email || '';
   const userAvatarUrl = ((profile as any)?.avatar_url as string | null | undefined) || '';
 
   const itemCls =
@@ -77,8 +76,8 @@ export function UserMenu() {
           <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-success" />
         </div>
         <div className="hidden min-w-0 text-start leading-tight lg:block">
+          <p className="max-w-[150px] truncate text-[11px] text-muted-foreground">{t('nav.userProfile') || 'User profile'}</p>
           <p className="max-w-[150px] truncate text-sm font-semibold text-foreground">{userName}</p>
-          <p className="max-w-[150px] truncate text-[11px] text-muted-foreground">{userEmail}</p>
         </div>
         <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
@@ -93,8 +92,8 @@ export function UserMenu() {
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
+              <p className="truncate text-xs text-muted-foreground">{t('nav.userProfile') || 'User profile'}</p>
               <p className="truncate text-sm font-semibold text-foreground">{userName}</p>
-              <p className="truncate text-xs text-muted-foreground">{userEmail}</p>
             </div>
           </div>
 

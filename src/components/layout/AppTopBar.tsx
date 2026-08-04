@@ -41,7 +41,7 @@ export function AppTopBar() {
           }
           className="hidden w-[280px] items-center gap-2.5 rounded-2xl border border-border/60 bg-muted/40 px-4 py-2.5 text-sm text-muted-foreground shadow-sm transition-all hover:border-primary/40 hover:bg-muted hover:text-foreground md:flex lg:w-[380px]"
         >
-          <Search className="h-[18px] w-[18px]" />
+          <Search className="h-[22px] w-[22px]" />
           <span>{t('common.quickSearch') || 'Quick search'}</span>
           <kbd className="ms-auto rounded-md border border-border/70 bg-background px-2 py-0.5 font-sans text-[11px]">
             ⌘K
@@ -51,10 +51,10 @@ export function AppTopBar() {
         <div className="flex-1" />
 
         {/* Group 2 — Preferences: language + theme */}
-        <div className="flex items-center gap-1 rounded-2xl border border-border/50 bg-muted/30 p-1.5 shadow-sm">
+        <div className="flex items-center gap-2">
           {canSwitchLanguage && (
             <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-              <SelectTrigger className="h-10 w-[118px] rounded-xl border-transparent bg-transparent text-sm shadow-none focus:ring-0">
+              <SelectTrigger className="h-12 w-[128px] rounded-2xl border-border/60 bg-muted/40 text-sm shadow-sm focus:ring-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
@@ -72,11 +72,11 @@ export function AppTopBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm"
+                className="h-12 w-12 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
                 aria-label="theme"
               >
-                {isDark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+                {isDark ? <Sun className="h-[22px] w-[22px]" /> : <Moon className="h-[22px] w-[22px]" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('nav.theme') || 'Theme'}</TooltipContent>
@@ -84,17 +84,17 @@ export function AppTopBar() {
         </div>
 
         {/* Group 3 — Workspace shortcuts */}
-        <div className="flex items-center gap-1 rounded-2xl border border-border/50 bg-muted/30 p-1.5 shadow-sm">
+        <div className="flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 asChild
                 variant="ghost"
                 size="icon"
-                className="relative h-10 w-10 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm"
+                className="relative h-12 w-12 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
               >
                 <Link to={wsPath('/settings/notifications')} aria-label="alerts">
-                  <Bell className="h-[18px] w-[18px]" />
+                  <Bell className="h-[22px] w-[22px]" />
                   <span className="absolute end-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
                 </Link>
               </Button>
@@ -108,10 +108,10 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm"
+                className="h-12 w-12 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
               >
                 <Link to={wsPath('/settings')} aria-label="settings">
-                  <Settings2 className="h-[18px] w-[18px]" />
+                  <Settings2 className="h-[22px] w-[22px]" />
                 </Link>
               </Button>
             </TooltipTrigger>
@@ -126,10 +126,10 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="hidden h-10 w-10 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm sm:inline-flex"
+                className="hidden h-12 w-12 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground sm:inline-flex"
               >
                 <Link to={wsPath('/knowledge-base')} aria-label="help">
-                  <LifeBuoy className="h-[18px] w-[18px]" />
+                  <LifeBuoy className="h-[22px] w-[22px]" />
                 </Link>
               </Button>
             </TooltipTrigger>

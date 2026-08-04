@@ -35,6 +35,20 @@ import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
+function NavTip({ label, enabled, children }: { label: string; enabled: boolean; children: React.ReactElement }) {
+  if (!enabled) return children;
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side="right" className="text-sm font-medium">{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export function AppSidebar() {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();
@@ -327,9 +341,10 @@ export function AppSidebar() {
 
       {/* Get Started button */}
       <div className="px-3 mb-1">
+        <NavTip label={t('nav.dashboard')} enabled={collapsed}>
         <Link
           to={wsPath('')}
-          title={t('nav.dashboard')}
+          title={collapsed ? undefined : t('nav.dashboard')}
           className={cn(
             'flex items-center rounded-lg px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
@@ -343,13 +358,15 @@ export function AppSidebar() {
             {!collapsed && <span>{t('nav.dashboard')}</span>}
           </div>
         </Link>
+        </NavTip>
       </div>
 
       {/* Inbox section */}
       <div className="px-3 mt-2">
+        <NavTip label={t('nav.inbox')} enabled={collapsed}>
         <Link
           to={wsPath('/inbox')}
-          title={t('nav.inbox')}
+          title={collapsed ? undefined : t('nav.inbox')}
           className={cn(
             'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
@@ -361,6 +378,7 @@ export function AppSidebar() {
           <Inbox className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
           {!collapsed && <span>{t('nav.inbox')}</span>}
         </Link>
+        </NavTip>
 
         {isActive('/inbox') && !collapsed && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
@@ -434,10 +452,10 @@ export function AppSidebar() {
       {/* Main navigation */}
       <nav className="flex-1 overflow-y-auto pt-3 px-3 space-y-0.5">
         {mainNav.map(item => (
+          <NavTip key={item.key} label={t(`nav.${item.key}` as any)} enabled={collapsed}>
           <Link
-            key={item.key}
             to={wsPath(item.path)}
-            title={t(`nav.${item.key}` as any)}
+            title={collapsed ? undefined : t(`nav.${item.key}` as any)}
             className={cn(
               'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
@@ -452,16 +470,17 @@ export function AppSidebar() {
               <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
             )}
           </Link>
+          </NavTip>
         ))}
       </nav>
 
       {/* Bottom section */}
       <div className="px-3 pb-2 space-y-0.5">
         {bottomNav.map(item => (
+          <NavTip key={item.key} label={t(`nav.${item.key}` as any)} enabled={collapsed}>
           <Link
-            key={item.key}
             to={item.path === '#' ? '#' : wsPath(item.path)}
-            title={t(`nav.${item.key}` as any)}
+            title={collapsed ? undefined : t(`nav.${item.key}` as any)}
             onClick={item.key === 'search' ? (e) => {
               e.preventDefault();
               document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
@@ -477,12 +496,14 @@ export function AppSidebar() {
             <item.icon className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
             {!collapsed && <span>{t(`nav.${item.key}` as any)}</span>}
           </Link>
+          </NavTip>
         ))}
 
         {isAdmin && (
+          <NavTip label="Super Admin" enabled={collapsed}>
           <Link
             to="/admin"
-            title="Super Admin"
+            title={collapsed ? undefined : 'Super Admin'}
             className={cn(
               'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
               collapsed && 'justify-center px-0'
@@ -491,6 +512,7 @@ export function AppSidebar() {
             <Shield className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
             {!collapsed && <span>Super Admin</span>}
           </Link>
+          </NavTip>
         )}
       </div>
 

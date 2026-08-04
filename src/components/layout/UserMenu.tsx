@@ -28,7 +28,7 @@ export function UserMenu() {
 
   const { data: availability } = useQuery({
     queryKey: ['availability', 'me'],
-    queryFn: fetchAvailability,
+    queryFn: () => fetchAvailability(),
     staleTime: 30_000,
   });
   const invisible = !!(availability as any)?.prefs?.force_offline;

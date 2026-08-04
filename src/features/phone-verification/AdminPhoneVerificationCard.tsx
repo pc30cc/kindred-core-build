@@ -22,11 +22,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from '@/hooks/use-toast';
-import { ExternalLink, Loader2, Send, ShieldCheck, Smartphone } from 'lucide-react';
+import { ExternalLink, Loader2, Pencil, Send, ShieldCheck, Smartphone, Trash2 } from 'lucide-react';
 import {
   adminGetUserPhoneVerification,
   adminManualVerifyUserPhone,
   adminResendUserPhoneVerification,
+  adminRemoveUserPhone,
+  adminSetUserPhone,
 } from '@/lib/api';
 import { PHONE_STATUS_CLASS, PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from './status';
 
@@ -61,6 +63,8 @@ export function AdminPhoneVerificationCard({
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState<'resend' | 'manual' | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-phone-verification', userId],
@@ -93,6 +97,18 @@ export function AdminPhoneVerificationCard({
   const manual = useMutation({
     mutationFn: () => adminManualVerifyUserPhone(userId, reason.trim()),
     onSuccess: () => { toast({ title: t('phoneVerification.verifiedTitle') }); setReason(''); invalidate(); },
+    onError: (e: Error) => toast({ title: e.message, variant: 'destructive' }),
+  });
+
+  const savePhone = useMutation({
+    mutationFn: () => adminSetUserPhone(userId, phoneDraft.trim()),
+    onSuccess: () => { toast({ title: t('admin.users.phoneSaved') }); setEditing(false); invalidate(); },
+    onError: (e: Error) => toast({ title: e.message, variant: 'destructive' }),
+  });
+
+  const removePhone = useMutation({
+    mutationFn: () => adminRemoveUserPhone(userId),
+    onSuccess: () => { toast({ title: t('admin.users.phoneRemoved') }); invalidate(); },
     onError: (e: Error) => toast({ title: e.message, variant: 'destructive' }),
   });
 
@@ -212,7 +228,46 @@ export function AdminPhoneVerificationCard({
                 {resend.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 <span className="ms-2">{t('admin.users.phoneResend')}</span>
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setPhoneDraft(data.phone || ''); setEditing((v) => !v); }}
+              >
+                <Pencil className="h-4 w-4" />
+                <span className="ms-2">{data.phone ? t('admin.users.phoneEdit') : t('admin.users.phoneAdd')}</span>
+              </Button>
+              {data.phone && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  disabled={removePhone.isPending}
+                  onClick={() => removePhone.mutate()}
+                >
+                  {removePhone.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  <span className="ms-2">{t('admin.users.phoneRemove')}</span>
+                </Button>
+              )}
             </div>
+            )}
+
+            {!readOnly && editing && (
+              <div className="space-y-2 rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">{t('admin.users.phoneEditHint')}</p>
+                <div className="flex gap-2">
+                  <Input
+                    value={phoneDraft}
+                    onChange={(e) => setPhoneDraft(e.target.value)}
+                    placeholder="+989121234567"
+                    dir="ltr"
+                    className="font-mono"
+                  />
+                  <Button size="sm" disabled={phoneDraft.trim().length < 6 || savePhone.isPending} onClick={() => savePhone.mutate()}>
+                    {savePhone.isPending && <Loader2 className="h-4 w-4 animate-spin me-2" />}
+                    {t('admin.users.phoneSave')}
+                  </Button>
+                </div>
+              </div>
             )}
 
             {!readOnly && !data.verified && (

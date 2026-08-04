@@ -413,6 +413,25 @@ function WidgetPageContent() {
                   </div>
 
                   <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIcon')}</Label>
+                    <Select
+                      value={live?.fab_icon || 'chat'}
+                      onValueChange={v => setField('fab_icon', v, 0)}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="chat">{t('widgetPage.appearance.iconChat')}</SelectItem>
+                        <SelectItem value="message">{t('widgetPage.appearance.iconMessage')}</SelectItem>
+                        <SelectItem value="help">{t('widgetPage.appearance.iconHelp')}</SelectItem>
+                        <SelectItem value="headset">{t('widgetPage.appearance.iconHeadset')}</SelectItem>
+                        <SelectItem value="phone">{t('widgetPage.appearance.iconPhone')}</SelectItem>
+                        <SelectItem value="sparkles">{t('widgetPage.appearance.iconSparkles')}</SelectItem>
+                        <SelectItem value="smile">{t('widgetPage.appearance.iconSmile')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
                     <Label className="text-xs font-medium">
                       {t('widgetPage.appearance.fabScale')} — {Math.round((live?.fab_scale ?? 1) * 100)}%
                     </Label>
@@ -439,7 +458,7 @@ function WidgetPageContent() {
                   <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
                     <Label className="text-sm">{t('widgetPage.appearance.fabAnimation')}</Label>
                     <Switch
-                      checked={live?.fab_animation ?? true}
+                      checked={live?.fab_animation ?? false}
                       onCheckedChange={v => setField('fab_animation', v, 0)}
                     />
                   </div>

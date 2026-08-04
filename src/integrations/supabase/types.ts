@@ -2365,7 +2365,7 @@ export type Database = {
           new_value: Json | null
           old_value: Json | null
           user_id: string
-          workspace_id: string
+          workspace_id: string | null
         }
         Insert: {
           action: string
@@ -2377,7 +2377,7 @@ export type Database = {
           new_value?: Json | null
           old_value?: Json | null
           user_id: string
-          workspace_id: string
+          workspace_id?: string | null
         }
         Update: {
           action?: string
@@ -2389,7 +2389,7 @@ export type Database = {
           new_value?: Json | null
           old_value?: Json | null
           user_id?: string
-          workspace_id?: string
+          workspace_id?: string | null
         }
         Relationships: [
           {

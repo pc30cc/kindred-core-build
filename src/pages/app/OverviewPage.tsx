@@ -402,40 +402,6 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* ── Modules ──────────────────────────────────────── */}
-      <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold text-foreground">{tr('dashboard.modules')}</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {MODULES.map((m) => {
-            const allowed = moduleAllowed(m.key);
-            const inner = (
-              <>
-                <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${allowed ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                  <m.icon className="h-4.5 w-4.5" />
-                </span>
-                <span className="mt-2 block truncate text-xs font-medium text-foreground">{tr(m.labelKey)}</span>
-                <span className="block text-[10px] text-muted-foreground">
-                  {allowed ? tr('dashboard.open') : tr('dashboard.moduleLocked')}
-                </span>
-              </>
-            );
-            return allowed ? (
-              <Link
-                key={m.key}
-                to={wsPath(m.path)}
-                className="rounded-xl border border-border/60 p-3 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm"
-              >
-                {inner}
-              </Link>
-            ) : (
-              <div key={m.key} className="cursor-not-allowed rounded-xl border border-dashed border-border/60 p-3 text-center opacity-60">
-                {inner}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
       {/* ── Onboarding ───────────────────────────────────── */}
       <GetStartedWizard />
     </div>

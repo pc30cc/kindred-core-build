@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { AppTopBar } from './AppTopBar';
+import { CommandPalette } from './CommandPalette';
 import { useI18n } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
@@ -166,6 +167,7 @@ export function AppLayout() {
   return (
     <div dir={dir} className="app-scope flex h-screen overflow-hidden bg-background text-foreground">
       <OperatorCallProvider>
+        <CommandPalette />
         <AppSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />

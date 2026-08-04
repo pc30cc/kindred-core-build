@@ -139,6 +139,7 @@ const BILLING_PROVIDERS = [
   { value: 'paypal', label: 'PayPal' },
   { value: 'paddle', label: 'Paddle' },
   { value: 'zarinpal', label: 'ZarinPal' },
+  { value: 'zarinpal_test', label: 'ZarinPal-Test (Sandbox)' },
   { value: 'payping', label: 'PayPing' },
   { value: 'nextpay', label: 'NextPay' },
   { value: 'idpay', label: 'IDPay' },

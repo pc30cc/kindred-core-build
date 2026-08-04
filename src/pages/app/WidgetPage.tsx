@@ -478,69 +478,41 @@ function WidgetPageContent() {
           </Tabs>
         </div>
 
-        {/* Live Preview */}
-        <div className="hidden lg:block">
-          <div className="sticky top-6">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+        {/* Live Preview — full-size, reflects every edit instantly */}
+        <div className="hidden xl:block">
+          <div className="sticky top-6 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Eye className="h-3.5 w-3.5" /> {t('widgetPage.preview.title')}
               </p>
               <Badge variant="outline" className="text-[10px] capitalize">
                 {(widget as any)?.template_slug || 'default'}
               </Badge>
             </div>
-            <div className="relative bg-muted/30 border border-border rounded-xl overflow-hidden" style={{ height: 520 }}>
-              {/* Mini website preview */}
-              <div className="p-4 space-y-3">
-                <div className="h-4 w-3/4 bg-muted rounded" />
-                <div className="h-3 w-full bg-muted/60 rounded" />
-                <div className="h-3 w-5/6 bg-muted/60 rounded" />
-                <div className="h-24 w-full bg-muted/40 rounded-lg mt-4" />
-                <div className="h-3 w-2/3 bg-muted/60 rounded" />
-                <div className="h-3 w-full bg-muted/60 rounded" />
-              </div>
 
-              {/* Widget launcher preview */}
-              <div
-                className="absolute flex items-center justify-center rounded-full shadow-lg cursor-default"
-                style={{
-                  width: 48,
-                  height: 48,
-                  background: primaryColor,
-                  color: '#fff',
-                  bottom: 16,
-                  ...(widget?.position === 'bottom-left' ? { left: 16 } : { right: 16 }),
-                }}
-              >
-                <MessageSquare className="h-5 w-5" />
-              </div>
-
-              {/* Mini chat panel preview */}
-              <div
-                className="absolute bg-card border border-border rounded-xl shadow-xl overflow-hidden"
-                style={{
-                  width: 240,
-                  height: 300,
-                  bottom: 72,
-                  ...(widget?.position === 'bottom-left' ? { left: 16 } : { right: 16 }),
-                }}
-              >
-                <div className="p-3 text-white text-xs font-semibold" style={{ background: primaryColor }}>
-                  {widget?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
-                  <p className="text-[10px] font-normal opacity-80 mt-0.5">
-                    {(widget?.welcome_message || t('widgetPage.preview.welcomeFallback')).slice(0, 50)}
-                  </p>
-                </div>
-                <div className="p-3 space-y-2 flex-1">
-                  <div className="bg-muted rounded-lg p-2 text-[10px] text-muted-foreground max-w-[85%]">{t('widgetPage.preview.sampleMessage')}</div>
-                </div>
-                <div className="border-t border-border p-2">
-                  <div className="bg-muted rounded-full h-6 px-3 flex items-center">
-                    <span className="text-[9px] text-muted-foreground">{t('widgetPage.preview.inputPlaceholder')}</span>
-                  </div>
-                </div>
-              </div>
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">
+              {(['chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
+                <Button
+                  key={v}
+                  size="sm"
+                  variant={previewView === v ? 'default' : 'ghost'}
+                  className="h-7 flex-1 px-2 text-[11px]"
+                  onClick={() => setManualView(v)}
+                >
+                  {t(`widgetPage.preview.view.${v}` as any)}
+                </Button>
+              ))}
             </div>
+
+            <div style={{ height: 'calc(100vh - 190px)', minHeight: 560 }}>
+              <WidgetLivePreview
+                settings={live}
+                prechat={prechat}
+                brandName={platformName || t('widgetPage.preview.brandFallback')}
+                view={previewView}
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>
           </div>
         </div>
       </div>

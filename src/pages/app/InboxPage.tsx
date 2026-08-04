@@ -227,20 +227,29 @@ export default function InboxPage() {
   }, [queueParam, searchParams, setSearchParams]);
 
   const updateUrl = useCallback((updates: Record<string, string | null>) => {
-    const next = new URLSearchParams(searchParams);
-    for (const [k, v] of Object.entries(updates)) {
-      if (v === null || v === '') next.delete(k);
-      else next.set(k, v);
-    }
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+    // Always derive from the latest URL. Portal-hosted tab clicks can happen
+    // between location renders; closing over searchParams could otherwise
+    // restore a stale filter and make the next tab appear unresponsive.
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      for (const [k, v] of Object.entries(updates)) {
+        if (v === null || v === '') next.delete(k);
+        else next.set(k, v);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const setFilter = useCallback((s: FilterStatus) => {
-    // Default 'open' is implicit — keep the URL clean.
-    updateUrl({ status: s === 'open' ? null : s });
+    // Status tabs and special tabs are peers in the UI, not cumulative
+    // filters. Leaving `filter=needs_human` behind made every later status
+    // tab continue to query only handoff conversations.
+    updateUrl({ status: s === 'open' ? null : s, filter: null });
   }, [updateUrl]);
   const setExtraChip = useCallback((c: ExtraChip | null) => {
-    updateUrl({ filter: c });
+    // Special tabs start from the main/open inbox and are mutually exclusive
+    // with the status tabs, so one click always has one deterministic query.
+    updateUrl({ filter: c, status: null });
   }, [updateUrl]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -1580,10 +1589,19 @@ export default function InboxPage() {
                 const isAgent = !isVisitor;
                 const isAi = msg.sender_type === 'ai';
                 const prev = idx > 0 ? rawMessages[idx - 1] : null;
-                const sameSenderAsPrev = prev && prev.sender_type === msg.sender_type;
+                const senderKey = (item: typeof msg | null) => {
+                  if (!item) return '';
+                  if (item.sender_type === 'agent') return `agent:${item.sender_id || 'unknown'}`;
+                  if (item.sender_type === 'ai' || item.sender_type === 'bot') return 'ai';
+                  if (item.sender_type === 'contact') return `contact:${item.sender_id || selected?.contact_id || 'visitor'}`;
+                  return `${item.sender_type}:${item.sender_id || 'system'}`;
+                };
                 // Day separator — a new calendar day starts a fresh divider.
                 const dayKey = (d?: string | null) => (d ? new Date(d).toDateString() : '');
                 const showDaySeparator = !prev || dayKey(prev.created_at) !== dayKey(msg.created_at);
+                const sameSenderAsPrev = !!prev
+                  && !showDaySeparator
+                  && senderKey(prev) === senderKey(msg);
                 const dayLabel = (() => {
                   const d = new Date(msg.created_at);
                   const today = new Date();
@@ -1597,11 +1615,9 @@ export default function InboxPage() {
                 const agentLabel = isAi
                   ? (senderName || t('inbox.aiAssistant') || 'AI assistant')
                   : (senderName || t('inbox.support') || 'Support');
-                // Group consecutive bubbles from the same sender — hide repeating
-                // avatar/header to declutter the thread.
-                // Always show the avatar so operators/visitors stay visually
-                // identifiable on every message (photo → initials → icon).
-                const showAvatar = true;
+                // One identity marker per consecutive sender group. A different
+                // operator, AI/visitor switch, or new day starts a fresh group.
+                const showAvatar = !sameSenderAsPrev;
                 const showMeta = !sameSenderAsPrev;
                 // Pass A — system call_ended summary renders as a centered
                 // pill, not as an operator/visitor bubble.

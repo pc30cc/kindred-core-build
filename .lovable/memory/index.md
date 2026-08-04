@@ -6,6 +6,7 @@ Supabase for DB/auth. Dark theme. No Edge Functions without approval.
 Dashboard removed — do not re-add.
 
 ## Memories
+- [Theme](mem://design/theme) — Cloud White palette, Sora+Manrope fonts, radius/shadow tokens
 - [Workspace architecture](mem://features/workspace-architecture) — Multi-tenant workspace system with accounts, members, roles
 - [Admin panel](mem://features/admin-panel) — Global super admin at /admin/*, 12 pages, RequireAdmin guard
 - [Provider architecture](mem://design/providers) — 14 provider types, registry, resolution, fallback, React context

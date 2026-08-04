@@ -33,12 +33,23 @@ export interface LocaleFontSet {
 
 // ─── Font Definitions ────────────────────────────────────────────
 
-const interFont: FontConfig = {
-  family: 'Inter',
-  googleFamily: 'Inter',
-  weights: [400, 500, 600, 700],
+/** Body / UI font — Manrope (Latin) */
+const manropeFont: FontConfig = {
+  family: 'Manrope',
+  googleFamily: 'Manrope',
+  weights: [400, 500, 600, 700, 800],
   source: 'google',
-  localBasePath: '/fonts/inter/',
+  localBasePath: '/fonts/manrope/',
+  display: 'swap',
+};
+
+/** Display / heading font — Sora (Latin) */
+const soraFont: FontConfig = {
+  family: 'Sora',
+  googleFamily: 'Sora',
+  weights: [500, 600, 700],
+  source: 'google',
+  localBasePath: '/fonts/sora/',
   display: 'swap',
 };
 
@@ -64,21 +75,24 @@ const notoSansTurkishFont: FontConfig = {
 
 export const LOCALE_FONTS: Record<string, LocaleFontSet> = {
   en: {
-    primary: interFont,
+    primary: manropeFont,
+    heading: soraFont,
     fallbackStack: "system-ui, -apple-system, 'Segoe UI', sans-serif",
   },
   fa: {
     primary: vazirmatnFont,
-    fallbackStack: "'Inter', system-ui, -apple-system, sans-serif",
+    // Persian headings stay in Vazirmatn so the script never breaks.
+    fallbackStack: "'Manrope', system-ui, -apple-system, sans-serif",
   },
   tr: {
     primary: notoSansTurkishFont,
-    fallbackStack: "'Inter', system-ui, -apple-system, sans-serif",
+    heading: soraFont,
+    fallbackStack: "'Manrope', system-ui, -apple-system, sans-serif",
   },
 };
 
-// Always load Inter as the base/fallback font for all locales
-const BASE_FONTS: FontConfig[] = [interFont];
+// Always load Manrope as the base/fallback UI font for all locales
+const BASE_FONTS: FontConfig[] = [manropeFont];
 
 // ─── Google Fonts URL Builder ────────────────────────────────────
 
@@ -178,9 +192,13 @@ export function loadFontsForLocale(locale: string): void {
     currentStyleEl.textContent = '';
   }
 
-  // Set CSS custom property for current font family
+  // Set CSS custom properties for the current font pair
   const primaryFamily = `'${fontSet.primary.family}', ${fontSet.fallbackStack}`;
+  const headingFamily = fontSet.heading
+    ? `'${fontSet.heading.family}', ${primaryFamily}`
+    : primaryFamily;
   document.documentElement.style.setProperty('--font-primary', primaryFamily);
+  document.documentElement.style.setProperty('--font-heading', headingFamily);
 }
 
 /**

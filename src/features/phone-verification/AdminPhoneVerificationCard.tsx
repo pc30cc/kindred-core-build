@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +32,7 @@ import {
   adminSetUserPhone,
 } from '@/lib/api';
 import { PHONE_STATUS_CLASS, PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from './status';
+import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
 
 const REASON_MIN = 5;
 const REASON_MAX = 500;
@@ -65,6 +67,7 @@ export function AdminPhoneVerificationCard({
   const [confirming, setConfirming] = useState<'resend' | 'manual' | null>(null);
   const [editing, setEditing] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState('');
+  const [countryDraft, setCountryDraft] = useState(defaultPhoneCountry(uiLocale));
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-phone-verification', userId],
@@ -101,7 +104,7 @@ export function AdminPhoneVerificationCard({
   });
 
   const savePhone = useMutation({
-    mutationFn: () => adminSetUserPhone(userId, phoneDraft.trim()),
+    mutationFn: () => adminSetUserPhone(userId, phoneDraft.trim(), countryDraft),
     onSuccess: () => { toast({ title: t('admin.users.phoneSaved') }); setEditing(false); invalidate(); },
     onError: (e: Error) => toast({ title: e.message, variant: 'destructive' }),
   });
@@ -231,7 +234,11 @@ export function AdminPhoneVerificationCard({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setPhoneDraft(data.phone || ''); setEditing((v) => !v); }}
+                onClick={() => {
+                  setPhoneDraft(data.phone || '');
+                  setCountryDraft(countryFromE164(data.phone) ?? data.country ?? defaultPhoneCountry(uiLocale));
+                  setEditing((v) => !v);
+                }}
               >
                 <Pencil className="h-4 w-4" />
                 <span className="ms-2">{data.phone ? t('admin.users.phoneEdit') : t('admin.users.phoneAdd')}</span>
@@ -254,13 +261,21 @@ export function AdminPhoneVerificationCard({
             {!readOnly && editing && (
               <div className="space-y-2 rounded-md border border-border p-3">
                 <p className="text-xs text-muted-foreground">{t('admin.users.phoneEditHint')}</p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Select value={countryDraft} onValueChange={setCountryDraft}>
+                    <SelectTrigger className="w-[190px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PHONE_COUNTRIES.map((c) => (
+                        <SelectItem key={c.code} value={c.code}>{phoneCountryLabel(c.code, uiLocale)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Input
                     value={phoneDraft}
                     onChange={(e) => setPhoneDraft(e.target.value)}
-                    placeholder="+989121234567"
+                    placeholder={countryDraft === 'IR' ? '09121234567' : '5xxxxxxxxx'}
                     dir="ltr"
-                    className="font-mono"
+                    className="font-mono flex-1 min-w-[160px]"
                   />
                   <Button size="sm" disabled={phoneDraft.trim().length < 6 || savePhone.isPending} onClick={() => savePhone.mutate()}>
                     {savePhone.isPending && <Loader2 className="h-4 w-4 animate-spin me-2" />}

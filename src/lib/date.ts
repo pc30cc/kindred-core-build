@@ -153,6 +153,33 @@ export function formatPattern(
 let installed = false;
 
 /**
+ * Long, human date with a stable word order: weekday, day, month, year.
+ * (e.g. "سه‌شنبه ۱۳ مرداد ۱۴۰۵" / "Tuesday, August 4, 2026")
+ */
+export function formatLongDate(
+  value: Date | string | number | null | undefined = new Date(),
+  locale?: string,
+): string {
+  const d = toDate(value);
+  if (!d) return '—';
+  const resolved = resolveDateLocale(locale);
+  const persian = isPersian(resolved);
+  if (!persian) {
+    return fmt(d, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }, locale);
+  }
+  const tag = (Array.isArray(resolved) ? resolved[0] : resolved) || BCP47.fa;
+  const parts = new Intl.DateTimeFormat(tag, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: TEHRAN_TIME_ZONE,
+  }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('weekday')} ${get('day')} ${get('month')} ${get('year')}`.trim();
+}
+
+/**
  * Locale-aware relative time ("۱ ماه پیش", "5m ago", "2 saat önce").
  * Uses Intl.RelativeTimeFormat with the active app locale.
  */

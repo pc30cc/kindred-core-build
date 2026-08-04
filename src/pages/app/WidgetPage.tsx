@@ -23,6 +23,7 @@ import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerifi
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -45,6 +46,7 @@ function WidgetPageContent() {
   const { data: platformWidget } = useWidgetPlatformSettings();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -68,6 +70,21 @@ function WidgetPageContent() {
   };
 
   const live = useMemo(() => ({ ...(widget as any), ...draft }), [widget, draft]);
+
+  /**
+   * Region lock: in a single-language platform the widget can only speak that
+   * language, so the preview must render it (RTL included) even before the
+   * workspace has ever picked a locale.
+   */
+  const regionLocales = allowedLocales.length ? allowedLocales : ['en'];
+  const effectiveLocale =
+    live?.locale && regionLocales.includes(live.locale) ? live.locale : regionLocales[0];
+  const previewSettings = useMemo(
+    () => ({ ...live, locale: effectiveLocale, widget_language: effectiveLocale }),
+    [live, effectiveLocale],
+  );
+
+  const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
   const urls = useMemo(
     () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
@@ -191,11 +208,13 @@ function WidgetPageContent() {
               <Card className="card-elevated">
                 <CardContent className="p-6">
                   <TemplateGallery
-                    selectedSlug={(widget as any)?.template_slug || 'default'}
+                    selectedSlug={live?.template_slug || 'default'}
                     primaryColor={primaryColor}
                     brandLabel={live?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
                     saving={updateWidget.isPending}
                     onSelect={(slug) => {
+                      // Reflect in the live preview immediately, then persist.
+                      setDraft((prev) => ({ ...prev, template_slug: slug }));
                       updateWidget.mutate({ template_slug: slug } as any, {
                         onSuccess: () => toast({ title: t('widgetPage.template.updated'), description: t('widgetPage.template.updatedDescription', { name: slug }) }),
                         onError: (e: any) => toast({ title: t('widgetPage.template.updateFailed'), description: e.message, variant: 'destructive' }),
@@ -270,14 +289,15 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
                     <Select
-                      value={live?.locale || 'en'}
+                      value={effectiveLocale}
+                      disabled={!canSwitchLanguage}
                       onValueChange={v => setField('locale', v, 0)}
                     >
                       <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="en">English</SelectItem>
-                        <SelectItem value="fa">فارسی</SelectItem>
-                        <SelectItem value="tr">Türkçe</SelectItem>
+                        {regionLocales.map((l) => (
+                          <SelectItem key={l} value={l}>{LOCALE_LABELS[l] || l}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -486,7 +506,7 @@ function WidgetPageContent() {
                 <Eye className="h-3.5 w-3.5" /> {t('widgetPage.preview.title')}
               </p>
               <Badge variant="outline" className="text-[10px] capitalize">
-                {(widget as any)?.template_slug || 'default'}
+                {live?.template_slug || 'default'}
               </Badge>
             </div>
 
@@ -506,7 +526,7 @@ function WidgetPageContent() {
 
             <div style={{ height: 'calc(100vh - 190px)', minHeight: 560 }}>
               <WidgetLivePreview
-                settings={live}
+                settings={previewSettings}
                 prechat={prechat}
                 brandName={platformName || t('widgetPage.preview.brandFallback')}
                 view={previewView}

@@ -80,6 +80,13 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
   const onPrimary = readableOn(primary);
   const left = s.position === 'bottom-left';
 
+  /** Template variants change panel shape/density so switching is visible instantly. */
+  const template: string = s.template_slug || 'default';
+  const flat = template.includes('flat') || template.includes('minimal') || template.includes('square');
+  const compact = template.includes('compact') || template.includes('minimal');
+  const panelRadius = flat ? 8 : 16;
+  const panelWidth = compact ? 300 : 340;
+
   const title = (s.launcher_text || s.fab_label || brandName || d.brandFallback) as string;
   const welcome = (s.welcome_message || s.greeting_message || d.welcomeFallback) as string;
   const placeholder = (s.placeholder_text || d.input) as string;
@@ -149,16 +156,23 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
       {/* Widget panel */}
       <div
         dir={rtl ? 'rtl' : 'ltr'}
-        className="absolute flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+        className="absolute flex flex-col overflow-hidden border border-border bg-card shadow-2xl transition-all"
         style={{
-          width: 340,
+          width: panelWidth,
+          borderRadius: panelRadius,
           bottom: 92,
           top: 64,
           [left ? 'left' : 'right']: 20,
         } as any}
       >
         {/* Header */}
-        <div className="px-4 py-3.5" style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})`, color: onPrimary }}>
+        <div
+          className={cn('px-4', compact ? 'py-2.5' : 'py-3.5')}
+          style={{
+            background: flat ? primary : `linear-gradient(135deg, ${primary}, ${secondary})`,
+            color: onPrimary,
+          }}
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2">

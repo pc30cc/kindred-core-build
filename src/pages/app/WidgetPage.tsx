@@ -433,14 +433,23 @@ function WidgetPageContent() {
 
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">
-                      {t('widgetPage.appearance.fabScale')} — {Math.round((live?.fab_scale ?? 1) * 100)}%
+                      {t('widgetPage.appearance.fabScale')} —{' '}
+                      {(() => {
+                        const raw = Number(live?.fab_scale);
+                        if (!isFinite(raw) || raw <= 0) return 100;
+                        return Math.round(raw > 3 ? raw : raw * 100);
+                      })()}%
                     </Label>
                     <input
                       type="range"
-                      min={0.8}
-                      max={1.4}
-                      step={0.05}
-                      value={live?.fab_scale ?? 1}
+                      min={80}
+                      max={140}
+                      step={5}
+                      value={(() => {
+                        const raw = Number(live?.fab_scale);
+                        if (!isFinite(raw) || raw <= 0) return 100;
+                        return Math.round(raw > 3 ? raw : raw * 100);
+                      })()}
                       onChange={e => setField('fab_scale', Number(e.target.value), 400)}
                       className="w-full accent-primary"
                     />

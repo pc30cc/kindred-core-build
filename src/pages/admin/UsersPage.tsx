@@ -234,6 +234,28 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [blockConfirm, setBlockConfirm] = useState(false);
   const [avatarConfirm, setAvatarConfirm] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [emailVerifyLoading, setEmailVerifyLoading] = useState(false);
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    email: '',
+    company_name: '',
+    website_domain: '',
+    preferred_locale: '',
+  });
+
+  const openEditDialog = () => {
+    const pr = detail?.profile;
+    setEditForm({
+      full_name: pr?.full_name || '',
+      email: pr?.email || '',
+      company_name: pr?.company_name || '',
+      website_domain: pr?.website_domain || '',
+      preferred_locale: pr?.preferred_locale || '',
+    });
+    setEditDialog(true);
+  };
 
   // Get auth status (banned, etc.)
   const { data: authStatus, refetch: refetchStatus } = useQuery({

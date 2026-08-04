@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from '@/i18n';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -14,16 +15,6 @@ import { toast } from '@/hooks/use-toast';
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 type DayKey = (typeof DAY_KEYS)[number];
-
-const DAY_LABELS: Record<DayKey, string> = {
-  mon: 'Monday',
-  tue: 'Tuesday',
-  wed: 'Wednesday',
-  thu: 'Thursday',
-  fri: 'Friday',
-  sat: 'Saturday',
-  sun: 'Sunday',
-};
 
 const LOCALES = ['en', 'fa', 'tr'] as const;
 type Locale = (typeof LOCALES)[number];
@@ -80,17 +71,17 @@ function normalizeHours(input: WidgetSettings['business_hours']): BusinessHoursC
   };
 }
 
-function intervalsValid(list: Interval[] | undefined): { ok: boolean; reason?: string } {
+function intervalsValid(list: Interval[] | undefined): { ok: boolean; reason?: 'invalidTime' | 'endAfterStart' } {
   if (!list || list.length === 0) return { ok: true };
   for (const it of list) {
     if (!/^\d{1,2}:\d{2}$/.test(it.from) || !/^\d{1,2}:\d{2}$/.test(it.to)) {
-      return { ok: false, reason: 'Invalid time format' };
+      return { ok: false, reason: 'invalidTime' as const };
     }
     const [fh, fm] = it.from.split(':').map(Number);
     const [th, tm] = it.to.split(':').map(Number);
     const f = fh * 60 + fm;
     const t = th * 60 + tm;
-    if (!(t > f)) return { ok: false, reason: 'End must be after start' };
+    if (!(t > f)) return { ok: false, reason: 'endAfterStart' as const };
   }
   return { ok: true };
 }
@@ -99,8 +90,8 @@ function previewState(hours: BusinessHoursConfig, liveChatEnabled: boolean, now:
   state: 'online' | 'offline';
   reason: string;
 } {
-  if (!hours.enabled) return { state: 'online', reason: 'business hours disabled' };
-  if (!liveChatEnabled) return { state: 'offline', reason: 'live chat disabled' };
+  if (!hours.enabled) return { state: 'online', reason: 'reasonDisabled' };
+  if (!liveChatEnabled) return { state: 'offline', reason: 'reasonChatDisabled' };
   // Use Intl to read the current weekday + minutes in tz
   let parts: Intl.DateTimeFormatPart[] = [];
   try {
@@ -115,7 +106,7 @@ function previewState(hours: BusinessHoursConfig, liveChatEnabled: boolean, now:
       day: '2-digit',
     }).formatToParts(now);
   } catch {
-    return { state: 'offline', reason: 'invalid timezone' };
+    return { state: 'offline', reason: 'reasonInvalidTz' };
   }
   const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
   const dowMap: Record<string, DayKey> = { Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat', Sun: 'sun' };
@@ -124,7 +115,7 @@ function previewState(hours: BusinessHoursConfig, liveChatEnabled: boolean, now:
   const ov = hours.overrides?.find((o) => o.date === date);
   let intervals: Interval[] = [];
   if (ov) {
-    if (ov.closed) return { state: 'offline', reason: 'override closed for ' + date };
+    if (ov.closed) return { state: 'offline', reason: 'reasonOverrideClosed' };
     intervals = ov.intervals || [];
   } else {
     intervals = (dow && hours.weekly[dow]) || [];
@@ -132,17 +123,17 @@ function previewState(hours: BusinessHoursConfig, liveChatEnabled: boolean, now:
   const anyDefined =
     DAY_KEYS.some((k) => (hours.weekly[k] || []).length > 0) ||
     (hours.overrides || []).some((o) => (o.intervals || []).length > 0);
-  if (!anyDefined) return { state: 'offline', reason: 'no intervals configured' };
-  if (!intervals.length) return { state: 'offline', reason: 'closed today' };
+  if (!anyDefined) return { state: 'offline', reason: 'reasonNoIntervals' };
+  if (!intervals.length) return { state: 'offline', reason: 'reasonClosedToday' };
   const h = Number(get('hour') === '24' ? '0' : get('hour'));
   const m = Number(get('minute'));
   const cur = h * 60 + m;
   for (const it of intervals) {
     const [fh, fm] = it.from.split(':').map(Number);
     const [th, tm] = it.to.split(':').map(Number);
-    if (fh * 60 + fm <= cur && cur < th * 60 + tm) return { state: 'online', reason: 'within hours' };
+    if (fh * 60 + fm <= cur && cur < th * 60 + tm) return { state: 'online', reason: 'reasonWithin' };
   }
-  return { state: 'offline', reason: 'outside hours' };
+  return { state: 'offline', reason: 'reasonOutside' };
 }
 
 export function AvailabilitySection({
@@ -156,6 +147,16 @@ export function AvailabilitySection({
   onSave: (patch: Partial<WidgetSettings>) => void;
   saving: boolean;
 }) {
+  const { t, dir } = useTranslation();
+  const DAY_LABELS: Record<DayKey, string> = {
+    mon: t('widgetPage.availability.days.mon'),
+    tue: t('widgetPage.availability.days.tue'),
+    wed: t('widgetPage.availability.days.wed'),
+    thu: t('widgetPage.availability.days.thu'),
+    fri: t('widgetPage.availability.days.fri'),
+    sat: t('widgetPage.availability.days.sat'),
+    sun: t('widgetPage.availability.days.sun'),
+  };
   const hours = useMemo(() => normalizeHours(settings.business_hours), [settings.business_hours]);
   const offlineMode = (settings.offline_mode || 'capture_message') as WidgetSettings['offline_mode'];
   const liveChatEnabled = settings.live_chat_enabled !== false;
@@ -192,7 +193,7 @@ export function AvailabilitySection({
       ...hours,
       weekly: { ...hours.weekly, tue: [...src], wed: [...src], thu: [...src], fri: [...src] },
     });
-    toast({ title: 'Copied Monday to Tuesday–Friday' });
+    toast({ title: t('widgetPage.availability.copied') });
   };
 
   const addOverride = () => {
@@ -241,9 +242,9 @@ export function AvailabilitySection({
         body: JSON.stringify({ workspace_id: workspaceId, to: testEmail, locale: activeLocale }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast({ title: 'Test email sent', description: `Sent to ${testEmail}` });
+      toast({ title: t('widgetPage.availability.testSent'), description: t('widgetPage.availability.testSentDescription', { email: testEmail }) });
     } catch (e: any) {
-      toast({ title: 'Failed to send test email', description: e?.message || 'Unknown error', variant: 'destructive' });
+      toast({ title: t('widgetPage.availability.testFailed'), description: e?.message || t('common.error'), variant: 'destructive' });
     } finally {
       setTesting(false);
     }
@@ -254,7 +255,7 @@ export function AvailabilitySection({
     (hours.overrides || []).some((o) => (o.intervals || []).length > 0);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" dir={dir}>
       {/* Live preview */}
       <Card className="card-elevated">
         <CardContent className="p-4 flex items-center gap-3">
@@ -265,17 +266,17 @@ export function AvailabilitySection({
           )}
           <div className="flex-1">
             <div className="text-sm font-medium">
-              Now:{' '}
-              <Badge variant={preview.state === 'online' ? 'default' : 'secondary'} className="ml-1">
-                {preview.state}
+              {t('widgetPage.availability.now')}:{' '}
+              <Badge variant={preview.state === 'online' ? 'default' : 'secondary'} className="ms-1">
+                {preview.state === 'online' ? t('widgetPage.availability.online') : t('widgetPage.availability.offline')}
               </Badge>
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              {preview.reason} · timezone {hours.timezone}
+              {t(`widgetPage.availability.${preview.reason}` as any)} · {t('widgetPage.availability.timezoneLabel', { tz: hours.timezone })}
             </div>
           </div>
           {!hours.enabled && (
-            <Badge variant="outline" className="text-xs">Hours off → forced online</Badge>
+            <Badge variant="outline" className="text-xs">{t('widgetPage.availability.forcedOnline')}</Badge>
           )}
         </CardContent>
       </Card>
@@ -284,18 +285,18 @@ export function AvailabilitySection({
       <Card className="card-elevated">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Clock className="h-4 w-4" /> Business hours
+            <Clock className="h-4 w-4" /> {t('widgetPage.availability.hoursTitle')}
           </CardTitle>
           <CardDescription>
-            When disabled, the widget is always online and offline mode is ignored.
+            {t('widgetPage.availability.hoursDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
-              <Label className="text-sm font-medium">Enable business hours</Label>
+              <Label className="text-sm font-medium">{t('widgetPage.availability.enableHours')}</Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Off = always online. On = use the schedule below.
+                {t('widgetPage.availability.enableHoursHint')}
               </p>
             </div>
             <Switch
@@ -306,9 +307,9 @@ export function AvailabilitySection({
 
           <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
-              <Label className="text-sm font-medium">Live chat enabled</Label>
+              <Label className="text-sm font-medium">{t('widgetPage.availability.liveChatEnabled')}</Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                When off, workspace is treated as offline during business hours.
+                {t('widgetPage.availability.liveChatHint')}
               </p>
             </div>
             <Switch
@@ -319,7 +320,7 @@ export function AvailabilitySection({
 
           <div className="space-y-2">
             <Label className="text-xs font-medium flex items-center gap-1.5">
-              <Globe2 className="h-3.5 w-3.5" /> Timezone
+              <Globe2 className="h-3.5 w-3.5" /> {t('widgetPage.availability.timezone')}
             </Label>
             <Select
               value={hours.timezone}
@@ -342,7 +343,7 @@ export function AvailabilitySection({
           {/* Weekly schedule */}
           <div className="space-y-2 pt-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Weekly schedule</Label>
+              <Label className="text-sm font-medium">{t('widgetPage.availability.weekly')}</Label>
               <Button
                 variant="ghost"
                 size="sm"
@@ -350,7 +351,7 @@ export function AvailabilitySection({
                 disabled={!hours.enabled}
                 className="h-7 text-xs"
               >
-                <Copy className="h-3 w-3 mr-1" /> Copy Mon → Tue–Fri
+                <Copy className="h-3 w-3 me-1" /> {t('widgetPage.availability.copyMonFri')}
               </Button>
             </div>
 
@@ -367,7 +368,7 @@ export function AvailabilitySection({
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium w-24">{DAY_LABELS[day]}</span>
                         {list.length === 0 && (
-                          <Badge variant="outline" className="text-[10px]">Closed</Badge>
+                          <Badge variant="outline" className="text-[10px]">{t('widgetPage.availability.closed')}</Badge>
                         )}
                       </div>
                       <Button
@@ -377,7 +378,7 @@ export function AvailabilitySection({
                         disabled={!hours.enabled}
                         className="h-7 text-xs"
                       >
-                        <Plus className="h-3 w-3 mr-1" /> Add interval
+                        <Plus className="h-3 w-3 me-1" /> {t('widgetPage.availability.addInterval')}
                       </Button>
                     </div>
                     {list.map((it, idx) => (
@@ -389,7 +390,7 @@ export function AvailabilitySection({
                           disabled={!hours.enabled}
                           className="w-32"
                         />
-                        <span className="text-xs text-muted-foreground">to</span>
+                        <span className="text-xs text-muted-foreground">{t('widgetPage.availability.to')}</span>
                         <Input
                           type="time"
                           value={it.to}
@@ -409,7 +410,7 @@ export function AvailabilitySection({
                       </div>
                     ))}
                     {!valid.ok && (
-                      <p className="text-xs text-destructive">{valid.reason}</p>
+                      <p className="text-xs text-destructive">{t(`widgetPage.availability.${valid.reason}` as any)}</p>
                     )}
                   </div>
                 );
@@ -420,7 +421,7 @@ export function AvailabilitySection({
           {/* Overrides */}
           <div className="space-y-2 pt-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Date overrides (holidays / special days)</Label>
+              <Label className="text-sm font-medium">{t('widgetPage.availability.overrides')}</Label>
               <Button
                 variant="ghost"
                 size="sm"
@@ -428,7 +429,7 @@ export function AvailabilitySection({
                 disabled={!hours.enabled}
                 className="h-7 text-xs"
               >
-                <Plus className="h-3 w-3 mr-1" /> Add override
+                <Plus className="h-3 w-3 me-1" /> {t('widgetPage.availability.addOverride')}
               </Button>
             </div>
             <div className="space-y-2">
@@ -446,14 +447,14 @@ export function AvailabilitySection({
                       className="w-44"
                     />
                     <Input
-                      placeholder="Label (optional)"
+                      placeholder={t('widgetPage.availability.overrideLabel')}
                       value={ov.label || ''}
                       onChange={(e) => updateOverride(idx, { label: e.target.value })}
                       disabled={!hours.enabled}
                       className="flex-1"
                     />
                     <div className="flex items-center gap-2">
-                      <Label className="text-xs">Closed</Label>
+                      <Label className="text-xs">{t('widgetPage.availability.overrideClosed')}</Label>
                       <Switch
                         checked={!!ov.closed}
                         onCheckedChange={(v) => updateOverride(idx, { closed: v, intervals: v ? undefined : (ov.intervals || []) })}
@@ -473,7 +474,7 @@ export function AvailabilitySection({
                 </div>
               ))}
               {(hours.overrides || []).length === 0 && (
-                <p className="text-xs text-muted-foreground">No overrides configured.</p>
+                <p className="text-xs text-muted-foreground">{t('widgetPage.availability.noOverrides')}</p>
               )}
             </div>
           </div>
@@ -482,8 +483,7 @@ export function AvailabilitySection({
             <div className="flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/30 p-3 text-xs">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
               <p>
-                Hours are enabled but no intervals are defined. The workspace will be treated as
-                always offline.
+                {t('widgetPage.availability.noIntervalsWarning')}
               </p>
             </div>
           )}
@@ -493,27 +493,27 @@ export function AvailabilitySection({
       {/* Offline mode */}
       <Card className="card-elevated">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Offline behavior</CardTitle>
+          <CardTitle className="text-base">{t('widgetPage.availability.offlineTitle')}</CardTitle>
           <CardDescription>
-            Only applied when business hours are enabled and the workspace is offline.
+            {t('widgetPage.availability.offlineDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {[
             {
               v: 'capture_message',
-              t: 'Capture a message',
-              d: 'Show a form so visitors can leave a message. Lands in the inbox.',
+              t: t('widgetPage.availability.modeCapture'),
+              d: t('widgetPage.availability.modeCaptureDesc'),
             },
             {
               v: 'show_offline_message',
-              t: 'Show offline message only',
-              d: 'Open the panel but show only the offline message. No form.',
+              t: t('widgetPage.availability.modeShow'),
+              d: t('widgetPage.availability.modeShowDesc'),
             },
             {
               v: 'hide_widget',
-              t: 'Hide widget',
-              d: 'New page loads do not render the widget. Active sessions remain visible.',
+              t: t('widgetPage.availability.modeHide'),
+              d: t('widgetPage.availability.modeHideDesc'),
             },
           ].map((opt) => (
             <label
@@ -543,9 +543,9 @@ export function AvailabilitySection({
       {/* Localized labels + offline message */}
       <Card className="card-elevated">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Localized copy</CardTitle>
+          <CardTitle className="text-base">{t('widgetPage.availability.copyTitle')}</CardTitle>
           <CardDescription>
-            Status labels and the offline message shown to visitors. One tab per supported locale.
+            {t('widgetPage.availability.copyDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -561,35 +561,35 @@ export function AvailabilitySection({
                 <TabsContent key={loc} value={loc} className="space-y-4 pt-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Online label</Label>
+                      <Label className="text-xs">{t('widgetPage.availability.onlineLabel')}</Label>
                       <Input
                         dir={dir}
                         value={labels[loc]?.online || ''}
-                        placeholder="We're online"
+                        placeholder={t('widgetPage.availability.onlinePlaceholder')}
                         onChange={(e) => setLabel(loc, 'online', e.target.value)}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Offline label</Label>
+                      <Label className="text-xs">{t('widgetPage.availability.offlineLabel')}</Label>
                       <Input
                         dir={dir}
                         value={labels[loc]?.offline || ''}
-                        placeholder="We're offline"
+                        placeholder={t('widgetPage.availability.offlinePlaceholder')}
                         onChange={(e) => setLabel(loc, 'offline', e.target.value)}
                       />
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Offline message</Label>
+                    <Label className="text-xs">{t('widgetPage.availability.offlineMessage')}</Label>
                     <Textarea
                       dir={dir}
                       rows={4}
                       value={localizedMsg[loc] || ''}
-                      placeholder="We're currently away. Leave a message and we'll get back to you."
+                      placeholder={t('widgetPage.availability.offlineMessagePlaceholder')}
                       onChange={(e) => setLocalizedMessage(loc, e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Shown above the capture form (when enabled) or as the standalone offline message.
+                      {t('widgetPage.availability.offlineMessageHint')}
                     </p>
                   </div>
                 </TabsContent>
@@ -603,16 +603,16 @@ export function AvailabilitySection({
       <Card className="card-elevated">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Mail className="h-4 w-4" /> Test offline notification
+            <Mail className="h-4 w-4" /> {t('widgetPage.availability.testTitle')}
           </CardTitle>
           <CardDescription>
-            Send a sample <code>offline_message_received</code> email to verify your email provider and template.
+            {t('widgetPage.availability.testDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-2">
             <div className="flex-1 space-y-1.5">
-              <Label className="text-xs">Recipient</Label>
+              <Label className="text-xs">{t('widgetPage.availability.recipient')}</Label>
               <Input
                 type="email"
                 placeholder="you@example.com"
@@ -621,12 +621,11 @@ export function AvailabilitySection({
               />
             </div>
             <Button onClick={sendTestEmail} disabled={!testEmail || testing || saving}>
-              {testing ? 'Sending…' : 'Send test'}
+              {testing ? t('widgetPage.availability.sending') : t('widgetPage.availability.send')}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Uses the active email provider for this workspace and the <strong>{activeLocale.toUpperCase()}</strong>{' '}
-            template.
+            {t('widgetPage.availability.templateNote', { locale: activeLocale.toUpperCase() })}
           </p>
         </CardContent>
       </Card>

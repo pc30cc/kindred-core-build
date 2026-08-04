@@ -417,6 +417,46 @@ export async function adminDeleteUserAvatar(userId: string) {
   });
 }
 
+// ─── Admin: edit user identity / profile ─────────────────────────
+export interface AdminUserProfilePatch {
+  full_name?: string | null;
+  company_name?: string | null;
+  website_domain?: string | null;
+  preferred_locale?: 'fa' | 'en' | 'tr' | null;
+  email?: string;
+}
+
+export async function adminUpdateUserProfile(userId: string, patch: AdminUserProfilePatch) {
+  return request<{ success: boolean }>(`/api/admin/users/${userId}/profile`, {
+    method: 'PATCH',
+    headers: await getAdminAuthHeaders(),
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function adminSetUserEmailVerified(userId: string, verified: boolean) {
+  return request<{ success: boolean; verified: boolean }>(`/api/admin/users/${userId}/email-verification`, {
+    method: 'POST',
+    headers: await getAdminAuthHeaders(),
+    body: JSON.stringify({ verified }),
+  });
+}
+
+export async function adminSetUserPhone(userId: string, phone: string, country = 'IR') {
+  return request<{ success: boolean; phone: string; country: string }>(`/api/admin/users/${userId}/phone`, {
+    method: 'PUT',
+    headers: await getAdminAuthHeaders(),
+    body: JSON.stringify({ phone, country }),
+  });
+}
+
+export async function adminRemoveUserPhone(userId: string) {
+  return request<{ success: boolean }>(`/api/admin/users/${userId}/phone`, {
+    method: 'DELETE',
+    headers: await getAdminAuthHeaders(),
+  });
+}
+
 export interface AdminUserBilling {
   workspaces: { id: string; name: string; slug: string }[];
   plans: { id: string; name: string; slug: string; localized: any }[];

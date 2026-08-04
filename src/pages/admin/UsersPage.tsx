@@ -27,6 +27,7 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
   adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
+  adminUpdateUserProfile, adminSetUserEmailVerified,
 } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -37,7 +38,7 @@ import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
   KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
-  MessageSquare, Trash2,
+  MessageSquare, Trash2, Pencil,
 } from 'lucide-react';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -233,6 +234,28 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [blockConfirm, setBlockConfirm] = useState(false);
   const [avatarConfirm, setAvatarConfirm] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [emailVerifyLoading, setEmailVerifyLoading] = useState(false);
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    email: '',
+    company_name: '',
+    website_domain: '',
+    preferred_locale: '',
+  });
+
+  const openEditDialog = () => {
+    const pr = detail?.profile;
+    setEditForm({
+      full_name: pr?.full_name || '',
+      email: pr?.email || '',
+      company_name: pr?.company_name || '',
+      website_domain: pr?.website_domain || '',
+      preferred_locale: pr?.preferred_locale || '',
+    });
+    setEditDialog(true);
+  };
 
   // Get auth status (banned, etc.)
   const { data: authStatus, refetch: refetchStatus } = useQuery({
@@ -306,6 +329,40 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       toast.error(err.message || t('admin.users.avatarRemoveFailed'));
     } finally {
       setAvatarLoading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setEditLoading(true);
+    try {
+      await adminUpdateUserProfile(userId, {
+        full_name: editForm.full_name || null,
+        company_name: editForm.company_name || null,
+        website_domain: editForm.website_domain || null,
+        preferred_locale: (editForm.preferred_locale as 'fa' | 'en' | 'tr') || null,
+        ...(editForm.email && editForm.email !== detail?.profile?.email ? { email: editForm.email } : {}),
+      });
+      toast.success(t('admin.users.userUpdated'));
+      setEditDialog(false);
+      refetch();
+      refetchStatus();
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.userUpdateFailed'));
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleToggleEmailVerified = async (next: boolean) => {
+    setEmailVerifyLoading(true);
+    try {
+      await adminSetUserEmailVerified(userId, next);
+      toast.success(t('admin.users.emailVerificationUpdated'));
+      refetchStatus();
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.userUpdateFailed'));
+    } finally {
+      setEmailVerifyLoading(false);
     }
   };
 
@@ -385,6 +442,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2 border-t bg-card/60 p-4">
+        <Button variant="default" size="sm" className="gap-2" onClick={openEditDialog}>
+          <Pencil className="h-4 w-4" />
+          {t('admin.users.editUser')}
+        </Button>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setResetConfirm(true)} disabled={resetLinkLoading}>
           {resetLinkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {t('admin.users.sendResetLink')}
@@ -502,12 +563,26 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               {t('admin.users.authStatus')}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+              <div className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-3 py-2">
                 <span className="text-muted-foreground">{t('admin.users.emailVerified')}</span>
-                <span className="flex items-center gap-1.5">
-                  {authStatus.email_confirmed_at
-                    ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> {t('admin.users.yes')}</>
-                    : <><XCircle className="h-3.5 w-3.5 text-destructive" /> {t('admin.users.no')}</>}
+                <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
+                    {authStatus.email_confirmed_at
+                      ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> {t('admin.users.yes')}</>
+                      : <><XCircle className="h-3.5 w-3.5 text-destructive" /> {t('admin.users.no')}</>}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={emailVerifyLoading}
+                    onClick={() => handleToggleEmailVerified(!authStatus.email_confirmed_at)}
+                  >
+                    {emailVerifyLoading && <Loader2 className="h-3 w-3 animate-spin me-1" />}
+                    {authStatus.email_confirmed_at
+                      ? t('admin.users.markEmailUnverified')
+                      : t('admin.users.markEmailVerified')}
+                  </Button>
                 </span>
               </div>
               <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
@@ -586,6 +661,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </CardContent>
       </Card>
 
+      <AdminPhoneVerificationCard userId={userId} />
+
         </TabsContent>
 
         <TabsContent value="access" className="space-y-4 mt-0">
@@ -619,7 +696,6 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </CardContent>
       </Card>
 
-      <AdminPhoneVerificationCard userId={userId} />
         </TabsContent>
 
         <TabsContent value="workspaces" className="space-y-4 mt-0">
@@ -682,6 +758,55 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <UserFinanceCard userId={userId} />
         </TabsContent>
       </Tabs>
+
+      {/* Edit User Dialog */}
+      <Dialog open={editDialog} onOpenChange={setEditDialog}>
+        <DialogContent className="sm:max-w-md" dir={dir}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              {t('admin.users.editUser')}
+            </DialogTitle>
+            <DialogDescription>{t('admin.users.editUserDesc')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.fullNameLabel')}</label>
+              <Input value={editForm.full_name} onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.email')}</label>
+              <Input dir="ltr" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.company')}</label>
+              <Input value={editForm.company_name} onChange={e => setEditForm(f => ({ ...f, company_name: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.website')}</label>
+              <Input dir="ltr" value={editForm.website_domain} onChange={e => setEditForm(f => ({ ...f, website_domain: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.preferredLocale')}</label>
+              <Select value={editForm.preferred_locale || 'en'} onValueChange={v => setEditForm(f => ({ ...f, preferred_locale: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fa">فارسی</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="tr">Türkçe</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialog(false)}>{t('admin.users.cancel')}</Button>
+            <Button onClick={handleSaveProfile} disabled={editLoading}>
+              {editLoading && <Loader2 className="h-4 w-4 animate-spin me-2" />}
+              {t('admin.users.saveChanges')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Change Password Dialog */}
       <Dialog open={passwordDialog} onOpenChange={setPasswordDialog}>

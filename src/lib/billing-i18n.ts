@@ -228,6 +228,15 @@ export function billingError(locale: BillingLocale, message?: unknown): string {
         : 'The payment gateway token is invalid (it contains masked or non-ASCII characters). Re-enter the full token in provider settings.';
   }
   // Network / gateway unreachable (server could not reach the payment provider)
+  // Gateway temporarily locked the caller after repeated failed auth attempts.
+  if ((lower.includes('too many') && (lower.includes('auth') || lower.includes('attempt'))) ||
+      lower.includes('retry later') || lower.includes('rate limit')) {
+    return locale === 'fa'
+      ? 'درگاه پرداخت به دلیل تلاش‌های ناموفق قبلی برای احراز هویت، موقتاً دسترسی را محدود کرده است. لطفاً چند دقیقه صبر کنید، سپس کلید/توکن درست درگاه را در تنظیمات ارائه‌دهنده ذخیره کرده و دوباره تلاش کنید.'
+      : locale === 'tr'
+        ? 'Ödeme sağlayıcısı, önceki başarısız kimlik doğrulama denemeleri nedeniyle erişimi geçici olarak kısıtladı. Birkaç dakika bekleyin, sağlayıcı ayarlarındaki anahtarı doğrulayın ve tekrar deneyin.'
+        : 'The payment gateway temporarily blocked this server after repeated failed authentication attempts. Wait a few minutes, verify the gateway key in provider settings, and try again.';
+  }
   if (lower.includes('fetch failed') || lower.includes('timeout') || lower.includes('etimedout') ||
       lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network') ||
       lower.includes('gateway unreachable') || lower.includes('non-json') ||

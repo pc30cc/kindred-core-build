@@ -3174,6 +3174,55 @@ const en = {
       },
     },
   },
+  alerts: {
+    title: 'Operational alerts',
+    settings: 'Notification settings',
+    empty: {
+      title: 'Everything looks good',
+      desc: 'There are no alerts that need your attention right now.',
+    },
+    limit: {
+      max_conversations: 'monthly conversations',
+      max_visitors: 'tracked visitors',
+      ai_credits_per_month: 'AI credits',
+      max_call_minutes_per_month: 'call minutes',
+      storage_gb: 'storage',
+    },
+    kind: {
+      email_unverified: {
+        title: 'Email address not verified',
+        desc: 'Verify your email to keep every feature available.',
+      },
+      trial_ending: {
+        title: 'Trial ending soon',
+        desc: '{{days}} day(s) left before you move to the Free plan.',
+      },
+      trial_expired: {
+        title: 'Trial has ended',
+        desc: 'Upgrade your plan to restore the advanced features.',
+      },
+      subscription_ending: {
+        title: 'Subscription will not renew',
+        desc: 'Your subscription ends in {{days}} day(s).',
+      },
+      subscription_past_due: {
+        title: 'Subscription payment overdue',
+        desc: 'Review your payment details to avoid service interruption.',
+      },
+      payment_failed: {
+        title: 'A payment failed',
+        desc: 'Your latest transaction did not go through. Please try again.',
+      },
+      limit_near: {
+        title: 'Approaching your {{limit}} limit',
+        desc: '{{percent}}% of this period\u2019s quota is already used.',
+      },
+      limit_reached: {
+        title: '{{limit}} limit reached',
+        desc: '{{percent}}% of the quota is used. Upgrade your plan to continue.',
+      },
+    },
+  },
   plan: {
     locked: {
       title: 'This section is not available on your current plan',

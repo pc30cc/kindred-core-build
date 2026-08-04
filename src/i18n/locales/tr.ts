@@ -3161,6 +3161,55 @@ const tr: TranslationKeys = {
       },
     },
   },
+  alerts: {
+    title: 'Operasyonel uyarılar',
+    settings: 'Bildirim ayarları',
+    empty: {
+      title: 'Her şey yolunda',
+      desc: 'Şu anda ilgilenmeniz gereken bir uyarı yok.',
+    },
+    limit: {
+      max_conversations: 'aylık görüşme',
+      max_visitors: 'izlenen ziyaretçi',
+      ai_credits_per_month: 'yapay zekâ kredisi',
+      max_call_minutes_per_month: 'çağrı dakikası',
+      storage_gb: 'depolama',
+    },
+    kind: {
+      email_unverified: {
+        title: 'E-posta adresi doğrulanmadı',
+        desc: 'Tüm özelliklerin açık kalması için e-postanızı doğrulayın.',
+      },
+      trial_ending: {
+        title: 'Deneme süresi bitmek üzere',
+        desc: 'Ücretsiz plana geçmenize {{days}} gün kaldı.',
+      },
+      trial_expired: {
+        title: 'Deneme süresi sona erdi',
+        desc: 'Gelişmiş özellikleri geri kazanmak için planınızı yükseltin.',
+      },
+      subscription_ending: {
+        title: 'Abonelik yenilenmeyecek',
+        desc: 'Aboneliğiniz {{days}} gün içinde sona eriyor.',
+      },
+      subscription_past_due: {
+        title: 'Abonelik ödemesi gecikti',
+        desc: 'Hizmet kesintisini önlemek için ödeme bilgilerinizi kontrol edin.',
+      },
+      payment_failed: {
+        title: 'Bir ödeme başarısız oldu',
+        desc: 'Son işleminiz tamamlanamadı. Lütfen tekrar deneyin.',
+      },
+      limit_near: {
+        title: '{{limit}} sınırına yaklaşıyorsunuz',
+        desc: 'Bu dönemin kotasının %{{percent}} kadarı kullanıldı.',
+      },
+      limit_reached: {
+        title: '{{limit}} sınırına ulaşıldı',
+        desc: 'Kotanın %{{percent}} kadarı kullanıldı. Devam etmek için planınızı yükseltin.',
+      },
+    },
+  },
   plan: {
     locked: {
       title: 'Bu bölüm mevcut planınızda kullanılamıyor',

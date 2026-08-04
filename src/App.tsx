@@ -75,7 +75,6 @@ import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
 import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";
-import SettingsBrandingPage from "@/pages/app/settings/BrandingPage";
 import SettingsDomainsPage from "@/pages/app/settings/DomainsPage";
 import SettingsProvidersPage from "@/pages/app/settings/ProvidersPage";
 import SettingsTranslationsPage from "@/pages/app/settings/TranslationsPage";
@@ -254,7 +253,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route index element={<Navigate to="general" replace />} />
                   <Route path="general" element={<SettingsGeneralPage />} />
                   <Route path="integrations" element={<SettingsIntegrationsPage />} />
-                  <Route path="branding" element={<SettingsBrandingPage />} />
+                  <Route path="branding" element={<Navigate to="../general" replace />} />
                   <Route path="domains" element={<SettingsDomainsPage />} />
                   <Route path="providers" element={<SettingsProvidersPage />} />
                   <Route path="translations" element={<SettingsTranslationsPage />} />

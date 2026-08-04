@@ -335,6 +335,129 @@ function WidgetPageContent() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* ── Logo & branding ── */}
+              <Card className="card-elevated">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">{t('widgetPage.appearance.logoSection')}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 p-6 pt-0">
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
+                    <Label className="text-sm">{t('widgetPage.appearance.showLogo')}</Label>
+                    <Switch
+                      checked={live?.show_logo ?? true}
+                      onCheckedChange={v => setField('show_logo', v, 0)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.logoUrl')}</Label>
+                    <div className="flex items-center gap-3">
+                      {live?.logo_url ? (
+                        <img
+                          src={live.logo_url}
+                          alt=""
+                          className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
+                        />
+                      ) : null}
+                      <Input
+                        value={live?.logo_url || ''}
+                        dir="ltr"
+                        placeholder="https://…/logo.png"
+                        onChange={e => setField('logo_url', e.target.value)}
+                        className="text-start"
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.logoHint')}</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* ── Launcher button ── */}
+              <Card className="card-elevated">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">{t('widgetPage.appearance.launcherSection')}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5 p-6 pt-0">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabShape')}</Label>
+                      <Select
+                        value={live?.fab_shape || 'round'}
+                        onValueChange={v => setField('fab_shape', v, 0)}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="round">{t('widgetPage.appearance.shapeRound')}</SelectItem>
+                          <SelectItem value="square">{t('widgetPage.appearance.shapeSquare')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIconColor')}</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="color"
+                          value={live?.fab_icon_color || '#FFFFFF'}
+                          onChange={e => setField('fab_icon_color', e.target.value)}
+                          className="h-10 w-12 shrink-0 cursor-pointer p-1"
+                        />
+                        <Input
+                          value={live?.fab_icon_color || ''}
+                          dir="ltr"
+                          placeholder="#FFFFFF"
+                          onChange={e => setField('fab_icon_color', e.target.value)}
+                          className="text-start font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">
+                      {t('widgetPage.appearance.fabScale')} — {Math.round((live?.fab_scale ?? 1) * 100)}%
+                    </Label>
+                    <input
+                      type="range"
+                      min={0.8}
+                      max={1.4}
+                      step={0.05}
+                      value={live?.fab_scale ?? 1}
+                      onChange={e => setField('fab_scale', Number(e.target.value), 400)}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.fabLabel')}</Label>
+                    <Input
+                      value={live?.fab_label || ''}
+                      onChange={e => setField('fab_label', e.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
+                    <Label className="text-sm">{t('widgetPage.appearance.fabAnimation')}</Label>
+                    <Switch
+                      checked={live?.fab_animation ?? true}
+                      onCheckedChange={v => setField('fab_animation', v, 0)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.autoOpenDelay')}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      dir="ltr"
+                      value={live?.auto_open_delay ?? 0}
+                      onChange={e => setField('auto_open_delay', Number(e.target.value) || 0)}
+                      className="w-32 text-start"
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.autoOpenHint')}</p>
+                  </div>
+                </CardContent>
+              </Card>
               </div>
             </TabsContent>
 

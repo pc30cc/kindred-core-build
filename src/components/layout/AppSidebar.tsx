@@ -13,6 +13,7 @@ import {
   Clock, UserCog, Building2, HelpCircle, Sparkles,
   AlertCircle, Check, Ban, Lock,
   PhoneCall,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -84,6 +85,15 @@ export function AppSidebar() {
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => localStorage.getItem('sidebar_collapsed') === '1',
+  );
+  const toggleCollapsed = () => {
+    setCollapsed((v) => {
+      localStorage.setItem('sidebar_collapsed', v ? '0' : '1');
+      return !v;
+    });
+  };
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 

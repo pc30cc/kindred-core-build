@@ -358,6 +358,8 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 6px;
   min-height: 100%;
+  /* Alignment axis is physical (see .msg-row) so sides never flip in RTL. */
+  direction: ltr;
 }
 .msg {
   max-width: 80%;
@@ -374,11 +376,13 @@ textarea:focus-visible {
   background: #F3F4F6;
   color: #1F2937;
   border-bottom-left-radius: 5px;
+  border-bottom-right-radius: 14px;
 }
 .msg.visitor {
   align-self: flex-end;
   color: #fff;
   border-bottom-right-radius: 5px;
+  border-bottom-left-radius: 14px;
 }
 
 /* ─── Per-message operator avatar (Intercom-style) ─── */
@@ -391,9 +395,16 @@ textarea:focus-visible {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  /* Physical sides, always: the visitor's own messages stay on the RIGHT and
+     operator/AI replies on the LEFT, in RTL locales too. The inner bubble
+     restores the reading direction for its text. */
+  direction: ltr;
 }
 .msg-row.operator { justify-content: flex-start; }
 .msg-row.visitor  { justify-content: flex-end; }
+/* Text inside bubbles follows the panel's reading direction again. */
+.panel-rtl .msg,
+[dir="rtl"] .msg { direction: rtl; text-align: right; }
 .msg-avatar {
   width: 28px;
   height: 28px;
@@ -2561,15 +2572,17 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 
 /* ─── RTL polish (Persian default) ─── */
+/* Bubble sides are physical now (visitor right / operator left in every
+   locale), so the tail corners must NOT be mirrored in RTL. */
 .shell[data-template="template2"][dir="rtl"] .msg.operator,
 .shell[data-template="template2"] .panel-rtl .msg.operator {
-  border-bottom-left-radius: 16px;
-  border-bottom-right-radius: 6px;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 16px;
 }
 .shell[data-template="template2"][dir="rtl"] .msg.visitor,
 .shell[data-template="template2"] .panel-rtl .msg.visitor {
-  border-bottom-right-radius: 16px;
-  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  border-bottom-left-radius: 16px;
 }
 
 /* ─── Tablet — keep panel windowed but slightly wider/taller ─── */

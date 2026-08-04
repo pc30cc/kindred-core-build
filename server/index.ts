@@ -45,6 +45,7 @@ import { aiAgentRouter } from './routes/aiAgent.js';
 import { callCenterRouter } from './routes/callCenter.js';
 import { callWidgetRouter } from './routes/callWidget.js';
 import { contactsRouter } from './routes/contacts.js';
+import { teamChatRouter } from './routes/teamChat.js';
 import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
@@ -356,6 +357,9 @@ app.use('/api/call-invitations', callInvitationsRouter);
 // `max_contacts`. UI hooks (useCreateContact / useBulkCreateContacts)
 // route here. Update / delete / tags / notes remain direct PostgREST.
 app.use('/api/contacts', contactsRouter);
+
+// Team chat — internal operator-to-operator direct messages.
+app.use('/api/team-chat', teamChatRouter);
 
 // AI Knowledge Base Builder — auth + workspace membership enforced inside.
 // Worker that actually crawls + generates runs as a separate process; see

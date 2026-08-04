@@ -131,7 +131,7 @@ export function UserMenu() {
             <span className="flex-1 text-start">{t('nav.invisibleMode') || 'Invisible mode'}</span>
             {invisible && <Check className="h-4 w-4 shrink-0 text-primary" />}
           </button>
-          <RouterLink to={wsPath('/settings/availability')} onClick={() => setOpen(false)} className={itemCls}>
+          <RouterLink to={wsPath('/widget')} onClick={() => setOpen(false)} className={itemCls}>
             <Clock className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.availability') || 'Availability settings'}</span>
           </RouterLink>

@@ -687,9 +687,6 @@ function WidgetPageContent() {
               <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Eye className="h-3.5 w-3.5" /> {t('widgetPage.preview.title')}
               </p>
-              <Badge variant="outline" className="text-[10px] capitalize">
-                {live?.template_slug || 'default'}
-              </Badge>
             </div>
 
             <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">

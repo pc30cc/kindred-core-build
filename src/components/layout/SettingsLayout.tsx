@@ -107,22 +107,22 @@ export function SettingsLayout() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-h-0">
       {/* Settings secondary sidebar */}
-      <div className="w-[260px] shrink-0 border-e border-border/60 bg-card/50 overflow-y-auto">
+      <div className="w-[240px] shrink-0 border-e border-border/60 bg-card/50 overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-card/80 backdrop-blur-sm border-b border-border/40 px-5 py-4 flex items-center gap-3">
+        <div className="sticky top-0 z-10 bg-card/80 backdrop-blur-sm border-b border-border/40 px-3 py-2.5 flex items-center gap-2">
           <button
             onClick={() => navigate(wsPath(''))}
             className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground transition-colors"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
           </button>
-          <h2 className="text-base font-semibold text-foreground">{t('settings.title')}</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t('settings.title')}</h2>
         </div>
 
         {/* Navigation groups */}
-        <nav className="p-3 space-y-0.5">
+        <nav className="p-2 space-y-0.5">
           {settingsGroups.map(group => {
             const isExpanded = expandedGroups[group.key] ?? false;
             const hasActiveItem = group.items.some(i => isActive(i.path));
@@ -173,8 +173,8 @@ export function SettingsLayout() {
       </div>
 
       {/* Settings content area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto p-8">
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <div className="max-w-4xl mx-auto px-6 py-5">
           <Outlet />
         </div>
       </div>

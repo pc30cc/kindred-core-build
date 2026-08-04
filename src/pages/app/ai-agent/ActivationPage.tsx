@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Check, X, Loader2, AlertTriangle, Info } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import type { AgentMode, AgentSettings, EscalationStyle } from '@/lib/ai-agent-api';
 
 function CheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {

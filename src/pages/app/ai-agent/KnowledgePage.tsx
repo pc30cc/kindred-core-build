@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { formatDate } from '@/lib/date';
 import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';

@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { Label } from '@/components/ui/label';
 import { Building2, Globe, Loader2 } from 'lucide-react';
 import { useCreateWorkspace, useAccount } from '@/hooks/useWorkspace';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface CreateWorkspaceDialogProps {
   open: boolean;

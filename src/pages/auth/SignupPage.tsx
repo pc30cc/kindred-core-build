@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import SignupStepAccount from '@/components/auth/SignupStepAccount';

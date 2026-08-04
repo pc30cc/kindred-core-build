@@ -4,7 +4,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAdminFeatureFlags } from '@/hooks/useAdmin';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 export default function AdminFeatureFlagsPage() {
   const { data: flags, isLoading } = useAdminFeatureFlags();

@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useWorkspaces } from '@/hooks/useWorkspace';
 import { billingGetPlans, billingGetStatus, billingCheckout, billingCancel, billingResume, billingGetPortal, API_BASE } from '@/lib/api';
 import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Sparkles, Calendar, Gauge, LayoutGrid, Receipt } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 import { useCapabilityCatalog } from '@/hooks/useEntitlements';
 import type { CapabilityDefinition } from '@/lib/entitlements-api';

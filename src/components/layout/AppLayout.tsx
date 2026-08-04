@@ -11,7 +11,7 @@ import type { Locale } from '@/i18n/config';
 import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
 import { AlertTriangle, CheckCircle2, Loader2, MailCheck, X } from 'lucide-react';
 import { resendMyVerificationEmail, ResendVerificationError } from '@/lib/api';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useState, useEffect } from 'react';
 import DegradedModeBanner from '@/components/realtime/DegradedModeBanner';
 import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';

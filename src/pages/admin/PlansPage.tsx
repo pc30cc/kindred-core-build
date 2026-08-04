@@ -40,7 +40,7 @@ import {
   CheckCircle2, XCircle, Crown, Globe, AlertTriangle, Activity,
   SlidersHorizontal, Settings2, RefreshCw, Info, RotateCcw,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useQuery } from '@tanstack/react-query';
 
 // ─── Constants ───

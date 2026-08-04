@@ -28,7 +28,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
   Building2, Plus, Trash2, Users, MessageSquare, Phone, Video,
   Loader2, AlertCircle, CheckCircle2, Eye,

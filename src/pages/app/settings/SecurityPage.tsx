@@ -75,6 +75,29 @@ function formatDate(iso: string | null, locale: string): string {
   }
 }
 
+/** Locale-aware numbers (Persian digits for fa). */
+function formatNumber(n: number, locale: string): string {
+  try {
+    return new Intl.NumberFormat(locale).format(n);
+  } catch {
+    return String(n);
+  }
+}
+
+/** Translate a country code into the user's language, falling back to the raw name. */
+function localizedCountry(code: string | null, name: string | null, locale: string): string | null {
+  if (code && code.length === 2) {
+    try {
+      const dn = new Intl.DisplayNames([locale], { type: 'region' });
+      const label = dn.of(code.toUpperCase());
+      if (label && label.toUpperCase() !== code.toUpperCase()) return label;
+    } catch {
+      /* ignore */
+    }
+  }
+  return name;
+}
+
 function formatRelative(iso: string | null, locale: string): string {
   if (!iso) return '—';
   try {
@@ -127,25 +150,30 @@ function LocationCell({
   city,
   ip,
   unknownLabel,
+  locale,
 }: {
   country: string | null;
   countryCode: string | null;
   city: string | null;
   ip: string;
   unknownLabel: string;
+  locale: string;
 }) {
   if (!country && !ip) {
     return <span className="text-muted-foreground">{unknownLabel}</span>;
   }
   const emoji = flagEmoji(countryCode);
+  const countryLabel = localizedCountry(countryCode, country, locale);
   return (
     <div className="flex items-center gap-2">
       {emoji && <span aria-hidden className="text-base leading-none">{emoji}</span>}
       <span className="text-foreground">
-        {country || unknownLabel}
+        {countryLabel || unknownLabel}
         {city ? <span className="text-muted-foreground"> · {city}</span> : null}
       </span>
-      {ip && <span className="text-xs text-muted-foreground">({ip})</span>}
+      {ip && (
+        <span dir="ltr" className="font-mono text-xs text-muted-foreground">({ip})</span>
+      )}
     </div>
   );
 }

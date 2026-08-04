@@ -1063,24 +1063,24 @@ export default function InboxPage() {
               <div>
                 <p className="text-[13px] font-medium text-foreground">
                   {search
-                    ? 'No matches found'
+                    ? t('inbox.emptyNoMatches')
                     : queue === 'automated'
-                      ? 'No AI-managed conversations'
+                      ? t('inbox.emptyAutomated')
                       : queue === 'spam'
-                        ? 'No spam'
+                        ? t('inbox.emptySpam')
                         : extraChip === 'needs_human'
-                          ? 'No conversations need a human'
-                          : (t('inbox.noMessages') || 'No conversations')}
+                          ? t('inbox.emptyNeedsHuman')
+                          : (t('inbox.emptyNoConversations') || t('inbox.noMessages'))}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {search
                     ? `"${search}"`
                     : queue === 'automated'
-                      ? 'AI replies will appear here'
+                      ? t('inbox.emptyAutomatedHint')
                       : queue === 'spam'
-                        ? 'Conversations you mark as spam will appear here'
+                        ? t('inbox.emptySpamHint')
                         : extraChip === 'needs_human'
-                          ? 'AI handoffs will appear here'
+                          ? t('inbox.emptyNeedsHumanHint')
                           : (filter !== 'all' ? statusLabels[filter] : '')}
                 </p>
               </div>

@@ -73,9 +73,7 @@ export function AppTopBar() {
         {/* Accent hairline */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
-        <div className="flex-1" />
-
-        {/* Global quick search — opens the Cmd/Ctrl+K palette */}
+        {/* Group 1 — Search */}
         <button
           type="button"
           onClick={() =>
@@ -83,7 +81,7 @@ export function AppTopBar() {
               new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }),
             )
           }
-          className="hidden w-[240px] items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground shadow-sm transition-all hover:border-primary/40 hover:bg-muted hover:text-foreground md:flex lg:w-[300px]"
+          className="hidden w-[240px] items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground shadow-sm transition-all hover:border-primary/40 hover:bg-muted hover:text-foreground md:flex lg:w-[320px]"
         >
           <Search className="h-3.5 w-3.5" />
           <span>{t('common.quickSearch') || 'Quick search'}</span>
@@ -92,21 +90,23 @@ export function AppTopBar() {
           </kbd>
         </button>
 
-        {/* Utilities */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex-1" />
+
+        {/* Group 2 — Preferences: language + theme */}
+        <div className="flex items-center gap-1 rounded-2xl border border-border/50 bg-muted/30 p-1 shadow-sm">
           {canSwitchLanguage && (
-          <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-            <SelectTrigger className="h-9 w-[108px] rounded-xl border-border/60 bg-muted/40 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-              {allowedLocales.map((l) => (
-                <SelectItem key={l} value={l} className="text-xs">
-                  {LOCALE_CONFIG[l].nativeLabel}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+              <SelectTrigger className="h-8 w-[104px] rounded-xl border-transparent bg-transparent text-xs shadow-none focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                {allowedLocales.map((l) => (
+                  <SelectItem key={l} value={l} className="text-xs">
+                    {LOCALE_CONFIG[l].nativeLabel}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
 
           <Tooltip>
@@ -114,7 +114,7 @@ export function AppTopBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                className="h-8 w-8 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
                 aria-label="theme"
               >
@@ -123,18 +123,21 @@ export function AppTopBar() {
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('nav.theme') || 'Theme'}</TooltipContent>
           </Tooltip>
+        </div>
 
+        {/* Group 3 — Workspace shortcuts */}
+        <div className="flex items-center gap-1 rounded-2xl border border-border/50 bg-muted/30 p-1 shadow-sm">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 asChild
                 variant="ghost"
                 size="icon"
-                className="relative h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                className="relative h-8 w-8 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm"
               >
                 <Link to={wsPath('/settings/notifications')} aria-label="alerts">
                   <Bell className="h-4 w-4" />
-                  <span className="absolute end-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
+                  <span className="absolute end-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
                 </Link>
               </Button>
             </TooltipTrigger>
@@ -147,7 +150,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                className="h-8 w-8 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm"
               >
                 <Link to={wsPath('/settings')} aria-label="settings">
                   <Settings2 className="h-4 w-4" />
@@ -165,7 +168,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="hidden h-9 w-9 rounded-xl text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:inline-flex"
+                className="hidden h-8 w-8 rounded-xl text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm sm:inline-flex"
               >
                 <Link to={wsPath('/knowledge-base')} aria-label="help">
                   <LifeBuoy className="h-4 w-4" />
@@ -174,11 +177,10 @@ export function AppTopBar() {
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('nav.getHelp') || 'Help'}</TooltipContent>
           </Tooltip>
-
-          <div className="mx-1 hidden h-6 w-px bg-border/70 sm:block" />
-          <UserMenu />
-
         </div>
+
+        {/* Group 4 — Account */}
+        <UserMenu />
       </header>
     </TooltipProvider>
   );

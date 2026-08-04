@@ -2572,15 +2572,17 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 
 /* ─── RTL polish (Persian default) ─── */
+/* Bubble sides are physical now (visitor right / operator left in every
+   locale), so the tail corners must NOT be mirrored in RTL. */
 .shell[data-template="template2"][dir="rtl"] .msg.operator,
 .shell[data-template="template2"] .panel-rtl .msg.operator {
-  border-bottom-left-radius: 16px;
-  border-bottom-right-radius: 6px;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 16px;
 }
 .shell[data-template="template2"][dir="rtl"] .msg.visitor,
 .shell[data-template="template2"] .panel-rtl .msg.visitor {
-  border-bottom-right-radius: 16px;
-  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  border-bottom-left-radius: 16px;
 }
 
 /* ─── Tablet — keep panel windowed but slightly wider/taller ─── */

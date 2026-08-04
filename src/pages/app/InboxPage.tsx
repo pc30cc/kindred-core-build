@@ -1586,7 +1586,9 @@ export default function InboxPage() {
                   : (senderName || t('inbox.support') || 'Support');
                 // Group consecutive bubbles from the same sender — hide repeating
                 // avatar/header to declutter the thread.
-                const showAvatar = !sameSenderAsPrev;
+                // Always show the avatar so operators/visitors stay visually
+                // identifiable on every message (photo → initials → icon).
+                const showAvatar = true;
                 const showMeta = !sameSenderAsPrev;
                 // Pass A — system call_ended summary renders as a centered
                 // pill, not as an operator/visitor bubble.
@@ -1647,7 +1649,7 @@ export default function InboxPage() {
                     className={cn(
                       'flex gap-2.5 group',
                       isAgent ? 'flex-row-reverse' : 'flex-row',
-                      sameSenderAsPrev ? '-mt-2.5' : '',
+                      sameSenderAsPrev ? '-mt-1' : '',
                     )}
                   >
                     {/* Avatar — hidden on grouped follow-ups, replaced by spacer */}
@@ -1672,13 +1674,13 @@ export default function InboxPage() {
                           )}
                         </div>
                       ) : (
-                        <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
-                          {selected?.contacts?.avatar_url ? (
-                            <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <User className="w-[18px] h-[18px]" />
-                          )}
-                        </div>
+                        <ContactAvatar
+                          name={selected?.contacts?.name}
+                          email={selected?.contacts?.email}
+                          avatarUrl={selected?.contacts?.avatar_url}
+                          size="sm"
+                          className="mt-0.5"
+                        />
                       )
                     ) : (
                       <div className="w-9 shrink-0" aria-hidden />

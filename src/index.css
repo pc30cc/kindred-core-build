@@ -8,23 +8,23 @@
     --font-heading: 'Sora', 'Manrope', system-ui, sans-serif;
 
     /* Cloud White — crisp whites, blue-tinted grays, electric blue accent */
-    --background: 210 25% 99%;
-    --foreground: 217 33% 12%;
+    --background: 213 30% 96%;
+    --foreground: 217 40% 9%;
 
     --card: 0 0% 100%;
-    --card-foreground: 217 33% 12%;
+    --card-foreground: 217 40% 9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 217 33% 12%;
+    --popover-foreground: 217 40% 9%;
 
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 213 29% 94%;
+    --secondary: 213 30% 91%;
     --secondary-foreground: 217 33% 16%;
 
-    --muted: 213 27% 95%;
-    --muted-foreground: 215 18% 46%;
+    --muted: 213 28% 92%;
+    --muted-foreground: 215 20% 38%;
 
     --accent: 217 91% 96%;
     --accent-foreground: 217 80% 42%;
@@ -44,8 +44,8 @@
     --info: 212 55% 52%;
     --info-foreground: 0 0% 100%;
 
-    --border: 214 28% 91%;
-    --input: 214 28% 91%;
+    --border: 214 25% 84%;
+    --input: 214 25% 82%;
     --ring: 217 91% 60%;
 
     --radius: 0.75rem;
@@ -97,23 +97,23 @@
   }
 
   .dark {
-    --background: 217 30% 10%;
-    --foreground: 213 25% 92%;
+    --background: 217 32% 7%;
+    --foreground: 213 30% 96%;
 
-    --card: 217 26% 13%;
-    --card-foreground: 213 25% 92%;
+    --card: 217 26% 12%;
+    --card-foreground: 213 30% 96%;
 
-    --popover: 217 26% 13%;
-    --popover-foreground: 213 25% 92%;
+    --popover: 217 26% 12%;
+    --popover-foreground: 213 30% 96%;
 
     --primary: 217 91% 62%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 217 22% 18%;
+    --secondary: 217 22% 20%;
     --secondary-foreground: 213 20% 85%;
 
-    --muted: 217 22% 17%;
-    --muted-foreground: 215 16% 65%;
+    --muted: 217 22% 19%;
+    --muted-foreground: 215 18% 70%;
 
     --accent: 217 24% 19%;
     --accent-foreground: 213 25% 94%;
@@ -133,8 +133,8 @@
     --info: 212 55% 42%;
     --info-foreground: 0 0% 100%;
 
-    --border: 217 20% 21%;
-    --input: 217 20% 23%;
+    --border: 217 20% 27%;
+    --input: 217 20% 29%;
     --ring: 217 91% 62%;
 
     --sidebar-background: 217 30% 8%;

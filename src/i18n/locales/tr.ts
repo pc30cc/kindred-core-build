@@ -3163,6 +3163,11 @@ const tr: TranslationKeys = {
   },
   alerts: {
     title: 'Operasyonel uyarılar',
+    subtitle: '{{count}} öğe ilginizi bekliyor',
+    markRead: 'Okundu işaretle',
+    markAllRead: 'Tümünü okundu işaretle',
+    notDismissible: 'Çözülene kadar kalır',
+    review: 'İncele',
     settings: 'Bildirim ayarları',
     empty: {
       title: 'Her şey yolunda',

@@ -180,6 +180,8 @@ export interface MessageAttachment {
 }
 export type ConversationMessageWithAttachment = ConversationMessage & {
   attachment?: MessageAttachment | null;
+  sender_name?: string | null;
+  sender_avatar?: string | null;
 };
 
 export function useConversationMessages(conversationId: string | undefined) {
@@ -232,13 +234,37 @@ export function useConversationMessages(conversationId: string | undefined) {
         }
       }
 
+      // Resolve operator/AI sender identity (name + avatar) so the thread can
+      // show who replied instead of a generic "Support" label.
+      const senderIds = Array.from(new Set(
+        messages
+          .filter((m) => (m.sender_type === 'agent' || m.sender_type === 'ai') && m.sender_id)
+          .map((m) => m.sender_id as string),
+      ));
+      const senderMap: Record<string, { name: string | null; avatar: string | null }> = {};
+      if (senderIds.length) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .in('id', senderIds);
+        for (const p of (profiles || []) as Array<{ id: string; full_name: string | null; avatar_url: string | null }>) {
+          senderMap[p.id] = { name: p.full_name || null, avatar: p.avatar_url || null };
+        }
+      }
+
       return messages.map<ConversationMessageWithAttachment>((m) => {
         const aid = (m?.metadata as any)?.attachment_id;
         const att =
           (typeof aid === 'string' && attMap[aid]) ||
           (m.id && byMsg[m.id]) ||
           null;
-        return att ? { ...m, attachment: att } : m;
+        const prof = m.sender_id ? senderMap[m.sender_id] : null;
+        return {
+          ...m,
+          ...(att ? { attachment: att } : {}),
+          sender_name: prof?.name ?? null,
+          sender_avatar: prof?.avatar ?? null,
+        };
       });
     },
     select: (rows) => dedupeById(rows as (ConversationMessageWithAttachment & { id: string })[]),

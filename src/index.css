@@ -249,40 +249,41 @@
 /* ─── Component classes ─── */
 @layer components {
   .stat-card {
-    @apply bg-card border border-border rounded-xl p-5 transition-all duration-200;
+    @apply relative bg-card border border-border rounded-2xl p-5 transition-all duration-200;
     box-shadow: var(--shadow-card);
+    background-image: var(--gradient-surface);
   }
   .stat-card:hover {
-    @apply border-primary/20;
+    @apply border-primary/25 -translate-y-0.5;
     box-shadow: var(--shadow-glow);
   }
 
   .nav-item {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-[0.9rem] font-medium transition-all duration-150;
+    @apply relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-medium transition-all duration-150;
     @apply text-muted-foreground hover:text-foreground hover:bg-secondary;
   }
   .nav-item-active {
-    @apply text-primary bg-primary/10 hover:bg-primary/15 hover:text-primary;
+    @apply text-primary bg-primary/10 hover:bg-primary/15 hover:text-primary font-semibold;
   }
 
   .section-header {
-    @apply text-xs font-semibold uppercase tracking-wider text-muted-foreground px-3 py-2;
+    @apply text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground px-3 py-2;
   }
 
   .badge-plan {
-    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
-    @apply bg-primary/10 text-primary;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+    @apply bg-primary/10 text-primary ring-1 ring-inset ring-primary/15;
   }
 
   .page-header {
-    @apply text-[1.65rem] font-bold text-foreground;
+    @apply text-[1.7rem] font-bold text-foreground font-display;
   }
   .page-subtitle {
     @apply text-[0.9rem] text-muted-foreground;
   }
 
   .card-elevated {
-    @apply bg-card border border-border rounded-xl overflow-hidden;
+    @apply bg-card border border-border rounded-2xl overflow-hidden;
     box-shadow: var(--shadow-card);
   }
   .card-elevated:hover {

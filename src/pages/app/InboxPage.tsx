@@ -1054,7 +1054,7 @@ export default function InboxPage() {
                         name={conv.contacts?.name}
                         email={conv.contacts?.email}
                         avatarUrl={conv.contacts?.avatar_url}
-                        size="md"
+                        size="lg"
                         ringClassName={
                           isActive ? 'ring-primary/40'
                           : hasUnread ? 'ring-primary/50'
@@ -1074,18 +1074,18 @@ export default function InboxPage() {
                       <div className="flex items-baseline justify-between gap-2 mb-0.5">
                         <span className={cn(
                           'truncate leading-tight flex items-center gap-1.5 min-w-0',
-                          hasUnread ? 'text-[13.5px] font-bold text-foreground' : 'text-[13px] font-medium text-foreground/85',
+                          hasUnread ? 'text-[14px] font-bold text-foreground' : 'text-[14px] font-medium text-foreground/85',
                         )}>
                           {hasUnread && (
                             <span
                               className="w-2 h-2 rounded-full bg-primary shrink-0 shadow-[0_0_0_3px_hsl(var(--primary)/0.18)] animate-pulse"
-                              aria-label="unread"
+                              aria-label={t('inbox.unread') || 'Unread'}
                             />
                           )}
                           <span className="truncate">{name}</span>
                         </span>
                         <span className={cn(
-                          'text-[10.5px] shrink-0 tabular-nums',
+                          'text-[11px] shrink-0 tabular-nums',
                           hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground',
                         )} dir="ltr">
                           {conv.updated_at ? timeAgo(conv.updated_at) : ''}
@@ -1094,7 +1094,7 @@ export default function InboxPage() {
                       {/* Row 2: Subject / preview */}
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <p className={cn(
-                          'text-[12px] truncate leading-snug flex-1 min-w-0',
+                          'text-[12.5px] truncate leading-snug flex-1 min-w-0',
                           hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground',
                         )}>
                           {(conv as any).last_visitor_message?.body
@@ -1103,8 +1103,8 @@ export default function InboxPage() {
                         </p>
                         {hasUnread && unreadCount > 0 && (
                           <span
-                            className="shrink-0 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold tabular-nums shadow-sm"
-                            aria-label={`${unreadCount} unread messages`}
+                            className="shrink-0 inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold tabular-nums shadow-sm"
+                            aria-label={`${unreadCount} ${t('inbox.unreadAria') || 'unread messages'}`}
                           >
                             {unreadCount > 99 ? '99+' : unreadCount}
                           </span>
@@ -1113,7 +1113,7 @@ export default function InboxPage() {
                       {/* Row 3: Status + meta */}
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className={cn(
-                          'inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium',
+                          'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium',
                           'bg-secondary/60 text-foreground/70',
                         )}>
                           <span className={cn('w-1.5 h-1.5 rounded-full', statusDots[conv.status ?? 'open'])} />
@@ -1121,15 +1121,15 @@ export default function InboxPage() {
                         </span>
                         {conv.priority && conv.priority !== 'normal' && (
                           <span className={cn(
-                            'text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary/60',
+                            'text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary/60',
                             priorityColors[conv.priority] || 'text-muted-foreground',
                           )}>
-                            {conv.priority}
+                            {t(`inbox.priority_${conv.priority}`) || conv.priority}
                           </span>
                         )}
                         {conv.assigned_to && (
-                          <span className="text-[10px] text-muted-foreground/60 flex items-center" title="Assigned">
-                            <UserCheck className="w-3 h-3" />
+                          <span className="text-[11px] text-muted-foreground/60 flex items-center" title={t('inbox.assigned') || 'Assigned'}>
+                            <UserCheck className="w-3.5 h-3.5" />
                           </span>
                         )}
                         {/* AI lifecycle badge — Automated / Needs human / Human active */}
@@ -1141,42 +1141,33 @@ export default function InboxPage() {
                           if (aiState === 'ai_managed') {
                             return (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-primary/10 text-primary border border-primary/20"
-                                title="AI is currently handling this conversation"
+                                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-primary/10 text-primary border border-primary/20"
+                                title={t('inbox.aiManagedTip') || 'AI is currently handling this conversation'}
                               >
-                                <Bot className="w-2.5 h-2.5" /> AI
+                                <Bot className="w-3 h-3" /> AI
                               </span>
                             );
                           }
                           if (aiState === 'needs_human') {
-                            const limitReasonLabel: Record<string, string> = {
-                              max_replies_reached: 'AI handed off: reply limit reached',
-                              rate_limited: 'AI handed off: rate limit reached',
-                              no_credits: 'AI handed off: out of AI credits',
-                              plan_limit_reached: 'AI handed off: plan limit reached',
-                              human_request: 'AI handed off: visitor requested a human',
-                              low_confidence: 'AI handed off: low confidence',
-                              no_kb_match: 'AI handed off: no answer in knowledge base',
-                            };
                             const titleText = reason
-                              ? (limitReasonLabel[reason] || `Handoff reason: ${reason}`)
-                              : 'AI handed off — needs human';
+                              ? `${t('inbox.handoffReason') || 'Handoff reason'}: ${reason}`
+                              : (t('inbox.needsHumanTip') || 'AI handed off — needs human');
                             return (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-destructive/10 text-destructive border border-destructive/20"
+                                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-destructive/10 text-destructive border border-destructive/20"
                                 title={titleText}
                               >
-                                <AlertCircle className="w-2.5 h-2.5" /> Needs human
+                                <AlertCircle className="w-3 h-3" /> {t('inbox.needsHuman') || 'Needs human'}
                               </span>
                             );
                           }
                           if (aiState === 'human_active') {
                             return (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary text-foreground/70 border border-border"
-                                title="Operator has taken over"
+                                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary text-foreground/70 border border-border"
+                                title={t('inbox.humanActiveTip') || 'Operator has taken over'}
                               >
-                                <UserCheck className="w-2.5 h-2.5" /> Human
+                                <UserCheck className="w-3 h-3" /> {t('inbox.human') || 'Human'}
                               </span>
                             );
                           }
@@ -1196,32 +1187,32 @@ export default function InboxPage() {
                                 if (!workspace?.id) return;
                                 try {
                                   await aiAgentApi.takeOverConversation(workspace.id, conv.id, true);
-                                  toast({ title: 'Taken over', description: 'AI will stop auto-replying.' });
+                                  toast({ title: t('inbox.takenOverTitle') || 'Taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                                   qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                 } catch (err: any) {
-                                  toast({ title: 'Take-over failed', description: err?.message || 'unknown', variant: 'destructive' });
+                                  toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: err?.message || '—', variant: 'destructive' });
                                 }
                               }}
-                              className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground/70 transition-colors"
-                              title="Take over this conversation"
+                              className="text-[11px] px-2 py-0.5 rounded-md font-semibold bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground/70 transition-colors"
+                              title={t('inbox.takeOverTip') || 'Take over this conversation'}
                             >
-                              Take over
+                              {t('inbox.takeOver') || 'Take over'}
                             </button>
                           );
                         })()}
                         {/* Spam badge — visible in any queue when flagged */}
                         {(conv as any)?.is_spam && (
                           <span
-                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-warning/15 text-warning border border-warning/30"
-                            title="Marked as spam"
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-warning/15 text-warning border border-warning/30"
+                            title={t('inbox.markedSpamTitle') || 'Marked as spam'}
                           >
-                            <Ban className="w-2.5 h-2.5" /> Spam
+                            <Ban className="w-3 h-3" /> {t('inbox.spam') || 'Spam'}
                           </span>
                         )}
                         {/* Selected-conversation typing indicator (live) */}
                         {isActive && visitorTypingActive && (
-                          <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">
+                          <span className="ms-auto inline-flex items-center gap-1 text-[11px] text-primary font-medium" aria-label={t('inbox.visitorTyping') || 'typing…'}>
                             <span className="flex gap-0.5">
                               <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
                               <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '120ms' }} />

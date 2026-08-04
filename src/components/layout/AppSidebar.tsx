@@ -486,11 +486,135 @@ export function AppSidebar() {
         )}
       </div>
 
-      {/* Sidebar footer */}
-      <div className="relative border-t border-sidebar-border px-3 py-3">
+      {/* User profile — click to open menu */}
+      <div className="relative border-t border-sidebar-border px-3 py-3" ref={userMenuRef}>
+        {/* User menu dropdown — opens upward */}
+        {userMenuOpen && (
+          <div className="absolute start-2 end-2 bottom-full mb-2 z-50 bg-popover border border-border rounded-xl shadow-2xl py-1 animate-fade-in max-h-[70vh] overflow-y-auto">
+            {/* User info header */}
+            <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+              <Avatar className="w-10 h-10 shrink-0">
+                {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
+                <AvatarFallback className="bg-primary text-sm font-bold text-primary-foreground">
+                  {userName.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground truncate">{userName}</p>
+                <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
+              </div>
+            </div>
+
+            {/* Verify email alert */}
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-accent transition-colors">
+              <AlertCircle className="h-4 w-4 text-warning shrink-0" />
+              <span className="text-warning font-medium">{t('auth.verifyEmail')}</span>
+            </button>
+
+            <div className="border-t border-border my-1" />
+
+            {/* Main actions */}
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+              <Bell className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.viewAlerts') || 'View alerts'}</span>
+            </button>
+            <button
+              onClick={() => toggleInvisible.mutate()}
+              disabled={toggleInvisible.isPending || !availability}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <EyeOff className={cn('h-4 w-4', invisible ? 'text-primary' : 'text-muted-foreground')} />
+              <span className="flex-1 text-start">
+                {invisible
+                  ? 'Disable invisible mode'
+                  : (t('nav.invisibleMode') || 'Enable invisible mode')}
+              </span>
+              {invisible && <Check className="h-4 w-4 text-primary shrink-0" />}
+            </button>
+            <RouterLink
+              to={wsPath('/settings/availability')}
+              onClick={() => setUserMenuOpen(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            >
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.availability') || 'Availability settings'}</span>
+            </RouterLink>
+
+            <div className="border-t border-border my-1" />
+
+            <RouterLink
+              to={wsPath('/settings/profile')}
+              onClick={() => setUserMenuOpen(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            >
+              <UserCog className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.manageAccount') || 'Manage account'}</span>
+            </RouterLink>
+            <RouterLink
+              to={wsPath('/settings/general')}
+              onClick={() => setUserMenuOpen(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            >
+              <Building2 className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.workspaceSettings') || 'Workspace settings'}</span>
+            </RouterLink>
+            <RouterLink
+              to={wsPath('/team')}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+              onClick={() => setUserMenuOpen(false)}
+            >
+              <UserPlus className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.inviteOperator') || 'Invite an operator'}</span>
+            </RouterLink>
+
+            <div className="border-t border-border my-1" />
+
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-accent transition-colors">
+              <HelpCircle className="h-4 w-4 text-primary" />
+              <span className="text-primary font-medium">{t('nav.getHelp') || `Get help using ${platformName}`}</span>
+            </button>
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+              <Sparkles className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.whatsNew') || "What's new?"}</span>
+            </button>
+
+            <div className="border-t border-border my-1" />
+
+            <button
+              onClick={() => { setUserMenuOpen(false); signOut(); }}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>{t('auth.logout')}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Clickable user row */}
+        <button
+          onClick={() => setUserMenuOpen(!userMenuOpen)}
+          className="flex items-center gap-2.5 w-full rounded-lg px-1 py-1 hover:bg-sidebar-accent/50 transition-colors"
+        >
+          <div className="relative">
+            <Avatar className="w-8 h-8 shrink-0">
+              {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
+              <AvatarFallback className="bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">
+                {userName.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-success border-2 border-sidebar" />
+          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1 text-start">
+              <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>
+              <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
+            </div>
+          )}
+        </button>
+
         {/* Language selector — hidden in single-language regions */}
         {canSwitchLanguage && !collapsed && (
-        <div>
+        <div className="mt-2">
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
             <SelectTrigger className="h-7 text-xs w-full border-sidebar-border">
               <SelectValue />

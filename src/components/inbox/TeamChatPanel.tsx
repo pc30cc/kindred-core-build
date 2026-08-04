@@ -103,7 +103,7 @@ export default function TeamChatPanel() {
 
         <ScrollArea className="flex-1 [&>div>div]:!block">
           {isLoading ? (
-            <div className="p-3 space-y-2">
+            <div className="p-3 space-y-2" dir={dir}>
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex gap-3 p-2 animate-pulse">
                   <div className="w-10 h-10 rounded-full bg-secondary/60 shrink-0" />

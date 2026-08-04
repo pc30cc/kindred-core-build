@@ -62,6 +62,7 @@ const en = {
   },
   common: {
     loading: 'Loading...',
+    error: 'Something went wrong',
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',

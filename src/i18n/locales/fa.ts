@@ -64,6 +64,7 @@ const fa: TranslationKeys = {
   },
   common: {
     loading: 'در حال بارگذاری...',
+    error: 'خطایی رخ داد',
     save: 'ذخیره',
     cancel: 'لغو',
     delete: 'حذف',

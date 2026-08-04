@@ -64,6 +64,7 @@ const tr: TranslationKeys = {
   },
   common: {
     loading: 'Yükleniyor...',
+    error: 'Bir hata oluştu',
     save: 'Kaydet',
     cancel: 'İptal',
     delete: 'Sil',

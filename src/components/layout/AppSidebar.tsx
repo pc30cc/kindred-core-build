@@ -208,22 +208,22 @@ export function AppSidebar() {
     <>
     <aside
       className={cn(
-        'flex h-screen flex-col border-e border-sidebar-border bg-sidebar transition-[width] duration-200',
+        'relative flex h-screen flex-col border-e border-sidebar-border bg-sidebar transition-[width] duration-200',
         collapsed ? 'w-[68px]' : 'w-[220px]',
       )}
       style={{ backgroundImage: 'var(--gradient-sidebar)' }}
     >
-      {/* Collapse toggle */}
+      {/* Collapse toggle — centered on the sidebar divider line */}
       <button
         onClick={toggleCollapsed}
         aria-label="toggle sidebar"
-        className="mx-3 mt-3 flex h-7 w-7 items-center justify-center self-end rounded-lg text-sidebar-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+        className="absolute top-1/2 end-0 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-muted-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ltr:translate-x-1/2 rtl:-translate-x-1/2"
       >
         {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
       </button>
 
       {/* Workspace header with dropdown */}
-      <div className="relative px-3 pt-1 pb-2" ref={wsMenuRef}>
+      <div className="relative px-3 pt-3 pb-2" ref={wsMenuRef}>
         <button
           onClick={() => (collapsed ? toggleCollapsed() : setWsMenuOpen(!wsMenuOpen))}
           className="flex items-center gap-2.5 w-full rounded-lg px-2 py-2 hover:bg-sidebar-accent/50 transition-colors"

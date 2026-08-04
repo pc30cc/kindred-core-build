@@ -533,6 +533,15 @@ const billingVendors: ProviderVendor[] = [
     ],
   },
   {
+    name: 'idpay_test', label: 'آیدی پی — آزمایشگاه (IDPay-Test)',
+    description: 'اتصال به محیط آزمایشگاه IDPay برای تست پرداخت — بدون تراکنش واقعی (X-SANDBOX: 1)',
+    docsUrl: 'https://idpay.ir/web-service/v1.1/',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API آزمایشگاه', type: 'password', required: false, hint: 'اختیاری — در صورت خالی بودن از کلید نمونهٔ مستندات IDPay استفاده می‌شود' },
+    ],
+  },
+  {
     name: 'nextpay', label: 'نکست‌پی (NextPay)',
     description: 'درگاه پرداخت واسط — بدون نیاز به نماد اعتماد',
     docsUrl: 'https://nextpay.org/docs',

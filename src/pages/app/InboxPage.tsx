@@ -1112,7 +1112,7 @@ export default function InboxPage() {
         {/* Conversation items */}
         <ScrollArea className="flex-1 [&>div>div]:!block">
           {isLoading ? (
-            <div className="px-3 py-3 space-y-2" aria-busy="true" aria-label="Loading conversations">
+            <div className="px-3 py-3 space-y-2" dir={dir} aria-busy="true" aria-label="Loading conversations">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="flex gap-3 p-2 animate-pulse">
                   <div className="w-10 h-10 rounded-full bg-secondary/60 shrink-0" />

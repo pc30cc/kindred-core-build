@@ -249,7 +249,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
   <div class="shell" data-template="default">
-    <div class="panel ${pos} visible" dir="${dir}">
+    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}" dir="${dir}">
       ${header}
       ${tabs}
       <div class="body">${body}</div>
@@ -257,7 +257,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
       ${powered}
     </div>
     <button type="button" class="launcher ${pos}" aria-label="chat">
-      ${logo ? `<img src="${esc(logo)}" alt="" />` : `<svg viewBox="0 0 24 24">${fabIcon}</svg>`}
+      <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
   </div>

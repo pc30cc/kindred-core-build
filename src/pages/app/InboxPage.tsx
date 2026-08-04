@@ -925,7 +925,7 @@ export default function InboxPage() {
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
-            className="flex h-full items-center gap-1.5 overflow-x-auto scrollbar-hide px-1"
+            className="flex items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px pt-1"
           >
             {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
               const count = s === 'all' ? (conversations?.length || 0) : (statusCounts[s] || 0);
@@ -938,11 +938,12 @@ export default function InboxPage() {
                   aria-selected={isActive}
                   onClick={() => setFilter(s)}
                   className={cn(
-                    'flex items-center gap-2 px-3.5 h-9 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap border',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
+                    'relative flex items-center gap-2 px-4 h-10 rounded-t-xl text-[13px] font-semibold whitespace-nowrap',
+                    'border border-b-0 transition-all duration-200',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     isActive
-                      ? 'bg-primary/10 text-primary border-primary/25 shadow-sm'
-                      : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
+                      ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-3 before:top-0 before:h-[3px] before:rounded-full before:bg-primary'
+                      : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
                   )}
                 >
                   {s !== 'all' && <span className={cn('w-2 h-2 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
@@ -963,11 +964,12 @@ export default function InboxPage() {
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
               className={cn(
-                'flex items-center gap-2 px-3.5 h-9 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap border',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
+                'relative flex items-center gap-2 px-4 h-10 rounded-t-xl text-[13px] font-semibold whitespace-nowrap',
+                'border border-b-0 transition-all duration-200',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 extraChip === 'needs_human'
-                  ? 'bg-destructive/10 text-destructive border-destructive/25 shadow-sm'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
+                  ? 'bg-card text-destructive border-border shadow-[0_-2px_10px_-4px_hsl(var(--destructive)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-3 before:top-0 before:h-[3px] before:rounded-full before:bg-destructive'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
               )}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
@@ -980,11 +982,12 @@ export default function InboxPage() {
               onClick={() => setExtraChip(extraChip === 'assigned_to_me' ? null : 'assigned_to_me')}
               disabled={!user?.id}
               className={cn(
-                'flex items-center gap-2 px-3.5 h-9 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap border',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
+                'relative flex items-center gap-2 px-4 h-10 rounded-t-xl text-[13px] font-semibold whitespace-nowrap',
+                'border border-b-0 transition-all duration-200',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 extraChip === 'assigned_to_me'
-                  ? 'bg-primary/10 text-primary border-primary/25 shadow-sm'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
+                  ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-3 before:top-0 before:h-[3px] before:rounded-full before:bg-primary'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
               )}
               title={t('inbox.assignedToMe') || 'Assigned to me'}
             >

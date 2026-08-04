@@ -1086,6 +1086,8 @@ export default function InboxPage() {
                         avatarUrl={conv.contacts?.avatar_url}
                         os={(conv as any).visitor_os}
                         device={(conv as any).visitor_device}
+                        countryCode={(conv as any).visitor_country_code}
+                        countryName={(conv as any).visitor_country_name}
                         size="lg"
                         ringClassName={
                           isActive ? 'ring-primary/40'
@@ -1682,6 +1684,8 @@ export default function InboxPage() {
                           avatarUrl={selected?.contacts?.avatar_url}
                           os={(selected as any)?.visitor_os}
                           device={(selected as any)?.visitor_device}
+                          countryCode={(selected as any)?.visitor_country_code}
+                          countryName={(selected as any)?.visitor_country_name}
                           size="sm"
                           className="mt-0.5"
                         />

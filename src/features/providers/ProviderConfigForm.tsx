@@ -88,8 +88,23 @@ export function ProviderConfigForm({
     (f) => f.required && !values[f.key]?.trim()
   );
 
+  // Credentials travel in HTTP headers: a masked placeholder ("••••") or any
+  // non-ASCII char (RTL/zero-width paste artifacts) makes the gateway reject
+  // the request with "invalid credentials" — block it at the source.
+  const isCredentialField = (f: ProviderField) =>
+    f.type === 'password' ||
+    /token|key|secret|password|merchant/i.test(f.key);
+
+  const invalidCredential = vendor.fields.filter((f) => {
+    const v = values[f.key]?.trim();
+    if (!v) return false;
+    if (/[•●∙·*]{2,}/.test(v)) return true;
+    return isCredentialField(f) && !/^[\x21-\x7E]+$/.test(v);
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (invalidCredential.length > 0) return;
     const cleaned: Record<string, string> = {};
     for (const [k, v] of Object.entries(values)) {
       if (v.trim()) cleaned[k] = v.trim();

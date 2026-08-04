@@ -996,7 +996,7 @@ export default function InboxPage() {
         </div>
 
         {/* Conversation items */}
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 [&>div>div]:!block">
           {isLoading ? (
             <div className="px-3 py-3 space-y-2" aria-busy="true" aria-label="Loading conversations">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -2014,7 +2014,7 @@ export default function InboxPage() {
             ))}
           </div>
 
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 [&>div>div]:!block">
             {sidebarTab === 'info' && (
               <div className="p-3 space-y-2.5" dir={dir}>
                 {/* Contact Hero */}

@@ -270,6 +270,27 @@ function WidgetPageContent() {
                     </div>
                   </div>
 
+                  {/* Secondary color — drives the header gradient */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.secondaryColor')}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="color"
+                        value={live?.secondary_color || primaryColor}
+                        onChange={e => setField('secondary_color', e.target.value)}
+                        className="h-10 w-12 shrink-0 cursor-pointer p-1"
+                      />
+                      <Input
+                        value={live?.secondary_color || ''}
+                        dir="ltr"
+                        placeholder={primaryColor}
+                        onChange={e => setField('secondary_color', e.target.value)}
+                        className="text-start font-mono text-xs"
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.gradientHint')}</p>
+                  </div>
+
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
                     <Input

@@ -35,6 +35,20 @@ import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
+function NavTip({ label, enabled, children }: { label: string; enabled: boolean; children: React.ReactElement }) {
+  if (!enabled) return children;
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side="right" className="text-sm font-medium">{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export function AppSidebar() {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();

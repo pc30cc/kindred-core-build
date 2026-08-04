@@ -601,20 +601,22 @@ export function AppSidebar() {
           <div className="relative">
             <Avatar className="w-8 h-8 shrink-0">
               {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
-              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+              <AvatarFallback className="bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">
                 {userName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
             <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
-          <div className="min-w-0 flex-1 text-start">
-            <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>
-            <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1 text-start">
+              <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>
+              <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
+            </div>
+          )}
         </button>
 
         {/* Language selector — hidden in single-language regions */}
-        {canSwitchLanguage && (
+        {canSwitchLanguage && !collapsed && (
         <div className="mt-2">
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
             <SelectTrigger className="h-7 text-xs w-full border-sidebar-border">

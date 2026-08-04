@@ -590,10 +590,11 @@ export function AppSidebar() {
           </div>
         )}
 
-        {/* Clickable user row */}
+        {/* Clickable user avatar (name/email now live in the top bar) */}
         <button
           onClick={() => setUserMenuOpen(!userMenuOpen)}
-          className="flex items-center gap-2.5 w-full rounded-lg px-1 py-1 hover:bg-sidebar-accent/50 transition-colors"
+          title={userName}
+          className="flex items-center justify-center gap-2.5 w-full rounded-lg px-1 py-1 hover:bg-sidebar-accent/50 transition-colors"
         >
           <div className="relative">
             <Avatar className="w-8 h-8 shrink-0">
@@ -604,12 +605,6 @@ export function AppSidebar() {
             </Avatar>
             <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
-          {!collapsed && (
-            <div className="min-w-0 flex-1 text-start">
-              <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>
-              <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
-            </div>
-          )}
         </button>
 
         {/* Language selector — hidden in single-language regions */}

@@ -2187,6 +2187,7 @@ const en = {
       ownerPhoneVerification: 'Owner phone verification',
       openOwnerInUsers: 'Open owner in Users',
       ownerPhoneNote: 'This status belongs to the current workspace owner. The workspace itself does not store a separate phone-verification status.',
+      phoneNumber: 'Phone number',
       phoneFull: 'Full phone number',
       phoneCountry: 'Country',
       phoneVerifiedById: 'Approver ID',

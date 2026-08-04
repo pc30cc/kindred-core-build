@@ -2175,6 +2175,7 @@ const fa: TranslationKeys = {
       ownerPhoneVerification: 'تأیید شماره مالک',
       openOwnerInUsers: 'باز کردن مالک در کاربران',
       ownerPhoneNote: 'این وضعیت متعلق به مالک فعلی فضای کاری است. خودِ فضای کاری وضعیت تأیید شماره جداگانه‌ای ذخیره نمی‌کند.',
+      phoneNumber: 'شماره موبایل',
       phoneFull: 'شماره کامل',
       phoneCountry: 'کشور',
       phoneVerifiedById: 'شناسه تأییدکننده',

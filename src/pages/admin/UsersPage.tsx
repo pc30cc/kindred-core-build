@@ -1,6 +1,6 @@
 import { useState, useDeferredValue, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
@@ -28,7 +28,9 @@ import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
   adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
   adminUpdateUserProfile, adminSetUserEmailVerified,
+  adminGetUserPhoneVerification, adminSetUserPhone, adminRemoveUserPhone,
 } from '@/lib/api';
+import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPattern as format } from '@/lib/date';
@@ -243,6 +245,17 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     company_name: '',
     website_domain: '',
     preferred_locale: '',
+    phone: '',
+    phone_country: defaultPhoneCountry(),
+  });
+
+  const qc = useQueryClient();
+  const uiLocale = (useTranslation() as { locale?: string }).locale ?? 'en';
+
+  const { data: phoneState } = useQuery({
+    queryKey: ['admin-phone-verification', userId],
+    queryFn: () => adminGetUserPhoneVerification(userId),
+    enabled: !!userId,
   });
 
   const openEditDialog = () => {
@@ -253,6 +266,9 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       company_name: pr?.company_name || '',
       website_domain: pr?.website_domain || '',
       preferred_locale: pr?.preferred_locale || '',
+      phone: phoneState?.phone || '',
+      phone_country:
+        countryFromE164(phoneState?.phone) || phoneState?.country || defaultPhoneCountry(uiLocale),
     });
     setEditDialog(true);
   };
@@ -342,6 +358,14 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         preferred_locale: (editForm.preferred_locale as 'fa' | 'en' | 'tr') || null,
         ...(editForm.email && editForm.email !== detail?.profile?.email ? { email: editForm.email } : {}),
       });
+      // Phone lives in its own store; only touch it when the admin changed it.
+      const nextPhone = editForm.phone.trim();
+      const currentPhone = phoneState?.phone || '';
+      if (nextPhone !== currentPhone) {
+        if (nextPhone) await adminSetUserPhone(userId, nextPhone, editForm.phone_country);
+        else if (currentPhone) await adminRemoveUserPhone(userId);
+        qc.invalidateQueries({ queryKey: ['admin-phone-verification', userId] });
+      }
       toast.success(t('admin.users.userUpdated'));
       setEditDialog(false);
       refetch();
@@ -785,6 +809,27 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{t('admin.users.website')}</label>
               <Input dir="ltr" value={editForm.website_domain} onChange={e => setEditForm(f => ({ ...f, website_domain: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.phoneNumber')}</label>
+              <div className="flex gap-2">
+                <Select value={editForm.phone_country} onValueChange={v => setEditForm(f => ({ ...f, phone_country: v }))}>
+                  <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PHONE_COUNTRIES.map(c => (
+                      <SelectItem key={c.code} value={c.code}>{phoneCountryLabel(c.code, uiLocale)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  dir="ltr"
+                  className="font-mono flex-1"
+                  placeholder={editForm.phone_country === 'IR' ? '09121234567' : '5xxxxxxxxx'}
+                  value={editForm.phone}
+                  onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">{t('admin.users.phoneEditHint')}</p>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{t('admin.users.preferredLocale')}</label>

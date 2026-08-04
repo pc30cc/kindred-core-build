@@ -74,12 +74,14 @@ export function AppTopBar() {
                 size="icon"
                 className="h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
-                aria-label="theme"
+                aria-label={isDark ? t('nav.lightMode') : t('nav.darkMode')}
               >
                  {isDark ? <Sun /> : <Moon />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{t('nav.theme') || 'Theme'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {isDark ? t('nav.lightMode') : t('nav.darkMode')}
+            </TooltipContent>
           </Tooltip>
         </div>
 

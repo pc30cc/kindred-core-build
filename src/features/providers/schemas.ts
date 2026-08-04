@@ -534,6 +534,7 @@ const billingVendors: ProviderVendor[] = [
   },
   {
     name: 'nextpay', label: 'نکست‌پی (NextPay)',
+*** placeholder
     description: 'درگاه پرداخت واسط — بدون نیاز به نماد اعتماد',
     docsUrl: 'https://nextpay.org/docs',
     locales: ['fa'], currency: 'IRR',

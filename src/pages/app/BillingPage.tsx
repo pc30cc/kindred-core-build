@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 import { useCapabilityCatalog } from '@/hooks/useEntitlements';
 import type { CapabilityDefinition } from '@/lib/entitlements-api';
-import { bt, capLabel as sharedCapLabel, formatLimitValue as sharedFormatLimit, type BillingLocale } from '@/lib/billing-i18n';
+import { bt, capLabel as sharedCapLabel, formatLimitValue as sharedFormatLimit, billingError, billingActionMessage, type BillingLocale } from '@/lib/billing-i18n';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { displayCurrency } from '@/lib/region';
 
@@ -113,7 +113,7 @@ export default function BillingPage() {
         window.location.href = result.paymentUrl;
       }
     } catch (e: any) {
-      toast.error(e.message || 'Checkout failed');
+      toast.error(billingError(L, e?.message));
     } finally {
       setCheckoutLoading(null);
     }
@@ -123,10 +123,10 @@ export default function BillingPage() {
     if (!workspace) return;
     try {
       await billingCancel(workspace.id);
-      toast.success('Subscription will be canceled at end of period');
+      toast.success(billingActionMessage(L, 'cancel_scheduled'));
       loadData();
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(billingError(L, e?.message));
     }
   }
 
@@ -134,10 +134,10 @@ export default function BillingPage() {
     if (!workspace) return;
     try {
       await billingResume(workspace.id);
-      toast.success('Subscription resumed');
+      toast.success(billingActionMessage(L, 'resumed'));
       loadData();
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(billingError(L, e?.message));
     }
   }
 
@@ -147,7 +147,7 @@ export default function BillingPage() {
       const result = await billingGetPortal(workspace.id, window.location.href);
       if (result.url) window.open(result.url, '_blank');
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(billingError(L, e?.message));
     }
   }
 

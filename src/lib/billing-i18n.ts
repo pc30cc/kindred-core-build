@@ -152,3 +152,88 @@ export function formatUsageValue(v: number, unit: string | undefined, locale: Bi
   if (unit === 'mb') return `${v.toFixed(1)} MB`;
   return Math.round(v).toLocaleString(loc);
 }
+// ─── Backend error / action message localisation ───────────────────────
+// Maps raw English messages coming from the self-hosted billing API to
+// friendly localized copy so users never see untranslated toasts.
+const ERROR_MAP: Record<string, { fa: string; en: string; tr: string }> = {
+  'no billing provider configured': {
+    fa: 'هیچ درگاه پرداختی پیکربندی نشده است. لطفاً از بخش «ارائه‌دهندگان» یک درگاه پرداخت را فعال کنید.',
+    en: 'No payment gateway is configured. Please enable a billing provider in the Providers section.',
+    tr: 'Yapılandırılmış ödeme sağlayıcısı yok. Lütfen Sağlayıcılar bölümünden bir ödeme sağlayıcısı etkinleştirin.',
+  },
+  'checkout failed': {
+    fa: 'شروع فرایند پرداخت ناموفق بود.',
+    en: 'Checkout failed.',
+    tr: 'Ödeme başlatılamadı.',
+  },
+  'invalid request': {
+    fa: 'درخواست نامعتبر است.',
+    en: 'Invalid request.',
+    tr: 'Geçersiz istek.',
+  },
+  'no active subscription': {
+    fa: 'اشتراک فعالی برای این فضای کاری وجود ندارد.',
+    en: 'No active subscription for this workspace.',
+    tr: 'Bu çalışma alanı için aktif abonelik yok.',
+  },
+  'provider does not support subscription cancellation': {
+    fa: 'این درگاه پرداخت امکان لغو اشتراک را پشتیبانی نمی‌کند.',
+    en: 'This provider does not support subscription cancellation.',
+    tr: 'Bu sağlayıcı abonelik iptalini desteklemiyor.',
+  },
+  'provider does not support customer portal': {
+    fa: 'این درگاه پرداخت پرتال مشتری ندارد.',
+    en: 'This provider does not support a customer portal.',
+    tr: 'Bu sağlayıcı müşteri portalını desteklemiyor.',
+  },
+  'forbidden': {
+    fa: 'شما اجازه انجام این عملیات را ندارید.',
+    en: 'You are not allowed to perform this action.',
+    tr: 'Bu işlemi yapma izniniz yok.',
+  },
+  'unauthorized': {
+    fa: 'برای ادامه باید وارد حساب کاربری شوید.',
+    en: 'You must be signed in to continue.',
+    tr: 'Devam etmek için giriş yapmalısınız.',
+  },
+  'failed to fetch': {
+    fa: 'ارتباط با سرور برقرار نشد. اتصال اینترنت یا سرویس پرداخت را بررسی کنید.',
+    en: 'Could not reach the server. Check your connection or the billing service.',
+    tr: 'Sunucuya ulaşılamadı. Bağlantınızı veya ödeme servisini kontrol edin.',
+  },
+};
+
+const GENERIC_ERROR: Record<BillingLocale, string> = {
+  fa: 'خطایی رخ داد. لطفاً دوباره تلاش کنید.',
+  en: 'Something went wrong. Please try again.',
+  tr: 'Bir hata oluştu. Lütfen tekrar deneyin.',
+};
+
+/** Localizes a backend error message; falls back to a generic localized message. */
+export function billingError(locale: BillingLocale, message?: unknown): string {
+  const raw = typeof message === 'string' ? message.trim() : '';
+  if (!raw) return GENERIC_ERROR[locale] ?? GENERIC_ERROR.en;
+  const hit = ERROR_MAP[raw.toLowerCase()];
+  if (hit) return hit[locale] ?? hit.en;
+  if (locale === 'en') return raw;
+  // Unknown backend text in a non-English UI: prefer generic localized copy.
+  return GENERIC_ERROR[locale] ?? raw;
+}
+
+const ACTION_MSG: Record<string, { fa: string; en: string; tr: string }> = {
+  cancel_scheduled: {
+    fa: 'اشتراک در پایان دوره جاری لغو خواهد شد.',
+    en: 'Subscription will be canceled at the end of the period.',
+    tr: 'Abonelik dönem sonunda iptal edilecek.',
+  },
+  resumed: {
+    fa: 'اشتراک از سر گرفته شد.',
+    en: 'Subscription resumed.',
+    tr: 'Abonelik yeniden başlatıldı.',
+  },
+};
+
+export function billingActionMessage(locale: BillingLocale, key: keyof typeof ACTION_MSG): string {
+  const m = ACTION_MSG[key];
+  return m[locale] ?? m.en;
+}

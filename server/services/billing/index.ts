@@ -84,17 +84,25 @@ export async function resolveBillingConfig(
     if (handler) return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
   }
 
-  // 2. Check global default (app_runtime_config)
-  const { data: globalConfig } = await supabase
+  // 2. Check global default (app_runtime_config).
+  // Two historical shapes are supported:
+  //   key `default_billing_provider` → { provider_name, config }  (admin UI)
+  //   key `billing_default_provider` → { provider, ...config }    (legacy)
+  const { data: globalRows } = await supabase
     .from('app_runtime_config')
-    .select('value')
-    .eq('key', 'billing_default_provider')
-    .maybeSingle();
+    .select('key, value')
+    .in('key', ['default_billing_provider', 'billing_default_provider']);
 
-  if (globalConfig?.value) {
-    const gc = globalConfig.value as Record<string, unknown>;
-    const handler = getProvider(gc.provider as string);
-    if (handler) return { provider: handler, config: gc as BillingProviderConfig };
+  for (const key of ['default_billing_provider', 'billing_default_provider']) {
+    const row = (globalRows || []).find((r: { key: string }) => r.key === key);
+    const value = row?.value as Record<string, unknown> | null | undefined;
+    if (!value) continue;
+    const name = (value.provider_name || value.provider) as string | undefined;
+    if (!name) continue;
+    const handler = getProvider(name);
+    if (!handler) continue;
+    const inner = (value.config && typeof value.config === 'object' ? value.config : {}) as Record<string, unknown>;
+    return { provider: handler, config: { ...value, ...inner, provider: name } as BillingProviderConfig };
   }
 
   return null;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
+import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
+import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -42,16 +44,40 @@ function WidgetPageContent() {
   // Single source of truth — widget URLs come from platform widget settings only.
   const { data: platformWidget } = useWidgetPlatformSettings();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
+  const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
+  const [tab, setTab] = useState<string>('appearance');
+  const [manualView, setManualView] = useState<PreviewView | null>(null);
+
+  /**
+   * Local draft layer: every keystroke updates the preview instantly while the
+   * actual save is debounced, so typing stays smooth and nothing is lost.
+   */
+  const [draft, setDraft] = useState<Record<string, any>>({});
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
+
+  const setField = (field: string, value: any, delay = 500) => {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+    clearTimeout(timers.current[field]);
+    timers.current[field] = setTimeout(() => {
+      updateWidget.mutate({ [field]: value } as any);
+    }, delay);
+  };
+
+  const live = useMemo(() => ({ ...(widget as any), ...draft }), [widget, draft]);
 
   const urls = useMemo(
     () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
     [platformWidget],
   );
 
-  const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
+  const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
+  const previewView: PreviewView =
+    manualView ??
+    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'chat');
 
   const windowEmbedCode = useMemo(
     () => buildWidgetEmbedSnippet(urls, {
@@ -128,10 +154,10 @@ function WidgetPageContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         {/* Main config area */}
         <div className="space-y-6">
-          <Tabs defaultValue="appearance" className="space-y-5">
+          <Tabs value={tab} onValueChange={setTab} className="space-y-5">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border bg-secondary/40 p-2 sm:grid-cols-3 lg:grid-cols-6">
               {([
                 { v: 'appearance', icon: Palette },
@@ -167,7 +193,7 @@ function WidgetPageContent() {
                   <TemplateGallery
                     selectedSlug={(widget as any)?.template_slug || 'default'}
                     primaryColor={primaryColor}
-                    brandLabel={widget?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
+                    brandLabel={live?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
                     saving={updateWidget.isPending}
                     onSelect={(slug) => {
                       updateWidget.mutate({ template_slug: slug } as any, {
@@ -189,12 +215,12 @@ function WidgetPageContent() {
                         <Input
                           type="color"
                           value={primaryColor}
-                          onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
+                          onChange={e => setField('primary_color', e.target.value)}
                           className="w-12 h-10 p-1 cursor-pointer"
                         />
                         <Input
                           value={primaryColor}
-                          onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
+                          onChange={e => setField('primary_color', e.target.value)}
                           className="font-mono text-xs"
                         />
                       </div>
@@ -202,8 +228,8 @@ function WidgetPageContent() {
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widget.position')}</Label>
                       <Select
-                        value={widget?.position || 'bottom-right'}
-                        onValueChange={v => updateWidget.mutate({ position: v } as any)}
+                        value={live?.position || 'bottom-right'}
+                        onValueChange={v => setField('position', v, 0)}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -217,8 +243,8 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
                     <Input
-                      value={widget?.launcher_text || ''}
-                      onChange={e => updateWidget.mutate({ launcher_text: e.target.value } as any)}
+                      value={live?.launcher_text || ''}
+                      onChange={e => setField('launcher_text', e.target.value)}
                       placeholder={platformName}
                     />
                   </div>
@@ -226,18 +252,26 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
-                      value={widget?.welcome_message || ''}
-                      onChange={e => updateWidget.mutate({ welcome_message: e.target.value } as any)}
+                      value={live?.welcome_message || ''}
+                      onChange={e => setField('welcome_message', e.target.value)}
                       rows={3}
                       placeholder={t('widgetPage.appearance.welcomePlaceholder')}
                     />
                   </div>
 
                   <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.preview.inputPlaceholder')}</Label>
+                    <Input
+                      value={live?.placeholder_text || ''}
+                      onChange={e => setField('placeholder_text', e.target.value)}
+                      placeholder={t('widgetPage.preview.inputPlaceholder')}
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
                     <Select
-                      value={widget?.locale || 'en'}
-                      onValueChange={v => updateWidget.mutate({ locale: v } as any)}
+                      value={live?.locale || 'en'}
+                      onValueChange={v => setField('locale', v, 0)}
                     >
                       <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -444,69 +478,41 @@ function WidgetPageContent() {
           </Tabs>
         </div>
 
-        {/* Live Preview */}
-        <div className="hidden lg:block">
-          <div className="sticky top-6">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+        {/* Live Preview — full-size, reflects every edit instantly */}
+        <div className="hidden xl:block">
+          <div className="sticky top-6 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Eye className="h-3.5 w-3.5" /> {t('widgetPage.preview.title')}
               </p>
               <Badge variant="outline" className="text-[10px] capitalize">
                 {(widget as any)?.template_slug || 'default'}
               </Badge>
             </div>
-            <div className="relative bg-muted/30 border border-border rounded-xl overflow-hidden" style={{ height: 520 }}>
-              {/* Mini website preview */}
-              <div className="p-4 space-y-3">
-                <div className="h-4 w-3/4 bg-muted rounded" />
-                <div className="h-3 w-full bg-muted/60 rounded" />
-                <div className="h-3 w-5/6 bg-muted/60 rounded" />
-                <div className="h-24 w-full bg-muted/40 rounded-lg mt-4" />
-                <div className="h-3 w-2/3 bg-muted/60 rounded" />
-                <div className="h-3 w-full bg-muted/60 rounded" />
-              </div>
 
-              {/* Widget launcher preview */}
-              <div
-                className="absolute flex items-center justify-center rounded-full shadow-lg cursor-default"
-                style={{
-                  width: 48,
-                  height: 48,
-                  background: primaryColor,
-                  color: '#fff',
-                  bottom: 16,
-                  ...(widget?.position === 'bottom-left' ? { left: 16 } : { right: 16 }),
-                }}
-              >
-                <MessageSquare className="h-5 w-5" />
-              </div>
-
-              {/* Mini chat panel preview */}
-              <div
-                className="absolute bg-card border border-border rounded-xl shadow-xl overflow-hidden"
-                style={{
-                  width: 240,
-                  height: 300,
-                  bottom: 72,
-                  ...(widget?.position === 'bottom-left' ? { left: 16 } : { right: 16 }),
-                }}
-              >
-                <div className="p-3 text-white text-xs font-semibold" style={{ background: primaryColor }}>
-                  {widget?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
-                  <p className="text-[10px] font-normal opacity-80 mt-0.5">
-                    {(widget?.welcome_message || t('widgetPage.preview.welcomeFallback')).slice(0, 50)}
-                  </p>
-                </div>
-                <div className="p-3 space-y-2 flex-1">
-                  <div className="bg-muted rounded-lg p-2 text-[10px] text-muted-foreground max-w-[85%]">{t('widgetPage.preview.sampleMessage')}</div>
-                </div>
-                <div className="border-t border-border p-2">
-                  <div className="bg-muted rounded-full h-6 px-3 flex items-center">
-                    <span className="text-[9px] text-muted-foreground">{t('widgetPage.preview.inputPlaceholder')}</span>
-                  </div>
-                </div>
-              </div>
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">
+              {(['chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
+                <Button
+                  key={v}
+                  size="sm"
+                  variant={previewView === v ? 'default' : 'ghost'}
+                  className="h-7 flex-1 px-2 text-[11px]"
+                  onClick={() => setManualView(v)}
+                >
+                  {t(`widgetPage.preview.view.${v}` as any)}
+                </Button>
+              ))}
             </div>
+
+            <div style={{ height: 'calc(100vh - 190px)', minHeight: 560 }}>
+              <WidgetLivePreview
+                settings={live}
+                prechat={prechat}
+                brandName={platformName || t('widgetPage.preview.brandFallback')}
+                view={previewView}
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>
           </div>
         </div>
       </div>

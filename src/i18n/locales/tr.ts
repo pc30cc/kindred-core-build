@@ -3473,6 +3473,8 @@ const tr: TranslationKeys = {
     },
     preview: {
       title: 'Canlı önizleme',
+      liveHint: 'Her metin ve görsel değişiklik burada anında görünür ve otomatik kaydedilir.',
+      view: { chat: 'Sohbet', prechat: 'Ön form', kb: 'Yardım', offline: 'Çevrimdışı' },
       brandFallback: 'Destek',
       welcomeFallback: 'Nasıl yardımcı olabiliriz?',
       sampleMessage: 'Merhaba! Nasıl yardımcı olabiliriz?',

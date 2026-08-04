@@ -333,6 +333,8 @@ const fa: TranslationKeys = {
     assignedToMe: 'ارجاع به من',
     conversations: 'مکالمات',
     newConversation: 'مکالمه جدید',
+    previewYou: 'شما',
+    previewAi: 'دستیار هوش مصنوعی',
     noMessages: 'هنوز پیامی نیست',
     typeMessage: 'پیام بنویسید...',
     send: 'ارسال',

@@ -358,6 +358,14 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         preferred_locale: (editForm.preferred_locale as 'fa' | 'en' | 'tr') || null,
         ...(editForm.email && editForm.email !== detail?.profile?.email ? { email: editForm.email } : {}),
       });
+      // Phone lives in its own store; only touch it when the admin changed it.
+      const nextPhone = editForm.phone.trim();
+      const currentPhone = phoneState?.phone || '';
+      if (nextPhone !== currentPhone) {
+        if (nextPhone) await adminSetUserPhone(userId, nextPhone, editForm.phone_country);
+        else if (currentPhone) await adminRemoveUserPhone(userId);
+        qc.invalidateQueries({ queryKey: ['admin-phone-verification', userId] });
+      }
       toast.success(t('admin.users.userUpdated'));
       setEditDialog(false);
       refetch();

@@ -251,7 +251,7 @@ export default function AvailabilityPage() {
   const mutation = useMutation({
     mutationFn: updateAvailability,
     onSuccess: (resp: AvailabilityResponse) => {
-      qc.setQueryData(['availability'], resp);
+      qc.setQueryData(['availability', locale], resp);
       setPrefs(resp.prefs);
       setSavingKey(null);
       // Invalidate workspace-wide team presence so the dot in Team

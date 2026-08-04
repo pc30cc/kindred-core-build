@@ -341,9 +341,10 @@ export function AppSidebar() {
 
       {/* Get Started button */}
       <div className="px-3 mb-1">
+        <NavTip label={t('nav.dashboard')} enabled={collapsed}>
         <Link
           to={wsPath('')}
-          title={t('nav.dashboard')}
+          title={collapsed ? undefined : t('nav.dashboard')}
           className={cn(
             'flex items-center rounded-lg px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
@@ -357,13 +358,15 @@ export function AppSidebar() {
             {!collapsed && <span>{t('nav.dashboard')}</span>}
           </div>
         </Link>
+        </NavTip>
       </div>
 
       {/* Inbox section */}
       <div className="px-3 mt-2">
+        <NavTip label={t('nav.inbox')} enabled={collapsed}>
         <Link
           to={wsPath('/inbox')}
-          title={t('nav.inbox')}
+          title={collapsed ? undefined : t('nav.inbox')}
           className={cn(
             'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
@@ -375,6 +378,7 @@ export function AppSidebar() {
           <Inbox className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
           {!collapsed && <span>{t('nav.inbox')}</span>}
         </Link>
+        </NavTip>
 
         {isActive('/inbox') && !collapsed && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">

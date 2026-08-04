@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, type InboxQueue } from '@/hooks/useConversations';
+import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, useInboxTabCounts, type InboxQueue } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { emitInvitationChanged } from '@/lib/call-invitations-events';
@@ -778,39 +778,11 @@ export default function InboxPage() {
     return formatRelative(date);
   };
 
-  const statusCounts = useMemo(() => {
-    if (!conversations) return {};
-    return conversations.reduce((acc: Record<string, number>, c) => {
-      acc[c.status ?? 'open'] = (acc[c.status ?? 'open'] || 0) + 1;
-      return acc;
-    }, {});
-  }, [conversations]);
-
-  /* Tabs must not resize when switching filters. The conversation list is
-     scoped to the active filter, so counts for the other tabs would drop to 0
-     and the badges would collapse/expand, shifting every tab. Cache the last
-     known count per status and only refresh the ones the current response can
-     actually observe (all statuses when viewing "all", otherwise just the
-     active status). */
-  const countsCacheRef = useRef<Record<string, number>>({});
-  const stableCounts = useMemo(() => {
-    const cache = { ...countsCacheRef.current };
-    if (conversations) {
-      if (filter === 'all') {
-        for (const s of ['open', 'pending', 'resolved', 'closed']) cache[s] = statusCounts[s] || 0;
-        cache.all = conversations.length;
-      } else {
-        if (filter === 'resolved') {
-          cache.resolved = statusCounts.resolved || 0;
-          cache.closed = statusCounts.closed || 0;
-        } else {
-          cache[filter] = statusCounts[filter] || 0;
-        }
-      }
-    }
-    countsCacheRef.current = cache;
-    return cache;
-  }, [conversations, statusCounts, filter]);
+  /* Every tab shows its own number immediately — counts come from parallel
+     server-side HEAD counts, not from the (filter-scoped) conversation list.
+     This also keeps tab widths stable while switching filters. */
+  const { data: tabCounts } = useInboxTabCounts(workspace?.id);
+  const stableCounts: Record<string, number> = tabCounts ?? {};
 
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
@@ -974,9 +946,7 @@ export default function InboxPage() {
             className="flex h-full w-full items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
           >
             {(['open', 'pending', 'resolved', 'all'] as FilterStatus[]).map(s => {
-              const count = s === 'resolved'
-                ? (stableCounts.resolved || 0) + (stableCounts.closed || 0)
-                : stableCounts[s] || 0;
+              const count = stableCounts[s] || 0;
               const isActive = filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
               return (
@@ -1027,6 +997,14 @@ export default function InboxPage() {
             >
               <AlertCircle className="w-4 h-4" />
               {t('inbox.needsHuman') || 'Needs human'}
+              <span
+                aria-hidden={(stableCounts.needs_human || 0) === 0}
+                className={cn(
+                  'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
+                  (stableCounts.needs_human || 0) === 0 && 'opacity-0',
+                  extraChip === 'needs_human' ? 'bg-destructive/20 text-destructive' : 'bg-secondary text-muted-foreground'
+                )}
+              >{stableCounts.needs_human || 0}</span>
             </button>
           </div>
           </ToolbarPortal>
@@ -1275,6 +1253,7 @@ export default function InboxPage() {
                                   toast({ title: t('inbox.takenOverTitle') || 'Taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                                   qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                                 } catch (err: any) {
                                   toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: err?.message || '—', variant: 'destructive' });
                                 }
@@ -1398,6 +1377,7 @@ export default function InboxPage() {
                           toast({ title: t('inbox.takenOverTitle') || 'Conversation taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                         } catch (e: any) {
                           toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
                         }
@@ -1432,6 +1412,7 @@ export default function InboxPage() {
                           toast({ title: t('inbox.takenOverTitle') || 'Conversation taken over', description: t('inbox.takenOverDesc') || 'Assigned to you.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                         } catch (e: any) {
                           toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: e?.message || '—', variant: 'destructive' });
                         }

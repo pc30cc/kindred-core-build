@@ -142,6 +142,7 @@ const BILLING_PROVIDERS = [
   { value: 'payping', label: 'PayPing' },
   { value: 'nextpay', label: 'NextPay' },
   { value: 'idpay', label: 'IDPay' },
+  { value: 'idpay_test', label: 'IDPay-Test (Sandbox)' },
   { value: 'sep', label: 'SEP (Saman)' },
   { value: 'zibal', label: 'Zibal' },
   { value: 'iyzico', label: 'iyzico' },

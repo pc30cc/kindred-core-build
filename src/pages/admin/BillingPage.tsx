@@ -96,6 +96,7 @@ export default function AdminBillingPage() {
     { name: 'paypal', label: 'PayPal', region: 'International' },
     { name: 'zarinpal', label: 'ZarinPal', region: 'Iran' },
     { name: 'idpay', label: 'IDPay', region: 'Iran' },
+    { name: 'idpay_test', label: 'IDPay-Test (Sandbox)', region: 'Iran' },
     { name: 'nextpay', label: 'NextPay', region: 'Iran' },
     { name: 'payping', label: 'PayPing', region: 'Iran' },
     { name: 'zibal', label: 'Zibal', region: 'Iran' },

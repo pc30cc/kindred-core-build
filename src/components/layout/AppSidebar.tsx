@@ -111,7 +111,8 @@ export function AppSidebar() {
 
   // The Inbox is a dense 3-pane workspace: collapse the nav rail automatically
   // while it is open, then restore the user's own preference on leaving.
-  const onInbox = /\/inbox(\/|$)/.test(location.pathname);
+  const onInbox =
+    /\/inbox(\/|$)/.test(location.pathname) || /\/settings(\/|$)/.test(location.pathname);
   useEffect(() => {
     if (onInbox) setCollapsed(true);
     else setCollapsed(localStorage.getItem('sidebar_collapsed') === '1');

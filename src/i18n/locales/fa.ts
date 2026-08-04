@@ -257,6 +257,7 @@ const fa: TranslationKeys = {
     viewAlerts: 'مشاهده هشدارها',
     invisibleMode: 'فعال‌سازی حالت نامرئی',
     availability: 'تنظیمات دسترسی',
+    userProfile: 'پروفایل کاربری',
     manageAccount: 'مدیریت حساب کاربری',
     workspaceSettings: 'تنظیمات فضای کاری',
     inviteOperator: 'دعوت از اپراتور',

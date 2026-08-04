@@ -257,6 +257,7 @@ const tr: TranslationKeys = {
     viewAlerts: 'Uyarıları görüntüle',
     invisibleMode: 'Görünmez modu etkinleştir',
     availability: 'Müsaitlik ayarları',
+    userProfile: 'Kullanıcı profili',
     manageAccount: 'Hesabı yönet',
     workspaceSettings: 'Çalışma alanı ayarları',
     inviteOperator: 'Operatör davet et',

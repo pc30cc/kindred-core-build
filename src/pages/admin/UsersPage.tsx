@@ -759,9 +759,57 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </TabsContent>
       </Tabs>
 
+      {/* Edit User Dialog */}
+      <Dialog open={editDialog} onOpenChange={setEditDialog}>
+        <DialogContent className="sm:max-w-md" dir={dir}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              {t('admin.users.editUser')}
+            </DialogTitle>
+            <DialogDescription>{t('admin.users.editUserDesc')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.fullNameLabel')}</label>
+              <Input value={editForm.full_name} onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.email')}</label>
+              <Input dir="ltr" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.company')}</label>
+              <Input value={editForm.company_name} onChange={e => setEditForm(f => ({ ...f, company_name: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.website')}</label>
+              <Input dir="ltr" value={editForm.website_domain} onChange={e => setEditForm(f => ({ ...f, website_domain: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t('admin.users.preferredLocale')}</label>
+              <Select value={editForm.preferred_locale || 'en'} onValueChange={v => setEditForm(f => ({ ...f, preferred_locale: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fa">فارسی</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="tr">Türkçe</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialog(false)}>{t('admin.users.cancel')}</Button>
+            <Button onClick={handleSaveProfile} disabled={editLoading}>
+              {editLoading && <Loader2 className="h-4 w-4 animate-spin me-2" />}
+              {t('admin.users.saveChanges')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Change Password Dialog */}
       <Dialog open={passwordDialog} onOpenChange={setPasswordDialog}>
-        <DialogContent className="sm:max-w-sm">
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

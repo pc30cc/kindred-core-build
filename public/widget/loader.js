@@ -391,6 +391,10 @@
       // Set position + reveal in one paint so the user never sees a wrong
       // color first. The CSS transitions opacity so it fades in cleanly.
       launcherEl.className = "launcher " + posClass + " revealed";
+      // ─── Workspace launcher (FAB) customization ───
+      // The operator configures these under Widget → Appearance. The live
+      // preview renders the exact same rules, so site == preview.
+      applyFabConfig(config, posClass);
       // Expose template slug for CSS scoping (Task 4).
       if (config.templateSlug) {
         launcherEl.setAttribute("data-template", config.templateSlug);

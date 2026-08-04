@@ -211,29 +211,8 @@ function WidgetPageContent() {
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
               <div className="space-y-4">
-              {/* Single unified template by default — the gallery only appears when the
-                  platform actually registered more than one template. */}
-              {(availableTemplates?.length ?? 0) > 1 && (
-              <Card className="card-elevated">
-                <CardContent className="p-6">
-                  <TemplateGallery
-                    selectedSlug={live?.template_slug || 'default'}
-                    primaryColor={primaryColor}
-                    brandLabel={live?.launcher_text || platformName || t('widgetPage.preview.brandFallback')}
-                    saving={updateWidget.isPending}
-                    onSelect={(slug) => {
-                      // Reflect in the live preview immediately, then persist.
-                      setDraft((prev) => ({ ...prev, template_slug: slug }));
-                      updateWidget.mutate({ template_slug: slug } as any, {
-                        onSuccess: () => toast({ title: t('widgetPage.template.updated'), description: t('widgetPage.template.updatedDescription', { name: slug }) }),
-                        onError: (e: any) => toast({ title: t('widgetPage.template.updateFailed'), description: e.message, variant: 'destructive' }),
-                      });
-                    }}
-                  />
-                </CardContent>
-              </Card>
-              )}
-
+              {/* Single unified template: the widget always uses the built-in template,
+                  fully customizable through the controls below. */}
               {/* Per-template customization — settings here apply to whichever template is active. */}
               <Card className="card-elevated">
                 <CardHeader className="pb-3">

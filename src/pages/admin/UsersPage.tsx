@@ -310,6 +310,40 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     }
   };
 
+  const handleSaveProfile = async () => {
+    setEditLoading(true);
+    try {
+      await adminUpdateUserProfile(userId, {
+        full_name: editForm.full_name || null,
+        company_name: editForm.company_name || null,
+        website_domain: editForm.website_domain || null,
+        preferred_locale: (editForm.preferred_locale as 'fa' | 'en' | 'tr') || null,
+        ...(editForm.email && editForm.email !== detail?.profile?.email ? { email: editForm.email } : {}),
+      });
+      toast.success(t('admin.users.userUpdated'));
+      setEditDialog(false);
+      refetch();
+      refetchStatus();
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.userUpdateFailed'));
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleToggleEmailVerified = async (next: boolean) => {
+    setEmailVerifyLoading(true);
+    try {
+      await adminSetUserEmailVerified(userId, next);
+      toast.success(t('admin.users.emailVerificationUpdated'));
+      refetchStatus();
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.userUpdateFailed'));
+    } finally {
+      setEmailVerifyLoading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">

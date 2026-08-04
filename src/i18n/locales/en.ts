@@ -62,6 +62,7 @@ const en = {
   },
   common: {
     loading: 'Loading...',
+    error: 'Something went wrong',
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',
@@ -3391,6 +3392,20 @@ const en = {
       availability: 'Availability',
       domains: 'Domains',
       install: 'Install',
+    },
+    tabDesc: {
+      appearance: 'Template, colors and texts',
+      behavior: 'Modules and privacy',
+      prechat: 'Fields asked before chat',
+      availability: 'Working hours and presence',
+      domains: 'Where the widget may load',
+      install: 'Embed code',
+    },
+    availabilityScope: {
+      workspace: 'Widget business hours',
+      workspaceDesc: 'Applies to the chat widget on your website',
+      personal: 'My availability',
+      personalDesc: 'Your personal operator presence and schedule',
     },
     template: {
       heading: 'Widget template',

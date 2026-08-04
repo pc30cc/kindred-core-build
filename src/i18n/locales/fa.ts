@@ -64,6 +64,7 @@ const fa: TranslationKeys = {
   },
   common: {
     loading: 'در حال بارگذاری...',
+    error: 'خطایی رخ داد',
     save: 'ذخیره',
     cancel: 'لغو',
     delete: 'حذف',
@@ -3378,6 +3379,20 @@ const fa: TranslationKeys = {
       availability: 'ساعات پاسخگویی',
       domains: 'دامنه‌ها',
       install: 'نصب',
+    },
+    tabDesc: {
+      appearance: 'قالب، رنگ‌ها و متن‌ها',
+      behavior: 'ماژول‌ها و حریم خصوصی',
+      prechat: 'فیلدهای پیش از گفتگو',
+      availability: 'ساعات کاری و حضور',
+      domains: 'دامنه‌های مجاز نمایش ویجت',
+      install: 'کد نصب',
+    },
+    availabilityScope: {
+      workspace: 'ساعات کاری ویجت گفتگو',
+      workspaceDesc: 'برای ویجت گفتگوی وب‌سایت شما اعمال می‌شود',
+      personal: 'دسترسی‌پذیری من',
+      personalDesc: 'حضور و برنامه شخصی شما به‌عنوان اپراتور',
     },
     template: {
       heading: 'قالب ویجت',

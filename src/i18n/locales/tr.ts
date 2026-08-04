@@ -64,6 +64,7 @@ const tr: TranslationKeys = {
   },
   common: {
     loading: 'Yükleniyor...',
+    error: 'Bir hata oluştu',
     save: 'Kaydet',
     cancel: 'İptal',
     delete: 'Sil',
@@ -3378,6 +3379,20 @@ const tr: TranslationKeys = {
       availability: 'Uygunluk',
       domains: 'Alan adları',
       install: 'Kurulum',
+    },
+    tabDesc: {
+      appearance: 'Şablon, renkler ve metinler',
+      behavior: 'Modüller ve gizlilik',
+      prechat: 'Sohbet öncesi alanlar',
+      availability: 'Çalışma saatleri ve durum',
+      domains: 'Widget’ın yükleneceği alan adları',
+      install: 'Yerleştirme kodu',
+    },
+    availabilityScope: {
+      workspace: 'Widget çalışma saatleri',
+      workspaceDesc: 'Web sitenizdeki sohbet widget’ı için geçerlidir',
+      personal: 'Uygunluğum',
+      personalDesc: 'Kişisel operatör durumunuz ve programınız',
     },
     template: {
       heading: 'Widget şablonu',

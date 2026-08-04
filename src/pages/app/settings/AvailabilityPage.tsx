@@ -237,8 +237,8 @@ export default function AvailabilityPage() {
   const num = (n: number) => new Intl.NumberFormat(locale).format(n);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['availability'],
-    queryFn: fetchAvailability,
+    queryKey: ['availability', locale],
+    queryFn: () => fetchAvailability(locale),
   });
 
   const [prefs, setPrefs] = useState<AvailabilityPrefs | null>(null);

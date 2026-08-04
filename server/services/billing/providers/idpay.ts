@@ -59,6 +59,24 @@ export function readIdPayVerifiedAmount(body: Record<string, unknown>): number |
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://api.idpay.ir/v1.1' : 'https://api.idpay.ir/v1.1';
 
+// IDPay (or an upstream WAF / filtering proxy) can answer with an HTML error
+// page instead of JSON. Parsing that with res.json() throws a cryptic
+// "Unexpected token '<'" SyntaxError, so we read the body as text and raise a
+// descriptive error that names the gateway and the HTTP status instead.
+async function readIdPayJson(res: Response, context: string): Promise<unknown> {
+  const text = await res.text();
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const snippet = trimmed.replace(/\s+/g, ' ').slice(0, 160);
+    throw new Error(
+      `IDPay gateway unreachable: ${context} returned a non-JSON response (HTTP ${res.status})` +
+      (snippet ? `: ${snippet}` : ''),
+    );
+  }
+}
+
 export const idpayProvider: BillingProviderHandler = {
   name: 'idpay',
   capabilities: {
@@ -84,7 +102,7 @@ export const idpayProvider: BillingProviderHandler = {
         name: req.customerName,
       }),
     });
-    const data = readIdPayRecord(await res.json());
+    const data = readIdPayRecord(await readIdPayJson(res, 'create payment'));
     const errorCode = readIdPayErrorCode(data);
     if (errorCode) {
       throw new Error(readIdPayErrorMessage(data) || `IDPay error: ${String(errorCode)}`);
@@ -104,7 +122,7 @@ export const idpayProvider: BillingProviderHandler = {
       },
       body: JSON.stringify({ id: params.id, order_id: params.order_id }),
     });
-    const data = readIdPayRecord(await res.json());
+    const data = readIdPayRecord(await readIdPayJson(res, 'verify payment'));
     const status = readIdPayVerifyStatus(data);
     return {
       verified: status === 100 || status === 101,
@@ -143,7 +161,7 @@ export const idpayProvider: BillingProviderHandler = {
         },
         body: JSON.stringify({ order_id: 'test', amount: 1000, callback: 'https://test.localhost' }),
       });
-      const data = readIdPayRecord(await res.json());
+      const data = readIdPayRecord(await readIdPayJson(res, 'test connection'));
       const errorCode = readIdPayErrorCode(data);
       // Error 11 = user blocked, 12 = API key not found — auth errors
       if (errorCode === 12 || errorCode === 11) {

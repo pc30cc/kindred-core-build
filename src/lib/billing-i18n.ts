@@ -219,12 +219,14 @@ export function billingError(locale: BillingLocale, message?: unknown): string {
   if (hit) return hit[locale] ?? hit.en;
   // Network / gateway unreachable (server could not reach the payment provider)
   if (lower.includes('fetch failed') || lower.includes('timeout') || lower.includes('etimedout') ||
-      lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network')) {
+      lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network') ||
+      lower.includes('gateway unreachable') || lower.includes('non-json') ||
+      lower.includes("unexpected token '<'") || lower.includes('is not valid json')) {
     return locale === 'fa'
-      ? 'ارتباط سرور با درگاه پرداخت برقرار نشد. لطفاً بعداً دوباره تلاش کنید یا تنظیمات درگاه را بررسی کنید.'
+      ? 'سرور نتوانست به درگاه پرداخت وصل شود (پاسخ نامعتبر یا مسدود شدن دسترسی). معمولاً یعنی سرور شما خارج از ایران است یا کلید API درگاه اشتباه است.'
       : locale === 'tr'
-        ? 'Sunucu ödeme sağlayıcısına ulaşamadı. Lütfen daha sonra tekrar deneyin veya sağlayıcı ayarlarını kontrol edin.'
-        : 'The server could not reach the payment gateway. Please try again later or check the provider settings.';
+        ? 'Sunucu ödeme sağlayıcısına ulaşamadı (geçersiz yanıt veya engellenmiş erişim). Sağlayıcı ayarlarını ve API anahtarını kontrol edin.'
+        : 'The server could not reach the payment gateway (invalid or blocked response). Check the provider settings and API key.';
   }
   if (locale === 'en') return raw;
   // Unknown backend text in a non-English UI: localized copy + technical detail

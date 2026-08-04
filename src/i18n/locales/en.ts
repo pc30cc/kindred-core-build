@@ -331,6 +331,8 @@ const en = {
     assignedToMe: 'Assigned to me',
     conversations: 'Conversations',
     newConversation: 'New conversation',
+    previewYou: 'You',
+    previewAi: 'AI',
     noMessages: 'No messages yet',
     typeMessage: 'Type a message...',
     send: 'Send',

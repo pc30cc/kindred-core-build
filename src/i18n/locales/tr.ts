@@ -333,6 +333,8 @@ const tr: TranslationKeys = {
     assignedToMe: 'Bana atanan',
     conversations: 'Konuşmalar',
     newConversation: 'Yeni konuşma',
+    previewYou: 'Siz',
+    previewAi: 'Yapay zekâ',
     noMessages: 'Henüz mesaj yok',
     typeMessage: 'Bir mesaj yazın...',
     send: 'Gönder',

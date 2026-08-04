@@ -74,6 +74,7 @@ export function useConversations(
       const convos = (data || []) as (Conversation & {
         contacts: { name: string; email: string; avatar_url: string } | null;
         last_visitor_message?: { body: string; created_at: string; seen_at: string | null } | null;
+        last_message?: { body: string; created_at: string; sender_type: string } | null;
         unread_count?: number;
       })[];
 
@@ -87,15 +88,26 @@ export function useConversations(
           .from('conversation_messages')
           .select('conversation_id, body, created_at, sender_type, seen_at')
           .in('conversation_id', ids)
-          .eq('sender_type', 'contact')
           .order('created_at', { ascending: false })
-          .limit(500);
+          .limit(1000);
         const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
+        const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
         const unreadByConv: Record<string, number> = {};
         for (const m of (msgs || []) as Array<{
-          conversation_id: string; body: string | null; created_at: string; seen_at: string | null;
+          conversation_id: string; body: string | null; created_at: string; seen_at: string | null; sender_type: string;
         }>) {
           if (!m.conversation_id) continue;
+          // Latest message of ANY sender — drives the list preview so the
+          // operator sees their own reply / the AI reply, not "no messages".
+          if (!lastByConv[m.conversation_id]) {
+            lastByConv[m.conversation_id] = {
+              body: m.body ?? '',
+              created_at: m.created_at,
+              sender_type: m.sender_type,
+            };
+          }
+          // Visitor-only stream — drives unread counts and "last visitor said".
+          if (m.sender_type !== 'contact') continue;
           if (!byConv[m.conversation_id]) {
             byConv[m.conversation_id] = {
               body: m.body ?? '',
@@ -109,8 +121,23 @@ export function useConversations(
         }
         for (const c of convos) {
           c.last_visitor_message = byConv[c.id] ?? null;
+          c.last_message = lastByConv[c.id] ?? null;
           c.unread_count = unreadByConv[c.id] ?? 0;
         }
+      }
+      if (queue === 'main') {
+        // AI greeting threads (source='ai_agent_intro') that the visitor never
+        // answered are not human-actionable — they only clutter Main Inbox and
+        // make it look like AI conversations are mixed into the human queue.
+        // They stay reachable from the Automated queue / direct link.
+        return convos.filter((c) => {
+          const meta = (c as any)?.metadata || {};
+          const introOnly = meta.source === 'ai_agent_intro' && !c.last_visitor_message;
+          const humanTouched = !!(c as any).assigned_to
+            || (c as any).ai_state === 'human_active'
+            || (c.last_message && c.last_message.sender_type === 'agent');
+          return !introOnly || humanTouched;
+        });
       }
       return convos;
     },

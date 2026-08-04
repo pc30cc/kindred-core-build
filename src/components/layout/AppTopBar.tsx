@@ -1,69 +1,27 @@
-import { useMemo } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Bell, LifeBuoy, Settings2, Sparkles, Search } from 'lucide-react';
+import { Moon, Sun, Bell, LifeBuoy, Settings2, Search } from 'lucide-react';
 import { useI18n } from '@/i18n';
-import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
-import { useWorkspacePlan } from '@/hooks/usePlans';
 import { UserMenu } from '@/components/layout/UserMenu';
-
-/** Maps the first workspace-scoped path segment to an existing nav.* i18n key. */
-const SEGMENT_KEYS: Record<string, string> = {
-  inbox: 'nav.inbox',
-  visitors: 'nav.visitors',
-  contacts: 'nav.contacts',
-  'ai-agent': 'nav.aiAgent',
-  'call-center': 'nav.callCenter',
-  'knowledge-base': 'nav.knowledgeBase',
-  reports: 'nav.reports',
-  billing: 'nav.billing',
-  settings: 'nav.settings',
-};
 
 /**
  * Slim, sticky toolbar pinned to the top of the workspace shell.
- * Purely presentational: page context on the lead side, quick utilities
- * (theme, language, alerts, help, account) on the trailing side.
+ * Utilities are grouped into clearly separated clusters:
+ * search | preferences | workspace shortcuts | account.
  */
 export function AppTopBar() {
   const { t: tRaw, locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const t = tRaw as unknown as (key: string) => string;
-  const { workspace } = useActiveWorkspace();
   const { theme, setTheme } = useTheme();
-  const { pathname } = useLocation();
   const wsPath = useWorkspacePath();
-  const { data: planData } = useWorkspacePlan(workspace?.id);
-
-  const planLocalized = (planData?.plan?.localized || {}) as Record<string, { name?: string }>;
-  const planName =
-    planLocalized[locale]?.name?.trim() ||
-    planLocalized['en']?.name?.trim() ||
-    planData?.plan?.name ||
-    '';
-  const trialEnd =
-    (planData?.subscription as any)?.trial_ends_at ||
-    (planData?.subscription as any)?.current_period_end ||
-    null;
-  const trialDaysLeft = useMemo(() => {
-    if (!trialEnd || (planData?.subscription as any)?.status !== 'trialing') return null;
-    const diff = new Date(trialEnd).getTime() - Date.now();
-    return diff > 0 ? Math.ceil(diff / 86_400_000) : 0;
-  }, [trialEnd, planData]);
-
-  const pageTitle = useMemo(() => {
-    const parts = pathname.split('/').filter(Boolean);
-    const idx = parts.indexOf('w');
-    const segment = idx >= 0 ? parts[idx + 2] : parts[1];
-    const key = segment ? SEGMENT_KEYS[segment] : undefined;
-    return key ? t(key) : '';
-  }, [pathname, t]);
 
   const isDark = theme === 'dark';
 

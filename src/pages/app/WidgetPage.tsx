@@ -17,6 +17,8 @@ import { Badge } from '@/components/ui/badge';
 import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
+import { PersonalAvailabilityPanel } from '@/components/app/widget/PersonalAvailabilityPanel';
+import { cn } from '@/lib/utils';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
@@ -130,14 +132,31 @@ function WidgetPageContent() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         {/* Main config area */}
         <div className="space-y-6">
-          <Tabs defaultValue="appearance" className="space-y-4">
-            <TabsList className="bg-secondary/50 border border-border">
-              <TabsTrigger value="appearance" className="gap-1.5 text-xs"><Palette className="h-3.5 w-3.5" />{t('widgetPage.tabs.appearance')}</TabsTrigger>
-              <TabsTrigger value="behavior" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />{t('widgetPage.tabs.behavior')}</TabsTrigger>
-              <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />{t('widgetPage.tabs.prechat')}</TabsTrigger>
-              <TabsTrigger value="availability" className="gap-1.5 text-xs"><Clock className="h-3.5 w-3.5" />{t('widgetPage.tabs.availability')}</TabsTrigger>
-              <TabsTrigger value="domains" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />{t('widgetPage.tabs.domains')}</TabsTrigger>
-              <TabsTrigger value="install" className="gap-1.5 text-xs"><Code className="h-3.5 w-3.5" />{t('widgetPage.tabs.install')}</TabsTrigger>
+          <Tabs defaultValue="appearance" className="space-y-5">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border bg-secondary/40 p-2 sm:grid-cols-3 lg:grid-cols-6">
+              {([
+                { v: 'appearance', icon: Palette },
+                { v: 'behavior', icon: Settings },
+                { v: 'prechat', icon: MessageSquare },
+                { v: 'availability', icon: Clock },
+                { v: 'domains', icon: Shield },
+                { v: 'install', icon: Code },
+              ] as const).map(({ v, icon: Icon }) => (
+                <TabsTrigger
+                  key={v}
+                  value={v}
+                  className={cn(
+                    'flex h-auto flex-col items-center gap-1.5 rounded-lg px-2 py-3 text-center',
+                    'data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary',
+                  )}
+                >
+                  <Icon className="h-5 w-5" />
+                  <span className="text-[13px] font-semibold leading-tight">{t(`widgetPage.tabs.${v}` as any)}</span>
+                  <span className="hidden text-[11px] font-normal leading-tight text-muted-foreground sm:block">
+                    {t(`widgetPage.tabDesc.${v}` as any)}
+                  </span>
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             {/* ─── Appearance ─── */}
@@ -290,14 +309,41 @@ function WidgetPageContent() {
 
             {/* ─── Availability ─── */}
             <TabsContent value="availability">
-              {widget && (
-                <AvailabilitySection
-                  workspaceId={workspace?.id}
-                  settings={widget}
-                  onSave={(patch) => updateWidget.mutate(patch as any)}
-                  saving={updateWidget.isPending}
-                />
-              )}
+              <Tabs defaultValue="workspace" className="space-y-4">
+                <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border bg-secondary/40 p-2">
+                  <TabsTrigger
+                    value="workspace"
+                    className="flex h-auto flex-col items-center gap-1 rounded-lg px-2 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary"
+                  >
+                    <span className="text-[13px] font-semibold">{t('widgetPage.availabilityScope.workspace')}</span>
+                    <span className="text-[11px] font-normal text-muted-foreground">{t('widgetPage.availabilityScope.workspaceDesc')}</span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="personal"
+                    className="flex h-auto flex-col items-center gap-1 rounded-lg px-2 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary"
+                  >
+                    <span className="text-[13px] font-semibold">{t('widgetPage.availabilityScope.personal')}</span>
+                    <span className="text-[11px] font-normal text-muted-foreground">{t('widgetPage.availabilityScope.personalDesc')}</span>
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="workspace">
+                  {widget && (
+                    <AvailabilitySection
+                      workspaceId={workspace?.id}
+                      settings={widget}
+                      onSave={(patch) => updateWidget.mutate(patch as any)}
+                      saving={updateWidget.isPending}
+                    />
+                  )}
+                </TabsContent>
+                <TabsContent value="personal">
+                  <Card className="card-elevated">
+                    <CardContent className="p-6">
+                      <PersonalAvailabilityPanel />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
             {/* ─── Pre-chat ─── */}

@@ -13,6 +13,7 @@ import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useWorkspacePlan } from '@/hooks/usePlans';
+import { UserAccountMenu } from '@/components/layout/UserAccountMenu';
 
 /** Maps the first workspace-scoped path segment to an existing nav.* i18n key. */
 const SEGMENT_KEYS: Record<string, string> = {

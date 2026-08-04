@@ -27,7 +27,7 @@ export function AppTopBar() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <header className="sticky top-0 z-30 flex h-[72px] shrink-0 items-center gap-4 border-b border-border/60 bg-background/70 px-5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
+      <header className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-4 border-b border-border/60 bg-background/70 px-5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
         {/* Accent hairline */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
@@ -39,7 +39,7 @@ export function AppTopBar() {
               new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }),
             )
           }
-          className="hidden w-[280px] items-center gap-2.5 rounded-2xl border border-border/60 bg-muted/40 px-4 py-2.5 text-sm text-muted-foreground shadow-sm transition-all hover:border-primary/40 hover:bg-muted hover:text-foreground md:flex lg:w-[380px]"
+          className="hidden w-[280px] items-center gap-2.5 rounded-2xl border border-border/60 bg-muted/40 px-4 py-2 text-sm text-muted-foreground shadow-sm transition-all hover:border-primary/40 hover:bg-muted hover:text-foreground md:flex lg:w-[380px]"
         >
           <Search className="h-[26px] w-[26px]" />
           <span>{t('common.quickSearch') || 'Quick search'}</span>
@@ -54,7 +54,7 @@ export function AppTopBar() {
         <div className="flex items-center gap-2">
           {canSwitchLanguage && (
             <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-              <SelectTrigger className="h-[52px] w-[132px] rounded-2xl border-border/60 bg-muted/40 text-sm shadow-sm focus:ring-0">
+              <SelectTrigger className="h-10 w-[126px] rounded-2xl border-border/60 bg-muted/40 text-sm shadow-sm focus:ring-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
@@ -72,7 +72,7 @@ export function AppTopBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-[52px] w-[52px] rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+                className="h-10 w-10 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
                 aria-label="theme"
               >
@@ -91,7 +91,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="relative h-[52px] w-[52px] rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+                className="relative h-10 w-10 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
               >
                 <Link to={wsPath('/settings/notifications')} aria-label="alerts">
                   <Bell className="h-[26px] w-[26px]" />
@@ -108,7 +108,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-[52px] w-[52px] rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+                className="h-10 w-10 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
               >
                 <Link to={wsPath('/settings')} aria-label="settings">
                   <Settings2 className="h-[26px] w-[26px]" />
@@ -126,7 +126,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="hidden h-[52px] w-[52px] rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground sm:inline-flex"
+                className="hidden h-10 w-10 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground sm:inline-flex"
               >
                 <Link to={wsPath('/knowledge-base')} aria-label="help">
                   <LifeBuoy className="h-[26px] w-[26px]" />

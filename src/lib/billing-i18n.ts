@@ -209,15 +209,27 @@ const GENERIC_ERROR: Record<BillingLocale, string> = {
   tr: 'Bir hata oluştu. Lütfen tekrar deneyin.',
 };
 
-/** Localizes a backend error message; falls back to a generic localized message. */
+/** Localizes a backend error message; unknown technical text is kept as detail. */
 export function billingError(locale: BillingLocale, message?: unknown): string {
   const raw = typeof message === 'string' ? message.trim() : '';
+  if (raw) console.error('[billing] backend error:', raw);
   if (!raw) return GENERIC_ERROR[locale] ?? GENERIC_ERROR.en;
-  const hit = ERROR_MAP[raw.toLowerCase()];
+  const lower = raw.toLowerCase();
+  const hit = ERROR_MAP[lower];
   if (hit) return hit[locale] ?? hit.en;
+  // Network / gateway unreachable (server could not reach the payment provider)
+  if (lower.includes('fetch failed') || lower.includes('timeout') || lower.includes('etimedout') ||
+      lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network')) {
+    return locale === 'fa'
+      ? 'ارتباط سرور با درگاه پرداخت برقرار نشد. لطفاً بعداً دوباره تلاش کنید یا تنظیمات درگاه را بررسی کنید.'
+      : locale === 'tr'
+        ? 'Sunucu ödeme sağlayıcısına ulaşamadı. Lütfen daha sonra tekrar deneyin veya sağlayıcı ayarlarını kontrol edin.'
+        : 'The server could not reach the payment gateway. Please try again later or check the provider settings.';
+  }
   if (locale === 'en') return raw;
-  // Unknown backend text in a non-English UI: prefer generic localized copy.
-  return GENERIC_ERROR[locale] ?? raw;
+  // Unknown backend text in a non-English UI: localized copy + technical detail
+  // so the real cause is never hidden from the operator.
+  return `${GENERIC_ERROR[locale] ?? GENERIC_ERROR.en} (${raw})`;
 }
 
 const ACTION_MSG: Record<string, { fa: string; en: string; tr: string }> = {

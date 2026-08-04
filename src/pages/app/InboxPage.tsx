@@ -330,6 +330,11 @@ export default function InboxPage() {
     onMessage: () => {
       if (selectedId) qc.invalidateQueries({ queryKey: ['messages', selectedId] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
+      // Keep the tab counters live so a new message lights up its tab.
+      if (workspace?.id) {
+        qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
+        qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+      }
     },
     onTyping: (payload) => {
       // Only react to visitor typing (ignore agent self-echo just in case).
@@ -784,6 +789,31 @@ export default function InboxPage() {
   const { data: tabCounts } = useInboxTabCounts(workspace?.id);
   const stableCounts: Record<string, number> = tabCounts ?? {};
 
+  /* Live tabs: when a tab's counter grows (new conversation/message landed in
+     that bucket) its dot blinks green until the operator opens that tab. */
+  const prevCountsRef = useRef<Record<string, number> | null>(null);
+  const [liveTabs, setLiveTabs] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!tabCounts) return;
+    const prev = prevCountsRef.current;
+    prevCountsRef.current = { ...tabCounts };
+    if (!prev) return;
+    const grown: Record<string, boolean> = {};
+    for (const key of Object.keys(tabCounts)) {
+      if ((tabCounts[key] ?? 0) > (prev[key] ?? 0)) grown[key] = true;
+    }
+    if (Object.keys(grown).length) setLiveTabs((s) => ({ ...s, ...grown }));
+  }, [tabCounts]);
+  // Opening a tab clears its "new activity" pulse.
+  useEffect(() => {
+    setLiveTabs((s) => (s[filter] ? { ...s, [filter]: false } : s));
+  }, [filter]);
+  useEffect(() => {
+    if (extraChip === 'needs_human') {
+      setLiveTabs((s) => (s.needs_human ? { ...s, needs_human: false } : s));
+    }
+  }, [extraChip]);
+
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {
@@ -964,18 +994,28 @@ export default function InboxPage() {
                       : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
                   )}
                 >
-                  {s !== 'all' && <span className={cn('w-2 h-2 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
+                  {s !== 'all' && (
+                    <span className="relative flex w-2 h-2 items-center justify-center">
+                      {liveTabs[s] && (
+                        <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+                      )}
+                      <span className={cn(
+                        'relative inline-flex w-2 h-2 rounded-full',
+                        liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/30',
+                      )} />
+                    </span>
+                  )}
                   {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
                   {/* Always rendered (invisible at 0) so the tab width never
                       changes when counts load or the active tab switches. */}
-                  <span
+                  {s !== 'all' && <span
                     aria-hidden={count === 0}
                     className={cn(
                       'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
                       count === 0 && 'opacity-0',
                       isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
                     )}
-                  >{count}</span>
+                  >{count}</span>}
                 </button>
               );
             })}
@@ -995,7 +1035,14 @@ export default function InboxPage() {
               )}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
-              <AlertCircle className="w-4 h-4" />
+              {liveTabs.needs_human ? (
+                <span className="relative flex w-2 h-2 items-center justify-center">
+                  <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+                  <span className="relative inline-flex w-2 h-2 rounded-full bg-success animate-pulse" />
+                </span>
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
               {t('inbox.needsHuman') || 'Needs human'}
               <span
                 aria-hidden={(stableCounts.needs_human || 0) === 0}

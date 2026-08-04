@@ -55,11 +55,14 @@ export interface ContactAvatarProps {
   ringClassName?: string;
 }
 
-const SIZE_PX: Record<NonNullable<ContactAvatarProps['size']>, { box: string; text: string; dot: string }> = {
-  xs: { box: 'w-7 h-7',   text: 'text-[10px]', dot: 'w-2 h-2' },
-  sm: { box: 'w-9 h-9',   text: 'text-[12px]', dot: 'w-2.5 h-2.5' },
-  md: { box: 'w-10 h-10', text: 'text-[13px]', dot: 'w-3 h-3' },
-  lg: { box: 'w-12 h-12', text: 'text-[15px]', dot: 'w-3.5 h-3.5' },
+// Explicit min/max sizing: inside Radix ScrollArea the viewport child uses
+// `display: table`, where `shrink-0` does not apply and the avatar could
+// collapse to zero width. Locking min/max keeps it always visible.
+const SIZE_PX: Record<NonNullable<ContactAvatarProps['size']>, { box: string; px: number; text: string; dot: string }> = {
+  xs: { box: 'w-7 h-7',   px: 28, text: 'text-[10px]', dot: 'w-2 h-2' },
+  sm: { box: 'w-9 h-9',   px: 36, text: 'text-[12px]', dot: 'w-2.5 h-2.5' },
+  md: { box: 'w-10 h-10', px: 40, text: 'text-[13px]', dot: 'w-3 h-3' },
+  lg: { box: 'w-12 h-12', px: 48, text: 'text-[15px]', dot: 'w-3.5 h-3.5' },
 };
 
 const PRESENCE_DOT: Record<AvatarPresence, string> = {
@@ -84,7 +87,10 @@ export function ContactAvatar({
   const initials = initialsOf(name, email);
 
   return (
-    <div className={cn('relative shrink-0', className)}>
+    <div
+      className={cn('relative shrink-0 inline-block align-middle', className)}
+      style={{ width: sz.px, height: sz.px, minWidth: sz.px, minHeight: sz.px }}
+    >
       <div
         className={cn(
           sz.box,
@@ -93,7 +99,13 @@ export function ContactAvatar({
           ringClassName ?? 'ring-border/40',
           sz.text,
         )}
-        style={bg ? { backgroundImage: bg } : undefined}
+        style={{
+          width: sz.px,
+          height: sz.px,
+          minWidth: sz.px,
+          minHeight: sz.px,
+          ...(bg ? { backgroundImage: bg } : null),
+        }}
         aria-hidden="true"
       >
         {avatarUrl ? (

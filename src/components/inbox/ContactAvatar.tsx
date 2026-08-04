@@ -32,6 +32,13 @@ const OS_GRADIENT: Record<Exclude<OsKind, null>, string> = {
   android: 'linear-gradient(140deg, hsl(150 68% 50%), hsl(142 72% 34%))',
 };
 
+/** ISO-3166 alpha-2 → regional-indicator flag emoji. */
+function flagOf(code?: string | null): string | null {
+  const cc = (code || '').trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return null;
+  return String.fromCodePoint(...[...cc].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
+}
+
 function djb2(str: string): number {
   let h = 5381;
   for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
@@ -74,6 +81,10 @@ export interface ContactAvatarProps {
   os?: string | null;
   /** Visitor device class ("desktop" | "mobile" | "tablet"). */
   device?: string | null;
+  /** ISO alpha-2 country code of the visitor's IP — renders a flag badge. */
+  countryCode?: string | null;
+  /** Human-readable country name, used as the flag badge tooltip. */
+  countryName?: string | null;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   presence?: AvatarPresence;
   className?: string;
@@ -84,11 +95,11 @@ export interface ContactAvatarProps {
 // Explicit min/max sizing: inside Radix ScrollArea the viewport child uses
 // `display: table`, where `shrink-0` does not apply and the avatar could
 // collapse to zero width. Locking min/max keeps it always visible.
-const SIZE_PX: Record<NonNullable<ContactAvatarProps['size']>, { box: string; px: number; text: string; dot: string }> = {
-  xs: { box: 'w-7 h-7',   px: 28, text: 'text-[10px]', dot: 'w-2 h-2' },
-  sm: { box: 'w-9 h-9',   px: 36, text: 'text-[12px]', dot: 'w-2.5 h-2.5' },
-  md: { box: 'w-10 h-10', px: 40, text: 'text-[13px]', dot: 'w-3 h-3' },
-  lg: { box: 'w-12 h-12', px: 48, text: 'text-[15px]', dot: 'w-3.5 h-3.5' },
+const SIZE_PX: Record<NonNullable<ContactAvatarProps['size']>, { box: string; px: number; text: string; dot: string; flag: number }> = {
+  xs: { box: 'w-7 h-7',   px: 28, text: 'text-[10px]', dot: 'w-2 h-2',     flag: 13 },
+  sm: { box: 'w-9 h-9',   px: 36, text: 'text-[12px]', dot: 'w-2.5 h-2.5', flag: 15 },
+  md: { box: 'w-10 h-10', px: 40, text: 'text-[13px]', dot: 'w-3 h-3',     flag: 16 },
+  lg: { box: 'w-12 h-12', px: 48, text: 'text-[15px]', dot: 'w-3.5 h-3.5', flag: 18 },
 };
 
 const PRESENCE_DOT: Record<AvatarPresence, string> = {
@@ -104,6 +115,8 @@ export function ContactAvatar({
   avatarUrl,
   os,
   device,
+  countryCode,
+  countryName,
   size = 'md',
   presence = 'none',
   className,
@@ -115,6 +128,7 @@ export function ContactAvatar({
   const osKind = avatarUrl ? null : osKindOf(os, device);
   const bg = avatarUrl ? undefined : osKind ? OS_GRADIENT[osKind] : gradientFor(seed);
   const glyphPx = Math.round(sz.px * 0.5);
+  const flag = flagOf(countryCode);
 
   return (
     <div
@@ -174,6 +188,16 @@ export function ContactAvatar({
           )}
           aria-label={presence}
         />
+      )}
+      {flag && (
+        <span
+          title={countryName || countryCode || undefined}
+          aria-label={countryName || countryCode || undefined}
+          className="absolute -bottom-1 -start-1 flex items-center justify-center rounded-full bg-card ring-1 ring-border/70 shadow-sm overflow-hidden"
+          style={{ width: sz.flag, height: sz.flag, fontSize: Math.round(sz.flag * 0.72), lineHeight: 1 }}
+        >
+          <span className="translate-y-[0.5px]">{flag}</span>
+        </span>
       )}
     </div>
   );

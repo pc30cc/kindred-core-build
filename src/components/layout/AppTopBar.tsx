@@ -3,9 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { useTheme } from 'next-themes';
 import { Moon, Sun, Bell, LifeBuoy, Settings2, Sparkles, Search } from 'lucide-react';
 import { useI18n } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -36,7 +34,6 @@ export function AppTopBar() {
   const { t: tRaw, locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const t = tRaw as unknown as (key: string) => string;
-  const { user } = useAuth();
   const { workspace } = useActiveWorkspace();
   const { theme, setTheme } = useTheme();
   const { pathname } = useLocation();
@@ -67,9 +64,6 @@ export function AppTopBar() {
     return key ? t(key) : '';
   }, [pathname, t]);
 
-  const userName =
-    (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
-  const avatarUrl = (user?.metadata?.avatar_url as string) || undefined;
   const isDark = theme === 'dark';
 
   return (
@@ -211,22 +205,6 @@ export function AppTopBar() {
             <TooltipContent side="bottom">{t('nav.getHelp') || 'Help'}</TooltipContent>
           </Tooltip>
 
-          <span className="mx-1 hidden h-5 w-px bg-border/70 sm:block" />
-
-          <Link
-            to={wsPath('/settings/profile')}
-            className="flex items-center gap-2 rounded-full border border-border/60 bg-card/60 py-1 ps-1 pe-3 shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/60"
-          >
-            <Avatar className="h-7 w-7 ring-2 ring-primary/15">
-              {avatarUrl ? <AvatarImage src={avatarUrl} alt={userName} /> : null}
-              <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
-                {userName.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span className="hidden max-w-[140px] truncate text-xs font-medium text-foreground md:block">
-              {userName}
-            </span>
-          </Link>
         </div>
       </header>
     </TooltipProvider>

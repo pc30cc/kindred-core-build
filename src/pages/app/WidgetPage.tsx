@@ -260,10 +260,7 @@ function WidgetPageContent() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.inputPlaceholder')}</Label>
+                    <Label className="text-xs font-medium">{t('widgetPage.preview.inputPlaceholder')}</Label>
                     <Input
                       value={live?.placeholder_text || ''}
                       onChange={e => setField('placeholder_text', e.target.value)}
@@ -271,6 +268,7 @@ function WidgetPageContent() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
                     <Select
                       value={live?.locale || 'en'}
                       onValueChange={v => setField('locale', v, 0)}

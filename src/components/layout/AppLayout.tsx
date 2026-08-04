@@ -16,6 +16,7 @@ import { useState, useEffect } from 'react';
 import DegradedModeBanner from '@/components/realtime/DegradedModeBanner';
 import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
+import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
 // the server (`/api/account/resend-verification` answers 429 with
@@ -158,6 +159,8 @@ export function AppLayout() {
   const { user } = useAuth();
   const { workspace, notFound, isLoading } = useActiveWorkspace();
   const showVerificationBanner = user && !user.emailVerified;
+  // Presence heartbeat → powers the "Operator activity" report.
+  useOperatorHeartbeat(workspace?.id);
   // Inbox is a full-bleed workspace surface: no page gutters, no page scroll.
   const { pathname } = useLocation();
   const isFullBleed = /\/inbox(\/|$)/.test(pathname) || /\/settings(\/|$)/.test(pathname);

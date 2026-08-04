@@ -46,6 +46,7 @@ const settingsGroupsDef: SettingsGroup[] = [
     items: [
       { key: 'teamDepartments', labelKey: 'teamDepartments', subPath: '/settings/team-departments' },
       { key: 'staffAccess', labelKey: 'staffAccess', subPath: '/settings/staff-access' },
+      { key: 'operatorActivity', labelKey: 'operatorActivity', subPath: '/settings/operator-activity' },
     ],
   },
   {

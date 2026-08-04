@@ -1532,6 +1532,22 @@ export default function InboxPage() {
                 const isAi = msg.sender_type === 'ai';
                 const prev = idx > 0 ? rawMessages[idx - 1] : null;
                 const sameSenderAsPrev = prev && prev.sender_type === msg.sender_type;
+                // Day separator — a new calendar day starts a fresh divider.
+                const dayKey = (d?: string | null) => (d ? new Date(d).toDateString() : '');
+                const showDaySeparator = !prev || dayKey(prev.created_at) !== dayKey(msg.created_at);
+                const dayLabel = (() => {
+                  const d = new Date(msg.created_at);
+                  const today = new Date();
+                  const yesterday = new Date(Date.now() - 86400000);
+                  if (d.toDateString() === today.toDateString()) return t('inbox.today') || 'Today';
+                  if (d.toDateString() === yesterday.toDateString()) return t('inbox.yesterday') || 'Yesterday';
+                  return formatLongDate(d);
+                })();
+                const senderName = (msg as any).sender_name as string | null | undefined;
+                const senderAvatar = (msg as any).sender_avatar as string | null | undefined;
+                const agentLabel = isAi
+                  ? (senderName || t('inbox.aiAssistant') || 'AI assistant')
+                  : (senderName || t('inbox.support') || 'Support');
                 // Group consecutive bubbles from the same sender — hide repeating
                 // avatar/header to declutter the thread.
                 const showAvatar = !sameSenderAsPrev;

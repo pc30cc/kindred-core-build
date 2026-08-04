@@ -1691,7 +1691,7 @@ export default function InboxPage() {
                     )}
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
                       {showMeta && (
-                        <div className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1.5">
+                        <div dir={dir} className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1.5">
                           <span className="font-medium">
                             {isAgent
                               ? agentLabel

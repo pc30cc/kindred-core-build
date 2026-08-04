@@ -545,15 +545,6 @@ const billingVendors: ProviderVendor[] = [
     ],
   },
   {
-    name: '__idpay_dup_removed__', label: '',
-    docsUrl: 'https://idpay.ir/web-service',
-    locales: ['fa'], currency: 'IRR',
-    fields: [
-      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
-      { key: 'sandbox', label: 'حالت تست', type: 'toggle' },
-    ],
-  },
-  {
     name: 'idpay_test', label: 'آیدی پی — آزمایشگاه (IDPay-Test)',
     description: 'اتصال به محیط آزمایشگاه IDPay برای تست پرداخت — بدون تراکنش واقعی (X-SANDBOX: 1)',
     docsUrl: 'https://idpay.ir/web-service/v1.1/',

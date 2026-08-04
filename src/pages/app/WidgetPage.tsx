@@ -156,49 +156,55 @@ function WidgetPageContent() {
   return (
     <div className="animate-fade-in" dir={dir}>
       <Tabs value={tab} onValueChange={setTab} dir={dir as 'rtl' | 'ltr'}>
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="page-header truncate">{t('widgetPage.title')}</h1>
-            <p className="page-subtitle mt-1 truncate">{t('widgetPage.subtitle')}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant={widget?.enabled ? 'default' : 'secondary'} className="text-xs">
-              {widget?.enabled ? t('widgetPage.active') : t('widgetPage.inactive')}
-            </Badge>
-            <Switch
-              checked={widget?.enabled ?? false}
-              onCheckedChange={v => handleToggle('enabled', v)}
-            />
-          </div>
-        </div>
-
-        {/* Full-width tab bar */}
-        <TabsList className="mb-6 grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border bg-secondary/40 p-2 sm:grid-cols-3 xl:flex xl:items-stretch">
-          {([
-            { v: 'appearance', icon: Palette },
-            { v: 'behavior', icon: Settings },
-            { v: 'prechat', icon: MessageSquare },
-            { v: 'availability', icon: Clock },
-            { v: 'domains', icon: Shield },
-            { v: 'install', icon: Code },
-          ] as const).map(({ v, icon: Icon }) => (
-            <TabsTrigger
-              key={v}
-              value={v}
-              title={t(`widgetPage.tabDesc.${v}` as any)}
-              className={cn(
-                'flex h-auto items-center justify-center gap-2 rounded-xl px-4 py-3 xl:flex-1',
-                'transition-all hover:bg-background/60',
-                'data-[state=active]:bg-background data-[state=active]:shadow-md data-[state=active]:text-primary',
-              )}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              <span className="text-sm font-semibold leading-tight whitespace-nowrap">
-                {t(`widgetPage.tabs.${v}` as any)}
+        {/* Header: title, live status and the segmented section switcher */}
+        <div className="mb-5 rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">{t('widgetPage.title')}</h1>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{t('widgetPage.subtitle')}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-secondary/50 px-3 py-1.5">
+              <span
+                className={cn(
+                  'h-2 w-2 rounded-full',
+                  widget?.enabled ? 'bg-success animate-pulse' : 'bg-muted-foreground/50',
+                )}
+              />
+              <span className="text-xs font-medium">
+                {widget?.enabled ? t('widgetPage.active') : t('widgetPage.inactive')}
               </span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+              <Switch
+                checked={widget?.enabled ?? false}
+                onCheckedChange={v => handleToggle('enabled', v)}
+              />
+            </div>
+          </div>
+
+          <TabsList className="mt-4 flex h-auto w-full flex-wrap items-center justify-start gap-1 rounded-full border border-border/70 bg-secondary/40 p-1">
+            {([
+              { v: 'appearance', icon: Palette },
+              { v: 'behavior', icon: Settings },
+              { v: 'prechat', icon: MessageSquare },
+              { v: 'availability', icon: Clock },
+              { v: 'domains', icon: Shield },
+              { v: 'install', icon: Code },
+            ] as const).map(({ v, icon: Icon }) => (
+              <TabsTrigger
+                key={v}
+                value={v}
+                title={t(`widgetPage.tabDesc.${v}` as any)}
+                className={cn(
+                  'flex h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] font-medium',
+                  'transition-all hover:bg-background/70',
+                  'data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm',
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">{t(`widgetPage.tabs.${v}` as any)}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
           {/* Main config area */}

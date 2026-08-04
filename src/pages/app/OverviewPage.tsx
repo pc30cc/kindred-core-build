@@ -75,23 +75,45 @@ export default function OverviewPage() {
     return tr('dashboard.greetingEvening');
   }, [locale]);
 
-  // 14-day conversation trend
+  // 14-day conversation trend (falls back to the window around the latest data)
   const chartData = useMemo(() => {
+    const localKey = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const dateOf = (c: any) => {
+      const ts = c.created_at || c.last_message_at || c.updated_at;
+      if (!ts) return null;
+      const d = new Date(ts);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const dates = (list as any[]).map(dateOf).filter(Boolean) as Date[];
+    const now = new Date();
+    const latest = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : now;
+    // if nothing happened in the last 14 days, shift the window to the latest activity
+    const cutoff = new Date(now);
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - 13);
+    const anchor = latest.getTime() >= cutoff.getTime() ? now : latest;
+
     const days: { key: string; label: string; value: number }[] = [];
     for (let i = 13; i >= 0; i--) {
-      const d = new Date();
+      const d = new Date(anchor);
       d.setHours(0, 0, 0, 0);
       d.setDate(d.getDate() - i);
       days.push({
-        key: d.toISOString().slice(0, 10),
+        key: localKey(d),
         label: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
         value: 0,
       });
     }
     const idx = new Map(days.map((d, i) => [d.key, i]));
-    for (const c of list as any[]) {
-      const k = c.created_at ? new Date(c.created_at).toISOString().slice(0, 10) : null;
-      if (k && idx.has(k)) days[idx.get(k)!].value += 1;
+    for (const d of dates) {
+      const k = localKey(d);
+      if (idx.has(k)) days[idx.get(k)!].value += 1;
     }
     return days;
   }, [list]);
@@ -135,12 +157,10 @@ export default function OverviewPage() {
         <div className="pointer-events-none absolute bottom-[-6rem] start-1/3 h-48 w-48 rounded-full bg-info/10 blur-3xl" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-success/25 bg-success/10 px-2.5 py-1 text-[11px] font-medium text-success">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-70" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success" />
-              </span>
-              {tr('dashboard.systemHealthy')}
+            <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur">
+              {new Date().toLocaleDateString(undefined, {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+              })}
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               {greeting}{userName ? `، ${userName}` : ''}
@@ -149,10 +169,6 @@ export default function OverviewPage() {
               {workspace?.name
                 ? `${tr('dashboard.workspaceLabel')}: ${workspace.name}`
                 : platformName}
-              {' · '}
-              {new Date().toLocaleDateString(undefined, {
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-              })}
             </p>
           </div>
 

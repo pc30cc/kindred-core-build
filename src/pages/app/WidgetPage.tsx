@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
+import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
+import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -42,16 +44,40 @@ function WidgetPageContent() {
   // Single source of truth — widget URLs come from platform widget settings only.
   const { data: platformWidget } = useWidgetPlatformSettings();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
+  const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
+  const [tab, setTab] = useState<string>('appearance');
+  const [manualView, setManualView] = useState<PreviewView | null>(null);
+
+  /**
+   * Local draft layer: every keystroke updates the preview instantly while the
+   * actual save is debounced, so typing stays smooth and nothing is lost.
+   */
+  const [draft, setDraft] = useState<Record<string, any>>({});
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
+
+  const setField = (field: string, value: any, delay = 500) => {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+    clearTimeout(timers.current[field]);
+    timers.current[field] = setTimeout(() => {
+      updateWidget.mutate({ [field]: value } as any);
+    }, delay);
+  };
+
+  const live = useMemo(() => ({ ...(widget as any), ...draft }), [widget, draft]);
 
   const urls = useMemo(
     () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
     [platformWidget],
   );
 
-  const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
+  const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
+  const previewView: PreviewView =
+    manualView ??
+    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'chat');
 
   const windowEmbedCode = useMemo(
     () => buildWidgetEmbedSnippet(urls, {

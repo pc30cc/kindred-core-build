@@ -255,6 +255,7 @@ const en = {
     viewAlerts: 'View alerts',
     invisibleMode: 'Enable invisible mode',
     availability: 'Availability settings',
+    userProfile: 'User profile',
     manageAccount: 'Manage account',
     workspaceSettings: 'Workspace settings',
     inviteOperator: 'Invite an operator',

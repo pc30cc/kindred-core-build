@@ -1318,29 +1318,17 @@ export default function InboxPage() {
                     {presence && presence.status !== 'unknown' && (
                       <>
                         {selected.contacts?.email && <span className="opacity-30">•</span>}
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 font-medium',
-                            presence.status === 'online' && 'text-success',
-                            presence.status === 'idle' && 'text-warning',
-                            presence.status === 'offline' && 'text-muted-foreground',
-                          )}
+                        <PresenceBadge
+                          state={presence.status as 'online' | 'idle' | 'offline'}
                           title={presence.current_page || undefined}
-                        >
-                          <span
-                            className={cn(
-                              'w-1.5 h-1.5 rounded-full',
-                              presence.status === 'online' && 'bg-success',
-                              presence.status === 'idle' && 'bg-warning',
-                              presence.status === 'offline' && 'bg-muted-foreground',
-                            )}
-                          />
-                          {presence.status === 'online'
-                            ? (t('inbox.presenceOnline') || 'Online')
-                            : presence.status === 'idle'
-                              ? (t('inbox.presenceIdle') || 'Idle')
-                              : (t('inbox.presenceOffline') || 'Offline')}
-                        </span>
+                          label={
+                            presence.status === 'online'
+                              ? (t('inbox.presenceOnline') || 'Online')
+                              : presence.status === 'idle'
+                                ? (t('inbox.presenceIdle') || 'Idle')
+                                : (t('inbox.presenceOffline') || 'Offline')
+                          }
+                        />
                       </>
                     )}
                   </div>

@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Bell, LifeBuoy, Settings2, Search } from 'lucide-react';
+import { Moon, Sun, LifeBuoy, Settings2, Search } from 'lucide-react';
 import { useI18n } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { UserMenu } from '@/components/layout/UserMenu';
+import { AlertsMenu } from '@/components/layout/AlertsMenu';
 
 /**
  * Slim, sticky toolbar pinned to the top of the workspace shell.
@@ -95,22 +96,7 @@ export function AppTopBar() {
 
         {/* Group 3 — Workspace shortcuts */}
         <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                asChild
-                variant="ghost"
-                size="icon"
-                className="relative h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
-              >
-                <Link to={wsPath('/settings/notifications')} aria-label="alerts">
-                   <Bell />
-                  <span className="absolute end-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
-                </Link>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{t('nav.viewAlerts') || 'Alerts'}</TooltipContent>
-          </Tooltip>
+          <AlertsMenu />
 
           <Tooltip>
             <TooltipTrigger asChild>

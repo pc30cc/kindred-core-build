@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
@@ -189,6 +190,11 @@ export default function InboxPage() {
     updateUrl({ filter: c });
   }, [updateUrl]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Toolbar slot in the app top bar — filter tabs are rendered up there.
+  const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setTopbarSlot(document.getElementById('topbar-page-slot'));
+  }, []);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);

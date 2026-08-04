@@ -76,6 +76,8 @@ export function useConversations(
         last_visitor_message?: { body: string; created_at: string; seen_at: string | null } | null;
         last_message?: { body: string; created_at: string; sender_type: string } | null;
         unread_count?: number;
+        visitor_os?: string | null;
+        visitor_device?: string | null;
       })[];
 
       // Enrich each conversation with the latest visitor (sender_type='contact')
@@ -123,6 +125,30 @@ export function useConversations(
           c.last_visitor_message = byConv[c.id] ?? null;
           c.last_message = lastByConv[c.id] ?? null;
           c.unread_count = unreadByConv[c.id] ?? 0;
+        }
+      }
+
+      // Enrich with the visitor's device/OS so avatars can fall back to an
+      // OS-branded glyph when the contact has no profile picture.
+      const contactIds = Array.from(
+        new Set(convos.map((c) => (c as any).contact_id).filter(Boolean) as string[]),
+      );
+      if (contactIds.length > 0) {
+        const { data: sessions } = await supabase
+          .from('visitor_sessions')
+          .select('contact_id, os, device, last_seen_at')
+          .in('contact_id', contactIds)
+          .order('last_seen_at', { ascending: false })
+          .limit(500);
+        const osByContact: Record<string, { os: string | null; device: string | null }> = {};
+        for (const s of (sessions || []) as Array<{ contact_id: string | null; os: string | null; device: string | null }>) {
+          if (!s.contact_id || osByContact[s.contact_id]) continue;
+          osByContact[s.contact_id] = { os: s.os ?? null, device: s.device ?? null };
+        }
+        for (const c of convos) {
+          const info = osByContact[(c as any).contact_id as string];
+          c.visitor_os = info?.os ?? null;
+          c.visitor_device = info?.device ?? null;
         }
       }
       if (queue === 'main') {

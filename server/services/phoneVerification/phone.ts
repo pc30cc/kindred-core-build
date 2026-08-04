@@ -6,7 +6,22 @@
  * enough to support a new country.
  */
 
-export const SUPPORTED_COUNTRIES = ['IR'] as const;
+/**
+ * Country table — adding an entry is enough to support a new country.
+ * `dial` is the E.164 prefix (no `+`), `national` validates the subscriber
+ * number after the trunk zero / country prefix has been stripped.
+ */
+export const COUNTRY_TABLE = {
+  IR: { dial: '98', national: /^9\d{9}$/ },
+  TR: { dial: '90', national: /^5\d{9}$/ },
+  AE: { dial: '971', national: /^5\d{8}$/ },
+  IQ: { dial: '964', national: /^7\d{9}$/ },
+  AF: { dial: '93', national: /^7\d{8}$/ },
+  GB: { dial: '44', national: /^7\d{9}$/ },
+  DE: { dial: '49', national: /^1[5-7]\d{8,9}$/ },
+} as const;
+
+export const SUPPORTED_COUNTRIES = Object.keys(COUNTRY_TABLE) as unknown as readonly (keyof typeof COUNTRY_TABLE)[];
 export type SupportedCountry = (typeof SUPPORTED_COUNTRIES)[number];
 
 export function isSupportedCountry(value: unknown): value is SupportedCountry {

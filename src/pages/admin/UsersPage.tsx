@@ -442,6 +442,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2 border-t bg-card/60 p-4">
+        <Button variant="default" size="sm" className="gap-2" onClick={openEditDialog}>
+          <Pencil className="h-4 w-4" />
+          {t('admin.users.editUser')}
+        </Button>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setResetConfirm(true)} disabled={resetLinkLoading}>
           {resetLinkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {t('admin.users.sendResetLink')}

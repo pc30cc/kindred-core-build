@@ -7,7 +7,7 @@
  * No Edge Functions. All reads/writes go through /api/account/security/*.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation, useI18n } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -43,6 +43,7 @@ import {
   Tablet,
   X,
 } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, LogIn, Clock, Globe2, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function deviceIcon(device: string) {
@@ -72,6 +73,52 @@ function formatDate(iso: string | null, locale: string): string {
   } catch {
     return iso;
   }
+}
+
+function formatRelative(iso: string | null, locale: string): string {
+  if (!iso) return '—';
+  try {
+    const diffMs = new Date(iso).getTime() - Date.now();
+    const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+    const abs = Math.abs(diffMs);
+    const min = 60_000, hour = 3_600_000, day = 86_400_000;
+    if (abs < hour) return rtf.format(Math.round(diffMs / min), 'minute');
+    if (abs < day) return rtf.format(Math.round(diffMs / hour), 'hour');
+    return rtf.format(Math.round(diffMs / day), 'day');
+  } catch {
+    return formatDate(iso, locale);
+  }
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  tone = 'default',
+}: {
+  icon: any;
+  label: string;
+  value: string;
+  tone?: 'default' | 'success' | 'danger';
+}) {
+  return (
+    <Card className="flex items-center gap-3 border-border/60 p-4 shadow-sm">
+      <div
+        className={cn(
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+          tone === 'success' && 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+          tone === 'danger' && 'bg-destructive/10 text-destructive',
+          tone === 'default' && 'bg-primary/10 text-primary',
+        )}
+      >
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="truncate text-sm font-semibold text-foreground">{value}</p>
+      </div>
+    </Card>
+  );
 }
 
 function LocationCell({

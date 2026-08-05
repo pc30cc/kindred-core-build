@@ -24,6 +24,7 @@ type Dict = {
   homeStartChat: string; homeLeaveMessage: string;
   homeReplyFast: string; homeReplySlow: string;
   homeHelpTitle: string; homeSeeAll: string;
+  kbAllArticles: string; kbCategories: string; kbEmpty: string;
 };
 
 const DICTS: Record<string, Dict> = {
@@ -42,6 +43,8 @@ const DICTS: Record<string, Dict> = {
     homeReplyFast: 'Typically replies in a few minutes',
     homeReplySlow: "We'll reply by email as soon as we're back",
     homeHelpTitle: 'Find an answer', homeSeeAll: 'See all',
+    kbAllArticles: 'Popular articles', kbCategories: 'Browse by category',
+    kbEmpty: 'No articles published yet — add some in the Knowledge Base.',
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -58,6 +61,8 @@ const DICTS: Record<string, Dict> = {
     homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
     homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
     homeHelpTitle: 'پاسخ خود را پیدا کنید', homeSeeAll: 'مشاهده همه',
+    kbAllArticles: 'مقالات پرکاربرد', kbCategories: 'دسته‌بندی‌ها',
+    kbEmpty: 'هنوز مقاله‌ای منتشر نشده است — از بخش پایگاه دانش اضافه کنید.',
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -74,6 +79,8 @@ const DICTS: Record<string, Dict> = {
     homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
     homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
     homeHelpTitle: 'Yanıtınızı bulun', homeSeeAll: 'Tümünü gör',
+    kbAllArticles: 'Popüler makaleler', kbCategories: 'Kategoriye göre göz at',
+    kbEmpty: 'Henüz yayınlanmış makale yok — Bilgi Bankası’ndan ekleyin.',
   },
 };
 
@@ -116,9 +123,14 @@ export interface WidgetLivePreviewProps {
   prechat?: WidgetPrechatSettings | null;
   brandName: string;
   view: PreviewView;
+  /** Real published knowledge-base data so the preview matches the live widget. */
+  kbArticles?: { title: string; excerpt?: string | null }[];
+  kbCategories?: { name: string; description?: string | null }[];
 }
 
-export function WidgetLivePreview({ settings, prechat, brandName, view }: WidgetLivePreviewProps) {
+export function WidgetLivePreview({
+  settings, prechat, brandName, view, kbArticles, kbCategories,
+}: WidgetLivePreviewProps) {
   const srcDoc = useMemo(() => {
     const s = settings || {};
     const locale: string = s.widget_language || s.locale || 'en';

@@ -385,6 +385,7 @@
       else if (rt && rt._instance) warn("Stale runtime has no destroy() — cannot fully release resources");
     } catch (_) {}
     try { if (window.__gs_runtime) window.__gs_runtime._instance = null; } catch (_) {}
+    try { if (openStateObserver) { openStateObserver.disconnect(); openStateObserver = null; } } catch (_) {}
     try { if (window.__gs_call && typeof window.__gs_call.destroy === "function") window.__gs_call.destroy(); } catch (_) {}
     try {
       var stale = document.querySelectorAll('script[data-gs-runtime],script[data-gs-runtime-call]');

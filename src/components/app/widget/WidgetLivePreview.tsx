@@ -151,12 +151,22 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
     const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
-    const tabs = kbEnabled
-      ? `<div class="tabs">
-           <button type="button" class="tab${view === 'kb' ? '' : ' active'}">${esc(d.chatTab)}</button>
-           <button type="button" class="tab${view === 'kb' ? ' active' : ''}">${esc(d.helpTab)}</button>
-         </div>`
-      : '';
+    const NAV_ICONS: Record<string, string> = {
+      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.8"/>',
+      chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+      help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
+    };
+    const navDefs: { key: string; label: string }[] = [{ key: 'home', label: d.homeTab }, { key: 'chat', label: d.chatTab }];
+    if (kbEnabled) navDefs.push({ key: 'help', label: d.helpTab });
+    const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
+    const tabs = `<div class="tabs tabs-bottom">${navDefs
+      .map(
+        (n) => `<button type="button" class="tab${n.key === activeNav ? ' active' : ''}">
+           <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
+           <span class="tab-label">${esc(n.label)}</span>
+         </button>`,
+      )
+      .join('')}</div>`;
 
     // Operator avatar: use the workspace logo when one is configured (that is
     // what visitors see once an operator picture exists), otherwise the initial.

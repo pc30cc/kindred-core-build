@@ -2819,10 +2819,25 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 
 /* ─── Responsive ───────────────────────────────────────────────────── */
 @media (max-width: 480px) {
-  .panel {
+  /* RUNTIME only: real websites get the fullscreen sheet on phones. */
+  .shell.gs-mode-runtime .panel {
     inline-size: 100vw; block-size: 100dvh;
     border-radius: 0; inset: 0 !important;
   }
+  /* PREVIEW: the customization iframe is ~368px wide, which must NOT trigger
+     the fullscreen sheet — the panel stays a floating card anchored above the
+     dynamically computed launcher zone. */
+  .shell.gs-mode-preview .panel {
+    inline-size: min(368px, calc(100vw - 24px));
+    max-inline-size: calc(100vw - 24px);
+    block-size: min(640px, calc(100dvh - var(--gs-preview-launcher-zone, 132px) - 16px));
+    max-block-size: 640px;
+    inset-block-start: auto !important;
+    inset-block-end: var(--gs-preview-launcher-zone, 132px) !important;
+    border-radius: 12px !important;
+  }
+  .shell.gs-mode-preview .panel.bottom-right { inset-inline: auto 24px !important; }
+  .shell.gs-mode-preview .panel.bottom-left  { inset-inline: 24px auto !important; }
   .header-home { border-radius: 0; padding-block-start: calc(14px + env(safe-area-inset-top, 0px)); }
   .home-cats { grid-template-columns: repeat(2, 1fr); }
   .kb-cats { grid-template-columns: repeat(2, 1fr); }

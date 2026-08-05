@@ -3632,6 +3632,9 @@
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
+      // Prefer the server-published, content-hashed KB module URL.
+      var explicit = ctx.config && ctx.config.modules && ctx.config.modules.kb;
+      if (typeof explicit === 'string' && explicit) return explicit;
       return base + '/widget/runtime-kb.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
     }
 

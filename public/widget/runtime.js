@@ -5023,16 +5023,12 @@
       : '';
     var headerCloseHtml = '<button type="button" class="header-close" data-panel-close aria-label="' +
       Util.escapeHtml(t('closeWidget') || 'Close') + '" title="' + Util.escapeHtml(t('closeWidget') || 'Close') + '">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
-      '<path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="m6 9 6 6 6-6"/></svg></button>';
     var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
       headerCloseHtml +
       '<div class="header-brand">' +
         headerLogoHtml +
-        '<div class="header-brand-text">' +
-          '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
-          '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
-        '</div>' +
         teamStackHtml +
       '</div>' +
       '<div class="presence sr-only" data-presence aria-live="polite">' +

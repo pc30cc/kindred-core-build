@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
+import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';

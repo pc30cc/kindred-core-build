@@ -17,7 +17,7 @@
  *   - No localStorage for identity. Server is the only source of truth.
  *   - UI never imports polling specifics.
  *   - No offline message queue in this phase. Composer disabled while offline.
- *   - Public API returned to loader: { open, close, toggle, setUnread }.
+ *   - Public API returned to loader: { open, close, toggle, setUnread, destroy }.
  */
 (function () {
   'use strict';
@@ -25,6 +25,41 @@
   var __gs_runtime = {};
   var RUNTIME_VERSION = '2026-08-05-canonical-v1';
   __gs_runtime._version = RUNTIME_VERSION;
+
+  // ════════════════════════════════════════════════════════════════════
+  // Instance resource registry — powers the real `destroy()`
+  //
+  // Every timer, DOM/window listener and store created while an instance
+  // is being built registers a disposer here. `destroy()` drains them in
+  // reverse order. Anything created outside an active instance (module
+  // load time) is intentionally NOT tracked.
+  // ════════════════════════════════════════════════════════════════════
+  var __RES = null;
+
+  function regDispose(fn) {
+    if (__RES && typeof fn === 'function') __RES.push(fn);
+    return fn;
+  }
+  /** Tracked addEventListener. */
+  function onEvt(target, evt, fn, opts) {
+    if (!target || !target.addEventListener) return function () {};
+    target.addEventListener(evt, fn, opts);
+    var off = function () { try { target.removeEventListener(evt, fn, opts); } catch (_) {} };
+    regDispose(off);
+    return off;
+  }
+  /** Tracked setInterval. */
+  function everyMs(fn, ms) {
+    var id = setInterval(fn, ms);
+    regDispose(function () { clearInterval(id); });
+    return id;
+  }
+  /** Tracked setTimeout. */
+  function laterMs(fn, ms) {
+    var id = setTimeout(fn, ms);
+    regDispose(function () { clearTimeout(id); });
+    return id;
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Util
@@ -303,6 +338,9 @@
   function createStore(initial) {
     var state = initial || {};
     var listeners = [];
+    // Registered with the active instance so destroy() drops every
+    // subscription in one pass — no orphaned re-render callbacks.
+    regDispose(function () { listeners.length = 0; });
     function get() { return state; }
     function set(update) {
       var next = typeof update === 'function' ? update(state) : update;
@@ -1441,12 +1479,21 @@
     }
 
     function connect() {
+      // ─── Preview mode ───
+      // The operator-facing live preview mounts THIS runtime, but must never
+      // open a socket, poll, or hit the API. Report a healthy connection and
+      // stop: everything rendered afterwards is driven by seeded state.
+      if (ctx && ctx.previewMode) {
+        setConnectionState('online');
+        if (fsm && fsm.get() !== 'connected') { try { fsm.transition('connected', 'preview'); } catch (_) {} }
+        return;
+      }
       manuallyClosed = false;
       consecutiveFailures = 0;
       lastSuccessAt = 0;
       if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('online', handleBrowserOnline);
-        window.addEventListener('offline', handleBrowserOffline);
+        onEvt(window, 'online', handleBrowserOnline);
+        onEvt(window, 'offline', handleBrowserOffline);
       }
       if (!browserOnline) {
         if (fsm) fsm.transition('offline', 'connect:no-network');
@@ -1712,9 +1759,9 @@
     function markUserInteracted() { userInteracted = true; }
     if (typeof window !== 'undefined') {
       var once = { once: true, capture: true };
-      window.addEventListener('pointerdown', markUserInteracted, once);
-      window.addEventListener('keydown', markUserInteracted, once);
-      window.addEventListener('touchstart', markUserInteracted, once);
+      onEvt(window, 'pointerdown', markUserInteracted, once);
+      onEvt(window, 'keydown', markUserInteracted, once);
+      onEvt(window, 'touchstart', markUserInteracted, once);
     }
     function ensureAudioCtx() {
       try {
@@ -1805,7 +1852,7 @@
         } catch (_) { /* swallow */ }
       }
       ringOnce();
-      var interval = setInterval(ringOnce, 1900);
+      var interval = everyMs(ringOnce, 1900);
       ringNodes = {
         stop: function () {
           try { clearInterval(interval); } catch (_) {}
@@ -1833,9 +1880,9 @@
     if (typeof window !== 'undefined') {
       var unlockOpts = { capture: true };
       var onAnyInteraction = function () { tryStartPendingRing(); };
-      window.addEventListener('pointerdown', onAnyInteraction, unlockOpts);
-      window.addEventListener('keydown', onAnyInteraction, unlockOpts);
-      window.addEventListener('touchstart', onAnyInteraction, unlockOpts);
+      onEvt(window, 'pointerdown', onAnyInteraction, unlockOpts);
+      onEvt(window, 'keydown', onAnyInteraction, unlockOpts);
+      onEvt(window, 'touchstart', onAnyInteraction, unlockOpts);
     }
 
     // ─── Toast (Shadow DOM only, lives next to launcher) ───
@@ -2172,7 +2219,7 @@
       transport.on('reconnect', function () { publish(); });
       // Re-evaluate periodically so business-hours transitions take effect
       // without requiring a new transport event. Lightweight (60s tick).
-      setInterval(publish, 60_000);
+      everyMs(publish, 60_000);
       // Initial publish
       publish();
     }
@@ -2783,7 +2830,7 @@
           if (existing) {
             // Already injected; just poll.
             var t0 = Date.now();
-            var iv = setInterval(function () {
+            var iv = everyMs(function () {
               if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
                 clearInterval(iv); resolve();
               } else if (Date.now() - t0 > (timeoutMs || 8000)) {
@@ -3938,6 +3985,14 @@
   // Core — orchestrates everything inside the shadow root
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
+    // ─── Fresh per-instance resource registry ───
+    // Any previous instance that was not destroyed explicitly is torn down
+    // here so an SPA remount can never leave two live runtimes ticking.
+    if (__RES) { try { __gs_runtime.destroy(); } catch (_) {} }
+    __RES = [];
+    var __instanceRes = __RES;
+    var __destroyed = false;
+
     // Debug flag resolution (any one enables verbose `[Widget Runtime]` logs):
     //   1) server-driven `config.debugMode` (admin → widget settings)
     //   2) per-tab override: `localStorage.setItem('gs:debug','1')`
@@ -3969,7 +4024,7 @@
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
     if (!shell || !shadowRoot) {
       Util.warn('FATAL: no shadowRoot provided by loader');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){}, destroy: function(){} };
     }
 
      // Honor the workspace's "Widget Language" setting. When set to a
@@ -3991,6 +4046,10 @@
        locale: resolvedLocale,
        primaryColor: config.primaryColor || '#6D5DFB',
        shell: shell,
+       // Operator-facing live preview. Same code path, same DOM, same CSS —
+       // only the I/O seam is stubbed. See createPreviewFetch below.
+       previewMode: !!config.previewMode,
+       previewView: config.previewView || 'home',
      };
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
@@ -4002,6 +4061,39 @@
     ctx.fetchWith = tokenMgr.fetchWith;
     ctx.getToken = tokenMgr.get;
     ctx.tokenManager = tokenMgr;
+
+    // ─── Preview I/O seam ────────────────────────────────────────────
+    // In preview mode the runtime renders from canned payloads instead of
+    // the widget API. This is the ONLY difference from a visitor session:
+    // markup, CSS, RTL handling and view logic are byte-identical because
+    // they come from this same file.
+    if (ctx.previewMode) {
+      try { tokenMgr.destroy(); } catch (_) {}
+      var previewSeed = config.previewSeed || {};
+      function previewJson(body) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: function () { return Promise.resolve(body); },
+          text: function () { return Promise.resolve(JSON.stringify(body)); },
+          headers: { get: function () { return null; } },
+        });
+      }
+      ctx.fetchWith = function (url) {
+        var u = String(url || '');
+        if (u.indexOf('/identity/history') !== -1 || u.indexOf('/conversations') !== -1) {
+          return previewJson({
+            conversation_id: 'preview',
+            messages: previewSeed.messages || [],
+          });
+        }
+        if (u.indexOf('/kb') !== -1 || u.indexOf('knowledge') !== -1) {
+          return previewJson({ articles: previewSeed.articles || [], categories: previewSeed.categories || [] });
+        }
+        return previewJson({ ok: true });
+      };
+      ctx.getToken = function () { return 'preview'; };
+    }
 
     // ─── Shared token bus integration ─────────────────────────────────
     // Bridge runtime tokenManager ↔ window.__gs_token (set up by loader).
@@ -4060,7 +4152,7 @@
     // Tear down the token manager when the panel is unloaded by the host
     // page (SPA route swap). Prevents orphaned refresh timers.
     if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('pagehide', function () { try { tokenMgr.destroy(); } catch (_) {} }, { once: true });
+      onEvt(window, 'pagehide', function () { try { tokenMgr.destroy(); } catch (_) {} }, { once: true });
     }
 
     // ─── Visibility / wake-up recovery ───────────────────────────────
@@ -4157,18 +4249,18 @@
           setTimeout(function () { __wakeInflight = false; }, 2000);
         }
       };
-      document.addEventListener('visibilitychange', function () {
+      onEvt(document, 'visibilitychange', function () {
         if (document.visibilityState === 'visible') triggerWake('visibilitychange');
       });
       if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('pageshow', function (e) {
+        onEvt(window, 'pageshow', function (e) {
           // pageshow with persisted=true means restored from BFCache —
           // a definitive signal that all sockets are dead. Plain pageshow
           // (persisted=false) fires on EVERY navigation including the
           // initial load; suppress it to avoid racing the bootstrap path.
           if (e && e.persisted) triggerWake('bfcache');
         });
-        window.addEventListener('focus', function () {
+        onEvt(window, 'focus', function () {
           // focus is a weaker signal; only act if we know we're offline.
           try {
             var s = transportStore && transportStore.get && transportStore.get();
@@ -4232,6 +4324,15 @@
       var engine = window.__gs_call && window.__gs_call.engine;
       if (!engine) return; // try again later when caller invokes us
       __engineSubscribed = true;
+      // Tracked so destroy() detaches the call-engine listeners instead of
+      // leaving them bound to a dead surface store.
+      regDispose(function () {
+        __engineSubscribed = false;
+        try {
+          if (typeof engine.removeAllListeners === 'function') engine.removeAllListeners();
+          else if (typeof engine.off === 'function') { engine.off('state'); engine.off('error'); }
+        } catch (_) {}
+      });
       engine.on('state', function (state) {
         var cur = callSurfaceStore.get();
         if (cur.phase === 'idle') return; // surface already closed
@@ -4657,7 +4758,7 @@
     // 1Hz timer ticker — re-renders the surface only when the call is
     // active so the visible mm:ss advances. Defensive: only queues a
     // re-render if the body is actually showing the call surface.
-    setInterval(function () {
+    everyMs(function () {
       try {
         var s = callSurfaceStore.get();
         if (s && s.phase !== 'idle') {
@@ -5019,7 +5120,7 @@
     }
     if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
       Util.warn('FATAL: no mount target available inside shadow root');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){}, destroy: function(){} };
     }
     try { shellDiv.setAttribute('data-widget-design', 'canonical-v1'); } catch (_) {}
     var launcher = shell.launcher;
@@ -5508,7 +5609,7 @@
       if (e.target === lightboxEl) closeLightbox();
     });
     // ESC closes — bound on the host document because focus may be outside the shadow root.
-    document.addEventListener('keydown', function (e) {
+    onEvt(document, 'keydown', function (e) {
       if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
     });
 
@@ -5856,7 +5957,7 @@
           msgInput.focus();
           closeEmojiPop();
         });
-        setTimeout(function () { document.addEventListener('click', onDocClickEmoji, true); }, 0);
+        laterMs(function () { onEvt(document, 'click', onDocClickEmoji, true); }, 0);
       });
     }
     if (micBtn) {
@@ -6374,6 +6475,40 @@
       if (s.isOpen && s.activeTab === 'chat') clearUnreadForActive();
     });
 
+    // ─── Preview seeding ─────────────────────────────────────────────
+    // Preview renders a representative conversation so the operator can
+    // judge bubbles/typing/composer. Same stores, same renderers.
+    if (ctx.previewMode) {
+      var pv = ctx.previewView || 'home';
+      var seedRaw = (config.previewSeed && config.previewSeed.messages) || [];
+      if (seedRaw.length) {
+        // Normalize into the SAME internal message shape the real ingest
+        // path produces, so the renderer takes an identical branch.
+        var seedMsgs = seedRaw.map(function (m, i) {
+          var senderRaw = m.role || m.sender || m.sender_type || 'agent';
+          return {
+            body: m.text || m.body || m.content || '',
+            sender: (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator',
+            time: m.created_at ? new Date(m.created_at) : new Date(),
+            __id: m.id || ('preview-' + i),
+            attachment: null,
+            senderName: m.sender_name || null,
+            senderAvatar: m.sender_avatar || null,
+            status: senderRaw === 'visitor' || senderRaw === 'contact' ? 'seen' : null,
+            seenAt: null,
+            senderType: senderRaw,
+            metadata: null,
+          };
+        });
+        chatStore.set({ conversationId: 'preview', messages: seedMsgs });
+      }
+      shellStore.set({ isOpen: true });
+      try { transportStore.set({ connectionState: 'online', lastConnectionChange: Date.now() }); } catch (_) {}
+      try { panel.classList.add('visible'); } catch (_) {}
+      if (launcher) launcher.classList.add('open');
+      switchTab(pv === 'chat' ? 'chat' : pv === 'help' ? 'help' : 'home');
+    }
+
     // ─── Public API back to loader ───
     return {
       open: function () {
@@ -6413,7 +6548,69 @@
       getTransportCapabilities: function () {
         return transport.getCapabilities ? transport.getCapabilities() : {};
       },
+
+      /**
+       * Real teardown of THIS runtime instance.
+       *
+       * `close()` only hides the panel — it is NOT a destroy. This method
+       * releases every resource the instance owns so an SPA route swap or a
+       * loader version upgrade can mount a fresh runtime with zero leaks:
+       *   1. realtime transport (driver socket + polling fallback)
+       *   2. TokenManager (proactive refresh timer + change listeners)
+       *   3. call engine listeners + visitor call surface
+       *   4. notification sounds / toasts / document.title restore
+       *   5. every tracked setInterval / setTimeout / window+document
+       *      listener and every store subscription (registry drain)
+       *   6. the panel DOM inside the shadow root
+       * Idempotent.
+       */
+      destroy: function () {
+        if (__destroyed) return;
+        __destroyed = true;
+        Util.log('Runtime destroy() — releasing instance resources');
+
+        // 1. Realtime transport / polling.
+        try { if (transport && transport.disconnect) transport.disconnect('destroy'); } catch (_) {}
+        // 2. Token manager.
+        try { if (tokenMgr && tokenMgr.destroy) tokenMgr.destroy(); } catch (_) {}
+        // 3. Call engine + visitor call runtime.
+        try { if (window.__gs_call && typeof window.__gs_call.destroy === 'function') window.__gs_call.destroy(); } catch (_) {}
+        // 4. Notifications (title/favicon restore, audio, toasts).
+        try {
+          if (notify && typeof notify.destroy === 'function') notify.destroy();
+          else if (notify && typeof notify.hideToast === 'function') { notify.hideToast(); notify.setUnread(0); }
+        } catch (_) {}
+
+        // 5. Drain the tracked registry (reverse order).
+        for (var i = __instanceRes.length - 1; i >= 0; i--) {
+          try { __instanceRes[i](); } catch (_) {}
+        }
+        __instanceRes.length = 0;
+        if (__RES === __instanceRes) __RES = null;
+
+        // 6. DOM owned by this instance.
+        try { if (panel && panel.parentNode) panel.parentNode.removeChild(panel); } catch (_) {}
+        try { if (launcher && launcher.classList) launcher.classList.remove('open'); } catch (_) {}
+        try { if (shellDiv) shellDiv.innerHTML = ''; } catch (_) {}
+
+        try { __gs_runtime._instance = null; } catch (_) {}
+        try { window.__gs_runtime_destroyed = (window.__gs_runtime_destroyed || 0) + 1; } catch (_) {}
+      },
     };
+  };
+
+  /**
+   * Module-level convenience: destroy whatever instance is currently
+   * registered. Used by the loader's stale-instance teardown path.
+   */
+  __gs_runtime.destroy = function () {
+    var inst = __gs_runtime._instance;
+    if (inst && typeof inst.destroy === 'function') inst.destroy();
+    else if (__RES) {
+      for (var i = __RES.length - 1; i >= 0; i--) { try { __RES[i](); } catch (_) {} }
+      __RES = null;
+    }
+    __gs_runtime._instance = null;
   };
 
   window.__gs_runtime = __gs_runtime;

@@ -14,9 +14,15 @@
  * lazily; if the fetch fails we keep serving the previous good manifest
  * instead of regressing to fallback values.
  *
- * The fallback (when nothing is reachable) returns the unhashed asset names
- * with a `loaderVersion` of `'unresolved'`. We deliberately do NOT use the
- * old `'dev'` literal — that masked the configuration error in production.
+ * In production, if no valid (hashed) manifest can be resolved we DO NOT
+ * fall back to unhashed asset names — that used to silently serve broken/
+ * uncacheable assets and mask real deployment misconfiguration. Instead,
+ * `getWidgetAssetName()` / `getLoaderVersion()` throw a
+ * `WidgetManifestUnavailableError` so callers can return a controlled 503.
+ *
+ * In development (NODE_ENV !== 'production') we keep serving unhashed
+ * fallback names so a local checkout without a widget build still works,
+ * accompanied by a loud console warning.
  */
 import { createHash } from 'crypto';
 import { readFileSync, existsSync } from 'fs';
@@ -47,6 +53,26 @@ type WidgetAssetKey =
   | 'runtime-rt-supabase.js'
   | 'runtime-rt-resolver.js'
   | 'vendor/livekit-client.umd.min.js';
+
+/**
+ * Thrown by getWidgetAssetName()/getLoaderVersion() in production when no
+ * valid hashed manifest could be resolved from local FS or remote HTTP.
+ * Callers (route handlers) must catch this and return a controlled 503 —
+ * never let it bubble up as an unhandled 500 with a stack trace.
+ */
+export class WidgetManifestUnavailableError extends Error {
+  public readonly diagnostics: ReturnType<typeof buildDiagnostics>;
+
+  constructor(diagnostics: ReturnType<typeof buildDiagnostics>) {
+    super('Widget asset manifest is unavailable: no valid hashed manifest could be resolved.');
+    this.name = 'WidgetManifestUnavailableError';
+    this.diagnostics = diagnostics;
+  }
+}
+
+// Development-only fallback gate. Production deployments must never serve
+// unhashed asset names — see module doc above.
+const allowUnhashedFallback = process.env.NODE_ENV !== 'production';
 
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;
@@ -197,7 +223,7 @@ async function fetchRemoteManifest(): Promise<WidgetManifest | null> {
   return inflightRemoteFetch;
 }
 
-function fallbackManifest(): WidgetManifest {
+function unhashedFallbackManifest(): WidgetManifest {
   return {
     'runtime.js': 'runtime.js',
     'runtime.css': 'runtime.css',
@@ -214,7 +240,15 @@ function fallbackManifest(): WidgetManifest {
   };
 }
 
-function syncLoadManifest(): WidgetManifest {
+/** A manifest is only "valid" if it has hashed runtime.js/css entries and a resolved loaderVersion. */
+function isManifestValid(manifest: WidgetManifest | null): manifest is WidgetManifest {
+  if (!manifest) return false;
+  if (!manifest['runtime.js'] || !manifest['runtime.css']) return false;
+  if (!manifest.loaderVersion || manifest.loaderVersion === FALLBACK_VERSION) return false;
+  return true;
+}
+
+function syncLoadManifest(): WidgetManifest | null {
   const now = Date.now();
   if (cachedManifest && now - lastReadTime < CACHE_TTL_MS) {
     return cachedManifest;
@@ -238,8 +272,9 @@ function syncLoadManifest(): WidgetManifest {
     return cachedManifest;
   }
 
-  // No local manifest — kick a remote fetch and serve a fallback for THIS
-  // request. Subsequent requests will pick up the remote value.
+  // No local manifest — kick a remote fetch and, in dev only, serve an
+  // unhashed fallback for THIS request. Subsequent requests will pick up
+  // the remote value once it resolves.
   void fetchRemoteManifest().then((remote) => {
     if (remote) {
       cachedManifest = remote;
@@ -249,28 +284,80 @@ function syncLoadManifest(): WidgetManifest {
   });
 
   if (!cachedManifest) {
-    cachedManifest = fallbackManifest();
-    lastSource = 'fallback';
-    lastReadTime = now;
-    if (cachedManifest.loaderVersion === FALLBACK_VERSION) {
-      console.warn(
-        '[widget-manifest] No manifest reachable. Set WIDGET_MANIFEST_URL ' +
-          'or WIDGET_ASSET_BASE_URL on the backend so it can fetch the ' +
-          'frontend-built widget-manifest.json. Serving unhashed assets.',
-      );
+    if (allowUnhashedFallback) {
+      cachedManifest = unhashedFallbackManifest();
+      lastSource = 'fallback';
+      lastReadTime = now;
+      if (cachedManifest.loaderVersion === FALLBACK_VERSION) {
+        console.warn(
+          '[widget-manifest] DEV ONLY: No manifest reachable. Set WIDGET_MANIFEST_URL ' +
+            'or WIDGET_ASSET_BASE_URL on the backend so it can fetch the ' +
+            'frontend-built widget-manifest.json. Serving unhashed assets ' +
+            '(this fallback is disabled in production).',
+        );
+      }
+      return cachedManifest;
     }
+
+    // Production, nothing resolved — do NOT cache a fallback value, keep
+    // returning null so callers can retry on the next request once a
+    // manifest becomes reachable.
+    lastSource = 'unresolved';
+    return null;
   }
 
   return cachedManifest;
 }
 
-export function getWidgetAssetName(logical: WidgetAssetKey): string {
+function buildDiagnostics(manifest: WidgetManifest | null) {
+  return {
+    resolved: isManifestValid(manifest),
+    source: lastSource,
+    loaderVersion: manifest?.loaderVersion ?? null,
+    runtimeJs: manifest?.['runtime.js'] ?? null,
+    runtimeCss: manifest?.['runtime.css'] ?? null,
+    runtimeChatJs: manifest?.['runtime-chat.js'] ?? null,
+    runtimeKbJs: manifest?.['runtime-kb.js'] ?? null,
+    runtimeCallJs: manifest?.['runtime-call.js'] ?? null,
+    livekitSdk: manifest?.['vendor/livekit-client.umd.min.js'] ?? null,
+    cachedAt: lastReadTime ? new Date(lastReadTime).toISOString() : null,
+    remoteUrl: getRemoteManifestUrl(),
+    remoteStatus: lastRemoteStatus,
+    remoteEtag: lastRemoteEtag,
+    remoteLastFetchAt: lastRemoteFetchAt ? new Date(lastRemoteFetchAt).toISOString() : null,
+    cacheTtlMs: CACHE_TTL_MS,
+    isFallback: lastSource === 'fallback',
+    allowUnhashedFallback,
+  };
+}
+
+/** Returns the resolved manifest, or null if none could be resolved (production only). */
+export function getWidgetManifestOrNull(): WidgetManifest | null {
   const manifest = syncLoadManifest();
+  return isManifestValid(manifest) || allowUnhashedFallback ? manifest : null;
+}
+
+/** True when a usable manifest (hashed, or dev fallback) is currently resolved. */
+export function isManifestResolved(): boolean {
+  const manifest = syncLoadManifest();
+  return isManifestValid(manifest) || (allowUnhashedFallback && !!manifest);
+}
+
+function requireManifest(): WidgetManifest {
+  const manifest = syncLoadManifest();
+  if (manifest) return manifest;
+  const diagnostics = buildDiagnostics(null);
+  console.error('[widget-manifest] Unavailable in production:', diagnostics);
+  throw new WidgetManifestUnavailableError(diagnostics);
+}
+
+export function getWidgetAssetName(logical: WidgetAssetKey): string {
+  const manifest = requireManifest();
   return manifest[logical] || logical;
 }
 
 export function getLoaderVersion(): string {
-  const manifest = syncLoadManifest();
+  const manifest = requireManifest();
   return manifest.loaderVersion || FALLBACK_VERSION;
 }
 
@@ -284,21 +371,5 @@ export function invalidateManifestCache(): void {
 
 export function getManifestDiagnostics() {
   const manifest = syncLoadManifest();
-  return {
-    source: lastSource,
-    loaderVersion: manifest.loaderVersion,
-    runtimeJs: manifest['runtime.js'],
-    runtimeCss: manifest['runtime.css'],
-    runtimeChatJs: manifest['runtime-chat.js'],
-    runtimeKbJs: manifest['runtime-kb.js'],
-    runtimeCallJs: manifest['runtime-call.js'],
-    livekitSdk: manifest['vendor/livekit-client.umd.min.js'] || null,
-    cachedAt: lastReadTime ? new Date(lastReadTime).toISOString() : null,
-    remoteUrl: getRemoteManifestUrl(),
-    remoteStatus: lastRemoteStatus,
-    remoteEtag: lastRemoteEtag,
-    remoteLastFetchAt: lastRemoteFetchAt ? new Date(lastRemoteFetchAt).toISOString() : null,
-    cacheTtlMs: CACHE_TTL_MS,
-    isFallback: lastSource === 'fallback',
-  };
+  return buildDiagnostics(manifest);
 }

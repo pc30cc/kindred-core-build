@@ -732,6 +732,7 @@ function WidgetPageContent() {
                 prechat={prechat}
                 brandName={platformName || t('widgetPage.preview.brandFallback')}
                 view={previewView}
+                workspaceId={workspace?.id}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

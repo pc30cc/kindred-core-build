@@ -819,7 +819,7 @@
     if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
       window.__gs_runtime._instance.open();
       isOpen = true;
-      launcherEl.classList.add("open");
+      if (!isPreviewMode()) launcherEl.classList.add("open");
       return;
     }
     onLauncherClick();
@@ -837,7 +837,7 @@
     if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
       window.__gs_runtime._instance.toggle();
       isOpen = !isOpen;
-      launcherEl.classList.toggle("open", isOpen);
+      launcherEl.classList.toggle("open", isOpen && !isPreviewMode());
       return;
     }
     if (runtimeLoading) return;
@@ -895,14 +895,14 @@
           });
           window.__gs_runtime._instance = instance;
           widgetApi = {
-            open: function () { instance.open(); isOpen = true; launcherEl.classList.add("open"); },
+            open: function () { instance.open(); isOpen = true; if (!isPreviewMode()) launcherEl.classList.add("open"); },
             close: function () { instance.close(); isOpen = false; launcherEl.classList.remove("open"); },
-            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen); },
+            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen && !isPreviewMode()); },
             setUnread: setUnreadBadge,
           };
           ready = true;
           isOpen = true;
-          launcherEl.classList.add("open");
+          if (!isPreviewMode()) launcherEl.classList.add("open");
           processQueue();
         } catch (e) {
           warn("Runtime init failed", e);

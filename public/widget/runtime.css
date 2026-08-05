@@ -3327,3 +3327,9 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   .home-cats { grid-template-columns: repeat(2, 1fr); }
   .kb-cats { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Neutralize the legacy incoming-call accent bar and dark-mode card fill:
+   the reference design uses a plain white card with an avatar and pill
+   actions instead of a status-colored top rule. */
+.panel .ci-card::before { content: none !important; display: none !important; }
+.panel .ci-card { background: var(--ref-surface) !important; border-color: var(--ref-border) !important; }

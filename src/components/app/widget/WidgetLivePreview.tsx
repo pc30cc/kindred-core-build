@@ -2,7 +2,8 @@
  * WidgetLivePreview — mounts the REAL widget in preview mode.
  *
  * There is no parallel markup here any more. The iframe below:
- *   1. fetches the canonical `/api/widget/config` (hashed runtime URLs),
+ *   1. receives the canonical widget config (hashed runtime URLs) fetched by
+ *      the parent from the authenticated `/api/widget-preview/config`,
  *   2. applies the operator's in-progress (unsaved) settings on top,
  *   3. sets `window.__gs_preview_config` and loads the production
  *      `/widget/loader.js`, which mounts the production `runtime.css` +
@@ -12,7 +13,8 @@
  * (see `ctx.fetchWith` in public/widget/runtime.js). Every pixel — header,
  * home surface, bubbles, composer, tabs, RTL — comes from the real runtime.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
@@ -36,9 +38,47 @@ const SEED: Record<string, { agent: string; visitor: string }> = {
 };
 
 export function WidgetLivePreview({ settings, prechat, brandName, view, workspaceId }: WidgetLivePreviewProps) {
+  // The public `GET /api/widget/config` sits behind `enforceWidgetToken` and
+  // only accepts visitor session tokens minted for an allow-listed embed
+  // origin — the dashboard is not one, so calling it returns 401. The preview
+  // therefore uses the authenticated operator endpoint
+  // `GET /api/widget-preview/config`, which performs a workspace membership
+  // check server-side and returns the IDENTICAL config document. The fetch
+  // happens here (parent) so the operator JWT never enters the iframe.
+  const wsId = workspaceId || (settings as any)?.workspace_id || '';
+  const [cfg, setCfg] = useState<Record<string, any> | null>(null);
+  const [cfgError, setCfgError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCfg(null);
+    setCfgError(null);
+    if (!wsId) {
+      setCfgError('workspace_unresolved');
+      return;
+    }
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        if (!token) throw new Error('unauthenticated');
+        const res = await fetch(
+          `${apiBase()}/api/widget-preview/config?workspace_id=${encodeURIComponent(wsId)}`,
+          { headers: { Authorization: `Bearer ${token}` }, credentials: 'omit' },
+        );
+        if (!res.ok) throw new Error(`config_${res.status}`);
+        const json = await res.json();
+        if (!json || !json.runtimeUrl || !json.styleUrl) throw new Error('assets_unavailable');
+        if (!cancelled) setCfg(json);
+      } catch (e: any) {
+        if (!cancelled) setCfgError(e?.message || 'unknown');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [wsId]);
+
   const srcDoc = useMemo(() => {
     const s = settings || {};
-    const wsId = workspaceId || s.workspace_id || '';
     const lang = String(s.widget_language && s.widget_language !== 'auto' ? s.widget_language : s.locale || 'en')
       .toLowerCase().split('-')[0];
     const seed = SEED[lang] || SEED.en;
@@ -100,7 +140,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
       overrides.availability = { state: 'offline', message: s.offline_message || '' };
     }
 
-    const payload = JSON.stringify({ api: apiBase(), wsId, overrides })
+    const payload = JSON.stringify({ api: apiBase(), cfg, cfgError, overrides })
       .replace(/</g, '\\u003c');
 
     return `<!doctype html>
@@ -143,35 +183,32 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
     }
     return out;
   }
-  if (!P.wsId) { fail('Preview unavailable: workspace not resolved.'); return; }
-  fetch(P.api + '/api/widget/config?workspace_id=' + encodeURIComponent(P.wsId), { credentials: 'omit' })
-    .then(function (r) {
-      if (!r.ok) throw new Error('config_' + r.status);
-      return r.json();
-    })
-    .then(function (cfg) {
-      if (!cfg || !cfg.runtimeUrl || !cfg.styleUrl) throw new Error('assets_unavailable');
-      var merged = deepMerge(cfg, P.overrides);
-      merged._apiBase = P.api;
-      merged._assetBase = cfg.assetBase || P.api;
-      merged._sessionToken = 'preview';
-      window.__gs_preview_config = merged;
-      var sc = document.createElement('script');
-      sc.src = P.api + '/widget/loader.js?v=' + encodeURIComponent(cfg.loaderVersion || 'preview');
-      sc.async = true;
-      sc.onerror = function () { fail('Preview unavailable: widget loader could not be fetched.'); };
-      document.body.appendChild(sc);
-    })
-    .catch(function (e) {
-      var m = (e && e.message) || 'unknown';
-      fail(m === 'assets_unavailable'
-        ? 'Preview unavailable: the widget build manifest is not published yet.'
-        : 'Preview unavailable: could not load widget configuration (' + m + ').');
-    });
+  if (P.cfgError || !P.cfg) {
+    var m = P.cfgError || 'unknown';
+    fail(m === 'workspace_unresolved'
+      ? 'Preview unavailable: workspace not resolved.'
+      : m === 'unauthenticated'
+        ? 'Preview unavailable: your session expired — sign in again.'
+        : m === 'assets_unavailable'
+          ? 'Preview unavailable: the widget build manifest is not published yet.'
+          : 'Preview unavailable: could not load widget configuration (' + m + ').');
+    return;
+  }
+  var cfg = P.cfg;
+  var merged = deepMerge(cfg, P.overrides);
+  merged._apiBase = P.api;
+  merged._assetBase = cfg.assetBase || P.api;
+  merged._sessionToken = 'preview';
+  window.__gs_preview_config = merged;
+  var sc = document.createElement('script');
+  sc.src = P.api + '/widget/loader.js?v=' + encodeURIComponent(cfg.loaderVersion || 'preview');
+  sc.async = true;
+  sc.onerror = function () { fail('Preview unavailable: widget loader could not be fetched.'); };
+  document.body.appendChild(sc);
 })();
 </script>
 </body></html>`;
-  }, [settings, prechat, brandName, view, workspaceId]);
+  }, [settings, prechat, brandName, view, cfg, cfgError]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">

@@ -5508,9 +5508,6 @@
             '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
           : '') +
             '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
-            '<button type="button" class="mic-btn" data-mic-btn aria-label="Voice" title="Voice">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>' +
-            '</button>' +
           '</div>' +
           '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
             '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
@@ -5910,9 +5907,12 @@
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); }
     });
 
-    // ─── Template2 — emoji picker + mic placeholder ───
+    // ─── Emoji picker ───
+    // NOTE: there is deliberately no voice/mic control here. Voice input is
+    // NOT a supported capability of this widget (no recorder, no upload path,
+    // no transcription backend), so the former mic button — a non-functional
+    // placeholder — was removed rather than left as dead UI.
     var emojiBtn = panel.querySelector('[data-emoji-btn]');
-    var micBtn = panel.querySelector('[data-mic-btn]');
     var emojiPop = null;
     function closeEmojiPop() {
       if (emojiPop && emojiPop.parentNode) emojiPop.parentNode.removeChild(emojiPop);
@@ -5960,13 +5960,6 @@
         laterMs(function () { onEvt(document, 'click', onDocClickEmoji, true); }, 0);
       });
     }
-    if (micBtn) {
-      micBtn.addEventListener('click', function () {
-        // Voice input not yet implemented — keep as visual control.
-        try { micBtn.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }], { duration: 180 }); } catch (_) {}
-      });
-    }
-
     // ─── Render dispatcher ───
     function renderLoading() {
       if (!body) return;

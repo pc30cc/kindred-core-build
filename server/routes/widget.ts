@@ -485,7 +485,16 @@ widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
 // ═══════════════════════════════════════════════
 // GET /config — Full widget configuration
 // ═══════════════════════════════════════════════
-widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+/**
+ * Canonical widget config builder.
+ *
+ * Exported so the authenticated admin preview route
+ * (`server/routes/widgetPreview.ts`) can reuse the EXACT same payload without
+ * weakening `enforceWidgetToken` on the public widget surface. The preview
+ * route authenticates the operator via their Supabase JWT + workspace
+ * membership and sets `_widgetWorkspaceId` before delegating here.
+ */
+export const widgetConfigHandler = async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
@@ -783,7 +792,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     console.error('Widget config error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
-});
+};
+
+widgetRouter.get('/config', widgetRateLimit('bootstrap'), widgetConfigHandler);
 
 // ═══════════════════════════════════════════════
 // GET /poll — Poll for new messages

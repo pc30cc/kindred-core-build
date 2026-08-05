@@ -854,10 +854,18 @@
           processQueue();
         } catch (e) {
           warn("Runtime init failed", e);
+          setLastError("RUNTIME_INIT_FAILED", {
+            url: runtimeJs,
+            message: (e && e.message) || 'runtime.init threw',
+          });
           showShellError("Chat could not start.");
         }
       } else {
         warn("Runtime did not register __gs_runtime");
+        setLastError("RUNTIME_INIT_FAILED", {
+          url: runtimeJs,
+          message: 'runtime script loaded but did not register window.__gs_runtime',
+        });
         showShellError("Chat could not start.");
       }
     }

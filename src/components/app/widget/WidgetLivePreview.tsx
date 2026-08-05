@@ -233,22 +233,36 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <div class="msg-row operator">
           ${logo ? `<span class="msg-avatar has-img"><img src="${esc(logo)}" alt="" /></span>`
                  : `<span class="msg-avatar">${esc(initial)}</span>`}
-          <div class="msg operator welcome-bubble">${esc(d.sample)}</div>
+          <div class="msg operator welcome-bubble">${esc(d.sample)}
+            <span class="msg-time">10:30</span>
+          </div>
         </div>
         <div class="msg-row visitor">
-          <div class="msg visitor" style="background:${esc(primary)}">${esc(d.visitorSample)}</div>
+          <div class="msg visitor" style="background:${esc(primary)}">${esc(d.visitorSample)}
+            <span class="msg-status seen"><span class="msg-status-label">10:31</span></span>
+          </div>
         </div>
       </div>`;
 
     const kbBody = `
       <div class="kb-root" dir="${dir}">
-        <div class="kb-search-wrap">
+        <div class="kb-search-wrap"><div class="kb-search-field">${HOME_ICONS.search}
           <input class="kb-search" type="search" placeholder="${esc(d.kbSearch)}" />
+        </div></div>
+        <div class="kb-section-h">${esc(d.categories)}</div>
+        <div class="kb-cats">
+          ${d.cats.map(c => `<span class="kb-cat">
+            <span class="kb-cat-icon">${HOME_ICONS.folder}</span>
+            <span class="kb-cat-name">${esc(c)}</span>
+          </span>`).join('')}
         </div>
+        <div class="kb-section-h">${esc(d.popularArticles)}</div>
         <div class="kb-list">
           ${d.kbArticles.map(a => `
-            <button type="button" class="kb-article">
-              <div class="kb-article-title">${esc(a)}</div>
+            <button type="button" class="kb-article kb-article-row">
+              <span class="kb-article-icon">${HOME_ICONS.doc}</span>
+              <span class="kb-article-text"><span class="kb-article-title">${esc(a)}</span></span>
+              ${HOME_ICONS.chevron}
             </button>`).join('')}
         </div>
       </div>`;

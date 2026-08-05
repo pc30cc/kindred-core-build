@@ -3701,22 +3701,9 @@
     prepareShell: function (_shellDiv, _ctx) {
       try {
         if (typeof document === 'undefined') return;
-        var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap';
-        if (!document.getElementById('gs-t2-fonts')) {
-          var l = document.createElement('link');
-          l.id = 'gs-t2-fonts';
-          l.rel = 'stylesheet';
-          l.href = FONT_HREF;
-          document.head.appendChild(l);
-        }
-        var sh = (_shellDiv && _shellDiv.shadowRoot) || null;
-        if (sh && !sh.getElementById('gs-t2-fonts-shadow')) {
-          var l2 = document.createElement('link');
-          l2.id = 'gs-t2-fonts-shadow';
-          l2.rel = 'stylesheet';
-          l2.href = FONT_HREF;
-          sh.appendChild(l2);
-        }
+        // Vazirmatn is self-hosted via @font-face in runtime.css
+        // (public/widget/fonts/*.woff2) — no external CDN request.
+        return;
       } catch (_) { /* font injection optional */ }
     },
   });

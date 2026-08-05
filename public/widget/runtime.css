@@ -2989,14 +2989,23 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   font-size: 10.5px; font-weight: 700; color: #1D4ED8;
 }
 
-/* Typing row */
+/* Typing row — floats inside the chat surface as a bubble, not a bar */
 .panel .typing-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px var(--sp-4);
+  display: flex; align-items: center; gap: 7px;
+  margin: 0 var(--sp-4) 6px;
+  padding: 7px 12px;
+  align-self: flex-start;
+  inline-size: fit-content;
+  max-inline-size: calc(100% - var(--sp-6));
   background: var(--ref-surface);
-  border-block-start: 1px solid var(--ref-border);
+  border: 1px solid var(--ref-border);
+  border-radius: var(--r-14);
+  border-end-start-radius: 6px;
+  box-shadow: var(--ref-shadow-card);
   font-size: 11.5px; color: var(--ref-muted);
+  animation: ref-typing-in 180ms ease-out both;
 }
+@keyframes ref-typing-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .panel .typing-dots { display: inline-flex; gap: 3px; }
 .panel .typing-dots span {
   inline-size: 5px; block-size: 5px; border-radius: 50%;
@@ -3007,38 +3016,96 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .panel .typing-dots span:nth-child(3) { animation-delay: .3s; }
 @keyframes ref-typing { 0%,100% { transform: translateY(0); opacity:.4 } 50% { transform: translateY(-3px); opacity:1 } }
 
-/* Composer */
+/* Composer — one compact pill field with inline tools + round send */
 .panel .input-bar {
   flex: none;
   display: flex; align-items: center; gap: 8px;
-  min-block-size: 62px;
-  padding: 10px var(--sp-3);
-  padding-block-end: calc(10px + env(safe-area-inset-bottom, 0px));
+  min-block-size: 0;
+  padding: 8px 10px;
+  padding-block-end: calc(8px + env(safe-area-inset-bottom, 0px));
   background: var(--ref-surface);
   border-block-start: 1px solid var(--ref-border);
 }
+.panel .composer-field {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 2px;
+  block-size: 40px;
+  padding-inline: 6px;
+  background: #F5F5F7;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  transition: border-color var(--ref-motion), background var(--ref-motion), box-shadow var(--ref-motion);
+}
+.panel .composer-field:focus-within {
+  background: var(--ref-surface);
+  border-color: color-mix(in srgb, var(--ref-primary) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ref-primary) 12%, transparent);
+}
 .panel .input-bar .input {
   flex: 1; min-width: 0;
+  block-size: 100%;
   border: 0; outline: 0; background: transparent;
   font: inherit; font-size: 12.5px; color: var(--ref-text);
-  padding-inline: 4px; text-align: start;
+  padding-inline: 6px; text-align: start;
 }
+.panel .input-bar .input::placeholder { color: #9CA3AF; }
 .panel .send-btn {
   order: 9; flex: none;
-  inline-size: 42px; block-size: 42px; border-radius: 50%;
+  inline-size: 38px; block-size: 38px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   border: 0; cursor: pointer; color: #fff;
   background: linear-gradient(135deg, var(--ref-primary), var(--ref-primary-dark)) !important;
-  box-shadow: 0 8px 18px -10px rgba(124,58,237,.95);
+  box-shadow: 0 6px 14px -8px rgba(124,58,237,.95);
+  transition: transform var(--ref-motion), box-shadow var(--ref-motion), opacity var(--ref-motion);
 }
-.panel .send-btn svg { inline-size: 18px; block-size: 18px; fill: currentColor; }
+.panel .send-btn:hover { transform: translateY(-1px); }
+.panel .send-btn:active { transform: scale(.93); }
+.panel .send-btn svg { inline-size: 17px; block-size: 17px; fill: currentColor; }
 .panel[dir="rtl"] .send-btn svg { transform: scaleX(-1); }
 .panel .attach-btn, .panel .emoji-btn, .panel .mic-btn {
-  flex: none; inline-size: 36px; block-size: 36px; border-radius: 50%;
+  flex: none; inline-size: 30px; block-size: 30px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 0; background: #F3F4F6; color: var(--ref-muted); cursor: pointer;
+  border: 0; background: transparent; color: #9CA3AF; cursor: pointer;
+  transition: background var(--ref-motion), color var(--ref-motion), transform var(--ref-motion);
 }
-.panel .attach-btn:hover, .panel .emoji-btn:hover, .panel .mic-btn:hover { background: #EDE9FE; color: var(--ref-primary); }
+.panel .attach-btn svg, .panel .emoji-btn svg, .panel .mic-btn svg {
+  inline-size: 17px; block-size: 17px;
+}
+.panel .attach-btn:hover, .panel .emoji-btn:hover, .panel .mic-btn:hover {
+  background: #EDE9FE; color: var(--ref-primary);
+}
+.panel .attach-btn:active, .panel .emoji-btn:active, .panel .mic-btn:active { transform: scale(.9); }
+.panel .attach-btn:disabled { opacity: .45; cursor: default; }
+
+/* Emoji popover (all templates) */
+.panel .emoji-pop {
+  position: absolute; inset-inline-start: 12px; inset-block-end: 74px;
+  z-index: 12;
+  inline-size: calc(100% - 24px);
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+  padding: 8px;
+  background: var(--ref-surface);
+  border: 1px solid var(--ref-border);
+  border-radius: var(--r-16);
+  box-shadow: 0 18px 40px -18px rgba(16,24,40,.35);
+}
+.panel .emoji-pop-item {
+  border: 0; background: none; cursor: pointer;
+  font-size: 17px; line-height: 1; padding: 5px; border-radius: 8px;
+}
+.panel .emoji-pop-item:hover { background: #F5F3FF; }
+
+/* ─── Scrollbars ───────────────────────────────────────────────────── */
+.panel .body { scrollbar-width: thin; scrollbar-color: rgba(124,58,237,.28) transparent; }
+.panel .body::-webkit-scrollbar { width: 8px; height: 8px; }
+.panel .body::-webkit-scrollbar-track { background: transparent; }
+.panel .body::-webkit-scrollbar-thumb {
+  background: rgba(17,24,39,.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.panel .body::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ref-primary) 55%, transparent); background-clip: content-box; }
 
 /* ─── Help center ──────────────────────────────────────────────────── */
 .panel .kb-root { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }

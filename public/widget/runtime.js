@@ -5442,24 +5442,33 @@
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
+    function switchTab(key) {
+      shellStore.set({ activeTab: key });
+      Array.prototype.forEach.call(tabs, function (t2) {
+        var on = t2.getAttribute('data-tab') === key;
+        t2.classList.toggle('active', on);
+        try { t2.setAttribute('aria-selected', on ? 'true' : 'false'); } catch (_) {}
+      });
+      renderBody();
+      if (key === 'chat' && identityStore.get().loaded && !identity.needsPrechat()) {
+        restoreDraftToInput();
+        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+      }
+    }
     Array.prototype.forEach.call(tabs, function (tab) {
       tab.addEventListener('click', function () {
-        shellStore.set({ activeTab: tab.getAttribute('data-tab') });
-        Array.prototype.forEach.call(tabs, function (t2) { t2.classList.remove('active'); });
-        tab.classList.add('active');
-        renderBody();
-        // NOTE: do NOT force inputBar visibility here. renderBody() is the
-        // single source of truth — it hides the composer when pre-chat is
-        // required, when the offline contact-fallback form owns the input,
-        // or when on the help tab. Forcing 'flex' would re-show the composer
-        // for an unidentified visitor (pre-chat bypass bug).
-        if (shellStore.get().activeTab === 'chat'
-            && identityStore.get().loaded
-            && !identity.needsPrechat()) {
-          restoreDraftToInput();
-        }
+        // renderBody() stays the single source of truth for composer
+        // visibility (pre-chat gate, offline fallback, help tab).
+        switchTab(tab.getAttribute('data-tab'));
       });
     });
+    var headerCloseBtn = panel.querySelector('[data-header-close]');
+    if (headerCloseBtn) {
+      headerCloseBtn.addEventListener('click', function () {
+        try { if (shell && typeof shell.close === 'function') shell.close(); } catch (_) {}
+        try { if (window.__gs && typeof window.__gs.push === 'function') window.__gs.push(['close']); } catch (_) {}
+      });
+    }
 
     // ─── Composer state driven by transport store ───
     function applyComposerState() {

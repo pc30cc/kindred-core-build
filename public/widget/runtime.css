@@ -2717,44 +2717,45 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 
 /* ─── Home header (purple, greeting, overlapped white surface) ─────── */
 .panel .header-home {
-  min-block-size: 126px;
-  padding: 14px var(--sp-4) 30px;
-  background: linear-gradient(160deg, #6D5DFB 0%, #6D28D9 52%, #5B21B6 100%);
-  border-radius: var(--r-24) var(--r-24) 0 0;
+  min-block-size: 138px;
+  padding: 18px 20px 30px;
+  background: linear-gradient(145deg, #7B61FF 0%, #684CF5 52%, #5842D9 100%);
+  border-radius: 28px 28px 0 0;
 }
-.panel .header-home .hdr-top { display: flex; align-items: center; gap: 10px; }
+.panel .header-home .hdr-top { display: flex; align-items: flex-start; gap: 10px; }
 .panel .hdr-mark {
   flex: none;
   inline-size: 38px; block-size: 38px;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 50%;
-  background: rgba(255,255,255,.18);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
-  color: #fff; overflow: hidden;
+  border-radius: 14px;
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 8px 20px rgba(33,24,87,.2);
+  color: var(--ref-primary); overflow: hidden;
 }
 .panel .hdr-mark.has-img { background: #fff; }
+.panel .hdr-mark svg { inline-size: 20px; block-size: 20px; }
 .panel .hdr-mark img { inline-size: 100%; block-size: 100%; object-fit: cover; }
 .panel .hdr-top-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.panel .hdr-top-title { font-size: 13px; font-weight: 600; opacity: .95; }
+.panel .hdr-top-title { font-size: 13px; font-weight: 700; opacity: .98; }
 .panel .header-home .presence {
   display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; opacity: .9; position: static; background: none; padding: 0;
+  font-size: 10px; opacity: .85; position: static; background: none; padding: 0;
 }
 .panel .header-home .presence-dot {
-  inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--ref-success);
-  box-shadow: 0 0 0 2px rgba(255,255,255,.25);
+  inline-size: 7px; block-size: 7px; border-radius: 50%; background: #4ADE80;
+  box-shadow: 0 0 0 3px rgba(74,222,128,.18);
 }
 .panel .header-home .presence.status-away .presence-dot { background: var(--ref-warning); }
 .panel .header-home .presence.status-offline .presence-dot,
 .panel .header-home .presence.status-unavailable .presence-dot { background: #9CA3AF; }
-.panel .hdr-greeting { margin-block-start: 14px; text-align: center; }
-.panel .hdr-greeting-title { margin: 0; font-size: 23px; font-weight: 800; letter-spacing: -.01em; }
-.panel .hdr-greeting-sub { margin: 4px 0 0; font-size: 13px; font-weight: 500; opacity: .92; }
+.panel .hdr-greeting { margin-block-start: 13px; text-align: center; }
+.panel .hdr-greeting-title { margin: 0; font-size: 23px; font-weight: 800; line-height: 1.35; letter-spacing: -.01em; }
+.panel .hdr-greeting-sub { margin: 5px 0 0; font-size: 12.5px; font-weight: 500; opacity: .88; }
 
 /* ─── Chat header (white) ──────────────────────────────────────────── */
 .panel .header-chat {
-  min-block-size: 64px;
-  padding-inline: 10px;
+  min-block-size: 68px;
+  padding-inline: 14px;
   display: flex; align-items: center; gap: 10px;
   background: var(--ref-surface);
   color: var(--ref-text);
@@ -2783,10 +2784,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 
 /* ─── Help header (purple, centered) ───────────────────────────────── */
 .panel .header-help {
-  min-block-size: 64px;
+  min-block-size: 68px;
   padding-inline: 10px;
   display: flex; align-items: center; gap: 8px;
-  background: linear-gradient(150deg, #6D5DFB, #6D28D9);
+  background: linear-gradient(145deg, #7B61FF, #5842D9);
 }
 .panel .hdr-center-title { flex: 1; text-align: center; font-size: 15px; font-weight: 700; }
 

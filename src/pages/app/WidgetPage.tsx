@@ -113,10 +113,10 @@ function WidgetPageContent() {
     [platformWidget],
   );
 
-  const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
+  const primaryColor = live?.primary_color || branding?.primary_color || '#7C3AED';
   const previewView: PreviewView =
     manualView ??
-    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'chat');
+    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'home');
 
   const windowEmbedCode = useMemo(
     () => buildWidgetEmbedSnippet(urls, {
@@ -713,7 +713,7 @@ function WidgetPageContent() {
             </div>
 
             <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">
-              {(['chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
+              {(['home', 'chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
                 <Button
                   key={v}
                   size="sm"

@@ -5119,6 +5119,14 @@
     });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
     var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
+    var homeUI = createHomeUI({
+      ctx: ctx, t: t,
+      presenceStore: presenceStore,
+      chatStore: chatStore,
+      kbStore: kbStore,
+      onOpenChat: function () { switchTab('chat'); },
+      onOpenHelp: function () { switchTab('help'); },
+    });
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;

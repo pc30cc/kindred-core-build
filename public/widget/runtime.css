@@ -852,7 +852,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .gs-toast {
   position: fixed;
   z-index: 2147483646;
-  bottom: 92px;
+  bottom: 104px;
   width: 300px;
   max-width: calc(100vw - 32px);
   background: #fff;

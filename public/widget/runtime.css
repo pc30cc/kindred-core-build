@@ -149,7 +149,6 @@ textarea:focus-visible {
   box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.28);
 }
 .header-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.header.header-rtl .header-brand { flex-direction: row-reverse; }
 
 /* ─── Header ─── */
 .header {
@@ -210,7 +209,7 @@ textarea:focus-visible {
    and title/subtitle align to the right. Scoped to .header-rtl so other
    widget surfaces stay LTR by default. */
 .header.header-rtl { text-align: right; }
-.header.header-rtl .header-brand { flex-direction: row-reverse; }
+.header.header-rtl .header-brand { flex-direction: row; }
 .header.header-rtl .header-op-stack { padding-right: 0; padding-left: 4px; }
 .header.header-rtl .header-op-stack .header-op-avatar { margin-left: 0; margin-right: -10px; }
 .header.header-rtl .header-op-stack .header-op-avatar:first-child { margin-right: 0; }

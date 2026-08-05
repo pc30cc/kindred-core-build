@@ -617,6 +617,24 @@
         welcomeFallback: 'Hi there 👋\nHow can we help you today?',
         teamLabel: 'Support team',
         onlineLabel: 'online',
+        home: 'Home',
+        homeGreeting: 'Hi there 👋',
+        homeGreetingSub: 'How can we help you today?',
+        resumeTitle: 'Continue previous conversation',
+        resumeCta: 'Continue',
+        actionAi: 'Ask the AI assistant',
+        actionAiSub: 'Fastest way to get an answer',
+        actionHuman: 'Chat with support',
+        actionHumanSub: 'Talk to a human operator',
+        actionKb: 'Search the help center',
+        actionKbSub: 'Find answers to your questions',
+        categories: 'Categories',
+        viewAll: 'View all',
+        awayLabel: 'away',
+        offlineLabel: 'offline',
+        aiAnswer: 'Automated reply',
+        closeWidget: 'Close',
+        noCategories: 'No categories available',
       },
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',
@@ -755,6 +773,24 @@
         welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
+        home: 'خانه',
+        homeGreeting: 'سلام! 👋',
+        homeGreetingSub: 'چطور می‌توانیم کمک کنیم؟',
+        resumeTitle: 'ادامه گفتگوی قبلی',
+        resumeCta: 'ادامه گفتگو',
+        actionAi: 'پرسش از دستیار هوشمند',
+        actionAiSub: 'سریع‌ترین راه برای دریافت پاسخ',
+        actionHuman: 'گفتگو با پشتیبانی',
+        actionHumanSub: 'با اپراتور انسانی صحبت کنید',
+        actionKb: 'جست‌وجو در راهنما',
+        actionKbSub: 'پاسخ سوالات خود را بیابید',
+        categories: 'دسته‌بندی‌ها',
+        viewAll: 'مشاهده همه',
+        awayLabel: 'در دسترس نیست',
+        offlineLabel: 'آفلاین',
+        aiAnswer: 'پاسخ خودکار',
+        closeWidget: 'بستن',
+        noCategories: 'دسته‌بندی موجود نیست',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım Merkezi',
@@ -893,6 +929,24 @@
         welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
         teamLabel: 'Destek ekibi',
         onlineLabel: 'çevrimiçi',
+        home: 'Ana sayfa',
+        homeGreeting: 'Merhaba 👋',
+        homeGreetingSub: 'Size nasıl yardımcı olabiliriz?',
+        resumeTitle: 'Önceki sohbete devam et',
+        resumeCta: 'Devam et',
+        actionAi: 'Yapay zekâ asistanına sor',
+        actionAiSub: 'Yanıt almanın en hızlı yolu',
+        actionHuman: 'Destek ile sohbet et',
+        actionHumanSub: 'Bir temsilci ile görüşün',
+        actionKb: 'Yardım merkezinde ara',
+        actionKbSub: 'Sorularınızın yanıtını bulun',
+        categories: 'Kategoriler',
+        viewAll: 'Tümünü gör',
+        awayLabel: 'uzakta',
+        offlineLabel: 'çevrimdışı',
+        aiAnswer: 'Otomatik yanıt',
+        closeWidget: 'Kapat',
+        noCategories: 'Kategori bulunamadı',
       },
     };
     return {
@@ -2810,7 +2864,10 @@
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var isAi = m.senderType === 'ai';
         var aiBadgeHtml = isAi
-          ? '<span class="msg-ai-badge" aria-label="AI assistant" title="AI assistant">AI</span>'
+          ? '<span class="msg-ai-badge" title="' + Util.escapeHtml(t('aiAnswer')) + '">' +
+              '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3.2"/></svg>' +
+              Util.escapeHtml(t('aiAnswer')) +
+            '</span>'
           : '';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
@@ -3284,6 +3341,151 @@
   // UI.KB
   // ════════════════════════════════════════════════════════════════════
   function createKbUI(deps) {
+    return createKbUIImpl(deps);
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Home view — dynamic entry surface. Presentation only: every piece of
+  // data comes from stores/config that already exist (presence, chat
+  // history, KB categories, feature flags). No fabricated capabilities.
+  // ════════════════════════════════════════════════════════════════════
+  function createHomeUI(deps) {
+    var ctx = deps.ctx, t = deps.t;
+    var presenceStore = deps.presenceStore;
+    var chatStore = deps.chatStore;
+    var kbStore = deps.kbStore;
+
+    var ICON = {
+      ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>',
+      human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+      kb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    };
+
+    function relTime(iso) {
+      var ts = iso ? Date.parse(iso) : NaN;
+      if (!ts || isNaN(ts)) return '';
+      try {
+        return new Intl.DateTimeFormat(ctx.locale || 'en', { hour: '2-digit', minute: '2-digit' }).format(new Date(ts));
+      } catch (_) { return ''; }
+    }
+
+    function skeleton() {
+      return '<div class="gs-skel-group" aria-hidden="true">' +
+        '<div class="gs-skel gs-skel-line w60"></div>' +
+        '<div class="gs-skel gs-skel-card"></div>' +
+        '<div class="gs-skel gs-skel-row"></div>' +
+        '<div class="gs-skel gs-skel-row"></div>' +
+        '<div class="gs-skel gs-skel-row"></div>' +
+      '</div>';
+    }
+
+    function actionRow(key, icon, title, sub, badgeHtml) {
+      return '<button type="button" class="home-action" data-home-action="' + key + '">' +
+        '<span class="home-action-icon">' + icon + '</span>' +
+        '<span class="home-action-text">' +
+          '<span class="home-action-title">' + Util.escapeHtml(title) + (badgeHtml || '') + '</span>' +
+          '<span class="home-action-sub">' + Util.escapeHtml(sub) + '</span>' +
+        '</span>' +
+        ICON.chevron +
+      '</button>';
+    }
+
+    function render(body, opts) {
+      opts = opts || {};
+      if (opts.loading) { body.innerHTML = '<div class="home-root">' + skeleton() + '</div>'; return; }
+
+      var cfg = ctx.config || {};
+      var feats = cfg.features || {};
+      var pres = presenceStore.get();
+      var msgs = (chatStore.get().messages || []);
+      var last = msgs.length ? msgs[msgs.length - 1] : null;
+      var aiEnabled = !!(cfg.aiAgent && cfg.aiAgent.enabled !== false && cfg.aiAgent.mode && cfg.aiAgent.mode !== 'off');
+      var chatEnabled = feats.chat !== false;
+      var kbEnabled = feats.knowledgeBase !== false && feats.kb !== false;
+
+      var greetTitle = t('homeGreeting');
+      var greetSub = (typeof cfg.welcomeMessage === 'string' && cfg.welcomeMessage.trim())
+        ? cfg.welcomeMessage.trim()
+        : t('homeGreetingSub');
+
+      var html = '<div class="home-root">';
+      html += '<div class="home-greeting">' +
+        '<h2 class="home-greeting-title">' + Util.escapeHtml(greetTitle) + '</h2>' +
+        '<p class="home-greeting-sub">' + Util.escapeHtml(greetSub).replace(/\n/g, '<br>') + '</p>' +
+      '</div>';
+
+      if (last) {
+        var who = last.sender === 'visitor' ? '' : (last.senderName || '');
+        html += '<div class="home-card home-resume">' +
+          '<div class="home-resume-head">' +
+            '<span class="home-resume-title">' + Util.escapeHtml(t('resumeTitle')) + '</span>' +
+            '<span class="home-resume-time">' + Util.escapeHtml(relTime(last.createdAt || last.created_at)) + '</span>' +
+          '</div>' +
+          (who ? '<div class="home-resume-who">' + Util.escapeHtml(who) + '</div>' : '') +
+          '<div class="home-resume-msg">' + Util.escapeHtml(String(last.body || '').slice(0, 120)) + '</div>' +
+          '<button type="button" class="home-primary-btn" data-home-action="chat">' + Util.escapeHtml(t('resumeCta')) + '</button>' +
+        '</div>';
+      }
+
+      html += '<div class="home-actions">';
+      if (aiEnabled && chatEnabled) html += actionRow('ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
+      if (chatEnabled) {
+        var st = pres.status || 'offline';
+        var stLabel = st === 'online' ? t('onlineLabel') : (st === 'away' ? t('awayLabel') : t('offlineLabel'));
+        var badge = '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>';
+        html += actionRow('chat', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
+      }
+      if (kbEnabled) html += actionRow('help', ICON.kb, t('actionKb'), t('actionKbSub'), '');
+      html += '</div>';
+
+      if (kbEnabled) {
+        html += '<div class="home-search">' + ICON.search +
+          '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
+          'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
+        '</div>';
+        var cats = (kbStore.get().categories || []).slice(0, 6);
+        html += '<div class="home-section-head"><span>' + Util.escapeHtml(t('categories')) + '</span>' +
+          '<button type="button" class="home-link" data-home-action="help">' + Util.escapeHtml(t('viewAll')) + '</button></div>';
+        if (!cats.length) {
+          html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noCategories')) + '</span></div>';
+        } else {
+          html += '<div class="home-cats">' + cats.map(function (c) {
+            var name = (c && (c.name || c.title || c.slug)) || '';
+            return '<button type="button" class="home-cat" data-home-action="help">' +
+              '<span class="home-cat-icon">' + ICON.folder + '</span>' +
+              '<span class="home-cat-name">' + Util.escapeHtml(String(name)) + '</span>' +
+            '</button>';
+          }).join('') + '</div>';
+        }
+      }
+
+      html += '</div>';
+      body.innerHTML = html;
+
+      var btns = body.querySelectorAll('[data-home-action]');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].addEventListener('click', function () {
+          var a = this.getAttribute('data-home-action');
+          if (a === 'help') { deps.onOpenHelp && deps.onOpenHelp(); return; }
+          deps.onOpenChat && deps.onOpenChat(a === 'ai' ? 'ai' : 'human');
+        });
+      }
+      var si = body.querySelector('[data-home-search]');
+      if (si) {
+        si.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { deps.onOpenHelp && deps.onOpenHelp(si.value || ''); }
+        });
+        si.addEventListener('focus', function () { /* keeps focus local; search runs in Help */ });
+      }
+    }
+
+    return { render: render };
+  }
+
+  function createKbUIImpl(deps) {
     var ctx = deps.ctx;
     var t = deps.t;
     var kbStore = deps.kbStore;
@@ -4766,7 +4968,7 @@
     // ─── Domain stores (each one isolated, with pub/sub) ───
     var shellStore = createStore({
       isOpen: false,
-      activeTab: chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat'),
+      activeTab: 'home',
       mounted: false,
     });
     var transportStore = createStore({
@@ -4920,6 +5122,14 @@
     });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
     var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
+    var homeUI = createHomeUI({
+      ctx: ctx, t: t,
+      presenceStore: presenceStore,
+      chatStore: chatStore,
+      kbStore: kbStore,
+      onOpenChat: function () { switchTab('chat'); },
+      onOpenHelp: function () { switchTab('help'); },
+    });
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
@@ -4986,26 +5196,36 @@
         teamStackHtml +
         '<div class="header-brand-text">' +
           '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
-          '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+          '<div class="presence" data-presence aria-live="polite">' +
+            '<span class="presence-dot" data-presence-dot></span>' +
+            '<span class="presence-label" data-presence-label></span>' +
+          '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="presence sr-only" data-presence aria-live="polite">' +
-        '<span class="presence-dot" data-presence-dot></span>' +
-        '<span class="presence-label" data-presence-label></span>' +
-      '</div>' +
+      '<button type="button" class="header-close" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) + '" title="' + Util.escapeHtml(t('closeWidget')) + '">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+      '</button>' +
       '</div>';
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
-    var tabDefs = [];
+    var NAV_ICONS = {
+      home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>',
+      chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+      help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+    };
+    var tabDefs = [{ key: 'home', label: t('home') }];
     if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
     if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
     var tabsHtml = '';
     if (tabDefs.length > 1) {
       var act = shellStore.get().activeTab;
-      tabsHtml = '<div class="tabs">' + tabDefs.map(function (d) {
-        return '<button type="button" class="tab' + (act === d.key ? ' active' : '') +
-          '" data-tab="' + d.key + '">' + Util.escapeHtml(d.label) + '</button>';
-      }).join('') + '</div>';
+      tabsHtml = '<nav class="tabs" role="tablist" aria-label="' + Util.escapeHtml(t('support')) + '">' + tabDefs.map(function (d) {
+        return '<button type="button" role="tab" aria-selected="' + (act === d.key ? 'true' : 'false') +
+          '" class="tab' + (act === d.key ? ' active' : '') + '" data-tab="' + d.key + '">' +
+          '<span class="tab-icon">' + NAV_ICONS[d.key] + '</span>' +
+          '<span class="tab-label">' + Util.escapeHtml(d.label) + '</span>' +
+        '</button>';
+      }).join('') + '</nav>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
@@ -5043,7 +5263,7 @@
        ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
-    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
+    panel.innerHTML = headerHtml + bodyHtml + inputHtml + tabsHtml + poweredHtml +
       // Phase 6b — lightbox container, hidden by default.
       '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
         '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' + Util.escapeHtml(t('closePreview')) + '">×</button>' +
@@ -5211,10 +5431,10 @@
     function renderPresence(s) {
       if (!presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
-      // sr-only kept so the row stays accessible-only — visual presence
-      // is now communicated by the green dot on operator avatars.
-      presenceWrap.className = 'presence sr-only status-' + status;
-      presenceLabel.textContent = s.label || '';
+      // Presence is BOTH visual and screen-reader accessible (a11y rule).
+      presenceWrap.className = 'presence status-' + status;
+      presenceLabel.textContent = s.label
+        || (status === 'online' ? t('onlineLabel') : status === 'away' ? t('awayLabel') : t('offlineLabel'));
     }
     presenceStore.subscribe(renderPresence);
     renderPresence(presenceStore.get());
@@ -5225,24 +5445,40 @@
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
+    function switchTab(key) {
+      shellStore.set({ activeTab: key });
+      Array.prototype.forEach.call(tabs, function (t2) {
+        var on = t2.getAttribute('data-tab') === key;
+        t2.classList.toggle('active', on);
+        try { t2.setAttribute('aria-selected', on ? 'true' : 'false'); } catch (_) {}
+      });
+      renderBody();
+      if (key === 'chat' && identityStore.get().loaded && !identity.needsPrechat()) {
+        restoreDraftToInput();
+        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+      }
+    }
     Array.prototype.forEach.call(tabs, function (tab) {
       tab.addEventListener('click', function () {
-        shellStore.set({ activeTab: tab.getAttribute('data-tab') });
-        Array.prototype.forEach.call(tabs, function (t2) { t2.classList.remove('active'); });
-        tab.classList.add('active');
-        renderBody();
-        // NOTE: do NOT force inputBar visibility here. renderBody() is the
-        // single source of truth — it hides the composer when pre-chat is
-        // required, when the offline contact-fallback form owns the input,
-        // or when on the help tab. Forcing 'flex' would re-show the composer
-        // for an unidentified visitor (pre-chat bypass bug).
-        if (shellStore.get().activeTab === 'chat'
-            && identityStore.get().loaded
-            && !identity.needsPrechat()) {
-          restoreDraftToInput();
-        }
+        // renderBody() stays the single source of truth for composer
+        // visibility (pre-chat gate, offline fallback, help tab).
+        switchTab(tab.getAttribute('data-tab'));
       });
     });
+    var headerCloseBtn = panel.querySelector('[data-header-close]');
+    if (headerCloseBtn) {
+      headerCloseBtn.addEventListener('click', function () {
+        // Route through the launcher so the loader's own open/close state
+        // (badge, aria, animation) stays authoritative — same trick the
+        // in-shell toast uses to open the panel.
+        try {
+          syncDraftFromInput();
+          shellStore.set({ isOpen: false });
+          if (launcher) launcher.classList.remove('open');
+          panel.classList.remove('visible');
+        } catch (_) {}
+      });
+    }
 
     // ─── Composer state driven by transport store ───
     function applyComposerState() {
@@ -5658,6 +5894,17 @@
         Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
       } catch (_) {}
       var tab = shellStore.get().activeTab;
+      if (tab === 'home') {
+        if (inputBar) inputBar.style.display = 'none';
+        var kbReady = kbStore.get().loaded;
+        homeUI.render(body, { loading: !identityStore.get().loaded });
+        if (!kbReady && kbEnabled) {
+          kbUI.ensure(function () {
+            if (shellStore.get().activeTab === 'home') homeUI.render(body, {});
+          });
+        }
+        return;
+      }
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight

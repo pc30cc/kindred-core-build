@@ -127,7 +127,7 @@ function WidgetPageContent() {
   const previewKbArticles = useMemo(
     () => ((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || [])
       .slice(0, 6)
-      .map((a: any) => ({ title: a.title, excerpt: a.excerpt })),
+      .map((a: any) => ({ title: a.title, excerpt: a.excerpt, content: a.content })),
     [kbArticlesData, kbArticlesAny],
   );
   const previewKbCategories = useMemo(

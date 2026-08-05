@@ -6503,6 +6503,7 @@
         chatStore.set({ conversationId: 'preview', messages: seedMsgs });
       }
       shellStore.set({ isOpen: true });
+      try { transportStore.set({ connectionState: 'online', lastConnectionChange: Date.now() }); } catch (_) {}
       try { panel.classList.add('visible'); } catch (_) {}
       if (launcher) launcher.classList.add('open');
       switchTab(pv === 'chat' ? 'chat' : pv === 'help' ? 'help' : 'home');

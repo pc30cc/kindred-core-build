@@ -519,7 +519,8 @@
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
-    if (fab.animation === true) launcherEl.classList.add("pulse");
+    // Canonical motion switch — also gates the attention pulse.
+    launcherEl.classList.toggle("pulse", fab.animation === true);
     launcherEl.style.color = fab.iconColor || "#ffffff";
     var icon = FAB_ICONS[fab.icon] || FAB_ICONS.chat;
     launcherEl.innerHTML =
@@ -545,6 +546,7 @@
 
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
+    applyShellMode(config);
     var shellDiv = shadowRoot.querySelector(".shell");
     if (shellDiv) {
       shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");

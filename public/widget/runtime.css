@@ -1206,9 +1206,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .att-lightbox-close:hover { background: #fff; }
 .att-lightbox-close:active { transform: scale(0.92); }
 
-/* ─── Mobile ─── */
+/* ─── Mobile ─── (RUNTIME only — the admin preview canvas is narrow too, but
+   there the panel must stay a floating card with the launcher below it.) */
 @media (max-width: 480px) {
-  .panel {
+  .shell.gs-mode-runtime .panel {
     width: 100vw;
     max-width: 100vw;
     height: 100vh;

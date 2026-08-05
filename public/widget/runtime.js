@@ -3338,6 +3338,151 @@
   // UI.KB
   // ════════════════════════════════════════════════════════════════════
   function createKbUI(deps) {
+    return createKbUIImpl(deps);
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Home view — dynamic entry surface. Presentation only: every piece of
+  // data comes from stores/config that already exist (presence, chat
+  // history, KB categories, feature flags). No fabricated capabilities.
+  // ════════════════════════════════════════════════════════════════════
+  function createHomeUI(deps) {
+    var ctx = deps.ctx, t = deps.t;
+    var presenceStore = deps.presenceStore;
+    var chatStore = deps.chatStore;
+    var kbStore = deps.kbStore;
+
+    var ICON = {
+      ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>',
+      human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+      kb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    };
+
+    function relTime(iso) {
+      var ts = iso ? Date.parse(iso) : NaN;
+      if (!ts || isNaN(ts)) return '';
+      try {
+        return new Intl.DateTimeFormat(ctx.locale || 'en', { hour: '2-digit', minute: '2-digit' }).format(new Date(ts));
+      } catch (_) { return ''; }
+    }
+
+    function skeleton() {
+      return '<div class="gs-skel-group" aria-hidden="true">' +
+        '<div class="gs-skel gs-skel-line w60"></div>' +
+        '<div class="gs-skel gs-skel-card"></div>' +
+        '<div class="gs-skel gs-skel-row"></div>' +
+        '<div class="gs-skel gs-skel-row"></div>' +
+        '<div class="gs-skel gs-skel-row"></div>' +
+      '</div>';
+    }
+
+    function actionRow(key, icon, title, sub, badgeHtml) {
+      return '<button type="button" class="home-action" data-home-action="' + key + '">' +
+        '<span class="home-action-icon">' + icon + '</span>' +
+        '<span class="home-action-text">' +
+          '<span class="home-action-title">' + Util.escapeHtml(title) + (badgeHtml || '') + '</span>' +
+          '<span class="home-action-sub">' + Util.escapeHtml(sub) + '</span>' +
+        '</span>' +
+        ICON.chevron +
+      '</button>';
+    }
+
+    function render(body, opts) {
+      opts = opts || {};
+      if (opts.loading) { body.innerHTML = '<div class="home-root">' + skeleton() + '</div>'; return; }
+
+      var cfg = ctx.config || {};
+      var feats = cfg.features || {};
+      var pres = presenceStore.get();
+      var msgs = (chatStore.get().messages || []);
+      var last = msgs.length ? msgs[msgs.length - 1] : null;
+      var aiEnabled = !!(cfg.aiAgent && cfg.aiAgent.enabled !== false && cfg.aiAgent.mode && cfg.aiAgent.mode !== 'off');
+      var chatEnabled = feats.chat !== false;
+      var kbEnabled = feats.knowledgeBase !== false && feats.kb !== false;
+
+      var greetTitle = t('homeGreeting');
+      var greetSub = (typeof cfg.welcomeMessage === 'string' && cfg.welcomeMessage.trim())
+        ? cfg.welcomeMessage.trim()
+        : t('homeGreetingSub');
+
+      var html = '<div class="home-root">';
+      html += '<div class="home-greeting">' +
+        '<h2 class="home-greeting-title">' + Util.escapeHtml(greetTitle) + '</h2>' +
+        '<p class="home-greeting-sub">' + Util.escapeHtml(greetSub).replace(/\n/g, '<br>') + '</p>' +
+      '</div>';
+
+      if (last) {
+        var who = last.sender === 'visitor' ? '' : (last.senderName || '');
+        html += '<div class="home-card home-resume">' +
+          '<div class="home-resume-head">' +
+            '<span class="home-resume-title">' + Util.escapeHtml(t('resumeTitle')) + '</span>' +
+            '<span class="home-resume-time">' + Util.escapeHtml(relTime(last.createdAt || last.created_at)) + '</span>' +
+          '</div>' +
+          (who ? '<div class="home-resume-who">' + Util.escapeHtml(who) + '</div>' : '') +
+          '<div class="home-resume-msg">' + Util.escapeHtml(String(last.body || '').slice(0, 120)) + '</div>' +
+          '<button type="button" class="home-primary-btn" data-home-action="chat">' + Util.escapeHtml(t('resumeCta')) + '</button>' +
+        '</div>';
+      }
+
+      html += '<div class="home-actions">';
+      if (aiEnabled && chatEnabled) html += actionRow('ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
+      if (chatEnabled) {
+        var st = pres.status || 'offline';
+        var stLabel = st === 'online' ? t('onlineLabel') : (st === 'away' ? t('awayLabel') : t('offlineLabel'));
+        var badge = '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>';
+        html += actionRow('chat', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
+      }
+      if (kbEnabled) html += actionRow('help', ICON.kb, t('actionKb'), t('actionKbSub'), '');
+      html += '</div>';
+
+      if (kbEnabled) {
+        html += '<div class="home-search">' + ICON.search +
+          '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
+          'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
+        '</div>';
+        var cats = (kbStore.get().categories || []).slice(0, 6);
+        html += '<div class="home-section-head"><span>' + Util.escapeHtml(t('categories')) + '</span>' +
+          '<button type="button" class="home-link" data-home-action="help">' + Util.escapeHtml(t('viewAll')) + '</button></div>';
+        if (!cats.length) {
+          html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noCategories')) + '</span></div>';
+        } else {
+          html += '<div class="home-cats">' + cats.map(function (c) {
+            var name = (c && (c.name || c.title || c.slug)) || '';
+            return '<button type="button" class="home-cat" data-home-action="help">' +
+              '<span class="home-cat-icon">' + ICON.folder + '</span>' +
+              '<span class="home-cat-name">' + Util.escapeHtml(String(name)) + '</span>' +
+            '</button>';
+          }).join('') + '</div>';
+        }
+      }
+
+      html += '</div>';
+      body.innerHTML = html;
+
+      var btns = body.querySelectorAll('[data-home-action]');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].addEventListener('click', function () {
+          var a = this.getAttribute('data-home-action');
+          if (a === 'help') { deps.onOpenHelp && deps.onOpenHelp(); return; }
+          deps.onOpenChat && deps.onOpenChat(a === 'ai' ? 'ai' : 'human');
+        });
+      }
+      var si = body.querySelector('[data-home-search]');
+      if (si) {
+        si.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { deps.onOpenHelp && deps.onOpenHelp(si.value || ''); }
+        });
+        si.addEventListener('focus', function () { /* keeps focus local; search runs in Help */ });
+      }
+    }
+
+    return { render: render };
+  }
+
+  function createKbUIImpl(deps) {
     var ctx = deps.ctx;
     var t = deps.t;
     var kbStore = deps.kbStore;

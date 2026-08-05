@@ -3441,9 +3441,38 @@
 
       var html = '<div class="home-root"><div class="home-surface">';
 
+      // ── Knowledge card (search + top articles) ──
+      if (kbEnabled) {
+        var kb = kbStore.get();
+        var arts = (kb.articles || []).slice(0, 4);
+        html += '<div class="home-card home-kb-card">' +
+          '<div class="home-search">' + ICON.search +
+            '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
+            'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
+          '</div>';
+        if (arts.length) {
+          html += '<div class="home-articles">' + arts.map(function (a) {
+            var title = (a && (a.title || a.name || a.slug)) || '';
+            var slug = (a && a.slug) ? String(a.slug) : '';
+            return '<button type="button" class="home-article" data-home-article="' + Util.escapeHtml(slug) + '">' +
+              '<span class="home-article-title">' + Util.escapeHtml(String(title)) + '</span>' +
+              '<span class="home-article-go" aria-hidden="true">' + ICON.chevron + '</span>' +
+            '</button>';
+          }).join('') + '</div>' +
+          '<button type="button" class="home-link home-link-block" data-home-action="help">' +
+            Util.escapeHtml(t('viewAll')) + '</button>';
+        } else {
+          html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noArticles')) + '</span></div>';
+        }
+        html += '</div>';
+      }
+
+      html += '<div class="home-spacer"></div>';
+
+      // ── Resume card (only when a conversation exists) ──
       if (hasConversation) {
         var who = last.sender === 'visitor' ? '' : (last.senderName || '');
-        var initial = (who.trim().charAt(0) || '·').toUpperCase();
+        var initial = (who.trim().charAt(0) || '\u00b7').toUpperCase();
         html += '<div class="home-card home-resume">' +
           '<div class="home-resume-head">' +
             '<span class="home-resume-title">' + Util.escapeHtml(t('resumeTitle')) + '</span>' +
@@ -3458,37 +3487,25 @@
         '</div>';
       }
 
-      html += '<div class="home-actions">';
-      if (aiEnabled && chatEnabled) html += actionRow('ai', 'ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
+      // ── Start-conversation card ──
       if (chatEnabled) {
         var st = pres.status || 'offline';
         var stLabel = st === 'online' ? t('onlineLabel') : (st === 'away' ? t('awayLabel') : t('offlineLabel'));
-        var badge = '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>';
-        html += actionRow('chat', 'human', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
-      }
-      if (kbEnabled) html += actionRow('help', 'kb', ICON.kb, t('actionKb'), t('actionKbSub'), '');
-      html += '</div>';
-
-      if (kbEnabled) {
-        html += '<div class="home-search">' + ICON.search +
-          '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
-          'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
+        var avatars = (deps.operatorAvatarsHtml && deps.operatorAvatarsHtml()) || '';
+        html += '<div class="home-card home-cta-card">' +
+          '<div class="home-cta-top">' +
+            (avatars ? '<span class="home-cta-avatars">' + avatars + '</span>' : '') +
+            '<span class="home-cta-meta">' +
+              '<span class="home-cta-title">' + Util.escapeHtml(t('actionHuman')) + '</span>' +
+              '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>' +
+            '</span>' +
+          '</div>' +
+          '<button type="button" class="home-cta-btn" data-home-action="' + (aiEnabled ? 'ai' : 'chat') + '">' +
+            '<span class="home-cta-btn-icon">' + ICON.human + '</span>' +
+            '<span class="home-cta-btn-label">' + Util.escapeHtml(t('actionHumanSub')) + '</span>' +
+            '<span class="home-cta-btn-go" aria-hidden="true">' + ICON.chevron + '</span>' +
+          '</button>' +
         '</div>';
-        var cats = (kbStore.get().categories || []).slice(0, 4);
-        html += '<div class="home-section-head"><span>' + Util.escapeHtml(t('categories')) + '</span>' +
-          '<button type="button" class="home-link" data-home-action="help">' + Util.escapeHtml(t('viewAll')) + '</button></div>';
-        if (!cats.length) {
-          html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noCategories')) + '</span></div>';
-        } else {
-          html += '<div class="home-cats">' + cats.map(function (c, i) {
-            var name = (c && (c.name || c.title || c.slug)) || '';
-            var slug = (c && c.slug) ? String(c.slug) : '';
-            return '<button type="button" class="home-cat" data-home-cat="' + Util.escapeHtml(slug) + '">' +
-              '<span class="home-cat-icon tone-' + catTone(i) + '">' + ICON.folder + '</span>' +
-              '<span class="home-cat-name">' + Util.escapeHtml(String(name)) + '</span>' +
-            '</button>';
-          }).join('') + '</div>';
-        }
       }
 
       html += '</div></div>';
@@ -3507,6 +3524,14 @@
         catBtns[c2].addEventListener('click', function () {
           var slug = this.getAttribute('data-home-cat');
           if (deps.onOpenCategory) deps.onOpenCategory(slug);
+          else deps.onOpenHelp && deps.onOpenHelp('');
+        });
+      }
+      var artBtns = body.querySelectorAll('[data-home-article]');
+      for (var a2 = 0; a2 < artBtns.length; a2++) {
+        artBtns[a2].addEventListener('click', function () {
+          var slug = this.getAttribute('data-home-article');
+          if (slug && deps.onOpenArticle) deps.onOpenArticle(slug);
           else deps.onOpenHelp && deps.onOpenHelp('');
         });
       }
@@ -3906,7 +3931,7 @@
       paint();
     }
 
-    return { ensure: ensure, render: render, setQuery: setQuery, openCategory: openCategory };
+    return { ensure: ensure, render: render, setQuery: setQuery, openCategory: openCategory, openArticle: openArticle };
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -5172,6 +5197,11 @@
         switchTab('help');
         if (kbUI.openCategory) kbUI.ensure(function () { kbUI.openCategory(slug); });
       },
+      onOpenArticle: function (slug) {
+        switchTab('help');
+        if (kbUI.openArticle) kbUI.ensure(function () { kbUI.openArticle(slug); });
+      },
+      operatorAvatarsHtml: function () { return operatorStackHtml(); },
     });
 
     // ─── Build panel ───

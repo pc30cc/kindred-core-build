@@ -5691,6 +5691,114 @@
         });
     }
 
+    function switchTab(key) {
+      if (shellStore.get().activeTab === key) { renderBody(); return; }
+      shellStore.set({ activeTab: key });
+      try {
+        var allT = panel.querySelectorAll('.tab');
+        Array.prototype.forEach.call(allT, function (t2) {
+          t2.classList.toggle('active', t2.getAttribute('data-tab') === key);
+        });
+      } catch (_) {}
+      renderBody();
+      if (key === 'chat' && identityStore.get().loaded && !identity.needsPrechat()) {
+        restoreDraftToInput();
+      }
+    }
+
+    function renderHome() {
+      if (!body) return;
+      var rtlHome = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
+      var pState = presenceStore.get();
+      var isOnline = pState.status === 'online' && pState.liveChatEnabled !== false;
+      var avatars = (teamMembers || []).map(function (op) {
+        var name = (op && op.name) ? String(op.name) : t('operator');
+        var av = op && op.avatar ? String(op.avatar) : '';
+        var on = !!(op && op.online);
+        var cls = 'home-avatar' + (av ? ' has-img' : '') + (on ? ' is-online' : '');
+        var inner = av
+          ? '<img src="' + Util.escapeHtml(av) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
+          : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
+        return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner +
+          (on ? '<span class="home-avatar-dot"></span>' : '') + '</span>';
+      }).join('');
+
+      var kbState = kbStore.get();
+      var cats = (kbState && kbState.categories) || [];
+      var arts = (kbState && kbState.articles) || [];
+      var kbHtml = '';
+      if (kbEnabled && (cats.length || arts.length)) {
+        var items = cats.length
+          ? cats.slice(0, 4).map(function (c) {
+              return '<button type="button" class="home-kb-item" data-home-cat="' +
+                Util.escapeHtml(c.slug || c.id || '') + '">' +
+                '<span class="home-kb-title">' + Util.escapeHtml(c.name || c.title || '') + '</span>' +
+                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
+              '</button>';
+            }).join('')
+          : arts.slice(0, 4).map(function (a) {
+              return '<button type="button" class="home-kb-item" data-home-article="' +
+                Util.escapeHtml(a.slug || '') + '">' +
+                '<span class="home-kb-title">' + Util.escapeHtml(a.title || '') + '</span>' +
+                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
+              '</button>';
+            }).join('');
+        kbHtml =
+          '<section class="home-section">' +
+            '<div class="home-section-head">' +
+              '<h4 class="home-section-title">' + Util.escapeHtml(t('homeHelpTitle')) + '</h4>' +
+              '<button type="button" class="home-section-link" data-home-action="help">' +
+                Util.escapeHtml(t('homeSeeAll')) + '</button>' +
+            '</div>' +
+            '<div class="home-kb-list">' + items + '</div>' +
+          '</section>';
+      }
+
+      var ctaLabel = isOnline ? t('homeStartChat') : t('homeLeaveMessage');
+      var ctaHtml = chatEnabled
+        ? '<button type="button" class="home-cta" data-home-action="chat" style="background:' + ctx.primaryColor + '">' +
+            '<span class="home-cta-label">' + Util.escapeHtml(ctaLabel) + '</span>' +
+            '<span class="home-cta-icon" aria-hidden="true">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+            '</span>' +
+          '</button>'
+        : '';
+
+      body.innerHTML =
+        '<div class="home-root"' + (rtlHome ? ' dir="rtl"' : '') + '>' +
+          '<section class="home-hero">' +
+            '<div class="home-greeting">' + Util.escapeHtml(t('homeGreeting')) + '</div>' +
+            '<p class="home-welcome">' + Util.escapeHtml(welcomeMessage || t('homeWelcome')) + '</p>' +
+          '</section>' +
+          '<section class="home-card">' +
+            (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
+            '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
+              '<span class="home-status-dot"></span>' +
+              '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
+            '</div>' +
+            '<p class="home-hint">' + Util.escapeHtml(isOnline ? t('homeReplyFast') : t('homeReplySlow')) + '</p>' +
+            ctaHtml +
+          '</section>' +
+          kbHtml +
+        '</div>';
+
+      var ctaBtn = body.querySelector('[data-home-action="chat"]');
+      if (ctaBtn) ctaBtn.addEventListener('click', function () { switchTab('chat'); });
+      var seeAll = body.querySelector('[data-home-action="help"]');
+      if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {
+        el.addEventListener('click', function () {
+          var slug = el.getAttribute('data-home-article');
+          switchTab('help');
+          if (slug && kbUI.openArticle) kbUI.openArticle(slug);
+        });
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-cat]'), function (el) {
+        el.addEventListener('click', function () { switchTab('help'); });
+      });
+    }
+
     function renderBody() {
       if (!body) return;
       // Pass 2 — when an in-panel call surface is open it owns the
@@ -5712,6 +5820,16 @@
         Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
       } catch (_) {}
       var tab = shellStore.get().activeTab;
+      if (tab === 'home') {
+        if (inputBar) inputBar.style.display = 'none';
+        renderHome();
+        if (kbEnabled && !kbStore.get().loaded) {
+          kbUI.ensure(function () {
+            if (shellStore.get().activeTab === 'home') renderHome();
+          });
+        }
+        return;
+      }
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight

@@ -540,6 +540,14 @@
     var size = Math.round(58 * scale);
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
+    // Reserved vertical zone under the PREVIEW panel so the launcher (plus its
+    // pulse/hover halo) always sits geometrically BELOW the panel. Recomputed
+    // on every config apply, so scale/animation/shape/position changes in the
+    // customization UI update instantly — no save, no reload.
+    var motionExtra = fab.animation === false ? 0 : Math.ceil(size * 0.07);
+    var previewLauncherZone = 24 /* bottom offset */ + size + motionExtra + 16 /* gap */ + 8 /* safety */;
+    var shellRoot = shadowRoot && shadowRoot.querySelector(".shell");
+    if (shellRoot) shellRoot.style.setProperty("--gs-preview-launcher-zone", previewLauncherZone + "px");
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
     // Canonical motion switch — also gates the attention pulse.
     launcherEl.classList.toggle("pulse", fab.animation === true);

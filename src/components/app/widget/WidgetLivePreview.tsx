@@ -159,7 +159,8 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
   const overridesRef = useRef(overrides);
   overridesRef.current = overrides;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const bootedKeyRef = useRef<string | null>(null);
+  const readyKeyRef = useRef<string | null>(null);
+  const [readyKey, setReadyKey] = useState<string | null>(null);
 
   const srcDoc = useMemo(() => {
     const overrides = overridesRef.current;
@@ -248,13 +249,31 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
   // Ordinary customization edits (colors, FAB, copy, view…) are posted to the
   // already-mounted widget. No iframe reload, no loader re-execution, no CSS
   // refetch, no animation loss. The operator JWT is never sent.
+  // ─── Readiness handshake ─────────────────────────────────────────────
+  // The iframe posts GS_PREVIEW_READY once its message listener is live.
+  // Patches sent before that would be dropped, so the parent buffers the
+  // latest overrides in a ref and flushes once on READY.
+  useEffect(() => {
+    readyKeyRef.current = null;
+    setReadyKey(null);
+  }, [bootKey]);
+
+  useEffect(() => {
+    function onMessage(ev: MessageEvent) {
+      if (ev.origin !== window.location.origin && ev.origin !== 'null') return;
+      const win = iframeRef.current?.contentWindow;
+      if (!win || ev.source !== win) return;
+      if ((ev.data as any)?.type !== 'GS_PREVIEW_READY') return;
+      readyKeyRef.current = bootKey;
+      setReadyKey(bootKey);
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [bootKey]);
+
   useEffect(() => {
     if (!cfg || cfgError) return;
-    if (bootedKeyRef.current !== bootKey) {
-      // Fresh document — the boot payload already carries these overrides.
-      bootedKeyRef.current = bootKey;
-      return;
-    }
+    if (readyKey !== bootKey || readyKeyRef.current !== bootKey) return;
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
     const { previewSeed, previewMode, ...patch } = overrides as Record<string, any>;
@@ -264,7 +283,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
     } catch {
       /* preview patch is best-effort; the next boot re-syncs */
     }
-  }, [overrides, bootKey, cfg, cfgError]);
+  }, [overrides, bootKey, readyKey, cfg, cfgError]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">

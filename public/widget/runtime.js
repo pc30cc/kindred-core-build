@@ -2864,7 +2864,10 @@
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var isAi = m.senderType === 'ai';
         var aiBadgeHtml = isAi
-          ? '<span class="msg-ai-badge" aria-label="AI assistant" title="AI assistant">AI</span>'
+          ? '<span class="msg-ai-badge" title="' + Util.escapeHtml(t('aiAnswer')) + '">' +
+              '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3.2"/></svg>' +
+              Util.escapeHtml(t('aiAnswer')) +
+            '</span>'
           : '';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);

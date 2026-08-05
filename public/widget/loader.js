@@ -487,6 +487,27 @@
     var animOn = fab.animation !== false;
     shellDiv.classList.toggle("gs-no-anim", !animOn);
     try { window.__gs_widget_mode = preview ? "preview" : "runtime"; } catch (_) {}
+    startOpenStateSync();
+  }
+
+  // ─── Single canonical open/closed state ──────────────────────────────
+  // The panel's `.visible` class is the ONE source of truth: whoever flips it
+  // (loader API, runtime toggle, close button, preview bootstrap) drives the
+  // launcher. This removes the loader/runtime dual-state desync that could
+  // leave the launcher visible over an open panel or hidden while closed.
+  var openStateObserver = null;
+  function syncLauncherToPanel() {
+    if (!shadowRoot || !launcherEl) return;
+    var panelEl = shadowRoot.querySelector(".panel");
+    var open = !!(panelEl && panelEl.classList.contains("visible"));
+    isOpen = open;
+    launcherEl.classList.toggle("open", open && !isPreviewMode());
+  }
+  function startOpenStateSync() {
+    if (openStateObserver || !shadowRoot || typeof MutationObserver === "undefined") return;
+    openStateObserver = new MutationObserver(syncLauncherToPanel);
+    openStateObserver.observe(shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    syncLauncherToPanel();
   }
 
   // ─── Launcher (FAB) icon set — kept byte-identical with the operator

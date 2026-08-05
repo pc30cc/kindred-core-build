@@ -4592,11 +4592,20 @@
         // Audio-only voice call screen
         html += '<div class="gs-call-surface gs-call-audio" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '" data-channel="audio">';
         html += '  <audio data-call-remote-audio autoplay></audio>';
+        var __team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
+        var __op = null;
+        for (var __i = 0; __i < __team.length; __i++) { if (__team[__i] && __team[__i].online) { __op = __team[__i]; break; } }
+        if (!__op) __op = __team[0] || null;
+        var __opName = (__op && __op.name) ? String(__op.name) : '';
+        var __opAvatar = (__op && __op.avatar) ? String(__op.avatar) : '';
         html += '  <div class="gs-call-voice-stage">';
         html += '    <div class="gs-call-voice-orb" aria-hidden="true">';
         html += '      <span class="gs-call-voice-pulse"></span>';
-        html += '      <span class="gs-call-voice-icon">' + GS_ICON.phone + '</span>';
+        html += (__opAvatar
+          ? '      <img class="gs-call-voice-avatar" src="' + Util.escapeHtml(__opAvatar) + '" alt="" />'
+          : '      <span class="gs-call-voice-icon">' + GS_ICON.phone + '</span>');
         html += '    </div>';
+        if (__opName) html += '    <div class="gs-call-voice-name">' + Util.escapeHtml(__opName) + '</div>';
         html += '    <div class="gs-call-voice-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
         html += '    <div class="gs-call-voice-timer" data-call-timer>00:00</div>';
         html += '    <div class="gs-call-eq" aria-hidden="true">';

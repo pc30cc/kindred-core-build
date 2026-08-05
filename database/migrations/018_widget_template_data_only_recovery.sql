@@ -1,16 +1,27 @@
 -- ════════════════════════════════════════════════════════════════════
--- 018 — ROLLBACK for 017 (widget template system)
+-- 018 — DATA-ONLY RECOVERY for 017 (widget template system)
 --
--- NOT part of the forward chain. Run MANUALLY only if the single-design
--- rollout must be reverted. Requires that 017 archived the old state
--- into the `widget_archive` schema (it always does).
+-- HONEST SCOPE — read before running.
+-- This is NOT a schema-complete rollback. `CREATE TABLE AS SELECT` copies
+-- rows and column types only. It does NOT restore:
+--     • primary key / unique constraints        • check constraints
+--     • indexes                                 • column defaults
+--     • NOT NULL markers                        • foreign keys
+--     • the original grant set                  • the original RLS policies
+--     • the validate_widget_template_slug() trigger + function
+-- The grants/policy re-created below are a minimal safe substitute chosen by
+-- this script, not the pre-017 originals.
 --
--- Restores:
---   • public.widget_templates                 (from widget_archive)
---   • public.widget_settings.template_slug    (from widget_archive)
+-- Restoring the exact original schema requires the pre-017 DDL from a
+-- database backup (`pg_dump --schema-only`), which is the supported path if
+-- you need a true rollback. Use this file only to get the DATA back.
 --
--- It does NOT restore the validation trigger — the application no longer
--- ships that code path. Re-deploy the pre-017 backend alongside this.
+-- Also note: on the hosted Supabase project the equivalent cleanup ran as
+-- `supabase/migrations/20260805131122_*.sql`, which dropped the objects
+-- WITHOUT archiving. There, not even the data is recoverable from the
+-- database — see widget_archive.data_loss_notices.
+--
+-- NOT part of the forward chain. Run MANUALLY only.
 -- ════════════════════════════════════════════════════════════════════
 
 DO $$
@@ -23,7 +34,7 @@ BEGIN
   END IF;
 END $$;
 
--- 1. Restore the registry table
+-- 1. Restore the registry ROWS (no keys/indexes/defaults — see header)
 CREATE TABLE IF NOT EXISTS public.widget_templates AS
 SELECT * FROM widget_archive.widget_templates_backup;
 
@@ -39,7 +50,7 @@ CREATE POLICY "widget_templates_read_all"
   TO anon, authenticated
   USING (true);
 
--- 2. Restore the per-workspace slug
+-- 2. Restore the per-workspace slug VALUES (plain TEXT column, no trigger)
 ALTER TABLE public.widget_settings ADD COLUMN IF NOT EXISTS template_slug TEXT;
 
 UPDATE public.widget_settings ws

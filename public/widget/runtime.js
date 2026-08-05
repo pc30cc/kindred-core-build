@@ -3908,92 +3908,6 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // Template Registry (Task 4)
-  //
-  // Lightweight template-aware foundation. Today only `default` is registered
-  // — additional templates can plug in later WITHOUT a new runtime bundle.
-  //
-  // Each template is just a small descriptor. Future templates can override
-  // `prepareShell` / `prepareCtx` to influence rendering (CSS variables,
-  // skin classes, behavioral hooks) while the core pipeline is unchanged.
-  //
-  // Resolution order in init():
-  //   1. config.templateSlug (server-resolved against widget_templates)
-  //   2. fallback to 'default' if slug unknown to the runtime registry
-  //
-  // The selected slug is exposed as:
-  //   - ctx.templateSlug                (string)
-  //   - data-template="<slug>" on <gs-widget> AND on .shell
-  //   - body class `gs-template-<slug>` is NOT used (Shadow DOM scoping only)
-  // ════════════════════════════════════════════════════════════════════
-  var TemplateRegistry = (function () {
-    var entries = {};
-    function register(descriptor) {
-      if (!descriptor || !descriptor.slug) return;
-      entries[descriptor.slug] = descriptor;
-    }
-    function get(slug) { return entries[slug] || null; }
-    function resolve(requestedSlug) {
-      var slug = requestedSlug || 'default';
-      var entry = entries[slug] || entries['default'] || null;
-      return {
-        slug: entry ? entry.slug : 'default',
-        descriptor: entry,
-        // True when caller asked for X but we fell back to default. Useful
-        // for diagnostics — the server still owns the canonical decision,
-        // this is purely a runtime safety net.
-        fellBack: !!requestedSlug && (!entry || entry.slug !== requestedSlug),
-      };
-    }
-    return { register: register, get: get, resolve: resolve, all: function () { return entries; } };
-  })();
-
-  // Register the only real template that ships today. Future templates are
-  // additive — they just call TemplateRegistry.register(...).
-  TemplateRegistry.register({
-    slug: 'default',
-    name: 'Default',
-    /** Hook: optionally tweak the ctx object before any UI is built. */
-    prepareCtx: function (_ctx) { /* no-op for default */ },
-    /** Hook: called once shellDiv exists, before panel mounts. */
-    prepareShell: function (_shellDiv, _ctx) { /* no-op for default */ },
-  });
-
-  // ── Widget Template 2 — premium skin ─────────────────────────────────
-  // Pure CSS skin scoped to .shell[data-template="template2"]. Loads the
-  // Vazirmatn webfont (Google Fonts) into both the host document and the
-  // shadow root so Persian + Latin text renders with the correct family.
-  TemplateRegistry.register({
-    slug: 'template2',
-    name: 'Widget Template 2',
-    prepareCtx: function (_ctx) { /* no-op */ },
-    prepareShell: function (_shellDiv, _ctx) {
-      try {
-        if (typeof document === 'undefined') return;
-        var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap';
-        if (!document.getElementById('gs-t2-fonts')) {
-          var l = document.createElement('link');
-          l.id = 'gs-t2-fonts';
-          l.rel = 'stylesheet';
-          l.href = FONT_HREF;
-          document.head.appendChild(l);
-        }
-        var sh = (_shellDiv && _shellDiv.shadowRoot) || null;
-        if (sh && !sh.getElementById('gs-t2-fonts-shadow')) {
-          var l2 = document.createElement('link');
-          l2.id = 'gs-t2-fonts-shadow';
-          l2.rel = 'stylesheet';
-          l2.href = FONT_HREF;
-          sh.appendChild(l2);
-        }
-      } catch (_) { /* font injection optional */ }
-    },
-  });
-
-  // Expose for debugging / future runtime template registration from outside.
-  __gs_runtime.templates = TemplateRegistry;
-
-  // ════════════════════════════════════════════════════════════════════
   // Core — orchestrates everything inside the shadow root
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
@@ -4091,24 +4005,30 @@
       }
     } catch (_) { /* bus optional */ }
 
-    // Expose template slug in the runtime context for CSS scoping + future
-    // template-aware behavior. Today only 'default' is registered server-side.
-    var __tplResolve = TemplateRegistry.resolve(config.templateSlug);
-    ctx.templateSlug = __tplResolve.slug;
-    ctx.template = __tplResolve.descriptor;
-    if (__tplResolve.fellBack) {
-      Util.warn('[template] requested "' + config.templateSlug + '" not registered — using "default"');
-    }
+    // ─── Canonical design diagnostics ────────────────────────────────
+    // The widget ships exactly ONE design. No template/skin resolution.
+    ctx.widgetDesign = 'canonical-v1';
     try {
       var rootEl = (shell && shell.shellEl) || null;
-      if (rootEl) rootEl.setAttribute('data-template', ctx.templateSlug);
+      if (rootEl) {
+        rootEl.removeAttribute('data-template');
+        rootEl.setAttribute('data-widget-design', 'canonical-v1');
+        rootEl.setAttribute('data-runtime-version', RUNTIME_VERSION);
+        if (config.styleVersion) rootEl.setAttribute('data-style-version', String(config.styleVersion));
+        if (config.manifestVersion) rootEl.setAttribute('data-manifest-version', String(config.manifestVersion));
+      }
+      if (Util.debug) {
+        console.info('[widget-design]', {
+          design: 'canonical-v1',
+          loaderVersion: (window.__gs && window.__gs._version) || null,
+          runtimeVersion: RUNTIME_VERSION,
+          styleVersion: config.styleVersion || null,
+          manifestVersion: config.manifestVersion || null,
+          runtimeUrl: config.runtimeUrl || null,
+          styleUrl: config.styleUrl || null,
+        });
+      }
     } catch (_) {}
-    // Run the template's prepareCtx hook (no-op for default today) so future
-    // templates can adjust ctx values (icons, colors, copy keys) before any
-    // rendering happens.
-    if (ctx.template && typeof ctx.template.prepareCtx === 'function') {
-      try { ctx.template.prepareCtx(ctx); } catch (e) { Util.warn('template.prepareCtx err', e); }
-    }
 
     // Tear down the token manager when the panel is unloaded by the host
     // page (SPA route swap). Prevents orphaned refresh timers.
@@ -5074,9 +4994,7 @@
       Util.warn('FATAL: no mount target available inside shadow root');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
-    // Mirror data-template onto .shell so Shadow-DOM-scoped CSS can target
-    // the entire UI subtree (e.g. `.shell[data-template="default"] .panel`).
-    try { shellDiv.setAttribute('data-template', ctx.templateSlug); } catch (_) {}
+    try { shellDiv.setAttribute('data-widget-design', 'canonical-v1'); } catch (_) {}
     if (ctx.template && typeof ctx.template.prepareShell === 'function') {
       try { ctx.template.prepareShell(shellDiv, ctx); } catch (e) { Util.warn('template.prepareShell err', e); }
     }

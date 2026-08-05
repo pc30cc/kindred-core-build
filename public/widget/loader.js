@@ -290,6 +290,31 @@
     ".error-toast.visible{display:block;}",
     "@media(max-width:480px){.launcher{width:54px;height:54px;}}",
     ".gs-fab-label{--gs-fab-label-bg:var(--gs-primary,#6D5DFB);}",
+
+    /* ══ Mode separation ═════════════════════════════════════════════
+       `gs-mode-runtime` = real website. `gs-mode-preview` = admin
+       customization canvas. They deliberately differ in ONE rule:
+       whether the launcher may be visible while the panel is open. */
+
+    /* RUNTIME — launcher and open panel are mutually exclusive. */
+    ".shell.gs-mode-runtime .launcher.open{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.85);}",
+    ".shell.gs-mode-runtime .launcher.open~.gs-fab-label{opacity:0;visibility:hidden;pointer-events:none;}",
+
+    /* PREVIEW — launcher stays visible BELOW the panel, anchored inside the
+       preview canvas (absolute, never viewport-fixed) and painted *under*
+       the panel so neither the FAB nor its halo can cover widget content. */
+    ".shell.gs-mode-preview{position:absolute;inset:0;pointer-events:none;}",
+    ".shell.gs-mode-preview .launcher,.shell.gs-mode-preview .gs-fab-label{position:absolute;pointer-events:auto;}",
+    ".shell.gs-mode-preview .launcher{z-index:2147483644;",
+    "box-shadow:0 12px 26px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 88%,transparent);}",
+    ".shell.gs-mode-preview .launcher:hover{box-shadow:0 14px 30px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 95%,transparent);}",
+    ".shell.gs-mode-preview .gs-fab-label{z-index:2147483643;}",
+
+    /* Animation OFF (canonical setting: config.fab.animation === false) —
+       no transitions, no keyframes, no motion anywhere in the shell. */
+    ".shell.gs-no-anim .launcher,.shell.gs-no-anim .gs-fab-label,.shell.gs-no-anim .error-toast{transition:none!important;animation:none!important;}",
+    ".shell.gs-no-anim .launcher:hover,.shell.gs-no-anim .launcher:active{transform:none!important;}",
+    "@media(prefers-reduced-motion:reduce){.launcher,.gs-fab-label{transition:none!important;animation:none!important;}.launcher:hover,.launcher:active{transform:none!important;}}",
   ].join("");
 
   // ─── <gs-widget> custom element ───

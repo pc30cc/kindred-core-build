@@ -174,7 +174,7 @@ export function WidgetLivePreview({
     const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
     const tabs = `<div class="tabs tabs-bottom">${navDefs
       .map(
-        (n) => `<button type="button" class="tab${n.key === activeNav ? ' active' : ''}">
+        (n) => `<button type="button" data-preview-nav="${n.key}" class="tab${n.key === activeNav ? ' active' : ''}">
            <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
            <span class="tab-label">${esc(n.label)}</span>
          </button>`,

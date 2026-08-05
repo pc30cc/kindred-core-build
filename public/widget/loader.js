@@ -486,13 +486,6 @@
     try { window.__gs_widget_mode = preview ? "preview" : "runtime"; } catch (_) {}
   }
 
-  function _unusedShellError(message) {
-    if (!errorToastEl) return;
-    errorToastEl.textContent = message;
-    errorToastEl.classList.add("visible");
-    setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
-  }
-
   // ─── Launcher (FAB) icon set — kept byte-identical with the operator
   // preview (src/components/app/widget/WidgetLivePreview.tsx) so what the
   // operator configures is exactly what the visitor sees.

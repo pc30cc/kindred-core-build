@@ -466,6 +466,33 @@
     setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
   }
 
+  // ─── Canonical mode + motion flags ───────────────────────────────────
+  // mode: "preview" (admin customization canvas) | "runtime" (real site).
+  // Motion is driven by the single existing setting `config.fab.animation`.
+  function isPreviewMode() {
+    try { return !!(window.__gs_preview_config && window.__gs_preview_config.previewMode); }
+    catch (_) { return false; }
+  }
+  function applyShellMode(config) {
+    if (!shadowRoot) return;
+    var shellDiv = shadowRoot.querySelector(".shell");
+    if (!shellDiv) return;
+    var preview = isPreviewMode() || !!(config && config.previewMode);
+    shellDiv.classList.toggle("gs-mode-preview", preview);
+    shellDiv.classList.toggle("gs-mode-runtime", !preview);
+    var fab = (config && config.fab) || {};
+    var animOn = fab.animation !== false;
+    shellDiv.classList.toggle("gs-no-anim", !animOn);
+    try { window.__gs_widget_mode = preview ? "preview" : "runtime"; } catch (_) {}
+  }
+
+  function _unusedShellError(message) {
+    if (!errorToastEl) return;
+    errorToastEl.textContent = message;
+    errorToastEl.classList.add("visible");
+    setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
+  }
+
   // ─── Launcher (FAB) icon set — kept byte-identical with the operator
   // preview (src/components/app/widget/WidgetLivePreview.tsx) so what the
   // operator configures is exactly what the visitor sees.

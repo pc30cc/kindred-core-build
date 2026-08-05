@@ -114,6 +114,21 @@ function WidgetPageContent() {
     [platformWidget],
   );
 
+  /**
+   * Real knowledge-base content for the preview: the operator must see exactly
+   * the articles/categories visitors get in the Help tab.
+   */
+  const { data: kbArticlesData } = useKBArticles(workspace?.id, effectiveLocale, 'published');
+  const { data: kbCategoriesData } = useKBCategories(workspace?.id, effectiveLocale);
+  const previewKbArticles = useMemo(
+    () => (kbArticlesData || []).slice(0, 6).map((a: any) => ({ title: a.title, excerpt: a.excerpt })),
+    [kbArticlesData],
+  );
+  const previewKbCategories = useMemo(
+    () => (kbCategoriesData || []).slice(0, 6).map((c: any) => ({ name: c.name, description: c.description })),
+    [kbCategoriesData],
+  );
+
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
   const previewView: PreviewView =
     manualView ??

@@ -738,6 +738,15 @@
         }
       } catch (e) { warn("preview patch failed", e); }
     });
+    // Readiness handshake: the parent holds back patches until it sees this,
+    // so customization edits made during boot are never dropped.
+    try {
+      var target = "";
+      try { target = String((configData && configData.previewParentOrigin) || ""); } catch (_) {}
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: "GS_PREVIEW_READY" }, target || "*");
+      }
+    } catch (e) { warn("preview ready signal failed", e); }
   }
 
   function fetchWithRetry(url, opts, attempts) {

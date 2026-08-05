@@ -574,13 +574,19 @@
     log("workspace:", WORKSPACE_ID || "(none)", "api:", apiBase || "(empty)", "asset:", assetBase || "(empty)");
 
     if (!apiBase) {
-      log("No apiBase — launcher-only mode");
-      attachLauncherClick({ launcherOnly: true });
+      setLastError("API_BASE_MISSING", {
+        message: 'The embed snippet did not provide data-api-base (or window.__gs_api_base). '
+          + 'Re-copy the install snippet from the dashboard — it must contain '
+          + 'data-workspace-id, data-api-base and data-asset-base.',
+      });
+      attachLauncherClick({ launcherOnly: true, errorMessage: "Chat is not configured (missing API base)." });
       return;
     }
     if (!WORKSPACE_ID) {
-      warn("No workspace id");
-      attachLauncherClick({ launcherOnly: true });
+      setLastError("WORKSPACE_ID_MISSING", {
+        message: 'The embed snippet did not provide data-workspace-id (or window.__gs_id).',
+      });
+      attachLauncherClick({ launcherOnly: true, errorMessage: "Chat is not configured (missing workspace id)." });
       return;
     }
 
@@ -597,15 +603,20 @@
       body: bootstrapBody,
     }, 3)
       .then(function (r) {
-        if (r.status === 401 || r.status === 403) {
-          throw new Error("unauthorized");
-        }
+        lastBootstrapStatus = r.status;
+        if (r.status === 401 || r.status === 403) throw new Error("origin_denied");
+        if (r.status === 404) throw new Error("workspace_not_found");
+        if (r.status === 400) throw new Error("workspace_not_found");
         if (!r.ok) throw new Error("bootstrap_failed_" + r.status);
         return r.json();
       })
       .then(function (data) {
         if (data.disabled) {
-          log("Widget disabled by server");
+          setLastError("WIDGET_DISABLED", {
+            url: bootstrapUrl,
+            status: lastBootstrapStatus,
+            message: 'The workspace exists but the chat widget is disabled in the dashboard.',
+          });
           if (shellEl) shellEl.remove();
           return null;
         }
@@ -656,11 +667,20 @@
       })
       .then(function (r) {
         if (!r) return null;
+        lastConfigStatus = r.status;
         if (!r.ok) throw new Error("config_failed_" + r.status);
         return r.json();
       })
       .then(function (config) {
-        if (!config || !config.enabled) return;
+        if (!config) return;
+        if (!config.enabled) {
+          setLastError("WIDGET_DISABLED", {
+            url: configUrlUsed,
+            status: lastConfigStatus,
+            message: 'Widget config returned enabled=false for this workspace.',
+          });
+          return;
+        }
         configData = config;
         configData._sessionToken = sessionToken;
         configData._apiBase = apiBase;
@@ -693,9 +713,23 @@
         var msg = (err && err.message) || "unknown";
         warn("Bootstrap error:", msg);
         var human = "Chat unavailable.";
-        if (msg === "unauthorized") human = "Chat not authorized for this site.";
-        else if (msg.indexOf("bootstrap_failed") === 0) human = "Could not start chat.";
-        else if (msg.indexOf("config_failed") === 0) human = "Could not load chat settings.";
+        var code = "BOOTSTRAP_FAILED";
+        var url = bootstrapUrl;
+        var status = lastBootstrapStatus;
+        if (msg === "origin_denied") {
+          code = "ORIGIN_DENIED";
+          human = "Chat not authorized for this site.";
+        } else if (msg === "workspace_not_found") {
+          code = "WORKSPACE_NOT_FOUND";
+          human = "Chat workspace not found.";
+        } else if (msg.indexOf("bootstrap_failed") === 0) {
+          human = "Could not start chat.";
+        } else if (msg.indexOf("config_failed") === 0) {
+          human = "Could not load chat settings.";
+          url = configUrlUsed;
+          status = lastConfigStatus;
+        }
+        setLastError(code, { url: url, status: status, message: msg });
         attachLauncherClick({ launcherOnly: true, errorMessage: human });
       });
   }

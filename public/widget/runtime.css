@@ -99,8 +99,10 @@ textarea:focus-visible {
    the panel takes the launcher's own bottom anchor — no reserved empty gap. */
 .shell.gs-mode-runtime .panel { --gs-launcher-zone: 24px; }
 /* PREVIEW (admin customization canvas): the launcher stays visible BELOW the
-   panel, so the panel reserves the launcher box + a 14px spacing gap. */
-.shell.gs-mode-preview .panel { --gs-launcher-zone: 100px; }
+   panel, so the panel reserves the launcher box + gap. The zone is computed
+   live by loader.js from the configured FAB scale/animation and published as
+   `--gs-preview-launcher-zone`; 132px is the scale-100 fallback. */
+.shell.gs-mode-preview .panel { --gs-launcher-zone: var(--gs-preview-launcher-zone, 132px); }
 /* Animation OFF (config.fab.animation === false) and OS reduced-motion. */
 .shell.gs-no-anim .panel,
 .shell.gs-no-anim .panel * { transition: none !important; animation: none !important; }
@@ -1204,9 +1206,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .att-lightbox-close:hover { background: #fff; }
 .att-lightbox-close:active { transform: scale(0.92); }
 
-/* ─── Mobile ─── */
+/* ─── Mobile ─── (RUNTIME only — the admin preview canvas is narrow too, but
+   there the panel must stay a floating card with the launcher below it.) */
 @media (max-width: 480px) {
-  .panel {
+  .shell.gs-mode-runtime .panel {
     width: 100vw;
     max-width: 100vw;
     height: 100vh;
@@ -2095,9 +2098,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
    stretches to fill it (minus the launcher zone) and its edge is anchored to
    exactly the same 24px inset as the launcher so the two line up. */
 .panel.panel-preview {
-  block-size: calc(100vh - var(--gs-launcher-zone, 104px) - 16px);
-  max-block-size: none;
-  inline-size: min(400px, calc(100vw - 48px));
+  block-size: min(640px, calc(100vh - var(--gs-launcher-zone, 132px) - 16px));
+  max-block-size: 640px;
+  inline-size: min(368px, calc(100vw - 24px));
+  max-inline-size: calc(100vw - 24px);
 }
 
 /* ─── Shared header chrome ─────────────────────────────────────────── */
@@ -2815,10 +2819,25 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 
 /* ─── Responsive ───────────────────────────────────────────────────── */
 @media (max-width: 480px) {
-  .panel {
+  /* RUNTIME only: real websites get the fullscreen sheet on phones. */
+  .shell.gs-mode-runtime .panel {
     inline-size: 100vw; block-size: 100dvh;
     border-radius: 0; inset: 0 !important;
   }
+  /* PREVIEW: the customization iframe is ~368px wide, which must NOT trigger
+     the fullscreen sheet — the panel stays a floating card anchored above the
+     dynamically computed launcher zone. */
+  .shell.gs-mode-preview .panel {
+    inline-size: min(368px, calc(100vw - 24px));
+    max-inline-size: calc(100vw - 24px);
+    block-size: min(640px, calc(100dvh - var(--gs-preview-launcher-zone, 132px) - 16px));
+    max-block-size: 640px;
+    inset-block-start: auto !important;
+    inset-block-end: var(--gs-preview-launcher-zone, 132px) !important;
+    border-radius: 12px !important;
+  }
+  .shell.gs-mode-preview .panel.bottom-right { inset-inline: auto 24px !important; }
+  .shell.gs-mode-preview .panel.bottom-left  { inset-inline: 24px auto !important; }
   .header-home { border-radius: 0; padding-block-start: calc(14px + env(safe-area-inset-top, 0px)); }
   .home-cats { grid-template-columns: repeat(2, 1fr); }
   .kb-cats { grid-template-columns: repeat(2, 1fr); }

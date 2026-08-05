@@ -81,10 +81,15 @@ async def main():
         c = await b.new_context(viewport={"width": 900, "height": 820})
         pg = await c.new_page()
         await pg.goto(f"{B}/", wait_until="domcontentloaded")
-        # Throttle the runtime script so the bridge is definitely not ready yet.
-        await pg.route("**/runtime.*.js", lambda route: asyncio.ensure_future(
-            asyncio.sleep(1.2)).add_done_callback(lambda _: asyncio.ensure_future(route.continue_())))
-        await pg.set_content(PARENT)
+        # Hold the loader script until the parent has already made edits, so
+        # the bridge provably cannot be ready when those edits happen.
+        gate = asyncio.Event()
+        async def hold(route):
+            await gate.wait()
+            await route.continue_()
+        await pg.route("**/widget/loader.js*", hold)
+        await pg.set_content(PARENT, wait_until="commit")
+        await pg.wait_for_function("() => typeof window.setPatch === 'function'", timeout=15000)
         # Fire customization edits IMMEDIATELY, before READY can have arrived.
         pre_ready = await pg.evaluate("""() => {
           window.setPatch({ primaryColor: '#111111' });
@@ -92,6 +97,7 @@ async def main():
           window.setPatch({ fab: { scale: 140 } });
           return { ready: window.__ready, sent: window.__sent };
         }""")
+        gate.set()
         print("pre-ready:", json.dumps(pre_ready))
         check("bridge not ready when edits were made", pre_ready["ready"] is False)
         check("no patch sent before READY", pre_ready["sent"] == 0, str(pre_ready["sent"]))

@@ -168,14 +168,13 @@
     "*,*::before,*::after{box-sizing:border-box;}",
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
-    "width:62px;height:62px;border-radius:50%;border:none;cursor:pointer;",
+    "width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 16px 30px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 88%,transparent),0 0 0 11px color-mix(in srgb,var(--gs-primary,#6D5DFB) 6%,transparent),0 0 0 22px color-mix(in srgb,var(--gs-primary,#6D5DFB) 3%,transparent);",
-    "background-image:linear-gradient(145deg,color-mix(in srgb,#fff 16%,var(--gs-primary,#6D5DFB)),color-mix(in srgb,#000 8%,var(--gs-primary,#6D5DFB)));",
+    "background-image:linear-gradient(135deg,var(--gs-primary,#6D5DFB),color-mix(in srgb,var(--gs-primary,#6D5DFB) 68%,var(--gs-secondary,#8B5CF6)));",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
-    ".launcher::before{content:'';position:absolute;width:34px;height:34px;border-radius:13px;background:#fff;}",
-    /* Hidden state — keeps the launcher invisible and non-interactive until
+        /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
@@ -195,7 +194,7 @@
     "padding:0 16px;border-radius:999px;font-size:12px;font-weight:800;font-family:inherit;",
     "box-shadow:0 12px 24px -16px color-mix(in srgb,var(--gs-primary,#6D5DFB) 90%,transparent);white-space:nowrap;",
     "background-image:linear-gradient(135deg,color-mix(in srgb,#fff 10%,var(--gs-primary,#6D5DFB)),color-mix(in srgb,#000 10%,var(--gs-primary,#6D5DFB)));color:#fff;}",
-    ".launcher svg{position:relative;width:21px;height:21px;fill:none;stroke:var(--gs-primary,#6D5DFB);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}",
+    ".launcher svg{position:relative;width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}",
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
     ".badge{position:absolute;top:-4px;inset-inline-start:-5px;right:auto;min-width:21px;height:21px;border-radius:11px;",
     "background:#EF4444;color:#fff;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;",
@@ -205,6 +204,7 @@
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
     ".error-toast.visible{display:block;}",
     "@media(max-width:480px){.launcher{width:54px;height:54px;}}",
+    ".gs-fab-label{--gs-fab-label-bg:var(--gs-primary,#6D5DFB);}",
   ].join("");
 
   // ─── <gs-widget> custom element ───
@@ -355,7 +355,7 @@
   function applyFabConfig(config, posClass) {
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
-    var size = Math.round(56 * scale);
+    var size = Math.round(58 * scale);
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
@@ -386,7 +386,10 @@
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
-    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");
+    if (shellDiv) {
+      shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");
+      shellDiv.style.setProperty("--gs-secondary", config.secondaryColor || config.primaryColor || "#8B5CF6");
+    }
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong

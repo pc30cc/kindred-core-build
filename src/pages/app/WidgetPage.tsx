@@ -120,13 +120,21 @@ function WidgetPageContent() {
    */
   const { data: kbArticlesData } = useKBArticles(workspace?.id, effectiveLocale, 'published');
   const { data: kbCategoriesData } = useKBCategories(workspace?.id, effectiveLocale);
+  // Fallback: workspaces that authored content in another locale still get a
+  // realistic preview instead of an empty Help tab.
+  const { data: kbArticlesAny } = useKBArticles(workspace?.id, undefined, 'published');
+  const { data: kbCategoriesAny } = useKBCategories(workspace?.id, undefined);
   const previewKbArticles = useMemo(
-    () => (kbArticlesData || []).slice(0, 6).map((a: any) => ({ title: a.title, excerpt: a.excerpt })),
-    [kbArticlesData],
+    () => ((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || [])
+      .slice(0, 6)
+      .map((a: any) => ({ title: a.title, excerpt: a.excerpt })),
+    [kbArticlesData, kbArticlesAny],
   );
   const previewKbCategories = useMemo(
-    () => (kbCategoriesData || []).slice(0, 6).map((c: any) => ({ name: c.name, description: c.description })),
-    [kbCategoriesData],
+    () => ((kbCategoriesData?.length ? kbCategoriesData : kbCategoriesAny) || [])
+      .slice(0, 6)
+      .map((c: any) => ({ name: c.name, description: c.description })),
+    [kbCategoriesData, kbCategoriesAny],
   );
 
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';

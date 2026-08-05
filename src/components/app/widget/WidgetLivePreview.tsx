@@ -7,7 +7,7 @@
  * below mirrors what `public/widget/runtime.js` emits at runtime, so what the
  * operator sees here is what the visitor gets on their site.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
@@ -126,11 +126,24 @@ export interface WidgetLivePreviewProps {
   /** Real published knowledge-base data so the preview matches the live widget. */
   kbArticles?: { title: string; excerpt?: string | null }[];
   kbCategories?: { name: string; description?: string | null }[];
+  /** Fired when the operator clicks a nav tab inside the preview. */
+  onViewChange?: (view: PreviewView) => void;
 }
 
 export function WidgetLivePreview({
-  settings, prechat, brandName, view, kbArticles, kbCategories,
+  settings, prechat, brandName, view, kbArticles, kbCategories, onViewChange,
 }: WidgetLivePreviewProps) {
+  useEffect(() => {
+    if (!onViewChange) return;
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { source?: string; nav?: string } | null;
+      if (!data || data.source !== 'gs-widget-preview' || !data.nav) return;
+      onViewChange(data.nav === 'home' ? 'home' : data.nav === 'help' ? 'kb' : 'chat');
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [onViewChange]);
+
   const srcDoc = useMemo(() => {
     const s = settings || {};
     const locale: string = s.widget_language || s.locale || 'en';

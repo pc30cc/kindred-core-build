@@ -159,7 +159,8 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
   const overridesRef = useRef(overrides);
   overridesRef.current = overrides;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const bootedKeyRef = useRef<string | null>(null);
+  const readyKeyRef = useRef<string | null>(null);
+  const [readyKey, setReadyKey] = useState<string | null>(null);
 
   const srcDoc = useMemo(() => {
     const overrides = overridesRef.current;

@@ -226,7 +226,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const helpHeader = `
       <div class="header header-help${rtl ? ' header-rtl' : ''}" dir="${dir}">
         <button type="button" class="hdr-icon-btn" aria-label="back">${backIcon}</button>
-        <span class="hdr-center-title">${esc(d.help)}</span>
+        <span class="hdr-center-title">${esc(d.helpTab)}</span>
         <button type="button" class="hdr-icon-btn" aria-label="close">${closeIcon}</button>
       </div>`;
 

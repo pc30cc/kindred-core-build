@@ -258,7 +258,62 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
       </div>` + prechatBody;
 
+    const HOME_ICONS = {
+      ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>',
+      human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+      kb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    };
+    const homeAction = (icon: string, t1: string, t2: string, badge = '') => `
+      <button type="button" class="home-action">
+        <span class="home-action-icon">${icon}</span>
+        <span class="home-action-text">
+          <span class="home-action-title">${esc(t1)}${badge}</span>
+          <span class="home-action-sub">${esc(t2)}</span>
+        </span>${HOME_ICONS.chevron}
+      </button>`;
+    const homeBody = `
+      <div class="home-root" dir="${dir}">
+        <div class="home-greeting">
+          <h2 class="home-greeting-title">${esc(d.homeGreeting)}</h2>
+          <p class="home-greeting-sub">${esc(welcome)}</p>
+        </div>
+        <div class="home-card home-resume">
+          <div class="home-resume-head">
+            <span class="home-resume-title">${esc(d.resumeTitle)}</span>
+            <span class="home-resume-time">10:30</span>
+          </div>
+          <div class="home-resume-who">${esc(title)}</div>
+          <div class="home-resume-msg">${esc(d.sample)}</div>
+          <button type="button" class="home-primary-btn" style="background:${esc(primary)}">${esc(d.resumeCta)}</button>
+        </div>
+        <div class="home-actions">
+          ${homeAction(HOME_ICONS.ai, d.actionAi, d.actionAiSub)}
+          ${homeAction(
+            HOME_ICONS.human, d.actionHuman, d.actionHumanSub,
+            `<span class="home-status status-online"><i></i>${esc(d.online)}</span>`,
+          )}
+          ${kbEnabled ? homeAction(HOME_ICONS.kb, d.actionKb, d.actionKbSub) : ''}
+        </div>
+        ${kbEnabled ? `
+        <div class="home-search">${HOME_ICONS.search}
+          <input class="home-search-input" type="search" placeholder="${esc(d.kbSearch)}" />
+        </div>
+        <div class="home-section-head"><span>${esc(d.categories)}</span>
+          <button type="button" class="home-link" style="color:${esc(primary)}">${esc(d.viewAll)}</button>
+        </div>
+        <div class="home-cats">
+          ${d.cats.map(c => `<button type="button" class="home-cat">
+            <span class="home-cat-icon">${HOME_ICONS.folder}</span>
+            <span class="home-cat-name">${esc(c)}</span>
+          </button>`).join('')}
+        </div>` : ''}
+      </div>`;
+
     const body =
+      view === 'home' ? homeBody :
       view === 'prechat' ? prechatBody :
       view === 'kb' ? kbBody :
       view === 'offline' ? offlineBody : chatBody;

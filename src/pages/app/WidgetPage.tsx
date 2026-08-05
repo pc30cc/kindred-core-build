@@ -788,6 +788,7 @@ function WidgetPageContent() {
                 view={previewView}
                 kbArticles={previewKbArticles}
                 kbCategories={previewKbCategories}
+                onViewChange={setManualView}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

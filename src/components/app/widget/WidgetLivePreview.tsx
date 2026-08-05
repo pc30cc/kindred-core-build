@@ -264,7 +264,6 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
               <span class="home-status-dot"></span>
               <span>${esc(d.homeTeamOnline)}</span>
             </div>
-            <p class="home-hint">${esc(d.homeReplyFast)}</p>
           </div>
           <button type="button" class="home-cta" style="background:${esc(primary)}">
             <span class="home-cta-label">${esc(d.homeStartChat)}</span>

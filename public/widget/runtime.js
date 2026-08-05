@@ -5420,10 +5420,10 @@
     function renderPresence(s) {
       if (!presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
-      // sr-only kept so the row stays accessible-only — visual presence
-      // is now communicated by the green dot on operator avatars.
-      presenceWrap.className = 'presence sr-only status-' + status;
-      presenceLabel.textContent = s.label || '';
+      // Presence is BOTH visual and screen-reader accessible (a11y rule).
+      presenceWrap.className = 'presence status-' + status;
+      presenceLabel.textContent = s.label
+        || (status === 'online' ? t('onlineLabel') : status === 'away' ? t('awayLabel') : t('offlineLabel'));
     }
     presenceStore.subscribe(renderPresence);
     renderPresence(presenceStore.get());

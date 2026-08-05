@@ -432,6 +432,16 @@ export function WidgetLivePreview({
     var closeBtn = document.getElementById('gs-close');
     if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
   })();
+
+  // Preview-only: clicking a bottom nav tab tells the parent to switch views.
+  (function () {
+    document.addEventListener('click', function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('[data-preview-nav]') : null;
+      if (!el) return;
+      e.preventDefault();
+      parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-preview-nav') }, '*');
+    });
+  })();
 </script>
 </body>
 </html>`;

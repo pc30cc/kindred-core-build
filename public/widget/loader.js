@@ -35,7 +35,8 @@
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-22-token-bus-v1";
+  var LOADER_VERSION = "2026-08-05-canonical-v1";
+  var WIDGET_DESIGN = "canonical-v1";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
@@ -167,14 +168,13 @@
     "*,*::before,*::after{box-sizing:border-box;}",
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
-    "width:62px;height:62px;border-radius:50%;border:none;cursor:pointer;",
+    "width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 16px 30px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 88%,transparent),0 0 0 11px color-mix(in srgb,var(--gs-primary,#6D5DFB) 6%,transparent),0 0 0 22px color-mix(in srgb,var(--gs-primary,#6D5DFB) 3%,transparent);",
-    "background-image:linear-gradient(145deg,color-mix(in srgb,#fff 16%,var(--gs-primary,#6D5DFB)),color-mix(in srgb,#000 8%,var(--gs-primary,#6D5DFB)));",
+    "background-image:linear-gradient(135deg,var(--gs-primary,#6D5DFB),color-mix(in srgb,var(--gs-primary,#6D5DFB) 68%,var(--gs-secondary,#8B5CF6)));",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
-    ".launcher::before{content:'';position:absolute;width:34px;height:34px;border-radius:13px;background:#fff;}",
-    /* Hidden state — keeps the launcher invisible and non-interactive until
+        /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
@@ -194,7 +194,7 @@
     "padding:0 16px;border-radius:999px;font-size:12px;font-weight:800;font-family:inherit;",
     "box-shadow:0 12px 24px -16px color-mix(in srgb,var(--gs-primary,#6D5DFB) 90%,transparent);white-space:nowrap;",
     "background-image:linear-gradient(135deg,color-mix(in srgb,#fff 10%,var(--gs-primary,#6D5DFB)),color-mix(in srgb,#000 10%,var(--gs-primary,#6D5DFB)));color:#fff;}",
-    ".launcher svg{position:relative;width:21px;height:21px;fill:none;stroke:var(--gs-primary,#6D5DFB);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}",
+    ".launcher svg{position:relative;width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}",
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
     ".badge{position:absolute;top:-4px;inset-inline-start:-5px;right:auto;min-width:21px;height:21px;border-radius:11px;",
     "background:#EF4444;color:#fff;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;",
@@ -204,27 +204,7 @@
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
     ".error-toast.visible{display:block;}",
     "@media(max-width:480px){.launcher{width:54px;height:54px;}}",
-    /* Welcome toast (shown by template2 — distinct from runtime.css .gs-toast).
-       Lives in the loader so it can render BEFORE runtime.js is fetched. */
-    ".gs-welcome-toast{position:fixed;z-index:2147483645;bottom:96px;right:24px;",
-    "max-width:300px;background:#fff;color:#1F2937;padding:12px 14px 12px 16px;",
-    "border-radius:14px;box-shadow:0 14px 40px -10px rgba(0,51,153,.28),0 0 0 1px rgba(15,23,42,.05);",
-    "cursor:pointer;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
-    "opacity:0;transform:translateY(10px) scale(.96);pointer-events:none;",
-    "transition:opacity .25s ease,transform .3s cubic-bezier(.34,1.56,.64,1);}",
-    ".gs-welcome-toast.bottom-left{left:24px;right:auto;}",
-    ".gs-welcome-toast.visible{opacity:1;transform:translateY(0) scale(1);pointer-events:auto;}",
-    ".gs-welcome-toast .gs-wt-row{display:flex;gap:10px;align-items:flex-start;}",
-    ".gs-welcome-toast .gs-wt-avatar{width:34px;height:34px;border-radius:50%;flex-shrink:0;",
-    "background:linear-gradient(160deg,#0052ff,#2b86ff);display:flex;align-items:center;justify-content:center;color:#fff;}",
-    ".gs-welcome-toast .gs-wt-avatar svg{width:18px;height:18px;}",
-    ".gs-welcome-toast .gs-wt-title{font-size:13px;font-weight:700;color:#0052ff;margin-bottom:2px;}",
-    ".gs-welcome-toast .gs-wt-body{font-size:13px;line-height:1.45;color:#374151;}",
-    ".gs-welcome-toast .gs-wt-close{position:absolute;top:6px;left:8px;width:20px;height:20px;",
-    "border:none;background:transparent;color:#9CA3AF;cursor:pointer;border-radius:50%;",
-    "display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;}",
-    ".gs-welcome-toast .gs-wt-close:hover{background:#F3F4F6;color:#374151;}",
-    ".gs-welcome-toast[dir=rtl] .gs-wt-close{left:auto;right:8px;}",
+    ".gs-fab-label{--gs-fab-label-bg:var(--gs-primary,#6D5DFB);}",
   ].join("");
 
   // ─── <gs-widget> custom element ───
@@ -258,6 +238,28 @@
   // singleton flag at the top of the IIFE already prevents this in practice).
   var trackingStarted = false;
 
+  // Hard teardown of a stale widget instance left by a previous loader
+  // version (SPA remount). Stops timers, drops listeners, unsubscribes
+  // transports and removes the element so we can mount fresh.
+  function destroyInstance(el) {
+    try {
+      var inst = window.__gs_runtime && window.__gs_runtime._instance;
+      if (inst && typeof inst.destroy === "function") inst.destroy();
+      else if (inst && typeof inst.close === "function") inst.close();
+    } catch (_) {}
+    try { if (window.__gs_runtime) window.__gs_runtime._instance = null; } catch (_) {}
+    try { if (window.__gs_call && typeof window.__gs_call.destroy === "function") window.__gs_call.destroy(); } catch (_) {}
+    try {
+      var stale = document.querySelectorAll('script[data-gs-runtime],script[data-gs-runtime-call]');
+      for (var i = 0; i < stale.length; i++) stale[i].remove();
+    } catch (_) {}
+    try { if (el && el.parentNode) el.parentNode.removeChild(el); } catch (_) {}
+    runtimeLoaded = false;
+    runtimeLoading = false;
+    widgetApi = null;
+    ready = false;
+  }
+
   function mountShell() {
     if (shellEl) return; // singleton
     // Defense in depth: if a previous loader run left a shell node in the
@@ -265,17 +267,28 @@
     // it instead of creating a duplicate.
     var existing = document.querySelector(ELEMENT_TAG);
     if (existing && existing.shadowRoot) {
-      shellEl = existing;
-      shadowRoot = existing.shadowRoot;
-      var existingLauncher = shadowRoot.querySelector(".launcher");
-      if (existingLauncher) launcherEl = existingLauncher;
-      var existingToast = shadowRoot.querySelector(".error-toast");
-      if (existingToast) errorToastEl = existingToast;
-      log("Adopted existing shell from prior load");
-      return;
+      // Version-gated adoption. An SPA route swap may leave behind a shell
+      // that was mounted by an OLDER loader/runtime/style triple. Adopting
+      // it would resurrect a stale design. Only adopt on an exact match.
+      var prevLoader = existing.getAttribute("data-loader-version") || existing.getAttribute("data-version") || "";
+      var prevDesign = existing.getAttribute("data-widget-design") || "";
+      if (prevLoader === LOADER_VERSION && prevDesign === WIDGET_DESIGN) {
+        shellEl = existing;
+        shadowRoot = existing.shadowRoot;
+        var existingLauncher = shadowRoot.querySelector(".launcher");
+        if (existingLauncher) launcherEl = existingLauncher;
+        var existingToast = shadowRoot.querySelector(".error-toast");
+        if (existingToast) errorToastEl = existingToast;
+        log("Adopted existing shell (version match)");
+        return;
+      }
+      warn("Stale widget instance detected — destroying before fresh mount", prevLoader, prevDesign);
+      destroyInstance(existing);
     }
     shellEl = document.createElement(ELEMENT_TAG);
     shellEl.setAttribute("data-version", LOADER_VERSION);
+    shellEl.setAttribute("data-loader-version", LOADER_VERSION);
+    shellEl.setAttribute("data-widget-design", WIDGET_DESIGN);
     document.body.appendChild(shellEl);
     shadowRoot = shellEl.shadowRoot;
 
@@ -316,79 +329,6 @@
     setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
   }
 
-  // Welcome toast — used by template2 to surface a friendly nudge a few
-  // seconds after the page loads, similar to popular SaaS chat widgets.
-  // Lives in the loader so it appears BEFORE runtime.js is fetched.
-  var welcomeToastEl = null;
-  var welcomeToastShown = false;
-  function scheduleWelcomeToast(config, posClass) {
-    if (welcomeToastShown) return;
-    if (!shadowRoot) return;
-    // Respect dismissal across page navigations (per-tab).
-    try {
-      if (sessionStorage.getItem("__gs_wt_dismissed") === "1") return;
-    } catch (_) {}
-    var delayMs = 3500;
-    setTimeout(function () { showWelcomeToast(config, posClass); }, delayMs);
-  }
-  function showWelcomeToast(config, posClass) {
-    if (welcomeToastShown) return;
-    if (!shadowRoot) return;
-    var shellDiv = shadowRoot.querySelector(".shell");
-    if (!shellDiv) return;
-    welcomeToastShown = true;
-    welcomeToastEl = document.createElement("div");
-    welcomeToastEl.className = "gs-welcome-toast " + (posClass || "bottom-right");
-    var brandName = (config && config.brandName) ? String(config.brandName) : "Support";
-    var welcomeMsg = (config && config.welcomeMessage)
-      ? String(config.welcomeMessage)
-      : "سلام! چطور می‌توانم کمکتان کنم؟";
-    var safeName = brandName.replace(/[&<>"']/g, function (c) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-    });
-    var safeMsg = welcomeMsg.replace(/[&<>"']/g, function (c) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-    });
-    welcomeToastEl.innerHTML =
-      '<button type="button" class="gs-wt-close" aria-label="Close">×</button>' +
-      '<div class="gs-wt-row">' +
-        '<div class="gs-wt-avatar">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
-        '</div>' +
-        '<div class="gs-wt-text">' +
-          '<div class="gs-wt-title">' + safeName + '</div>' +
-          '<div class="gs-wt-body">' + safeMsg + '</div>' +
-        '</div>' +
-      '</div>';
-    shellDiv.appendChild(welcomeToastEl);
-    // Animate in next frame.
-    requestAnimationFrame(function () {
-      if (welcomeToastEl) welcomeToastEl.classList.add("visible");
-    });
-    // Click body → open widget; click × → dismiss only.
-    welcomeToastEl.addEventListener("click", function (e) {
-      var target = e.target;
-      if (target && target.classList && target.classList.contains("gs-wt-close")) {
-        dismissWelcomeToast(true);
-        return;
-      }
-      dismissWelcomeToast(false);
-      if (launcherEl) launcherEl.click();
-    });
-    // Auto-hide after 12s if untouched.
-    setTimeout(function () { dismissWelcomeToast(false); }, 12000);
-  }
-  function dismissWelcomeToast(persist) {
-    if (!welcomeToastEl) return;
-    welcomeToastEl.classList.remove("visible");
-    if (persist) {
-      try { sessionStorage.setItem("__gs_wt_dismissed", "1"); } catch (_) {}
-    }
-    var el = welcomeToastEl;
-    welcomeToastEl = null;
-    setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 300);
-  }
-
   // ─── Launcher (FAB) icon set — kept byte-identical with the operator
   // preview (src/components/app/widget/WidgetLivePreview.tsx) so what the
   // operator configures is exactly what the visitor sees.
@@ -415,7 +355,7 @@
   function applyFabConfig(config, posClass) {
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
-    var size = Math.round(56 * scale);
+    var size = Math.round(58 * scale);
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
@@ -446,7 +386,10 @@
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
-    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");
+    if (shellDiv) {
+      shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");
+      shellDiv.style.setProperty("--gs-secondary", config.secondaryColor || config.primaryColor || "#8B5CF6");
+    }
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong
@@ -456,33 +399,6 @@
       // The operator configures these under Widget → Appearance. The live
       // preview renders the exact same rules, so site == preview.
       applyFabConfig(config, posClass);
-      // Expose template slug for CSS scoping (Task 4).
-      if (config.templateSlug) {
-        launcherEl.setAttribute("data-template", config.templateSlug);
-        if (shellEl) shellEl.setAttribute("data-template", config.templateSlug);
-        if (shellDiv) shellDiv.setAttribute("data-template", config.templateSlug);
-        // Template-specific launcher icon. Each template gets a visually
-        // distinct icon shape so visitors immediately perceive the skin
-        // difference (request: launcher icon must NOT match the default).
-        if (config.templateSlug === "template2") {
-          launcherEl.innerHTML =
-            // Rounded squircle bubble with three dots (template2 style)
-            '<svg class="chat-icon" viewBox="0 0 32 32" fill="none" stroke="none">' +
-              '<path fill="currentColor" d="M16 4C9.373 4 4 8.925 4 15c0 3.43 1.74 6.49 4.46 8.5-.18 1.36-.74 2.96-1.84 4.36-.3.38.02.94.5.86 2.7-.46 4.96-1.6 6.46-2.74 .78.16 1.6.24 2.42.24 6.627 0 12-4.925 12-11S22.627 4 16 4z"/>' +
-              '<circle cx="11" cy="15" r="1.5" fill="#fff"/>' +
-              '<circle cx="16" cy="15" r="1.5" fill="#fff"/>' +
-              '<circle cx="21" cy="15" r="1.5" fill="#fff"/>' +
-            '</svg>' +
-            '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
-          // Inline launcher styling so the distinct skin appears immediately
-          // (before runtime.css lazy-loads on first click).
-          launcherEl.style.background = "linear-gradient(160deg,#0052ff 0%,#0066ff 50%,#2b86ff 100%)";
-          launcherEl.style.width = "60px";
-          launcherEl.style.height = "60px";
-          launcherEl.style.boxShadow = "0 14px 32px -6px rgba(0,82,255,.55),0 6px 14px -2px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.18)";
-          scheduleWelcomeToast(config, posClass);
-        }
-      }
     }
   }
 
@@ -669,7 +585,6 @@
       launcherEl.classList.add("revealed");
     }
     launcherEl.addEventListener("click", function () {
-      dismissWelcomeToast(true);
       if (opts.errorMessage) { showShellError(opts.errorMessage); return; }
       if (opts.launcherOnly) { showShellError("Chat is not configured."); return; }
       onLauncherClick();

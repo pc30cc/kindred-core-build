@@ -10,23 +10,6 @@
   contain: layout style;
 }
 
-/* ════════════════════════════════════════════════════════════════════
-   Template scoping (Task 4)
-   ────────────────────────────────────────────────────────────────────
-   The runtime sets data-template="<slug>" on <gs-widget> AND on .shell.
-   Use these selectors when adding template-specific overrides:
-
-     .shell[data-template="default"]  .panel { ... }
-     .shell[data-template="<slug>"]   .panel { ... }
-
-   No global rules belong here. Future templates can ship as additional
-   stylesheet blocks scoped via these attributes — no rebundling needed.
-   ════════════════════════════════════════════════════════════════════ */
-.shell[data-template="default"] {
-  /* default visual tokens — kept identical to the legacy un-scoped values
-     so existing widgets render byte-identically. */
-}
-
 /* Internal reset — scoped to the shadow root only */
 *,
 *::before,
@@ -2119,572 +2102,69 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   }
 }
 
-/* ════════════════════════════════════════════════════════════════════
-   Template: "template2" — premium light skin
-   ────────────────────────────────────────────────────────────────────
-   White card with rounded squircle avatar, soft shadow message cards,
-   blue accent. Fully scoped under .shell[data-template="template2"].
-   ════════════════════════════════════════════════════════════════════ */
-
-.shell[data-template="template2"] {
-  --gs-t2-primary: #2563eb;
-  --gs-t2-primary-2: #6D5DFB;
-  --gs-t2-primary-hover: #1d4ed8;
-  --gs-t2-primary-soft: #eff6ff;
-  --gs-t2-bg: #ffffff;
-  --gs-t2-surface: #f6f8fb;
-  --gs-t2-border: #eceff3;
-  --gs-t2-text: #0f172a;
-  --gs-t2-muted: #6b7280;
-}
-
-.shell[data-template="template2"],
-.shell[data-template="template2"] *,
-.shell[data-template="template2"] *::before,
-.shell[data-template="template2"] *::after {
-  font-family: "Vazirmatn", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-/* ─── Panel ─── */
-.shell[data-template="template2"] .panel {
-  width: 380px;
-  height: min(640px, calc(100vh - 96px));
-  border-radius: 22px;
-  background: var(--gs-t2-bg);
-  color: var(--gs-t2-text);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow:
-    0 24px 60px -18px rgba(15, 23, 42, 0.22),
-    0 6px 16px -4px rgba(15, 23, 42, 0.08),
-    0 0 0 1px rgba(15, 23, 42, 0.04);
-}
-.shell[data-template="template2"] .panel.bottom-right { bottom: 96px; right: 24px; }
-.shell[data-template="template2"] .panel.bottom-left  { bottom: 96px; left: 24px; }
-
-/* ─── Header — clean white with squircle avatar ─── */
-.shell[data-template="template2"] .header {
-  position: relative;
-  background: #fff;
-  color: var(--gs-t2-text);
-  padding: 16px 18px 14px;
-  border-bottom: 1px solid var(--gs-t2-border);
-  flex-shrink: 0;
-}
-.shell[data-template="template2"] .header::before,
-.shell[data-template="template2"] .header::after { content: none; display: none; }
-
-.shell[data-template="template2"] .header-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--gs-t2-text);
-  letter-spacing: -0.01em;
-  line-height: 1.3;
-}
-.shell[data-template="template2"] .header-subtitle {
-  font-size: 12.5px;
-  font-weight: 400;
-  color: var(--gs-t2-muted);
-  margin-top: 2px;
-  line-height: 1.4;
-}
-
-/* Squircle avatar (rounded-square style for template2) */
-.shell[data-template="template2"] .header-op-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px !important;
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%);
-  color: #fff;
-  font-weight: 700;
-  font-size: 16px;
-  box-shadow: 0 6px 16px -4px rgba(37, 99, 235, 0.45);
-  overflow: hidden;
-}
-.shell[data-template="template2"] .header-op-avatar img {
-  border-radius: 14px;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.shell[data-template="template2"] .header-op-avatar.is-online {
-  box-shadow: 0 6px 16px -4px rgba(37, 99, 235, 0.45);
-}
-.shell[data-template="template2"] .header-op-dot {
-  background: #22c55e;
-  border: 2px solid #fff;
-}
-
-/* Header close/notification action buttons */
-.shell[data-template="template2"] .header button,
-.shell[data-template="template2"] .header-actions button,
-.shell[data-template="template2"] .header-close,
-.shell[data-template="template2"] .header-mute {
-  color: var(--gs-t2-text);
-  opacity: 0.75;
-  border-radius: 10px;
-  transition: background 0.15s ease, opacity 0.15s ease;
-}
-.shell[data-template="template2"] .header button:hover,
-.shell[data-template="template2"] .header-close:hover,
-.shell[data-template="template2"] .header-mute:hover {
-  background: var(--gs-t2-surface);
-  opacity: 1;
-}
-
-/* ─── Tabs ─── */
-.shell[data-template="template2"] .tabs {
-  background: #fff;
-  border-bottom: 1px solid var(--gs-t2-border);
-}
-.shell[data-template="template2"] .tab {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--gs-t2-muted);
-}
-.shell[data-template="template2"] .tab.active { color: var(--gs-t2-primary); font-weight: 600; }
-.shell[data-template="template2"] .tab.active::after {
-  background: var(--gs-t2-primary);
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-}
-
-/* ─── Body / messages ─── */
-.shell[data-template="template2"] .body {
-  background: var(--gs-t2-bg);
-  flex: 1;
-  min-height: 0;
-}
-.shell[data-template="template2"] .messages {
-  gap: 10px;
-  padding: 16px;
-}
-
-/* Sender name label above bubble (e.g., "هوش مصنوعی") */
-.shell[data-template="template2"] .msg-sender,
-.shell[data-template="template2"] .sender-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--gs-t2-text);
-  margin-bottom: 4px;
-}
-
-.shell[data-template="template2"] .msg {
-  border-radius: 16px;
-  padding: 12px 14px;
-  font-size: 14px;
-  line-height: 1.7;
-  font-weight: 400;
-  max-width: 86%;
-}
-.shell[data-template="template2"] .msg.operator {
-  background: #fff;
-  color: var(--gs-t2-text);
-  border: 1px solid var(--gs-t2-border);
-  box-shadow: 0 2px 6px -2px rgba(15, 23, 42, 0.06);
-  border-bottom-left-radius: 6px;
-}
-.shell[data-template="template2"] .msg.visitor {
-  background: var(--gs-t2-primary);
-  color: #fff;
-  border-bottom-right-radius: 6px;
-  box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.32);
-}
-
-/* ─── Suggestion chips (KB suggestions / quick prompts) ─── */
-.shell[data-template="template2"] .kb-suggestion,
-.shell[data-template="template2"] .prompt-chip,
-.shell[data-template="template2"] .suggested-chip {
-  background: #fff;
-  color: var(--gs-t2-primary);
-  border: 1px solid var(--gs-t2-primary);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.shell[data-template="template2"] .kb-suggestion:hover,
-.shell[data-template="template2"] .prompt-chip:hover,
-.shell[data-template="template2"] .suggested-chip:hover {
-  background: var(--gs-t2-primary-soft);
-}
-
-/* ─── Input bar / composer ─── */
-.shell[data-template="template2"] .input-bar {
-  border-top: 1px solid var(--gs-t2-border);
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
-  background: #fff;
-  gap: 6px;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-.shell[data-template="template2"] .input,
-.shell[data-template="template2"] .composer textarea,
-.shell[data-template="template2"] .composer input[type="text"] {
-  border-radius: 14px;
-  background: var(--gs-t2-surface);
-  border: 1px solid transparent;
-  font-size: 14px;
-  padding: 12px 16px;
-  min-height: 44px;
-  flex: 1;
-  min-width: 0;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-}
-.shell[data-template="template2"] .input:focus,
-.shell[data-template="template2"] .composer textarea:focus,
-.shell[data-template="template2"] .composer input[type="text"]:focus {
-  background: #fff;
-  border-color: var(--gs-t2-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-  outline: none;
-}
-.shell[data-template="template2"] .input::placeholder { color: #9ca3af; }
-
-/* Send button — squircle blue gradient (overrides inline primaryColor) */
-.shell[data-template="template2"] .send-btn {
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%) !important;
-  color: #fff !important;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  border-radius: 14px !important;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 6px 14px -4px rgba(37, 99, 235, 0.55);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
-}
-.shell[data-template="template2"] .send-btn:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.05);
-  box-shadow: 0 10px 20px -6px rgba(37, 99, 235, 0.6);
-}
-.shell[data-template="template2"] .send-btn:active { transform: scale(0.94); }
-.shell[data-template="template2"] .send-btn svg { width: 18px; height: 18px; fill: currentColor; }
-/* In RTL the paper-plane icon should point toward the start (right). */
-.shell[data-template="template2"][dir="rtl"] .send-btn svg,
-.shell[data-template="template2"] .panel-rtl .send-btn svg {
-  transform: scaleX(-1);
-}
-
-/* Attach / emoji / mic icon buttons in composer */
-.shell[data-template="template2"] .attach-btn,
-.shell[data-template="template2"] .emoji-btn,
-.shell[data-template="template2"] .mic-btn {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  border-radius: 12px;
-  color: #6b7280;
-  background: transparent;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
-}
-.shell[data-template="template2"] .attach-btn:hover:not(:disabled),
-.shell[data-template="template2"] .emoji-btn:hover,
-.shell[data-template="template2"] .mic-btn:hover {
-  background: var(--gs-t2-surface);
-  color: var(--gs-t2-primary);
-}
-.shell[data-template="template2"] .attach-btn:active,
-.shell[data-template="template2"] .emoji-btn:active,
-.shell[data-template="template2"] .mic-btn:active {
-  transform: scale(0.94);
-}
-
-/* Composer order — LTR default: [send] [emoji] [attach] [input] [mic]
-   visually mirrors the reference design (send leads on the action side). */
-.shell[data-template="template2"] .send-btn   { order: 1; }
-.shell[data-template="template2"] .emoji-btn  { order: 2; }
-.shell[data-template="template2"] .attach-btn { order: 3; }
-.shell[data-template="template2"] .input      { order: 4; }
-.shell[data-template="template2"] .mic-btn    { order: 5; }
-
-/* RTL — flexbox already mirrors; explicit orders keep mic on the start (right)
-   and send on the end (left), matching the reference screenshot. */
-.shell[data-template="template2"][dir="rtl"] .mic-btn,
-.shell[data-template="template2"] .panel-rtl .mic-btn    { order: 1; }
-.shell[data-template="template2"][dir="rtl"] .input,
-.shell[data-template="template2"] .panel-rtl .input      { order: 2; text-align: right; }
-.shell[data-template="template2"][dir="rtl"] .attach-btn,
-.shell[data-template="template2"] .panel-rtl .attach-btn { order: 3; }
-.shell[data-template="template2"][dir="rtl"] .emoji-btn,
-.shell[data-template="template2"] .panel-rtl .emoji-btn  { order: 4; }
-.shell[data-template="template2"][dir="rtl"] .send-btn,
-.shell[data-template="template2"] .panel-rtl .send-btn   { order: 5; }
-
-/* ─── Emoji popover ─── */
-.shell[data-template="template2"] .emoji-pop {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 2px;
-  padding: 8px;
-  margin: 0 12px 6px;
-  background: #fff;
-  border: 1px solid var(--gs-t2-border);
-  border-radius: 14px;
-  box-shadow: 0 12px 30px -10px rgba(15, 23, 42, 0.18);
-  max-height: 220px;
-  overflow-y: auto;
-  animation: gs-emoji-pop 160ms ease-out;
-}
-@keyframes gs-emoji-pop {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.shell[data-template="template2"] .emoji-pop-item {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 10px;
-  font-size: 20px;
-  cursor: pointer;
-  transition: background 0.12s ease, transform 0.1s ease;
-}
-.shell[data-template="template2"] .emoji-pop-item:hover {
-  background: var(--gs-t2-surface);
-  transform: scale(1.1);
-}
-
-/* ─── Prechat form ─── */
-.shell[data-template="template2"] .prechat-control input,
-.shell[data-template="template2"] .prechat-control textarea,
-.shell[data-template="template2"] .prechat-control select {
-  border-radius: 12px;
-  border: 1px solid var(--gs-t2-border);
-  background: #fff;
-  font-size: 14px;
-  padding: 10px 12px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.shell[data-template="template2"] .prechat-control input:focus,
-.shell[data-template="template2"] .prechat-control textarea:focus,
-.shell[data-template="template2"] .prechat-control select:focus {
-  border-color: var(--gs-t2-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-  outline: none;
-}
-.shell[data-template="template2"] .prechat button[type="submit"],
-.shell[data-template="template2"] .prechat .submit-btn {
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%);
-  color: #fff;
-  border-radius: 12px;
-  font-weight: 600;
-  padding: 11px 18px;
-  font-size: 14px;
-  box-shadow: 0 6px 14px -4px rgba(37, 99, 235, 0.45);
-  transition: filter 0.15s ease, transform 0.15s ease;
-}
-.shell[data-template="template2"] .prechat button[type="submit"]:hover,
-.shell[data-template="template2"] .prechat .submit-btn:hover {
-  filter: brightness(1.05);
-  transform: translateY(-1px);
-}
-
-/* ─── KB search ─── */
-.shell[data-template="template2"] .kb-search {
-  border-radius: 12px;
-  background: var(--gs-t2-surface);
-  border: 1px solid transparent;
-  padding: 10px 14px;
-  font-size: 14px;
-}
-.shell[data-template="template2"] .kb-search:focus,
-.shell[data-template="template2"] .kb-search:focus-within {
-  background: #fff;
-  border-color: var(--gs-t2-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-  outline: none;
-}
-
-/* ─── AI badge ─── */
-.shell[data-template="template2"] .msg-ai-badge {
-  background: var(--gs-t2-primary-soft);
-  color: var(--gs-t2-primary);
-  border-radius: 6px;
-  font-weight: 700;
-}
-
-/* ─── Powered footer ─── */
-.shell[data-template="template2"] .powered {
-  background: #fff;
-  border-top: 1px solid var(--gs-t2-border);
-  font-size: 11px;
-  padding: 8px;
-  color: #9ca3af;
-}
-.shell[data-template="template2"] .powered a {
-  color: var(--gs-t2-primary);
-  font-weight: 600;
-}
-
-/* ─── Connection banner ─── */
-.shell[data-template="template2"] .connection-banner {
-  border-radius: 0;
-  font-weight: 500;
-}
-
-/* ─── Launcher (the floating button) ─── */
-.shell[data-template="template2"] .launcher,
-.shell[data-template="template2"] .gs-launcher {
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%);
-  width: 60px;
-  height: 60px;
-  border-radius: 18px;
-  box-shadow:
-    0 14px 32px -6px rgba(37, 99, 235, 0.55),
-    0 6px 14px -2px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transition: transform 0.22s cubic-bezier(0.22, 1.2, 0.36, 1), box-shadow 0.22s ease;
-}
-.shell[data-template="template2"] .launcher:hover,
-.shell[data-template="template2"] .gs-launcher:hover {
-  transform: translateY(-3px) scale(1.05);
-  box-shadow:
-    0 20px 40px -8px rgba(37, 99, 235, 0.6),
-    0 8px 18px -2px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.26);
-}
-
-/* ─── Scrollbar ─── */
-.shell[data-template="template2"] .body::-webkit-scrollbar { width: 6px; }
-.shell[data-template="template2"] .body::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.14);
-  border-radius: 6px;
-}
-.shell[data-template="template2"] .body::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, 0.24);
-}
-
-/* ─── RTL polish (Persian default) ─── */
-/* Bubble sides are physical now (visitor right / operator left in every
-   locale), so the tail corners must NOT be mirrored in RTL. */
-.shell[data-template="template2"][dir="rtl"] .msg.operator,
-.shell[data-template="template2"] .panel-rtl .msg.operator {
-  border-bottom-left-radius: 6px;
-  border-bottom-right-radius: 16px;
-}
-.shell[data-template="template2"][dir="rtl"] .msg.visitor,
-.shell[data-template="template2"] .panel-rtl .msg.visitor {
-  border-bottom-right-radius: 6px;
-  border-bottom-left-radius: 16px;
-}
-
-/* ─── Tablet — keep panel windowed but slightly wider/taller ─── */
-@media (max-width: 768px) and (min-width: 481px) {
-  .shell[data-template="template2"] .panel {
-    width: min(420px, calc(100vw - 24px));
-    height: min(640px, calc(100vh - 96px));
-  }
-  .shell[data-template="template2"] .input-bar {
-    gap: 8px;
-  }
-}
-
-/* ─── Mobile / small screens ─── */
-@media (max-width: 480px) {
-  .shell[data-template="template2"] .panel {
-    width: 100vw;
-    max-width: 100vw;
-    height: 100dvh;
-    max-height: 100dvh;
-    border-radius: 0;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-  }
-  .shell[data-template="template2"] .header {
-    padding: 14px 16px 12px;
-    padding-top: max(16px, env(safe-area-inset-top, 0px));
-  }
-  .shell[data-template="template2"] .input-bar {
-    gap: 6px;
-    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
-  }
-  .shell[data-template="template2"] .input {
-    font-size: 16px; /* prevents iOS zoom on focus */
-    min-height: 44px;
-    padding: 12px 14px;
-  }
-  .shell[data-template="template2"] .send-btn {
-    width: 44px;
-    height: 44px;
-  }
-  .shell[data-template="template2"] .attach-btn,
-  .shell[data-template="template2"] .emoji-btn,
-  .shell[data-template="template2"] .mic-btn {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-  }
-  .shell[data-template="template2"] .emoji-pop {
-    grid-template-columns: repeat(7, 1fr);
-    margin: 0 8px 6px;
-  }
-}
-
-/* ─── Very small screens — tighten composer gap further ─── */
-@media (max-width: 360px) {
-  .shell[data-template="template2"] .input-bar { gap: 4px; padding-left: 8px; padding-right: 8px; }
-  .shell[data-template="template2"] .attach-btn,
-  .shell[data-template="template2"] .emoji-btn,
-  .shell[data-template="template2"] .mic-btn { width: 40px; height: 40px; min-width: 40px; }
-}
-
 /* ══════════════════════════════════════════════════════════════════════
-   REFERENCE DESIGN SYSTEM  (single authoritative layer)
+   CANONICAL WIDGET DESIGN SYSTEM — "canonical-v1" (single layer)
    ──────────────────────────────────────────────────────────────────────
-   Implements the approved widget design spec. This is the ONLY layer that
-   styles the panel chrome (headers, home, chat, help, nav, composer, call
-   surfaces, skeletons and states). Previous "v2" / "premium" / "reference"
-   append-layers were removed instead of being overridden.
+   The ONLY layer that styles the panel chrome (headers, home, chat, help,
+   nav, composer, call surfaces, skeletons and states). There is exactly
+   one design — no templates, no skins, no alternate visual branches.
    All spacing uses logical properties so fa (RTL) and en/tr (LTR) share
    one implementation.
    ══════════════════════════════════════════════════════════════════════ */
 .panel {
-  --ref-primary: var(--gs-primary, #6D5DFB);
-  --ref-secondary: #8B5CF6;
-  --ref-primary-dark: #5146D8;
-  --ref-success: #12B981;
-  --ref-danger: #EF4444;
-  --ref-warning: #F59E0B;
-  --ref-text: #182033;
-  --ref-muted: #6F7890;
-  --ref-border: #E7EAF1;
+  /* ── Canonical design tokens (workspace-driven colors) ── */
+  --widget-primary: var(--gs-primary, #6D5DFB);
+  --widget-secondary: var(--gs-secondary, #8B5CF6);
+  --widget-primary-dark: color-mix(in srgb, var(--widget-primary) 82%, #000);
+  --widget-primary-soft: color-mix(in srgb, var(--widget-primary) 10%, #fff);
+  --widget-text: #182033;
+  --widget-muted: #6F7890;
+  --widget-border: #E7EAF1;
+  --widget-background: #F4F6FB;
+  --widget-surface: #FFFFFF;
+  --widget-danger: #EF4444;
+  --widget-success: #12B981;
+  --widget-warning: #F59E0B;
+  --widget-brand-gradient: linear-gradient(
+    180deg,
+    var(--widget-primary) 0%,
+    color-mix(in srgb, var(--widget-primary) 72%, var(--widget-secondary)) 52%,
+    color-mix(in srgb, var(--widget-secondary) 18%, #ffffff) 100%
+  );
+  --widget-button-gradient: linear-gradient(
+    135deg,
+    var(--widget-primary),
+    color-mix(in srgb, var(--widget-primary) 68%, var(--widget-secondary))
+  );
+  /* Back-compat aliases consumed by the chat / help / call surfaces. */
+  --ref-primary: var(--widget-primary);
+  --ref-secondary: var(--widget-secondary);
+  --ref-primary-dark: var(--widget-primary-dark);
+  --ref-success: var(--widget-success);
+  --ref-danger: var(--widget-danger);
+  --ref-warning: var(--widget-warning);
+  --ref-text: var(--widget-text);
+  --ref-muted: var(--widget-muted);
+  --ref-border: var(--widget-border);
   --ref-border-strong: #DFE3EC;
-  --ref-bg: #F4F6FB;
+  --ref-bg: var(--widget-background);
   --ref-soft: #F8F9FC;
-  --ref-surface: #FFFFFF;
+  --ref-surface: var(--widget-surface);
   --r-8: 8px; --r-12: 12px; --r-13: 13px; --r-14: 14px; --r-15: 15px;
   --r-16: 16px; --r-18: 18px; --r-20: 20px; --r-22: 22px; --r-24: 24px; --r-26: 26px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
   --ref-shadow-card: 0 8px 24px -18px rgba(32,36,62,.23), 0 1px 2px rgba(32,36,62,.04);
-  --ref-shadow-panel: 0 22px 54px -26px rgba(34,38,70,.34), 0 8px 20px -14px rgba(34,38,70,.18);
+  --ref-shadow-panel: 0 20px 55px -20px rgba(17,24,39,.26), 0 6px 18px -10px rgba(17,24,39,.12);
   --ref-motion: 170ms cubic-bezier(.2,.8,.2,1);
-  width: 400px;
-  height: min(648px, calc(100vh - 108px));
+  inline-size: 368px;
+  block-size: min(716px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
-  background: var(--ref-surface);
-  color: var(--ref-text);
-  border-radius: 28px;
+  background: #ffffff;
+  color: var(--widget-text);
+  border-radius: 12px;
   box-shadow: var(--ref-shadow-panel);
-  border: 1px solid rgba(23,30,50,.06);
+  border: 1px solid rgba(17,24,39,.06);
   overflow: hidden;
   font-size: 13px;
   line-height: 1.55;
@@ -3413,3 +2893,113 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
    actions instead of a status-colored top rule. */
 .panel .ci-card::before { content: none !important; display: none !important; }
 .panel .ci-card { background: var(--ref-surface) !important; border-color: var(--ref-border) !important; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CANONICAL HOME  (single design — gradient stage + white cards)
+   ══════════════════════════════════════════════════════════════════════ */
+.panel[data-view="home"] { background: var(--widget-brand-gradient); }
+.panel[data-view="home"] .body { background: transparent; }
+.panel .header-home {
+  min-block-size: 138px;
+  padding: 16px 16px 8px;
+  background: transparent;
+  border-radius: 12px 12px 0 0;
+}
+.panel .header-home .hdr-greeting { margin-block-start: 18px; }
+.panel .header-home .hdr-greeting-title { font-size: 20px; font-weight: 800; }
+.panel .header-home .hdr-greeting-sub { font-size: 12.5px; opacity: .9; }
+
+.panel .home-root { padding: 0; }
+.panel .home-surface {
+  margin-block-start: 0;
+  background: transparent;
+  border-radius: 0;
+  padding: 0 13px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  min-block-size: 100%;
+}
+.panel .home-spacer { flex: 1 1 auto; min-block-size: 8px; }
+.panel .home-card {
+  background: #fff;
+  border: 1px solid rgba(17,24,39,.05);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 10px 30px -18px rgba(17,24,39,.35), 0 2px 6px -4px rgba(17,24,39,.12);
+}
+
+/* Search inside the knowledge card */
+.panel .home-kb-card { padding: 12px; }
+.panel .home-kb-card .home-search {
+  block-size: 42px; border-radius: 10px;
+  background: var(--widget-background);
+  border: 1px solid var(--widget-border);
+  box-shadow: none;
+}
+.panel .home-articles { margin-block-start: 6px; display: flex; flex-direction: column; }
+.panel .home-article {
+  display: flex; align-items: center; gap: 8px;
+  inline-size: 100%; min-block-size: 44px;
+  padding: 8px 4px;
+  background: none; border: 0; cursor: pointer;
+  border-block-end: 1px solid rgba(17,24,39,.06);
+  text-align: start;
+  transition: background var(--ref-motion);
+}
+.panel .home-article:last-child { border-block-end: 0; }
+.panel .home-article:hover { background: rgba(109,93,251,.05); }
+.panel .home-article-title {
+  flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--widget-text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.panel .home-article-go { flex: none; color: #A6ADBD; display: inline-flex; }
+.panel .home-article-go svg { inline-size: 16px; block-size: 16px; }
+.panel[dir="rtl"] .home-article-go svg,
+.panel[dir="rtl"] .home-cta-btn-go svg { transform: scaleX(-1); }
+.panel .home-link-block {
+  inline-size: 100%; margin-block-start: 8px; padding: 6px 0;
+  font-size: 11px; font-weight: 800; cursor: pointer;
+}
+
+/* Start-conversation card */
+.panel .home-cta-card { display: flex; flex-direction: column; gap: 10px; }
+.panel .home-cta-top { display: flex; align-items: center; gap: 10px; }
+.panel .home-cta-avatars { display: inline-flex; align-items: center; }
+.panel .home-op-avatar {
+  position: relative;
+  inline-size: 30px; block-size: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(145deg,#3B4256,#161B29);
+  color: #fff; font-size: 11px; font-weight: 800;
+  border: 2px solid #fff; overflow: visible;
+  margin-inline-start: -8px;
+}
+.panel .home-cta-avatars .home-op-avatar:first-child { margin-inline-start: 0; }
+.panel .home-op-avatar img { inline-size: 100%; block-size: 100%; border-radius: 50%; object-fit: cover; }
+.panel .home-op-avatar .op-dot {
+  position: absolute; inset-block-end: -1px; inset-inline-end: -1px;
+  inline-size: 9px; block-size: 9px; border-radius: 50%;
+  background: var(--widget-success); border: 2px solid #fff;
+}
+.panel .home-cta-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.panel .home-cta-title { font-size: 12.5px; font-weight: 800; color: var(--widget-text); }
+.panel .home-cta-btn {
+  display: flex; align-items: center; gap: 10px;
+  inline-size: 100%; min-block-size: 46px; padding-inline: 14px;
+  border: 0; border-radius: 10px; cursor: pointer;
+  background: var(--widget-button-gradient);
+  color: #fff; font: inherit; font-size: 13px; font-weight: 800;
+  box-shadow: 0 12px 24px -16px rgba(17,24,39,.9);
+  transition: transform var(--ref-motion), box-shadow var(--ref-motion);
+}
+.panel .home-cta-btn:hover { transform: translateY(-1px); }
+.panel .home-cta-btn-label { flex: 1; text-align: start; }
+.panel .home-cta-btn-icon svg,
+.panel .home-cta-btn-go svg { inline-size: 18px; block-size: 18px; }
+
+/* Bottom navigation — canonical 60px, 3 items max */
+.panel .tabs {
+  block-size: 60px;
+  background: #fff;
+  border-block-start: 1px solid var(--widget-border);
+}
+.panel .tab.active { color: var(--widget-primary); }

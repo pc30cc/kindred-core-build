@@ -23,6 +23,8 @@
   'use strict';
 
   var __gs_runtime = {};
+  var RUNTIME_VERSION = '2026-08-05-canonical-v1';
+  __gs_runtime._version = RUNTIME_VERSION;
 
   // ════════════════════════════════════════════════════════════════════
   // Util
@@ -3439,9 +3441,38 @@
 
       var html = '<div class="home-root"><div class="home-surface">';
 
+      // ── Knowledge card (search + top articles) ──
+      if (kbEnabled) {
+        var kb = kbStore.get();
+        var arts = (kb.articles || []).slice(0, 4);
+        html += '<div class="home-card home-kb-card">' +
+          '<div class="home-search">' + ICON.search +
+            '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
+            'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
+          '</div>';
+        if (arts.length) {
+          html += '<div class="home-articles">' + arts.map(function (a) {
+            var title = (a && (a.title || a.name || a.slug)) || '';
+            var slug = (a && a.slug) ? String(a.slug) : '';
+            return '<button type="button" class="home-article" data-home-article="' + Util.escapeHtml(slug) + '">' +
+              '<span class="home-article-title">' + Util.escapeHtml(String(title)) + '</span>' +
+              '<span class="home-article-go" aria-hidden="true">' + ICON.chevron + '</span>' +
+            '</button>';
+          }).join('') + '</div>' +
+          '<button type="button" class="home-link home-link-block" data-home-action="help">' +
+            Util.escapeHtml(t('viewAll')) + '</button>';
+        } else {
+          html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noArticles')) + '</span></div>';
+        }
+        html += '</div>';
+      }
+
+      html += '<div class="home-spacer"></div>';
+
+      // ── Resume card (only when a conversation exists) ──
       if (hasConversation) {
         var who = last.sender === 'visitor' ? '' : (last.senderName || '');
-        var initial = (who.trim().charAt(0) || '·').toUpperCase();
+        var initial = (who.trim().charAt(0) || '\u00b7').toUpperCase();
         html += '<div class="home-card home-resume">' +
           '<div class="home-resume-head">' +
             '<span class="home-resume-title">' + Util.escapeHtml(t('resumeTitle')) + '</span>' +
@@ -3456,37 +3487,25 @@
         '</div>';
       }
 
-      html += '<div class="home-actions">';
-      if (aiEnabled && chatEnabled) html += actionRow('ai', 'ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
+      // ── Start-conversation card ──
       if (chatEnabled) {
         var st = pres.status || 'offline';
         var stLabel = st === 'online' ? t('onlineLabel') : (st === 'away' ? t('awayLabel') : t('offlineLabel'));
-        var badge = '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>';
-        html += actionRow('chat', 'human', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
-      }
-      if (kbEnabled) html += actionRow('help', 'kb', ICON.kb, t('actionKb'), t('actionKbSub'), '');
-      html += '</div>';
-
-      if (kbEnabled) {
-        html += '<div class="home-search">' + ICON.search +
-          '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
-          'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
+        var avatars = (deps.operatorAvatarsHtml && deps.operatorAvatarsHtml()) || '';
+        html += '<div class="home-card home-cta-card">' +
+          '<div class="home-cta-top">' +
+            (avatars ? '<span class="home-cta-avatars">' + avatars + '</span>' : '') +
+            '<span class="home-cta-meta">' +
+              '<span class="home-cta-title">' + Util.escapeHtml(t('actionHuman')) + '</span>' +
+              '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>' +
+            '</span>' +
+          '</div>' +
+          '<button type="button" class="home-cta-btn" data-home-action="' + (aiEnabled ? 'ai' : 'chat') + '">' +
+            '<span class="home-cta-btn-icon">' + ICON.human + '</span>' +
+            '<span class="home-cta-btn-label">' + Util.escapeHtml(t('actionHumanSub')) + '</span>' +
+            '<span class="home-cta-btn-go" aria-hidden="true">' + ICON.chevron + '</span>' +
+          '</button>' +
         '</div>';
-        var cats = (kbStore.get().categories || []).slice(0, 4);
-        html += '<div class="home-section-head"><span>' + Util.escapeHtml(t('categories')) + '</span>' +
-          '<button type="button" class="home-link" data-home-action="help">' + Util.escapeHtml(t('viewAll')) + '</button></div>';
-        if (!cats.length) {
-          html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noCategories')) + '</span></div>';
-        } else {
-          html += '<div class="home-cats">' + cats.map(function (c, i) {
-            var name = (c && (c.name || c.title || c.slug)) || '';
-            var slug = (c && c.slug) ? String(c.slug) : '';
-            return '<button type="button" class="home-cat" data-home-cat="' + Util.escapeHtml(slug) + '">' +
-              '<span class="home-cat-icon tone-' + catTone(i) + '">' + ICON.folder + '</span>' +
-              '<span class="home-cat-name">' + Util.escapeHtml(String(name)) + '</span>' +
-            '</button>';
-          }).join('') + '</div>';
-        }
       }
 
       html += '</div></div>';
@@ -3505,6 +3524,14 @@
         catBtns[c2].addEventListener('click', function () {
           var slug = this.getAttribute('data-home-cat');
           if (deps.onOpenCategory) deps.onOpenCategory(slug);
+          else deps.onOpenHelp && deps.onOpenHelp('');
+        });
+      }
+      var artBtns = body.querySelectorAll('[data-home-article]');
+      for (var a2 = 0; a2 < artBtns.length; a2++) {
+        artBtns[a2].addEventListener('click', function () {
+          var slug = this.getAttribute('data-home-article');
+          if (slug && deps.onOpenArticle) deps.onOpenArticle(slug);
           else deps.onOpenHelp && deps.onOpenHelp('');
         });
       }
@@ -3904,94 +3931,8 @@
       paint();
     }
 
-    return { ensure: ensure, render: render, setQuery: setQuery, openCategory: openCategory };
+    return { ensure: ensure, render: render, setQuery: setQuery, openCategory: openCategory, openArticle: openArticle };
   }
-
-  // ════════════════════════════════════════════════════════════════════
-  // Template Registry (Task 4)
-  //
-  // Lightweight template-aware foundation. Today only `default` is registered
-  // — additional templates can plug in later WITHOUT a new runtime bundle.
-  //
-  // Each template is just a small descriptor. Future templates can override
-  // `prepareShell` / `prepareCtx` to influence rendering (CSS variables,
-  // skin classes, behavioral hooks) while the core pipeline is unchanged.
-  //
-  // Resolution order in init():
-  //   1. config.templateSlug (server-resolved against widget_templates)
-  //   2. fallback to 'default' if slug unknown to the runtime registry
-  //
-  // The selected slug is exposed as:
-  //   - ctx.templateSlug                (string)
-  //   - data-template="<slug>" on <gs-widget> AND on .shell
-  //   - body class `gs-template-<slug>` is NOT used (Shadow DOM scoping only)
-  // ════════════════════════════════════════════════════════════════════
-  var TemplateRegistry = (function () {
-    var entries = {};
-    function register(descriptor) {
-      if (!descriptor || !descriptor.slug) return;
-      entries[descriptor.slug] = descriptor;
-    }
-    function get(slug) { return entries[slug] || null; }
-    function resolve(requestedSlug) {
-      var slug = requestedSlug || 'default';
-      var entry = entries[slug] || entries['default'] || null;
-      return {
-        slug: entry ? entry.slug : 'default',
-        descriptor: entry,
-        // True when caller asked for X but we fell back to default. Useful
-        // for diagnostics — the server still owns the canonical decision,
-        // this is purely a runtime safety net.
-        fellBack: !!requestedSlug && (!entry || entry.slug !== requestedSlug),
-      };
-    }
-    return { register: register, get: get, resolve: resolve, all: function () { return entries; } };
-  })();
-
-  // Register the only real template that ships today. Future templates are
-  // additive — they just call TemplateRegistry.register(...).
-  TemplateRegistry.register({
-    slug: 'default',
-    name: 'Default',
-    /** Hook: optionally tweak the ctx object before any UI is built. */
-    prepareCtx: function (_ctx) { /* no-op for default */ },
-    /** Hook: called once shellDiv exists, before panel mounts. */
-    prepareShell: function (_shellDiv, _ctx) { /* no-op for default */ },
-  });
-
-  // ── Widget Template 2 — premium skin ─────────────────────────────────
-  // Pure CSS skin scoped to .shell[data-template="template2"]. Loads the
-  // Vazirmatn webfont (Google Fonts) into both the host document and the
-  // shadow root so Persian + Latin text renders with the correct family.
-  TemplateRegistry.register({
-    slug: 'template2',
-    name: 'Widget Template 2',
-    prepareCtx: function (_ctx) { /* no-op */ },
-    prepareShell: function (_shellDiv, _ctx) {
-      try {
-        if (typeof document === 'undefined') return;
-        var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap';
-        if (!document.getElementById('gs-t2-fonts')) {
-          var l = document.createElement('link');
-          l.id = 'gs-t2-fonts';
-          l.rel = 'stylesheet';
-          l.href = FONT_HREF;
-          document.head.appendChild(l);
-        }
-        var sh = (_shellDiv && _shellDiv.shadowRoot) || null;
-        if (sh && !sh.getElementById('gs-t2-fonts-shadow')) {
-          var l2 = document.createElement('link');
-          l2.id = 'gs-t2-fonts-shadow';
-          l2.rel = 'stylesheet';
-          l2.href = FONT_HREF;
-          sh.appendChild(l2);
-        }
-      } catch (_) { /* font injection optional */ }
-    },
-  });
-
-  // Expose for debugging / future runtime template registration from outside.
-  __gs_runtime.templates = TemplateRegistry;
 
   // ════════════════════════════════════════════════════════════════════
   // Core — orchestrates everything inside the shadow root
@@ -4091,24 +4032,30 @@
       }
     } catch (_) { /* bus optional */ }
 
-    // Expose template slug in the runtime context for CSS scoping + future
-    // template-aware behavior. Today only 'default' is registered server-side.
-    var __tplResolve = TemplateRegistry.resolve(config.templateSlug);
-    ctx.templateSlug = __tplResolve.slug;
-    ctx.template = __tplResolve.descriptor;
-    if (__tplResolve.fellBack) {
-      Util.warn('[template] requested "' + config.templateSlug + '" not registered — using "default"');
-    }
+    // ─── Canonical design diagnostics ────────────────────────────────
+    // The widget ships exactly ONE design. No template/skin resolution.
+    ctx.widgetDesign = 'canonical-v1';
     try {
       var rootEl = (shell && shell.shellEl) || null;
-      if (rootEl) rootEl.setAttribute('data-template', ctx.templateSlug);
+      if (rootEl) {
+        rootEl.removeAttribute('data-template');
+        rootEl.setAttribute('data-widget-design', 'canonical-v1');
+        rootEl.setAttribute('data-runtime-version', RUNTIME_VERSION);
+        if (config.styleVersion) rootEl.setAttribute('data-style-version', String(config.styleVersion));
+        if (config.manifestVersion) rootEl.setAttribute('data-manifest-version', String(config.manifestVersion));
+      }
+      if (Util.debug) {
+        console.info('[widget-design]', {
+          design: 'canonical-v1',
+          loaderVersion: (window.__gs && window.__gs._version) || null,
+          runtimeVersion: RUNTIME_VERSION,
+          styleVersion: config.styleVersion || null,
+          manifestVersion: config.manifestVersion || null,
+          runtimeUrl: config.runtimeUrl || null,
+          styleUrl: config.styleUrl || null,
+        });
+      }
     } catch (_) {}
-    // Run the template's prepareCtx hook (no-op for default today) so future
-    // templates can adjust ctx values (icons, colors, copy keys) before any
-    // rendering happens.
-    if (ctx.template && typeof ctx.template.prepareCtx === 'function') {
-      try { ctx.template.prepareCtx(ctx); } catch (e) { Util.warn('template.prepareCtx err', e); }
-    }
 
     // Tear down the token manager when the panel is unloaded by the host
     // page (SPA route swap). Prevents orphaned refresh timers.
@@ -5053,7 +5000,7 @@
     // before the panel opens. Best-effort; never blocks any UI.
     try { resolveDepartmentMode('chat'); } catch (_) {}
 
-    // Expose for debug + future templates.
+    // Expose for debug.
     ctx.departments = {
       resolve: resolveDepartmentMode,
       select: deptSelect,
@@ -5074,12 +5021,7 @@
       Util.warn('FATAL: no mount target available inside shadow root');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
-    // Mirror data-template onto .shell so Shadow-DOM-scoped CSS can target
-    // the entire UI subtree (e.g. `.shell[data-template="default"] .panel`).
-    try { shellDiv.setAttribute('data-template', ctx.templateSlug); } catch (_) {}
-    if (ctx.template && typeof ctx.template.prepareShell === 'function') {
-      try { ctx.template.prepareShell(shellDiv, ctx); } catch (e) { Util.warn('template.prepareShell err', e); }
-    }
+    try { shellDiv.setAttribute('data-widget-design', 'canonical-v1'); } catch (_) {}
     var launcher = shell.launcher;
 
     // ─── Domain stores (each one isolated, with pub/sub) ───
@@ -5255,6 +5197,11 @@
         switchTab('help');
         if (kbUI.openCategory) kbUI.ensure(function () { kbUI.openCategory(slug); });
       },
+      onOpenArticle: function (slug) {
+        switchTab('help');
+        if (kbUI.openArticle) kbUI.ensure(function () { kbUI.openArticle(slug); });
+      },
+      operatorAvatarsHtml: function () { return operatorStackHtml(); },
     });
 
     // ─── Build panel ───
@@ -5346,6 +5293,13 @@
         : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
       return '<span class="' + cls + (avatar ? ' has-img' : '') + (online ? ' is-online' : '') + '" title="' + Util.escapeHtml(name) + '">' +
         inner + (online ? '<span class="op-dot"></span>' : '') + '</span>';
+    }
+
+    // Overlapping avatar stack (up to 3 operators) used on the Home CTA card.
+    function operatorStackHtml() {
+      var list = teamMembers.slice(0, 3);
+      if (!list.length) return '';
+      return list.map(function (op) { return operatorAvatarHtml(op, 'home-op-avatar'); }).join('');
     }
 
     function closeBtnHtml() {

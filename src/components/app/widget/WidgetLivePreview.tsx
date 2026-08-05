@@ -126,6 +126,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const dir = rtl ? 'rtl' : 'ltr';
 
     const primary: string = s.primary_color || '#6D5DFB';
+    const secondary: string = (s.secondary_color as string) || '#8B5CF6';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     const title = (localizedValue(s.launcher_text, 'launcher', locale) || s.fab_label || brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
@@ -142,7 +143,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
       1.4,
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
-    const fabSize = Math.round(56 * fabScale);
+    const fabSize = Math.round(58 * fabScale);
     const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
     const fabIcon = FAB_ICONS[(s.fab_icon as string) || 'chat'] || FAB_ICONS.chat;
@@ -318,51 +319,40 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
       </div>` + prechatBody;
 
-    const homeAction = (icon: string, t1: string, t2: string, badge = '', tone = 'ai') => `
-      <button type="button" class="home-action">
-        <span class="home-action-icon tone-${tone}">${icon}</span>
-        <span class="home-action-text">
-          <span class="home-action-title">${esc(t1)}${badge}</span>
-          <span class="home-action-sub">${esc(t2)}</span>
-        </span><span class="home-action-go">${HOME_ICONS.chevron}</span>
-      </button>`;
     const homeBody = `
       <div class="home-root" dir="${dir}"><div class="home-surface">
-        <div class="home-card home-resume">
-          <div class="home-resume-head">
-            ${logo ? `<span class="home-resume-avatar has-img"><img src="${esc(logo)}" alt="" /></span>`
-                   : `<span class="home-resume-avatar">${esc(initial)}</span>`}
-            <span class="home-resume-title">${esc(d.resumeTitle)}</span>
-          </div>
-          <div class="home-resume-who">${esc(title)}</div>
-          <div class="home-resume-msg">${esc(d.sample)}</div>
-          <div class="home-resume-foot">
-            <span class="home-resume-time">10:30</span>
-            <span class="hdr-spacer"></span>
-            <button type="button" class="home-pill-btn" style="background:${esc(primary)}">${esc(d.resumeCta)}</button>
-          </div>
-        </div>
-        <div class="home-actions">
-          ${homeAction(HOME_ICONS.ai, d.actionAi, d.actionAiSub, '', 'ai')}
-          ${homeAction(
-            HOME_ICONS.human, d.actionHuman, d.actionHumanSub,
-            `<span class="home-status status-online"><i></i>${esc(d.online)}</span>`, 'human',
-          )}
-          ${kbEnabled ? homeAction(HOME_ICONS.kb, d.actionKb, d.actionKbSub, '', 'kb') : ''}
-        </div>
         ${kbEnabled ? `
-        <div class="home-search">${HOME_ICONS.search}
-          <input class="home-search-input" type="search" placeholder="${esc(d.kbSearch)}" />
-        </div>
-        <div class="home-section-head"><span>${esc(d.categories)}</span>
-          <button type="button" class="home-link" style="color:${esc(primary)}">${esc(d.viewAll)}</button>
-        </div>
-        <div class="home-cats">
-          ${d.cats.map((c, i) => `<button type="button" class="home-cat">
-            <span class="home-cat-icon tone-${['a','b','c','d'][i % 4]}">${HOME_ICONS.folder}</span>
-            <span class="home-cat-name">${esc(c)}</span>
-          </button>`).join('')}
+        <div class="home-card home-kb-card">
+          <div class="home-search">${HOME_ICONS.search}
+            <input class="home-search-input" type="search" placeholder="${esc(d.kbSearch)}" />
+          </div>
+          <div class="home-articles">
+            ${d.kbArticles.slice(0, 4).map((a2) => `<button type="button" class="home-article">
+              <span class="home-article-title">${esc(a2)}</span>
+              <span class="home-article-go">${HOME_ICONS.chevron}</span>
+            </button>`).join('')}
+          </div>
+          <button type="button" class="home-link home-link-block" style="color:${esc(primary)}">${esc(d.viewAll)}</button>
         </div>` : ''}
+        <div class="home-spacer"></div>
+        <div class="home-card home-cta-card">
+          <div class="home-cta-top">
+            <span class="home-cta-avatars">
+              ${logo
+                ? `<span class="home-op-avatar has-img is-online"><img src="${esc(logo)}" alt="" /><span class="op-dot"></span></span>`
+                : `<span class="home-op-avatar is-online">${esc(initial)}<span class="op-dot"></span></span>`}
+            </span>
+            <span class="home-cta-meta">
+              <span class="home-cta-title">${esc(d.actionHuman)}</span>
+              <span class="home-status status-online"><i></i>${esc(d.online)}</span>
+            </span>
+          </div>
+          <button type="button" class="home-cta-btn">
+            <span class="home-cta-btn-icon">${HOME_ICONS.human}</span>
+            <span class="home-cta-btn-label">${esc(d.actionHumanSub)}</span>
+            <span class="home-cta-btn-go">${HOME_ICONS.chevron}</span>
+          </button>
+        </div>
       </div></div>`;
 
     const body =
@@ -409,14 +399,14 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
   .site .bar.w2{width:62%}.site .bar.w3{width:78%}.site .bar.w4{width:45%}
   .site .block{height:120px;border-radius:14px;background:#E2E8F0;margin:16px 0;}
   .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:#E2E8F0}
-  .shell{--gs-primary:${esc(primary)};color:#1F2937;}
+  .shell{--gs-primary:${esc(primary)};--gs-secondary:${esc(secondary)};color:#1F2937;}
   /* Panel keeps production geometry (380px wide, anchored 92px above the
      launcher) — only the height clamp differs because the preview frame is
      smaller than a real browser viewport. */
   /* Override the runtime's <=480px full-screen rule: inside this small preview
      frame the panel must stay a floating card, otherwise it covers the FAB. */
   .panel{position:fixed!important;top:auto!important;width:min(380px, calc(100% - 28px))!important;
-    max-width:calc(100% - 28px)!important;border-radius:20px!important;
+    max-width:calc(100% - 28px)!important;border-radius:12px!important;
     height:calc(100% - ${24 + fabSize + 12 + 20}px)!important;}
   .panel[hidden]{display:none!important;}
   .header-op-avatar.has-img img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
@@ -427,7 +417,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;
     box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);
     transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;
-    background:${esc(primary)};color:${esc(fabIconColor)};z-index:5;}
+    background-image:linear-gradient(135deg,${esc(primary)},color-mix(in srgb,${esc(primary)} 68%,${esc(secondary)}));background-color:${esc(primary)};color:${esc(fabIconColor)};z-index:5;}
   .launcher.bottom-right{bottom:24px;right:24px;}
   .launcher.bottom-left{bottom:24px;left:24px;}
   .launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
@@ -443,7 +433,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     <div class="block"></div>
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
-  <div class="shell" data-template="default">
+  <div class="shell" data-widget-design="canonical-v1">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}" dir="${dir}" data-view="${esc(activeNav)}">
       ${header}
       <div class="body">${body}</div>

@@ -713,7 +713,7 @@ function WidgetPageContent() {
             </div>
 
             <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">
-              {(['chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
+              {(['home', 'chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
                 <Button
                   key={v}
                   size="sm"

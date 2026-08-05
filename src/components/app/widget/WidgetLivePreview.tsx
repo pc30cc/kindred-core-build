@@ -330,28 +330,28 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
      smaller than a real browser viewport. */
   /* Override the runtime's <=480px full-screen rule: inside this small preview
      frame the panel must stay a floating card, otherwise it covers the FAB. */
-  .panel{position:fixed!important;top:auto!important;width:min(380px, calc(100% - 28px))!important;
+   .panel{position:fixed!important;top:auto!important;width:min(380px, calc(100% - 28px))!important;
     max-width:calc(100% - 28px)!important;border-radius:20px!important;
-    height:calc(100% - 40px)!important;}
+     height:calc(100% - ${fabSize + 60}px)!important;}
   .panel[hidden]{display:none!important;}
   .launcher.is-hidden{opacity:0!important;visibility:hidden!important;pointer-events:none!important;}
   .fab-label.is-hidden{opacity:0!important;visibility:hidden!important;}
   .header-op-avatar.has-img img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
-  .panel.bottom-right{bottom:20px!important;right:20px!important;left:auto!important;}
-  .panel.bottom-left{bottom:20px!important;left:20px!important;right:auto!important;}
+   .panel.bottom-right{bottom:${fabSize + 44}px!important;right:20px!important;left:auto!important;}
+   .panel.bottom-left{bottom:${fabSize + 44}px!important;left:20px!important;right:auto!important;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
   .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
     width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;
     box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);
     transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;
-     background:${esc(primary)};color:${esc(fabIconColor)};z-index:2147483647;}
+     background:${esc(primary)};color:${esc(fabIconColor)};z-index:5;}
   .launcher.bottom-right{bottom:24px;right:24px;}
   .launcher.bottom-left{bottom:24px;left:24px;}
   .launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}
   .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
     background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;
-     box-shadow:0 4px 14px -4px rgba(0,0,0,.25);z-index:2147483646;}
+     box-shadow:0 4px 14px -4px rgba(0,0,0,.25);z-index:5;}
 </style>
 </head>
 <body>

@@ -5165,9 +5165,13 @@
     // open/closed bookkeeping stays in sync with the runtime.
     var headerCloseBtn = panel.querySelector('[data-panel-close]');
     if (headerCloseBtn) {
-      headerCloseBtn.addEventListener('click', function () {
+      headerCloseBtn.addEventListener('click', function (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (_) {}
         try {
-          if (shell && shell.launcher) { shell.launcher.click(); return; }
+          if (typeof window.__gs_panel_close === 'function') { window.__gs_panel_close(); return; }
+        } catch (_) {}
+        try {
+          if (shell && shell.launcher && shell.launcher.classList.contains('open')) { shell.launcher.click(); return; }
         } catch (_) {}
         try { if (window.__gs_runtime && window.__gs_runtime._instance) window.__gs_runtime._instance.close(); } catch (_) {}
       });

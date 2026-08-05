@@ -3506,6 +3506,7 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
+    var activeCategory = null;   // category slug filter (real data only)
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
@@ -3671,20 +3672,35 @@
           if (cats.length) {
             html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
             html += '<div class="kb-cats">';
-            cats.forEach(function (c) {
+            cats.forEach(function (c, ci) {
+              var on = activeCategory && String(activeCategory) === String(c.slug);
               html +=
-                '<a class="kb-cat" target="_blank" rel="noopener noreferrer" ' +
-                  'href="' + Util.escapeHtml(window.location.origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/c/' + encodeURIComponent(c.slug)) + '">' +
+                '<button type="button" class="kb-cat tone-' + (['a','b','c','d','e','f'][ci % 6]) + (on ? ' active' : '') + '" ' +
+                  'data-kb-action="cat" data-kb-cat="' + Util.escapeHtml(c.slug || '') + '">' +
                   '<span class="kb-cat-icon">' + KB_ICON.folder + '</span>' +
                   '<span class="kb-cat-name">' + Util.escapeHtml(c.name) + '</span>' +
-                '</a>';
+                '</button>';
             });
             html += '</div>';
           }
-          if (articles.length) {
+          var shownArticles = articles;
+          if (activeCategory) {
+            var catObj = null;
+            cats.forEach(function (c) { if (String(c.slug) === String(activeCategory)) catObj = c; });
+            if (catObj) {
+              shownArticles = articles.filter(function (a) { return String(a.category_id) === String(catObj.id); });
+            }
+          }
+          if (activeCategory && !shownArticles.length) {
+            html += '<div class="kb-empty kb-empty-centered">' +
+              '<div class="kb-empty-icon" aria-hidden="true">' + KB_ICON.folder + '</div>' +
+              '<p class="kb-empty-text">' + Util.escapeHtml(t('noArticles')) + '</p>' +
+            '</div>';
+          }
+          if (shownArticles.length) {
             html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
             html += '<div class="kb-list">';
-            articles.forEach(function (a) {
+            shownArticles.forEach(function (a) {
               html +=
                 '<button type="button" class="kb-article kb-article-row" data-kb-action="open" data-kb-slug="' +
                   Util.escapeHtml(a.slug) + '">' +
@@ -3758,6 +3774,12 @@
               ev.preventDefault();
               currentArticle = null;
               view = currentQuery.trim() ? 'results' : 'list';
+              paint();
+            } else if (action === 'cat') {
+              ev.preventDefault();
+              var slug = el.getAttribute('data-kb-cat') || '';
+              activeCategory = (activeCategory === slug) ? null : slug;
+              view = 'list';
               paint();
             } else if (action === 'switch-chat') {
               ev.preventDefault();
@@ -3840,7 +3862,22 @@
       paint();
     }
 
-    return { ensure: ensure, render: render };
+    function setQuery(q) {
+      currentQuery = String(q || '');
+      currentArticle = null;
+      if (currentQuery.trim()) { view = 'searching'; paint(); runSearch(); }
+      else { view = 'list'; paint(); }
+    }
+
+    function openCategory(slug) {
+      activeCategory = slug || null;
+      currentQuery = '';
+      currentArticle = null;
+      view = 'list';
+      paint();
+    }
+
+    return { ensure: ensure, render: render, setQuery: setQuery, openCategory: openCategory };
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -5172,7 +5209,16 @@
       chatStore: chatStore,
       kbStore: kbStore,
       onOpenChat: function () { switchTab('chat'); },
-      onOpenHelp: function () { switchTab('help'); },
+      onOpenHelp: function (query) {
+        switchTab('help');
+        if (query && kbUI.setQuery) {
+          kbUI.ensure(function () { kbUI.setQuery(query); });
+        }
+      },
+      onOpenCategory: function (slug) {
+        switchTab('help');
+        if (kbUI.openCategory) kbUI.ensure(function () { kbUI.openCategory(slug); });
+      },
     });
 
     // ─── Build panel ───

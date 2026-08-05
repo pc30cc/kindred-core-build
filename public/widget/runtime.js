@@ -2554,16 +2554,31 @@
 
       var ariaCard = (t('ciAriaCard') || 'Call invitation') + ' — ' +
         (channel === 'video' ? (t('videoCall') || 'Video') : (t('voiceCall') || 'Voice'));
+      var opAvatarUrl = meta.operator_avatar || meta.operator_avatar_url || '';
+      var opInitial = (op ? op.replace(/&[a-z]+;/g, '').trim().charAt(0) : '').toUpperCase() || '·';
+      var avatarHtml = '<span class="ci-avatar' + (opAvatarUrl ? ' has-img' : '') + '">' +
+        (opAvatarUrl
+          ? '<img src="' + Util.escapeHtml(String(opAvatarUrl)) + '" alt="" loading="lazy" decoding="async" />'
+          : '<span aria-hidden="true">' + Util.escapeHtml(opInitial) + '</span>') +
+        '<span class="ci-avatar-dot" aria-hidden="true"></span>' +
+      '</span>';
+      var channelLabel = channel === 'video'
+        ? (t('ciHeadlineVideo') || 'Incoming video call')
+        : (t('ciHeadlineAudio') || 'Incoming voice call');
       return '<div class="msg-row system">' +
         '<div class="ci-card ci-channel-' + channel + ' ci-status-' + Util.escapeHtml(status) +
           '" data-ci-card="' + inviteId + '" role="group" aria-label="' + Util.escapeHtml(ariaCard) + '">' +
-          '<div class="ci-row">' +
-            '<span class="ci-icon" aria-hidden="true">' + iconSvg + '</span>' +
-            '<div class="ci-text">' +
-              '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
-              bodyBlock +
-              statusBlock +
-            '</div>' +
+          '<div class="ci-head"><span class="ci-head-icon" aria-hidden="true">' + iconSvg + '</span>' +
+            '<span class="ci-head-label">' + Util.escapeHtml(channelLabel) + '</span></div>' +
+          (status === 'pending' ? avatarHtml : '') +
+          '<div class="ci-text">' +
+            (op ? '<div class="ci-name">' + op + '</div>' : '') +
+            '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
+            bodyBlock +
+            statusBlock +
+            (status === 'pending'
+              ? '<div class="ci-dots" aria-hidden="true"><i></i><i></i><i></i></div>'
+              : '') +
           '</div>' +
           actionBlock +
         '</div>' +
@@ -3373,12 +3388,21 @@
     }
 
     function skeleton() {
-      return '<div class="gs-skel-group" aria-hidden="true">' +
-        '<div class="gs-skel gs-skel-line w60"></div>' +
+      // Mirrors the real Home layout: resume card, 3 action rows,
+      // search field and the 4-up category grid.
+      return '<div class="home-surface gs-skel-group" aria-hidden="true">' +
         '<div class="gs-skel gs-skel-card"></div>' +
         '<div class="gs-skel gs-skel-row"></div>' +
         '<div class="gs-skel gs-skel-row"></div>' +
         '<div class="gs-skel gs-skel-row"></div>' +
+        '<div class="gs-skel gs-skel-search"></div>' +
+        '<div class="gs-skel gs-skel-line w40"></div>' +
+        '<div class="gs-skel-grid four">' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+        '</div>' +
       '</div>';
     }
 

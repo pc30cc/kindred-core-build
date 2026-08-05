@@ -2399,6 +2399,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
    typing bubble must use flex-end (= inline-end = physical left). */
 .panel[dir="rtl"] .typing-row,
 .panel.panel-rtl .typing-row { align-self: flex-end; }
+/* The scoped `.panel .typing-row` rule above outranks the earlier
+   `.typing-row[hidden]`, so the hidden state must be re-declared here or the
+   empty typing bubble stays painted. */
+.panel .typing-row[hidden] { display: none; }
 .panel .typing-dots { display: inline-flex; gap: 3px; }
 .panel .typing-dots span {
   inline-size: 5px; block-size: 5px; border-radius: 50%;

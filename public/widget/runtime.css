@@ -109,7 +109,7 @@ textarea:focus-visible {
 .header-op-stack {
   display: inline-flex;
   flex-shrink: 0;
-  padding-right: 4px;
+  padding-inline-end: 4px;
 }
 .header-op-avatar {
   width: 36px;
@@ -124,11 +124,11 @@ textarea:focus-visible {
   justify-content: center;
   overflow: hidden;
   box-shadow: 0 0 0 2px var(--gs-primary, #6D5DFB), 0 2px 6px rgba(0, 0, 0, 0.18);
-  margin-left: -10px;
+  margin-inline-start: -10px;
   position: relative;
   transition: transform 0.15s ease;
 }
-.header-op-stack .header-op-avatar:first-child { margin-left: 0; }
+.header-op-stack .header-op-avatar:first-child { margin-inline-start: 0; }
 
 /* RTL header (Persian) — mirror brand row so avatar stack sits on the right
    and title/subtitle align to the right. Scoped to .header-rtl so other
@@ -152,7 +152,7 @@ textarea:focus-visible {
    presence-row dot that used to sit under the title. */
 .header-op-dot {
   position: absolute;
-  right: 0;
+  inset-inline-end: 0;
   bottom: 0;
   width: 11px;
   height: 11px;
@@ -964,10 +964,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .attach-chip.status-uploading::after {
   content: '';
   position: absolute;
-  left: 0; right: 0; bottom: -1px;
+  inset-inline: 0; bottom: -1px;
   height: 2px;
-  border-bottom-left-radius: 10px;
-  border-bottom-right-radius: 10px;
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
   background: linear-gradient(90deg, transparent, var(--gs-primary, #6D5DFB), transparent);
   background-size: 200% 100%;
   animation: gs-attach-shimmer 1.4s linear infinite;
@@ -1160,7 +1160,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .att-lightbox-close {
   position: absolute;
   top: 10px;
-  right: 12px;
+  inset-inline-end: 12px;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -1186,8 +1186,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
     max-height: 100vh;
     border-radius: 0;
     bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
+    inset-inline: 0 !important;
     /* Honor iOS notches / safe areas */
     padding-bottom: env(safe-area-inset-bottom, 0);
   }
@@ -1214,8 +1213,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   .gs-toast.bottom-right,
   .gs-toast.bottom-left {
     bottom: 80px;
-    right: 12px;
-    left: 12px;
+    inset-inline: 12px;
     width: auto;
   }
   .msg-att-image { max-width: 78vw; }
@@ -1450,8 +1448,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .gs-call-topbar {
   position: absolute;
   top: 10px;
-  left: 10px;
-  right: 10px;
+  inset-inline: 10px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1481,7 +1478,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .gs-call-pip {
   position: absolute;
   bottom: 14px;
-  right: 14px;
+  inset-inline-end: 14px;
   width: 92px;
   height: 124px;
   border-radius: 14px;
@@ -1721,7 +1718,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   cursor: pointer;
   font: inherit;
   color: #0f172a;
-  text-align: left;
+  text-align: start;
   transition: border-color 120ms ease, background 120ms ease, transform 80ms ease;
 }
 .dept-option:hover {
@@ -1972,7 +1969,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 .msg-ai-badge {
   display: inline-block;
-  margin-right: 6px;
+  margin-inline-end: 6px;
   padding: 1px 6px;
   font-size: 9px;
   font-weight: 700;

@@ -444,7 +444,14 @@
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
-    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");
+    if (shellDiv) {
+      shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");
+      // Second gradient stop for the full-panel gradient canvas.
+      shellDiv.style.setProperty(
+        "--gs-secondary",
+        config.secondaryColor || config.primaryColor || "#6366F1"
+      );
+    }
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong

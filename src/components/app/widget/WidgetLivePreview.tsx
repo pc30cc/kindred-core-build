@@ -382,8 +382,9 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     var label = document.querySelector('.fab-label');
     function setOpen(open) {
       if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
-      launcher.classList.toggle('is-hidden', open);
-      if (label) label.classList.toggle('is-hidden', open);
+      // Preview keeps the launcher visible even while the panel is open.
+      launcher.classList.remove('is-hidden');
+      if (label) label.classList.remove('is-hidden');
     }
     setOpen(true);
     launcher.addEventListener('click', function () { setOpen(panel.hasAttribute('hidden')); });

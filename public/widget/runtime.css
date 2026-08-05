@@ -2078,6 +2078,16 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 .panel[dir="rtl"] { line-height: 1.7; }
 
+/* ─── Operator live-preview sizing ───────────────────────────────────────────
+   The admin preview frame is far shorter than a real viewport. The panel
+   stretches to fill it (minus the launcher zone) and its edge is anchored to
+   exactly the same 24px inset as the launcher so the two line up. */
+.panel.panel-preview {
+  block-size: calc(100vh - var(--gs-launcher-zone, 104px) - 16px);
+  max-block-size: none;
+  inline-size: min(400px, calc(100vw - 48px));
+}
+
 /* ─── Shared header chrome ─────────────────────────────────────────── */
 .panel .header {
   position: relative;

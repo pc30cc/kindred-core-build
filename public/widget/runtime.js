@@ -5349,6 +5349,10 @@
 
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
+    // Operator-facing live preview: the frame is much shorter than a real
+    // browser viewport, so the panel fills the frame and stays aligned with
+    // the launcher instead of being clipped or covered by it.
+    if (ctx.previewMode) panel.classList.add('panel-preview');
     panel.setAttribute('data-view', shellStore.get().activeTab || 'home');
     // Apply RTL to the entire panel when the resolved widget locale is RTL
     // (currently only fa). Without this, the body, tabs, composer and

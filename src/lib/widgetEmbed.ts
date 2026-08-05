@@ -42,7 +42,12 @@ export interface WidgetMismatch {
 }
 
 const FALLBACK_PLACEHOLDER = 'https://widget.example.com';
-const FALLBACK_API = 'https://api.example.com';
+/**
+ * Emitted when no API base is configured. It is deliberately NOT a
+ * plausible-looking origin: a snippet carrying this value fails loudly with
+ * `API_BASE_MISSING` instead of silently pointing at the wrong backend.
+ */
+const FALLBACK_API = 'MISSING_API_BASE';
 
 function trim(value: string | null | undefined) {
   return (value || '').trim().replace(/\/+$/, '');
@@ -161,6 +166,10 @@ export function buildWidgetEmbedSnippet(
   const footer = asHtmlComment(opts.footerComment);
 
   let core: string;
+  const missingApi = !urls.apiBase || urls.apiBase === FALLBACK_API;
+  const warning = missingApi
+    ? '<!-- WARNING: the widget API base is not configured in Platform → Widget settings.\n     This snippet will not connect until data-api-base points at the real backend origin. -->'
+    : '';
   if (opts.variant === 'window') {
     core = `<script type="text/javascript">
   /* Idempotent: safe even if this snippet is included multiple times or the
@@ -176,6 +185,11 @@ export function buildWidgetEmbedSnippet(
       var s = d.createElement("script");
       s.id = "gs-widget-loader";
       s.src = "${urls.loaderUrl}";
+      /* The three data-* attributes are the authoritative source. The window
+         globals above are only a convenience for programmatic control — the
+         loader must never have to infer the API or asset origin. */
+      s.setAttribute("data-workspace-id", "${ws}");
+      s.setAttribute("data-api-base", "${urls.apiBase}");
       s.setAttribute("data-asset-base", "${urls.assetBase}");
       s.async = 1;
       d.getElementsByTagName("head")[0].appendChild(s);
@@ -193,5 +207,5 @@ export function buildWidgetEmbedSnippet(
 ></script>`;
   }
 
-  return [header, core, footer].filter(Boolean).join('\n');
+  return [header, warning, core, footer].filter(Boolean).join('\n');
 }

@@ -90,8 +90,10 @@ const manifest = {};
 for (const file of HASHED_FILES) {
   const src = join(SRC_DIR, file);
   if (!existsSync(src)) {
-    console.warn(`[widget-hash] Skipping missing file: ${file}`);
-    continue;
+    // Never publish a manifest that silently lost a runtime module — the
+    // loader resolves these by manifest key and would 404 in production.
+    console.error(`[widget-hash] FATAL: required widget asset missing from source: ${file}`);
+    process.exit(1);
   }
   const buf = readFileSync(src);
   const hash = contentHash(buf);
@@ -142,8 +144,28 @@ if (existsSync(loaderSrc)) {
 }
 
 const manifestPath = join(OUT_DIR, 'widget-manifest.json');
+
+// ─── Publish ordering: assets FIRST, manifest LAST ────────────────────
+// Every hashed asset has already been written to OUT_DIR above. Before the
+// manifest becomes visible we re-verify that each referenced file really
+// exists on disk and is non-empty. A manifest that becomes visible before
+// its assets is exactly the failure mode that produces
+// STYLE_LOAD_FAILED / RUNTIME_LOAD_FAILED in production.
+for (const [key, value] of Object.entries(manifest)) {
+  if (key === 'loaderVersion') continue;
+  const filePath = join(OUT_DIR, value);
+  if (!existsSync(filePath)) {
+    console.error(`[widget-hash] FATAL: manifest entry "${key}" → ${value} is not on disk. Refusing to publish the manifest.`);
+    process.exit(1);
+  }
+  if (statSync(filePath).size === 0) {
+    console.error(`[widget-hash] FATAL: manifest entry "${key}" → ${value} is a zero-byte file. Refusing to publish the manifest.`);
+    process.exit(1);
+  }
+}
+
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-console.log(`[widget-hash] Manifest written to ${manifestPath}`);
+console.log(`[widget-hash] Manifest written LAST, after verifying ${Object.keys(manifest).length - 1} assets: ${manifestPath}`);
 console.log(JSON.stringify(manifest, null, 2));
 
 // Build must fail loudly if the visitor call runtime was omitted from the

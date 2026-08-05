@@ -24,22 +24,27 @@
         var apiBase = '%VITE_API_BASE_URL%';
         var loaderBase = '%VITE_WIDGET_LOADER_BASE_URL%';
         var assetBase = '%VITE_WIDGET_ASSET_BASE_URL%';
+        var workspaceId = '%VITE_WIDGET_WORKSPACE_ID%';
         var widgetLoaderVersion = '2026-04-18-build-8-shell-handoff';
         // Multi-domain safe: require an explicitly configured loader base.
         // window.location.origin would silently break setups where the panel
         // and widget assets live on different hosts. If the env var is not
         // injected at build time, skip the preview snippet entirely.
         if (!loaderBase || loaderBase.indexOf('%VITE_') === 0) return;
+        // The loader needs ALL THREE of workspace id / api base / asset base.
+        // Mounting without them produces a dead launcher that reports
+        // API_BASE_MISSING, which is worse than not mounting at all.
+        if (!apiBase || apiBase.indexOf('%VITE_') === 0) return;
+        if (!workspaceId || workspaceId.indexOf('%VITE_') === 0) return;
         var loaderClean = loaderBase.replace(/\/+$/, '');
         s.src = loaderClean + '/widget/loader.js?v=' + encodeURIComponent(widgetLoaderVersion);
         s.async = 1;
         var assetClean = (assetBase && assetBase.indexOf('%VITE_') !== 0)
           ? assetBase.replace(/\/+$/, '')
           : loaderClean;
+        s.setAttribute('data-workspace-id', workspaceId);
+        s.setAttribute('data-api-base', apiBase.replace(/\/$/, ''));
         s.setAttribute('data-asset-base', assetClean);
-        if (apiBase && apiBase.indexOf('%VITE_') !== 0) {
-          s.setAttribute('data-api-base', apiBase.replace(/\/$/, ''));
-        }
         d.getElementsByTagName('head')[0].appendChild(s);
       })();
     </script>

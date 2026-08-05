@@ -1151,8 +1151,7 @@
 
     function ensureChatModule(cb) {
       if (ModuleLoader.modules.chat) return cb(ModuleLoader.modules.chat);
-      var url = (ctx.assetBase || '') + '/widget/runtime-chat.js?v=' +
-        (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
+      var url = configAssetUrl(['modules', 'chat'], 'runtime-chat.js');
       ModuleLoader.load('chat', url, function (mod) { cb(mod); });
     }
 
@@ -1160,9 +1159,24 @@
       return ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev';
     }
 
+    /**
+     * Resolve a widget sub-module URL.
+     *
+     * ALWAYS prefer the server-published, manifest-resolved (content-hashed)
+     * URL from the config payload. The unhashed `/widget/<file>?v=` form is
+     * only a last-resort dev fallback: production deploys ship hashed files
+     * exclusively, so guessing there yields a 404 and a dead chat panel.
+     */
+    function configAssetUrl(path, fallbackFile) {
+      var node = ctx.config || {};
+      for (var i = 0; i < path.length && node; i++) node = node[path[i]];
+      if (typeof node === 'string' && node) return node;
+      return (ctx.assetBase || '') + '/widget/' + fallbackFile + '?v=' + assetVersion();
+    }
+
     function ensureResolverModule(cb) {
       if (window.__gs_mod_rt_resolver) return cb(window.__gs_mod_rt_resolver);
-      var url = (ctx.assetBase || '') + '/widget/runtime-rt-resolver.js?v=' + assetVersion();
+      var url = configAssetUrl(['rtModules', 'resolver'], 'runtime-rt-resolver.js');
       ModuleLoader.load('rt_resolver', url, function () { cb(window.__gs_mod_rt_resolver); });
     }
 
@@ -1176,7 +1190,7 @@
         var desc = resolver.resolveDriverDescriptor(vendor);
         if (!desc) return cb(null);
         if (window[desc.globalKey]) return cb(window[desc.globalKey]);
-        var url = (ctx.assetBase || '') + '/widget/' + desc.asset + '?v=' + assetVersion();
+        var url = configAssetUrl(['rtModules', vendor], desc.asset);
         ModuleLoader.load('rt_' + vendor, url, function () { cb(window[desc.globalKey] || null); });
       });
     }
@@ -3618,6 +3632,9 @@
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
+      // Prefer the server-published, content-hashed KB module URL.
+      var explicit = ctx.config && ctx.config.modules && ctx.config.modules.kb;
+      if (typeof explicit === 'string' && explicit) return explicit;
       return base + '/widget/runtime-kb.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
     }
 

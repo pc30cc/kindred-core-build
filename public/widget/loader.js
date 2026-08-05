@@ -109,6 +109,37 @@
 
   log("Loader version:", LOADER_VERSION);
 
+  // ─── Structured diagnostics ──────────────────────────────────────────
+  // Every terminal failure path records a machine-readable record on
+  // `window.__gs_last_error` so operators can tell WHICH stage failed and
+  // WHICH url/status caused it, instead of reading a generic toast.
+  //   { code, url, status, contentType, resource, message, at }
+  // Codes:
+  //   API_BASE_MISSING     — no data-api-base / window.__gs_api_base
+  //   WORKSPACE_ID_MISSING — no data-workspace-id / window.__gs_id
+  //   WORKSPACE_NOT_FOUND  — bootstrap 404 / MISSING_WORKSPACE
+  //   ORIGIN_DENIED        — bootstrap 401/403 (origin not allow-listed)
+  //   WIDGET_DISABLED      — widget turned off for this workspace
+  //   BOOTSTRAP_FAILED     — bootstrap/config transport or 5xx failure
+  //   ASSET_URLS_MISSING   — config returned no hashed runtime/style url
+  //   STYLE_LOAD_FAILED    — runtime.css failed to load
+  //   RUNTIME_LOAD_FAILED  — runtime.js failed to load
+  //   RUNTIME_INIT_FAILED  — runtime loaded but init threw / didn't register
+  function setLastError(code, detail) {
+    var rec = { code: code, at: new Date().toISOString() };
+    if (detail) {
+      for (var k in detail) { if (detail[k] !== undefined) rec[k] = detail[k]; }
+    }
+    try { window.__gs_last_error = rec; } catch (_) {}
+    try {
+      // Always surfaced (not gated behind DEBUG) — a silent widget with no
+      // console trace is what made these outages hard to diagnose.
+      console.error("[Widget] " + code, rec);
+    } catch (_) {}
+    return rec;
+  }
+  try { window.__gs_last_error = null; } catch (_) {}
+
   // ─── Pending command queue (window.__gs.push(['open']) etc.) ───
   var GS = window.__gs || [];
   var queue = [];
@@ -543,17 +574,26 @@
     log("workspace:", WORKSPACE_ID || "(none)", "api:", apiBase || "(empty)", "asset:", assetBase || "(empty)");
 
     if (!apiBase) {
-      log("No apiBase — launcher-only mode");
-      attachLauncherClick({ launcherOnly: true });
+      setLastError("API_BASE_MISSING", {
+        message: 'The embed snippet did not provide data-api-base (or window.__gs_api_base). '
+          + 'Re-copy the install snippet from the dashboard — it must contain '
+          + 'data-workspace-id, data-api-base and data-asset-base.',
+      });
+      attachLauncherClick({ launcherOnly: true, errorMessage: "Chat is not configured (missing API base)." });
       return;
     }
     if (!WORKSPACE_ID) {
-      warn("No workspace id");
-      attachLauncherClick({ launcherOnly: true });
+      setLastError("WORKSPACE_ID_MISSING", {
+        message: 'The embed snippet did not provide data-workspace-id (or window.__gs_id).',
+      });
+      attachLauncherClick({ launcherOnly: true, errorMessage: "Chat is not configured (missing workspace id)." });
       return;
     }
 
     var bootstrapUrl = apiBase + "/api/widget/bootstrap";
+    var configUrlUsed = apiBase + "/api/widget/config";
+    var lastBootstrapStatus = 0;
+    var lastConfigStatus = 0;
     var bootstrapBody = JSON.stringify({
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
@@ -566,15 +606,20 @@
       body: bootstrapBody,
     }, 3)
       .then(function (r) {
-        if (r.status === 401 || r.status === 403) {
-          throw new Error("unauthorized");
-        }
+        lastBootstrapStatus = r.status;
+        if (r.status === 401 || r.status === 403) throw new Error("origin_denied");
+        if (r.status === 404) throw new Error("workspace_not_found");
+        if (r.status === 400) throw new Error("workspace_not_found");
         if (!r.ok) throw new Error("bootstrap_failed_" + r.status);
         return r.json();
       })
       .then(function (data) {
         if (data.disabled) {
-          log("Widget disabled by server");
+          setLastError("WIDGET_DISABLED", {
+            url: bootstrapUrl,
+            status: lastBootstrapStatus,
+            message: 'The workspace exists but the chat widget is disabled in the dashboard.',
+          });
           if (shellEl) shellEl.remove();
           return null;
         }
@@ -614,8 +659,9 @@
           }
         } catch (_) {}
 
+        configUrlUsed = apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID);
         return fetchWithRetry(
-          apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
+          configUrlUsed,
           {
             credentials: "include",
             headers: { "X-Widget-Token": sessionToken },
@@ -625,11 +671,20 @@
       })
       .then(function (r) {
         if (!r) return null;
+        lastConfigStatus = r.status;
         if (!r.ok) throw new Error("config_failed_" + r.status);
         return r.json();
       })
       .then(function (config) {
-        if (!config || !config.enabled) return;
+        if (!config) return;
+        if (!config.enabled) {
+          setLastError("WIDGET_DISABLED", {
+            url: configUrlUsed,
+            status: lastConfigStatus,
+            message: 'Widget config returned enabled=false for this workspace.',
+          });
+          return;
+        }
         configData = config;
         configData._sessionToken = sessionToken;
         configData._apiBase = apiBase;
@@ -662,9 +717,23 @@
         var msg = (err && err.message) || "unknown";
         warn("Bootstrap error:", msg);
         var human = "Chat unavailable.";
-        if (msg === "unauthorized") human = "Chat not authorized for this site.";
-        else if (msg.indexOf("bootstrap_failed") === 0) human = "Could not start chat.";
-        else if (msg.indexOf("config_failed") === 0) human = "Could not load chat settings.";
+        var code = "BOOTSTRAP_FAILED";
+        var url = bootstrapUrl;
+        var status = lastBootstrapStatus;
+        if (msg === "origin_denied") {
+          code = "ORIGIN_DENIED";
+          human = "Chat not authorized for this site.";
+        } else if (msg === "workspace_not_found") {
+          code = "WORKSPACE_NOT_FOUND";
+          human = "Chat workspace not found.";
+        } else if (msg.indexOf("bootstrap_failed") === 0) {
+          human = "Could not start chat.";
+        } else if (msg.indexOf("config_failed") === 0) {
+          human = "Could not load chat settings.";
+          url = configUrlUsed;
+          status = lastConfigStatus;
+        }
+        setLastError(code, { url: url, status: status, message: msg });
         attachLauncherClick({ launcherOnly: true, errorMessage: human });
       });
   }
@@ -745,7 +814,12 @@
       try { window.__gs_call_sdk_url = livekitSdkUrl; } catch (_) { /* noop */ }
     }
     if (!runtimeJs || !runtimeCss) {
-      warn("No runtime URL");
+      setLastError("ASSET_URLS_MISSING", {
+        message: 'Widget config returned no hashed runtime/style URL. '
+          + 'runtimeUrl=' + (runtimeJs || '(empty)') + ' styleUrl=' + (runtimeCss || '(empty)')
+          + ' — the asset manifest is probably not published for this deployment.',
+        assetBase: assetBase || '',
+      });
       runtimeLoading = false;
       showShellError("Chat resources unavailable.");
       return;
@@ -780,10 +854,18 @@
           processQueue();
         } catch (e) {
           warn("Runtime init failed", e);
+          setLastError("RUNTIME_INIT_FAILED", {
+            url: runtimeJs,
+            message: (e && e.message) || 'runtime.init threw',
+          });
           showShellError("Chat could not start.");
         }
       } else {
         warn("Runtime did not register __gs_runtime");
+        setLastError("RUNTIME_INIT_FAILED", {
+          url: runtimeJs,
+          message: 'runtime script loaded but did not register window.__gs_runtime',
+        });
         showShellError("Chat could not start.");
       }
     }
@@ -808,7 +890,42 @@
           if (staleLink) staleLink.remove();
         }
       } catch (_) { /* noop */ }
-      showShellError("Chat resources failed to load.");
+      var isCss = what === "css";
+      var failedUrl = isCss ? runtimeCss : runtimeJs;
+      setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
+        resource: isCss ? "stylesheet" : "script",
+        url: failedUrl,
+        assetBase: assetBase || '',
+        message: 'The browser could not load the widget ' + (isCss ? 'stylesheet' : 'runtime script') + '.',
+      });
+      // Probe the exact URL so the record carries the real HTTP status and
+      // Content-Type (a 200 text/html here means the asset is missing and
+      // the host served index.html instead).
+      try {
+        fetch(failedUrl, { method: "GET", cache: "no-store" }).then(function (r) {
+          var ct = "";
+          try { ct = r.headers.get("content-type") || ""; } catch (_) {}
+          setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
+            resource: isCss ? "stylesheet" : "script",
+            url: failedUrl,
+            status: r.status,
+            contentType: ct,
+            servedHtml: ct.indexOf("text/html") !== -1,
+            message: ct.indexOf("text/html") !== -1
+              ? 'Asset host returned an HTML document (index.html) instead of the asset — the hashed file is not deployed.'
+              : 'Asset request completed with status ' + r.status + '.',
+          });
+        }).catch(function (e) {
+          setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
+            resource: isCss ? "stylesheet" : "script",
+            url: failedUrl,
+            message: 'Network error: ' + ((e && e.message) || 'unknown'),
+          });
+        });
+      } catch (_) { /* noop */ }
+      showShellError(isCss
+        ? "Chat styles failed to load."
+        : "Chat runtime failed to load.");
     }
 
     if (runtimeCss) {

@@ -5791,7 +5791,7 @@
                 '<span class="home-status-dot"></span>' +
                 '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
               '</div>' +
-              '<p class="home-hint">' + Util.escapeHtml(isOnline ? t('homeReplyFast') : t('homeReplySlow')) + '</p>' +
+              (isOnline ? '' : '<p class="home-hint">' + Util.escapeHtml(t('homeReplySlow')) + '</p>') +
             '</div>' +
             ctaHtml +
           '</section>' +

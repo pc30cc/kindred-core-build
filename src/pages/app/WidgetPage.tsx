@@ -314,6 +314,44 @@ function WidgetPageContent() {
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.gradientHint')}</p>
                   </div>
 
+                  {/* Header/panel gradient — presets write both stops at once */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.gradientTheme')}</Label>
+                    <div
+                      className="h-12 w-full rounded-xl border border-border/60 shadow-inner"
+                      style={{ background: `linear-gradient(165deg, ${primaryColor} 0%, ${live?.secondary_color || primaryColor} 100%)` }}
+                    />
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {([
+                        ['#3B82F6', '#6366F1'],
+                        ['#0EA5E9', '#22D3EE'],
+                        ['#8B5CF6', '#EC4899'],
+                        ['#10B981', '#0D9488'],
+                        ['#F59E0B', '#EF4444'],
+                        ['#111827', '#374151'],
+                      ] as const).map(([from, to]) => (
+                        <button
+                          key={from + to}
+                          type="button"
+                          aria-label={`${from} → ${to}`}
+                          onClick={() => {
+                            setField('primary_color', from, 0);
+                            setField('secondary_color', to, 0);
+                          }}
+                          className={cn(
+                            'h-8 w-12 rounded-lg border-2 transition-transform hover:scale-105',
+                            primaryColor.toLowerCase() === from.toLowerCase() &&
+                              (live?.secondary_color || '').toLowerCase() === to.toLowerCase()
+                              ? 'border-foreground'
+                              : 'border-transparent',
+                          )}
+                          style={{ background: `linear-gradient(165deg, ${from} 0%, ${to} 100%)` }}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.gradientThemeHint')}</p>
+                  </div>
+
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
                     <Input

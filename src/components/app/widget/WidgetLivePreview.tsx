@@ -127,6 +127,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const dir = rtl ? 'rtl' : 'ltr';
 
     const primary: string = s.primary_color || '#3B82F6';
+    const secondary: string = s.secondary_color || s.primary_color || '#6366F1';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     const title = (localizedValue(s.launcher_text, 'launcher', locale) || s.fab_label || brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
@@ -179,14 +180,10 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
         <button type="button" class="header-close" id="gs-close" aria-label="close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <div class="header-brand">
           ${logo ? `<span class="header-logo"><img src="${esc(logo)}" alt="" /></span>` : ''}
-          <div class="header-brand-text">
-            <div class="header-title">${esc(title)}</div>
-            <div class="header-subtitle">${esc(view === 'offline' ? offlineMsg : welcome)}</div>
-          </div>
           <div class="header-op-stack">${avatar}</div>
         </div>
       </div>`;
@@ -318,13 +315,13 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
 <link rel="stylesheet" href="/widget/runtime.css" />
 <style>
   html,body{margin:0;height:100%;}
-  body{background:#F1F5F9;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+  body{background:#F1F5F9;overflow:hidden;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
   .site{padding:22px;}
   .site .bar{height:12px;border-radius:6px;background:#E2E8F0;margin-bottom:10px;}
   .site .bar.w2{width:62%}.site .bar.w3{width:78%}.site .bar.w4{width:45%}
   .site .block{height:120px;border-radius:14px;background:#E2E8F0;margin:16px 0;}
   .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:#E2E8F0}
-  .shell{--gs-primary:${esc(primary)};color:#1F2937;}
+  .shell{--gs-primary:${esc(primary)};--gs-secondary:${esc(secondary)};color:#1F2937;}
   /* Panel keeps production geometry (380px wide, anchored 92px above the
      launcher) — only the height clamp differs because the preview frame is
      smaller than a real browser viewport. */

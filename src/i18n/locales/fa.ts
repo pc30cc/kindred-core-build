@@ -3455,6 +3455,8 @@ const fa: TranslationKeys = {
       launcherSection: 'دکمه شناور ویجت',
       secondaryColor: 'رنگ ثانویه',
       gradientHint: 'برای گرادیان سربرگ ویجت استفاده می‌شود',
+      gradientTheme: 'گرادیان ویجت',
+      gradientThemeHint: 'گرادیان از سربرگ تا منوی پایین ویجت ادامه پیدا می‌کند.',
       showLogo: 'نمایش لوگو در سربرگ ویجت',
       logoUrl: 'آدرس لوگو',
       logoHint: 'تصویر مربعی PNG یا SVG بهترین نتیجه را دارد (پیشنهادی ۱۲۸×۱۲۸).',

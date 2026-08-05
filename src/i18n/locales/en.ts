@@ -3468,6 +3468,8 @@ const en = {
       launcherSection: 'Launcher button',
       secondaryColor: 'Secondary color',
       gradientHint: 'Used for the header gradient',
+      gradientTheme: 'Widget gradient',
+      gradientThemeHint: 'The gradient flows from the header down to the bottom navigation.',
       showLogo: 'Show logo in widget header',
       logoUrl: 'Logo URL',
       logoHint: 'A square PNG/SVG works best (recommended 128×128).',

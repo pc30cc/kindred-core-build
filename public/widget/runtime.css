@@ -2940,3 +2940,120 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   .panel.anim-on .home-root > *,
   .panel.anim-on .home-kb-item { animation: none !important; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Gradient canvas (v3)
+   The whole panel — from the header down to the bottom navigation — is one
+   continuous brand gradient. Content sits on floating white cards on top of
+   it. Colors come from the workspace primary/secondary colors.
+   ══════════════════════════════════════════════════════════════════════ */
+.shell {
+  --gs-grad-from: var(--gs-primary, #3B82F6);
+  --gs-grad-to: var(--gs-secondary, #6366F1);
+  --gs-grad-angle: 165deg;
+}
+.shell .panel {
+  background: linear-gradient(var(--gs-grad-angle), var(--gs-grad-from) 0%, var(--gs-grad-to) 100%) !important;
+  overflow: hidden;
+}
+.shell .panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(130% 55% at 88% -12%, rgba(255, 255, 255, .30), transparent 62%),
+    radial-gradient(90% 40% at 5% 105%, rgba(0, 0, 0, .16), transparent 65%);
+  z-index: 0;
+}
+.shell .panel > * { position: relative; z-index: 1; }
+
+/* ─── Header: pure branding, no text ─── */
+.shell .header,
+.shell[data-template="default"] .header {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #fff;
+  padding: 14px 16px 10px;
+  min-height: 0;
+}
+.shell .header::before,
+.shell .header::after,
+.shell[data-template="default"] .header::before,
+.shell[data-template="default"] .header::after { content: none !important; display: none !important; }
+.shell .header-title,
+.shell .header-subtitle,
+.shell .header-brand-text { display: none !important; }
+.shell .header-brand { display: flex; align-items: center; gap: 10px; }
+.shell .header-op-stack { margin-inline-start: auto; }
+.shell .header-logo {
+  width: 40px; height: 40px; flex: 0 0 40px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .95);
+  padding: 6px;
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(255, 255, 255, .6);
+  transition: transform .35s cubic-bezier(.34, 1.56, .64, 1);
+}
+.shell .header-logo:hover { transform: translateY(-1px) scale(1.04); }
+.shell .header-close {
+  background: rgba(255, 255, 255, .18) !important;
+  color: #fff;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, .22);
+  transition: transform .25s cubic-bezier(.34, 1.56, .64, 1), background .2s ease;
+}
+.shell .header-close:hover { background: rgba(255, 255, 255, .3) !important; transform: translateY(1px) scale(1.06); }
+.shell .header-op-avatar { box-shadow: 0 0 0 2px rgba(255, 255, 255, .55); }
+
+/* ─── Content cards floating on the gradient ─── */
+.shell .body {
+  background: #FFFFFF !important;
+  margin: 2px 10px 8px;
+  border-radius: 22px;
+  box-shadow: 0 18px 40px -24px rgba(2, 6, 23, .55);
+  transition: background .3s ease;
+}
+.shell .input-bar {
+  background: #FFFFFF !important;
+  margin: 0 10px 8px;
+  border-radius: 20px;
+  border-top: none !important;
+  box-shadow: 0 18px 40px -24px rgba(2, 6, 23, .55);
+}
+.shell .typing-row { color: rgba(255, 255, 255, .9); padding-inline: 20px; }
+
+/* ─── Bottom navigation: glass on gradient ─── */
+.shell .tabs.tabs-bottom {
+  background: transparent !important;
+  border-top: none !important;
+  padding: 0 10px 6px;
+  gap: 6px;
+}
+.shell .tabs.tabs-bottom .tab {
+  color: rgba(255, 255, 255, .78);
+  border-radius: 15px;
+  transition: background .25s ease, color .25s ease, transform .25s cubic-bezier(.34, 1.56, .64, 1);
+}
+.shell .tabs.tabs-bottom .tab:hover { background: rgba(255, 255, 255, .14) !important; color: #fff; }
+.shell .tabs.tabs-bottom .tab.active {
+  background: rgba(255, 255, 255, .22) !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.shell .powered {
+  background: transparent !important;
+  border-top: none !important;
+  color: rgba(255, 255, 255, .72);
+}
+.shell .powered a { color: rgba(255, 255, 255, .95) !important; }
+/* Collapse chevron always opposite the logo: left in RTL, right in LTR. */
+.shell .header .header-close { right: 12px; left: auto; top: 12px; }
+.shell .header.header-rtl .header-close { left: 12px !important; right: auto !important; }
+.shell .header .header-close { position: absolute !important; }
+/* Reserve room for the collapse chevron so avatars never sit under it. */
+.shell .header { padding-inline-end: 52px; }
+.shell .header-brand .header-op-stack { margin-inline-start: 4px; margin-inline-end: auto; }

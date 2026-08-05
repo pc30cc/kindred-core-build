@@ -4978,7 +4978,14 @@
     if (existingPanel && existingPanel.parentNode) existingPanel.parentNode.removeChild(existingPanel);
 
     var panel = document.createElement('div');
-    panel.className = 'panel ' + posClass;
+    var __animOn = (function () {
+      try {
+        var c = ctx.config || {};
+        if (c.fab && typeof c.fab.animation !== 'undefined') return c.fab.animation === true;
+        return c.fab_animation === true;
+      } catch (_) { return false; }
+    })();
+    panel.className = 'panel ' + posClass + (__animOn ? ' anim-on' : '');
     // Apply RTL to the entire panel when the resolved widget locale is RTL
     // (currently only fa). Without this, the body, tabs, composer and
     // attachments stay LTR even though the strings are Persian.

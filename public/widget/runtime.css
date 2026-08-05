@@ -2103,44 +2103,68 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   REFERENCE DESIGN SYSTEM  (single authoritative layer)
+   CANONICAL WIDGET DESIGN SYSTEM — "canonical-v1" (single layer)
    ──────────────────────────────────────────────────────────────────────
-   Implements the approved widget design spec. This is the ONLY layer that
-   styles the panel chrome (headers, home, chat, help, nav, composer, call
-   surfaces, skeletons and states). Previous "v2" / "premium" / "reference"
-   append-layers were removed instead of being overridden.
+   The ONLY layer that styles the panel chrome (headers, home, chat, help,
+   nav, composer, call surfaces, skeletons and states). There is exactly
+   one design — no templates, no skins, no alternate visual branches.
    All spacing uses logical properties so fa (RTL) and en/tr (LTR) share
    one implementation.
    ══════════════════════════════════════════════════════════════════════ */
 .panel {
-  --ref-primary: var(--gs-primary, #6D5DFB);
-  --ref-secondary: #8B5CF6;
-  --ref-primary-dark: #5146D8;
-  --ref-success: #12B981;
-  --ref-danger: #EF4444;
-  --ref-warning: #F59E0B;
-  --ref-text: #182033;
-  --ref-muted: #6F7890;
-  --ref-border: #E7EAF1;
+  /* ── Canonical design tokens (workspace-driven colors) ── */
+  --widget-primary: var(--gs-primary, #6D5DFB);
+  --widget-secondary: var(--gs-secondary, #8B5CF6);
+  --widget-primary-dark: color-mix(in srgb, var(--widget-primary) 82%, #000);
+  --widget-primary-soft: color-mix(in srgb, var(--widget-primary) 10%, #fff);
+  --widget-text: #182033;
+  --widget-muted: #6F7890;
+  --widget-border: #E7EAF1;
+  --widget-background: #F4F6FB;
+  --widget-surface: #FFFFFF;
+  --widget-danger: #EF4444;
+  --widget-success: #12B981;
+  --widget-warning: #F59E0B;
+  --widget-brand-gradient: linear-gradient(
+    180deg,
+    var(--widget-primary) 0%,
+    color-mix(in srgb, var(--widget-primary) 72%, var(--widget-secondary)) 52%,
+    color-mix(in srgb, var(--widget-secondary) 18%, #ffffff) 100%
+  );
+  --widget-button-gradient: linear-gradient(
+    135deg,
+    var(--widget-primary),
+    color-mix(in srgb, var(--widget-primary) 68%, var(--widget-secondary))
+  );
+  /* Back-compat aliases consumed by the chat / help / call surfaces. */
+  --ref-primary: var(--widget-primary);
+  --ref-secondary: var(--widget-secondary);
+  --ref-primary-dark: var(--widget-primary-dark);
+  --ref-success: var(--widget-success);
+  --ref-danger: var(--widget-danger);
+  --ref-warning: var(--widget-warning);
+  --ref-text: var(--widget-text);
+  --ref-muted: var(--widget-muted);
+  --ref-border: var(--widget-border);
   --ref-border-strong: #DFE3EC;
-  --ref-bg: #F4F6FB;
+  --ref-bg: var(--widget-background);
   --ref-soft: #F8F9FC;
-  --ref-surface: #FFFFFF;
+  --ref-surface: var(--widget-surface);
   --r-8: 8px; --r-12: 12px; --r-13: 13px; --r-14: 14px; --r-15: 15px;
   --r-16: 16px; --r-18: 18px; --r-20: 20px; --r-22: 22px; --r-24: 24px; --r-26: 26px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
   --ref-shadow-card: 0 8px 24px -18px rgba(32,36,62,.23), 0 1px 2px rgba(32,36,62,.04);
-  --ref-shadow-panel: 0 22px 54px -26px rgba(34,38,70,.34), 0 8px 20px -14px rgba(34,38,70,.18);
+  --ref-shadow-panel: 0 20px 55px -20px rgba(17,24,39,.26), 0 6px 18px -10px rgba(17,24,39,.12);
   --ref-motion: 170ms cubic-bezier(.2,.8,.2,1);
-  width: 400px;
-  height: min(648px, calc(100vh - 108px));
+  inline-size: 368px;
+  block-size: min(716px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
-  background: var(--ref-surface);
-  color: var(--ref-text);
-  border-radius: 28px;
+  background: #ffffff;
+  color: var(--widget-text);
+  border-radius: 12px;
   box-shadow: var(--ref-shadow-panel);
-  border: 1px solid rgba(23,30,50,.06);
+  border: 1px solid rgba(17,24,39,.06);
   overflow: hidden;
   font-size: 13px;
   line-height: 1.55;

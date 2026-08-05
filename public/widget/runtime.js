@@ -6535,7 +6535,9 @@
       shellStore.set({ isOpen: true });
       try { transportStore.set({ connectionState: 'online', lastConnectionChange: Date.now() }); } catch (_) {}
       try { panel.classList.add('visible'); } catch (_) {}
-      if (launcher) launcher.classList.add('open');
+      // PREVIEW: the launcher deliberately stays in its closed/idle look —
+      // visible below the panel — so the operator can inspect icon, color,
+      // size, shape, label, badge and alignment while the panel is open.
       switchTab(pv === 'chat' ? 'chat' : pv === 'help' ? 'help' : 'home');
     }
 
@@ -6544,7 +6546,7 @@
       open: function () {
         if (shellStore.get().isOpen) return;
         shellStore.set({ isOpen: true });
-        if (launcher) launcher.classList.add('open');
+        if (launcher && !ctx.previewMode) launcher.classList.add('open');
         panel.classList.add('visible');
         // Hide any pending toast — user is now looking at the panel.
         notify.hideToast();

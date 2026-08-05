@@ -707,6 +707,10 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
       locale: ws.locale || 'en',
       widgetLanguage: ws.widget_language || 'auto',
       loaderVersion,
+      // Explicit loader URL so consumers (notably the admin live preview)
+      // never have to guess that the loader lives on the API origin — in
+      // split-domain deployments the loader is served from the asset base.
+      loaderUrl: assetBase ? `${assetBase}/widget/loader.js?v=${encodeURIComponent(loaderVersion)}` : null,
       theme: ws.theme || 'modern',
       fab: {
         icon: ws.fab_icon || 'chat',

@@ -814,7 +814,12 @@
       try { window.__gs_call_sdk_url = livekitSdkUrl; } catch (_) { /* noop */ }
     }
     if (!runtimeJs || !runtimeCss) {
-      warn("No runtime URL");
+      setLastError("ASSET_URLS_MISSING", {
+        message: 'Widget config returned no hashed runtime/style URL. '
+          + 'runtimeUrl=' + (runtimeJs || '(empty)') + ' styleUrl=' + (runtimeCss || '(empty)')
+          + ' — the asset manifest is probably not published for this deployment.',
+        assetBase: assetBase || '',
+      });
       runtimeLoading = false;
       showShellError("Chat resources unavailable.");
       return;
@@ -877,7 +882,42 @@
           if (staleLink) staleLink.remove();
         }
       } catch (_) { /* noop */ }
-      showShellError("Chat resources failed to load.");
+      var isCss = what === "css";
+      var failedUrl = isCss ? runtimeCss : runtimeJs;
+      setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
+        resource: isCss ? "stylesheet" : "script",
+        url: failedUrl,
+        assetBase: assetBase || '',
+        message: 'The browser could not load the widget ' + (isCss ? 'stylesheet' : 'runtime script') + '.',
+      });
+      // Probe the exact URL so the record carries the real HTTP status and
+      // Content-Type (a 200 text/html here means the asset is missing and
+      // the host served index.html instead).
+      try {
+        fetch(failedUrl, { method: "GET", cache: "no-store" }).then(function (r) {
+          var ct = "";
+          try { ct = r.headers.get("content-type") || ""; } catch (_) {}
+          setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
+            resource: isCss ? "stylesheet" : "script",
+            url: failedUrl,
+            status: r.status,
+            contentType: ct,
+            servedHtml: ct.indexOf("text/html") !== -1,
+            message: ct.indexOf("text/html") !== -1
+              ? 'Asset host returned an HTML document (index.html) instead of the asset — the hashed file is not deployed.'
+              : 'Asset request completed with status ' + r.status + '.',
+          });
+        }).catch(function (e) {
+          setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
+            resource: isCss ? "stylesheet" : "script",
+            url: failedUrl,
+            message: 'Network error: ' + ((e && e.message) || 'unknown'),
+          });
+        });
+      } catch (_) { /* noop */ }
+      showShellError(isCss
+        ? "Chat styles failed to load."
+        : "Chat runtime failed to load.");
     }
 
     if (runtimeCss) {

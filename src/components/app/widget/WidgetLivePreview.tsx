@@ -246,7 +246,44 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
       </div>` + prechatBody;
 
+    const homeAvatar = `<span class="home-avatar is-online${logo ? ' has-img' : ''}">${
+      logo ? `<img src="${esc(logo)}" alt="" />` : `<span aria-hidden="true">${esc(initial)}</span>`
+    }<span class="home-avatar-dot"></span></span>`;
+
+    const homeBody = `
+      <div class="home-root" dir="${dir}">
+        <section class="home-hero">
+          <div class="home-greeting">${esc(d.homeGreeting)}</div>
+          <p class="home-welcome">${esc(welcome || d.homeWelcome)}</p>
+        </section>
+        <section class="home-card">
+          <div class="home-avatars">${homeAvatar}</div>
+          <div class="home-status is-online">
+            <span class="home-status-dot"></span>
+            <span>${esc(d.homeTeamOnline)}</span>
+          </div>
+          <p class="home-hint">${esc(d.homeReplyFast)}</p>
+          <button type="button" class="home-cta" style="background:${esc(primary)}">
+            <span class="home-cta-label">${esc(d.homeStartChat)}</span>
+            <span class="home-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+          </button>
+        </section>
+        ${kbEnabled ? `<section class="home-section">
+          <div class="home-section-head">
+            <h4 class="home-section-title">${esc(d.homeHelpTitle)}</h4>
+            <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
+          </div>
+          <div class="home-kb-list">
+            ${d.kbArticles.map(a => `<button type="button" class="home-kb-item">
+              <span class="home-kb-title">${esc(a)}</span>
+              <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
+            </button>`).join('')}
+          </div>
+        </section>` : ''}
+      </div>`;
+
     const body =
+      view === 'home' ? homeBody :
       view === 'prechat' ? prechatBody :
       view === 'kb' ? kbBody :
       view === 'offline' ? offlineBody : chatBody;
@@ -316,11 +353,11 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
   <div class="shell" data-template="default">
-    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}" dir="${dir}">
+    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}">
       ${header}
-      ${tabs}
       <div class="body">${body}</div>
       ${composer}
+      ${tabs}
       ${powered}
     </div>
     <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">

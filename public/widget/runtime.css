@@ -2061,7 +2061,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   --ref-motion: 170ms cubic-bezier(.2,.8,.2,1);
   inline-size: 368px;
   max-inline-size: calc(100vw - 32px);
-  block-size: min(716px, calc(100vh - 32px));
+  /* Height must leave room for the launcher zone below AND a top margin,
+     otherwise the panel is clipped at the top in short viewports (and the
+     FAB halo bleeds over the panel edge in the admin preview). */
+  block-size: min(716px, calc(100vh - var(--gs-launcher-zone, 104px) - 20px));
   display: flex;
   flex-direction: column;
   background: #ffffff;

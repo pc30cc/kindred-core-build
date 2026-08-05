@@ -3006,6 +3006,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   animation: ref-typing-in 180ms ease-out both;
 }
 @keyframes ref-typing-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* Operator bubbles are physically left-aligned in every locale, so in RTL the
+   typing bubble must use flex-end (= inline-end = physical left). */
+.panel[dir="rtl"] .typing-row,
+.panel.panel-rtl .typing-row { align-self: flex-end; }
 .panel .typing-dots { display: inline-flex; gap: 3px; }
 .panel .typing-dots span {
   inline-size: 5px; block-size: 5px; border-radius: 50%;

@@ -435,6 +435,9 @@
 
     var shellDiv = document.createElement("div");
     shellDiv.className = "shell";
+    // Mode is known before config arrives (preview config is injected by the
+    // admin iframe), so the correct positioning rules apply from first paint.
+    shellDiv.classList.add(isPreviewMode() ? "gs-mode-preview" : "gs-mode-runtime");
     // Do NOT set a brand color here — that would cause a blue-flash before
     // the workspace's real color arrives via /config. The launcher itself
     // stays hidden until applyConfigToShell() runs (or, in launcher-only

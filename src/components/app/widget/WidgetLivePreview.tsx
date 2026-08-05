@@ -147,10 +147,18 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
 <html><head><meta charset="utf-8" />
 <style>
   html,body{margin:0;height:100%;}
-  /* Scale the whole simulated page down so the full-size widget panel and its
-     floating launcher both fit inside the admin preview frame without overlap. */
-  body{background:#F1F5F9;overflow:hidden;zoom:0.82;
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+  body{background:#F1F5F9;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+  /* Preview-only sizing: the panel fills the preview frame (minus the launcher
+     zone) and its edge lines up exactly with the floating launcher. */
+  .panel{
+    block-size: calc(100vh - 104px - 16px) !important;
+    max-block-size: none !important;
+    min-block-size: 0 !important;
+    inline-size: min(400px, calc(100vw - 48px)) !important;
+  }
+  /* keep the pulse/hover scale from pushing the launcher past its anchored edge */
+  .launcher.bottom-right{ transform-origin: bottom right !important; }
+  .launcher.bottom-left{ transform-origin: bottom left !important; }
   .site{padding:22px;}
   .site .bar{height:12px;border-radius:6px;background:#E2E8F0;margin-bottom:10px;}
   .site .bar.w2{width:62%}.site .bar.w3{width:78%}.site .bar.w4{width:45%}

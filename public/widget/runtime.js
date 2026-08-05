@@ -5147,6 +5147,15 @@
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){}, destroy: function(){} };
     }
     try { shellDiv.setAttribute('data-widget-design', 'canonical-v1'); } catch (_) {}
+    // Canonical mode + motion classes (idempotent with loader.js — the runtime
+    // may create the shell itself when it is mounted standalone).
+    try {
+      var _preview = !!ctx.previewMode;
+      shellDiv.classList.toggle('gs-mode-preview', _preview);
+      shellDiv.classList.toggle('gs-mode-runtime', !_preview);
+      var _fab = (config && config.fab) || {};
+      shellDiv.classList.toggle('gs-no-anim', _fab.animation === false);
+    } catch (_) {}
     var launcher = shell.launcher;
 
     // ─── Domain stores (each one isolated, with pub/sub) ───
@@ -6526,7 +6535,9 @@
       shellStore.set({ isOpen: true });
       try { transportStore.set({ connectionState: 'online', lastConnectionChange: Date.now() }); } catch (_) {}
       try { panel.classList.add('visible'); } catch (_) {}
-      if (launcher) launcher.classList.add('open');
+      // PREVIEW: the launcher deliberately stays in its closed/idle look —
+      // visible below the panel — so the operator can inspect icon, color,
+      // size, shape, label, badge and alignment while the panel is open.
       switchTab(pv === 'chat' ? 'chat' : pv === 'help' ? 'help' : 'home');
     }
 
@@ -6535,7 +6546,7 @@
       open: function () {
         if (shellStore.get().isOpen) return;
         shellStore.set({ isOpen: true });
-        if (launcher) launcher.classList.add('open');
+        if (launcher && !ctx.previewMode) launcher.classList.add('open');
         panel.classList.add('visible');
         // Hide any pending toast — user is now looking at the panel.
         notify.hideToast();

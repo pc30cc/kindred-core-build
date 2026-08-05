@@ -290,6 +290,31 @@
     ".error-toast.visible{display:block;}",
     "@media(max-width:480px){.launcher{width:54px;height:54px;}}",
     ".gs-fab-label{--gs-fab-label-bg:var(--gs-primary,#6D5DFB);}",
+
+    /* ══ Mode separation ═════════════════════════════════════════════
+       `gs-mode-runtime` = real website. `gs-mode-preview` = admin
+       customization canvas. They deliberately differ in ONE rule:
+       whether the launcher may be visible while the panel is open. */
+
+    /* RUNTIME — launcher and open panel are mutually exclusive. */
+    ".shell.gs-mode-runtime .launcher.open{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.85);}",
+    ".shell.gs-mode-runtime .launcher.open~.gs-fab-label{opacity:0;visibility:hidden;pointer-events:none;}",
+
+    /* PREVIEW — launcher stays visible BELOW the panel, anchored inside the
+       preview canvas (absolute, never viewport-fixed) and painted *under*
+       the panel so neither the FAB nor its halo can cover widget content. */
+    ".shell.gs-mode-preview{position:absolute;inset:0;pointer-events:none;}",
+    ".shell.gs-mode-preview .launcher,.shell.gs-mode-preview .gs-fab-label{position:absolute;pointer-events:auto;}",
+    ".shell.gs-mode-preview .launcher{z-index:2147483644;",
+    "box-shadow:0 12px 26px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 88%,transparent);}",
+    ".shell.gs-mode-preview .launcher:hover{box-shadow:0 14px 30px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 95%,transparent);}",
+    ".shell.gs-mode-preview .gs-fab-label{z-index:2147483643;}",
+
+    /* Animation OFF (canonical setting: config.fab.animation === false) —
+       no transitions, no keyframes, no motion anywhere in the shell. */
+    ".shell.gs-no-anim .launcher,.shell.gs-no-anim .gs-fab-label,.shell.gs-no-anim .error-toast{transition:none!important;animation:none!important;}",
+    ".shell.gs-no-anim .launcher:hover,.shell.gs-no-anim .launcher:active{transform:none!important;}",
+    "@media(prefers-reduced-motion:reduce){.launcher,.gs-fab-label{transition:none!important;animation:none!important;}.launcher:hover,.launcher:active{transform:none!important;}}",
   ].join("");
 
   // ─── <gs-widget> custom element ───
@@ -360,6 +385,7 @@
       else if (rt && rt._instance) warn("Stale runtime has no destroy() — cannot fully release resources");
     } catch (_) {}
     try { if (window.__gs_runtime) window.__gs_runtime._instance = null; } catch (_) {}
+    try { if (openStateObserver) { openStateObserver.disconnect(); openStateObserver = null; } } catch (_) {}
     try { if (window.__gs_call && typeof window.__gs_call.destroy === "function") window.__gs_call.destroy(); } catch (_) {}
     try {
       var stale = document.querySelectorAll('script[data-gs-runtime],script[data-gs-runtime-call]');
@@ -410,6 +436,9 @@
 
     var shellDiv = document.createElement("div");
     shellDiv.className = "shell";
+    // Mode is known before config arrives (preview config is injected by the
+    // admin iframe), so the correct positioning rules apply from first paint.
+    shellDiv.classList.add(isPreviewMode() ? "gs-mode-preview" : "gs-mode-runtime");
     // Do NOT set a brand color here — that would cause a blue-flash before
     // the workspace's real color arrives via /config. The launcher itself
     // stays hidden until applyConfigToShell() runs (or, in launcher-only
@@ -439,6 +468,47 @@
     errorToastEl.textContent = message;
     errorToastEl.classList.add("visible");
     setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
+  }
+
+  // ─── Canonical mode + motion flags ───────────────────────────────────
+  // mode: "preview" (admin customization canvas) | "runtime" (real site).
+  // Motion is driven by the single existing setting `config.fab.animation`.
+  function isPreviewMode() {
+    try { return !!(window.__gs_preview_config && window.__gs_preview_config.previewMode); }
+    catch (_) { return false; }
+  }
+  function applyShellMode(config) {
+    if (!shadowRoot) return;
+    var shellDiv = shadowRoot.querySelector(".shell");
+    if (!shellDiv) return;
+    var preview = isPreviewMode() || !!(config && config.previewMode);
+    shellDiv.classList.toggle("gs-mode-preview", preview);
+    shellDiv.classList.toggle("gs-mode-runtime", !preview);
+    var fab = (config && config.fab) || {};
+    var animOn = fab.animation !== false;
+    shellDiv.classList.toggle("gs-no-anim", !animOn);
+    try { window.__gs_widget_mode = preview ? "preview" : "runtime"; } catch (_) {}
+    startOpenStateSync();
+  }
+
+  // ─── Single canonical open/closed state ──────────────────────────────
+  // The panel's `.visible` class is the ONE source of truth: whoever flips it
+  // (loader API, runtime toggle, close button, preview bootstrap) drives the
+  // launcher. This removes the loader/runtime dual-state desync that could
+  // leave the launcher visible over an open panel or hidden while closed.
+  var openStateObserver = null;
+  function syncLauncherToPanel() {
+    if (!shadowRoot || !launcherEl) return;
+    var panelEl = shadowRoot.querySelector(".panel");
+    var open = !!(panelEl && panelEl.classList.contains("visible"));
+    isOpen = open;
+    launcherEl.classList.toggle("open", open && !isPreviewMode());
+  }
+  function startOpenStateSync() {
+    if (openStateObserver || !shadowRoot || typeof MutationObserver === "undefined") return;
+    openStateObserver = new MutationObserver(syncLauncherToPanel);
+    openStateObserver.observe(shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    syncLauncherToPanel();
   }
 
   // ─── Launcher (FAB) icon set — kept byte-identical with the operator
@@ -471,7 +541,8 @@
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
-    if (fab.animation === true) launcherEl.classList.add("pulse");
+    // Canonical motion switch — also gates the attention pulse.
+    launcherEl.classList.toggle("pulse", fab.animation === true);
     launcherEl.style.color = fab.iconColor || "#ffffff";
     var icon = FAB_ICONS[fab.icon] || FAB_ICONS.chat;
     launcherEl.innerHTML =
@@ -497,6 +568,7 @@
 
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
+    applyShellMode(config);
     var shellDiv = shadowRoot.querySelector(".shell");
     if (shellDiv) {
       shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");
@@ -769,7 +841,7 @@
     if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
       window.__gs_runtime._instance.open();
       isOpen = true;
-      launcherEl.classList.add("open");
+      if (!isPreviewMode()) launcherEl.classList.add("open");
       return;
     }
     onLauncherClick();
@@ -787,7 +859,7 @@
     if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
       window.__gs_runtime._instance.toggle();
       isOpen = !isOpen;
-      launcherEl.classList.toggle("open", isOpen);
+      launcherEl.classList.toggle("open", isOpen && !isPreviewMode());
       return;
     }
     if (runtimeLoading) return;
@@ -845,14 +917,14 @@
           });
           window.__gs_runtime._instance = instance;
           widgetApi = {
-            open: function () { instance.open(); isOpen = true; launcherEl.classList.add("open"); },
+            open: function () { instance.open(); isOpen = true; if (!isPreviewMode()) launcherEl.classList.add("open"); },
             close: function () { instance.close(); isOpen = false; launcherEl.classList.remove("open"); },
-            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen); },
+            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen && !isPreviewMode()); },
             setUnread: setUnreadBadge,
           };
           ready = true;
           isOpen = true;
-          launcherEl.classList.add("open");
+          if (!isPreviewMode()) launcherEl.classList.add("open");
           processQueue();
         } catch (e) {
           warn("Runtime init failed", e);

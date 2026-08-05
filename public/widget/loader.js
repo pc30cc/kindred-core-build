@@ -189,6 +189,11 @@
     "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
     ".launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
+    /* When the panel is open the launcher steps aside — the panel now owns
+       its own close control in the header (top-left). */
+    ".launcher.open{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.85);animation:none;}",
+    ".launcher.open ~ .gs-fab-label{opacity:0;visibility:hidden;pointer-events:none;}",
+    ".gs-fab-label{transition:opacity .2s ease;}",
     ".badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;",
     "background:#EF4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;",
     "padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.15);}",

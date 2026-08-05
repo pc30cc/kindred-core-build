@@ -5026,13 +5026,24 @@
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
     var headerDirAttr = headerRtl ? ' dir="rtl"' : '';
     var headerCls = 'header' + (headerRtl ? ' header-rtl' : '');
+    var wsLogoUrl = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+    var headerLogoHtml = wsLogoUrl
+      ? '<span class="header-logo"><img src="' + Util.escapeHtml(wsLogoUrl) + '" alt="' +
+        Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span>'
+      : '';
+    var headerCloseHtml = '<button type="button" class="header-close" data-panel-close aria-label="' +
+      Util.escapeHtml(t('close') || 'Close') + '" title="' + Util.escapeHtml(t('close') || 'Close') + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
+      '<path d="M18 6 6 18M6 6l12 12"/></svg></button>';
     var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
+      headerCloseHtml +
       '<div class="header-brand">' +
-        teamStackHtml +
+        headerLogoHtml +
         '<div class="header-brand-text">' +
           '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
           '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
         '</div>' +
+        teamStackHtml +
       '</div>' +
       '<div class="presence sr-only" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
@@ -5772,12 +5783,14 @@
             '<p class="home-welcome">' + Util.escapeHtml(welcomeMessage || t('homeWelcome')) + '</p>' +
           '</section>' +
           '<section class="home-card">' +
-            (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
-            '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
-              '<span class="home-status-dot"></span>' +
-              '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
+            '<div class="home-card-top">' +
+              (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
+              '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
+                '<span class="home-status-dot"></span>' +
+                '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
+              '</div>' +
+              '<p class="home-hint">' + Util.escapeHtml(isOnline ? t('homeReplyFast') : t('homeReplySlow')) + '</p>' +
             '</div>' +
-            '<p class="home-hint">' + Util.escapeHtml(isOnline ? t('homeReplyFast') : t('homeReplySlow')) + '</p>' +
             ctaHtml +
           '</section>' +
           kbHtml +

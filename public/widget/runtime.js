@@ -5468,8 +5468,15 @@
     var headerCloseBtn = panel.querySelector('[data-header-close]');
     if (headerCloseBtn) {
       headerCloseBtn.addEventListener('click', function () {
-        try { if (shell && typeof shell.close === 'function') shell.close(); } catch (_) {}
-        try { if (window.__gs && typeof window.__gs.push === 'function') window.__gs.push(['close']); } catch (_) {}
+        // Route through the launcher so the loader's own open/close state
+        // (badge, aria, animation) stays authoritative — same trick the
+        // in-shell toast uses to open the panel.
+        try {
+          syncDraftFromInput();
+          shellStore.set({ isOpen: false });
+          if (launcher) launcher.classList.remove('open');
+          panel.classList.remove('visible');
+        } catch (_) {}
       });
     }
 

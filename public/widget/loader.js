@@ -693,11 +693,15 @@
   }
   function triggerClose() {
     if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
-      window.__gs_runtime._instance.close();
-      isOpen = false;
-      if (launcherEl) launcherEl.classList.remove("open");
+      try { window.__gs_runtime._instance.close(); } catch (_) {}
     }
+    isOpen = false;
+    if (launcherEl) launcherEl.classList.remove("open");
   }
+  // Exposed so the panel's own collapse chevron can close deterministically
+  // instead of round-tripping through a hidden launcher click (which could
+  // desync `isOpen` and leave the launcher stuck in the "open" state).
+  try { window.__gs_panel_close = triggerClose; } catch (_) {}
 
   function onLauncherClick() {
     if (!configData) return;

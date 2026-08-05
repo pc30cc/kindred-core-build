@@ -99,8 +99,10 @@ textarea:focus-visible {
    the panel takes the launcher's own bottom anchor — no reserved empty gap. */
 .shell.gs-mode-runtime .panel { --gs-launcher-zone: 24px; }
 /* PREVIEW (admin customization canvas): the launcher stays visible BELOW the
-   panel, so the panel reserves the launcher box + a 14px spacing gap. */
-.shell.gs-mode-preview .panel { --gs-launcher-zone: 100px; }
+   panel, so the panel reserves the launcher box + gap. The zone is computed
+   live by loader.js from the configured FAB scale/animation and published as
+   `--gs-preview-launcher-zone`; 132px is the scale-100 fallback. */
+.shell.gs-mode-preview .panel { --gs-launcher-zone: var(--gs-preview-launcher-zone, 132px); }
 /* Animation OFF (config.fab.animation === false) and OS reduced-motion. */
 .shell.gs-no-anim .panel,
 .shell.gs-no-anim .panel * { transition: none !important; animation: none !important; }

@@ -10,7 +10,7 @@
 import { useMemo } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
-export type PreviewView = 'chat' | 'prechat' | 'offline' | 'kb';
+export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
 type Dict = {
   online: string; offline: string; typing: string; input: string;
@@ -19,6 +19,11 @@ type Dict = {
   sample: string; visitorSample: string; chatTab: string; helpTab: string;
   kbSearch: string; kbArticles: string[]; poweredBy: string;
   welcomeFallback: string; brandFallback: string;
+  homeTab: string; homeGreeting: string; homeWelcome: string;
+  homeTeamOnline: string; homeTeamOffline: string;
+  homeStartChat: string; homeLeaveMessage: string;
+  homeReplyFast: string; homeReplySlow: string;
+  homeHelpTitle: string; homeSeeAll: string;
 };
 
 const DICTS: Record<string, Dict> = {
@@ -31,6 +36,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'Chat', helpTab: 'Help', kbSearch: 'Search articles…',
     kbArticles: ['Getting started', 'Billing & plans', 'Troubleshooting'],
     poweredBy: 'Powered by', welcomeFallback: 'How can we help?', brandFallback: 'Support',
+    homeTab: 'Home', homeGreeting: 'Hello 👋', homeWelcome: 'Welcome! How can we help you today?',
+    homeTeamOnline: 'Our team is online right now', homeTeamOffline: "We're offline at the moment",
+    homeStartChat: 'Start a conversation', homeLeaveMessage: 'Leave a message',
+    homeReplyFast: 'Typically replies in a few minutes',
+    homeReplySlow: "We'll reply by email as soon as we're back",
+    homeHelpTitle: 'Find an answer', homeSeeAll: 'See all',
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -41,6 +52,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'گفتگو', helpTab: 'راهنما', kbSearch: 'جستجوی مقاله‌ها…',
     kbArticles: ['شروع به کار', 'صورتحساب و پلن‌ها', 'رفع اشکال'],
     poweredBy: 'قدرت‌گرفته از', welcomeFallback: 'چطور می‌توانیم کمک کنیم؟', brandFallback: 'پشتیبانی',
+    homeTab: 'خانه', homeGreeting: 'سلام 👋', homeWelcome: 'خوش آمدید! چطور می‌توانیم کمکتان کنیم؟',
+    homeTeamOnline: 'تیم ما هم‌اکنون آنلاین است', homeTeamOffline: 'در حال حاضر آفلاین هستیم',
+    homeStartChat: 'شروع گفتگو', homeLeaveMessage: 'پیغام بگذارید',
+    homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
+    homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
+    homeHelpTitle: 'پاسخ خود را پیدا کنید', homeSeeAll: 'مشاهده همه',
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -51,6 +68,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'Sohbet', helpTab: 'Yardım', kbSearch: 'Makalelerde ara…',
     kbArticles: ['Başlarken', 'Faturalama ve planlar', 'Sorun giderme'],
     poweredBy: 'Destekleyen', welcomeFallback: 'Nasıl yardımcı olabiliriz?', brandFallback: 'Destek',
+    homeTab: 'Ana sayfa', homeGreeting: 'Merhaba 👋', homeWelcome: 'Hoş geldiniz! Size nasıl yardımcı olabiliriz?',
+    homeTeamOnline: 'Ekibimiz şu anda çevrimiçi', homeTeamOffline: 'Şu anda çevrimdışıyız',
+    homeStartChat: 'Sohbeti başlat', homeLeaveMessage: 'Mesaj bırakın',
+    homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
+    homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
+    homeHelpTitle: 'Yanıtınızı bulun', homeSeeAll: 'Tümünü gör',
   },
 };
 

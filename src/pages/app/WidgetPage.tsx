@@ -22,6 +22,7 @@ import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -293,19 +294,19 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
                     <Input
-                      value={live?.launcher_text || ''}
+                      value={widgetTextValue(live?.launcher_text, 'launcher', live?.widget_language)}
                       onChange={e => setField('launcher_text', e.target.value)}
-                      placeholder={platformName}
+                      placeholder={widgetTextDefault('launcher', live?.widget_language) || platformName}
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
-                      value={live?.welcome_message || ''}
+                      value={widgetTextValue(live?.welcome_message, 'welcome', live?.widget_language)}
                       onChange={e => setField('welcome_message', e.target.value)}
                       rows={3}
-                      placeholder={t('widgetPage.appearance.welcomePlaceholder')}
+                      placeholder={widgetTextDefault('welcome', live?.widget_language)}
                     />
                   </div>
 

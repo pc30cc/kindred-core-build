@@ -5034,15 +5034,24 @@
       '</div>';
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
-    var tabDefs = [];
+    var NAV_ICONS = {
+      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.8"/>',
+      chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+      help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
+    };
+    var tabDefs = [{ key: 'home', label: t('home') }];
     if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
     if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
     var tabsHtml = '';
     if (tabDefs.length > 1) {
       var act = shellStore.get().activeTab;
-      tabsHtml = '<div class="tabs">' + tabDefs.map(function (d) {
+      tabsHtml = '<div class="tabs tabs-bottom">' + tabDefs.map(function (d) {
         return '<button type="button" class="tab' + (act === d.key ? ' active' : '') +
-          '" data-tab="' + d.key + '">' + Util.escapeHtml(d.label) + '</button>';
+          '" data-tab="' + d.key + '">' +
+          '<svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+            NAV_ICONS[d.key] + '</svg>' +
+          '<span class="tab-label">' + Util.escapeHtml(d.label) + '</span>' +
+        '</button>';
       }).join('') + '</div>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
@@ -5081,7 +5090,7 @@
        ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
-    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
+    panel.innerHTML = headerHtml + bodyHtml + inputHtml + tabsHtml + poweredHtml +
       // Phase 6b — lightbox container, hidden by default.
       '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
         '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' + Util.escapeHtml(t('closePreview')) + '">×</button>' +

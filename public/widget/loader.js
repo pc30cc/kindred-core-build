@@ -264,8 +264,10 @@
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
     ".launcher:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 18px 34px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 95%,transparent),0 0 0 13px color-mix(in srgb,var(--gs-primary,#6D5DFB) 8%,transparent),0 0 0 26px color-mix(in srgb,var(--gs-primary,#6D5DFB) 4%,transparent);}",
     ".launcher:active{transform:scale(.96);}",
-    ".launcher.bottom-right{bottom:24px;right:24px;}",
-    ".launcher.bottom-left{bottom:24px;left:24px;}",
+    /* transform-origin is anchored to the launcher's own corner so the pulse /
+       hover scale never pushes it past the 24px inset the panel aligns to. */
+    ".launcher.bottom-right{bottom:24px;right:24px;transform-origin:bottom right;}",
+    ".launcher.bottom-left{bottom:24px;left:24px;transform-origin:bottom left;}",
     ".launcher.square{border-radius:18px;}",
     ".launcher .gs-fab-dot{position:absolute;inset-block-end:2px;inset-inline-end:-1px;width:14px;height:14px;",
     "border-radius:50%;background:#12B981;border:3px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.18);}",

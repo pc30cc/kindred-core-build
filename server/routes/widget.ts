@@ -667,6 +667,13 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
     // with `immutable, max-age=1y`. The widget never contacts a CDN for
     // this asset — see scripts/widget-hash.js VENDOR_FILES.
     const livekitSdkName = getWidgetAssetName('vendor/livekit-client.umd.min.js');
+    // Realtime driver modules. These were previously NOT published in the
+    // config, so the runtime built unhashed `/widget/runtime-rt-*.js?v=`
+    // URLs by hand — which 404 on any deploy that only ships hashed assets
+    // and surfaced as "Chat resources failed to load".
+    const rtResolverName = getWidgetAssetName('runtime-rt-resolver.js');
+    const rtCentrifugoName = getWidgetAssetName('runtime-rt-centrifugo.js');
+    const rtSupabaseName = getWidgetAssetName('runtime-rt-supabase.js');
     const loaderVersion = getLoaderVersion();
     const preChat = buildPreChatConfig(platformPreChatPolicy, workspacePreChatFlags || []);
     const versionedAssetUrl = (url: string | null) => {

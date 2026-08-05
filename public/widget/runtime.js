@@ -5541,10 +5541,10 @@
     notify.attach(panel);
 
     // Phase 5 — presence indicator: keep header dot/label in sync with presenceStore.
-    var presenceDot = panel.querySelector('[data-presence-dot]');
-    var presenceLabel = panel.querySelector('[data-presence-label]');
-    var presenceWrap = panel.querySelector('[data-presence]');
     function renderPresence(s) {
+      var presenceDot = panel.querySelector('[data-presence-dot]');
+      var presenceLabel = panel.querySelector('[data-presence-label]');
+      var presenceWrap = panel.querySelector('[data-presence]');
       if (!presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
       // Presence is BOTH visual and screen-reader accessible (a11y rule).
@@ -5561,8 +5561,21 @@
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
+    function applyHeaderVariant(view) {
+      var host = panel.querySelector('.header');
+      if (!host) return;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = headerHtmlFor(view);
+      var next = wrap.firstChild;
+      if (next && host.parentNode) {
+        host.parentNode.replaceChild(next, host);
+        try { panel.setAttribute('data-view', view); } catch (_) {}
+        renderPresence(presenceStore.get());
+      }
+    }
     function switchTab(key) {
       shellStore.set({ activeTab: key });
+      applyHeaderVariant(key === 'chat' ? 'chat' : key === 'help' ? 'help' : 'home');
       Array.prototype.forEach.call(tabs, function (t2) {
         var on = t2.getAttribute('data-tab') === key;
         t2.classList.toggle('active', on);
@@ -5581,9 +5594,8 @@
         switchTab(tab.getAttribute('data-tab'));
       });
     });
-    var headerCloseBtn = panel.querySelector('[data-header-close]');
-    if (headerCloseBtn) {
-      headerCloseBtn.addEventListener('click', function () {
+    function closePanel() {
+      {
         // Route through the launcher so the loader's own open/close state
         // (badge, aria, animation) stays authoritative — same trick the
         // in-shell toast uses to open the panel.
@@ -5593,8 +5605,14 @@
           if (launcher) launcher.classList.remove('open');
           panel.classList.remove('visible');
         } catch (_) {}
-      });
+      }
     }
+    panel.addEventListener('click', function (ev) {
+      var el = ev.target && ev.target.closest ? ev.target.closest('[data-header-close],[data-header-back]') : null;
+      if (!el) return;
+      if (el.hasAttribute('data-header-back')) { switchTab('home'); return; }
+      closePanel();
+    });
 
     // ─── Composer state driven by transport store ───
     function applyComposerState() {

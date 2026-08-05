@@ -135,9 +135,13 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
          </div>`
       : '';
 
-    // Production renders the operator team stack here (runtime.js) — never the
-    // workspace logo. Mirror that: a single online operator avatar.
-    const avatar = `<span class="header-op-avatar is-online"><span aria-hidden="true">${esc(initial)}</span><span class="header-op-dot"></span></span>`;
+    // Operator avatar: use the workspace logo when one is configured (that is
+    // what visitors see once an operator picture exists), otherwise the initial.
+    const avatar = `<span class="header-op-avatar is-online${logo ? ' has-img' : ''}">${
+      logo
+        ? `<img src="${esc(logo)}" alt="" />`
+        : `<span aria-hidden="true">${esc(initial)}</span>`
+    }<span class="header-op-dot"></span></span>`;
 
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
@@ -250,9 +254,11 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
      smaller than a real browser viewport. */
   /* Override the runtime's <=480px full-screen rule: inside this small preview
      frame the panel must stay a floating card, otherwise it covers the FAB. */
-  .panel{position:fixed!important;top:auto!important;width:min(360px, calc(100% - 28px))!important;
+  .panel{position:fixed!important;top:auto!important;width:min(380px, calc(100% - 28px))!important;
     max-width:calc(100% - 28px)!important;border-radius:20px!important;
-    height:min(560px, calc(100% - ${24 + fabSize + 12 + 24}px))!important;}
+    height:calc(100% - ${24 + fabSize + 12 + 20}px)!important;}
+  .panel[hidden]{display:none!important;}
+  .header-op-avatar.has-img img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
   .panel.bottom-right{bottom:${24 + fabSize + 12}px!important;right:24px!important;left:auto!important;}
   .panel.bottom-left{bottom:${24 + fabSize + 12}px!important;left:24px!important;right:auto!important;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
@@ -284,11 +290,24 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
       ${composer}
       ${powered}
     </div>
-    <button type="button" class="launcher ${pos}" aria-label="chat">
+    <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
   </div>
+<script>
+  // Preview-only: let the operator open/close the widget exactly like a visitor.
+  (function () {
+    var panel = document.querySelector('.panel');
+    var launcher = document.getElementById('gs-launcher');
+    if (!panel || !launcher) return;
+    launcher.addEventListener('click', function () {
+      var open = !panel.hasAttribute('hidden');
+      if (open) { panel.setAttribute('hidden', ''); }
+      else { panel.removeAttribute('hidden'); }
+    });
+  })();
+</script>
 </body>
 </html>`;
   }, [settings, prechat, brandName, view]);
@@ -299,7 +318,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         title="widget-preview"
         srcDoc={srcDoc}
         className="h-full w-full border-0"
-        sandbox="allow-same-origin"
+        sandbox="allow-scripts"
       />
     </div>
   );

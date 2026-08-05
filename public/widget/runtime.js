@@ -5893,7 +5893,8 @@
     callSurfaceStore.subscribe(function () { renderBody(); });
     // Re-render body when presence flips so fallback/normal swap takes effect.
     presenceStore.subscribe(function () {
-      if (shellStore.get().activeTab === 'chat') renderBody();
+      var at = shellStore.get().activeTab;
+      if (at === 'chat' || at === 'home') renderBody();
     });
 
     // ─── Wire transport events to UI ───

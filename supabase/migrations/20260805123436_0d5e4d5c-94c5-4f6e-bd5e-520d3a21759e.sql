@@ -1,2 +1,0 @@
-ALTER TABLE public.widget_settings ALTER COLUMN primary_color SET DEFAULT '#6D5DFB';
-UPDATE public.widget_settings SET primary_color = '#6D5DFB' WHERE primary_color IS NULL OR upper(primary_color) IN ('#3B82F6','#7C3AED');

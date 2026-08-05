@@ -19,83 +19,24 @@
 (function () {
   "use strict";
 
-  var LOADER_VERSION = "2026-08-05-canonical-v1";
-  var WIDGET_DESIGN = "canonical-v1";
-  var ELEMENT_TAG = "gs-widget";
-
-  // ─── Lifecycle counters (used by the no-reload acceptance test) ───
-  // Incremented on EVERY execution of this script / every runtime.init().
-  // A live preview that patches config instead of remounting must keep both
-  // of these at 1 across arbitrarily many customization changes.
-  try {
-    window.__gs_loader_execs = (window.__gs_loader_execs || 0) + 1;
-    window.__gs_runtime_inits = window.__gs_runtime_inits || 0;
-  } catch (_) {}
-
-  // ─── Version-aware singleton guard ───
-  // A plain "already loaded → return" guard made the SPA version check
-  // downstream unreachable: after a route swap the host page re-injects a
-  // NEWER loader, which would bail out and leave the stale (older) widget
-  // mounted forever.
-  //
-  // New contract:
-  //   window.__gs_loaded holds the VERSION STRING of the active loader.
-  //   • same version already active           → return (true duplicate inject)
-  //   • different version / different design  → tear the old one down and
-  //                                             continue booting this copy.
-  (function versionGuard() {
-    var active = window.__gs_loaded;
-    var existing = (typeof document !== "undefined")
-      ? document.querySelector(ELEMENT_TAG)
-      : null;
-
-    if (active === true) {
-      // Legacy pre-version loader marker — treat as an unknown older
-      // version so it gets torn down rather than silently winning.
-      active = "legacy";
-    }
-
-    if (existing) {
-      var pv = existing.getAttribute("data-loader-version")
-        || existing.getAttribute("data-version") || "";
-      var pd = existing.getAttribute("data-widget-design") || "";
-      if (pv === LOADER_VERSION && pd === WIDGET_DESIGN) {
-        // Exact match — the mounted instance is ours. Nothing to do.
-        window.__gs_loaded = LOADER_VERSION;
-        window.__gs_guard_result = "adopted";
-        return "return";
-      }
-      window.__gs_guard_result = "version-mismatch";
-    } else if (active && active === LOADER_VERSION) {
-      // Same version already executing in this page, shell not yet in the
-      // DOM (mid-boot). Second copy of the same script → duplicate.
-      window.__gs_guard_result = "duplicate";
-      return "return";
-    } else if (active) {
-      window.__gs_guard_result = "version-mismatch";
-    } else {
-      window.__gs_guard_result = "fresh";
-    }
-
-    // Mismatch (or first boot). Stop any previous loader's background
-    // loops before we take over; mountShell() will destroy the stale
-    // shell + runtime instance.
-    if (window.__gs_guard_result === "version-mismatch") {
-      try {
-        if (typeof window.__gs_loader_teardown === "function") {
-          window.__gs_loader_teardown();
-        }
-      } catch (_) {}
-    }
-    window.__gs_loaded = LOADER_VERSION;
-    return "continue";
-  })();
-
-  // The guard IIFE cannot `return` out of this outer function — it records
-  // its decision on window.__gs_guard_result, which we honour here.
-  if (window.__gs_guard_result === "adopted" || window.__gs_guard_result === "duplicate") {
+  // ─── Singleton guard ───
+  // Multi-layer protection against double inject:
+  //   1. window.__gs_loaded — set by THIS execution; second copy of the
+  //      loader script will see it and return immediately.
+  //   2. existing <gs-widget> element in the DOM — protects against a
+  //      previous execution that was unloaded by an SPA but the shell node
+  //      survived (shouldn't happen, but defense in depth).
+  if (window.__gs_loaded) return;
+  if (typeof document !== "undefined" && document.querySelector("gs-widget")) {
+    // A shell already exists from a prior execution — adopt the singleton
+    // flag and exit. The pre-existing instance owns the widget.
+    window.__gs_loaded = true;
     return;
   }
+  window.__gs_loaded = true;
+
+  var LOADER_VERSION = "2026-04-22-token-bus-v1";
+  var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
   //   window.__gs_debug = true   (developer console)
@@ -117,39 +58,6 @@
   }
 
   log("Loader version:", LOADER_VERSION);
-
-  // ─── Structured diagnostics ──────────────────────────────────────────
-  // Every terminal failure path records a machine-readable record on
-  // `window.__gs_last_error` so operators can tell WHICH stage failed and
-  // WHICH url/status caused it, instead of reading a generic toast.
-  //   { code, url, status, contentType, resource, message, at }
-  // Codes:
-  //   API_BASE_MISSING     — no data-api-base / window.__gs_api_base
-  //   WORKSPACE_ID_MISSING — no data-workspace-id / window.__gs_id
-  //   WORKSPACE_NOT_FOUND  — bootstrap 404 / MISSING_WORKSPACE
-  //   ORIGIN_DENIED        — bootstrap 401/403 (origin not allow-listed)
-  //   WIDGET_DISABLED      — widget turned off for this workspace
-  //   BOOTSTRAP_FAILED     — bootstrap/config transport or 5xx failure
-  //   ASSET_URLS_MISSING   — config returned no hashed runtime/style url
-  //   STYLE_LOAD_FAILED    — runtime.css failed to load
-  //   STYLE_NOT_APPLIED    — runtime.css "loaded" but its readiness sentinel
-  //                          never appeared (wrong content-type / HTML page)
-  //   RUNTIME_LOAD_FAILED  — runtime.js failed to load
-  //   RUNTIME_INIT_FAILED  — runtime loaded but init threw / didn't register
-  function setLastError(code, detail) {
-    var rec = { code: code, at: new Date().toISOString() };
-    if (detail) {
-      for (var k in detail) { if (detail[k] !== undefined) rec[k] = detail[k]; }
-    }
-    try { window.__gs_last_error = rec; } catch (_) {}
-    try {
-      // Always surfaced (not gated behind DEBUG) — a silent widget with no
-      // console trace is what made these outages hard to diagnose.
-      console.error("[Widget] " + code, rec);
-    } catch (_) {}
-    return rec;
-  }
-  try { window.__gs_last_error = null; } catch (_) {}
 
   // ─── Pending command queue (window.__gs.push(['open']) etc.) ───
   var GS = window.__gs || [];
@@ -259,81 +167,57 @@
     "*,*::before,*::after{box-sizing:border-box;}",
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
-    "width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;",
-    "box-shadow:0 16px 30px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 88%,transparent),0 0 0 11px color-mix(in srgb,var(--gs-primary,#6D5DFB) 6%,transparent),0 0 0 22px color-mix(in srgb,var(--gs-primary,#6D5DFB) 3%,transparent);",
+    "width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;",
+    "box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
-    /* `background-color` first, then `background-image`. The shorthand
-       `background:` must NOT be used here — it resets background-image and
-       silently killed the launcher gradient. */
-    "background-color:var(--gs-primary,#6D5DFB);color:#fff;font-family:inherit;",
-    "background-image:linear-gradient(135deg,var(--gs-primary,#6D5DFB),color-mix(in srgb,var(--gs-primary,#6D5DFB) 68%,var(--gs-secondary,#8B5CF6)));",
+    "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
-        /* Hidden state — keeps the launcher invisible and non-interactive until
+    /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
-    ".launcher:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 18px 34px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 95%,transparent),0 0 0 13px color-mix(in srgb,var(--gs-primary,#6D5DFB) 8%,transparent),0 0 0 26px color-mix(in srgb,var(--gs-primary,#6D5DFB) 4%,transparent);}",
+    ".launcher:hover{transform:scale(1.08);box-shadow:0 6px 28px -4px rgba(0,0,0,.3);}",
     ".launcher:active{transform:scale(.96);}",
-    /* transform-origin is anchored to the launcher's own corner so the pulse /
-       hover scale never pushes it past the 24px inset the panel aligns to. */
-    ".launcher.bottom-right{bottom:24px;right:24px;transform-origin:bottom right;}",
-    ".launcher.bottom-left{bottom:24px;left:24px;transform-origin:bottom left;}",
-    ".launcher.square{border-radius:18px;}",
-    ".launcher .gs-fab-dot{position:absolute;inset-block-end:2px;inset-inline-end:-1px;width:14px;height:14px;",
-    "border-radius:50%;background:#12B981;border:3px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.18);}",
-    ".launcher .gs-fab-dot.status-away{background:#F59E0B;}",
-    ".launcher .gs-fab-dot.status-offline{background:#9CA3AF;}",
+    ".launcher.bottom-right{bottom:24px;right:24px;}",
+    ".launcher.bottom-left{bottom:24px;left:24px;}",
+    ".launcher.square{border-radius:16px;}",
     ".launcher.pulse{animation:gs-fab-pulse 2s ease-in-out infinite;}",
     "@keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}",
-    ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;height:36px;",
-    "padding:0 16px;border-radius:999px;font-size:12px;font-weight:800;font-family:inherit;",
-    "box-shadow:0 12px 24px -16px color-mix(in srgb,var(--gs-primary,#6D5DFB) 90%,transparent);white-space:nowrap;",
-    "background-image:linear-gradient(135deg,color-mix(in srgb,#fff 10%,var(--gs-primary,#6D5DFB)),color-mix(in srgb,#000 10%,var(--gs-primary,#6D5DFB)));color:#fff;}",
-    ".launcher svg{position:relative;width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}",
+    ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
+    "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",
+    "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
+    ".launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
-    ".badge{position:absolute;top:-4px;inset-inline-start:-5px;right:auto;min-width:21px;height:21px;border-radius:11px;",
-    "background:#EF4444;color:#fff;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;",
+    ".badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;",
+    "background:#EF4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;",
     "padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.15);}",
     ".error-toast{position:fixed;bottom:92px;right:24px;max-width:280px;padding:10px 14px;",
     "background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;color:#991B1B;font-size:12px;",
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
     ".error-toast.visible{display:block;}",
-    "@media(max-width:480px){.launcher{width:54px;height:54px;}}",
-    ".gs-fab-label{--gs-fab-label-bg:var(--gs-primary,#6D5DFB);}",
-
-    /* ══ Mode separation ═════════════════════════════════════════════
-       `gs-mode-runtime` = real website. `gs-mode-preview` = admin
-       customization canvas. They deliberately differ in ONE rule:
-       whether the launcher may be visible while the panel is open. */
-
-    /* RUNTIME — launcher and open panel are mutually exclusive. */
-    ".shell.gs-mode-runtime .launcher.open{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.85);}",
-    ".shell.gs-mode-runtime .launcher.open~.gs-fab-label{opacity:0;visibility:hidden;pointer-events:none;}",
-
-    /* PREVIEW — launcher stays visible BELOW the panel, anchored inside the
-       preview canvas (absolute, never viewport-fixed) and painted *under*
-       the panel so neither the FAB nor its halo can cover widget content. */
-    ".shell.gs-mode-preview{position:absolute;inset:0;pointer-events:none;}",
-    ".shell.gs-mode-preview .launcher,.shell.gs-mode-preview .gs-fab-label{position:absolute;pointer-events:auto;}",
-    ".shell.gs-mode-preview .launcher{z-index:2147483644;",
-    "box-shadow:0 12px 26px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 88%,transparent);}",
-    ".shell.gs-mode-preview .launcher:hover{box-shadow:0 14px 30px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 95%,transparent);}",
-    ".shell.gs-mode-preview .gs-fab-label{z-index:2147483643;}",
-
-    /* Animation OFF (canonical setting: config.fab.animation === false) —
-       no transitions, no keyframes, no motion anywhere in the shell. */
-    ".shell.gs-no-anim .launcher,.shell.gs-no-anim .gs-fab-label,.shell.gs-no-anim .error-toast{transition:none!important;animation:none!important;}",
-    ".shell.gs-no-anim .launcher:hover,.shell.gs-no-anim .launcher:active{transform:none!important;}",
-    "@media(prefers-reduced-motion:reduce){.launcher,.gs-fab-label{transition:none!important;animation:none!important;}.launcher:hover,.launcher:active{transform:none!important;}}",
-
-    /* ══ Loading cloak (FOUC guard) ═══════════════════════════════════
-       These rules ship INLINE with the shell, so they are in effect before
-       runtime.css has loaded. Any panel markup the runtime creates stays
-       fully invisible and non-interactive until the loader has PROVEN the
-       stylesheet was applied (`gs-css-ready`) and the closed initial state
-       has been committed (`gs-runtime-loading` removed). */
-    ".shell.gs-runtime-loading .panel,.shell:not(.gs-css-ready) .panel{visibility:hidden!important;opacity:0!important;pointer-events:none!important;}",
+    "@media(max-width:480px){.launcher{width:50px;height:50px;}}",
+    /* Welcome toast (shown by template2 — distinct from runtime.css .gs-toast).
+       Lives in the loader so it can render BEFORE runtime.js is fetched. */
+    ".gs-welcome-toast{position:fixed;z-index:2147483645;bottom:96px;right:24px;",
+    "max-width:300px;background:#fff;color:#1F2937;padding:12px 14px 12px 16px;",
+    "border-radius:14px;box-shadow:0 14px 40px -10px rgba(0,51,153,.28),0 0 0 1px rgba(15,23,42,.05);",
+    "cursor:pointer;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
+    "opacity:0;transform:translateY(10px) scale(.96);pointer-events:none;",
+    "transition:opacity .25s ease,transform .3s cubic-bezier(.34,1.56,.64,1);}",
+    ".gs-welcome-toast.bottom-left{left:24px;right:auto;}",
+    ".gs-welcome-toast.visible{opacity:1;transform:translateY(0) scale(1);pointer-events:auto;}",
+    ".gs-welcome-toast .gs-wt-row{display:flex;gap:10px;align-items:flex-start;}",
+    ".gs-welcome-toast .gs-wt-avatar{width:34px;height:34px;border-radius:50%;flex-shrink:0;",
+    "background:linear-gradient(160deg,#0052ff,#2b86ff);display:flex;align-items:center;justify-content:center;color:#fff;}",
+    ".gs-welcome-toast .gs-wt-avatar svg{width:18px;height:18px;}",
+    ".gs-welcome-toast .gs-wt-title{font-size:13px;font-weight:700;color:#0052ff;margin-bottom:2px;}",
+    ".gs-welcome-toast .gs-wt-body{font-size:13px;line-height:1.45;color:#374151;}",
+    ".gs-welcome-toast .gs-wt-close{position:absolute;top:6px;left:8px;width:20px;height:20px;",
+    "border:none;background:transparent;color:#9CA3AF;cursor:pointer;border-radius:50%;",
+    "display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;}",
+    ".gs-welcome-toast .gs-wt-close:hover{background:#F3F4F6;color:#374151;}",
+    ".gs-welcome-toast[dir=rtl] .gs-wt-close{left:auto;right:8px;}",
   ].join("");
 
   // ─── <gs-widget> custom element ───
@@ -367,56 +251,6 @@
   // singleton flag at the top of the IIFE already prevents this in practice).
   var trackingStarted = false;
 
-  // ─── Loader-owned disposables ─────────────────────────────────────
-  // Everything the LOADER (not the runtime) starts — intervals and window/
-  // document listeners — registers a disposer here. A newer loader version
-  // injected by an SPA route swap calls window.__gs_loader_teardown() from
-  // its version guard so the old copy stops ticking.
-  var loaderDisposers = [];
-  function onDispose(fn) { loaderDisposers.push(fn); }
-  function loaderOn(target, evt, fn, opts) {
-    target.addEventListener(evt, fn, opts);
-    onDispose(function () { try { target.removeEventListener(evt, fn, opts); } catch (_) {} });
-  }
-  function loaderEvery(fn, ms) {
-    var id = setInterval(fn, ms);
-    onDispose(function () { clearInterval(id); });
-    return id;
-  }
-  window.__gs_loader_teardown = function () {
-    while (loaderDisposers.length) {
-      var d = loaderDisposers.pop();
-      try { d(); } catch (_) {}
-    }
-    trackingStarted = false;
-  };
-
-  // Hard teardown of a stale widget instance left by a previous loader
-  // version (SPA remount). Stops timers, drops listeners, unsubscribes
-  // transports and removes the element so we can mount fresh.
-  function destroyInstance(el) {
-    try {
-      // NOTE: close() is deliberately NOT used as a fallback — it only
-      // hides the panel and would leave timers/listeners/sockets alive.
-      var rt = window.__gs_runtime;
-      if (rt && typeof rt.destroy === "function") rt.destroy();
-      else if (rt && rt._instance && typeof rt._instance.destroy === "function") rt._instance.destroy();
-      else if (rt && rt._instance) warn("Stale runtime has no destroy() — cannot fully release resources");
-    } catch (_) {}
-    try { if (window.__gs_runtime) window.__gs_runtime._instance = null; } catch (_) {}
-    try { if (openStateObserver) { openStateObserver.disconnect(); openStateObserver = null; } } catch (_) {}
-    try { if (window.__gs_call && typeof window.__gs_call.destroy === "function") window.__gs_call.destroy(); } catch (_) {}
-    try {
-      var stale = document.querySelectorAll('script[data-gs-runtime],script[data-gs-runtime-call]');
-      for (var i = 0; i < stale.length; i++) stale[i].remove();
-    } catch (_) {}
-    try { if (el && el.parentNode) el.parentNode.removeChild(el); } catch (_) {}
-    runtimeLoaded = false;
-    runtimeLoading = false;
-    widgetApi = null;
-    ready = false;
-  }
-
   function mountShell() {
     if (shellEl) return; // singleton
     // Defense in depth: if a previous loader run left a shell node in the
@@ -424,28 +258,17 @@
     // it instead of creating a duplicate.
     var existing = document.querySelector(ELEMENT_TAG);
     if (existing && existing.shadowRoot) {
-      // Version-gated adoption. An SPA route swap may leave behind a shell
-      // that was mounted by an OLDER loader/runtime/style triple. Adopting
-      // it would resurrect a stale design. Only adopt on an exact match.
-      var prevLoader = existing.getAttribute("data-loader-version") || existing.getAttribute("data-version") || "";
-      var prevDesign = existing.getAttribute("data-widget-design") || "";
-      if (prevLoader === LOADER_VERSION && prevDesign === WIDGET_DESIGN) {
-        shellEl = existing;
-        shadowRoot = existing.shadowRoot;
-        var existingLauncher = shadowRoot.querySelector(".launcher");
-        if (existingLauncher) launcherEl = existingLauncher;
-        var existingToast = shadowRoot.querySelector(".error-toast");
-        if (existingToast) errorToastEl = existingToast;
-        log("Adopted existing shell (version match)");
-        return;
-      }
-      warn("Stale widget instance detected — destroying before fresh mount", prevLoader, prevDesign);
-      destroyInstance(existing);
+      shellEl = existing;
+      shadowRoot = existing.shadowRoot;
+      var existingLauncher = shadowRoot.querySelector(".launcher");
+      if (existingLauncher) launcherEl = existingLauncher;
+      var existingToast = shadowRoot.querySelector(".error-toast");
+      if (existingToast) errorToastEl = existingToast;
+      log("Adopted existing shell from prior load");
+      return;
     }
     shellEl = document.createElement(ELEMENT_TAG);
     shellEl.setAttribute("data-version", LOADER_VERSION);
-    shellEl.setAttribute("data-loader-version", LOADER_VERSION);
-    shellEl.setAttribute("data-widget-design", WIDGET_DESIGN);
     document.body.appendChild(shellEl);
     shadowRoot = shellEl.shadowRoot;
 
@@ -455,9 +278,6 @@
 
     var shellDiv = document.createElement("div");
     shellDiv.className = "shell";
-    // Mode is known before config arrives (preview config is injected by the
-    // admin iframe), so the correct positioning rules apply from first paint.
-    shellDiv.classList.add(isPreviewMode() ? "gs-mode-preview" : "gs-mode-runtime");
     // Do NOT set a brand color here — that would cause a blue-flash before
     // the workspace's real color arrives via /config. The launcher itself
     // stays hidden until applyConfigToShell() runs (or, in launcher-only
@@ -489,94 +309,77 @@
     setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
   }
 
-  // ─── Runtime CSS readiness ───────────────────────────────────────────
-  // `link.onload` alone is NOT proof: an asset host that returns index.html
-  // (or a 200 text/html error page) also fires `load`. runtime.css declares
-  // `.shell{--gs-runtime-css-ready:1}`; we poll the computed value across
-  // animation frames and only then treat the stylesheet as applied.
-  function waitForRuntimeCss(shell) {
-    return new Promise(function (resolve, reject) {
-      var attempts = 0;
-      function check() {
-        var ready = false;
-        try {
-          ready = getComputedStyle(shell).getPropertyValue("--gs-runtime-css-ready").trim() === "1";
-        } catch (_) { ready = false; }
-        if (ready) { resolve(); return; }
-        attempts += 1;
-        if (attempts >= 10) { reject(new Error("runtime_css_not_applied")); return; }
-        requestAnimationFrame(check);
-      }
-      requestAnimationFrame(check);
-    });
-  }
-  function shellDivEl() {
-    return shadowRoot ? shadowRoot.querySelector(".shell") : null;
-  }
-  function beginRuntimeCloak() {
-    var s = shellDivEl();
-    if (!s) return;
-    s.classList.add("gs-runtime-loading");
-    s.classList.remove("gs-css-ready");
-  }
-  function markCssReady() {
-    var s = shellDivEl();
-    if (s) s.classList.add("gs-css-ready");
-  }
-  // Removes the cloak on the NEXT frame, after the runtime's closed panel
-  // state has been committed — so the first painted frame of the panel is
-  // the styled, closed one, never raw markup.
-  function endRuntimeCloak() {
-    var s = shellDivEl();
-    if (!s) return;
-    requestAnimationFrame(function () { s.classList.remove("gs-runtime-loading"); });
-  }
-  function destroyPartialPanel() {
+  // Welcome toast — used by template2 to surface a friendly nudge a few
+  // seconds after the page loads, similar to popular SaaS chat widgets.
+  // Lives in the loader so it appears BEFORE runtime.js is fetched.
+  var welcomeToastEl = null;
+  var welcomeToastShown = false;
+  function scheduleWelcomeToast(config, posClass) {
+    if (welcomeToastShown) return;
+    if (!shadowRoot) return;
+    // Respect dismissal across page navigations (per-tab).
     try {
-      var p = shadowRoot && shadowRoot.querySelector(".panel");
-      if (p && p.parentNode) p.parentNode.removeChild(p);
+      if (sessionStorage.getItem("__gs_wt_dismissed") === "1") return;
     } catch (_) {}
+    var delayMs = 3500;
+    setTimeout(function () { showWelcomeToast(config, posClass); }, delayMs);
   }
-
-  // ─── Canonical mode + motion flags ───────────────────────────────────
-  // mode: "preview" (admin customization canvas) | "runtime" (real site).
-  // Motion is driven by the single existing setting `config.fab.animation`.
-  function isPreviewMode() {
-    try { return !!(window.__gs_preview_config && window.__gs_preview_config.previewMode); }
-    catch (_) { return false; }
-  }
-  function applyShellMode(config) {
+  function showWelcomeToast(config, posClass) {
+    if (welcomeToastShown) return;
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
     if (!shellDiv) return;
-    var preview = isPreviewMode() || !!(config && config.previewMode);
-    shellDiv.classList.toggle("gs-mode-preview", preview);
-    shellDiv.classList.toggle("gs-mode-runtime", !preview);
-    var fab = (config && config.fab) || {};
-    var animOn = fab.animation !== false;
-    shellDiv.classList.toggle("gs-no-anim", !animOn);
-    try { window.__gs_widget_mode = preview ? "preview" : "runtime"; } catch (_) {}
-    startOpenStateSync();
+    welcomeToastShown = true;
+    welcomeToastEl = document.createElement("div");
+    welcomeToastEl.className = "gs-welcome-toast " + (posClass || "bottom-right");
+    var brandName = (config && config.brandName) ? String(config.brandName) : "Support";
+    var welcomeMsg = (config && config.welcomeMessage)
+      ? String(config.welcomeMessage)
+      : "سلام! چطور می‌توانم کمکتان کنم؟";
+    var safeName = brandName.replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+    var safeMsg = welcomeMsg.replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+    welcomeToastEl.innerHTML =
+      '<button type="button" class="gs-wt-close" aria-label="Close">×</button>' +
+      '<div class="gs-wt-row">' +
+        '<div class="gs-wt-avatar">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+        '</div>' +
+        '<div class="gs-wt-text">' +
+          '<div class="gs-wt-title">' + safeName + '</div>' +
+          '<div class="gs-wt-body">' + safeMsg + '</div>' +
+        '</div>' +
+      '</div>';
+    shellDiv.appendChild(welcomeToastEl);
+    // Animate in next frame.
+    requestAnimationFrame(function () {
+      if (welcomeToastEl) welcomeToastEl.classList.add("visible");
+    });
+    // Click body → open widget; click × → dismiss only.
+    welcomeToastEl.addEventListener("click", function (e) {
+      var target = e.target;
+      if (target && target.classList && target.classList.contains("gs-wt-close")) {
+        dismissWelcomeToast(true);
+        return;
+      }
+      dismissWelcomeToast(false);
+      if (launcherEl) launcherEl.click();
+    });
+    // Auto-hide after 12s if untouched.
+    setTimeout(function () { dismissWelcomeToast(false); }, 12000);
   }
-
-  // ─── Single canonical open/closed state ──────────────────────────────
-  // The panel's `.visible` class is the ONE source of truth: whoever flips it
-  // (loader API, runtime toggle, close button, preview bootstrap) drives the
-  // launcher. This removes the loader/runtime dual-state desync that could
-  // leave the launcher visible over an open panel or hidden while closed.
-  var openStateObserver = null;
-  function syncLauncherToPanel() {
-    if (!shadowRoot || !launcherEl) return;
-    var panelEl = shadowRoot.querySelector(".panel");
-    var open = !!(panelEl && panelEl.classList.contains("visible"));
-    isOpen = open;
-    launcherEl.classList.toggle("open", open && !isPreviewMode());
-  }
-  function startOpenStateSync() {
-    if (openStateObserver || !shadowRoot || typeof MutationObserver === "undefined") return;
-    openStateObserver = new MutationObserver(syncLauncherToPanel);
-    openStateObserver.observe(shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
-    syncLauncherToPanel();
+  function dismissWelcomeToast(persist) {
+    if (!welcomeToastEl) return;
+    welcomeToastEl.classList.remove("visible");
+    if (persist) {
+      try { sessionStorage.setItem("__gs_wt_dismissed", "1"); } catch (_) {}
+    }
+    var el = welcomeToastEl;
+    welcomeToastEl = null;
+    setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 300);
   }
 
   // ─── Launcher (FAB) icon set — kept byte-identical with the operator
@@ -605,20 +408,11 @@
   function applyFabConfig(config, posClass) {
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
-    var size = Math.round(58 * scale);
+    var size = Math.round(56 * scale);
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
-    // Reserved vertical zone under the PREVIEW panel so the launcher (plus its
-    // pulse/hover halo) always sits geometrically BELOW the panel. Recomputed
-    // on every config apply, so scale/animation/shape/position changes in the
-    // customization UI update instantly — no save, no reload.
-    var motionExtra = fab.animation === false ? 0 : Math.ceil(size * 0.07);
-    var previewLauncherZone = 24 /* bottom offset */ + size + motionExtra + 16 /* gap */ + 8 /* safety */;
-    var shellRoot = shadowRoot && shadowRoot.querySelector(".shell");
-    if (shellRoot) shellRoot.style.setProperty("--gs-preview-launcher-zone", previewLauncherZone + "px");
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
-    // Canonical motion switch — also gates the attention pulse.
-    launcherEl.classList.toggle("pulse", fab.animation === true);
+    if (fab.animation === true) launcherEl.classList.add("pulse");
     launcherEl.style.color = fab.iconColor || "#ffffff";
     var icon = FAB_ICONS[fab.icon] || FAB_ICONS.chat;
     launcherEl.innerHTML =
@@ -644,12 +438,8 @@
 
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
-    applyShellMode(config);
     var shellDiv = shadowRoot.querySelector(".shell");
-    if (shellDiv) {
-      shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");
-      shellDiv.style.setProperty("--gs-secondary", config.secondaryColor || config.primaryColor || "#8B5CF6");
-    }
+    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong
@@ -659,96 +449,37 @@
       // The operator configures these under Widget → Appearance. The live
       // preview renders the exact same rules, so site == preview.
       applyFabConfig(config, posClass);
+      // Expose template slug for CSS scoping (Task 4).
+      if (config.templateSlug) {
+        launcherEl.setAttribute("data-template", config.templateSlug);
+        if (shellEl) shellEl.setAttribute("data-template", config.templateSlug);
+        if (shellDiv) shellDiv.setAttribute("data-template", config.templateSlug);
+        // Template-specific launcher icon. Each template gets a visually
+        // distinct icon shape so visitors immediately perceive the skin
+        // difference (request: launcher icon must NOT match the default).
+        if (config.templateSlug === "template2") {
+          launcherEl.innerHTML =
+            // Rounded squircle bubble with three dots (template2 style)
+            '<svg class="chat-icon" viewBox="0 0 32 32" fill="none" stroke="none">' +
+              '<path fill="currentColor" d="M16 4C9.373 4 4 8.925 4 15c0 3.43 1.74 6.49 4.46 8.5-.18 1.36-.74 2.96-1.84 4.36-.3.38.02.94.5.86 2.7-.46 4.96-1.6 6.46-2.74 .78.16 1.6.24 2.42.24 6.627 0 12-4.925 12-11S22.627 4 16 4z"/>' +
+              '<circle cx="11" cy="15" r="1.5" fill="#fff"/>' +
+              '<circle cx="16" cy="15" r="1.5" fill="#fff"/>' +
+              '<circle cx="21" cy="15" r="1.5" fill="#fff"/>' +
+            '</svg>' +
+            '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+          // Inline launcher styling so the distinct skin appears immediately
+          // (before runtime.css lazy-loads on first click).
+          launcherEl.style.background = "linear-gradient(160deg,#0052ff 0%,#0066ff 50%,#2b86ff 100%)";
+          launcherEl.style.width = "60px";
+          launcherEl.style.height = "60px";
+          launcherEl.style.boxShadow = "0 14px 32px -6px rgba(0,82,255,.55),0 6px 14px -2px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.18)";
+          scheduleWelcomeToast(config, posClass);
+        }
+      }
     }
   }
 
   // ─── HTTP helper with capped retries & jitter ───
-  // ─── Live preview patch bridge ───────────────────────────────────────
-  // The admin customization page mounts this loader ONCE and then streams
-  // ordinary setting changes in as patches, instead of recreating the iframe
-  // (which reloaded loader.js + runtime.css on every keystroke and killed
-  // both the animation and the styled-first-paint guarantee).
-  //
-  // Security: preview only, same-origin parent only, whitelisted payload.
-  // No operator JWT ever enters this document.
-  var PREVIEW_PATCH_KEYS = [
-    "brandName", "primaryColor", "secondaryColor", "logoUrl", "showLogo",
-    "launcherText", "welcomeMessage", "greetingMessage", "placeholderText",
-    "offlineMessage", "position", "locale", "widgetLanguage", "theme",
-    "supportMode", "fab", "features", "attachments", "preChat",
-    "previewView", "availability",
-  ];
-  var previewBridgeStarted = false;
-  // The preview document is a sandboxed `srcdoc` iframe, so its own
-  // `location.origin` can be the opaque value "null" while `event.origin`
-  // carries the DASHBOARD origin. `event.source === window.parent` is the
-  // real trust anchor (only the embedder can be our parent); the origin
-  // check below additionally pins the dashboard origin when the parent
-  // declared one via `previewParentOrigin`.
-  function isTrustedPreviewOrigin(origin) {
-    var expected = "";
-    try { expected = String((configData && configData.previewParentOrigin) || ""); } catch (_) {}
-    if (expected) return origin === expected || origin === "null";
-    var self = "";
-    try { self = window.location.origin; } catch (_) {}
-    if (!self || self === "null") return true; // opaque doc: parent identity is the guard
-    return origin === self || origin === "null";
-  }
-  function sanitizePreviewPatch(raw) {
-    if (!raw || typeof raw !== "object") return null;
-    var out = {};
-    for (var i = 0; i < PREVIEW_PATCH_KEYS.length; i++) {
-      var k = PREVIEW_PATCH_KEYS[i];
-      if (Object.prototype.hasOwnProperty.call(raw, k) && raw[k] !== undefined) out[k] = raw[k];
-    }
-    return out;
-  }
-  function mergePreviewPatch(target, patch) {
-    for (var k in patch) {
-      if (!Object.prototype.hasOwnProperty.call(patch, k)) continue;
-      var v = patch[k];
-      if (v && typeof v === "object" && !Array.isArray(v)
-          && target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
-        mergePreviewPatch(target[k], v);
-      } else {
-        target[k] = v;
-      }
-    }
-    return target;
-  }
-  function startPreviewBridge() {
-    if (previewBridgeStarted || !isPreviewMode()) return;
-    previewBridgeStarted = true;
-    window.addEventListener("message", function (event) {
-      try {
-        if (event.source !== window.parent) return;
-        if (!isTrustedPreviewOrigin(event.origin)) return;
-        var data = event.data;
-        if (!data || data.type !== "GS_PREVIEW_CONFIG_PATCH") return;
-        var patch = sanitizePreviewPatch(data.patch);
-        if (!patch) return;
-        mergePreviewPatch(configData, patch);
-        try { window.__gs_preview_config = configData; } catch (_) {}
-        // Shell-owned surfaces: colors, launcher icon/shape/size/label,
-        // animation class and the dynamic preview launcher zone.
-        applyConfigToShell(configData);
-        var inst = window.__gs_runtime && window.__gs_runtime._instance;
-        if (inst && typeof inst.applyPreviewConfig === "function") {
-          inst.applyPreviewConfig(patch);
-        }
-      } catch (e) { warn("preview patch failed", e); }
-    });
-    // Readiness handshake: the parent holds back patches until it sees this,
-    // so customization edits made during boot are never dropped.
-    try {
-      var target = "";
-      try { target = String((configData && configData.previewParentOrigin) || ""); } catch (_) {}
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: "GS_PREVIEW_READY" }, target || "*");
-      }
-    } catch (e) { warn("preview ready signal failed", e); }
-  }
-
   function fetchWithRetry(url, opts, attempts) {
     attempts = attempts || 3;
     var attempt = 0;
@@ -775,30 +506,6 @@
   // ─── Bootstrap flow ───
   function bootstrap() {
     mountShell();
-
-    // ─── Preview mode ────────────────────────────────────────────────
-    // The operator settings page mounts THIS loader inside an iframe with
-    // `window.__gs_preview_config` pre-set. We reuse the exact shell, CSS,
-    // launcher and runtime that a visitor gets — only bootstrap/config
-    // network calls are skipped (the config object is supplied inline).
-    if (window.__gs_preview_config) {
-      configData = window.__gs_preview_config;
-      configData._loaderVersion = LOADER_VERSION;
-      if (configData.debugMode) DEBUG = true;
-      applyConfigToShell(configData);
-      attachLauncherClick({ launcherOnly: false });
-      widgetApi = {
-        open: function () { triggerOpen(); },
-        close: function () { triggerClose(); },
-        toggle: function () { triggerOpen(); },
-        setUnread: function (count) { setUnreadBadge(count); },
-      };
-      ready = true;
-      processQueue();
-      onLauncherClick();
-      startPreviewBridge();
-      return;
-    }
     WORKSPACE_ID = getWorkspaceId();
     var assetBase = getAssetBase();
     var apiBase = getApiBase();
@@ -811,26 +518,17 @@
     log("workspace:", WORKSPACE_ID || "(none)", "api:", apiBase || "(empty)", "asset:", assetBase || "(empty)");
 
     if (!apiBase) {
-      setLastError("API_BASE_MISSING", {
-        message: 'The embed snippet did not provide data-api-base (or window.__gs_api_base). '
-          + 'Re-copy the install snippet from the dashboard — it must contain '
-          + 'data-workspace-id, data-api-base and data-asset-base.',
-      });
-      attachLauncherClick({ launcherOnly: true, errorMessage: "Chat is not configured (missing API base)." });
+      log("No apiBase — launcher-only mode");
+      attachLauncherClick({ launcherOnly: true });
       return;
     }
     if (!WORKSPACE_ID) {
-      setLastError("WORKSPACE_ID_MISSING", {
-        message: 'The embed snippet did not provide data-workspace-id (or window.__gs_id).',
-      });
-      attachLauncherClick({ launcherOnly: true, errorMessage: "Chat is not configured (missing workspace id)." });
+      warn("No workspace id");
+      attachLauncherClick({ launcherOnly: true });
       return;
     }
 
     var bootstrapUrl = apiBase + "/api/widget/bootstrap";
-    var configUrlUsed = apiBase + "/api/widget/config";
-    var lastBootstrapStatus = 0;
-    var lastConfigStatus = 0;
     var bootstrapBody = JSON.stringify({
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
@@ -843,20 +541,15 @@
       body: bootstrapBody,
     }, 3)
       .then(function (r) {
-        lastBootstrapStatus = r.status;
-        if (r.status === 401 || r.status === 403) throw new Error("origin_denied");
-        if (r.status === 404) throw new Error("workspace_not_found");
-        if (r.status === 400) throw new Error("workspace_not_found");
+        if (r.status === 401 || r.status === 403) {
+          throw new Error("unauthorized");
+        }
         if (!r.ok) throw new Error("bootstrap_failed_" + r.status);
         return r.json();
       })
       .then(function (data) {
         if (data.disabled) {
-          setLastError("WIDGET_DISABLED", {
-            url: bootstrapUrl,
-            status: lastBootstrapStatus,
-            message: 'The workspace exists but the chat widget is disabled in the dashboard.',
-          });
+          log("Widget disabled by server");
           if (shellEl) shellEl.remove();
           return null;
         }
@@ -896,9 +589,8 @@
           }
         } catch (_) {}
 
-        configUrlUsed = apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID);
         return fetchWithRetry(
-          configUrlUsed,
+          apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
           {
             credentials: "include",
             headers: { "X-Widget-Token": sessionToken },
@@ -908,20 +600,11 @@
       })
       .then(function (r) {
         if (!r) return null;
-        lastConfigStatus = r.status;
         if (!r.ok) throw new Error("config_failed_" + r.status);
         return r.json();
       })
       .then(function (config) {
-        if (!config) return;
-        if (!config.enabled) {
-          setLastError("WIDGET_DISABLED", {
-            url: configUrlUsed,
-            status: lastConfigStatus,
-            message: 'Widget config returned enabled=false for this workspace.',
-          });
-          return;
-        }
+        if (!config || !config.enabled) return;
         configData = config;
         configData._sessionToken = sessionToken;
         configData._apiBase = apiBase;
@@ -954,23 +637,9 @@
         var msg = (err && err.message) || "unknown";
         warn("Bootstrap error:", msg);
         var human = "Chat unavailable.";
-        var code = "BOOTSTRAP_FAILED";
-        var url = bootstrapUrl;
-        var status = lastBootstrapStatus;
-        if (msg === "origin_denied") {
-          code = "ORIGIN_DENIED";
-          human = "Chat not authorized for this site.";
-        } else if (msg === "workspace_not_found") {
-          code = "WORKSPACE_NOT_FOUND";
-          human = "Chat workspace not found.";
-        } else if (msg.indexOf("bootstrap_failed") === 0) {
-          human = "Could not start chat.";
-        } else if (msg.indexOf("config_failed") === 0) {
-          human = "Could not load chat settings.";
-          url = configUrlUsed;
-          status = lastConfigStatus;
-        }
-        setLastError(code, { url: url, status: status, message: msg });
+        if (msg === "unauthorized") human = "Chat not authorized for this site.";
+        else if (msg.indexOf("bootstrap_failed") === 0) human = "Could not start chat.";
+        else if (msg.indexOf("config_failed") === 0) human = "Could not load chat settings.";
         attachLauncherClick({ launcherOnly: true, errorMessage: human });
       });
   }
@@ -993,6 +662,7 @@
       launcherEl.classList.add("revealed");
     }
     launcherEl.addEventListener("click", function () {
+      dismissWelcomeToast(true);
       if (opts.errorMessage) { showShellError(opts.errorMessage); return; }
       if (opts.launcherOnly) { showShellError("Chat is not configured."); return; }
       onLauncherClick();
@@ -1004,7 +674,7 @@
     if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
       window.__gs_runtime._instance.open();
       isOpen = true;
-      if (!isPreviewMode()) launcherEl.classList.add("open");
+      launcherEl.classList.add("open");
       return;
     }
     onLauncherClick();
@@ -1022,7 +692,7 @@
     if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
       window.__gs_runtime._instance.toggle();
       isOpen = !isOpen;
-      launcherEl.classList.toggle("open", isOpen && !isPreviewMode());
+      launcherEl.classList.toggle("open", isOpen);
       return;
     }
     if (runtimeLoading) return;
@@ -1051,12 +721,7 @@
       try { window.__gs_call_sdk_url = livekitSdkUrl; } catch (_) { /* noop */ }
     }
     if (!runtimeJs || !runtimeCss) {
-      setLastError("ASSET_URLS_MISSING", {
-        message: 'Widget config returned no hashed runtime/style URL. '
-          + 'runtimeUrl=' + (runtimeJs || '(empty)') + ' styleUrl=' + (runtimeCss || '(empty)')
-          + ' — the asset manifest is probably not published for this deployment.',
-        assetBase: assetBase || '',
-      });
+      warn("No runtime URL");
       runtimeLoading = false;
       showShellError("Chat resources unavailable.");
       return;
@@ -1065,15 +730,11 @@
     var cssLoaded = !runtimeCss;
     var jsLoaded = false;
     var failed = false;
-    // Cloak any panel markup until the stylesheet is proven applied.
-    beginRuntimeCloak();
 
     function done() {
       if (failed || !cssLoaded || !jsLoaded) return;
       runtimeLoaded = true;
       runtimeLoading = false;
-      // CSS is proven applied at this point (see waitForRuntimeCss).
-      markCssReady();
       if (window.__gs_runtime && window.__gs_runtime.init) {
         try {
           var instance = window.__gs_runtime.init(configData, {
@@ -1083,35 +744,22 @@
             setUnread: setUnreadBadge,
           });
           window.__gs_runtime._instance = instance;
-          try { window.__gs_runtime_inits = (window.__gs_runtime_inits || 0) + 1; } catch (_) {}
-          // The runtime has created the panel in its CLOSED state; drop the
-          // cloak on the next frame so the closed state is what gets painted
-          // first and the opening transition has a real starting frame.
-          endRuntimeCloak();
           widgetApi = {
-            open: function () { instance.open(); isOpen = true; if (!isPreviewMode()) launcherEl.classList.add("open"); },
+            open: function () { instance.open(); isOpen = true; launcherEl.classList.add("open"); },
             close: function () { instance.close(); isOpen = false; launcherEl.classList.remove("open"); },
-            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen && !isPreviewMode()); },
+            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen); },
             setUnread: setUnreadBadge,
           };
           ready = true;
           isOpen = true;
-          if (!isPreviewMode()) launcherEl.classList.add("open");
+          launcherEl.classList.add("open");
           processQueue();
         } catch (e) {
           warn("Runtime init failed", e);
-          setLastError("RUNTIME_INIT_FAILED", {
-            url: runtimeJs,
-            message: (e && e.message) || 'runtime.init threw',
-          });
           showShellError("Chat could not start.");
         }
       } else {
         warn("Runtime did not register __gs_runtime");
-        setLastError("RUNTIME_INIT_FAILED", {
-          url: runtimeJs,
-          message: 'runtime script loaded but did not register window.__gs_runtime',
-        });
         showShellError("Chat could not start.");
       }
     }
@@ -1136,42 +784,7 @@
           if (staleLink) staleLink.remove();
         }
       } catch (_) { /* noop */ }
-      var isCss = what === "css";
-      var failedUrl = isCss ? runtimeCss : runtimeJs;
-      setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
-        resource: isCss ? "stylesheet" : "script",
-        url: failedUrl,
-        assetBase: assetBase || '',
-        message: 'The browser could not load the widget ' + (isCss ? 'stylesheet' : 'runtime script') + '.',
-      });
-      // Probe the exact URL so the record carries the real HTTP status and
-      // Content-Type (a 200 text/html here means the asset is missing and
-      // the host served index.html instead).
-      try {
-        fetch(failedUrl, { method: "GET", cache: "no-store" }).then(function (r) {
-          var ct = "";
-          try { ct = r.headers.get("content-type") || ""; } catch (_) {}
-          setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
-            resource: isCss ? "stylesheet" : "script",
-            url: failedUrl,
-            status: r.status,
-            contentType: ct,
-            servedHtml: ct.indexOf("text/html") !== -1,
-            message: ct.indexOf("text/html") !== -1
-              ? 'Asset host returned an HTML document (index.html) instead of the asset — the hashed file is not deployed.'
-              : 'Asset request completed with status ' + r.status + '.',
-          });
-        }).catch(function (e) {
-          setLastError(isCss ? "STYLE_LOAD_FAILED" : "RUNTIME_LOAD_FAILED", {
-            resource: isCss ? "stylesheet" : "script",
-            url: failedUrl,
-            message: 'Network error: ' + ((e && e.message) || 'unknown'),
-          });
-        });
-      } catch (_) { /* noop */ }
-      showShellError(isCss
-        ? "Chat styles failed to load."
-        : "Chat runtime failed to load.");
+      showShellError("Chat resources failed to load.");
     }
 
     if (runtimeCss) {
@@ -1183,29 +796,7 @@
       link.rel = "stylesheet";
       link.href = runtimeCss;
       link.setAttribute("data-gs-runtime", "true");
-      link.onload = function () {
-        var s = shellDivEl();
-        if (!s) { cssLoaded = true; done(); return; }
-        waitForRuntimeCss(s).then(function () {
-          cssLoaded = true;
-          done();
-        }).catch(function () {
-          if (failed) return;
-          failed = true;
-          runtimeLoading = false;
-          // The stylesheet "loaded" but never applied — typically an HTML
-          // error document served with 200. Never reveal unstyled markup.
-          destroyPartialPanel();
-          setLastError("STYLE_NOT_APPLIED", {
-            resource: "stylesheet",
-            url: runtimeCss,
-            assetBase: assetBase || "",
-            message: 'runtime.css reported load but its readiness sentinel '
-              + '(--gs-runtime-css-ready) never appeared — the response was not the widget stylesheet.',
-          });
-          showShellError("Chat styles failed to load.");
-        });
-      };
+      link.onload = function () { cssLoaded = true; done(); };
       link.onerror = function () { fail("css"); };
       shadowRoot.appendChild(link);
     }
@@ -1455,22 +1046,22 @@
             if (!newTok) return;
             STOPPED = false;
             consecutiveFailures = 0;
-            if (!heartbeatTimer) heartbeatTimer = loaderEvery(ping, 30000);
+            if (!heartbeatTimer) heartbeatTimer = setInterval(ping, 30000);
             log('heartbeat resumed', reason);
             return doPing(newTok, false);
           });
         }
         // Background heartbeat — keeps presence "online" and refreshes
         // last_seen_at so the operator UI stays accurate.
-        heartbeatTimer = loaderEvery(ping, 30000);
+        heartbeatTimer = setInterval(ping, 30000);
         // Resume immediately when the tab becomes visible again.
         try {
-          loaderOn(document, 'visibilitychange', function () {
+          document.addEventListener('visibilitychange', function () {
             if (document.hidden) return;
             if (STOPPED) return void resumeHeartbeat('visibilitychange');
             ping();
           });
-          loaderOn(window, 'online', function () {
+          window.addEventListener('online', function () {
             if (STOPPED) return void resumeHeartbeat('online');
             ping();
           });
@@ -1504,14 +1095,8 @@
             try { onUrlChange(); } catch (_) {}
             return r;
           };
-          loaderOn(window, "popstate", onUrlChange);
-          loaderOn(window, "hashchange", onUrlChange);
-          // history.pushState/replaceState were monkey-patched above —
-          // restore the originals on teardown so a stale loader copy can't
-          // keep intercepting the host app's router.
-          onDispose(function () {
-            try { history.pushState = origPush; history.replaceState = origReplace; } catch (_) {}
-          });
+          window.addEventListener("popstate", onUrlChange);
+          window.addEventListener("hashchange", onUrlChange);
         } catch (_) {/* read-only history in some sandboxes */}
       })
       .catch(function () {});

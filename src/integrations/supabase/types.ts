@@ -7014,6 +7014,7 @@ export type Database = {
           show_logo: boolean | null
           store_raw_ip: boolean
           support_mode: string | null
+          template_slug: string
           theme: string | null
           updated_at: string | null
           visitor_tracking_enabled: boolean | null
@@ -7064,6 +7065,7 @@ export type Database = {
           show_logo?: boolean | null
           store_raw_ip?: boolean
           support_mode?: string | null
+          template_slug?: string
           theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null
@@ -7114,6 +7116,7 @@ export type Database = {
           show_logo?: boolean | null
           store_raw_ip?: boolean
           support_mode?: string | null
+          template_slug?: string
           theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null
@@ -7130,6 +7133,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      widget_templates: {
+        Row: {
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          is_builtin: boolean
+          metadata: Json
+          name: string
+          slug: string
+          sort_order: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          metadata?: Json
+          name: string
+          slug: string
+          sort_order?: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          metadata?: Json
+          name?: string
+          slug?: string
+          sort_order?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       workspace_alert_dismissals: {
         Row: {

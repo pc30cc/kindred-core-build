@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { issueRecoveryEmail } from '../services/auth-email.js';
 import { deleteFile } from '../services/storage/index.js';
 import { adminWidgetRouter } from './adminWidget.js';
+import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 import { adminMetricsRouter } from './adminMetrics.js';
 import { adminAlertsRouter } from './adminAlerts.js';
 import { adminPerfRouter } from './adminPerf.js';
@@ -93,6 +94,7 @@ adminRouter.use(requireAdmin);
 adminRouter.use('/widget', adminWidgetRouter);
 
 // Widget templates registry (super admin only)
+adminRouter.use('/widget/templates', adminWidgetTemplatesRouter);
 
 // Phase 3 — observability (super admin only)
 adminRouter.use('/metrics', adminMetricsRouter);

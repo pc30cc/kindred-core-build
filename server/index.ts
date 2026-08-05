@@ -6,7 +6,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
-import { widgetPreviewRouter } from './routes/widgetPreview.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
@@ -186,20 +185,11 @@ const PUBLIC_WIDGET_REALTIME_PATHS = new Set([
   '/api/realtime/subscribe',
 ]);
 
-// NOTE: the public-widget check must match `/api/widget` and `/api/widget/*`
-// ONLY. A bare `startsWith('/api/widget')` also matched `/api/widget-preview`,
-// which is an authenticated operator route that needs the standard appCors
-// (Authorization-header preflight) in split-domain deployments.
-const isPublicWidgetPath = (p: string) =>
-  p === '/api/widget' || p.startsWith('/api/widget/');
-
 app.use((req, res, next) => {
   if (
-    isPublicWidgetPath(req.path) ||
-    req.path === '/api/call-widget' ||
-    req.path.startsWith('/api/call-widget/') ||
-    req.path === '/api/visitors' ||
-    req.path.startsWith('/api/visitors/') ||
+    req.path.startsWith('/api/widget') ||
+    req.path.startsWith('/api/call-widget') ||
+    req.path.startsWith('/api/visitors') ||
     PUBLIC_WIDGET_REALTIME_PATHS.has(req.path)
   ) {
     return next();
@@ -251,13 +241,6 @@ app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 
 // Widget — dynamic CORS + rate limit
 app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetRouter);
-
-// Widget live preview (operator dashboard) — authenticated via Supabase JWT
-// + workspace membership. Standard app CORS, NOT the permissive widget CORS.
-// appCors is mounted explicitly here (in addition to the global gate) so the
-// Authorization-header preflight always succeeds even in split-domain setups.
-app.options('/api/widget-preview/*', appCors);
-app.use('/api/widget-preview', appCors, widgetPreviewRouter);
 
 // KB widget JSON endpoints — same dynamic CORS + rate limit as widget.
 app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, widgetKbRouter);

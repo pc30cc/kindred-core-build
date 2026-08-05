@@ -17,49 +17,12 @@
  *   - No localStorage for identity. Server is the only source of truth.
  *   - UI never imports polling specifics.
  *   - No offline message queue in this phase. Composer disabled while offline.
- *   - Public API returned to loader: { open, close, toggle, setUnread, destroy }.
+ *   - Public API returned to loader: { open, close, toggle, setUnread }.
  */
 (function () {
   'use strict';
 
   var __gs_runtime = {};
-  var RUNTIME_VERSION = '2026-08-05-canonical-v1';
-  __gs_runtime._version = RUNTIME_VERSION;
-
-  // ════════════════════════════════════════════════════════════════════
-  // Instance resource registry — powers the real `destroy()`
-  //
-  // Every timer, DOM/window listener and store created while an instance
-  // is being built registers a disposer here. `destroy()` drains them in
-  // reverse order. Anything created outside an active instance (module
-  // load time) is intentionally NOT tracked.
-  // ════════════════════════════════════════════════════════════════════
-  var __RES = null;
-
-  function regDispose(fn) {
-    if (__RES && typeof fn === 'function') __RES.push(fn);
-    return fn;
-  }
-  /** Tracked addEventListener. */
-  function onEvt(target, evt, fn, opts) {
-    if (!target || !target.addEventListener) return function () {};
-    target.addEventListener(evt, fn, opts);
-    var off = function () { try { target.removeEventListener(evt, fn, opts); } catch (_) {} };
-    regDispose(off);
-    return off;
-  }
-  /** Tracked setInterval. */
-  function everyMs(fn, ms) {
-    var id = setInterval(fn, ms);
-    regDispose(function () { clearInterval(id); });
-    return id;
-  }
-  /** Tracked setTimeout. */
-  function laterMs(fn, ms) {
-    var id = setTimeout(fn, ms);
-    regDispose(function () { clearTimeout(id); });
-    return id;
-  }
 
   // ════════════════════════════════════════════════════════════════════
   // Util
@@ -338,9 +301,6 @@
   function createStore(initial) {
     var state = initial || {};
     var listeners = [];
-    // Registered with the active instance so destroy() drops every
-    // subscription in one pass — no orphaned re-render callbacks.
-    regDispose(function () { listeners.length = 0; });
     function get() { return state; }
     function set(update) {
       var next = typeof update === 'function' ? update(state) : update;
@@ -657,25 +617,6 @@
         welcomeFallback: 'Hi there 👋\nHow can we help you today?',
         teamLabel: 'Support team',
         onlineLabel: 'online',
-        home: 'Home',
-        supportAgentRole: 'Support specialist',
-        homeGreeting: 'Hi there 👋',
-        homeGreetingSub: 'How can we help you today?',
-        resumeTitle: 'Continue previous conversation',
-        resumeCta: 'Continue',
-        actionAi: 'Ask the AI assistant',
-        actionAiSub: 'Fastest way to get an answer',
-        actionHuman: 'Chat with support',
-        actionHumanSub: 'Talk to a human operator',
-        actionKb: 'Search the help center',
-        actionKbSub: 'Find answers to your questions',
-        categories: 'Categories',
-        viewAll: 'View all',
-        awayLabel: 'away',
-        offlineLabel: 'offline',
-        aiAnswer: 'Automated reply',
-        closeWidget: 'Close',
-        noCategories: 'No categories available',
       },
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',
@@ -814,25 +755,6 @@
         welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
-        home: 'خانه',
-        supportAgentRole: 'کارشناس پشتیبانی',
-        homeGreeting: 'سلام! 👋',
-        homeGreetingSub: 'چطور می‌توانیم کمک کنیم؟',
-        resumeTitle: 'ادامه گفتگوی قبلی',
-        resumeCta: 'ادامه گفتگو',
-        actionAi: 'پرسش از دستیار هوشمند',
-        actionAiSub: 'سریع‌ترین راه برای دریافت پاسخ',
-        actionHuman: 'گفتگو با پشتیبانی',
-        actionHumanSub: 'با اپراتور انسانی صحبت کنید',
-        actionKb: 'جست‌وجو در راهنما',
-        actionKbSub: 'پاسخ سوالات خود را بیابید',
-        categories: 'دسته‌بندی‌ها',
-        viewAll: 'مشاهده همه',
-        awayLabel: 'در دسترس نیست',
-        offlineLabel: 'آفلاین',
-        aiAnswer: 'پاسخ خودکار',
-        closeWidget: 'بستن',
-        noCategories: 'دسته‌بندی موجود نیست',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım Merkezi',
@@ -971,25 +893,6 @@
         welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
         teamLabel: 'Destek ekibi',
         onlineLabel: 'çevrimiçi',
-        home: 'Ana sayfa',
-        supportAgentRole: 'Destek uzmanı',
-        homeGreeting: 'Merhaba 👋',
-        homeGreetingSub: 'Size nasıl yardımcı olabiliriz?',
-        resumeTitle: 'Önceki sohbete devam et',
-        resumeCta: 'Devam et',
-        actionAi: 'Yapay zekâ asistanına sor',
-        actionAiSub: 'Yanıt almanın en hızlı yolu',
-        actionHuman: 'Destek ile sohbet et',
-        actionHumanSub: 'Bir temsilci ile görüşün',
-        actionKb: 'Yardım merkezinde ara',
-        actionKbSub: 'Sorularınızın yanıtını bulun',
-        categories: 'Kategoriler',
-        viewAll: 'Tümünü gör',
-        awayLabel: 'uzakta',
-        offlineLabel: 'çevrimdışı',
-        aiAnswer: 'Otomatik yanıt',
-        closeWidget: 'Kapat',
-        noCategories: 'Kategori bulunamadı',
       },
     };
     return {
@@ -1151,7 +1054,8 @@
 
     function ensureChatModule(cb) {
       if (ModuleLoader.modules.chat) return cb(ModuleLoader.modules.chat);
-      var url = configAssetUrl(['modules', 'chat'], 'runtime-chat.js');
+      var url = (ctx.assetBase || '') + '/widget/runtime-chat.js?v=' +
+        (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
       ModuleLoader.load('chat', url, function (mod) { cb(mod); });
     }
 
@@ -1159,24 +1063,9 @@
       return ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev';
     }
 
-    /**
-     * Resolve a widget sub-module URL.
-     *
-     * ALWAYS prefer the server-published, manifest-resolved (content-hashed)
-     * URL from the config payload. The unhashed `/widget/<file>?v=` form is
-     * only a last-resort dev fallback: production deploys ship hashed files
-     * exclusively, so guessing there yields a 404 and a dead chat panel.
-     */
-    function configAssetUrl(path, fallbackFile) {
-      var node = ctx.config || {};
-      for (var i = 0; i < path.length && node; i++) node = node[path[i]];
-      if (typeof node === 'string' && node) return node;
-      return (ctx.assetBase || '') + '/widget/' + fallbackFile + '?v=' + assetVersion();
-    }
-
     function ensureResolverModule(cb) {
       if (window.__gs_mod_rt_resolver) return cb(window.__gs_mod_rt_resolver);
-      var url = configAssetUrl(['rtModules', 'resolver'], 'runtime-rt-resolver.js');
+      var url = (ctx.assetBase || '') + '/widget/runtime-rt-resolver.js?v=' + assetVersion();
       ModuleLoader.load('rt_resolver', url, function () { cb(window.__gs_mod_rt_resolver); });
     }
 
@@ -1190,7 +1079,7 @@
         var desc = resolver.resolveDriverDescriptor(vendor);
         if (!desc) return cb(null);
         if (window[desc.globalKey]) return cb(window[desc.globalKey]);
-        var url = configAssetUrl(['rtModules', vendor], desc.asset);
+        var url = (ctx.assetBase || '') + '/widget/' + desc.asset + '?v=' + assetVersion();
         ModuleLoader.load('rt_' + vendor, url, function () { cb(window[desc.globalKey] || null); });
       });
     }
@@ -1493,21 +1382,12 @@
     }
 
     function connect() {
-      // ─── Preview mode ───
-      // The operator-facing live preview mounts THIS runtime, but must never
-      // open a socket, poll, or hit the API. Report a healthy connection and
-      // stop: everything rendered afterwards is driven by seeded state.
-      if (ctx && ctx.previewMode) {
-        setConnectionState('online');
-        if (fsm && fsm.get() !== 'connected') { try { fsm.transition('connected', 'preview'); } catch (_) {} }
-        return;
-      }
       manuallyClosed = false;
       consecutiveFailures = 0;
       lastSuccessAt = 0;
       if (typeof window !== 'undefined' && window.addEventListener) {
-        onEvt(window, 'online', handleBrowserOnline);
-        onEvt(window, 'offline', handleBrowserOffline);
+        window.addEventListener('online', handleBrowserOnline);
+        window.addEventListener('offline', handleBrowserOffline);
       }
       if (!browserOnline) {
         if (fsm) fsm.transition('offline', 'connect:no-network');
@@ -1773,9 +1653,9 @@
     function markUserInteracted() { userInteracted = true; }
     if (typeof window !== 'undefined') {
       var once = { once: true, capture: true };
-      onEvt(window, 'pointerdown', markUserInteracted, once);
-      onEvt(window, 'keydown', markUserInteracted, once);
-      onEvt(window, 'touchstart', markUserInteracted, once);
+      window.addEventListener('pointerdown', markUserInteracted, once);
+      window.addEventListener('keydown', markUserInteracted, once);
+      window.addEventListener('touchstart', markUserInteracted, once);
     }
     function ensureAudioCtx() {
       try {
@@ -1866,7 +1746,7 @@
         } catch (_) { /* swallow */ }
       }
       ringOnce();
-      var interval = everyMs(ringOnce, 1900);
+      var interval = setInterval(ringOnce, 1900);
       ringNodes = {
         stop: function () {
           try { clearInterval(interval); } catch (_) {}
@@ -1894,9 +1774,9 @@
     if (typeof window !== 'undefined') {
       var unlockOpts = { capture: true };
       var onAnyInteraction = function () { tryStartPendingRing(); };
-      onEvt(window, 'pointerdown', onAnyInteraction, unlockOpts);
-      onEvt(window, 'keydown', onAnyInteraction, unlockOpts);
-      onEvt(window, 'touchstart', onAnyInteraction, unlockOpts);
+      window.addEventListener('pointerdown', onAnyInteraction, unlockOpts);
+      window.addEventListener('keydown', onAnyInteraction, unlockOpts);
+      window.addEventListener('touchstart', onAnyInteraction, unlockOpts);
     }
 
     // ─── Toast (Shadow DOM only, lives next to launcher) ───
@@ -1959,22 +1839,15 @@
 
     // ─── Connection banner (existing behavior, unchanged) ───
     function attach(panel) {
-      // Preview mode has no real transport (the I/O seam is stubbed), so a
-      // connection banner would be permanently wrong noise over the design.
-      if (ctx.config && ctx.config.previewMode) return;
       bannerEl = document.createElement('div');
       bannerEl.className = 'connection-banner';
       bannerEl.setAttribute('role', 'status');
       bannerEl.setAttribute('aria-live', 'polite');
-      // Live just above the composer (next to the typing bubble) instead of
-      // floating over the header — it must never cover the conversation.
-      var anchor = panel.querySelector('[data-typing-row]')
-        || panel.querySelector('[data-attach-tray]')
-        || panel.querySelector('[data-input-bar]');
-      if (anchor) {
-        panel.insertBefore(bannerEl, anchor);
+      var header = panel.querySelector('.header');
+      if (header && header.nextSibling) {
+        panel.insertBefore(bannerEl, header.nextSibling);
       } else {
-        panel.appendChild(bannerEl);
+        panel.insertBefore(bannerEl, panel.firstChild);
       }
       transportStore.subscribe(renderBanner);
       renderBanner(transportStore.get());
@@ -2240,7 +2113,7 @@
       transport.on('reconnect', function () { publish(); });
       // Re-evaluate periodically so business-hours transitions take effect
       // without requiring a new transport event. Lightweight (60s tick).
-      everyMs(publish, 60_000);
+      setInterval(publish, 60_000);
       // Initial publish
       publish();
     }
@@ -2627,31 +2500,16 @@
 
       var ariaCard = (t('ciAriaCard') || 'Call invitation') + ' — ' +
         (channel === 'video' ? (t('videoCall') || 'Video') : (t('voiceCall') || 'Voice'));
-      var opAvatarUrl = meta.operator_avatar || meta.operator_avatar_url || '';
-      var opInitial = (op ? op.replace(/&[a-z]+;/g, '').trim().charAt(0) : '').toUpperCase() || '·';
-      var avatarHtml = '<span class="ci-avatar' + (opAvatarUrl ? ' has-img' : '') + '">' +
-        (opAvatarUrl
-          ? '<img src="' + Util.escapeHtml(String(opAvatarUrl)) + '" alt="" loading="lazy" decoding="async" />'
-          : '<span aria-hidden="true">' + Util.escapeHtml(opInitial) + '</span>') +
-        '<span class="ci-avatar-dot" aria-hidden="true"></span>' +
-      '</span>';
-      var channelLabel = channel === 'video'
-        ? (t('ciHeadlineVideo') || 'Incoming video call')
-        : (t('ciHeadlineAudio') || 'Incoming voice call');
       return '<div class="msg-row system">' +
         '<div class="ci-card ci-channel-' + channel + ' ci-status-' + Util.escapeHtml(status) +
           '" data-ci-card="' + inviteId + '" role="group" aria-label="' + Util.escapeHtml(ariaCard) + '">' +
-          '<div class="ci-head"><span class="ci-head-icon" aria-hidden="true">' + iconSvg + '</span>' +
-            '<span class="ci-head-label">' + Util.escapeHtml(channelLabel) + '</span></div>' +
-          (status === 'pending' ? avatarHtml : '') +
-          '<div class="ci-text">' +
-            (op ? '<div class="ci-name">' + op + '</div>' : '') +
-            '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
-            bodyBlock +
-            statusBlock +
-            (status === 'pending'
-              ? '<div class="ci-dots" aria-hidden="true"><i></i><i></i><i></i></div>'
-              : '') +
+          '<div class="ci-row">' +
+            '<span class="ci-icon" aria-hidden="true">' + iconSvg + '</span>' +
+            '<div class="ci-text">' +
+              '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
+              bodyBlock +
+              statusBlock +
+            '</div>' +
           '</div>' +
           actionBlock +
         '</div>' +
@@ -2851,7 +2709,7 @@
           if (existing) {
             // Already injected; just poll.
             var t0 = Date.now();
-            var iv = everyMs(function () {
+            var iv = setInterval(function () {
               if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
                 clearInterval(iv); resolve();
               } else if (Date.now() - t0 > (timeoutMs || 8000)) {
@@ -2952,10 +2810,7 @@
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var isAi = m.senderType === 'ai';
         var aiBadgeHtml = isAi
-          ? '<span class="msg-ai-badge" title="' + Util.escapeHtml(t('aiAnswer')) + '">' +
-              '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3.2"/></svg>' +
-              Util.escapeHtml(t('aiAnswer')) +
-            '</span>'
+          ? '<span class="msg-ai-badge" aria-label="AI assistant" title="AI assistant">AI</span>'
           : '';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
@@ -3429,192 +3284,6 @@
   // UI.KB
   // ════════════════════════════════════════════════════════════════════
   function createKbUI(deps) {
-    return createKbUIImpl(deps);
-  }
-
-  // ════════════════════════════════════════════════════════════════════
-  // Home view — dynamic entry surface. Presentation only: every piece of
-  // data comes from stores/config that already exist (presence, chat
-  // history, KB categories, feature flags). No fabricated capabilities.
-  // ════════════════════════════════════════════════════════════════════
-  function createHomeUI(deps) {
-    var ctx = deps.ctx, t = deps.t;
-    var presenceStore = deps.presenceStore;
-    var chatStore = deps.chatStore;
-    var kbStore = deps.kbStore;
-
-    var ICON = {
-      ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>',
-      human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
-      kb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
-      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
-      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-    };
-
-    function relTime(iso) {
-      var ts = iso ? Date.parse(iso) : NaN;
-      if (!ts || isNaN(ts)) return '';
-      try {
-        return new Intl.DateTimeFormat(ctx.locale || 'en', { hour: '2-digit', minute: '2-digit' }).format(new Date(ts));
-      } catch (_) { return ''; }
-    }
-
-    function skeleton() {
-      // Mirrors the real Home layout: resume card, 3 action rows,
-      // search field and the 4-up category grid.
-      return '<div class="home-surface gs-skel-group" aria-hidden="true">' +
-        '<div class="gs-skel gs-skel-card"></div>' +
-        '<div class="gs-skel gs-skel-row"></div>' +
-        '<div class="gs-skel gs-skel-row"></div>' +
-        '<div class="gs-skel gs-skel-row"></div>' +
-        '<div class="gs-skel gs-skel-search"></div>' +
-        '<div class="gs-skel gs-skel-line w40"></div>' +
-        '<div class="gs-skel-grid four">' +
-          '<div class="gs-skel gs-skel-tile"></div>' +
-          '<div class="gs-skel gs-skel-tile"></div>' +
-          '<div class="gs-skel gs-skel-tile"></div>' +
-          '<div class="gs-skel gs-skel-tile"></div>' +
-        '</div>' +
-      '</div>';
-    }
-
-    function actionRow(key, tone, icon, title, sub, badgeHtml) {
-      return '<button type="button" class="home-action" data-home-action="' + key + '">' +
-        '<span class="home-action-icon tone-' + tone + '">' + icon + '</span>' +
-        '<span class="home-action-text">' +
-          '<span class="home-action-title">' + Util.escapeHtml(title) + (badgeHtml || '') + '</span>' +
-          '<span class="home-action-sub">' + Util.escapeHtml(sub) + '</span>' +
-        '</span>' +
-        '<span class="home-action-go" aria-hidden="true">' + ICON.chevron + '</span>' +
-      '</button>';
-    }
-
-    function catTone(i) { return ['a', 'b', 'c', 'd'][i % 4]; }
-
-    function render(body, opts) {
-      opts = opts || {};
-      if (opts.loading) { body.innerHTML = '<div class="home-root">' + skeleton() + '</div>'; return; }
-
-      var cfg = ctx.config || {};
-      var feats = cfg.features || {};
-      var pres = presenceStore.get();
-      var chat = chatStore.get();
-      var msgs = (chat.messages || []);
-      var last = msgs.length ? msgs[msgs.length - 1] : null;
-      var hasConversation = !!(chat.conversationId && last);
-      var aiEnabled = !!(cfg.aiAgent && cfg.aiAgent.enabled !== false && cfg.aiAgent.mode && cfg.aiAgent.mode !== 'off');
-      var chatEnabled = feats.chat !== false;
-      var kbEnabled = feats.knowledgeBase !== false && feats.kb !== false;
-
-      var html = '<div class="home-root"><div class="home-surface">';
-
-      // ── Knowledge card (search + top articles) ──
-      if (kbEnabled) {
-        var kb = kbStore.get();
-        var arts = (kb.articles || []).slice(0, 4);
-        html += '<div class="home-card home-kb-card">' +
-          '<div class="home-search">' + ICON.search +
-            '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
-            'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
-          '</div>';
-        if (arts.length) {
-          html += '<div class="home-articles">' + arts.map(function (a) {
-            var title = (a && (a.title || a.name || a.slug)) || '';
-            var slug = (a && a.slug) ? String(a.slug) : '';
-            return '<button type="button" class="home-article" data-home-article="' + Util.escapeHtml(slug) + '">' +
-              '<span class="home-article-title">' + Util.escapeHtml(String(title)) + '</span>' +
-              '<span class="home-article-go" aria-hidden="true">' + ICON.chevron + '</span>' +
-            '</button>';
-          }).join('') + '</div>' +
-          '<button type="button" class="home-link home-link-block" data-home-action="help">' +
-            Util.escapeHtml(t('viewAll')) + '</button>';
-        } else {
-          html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noArticles')) + '</span></div>';
-        }
-        html += '</div>';
-      }
-
-      html += '<div class="home-spacer"></div>';
-
-      // ── Resume card (only when a conversation exists) ──
-      if (hasConversation) {
-        var who = last.sender === 'visitor' ? '' : (last.senderName || '');
-        var initial = (who.trim().charAt(0) || '\u00b7').toUpperCase();
-        html += '<div class="home-card home-resume">' +
-          '<div class="home-resume-head">' +
-            '<span class="home-resume-title">' + Util.escapeHtml(t('resumeTitle')) + '</span>' +
-            '<span class="home-resume-avatar">' + Util.escapeHtml(initial) + '</span>' +
-          '</div>' +
-          (who ? '<div class="home-resume-who">' + Util.escapeHtml(who) + '</div>' : '') +
-          '<div class="home-resume-msg">' + Util.escapeHtml(String(last.body || '').slice(0, 120)) + '</div>' +
-          '<div class="home-resume-foot">' +
-            '<button type="button" class="home-pill-btn" data-home-action="chat">' + Util.escapeHtml(t('resumeCta')) + '</button>' +
-            '<span class="home-resume-time">' + Util.escapeHtml(relTime(last.createdAt || last.created_at)) + '</span>' +
-          '</div>' +
-        '</div>';
-      }
-
-      // ── Start-conversation card ──
-      if (chatEnabled) {
-        var st = pres.status || 'offline';
-        var stLabel = st === 'online' ? t('onlineLabel') : (st === 'away' ? t('awayLabel') : t('offlineLabel'));
-        var avatars = (deps.operatorAvatarsHtml && deps.operatorAvatarsHtml()) || '';
-        html += '<div class="home-card home-cta-card">' +
-          '<div class="home-cta-top">' +
-            (avatars ? '<span class="home-cta-avatars">' + avatars + '</span>' : '') +
-            '<span class="home-cta-meta">' +
-              '<span class="home-cta-title">' + Util.escapeHtml(t('actionHuman')) + '</span>' +
-              '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>' +
-            '</span>' +
-          '</div>' +
-          '<button type="button" class="home-cta-btn" data-home-action="' + (aiEnabled ? 'ai' : 'chat') + '">' +
-            '<span class="home-cta-btn-icon">' + ICON.human + '</span>' +
-            '<span class="home-cta-btn-label">' + Util.escapeHtml(t('actionHumanSub')) + '</span>' +
-            '<span class="home-cta-btn-go" aria-hidden="true">' + ICON.chevron + '</span>' +
-          '</button>' +
-        '</div>';
-      }
-
-      html += '</div></div>';
-      body.innerHTML = html;
-
-      var btns = body.querySelectorAll('[data-home-action]');
-      for (var i = 0; i < btns.length; i++) {
-        btns[i].addEventListener('click', function () {
-          var a = this.getAttribute('data-home-action');
-          if (a === 'help') { deps.onOpenHelp && deps.onOpenHelp(''); return; }
-          deps.onOpenChat && deps.onOpenChat(a === 'ai' ? 'ai' : 'human');
-        });
-      }
-      var catBtns = body.querySelectorAll('[data-home-cat]');
-      for (var c2 = 0; c2 < catBtns.length; c2++) {
-        catBtns[c2].addEventListener('click', function () {
-          var slug = this.getAttribute('data-home-cat');
-          if (deps.onOpenCategory) deps.onOpenCategory(slug);
-          else deps.onOpenHelp && deps.onOpenHelp('');
-        });
-      }
-      var artBtns = body.querySelectorAll('[data-home-article]');
-      for (var a2 = 0; a2 < artBtns.length; a2++) {
-        artBtns[a2].addEventListener('click', function () {
-          var slug = this.getAttribute('data-home-article');
-          if (slug && deps.onOpenArticle) deps.onOpenArticle(slug);
-          else deps.onOpenHelp && deps.onOpenHelp('');
-        });
-      }
-      var si = body.querySelector('[data-home-search]');
-      if (si) {
-        si.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') { deps.onOpenHelp && deps.onOpenHelp(si.value || ''); }
-        });
-      }
-    }
-
-    return { render: render };
-  }
-
-  function createKbUIImpl(deps) {
     var ctx = deps.ctx;
     var t = deps.t;
     var kbStore = deps.kbStore;
@@ -3628,42 +3297,13 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
-    var activeCategory = null;   // category slug filter (real data only)
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
-      // Prefer the server-published, content-hashed KB module URL.
-      var explicit = ctx.config && ctx.config.modules && ctx.config.modules.kb;
-      if (typeof explicit === 'string' && explicit) return explicit;
       return base + '/widget/runtime-kb.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
     }
 
     function isRtl() { return (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
-
-    var KB_ICON = {
-      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-      doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
-      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
-    };
-
-    function kbSkeleton(rowsOnly) {
-      var out = '<div class="gs-skel-group" aria-hidden="true">';
-      if (!rowsOnly) {
-        out += '<div class="gs-skel gs-skel-line w40"></div>' +
-          '<div class="gs-skel-grid">' +
-            '<div class="gs-skel gs-skel-tile"></div>' +
-            '<div class="gs-skel gs-skel-tile"></div>' +
-            '<div class="gs-skel gs-skel-tile"></div>' +
-          '</div>';
-      }
-      out += '<div class="gs-skel gs-skel-line w40"></div>' +
-        '<div class="gs-skel gs-skel-row sm"></div>' +
-        '<div class="gs-skel gs-skel-row sm"></div>' +
-        '<div class="gs-skel gs-skel-row sm"></div>' +
-      '</div>';
-      return out;
-    }
 
     function publicArticleUrl(slug) {
       // Articles are served by the same public host as the site that mounted
@@ -3714,18 +3354,10 @@
       var dirAttr = rtl ? ' dir="rtl"' : '';
       var html = '<div class="kb-root"' + dirAttr + '>';
 
-      html += '<div class="kb-search-wrap"><div class="kb-search-field">' +
-        KB_ICON.search +
+      html += '<div class="kb-search-wrap">' +
         '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
         'placeholder="' + Util.escapeHtml(t('searchKb')) + '" value="' + Util.escapeHtml(currentQuery) + '" />' +
-        '</div></div>';
-
-      if (view === 'list' && !s.loaded) {
-        html += kbSkeleton() + '</div>';
-        rootEl.innerHTML = html;
-        bindEvents();
-        return;
-      }
+        '</div>';
 
       if (view === 'article' && currentArticle) {
         var publicUrl = publicArticleUrl(currentArticle.slug);
@@ -3744,7 +3376,7 @@
             '</div>' +
           '</div>';
       } else if (view === 'searching') {
-        html += kbSkeleton(true);
+        html += '<div class="kb-status">' + Util.escapeHtml(t('kbSearching')) + '</div>';
       } else if (view === 'results') {
         var results = s.searchResults || [];
         if (!results.length) {
@@ -3794,50 +3426,31 @@
             '</button>' +
           '</div>';
         } else {
-          if (cats.length) {
-            html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
-            html += '<div class="kb-cats">';
-            cats.forEach(function (c, ci) {
-              var on = activeCategory && String(activeCategory) === String(c.slug);
-              html +=
-                '<button type="button" class="kb-cat tone-' + (['a','b','c','d','e','f'][ci % 6]) + (on ? ' active' : '') + '" ' +
-                  'data-kb-action="cat" data-kb-cat="' + Util.escapeHtml(c.slug || '') + '">' +
-                  '<span class="kb-cat-icon">' + KB_ICON.folder + '</span>' +
-                  '<span class="kb-cat-name">' + Util.escapeHtml(c.name) + '</span>' +
-                '</button>';
-            });
-            html += '</div>';
-          }
-          var shownArticles = articles;
-          if (activeCategory) {
-            var catObj = null;
-            cats.forEach(function (c) { if (String(c.slug) === String(activeCategory)) catObj = c; });
-            if (catObj) {
-              shownArticles = articles.filter(function (a) { return String(a.category_id) === String(catObj.id); });
-            }
-          }
-          if (activeCategory && !shownArticles.length) {
-            html += '<div class="kb-empty kb-empty-centered">' +
-              '<div class="kb-empty-icon" aria-hidden="true">' + KB_ICON.folder + '</div>' +
-              '<p class="kb-empty-text">' + Util.escapeHtml(t('noArticles')) + '</p>' +
-            '</div>';
-          }
-          if (shownArticles.length) {
+          if (articles.length) {
             html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
             html += '<div class="kb-list">';
-            shownArticles.forEach(function (a) {
+            articles.forEach(function (a) {
               html +=
-                '<button type="button" class="kb-article kb-article-row" data-kb-action="open" data-kb-slug="' +
+                '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' +
                   Util.escapeHtml(a.slug) + '">' +
-                  '<span class="kb-article-icon">' + KB_ICON.doc + '</span>' +
-                  '<span class="kb-article-text">' +
-                    '<span class="kb-article-title">' + Util.escapeHtml(a.title) + '</span>' +
-                    (a.excerpt ? '<span class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</span>' : '') +
-                  '</span>' +
-                  KB_ICON.chevron +
+                  '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
+                  (a.excerpt ? '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</div>' : '') +
                 '</button>';
             });
             html += '</div>';
+          }
+          if (cats.length) {
+          html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
+          html += '<div class="kb-list">';
+          cats.forEach(function (c) {
+            html +=
+              '<a class="kb-category" target="_blank" rel="noopener noreferrer" ' +
+                'href="' + Util.escapeHtml(window.location.origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/c/' + encodeURIComponent(c.slug)) + '">' +
+                '<div class="kb-article-title">' + Util.escapeHtml(c.name) + '</div>' +
+                (c.description ? '<div class="kb-article-excerpt">' + Util.escapeHtml(c.description) + '</div>' : '') +
+              '</a>';
+          });
+          html += '</div>';
           }
         }
       }
@@ -3899,12 +3512,6 @@
               ev.preventDefault();
               currentArticle = null;
               view = currentQuery.trim() ? 'results' : 'list';
-              paint();
-            } else if (action === 'cat') {
-              ev.preventDefault();
-              var slug = el.getAttribute('data-kb-cat') || '';
-              activeCategory = (activeCategory === slug) ? null : slug;
-              view = 'list';
               paint();
             } else if (action === 'switch-chat') {
               ev.preventDefault();
@@ -3987,36 +3594,99 @@
       paint();
     }
 
-    function setQuery(q) {
-      currentQuery = String(q || '');
-      currentArticle = null;
-      if (currentQuery.trim()) { view = 'searching'; paint(); runSearch(); }
-      else { view = 'list'; paint(); }
-    }
-
-    function openCategory(slug) {
-      activeCategory = slug || null;
-      currentQuery = '';
-      currentArticle = null;
-      view = 'list';
-      paint();
-    }
-
-    return { ensure: ensure, render: render, setQuery: setQuery, openCategory: openCategory, openArticle: openArticle };
+    return { ensure: ensure, render: render };
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Template Registry (Task 4)
+  //
+  // Lightweight template-aware foundation. Today only `default` is registered
+  // — additional templates can plug in later WITHOUT a new runtime bundle.
+  //
+  // Each template is just a small descriptor. Future templates can override
+  // `prepareShell` / `prepareCtx` to influence rendering (CSS variables,
+  // skin classes, behavioral hooks) while the core pipeline is unchanged.
+  //
+  // Resolution order in init():
+  //   1. config.templateSlug (server-resolved against widget_templates)
+  //   2. fallback to 'default' if slug unknown to the runtime registry
+  //
+  // The selected slug is exposed as:
+  //   - ctx.templateSlug                (string)
+  //   - data-template="<slug>" on <gs-widget> AND on .shell
+  //   - body class `gs-template-<slug>` is NOT used (Shadow DOM scoping only)
+  // ════════════════════════════════════════════════════════════════════
+  var TemplateRegistry = (function () {
+    var entries = {};
+    function register(descriptor) {
+      if (!descriptor || !descriptor.slug) return;
+      entries[descriptor.slug] = descriptor;
+    }
+    function get(slug) { return entries[slug] || null; }
+    function resolve(requestedSlug) {
+      var slug = requestedSlug || 'default';
+      var entry = entries[slug] || entries['default'] || null;
+      return {
+        slug: entry ? entry.slug : 'default',
+        descriptor: entry,
+        // True when caller asked for X but we fell back to default. Useful
+        // for diagnostics — the server still owns the canonical decision,
+        // this is purely a runtime safety net.
+        fellBack: !!requestedSlug && (!entry || entry.slug !== requestedSlug),
+      };
+    }
+    return { register: register, get: get, resolve: resolve, all: function () { return entries; } };
+  })();
+
+  // Register the only real template that ships today. Future templates are
+  // additive — they just call TemplateRegistry.register(...).
+  TemplateRegistry.register({
+    slug: 'default',
+    name: 'Default',
+    /** Hook: optionally tweak the ctx object before any UI is built. */
+    prepareCtx: function (_ctx) { /* no-op for default */ },
+    /** Hook: called once shellDiv exists, before panel mounts. */
+    prepareShell: function (_shellDiv, _ctx) { /* no-op for default */ },
+  });
+
+  // ── Widget Template 2 — premium skin ─────────────────────────────────
+  // Pure CSS skin scoped to .shell[data-template="template2"]. Loads the
+  // Vazirmatn webfont (Google Fonts) into both the host document and the
+  // shadow root so Persian + Latin text renders with the correct family.
+  TemplateRegistry.register({
+    slug: 'template2',
+    name: 'Widget Template 2',
+    prepareCtx: function (_ctx) { /* no-op */ },
+    prepareShell: function (_shellDiv, _ctx) {
+      try {
+        if (typeof document === 'undefined') return;
+        var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap';
+        if (!document.getElementById('gs-t2-fonts')) {
+          var l = document.createElement('link');
+          l.id = 'gs-t2-fonts';
+          l.rel = 'stylesheet';
+          l.href = FONT_HREF;
+          document.head.appendChild(l);
+        }
+        var sh = (_shellDiv && _shellDiv.shadowRoot) || null;
+        if (sh && !sh.getElementById('gs-t2-fonts-shadow')) {
+          var l2 = document.createElement('link');
+          l2.id = 'gs-t2-fonts-shadow';
+          l2.rel = 'stylesheet';
+          l2.href = FONT_HREF;
+          sh.appendChild(l2);
+        }
+      } catch (_) { /* font injection optional */ }
+    },
+  });
+
+  // Expose for debugging / future runtime template registration from outside.
+  __gs_runtime.templates = TemplateRegistry;
 
   // ════════════════════════════════════════════════════════════════════
   // Core — orchestrates everything inside the shadow root
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
-    // ─── Fresh per-instance resource registry ───
-    // Any previous instance that was not destroyed explicitly is torn down
-    // here so an SPA remount can never leave two live runtimes ticking.
-    if (__RES) { try { __gs_runtime.destroy(); } catch (_) {} }
-    __RES = [];
-    var __instanceRes = __RES;
-    var __destroyed = false;
-
     // Debug flag resolution (any one enables verbose `[Widget Runtime]` logs):
     //   1) server-driven `config.debugMode` (admin → widget settings)
     //   2) per-tab override: `localStorage.setItem('gs:debug','1')`
@@ -4048,7 +3718,7 @@
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
     if (!shell || !shadowRoot) {
       Util.warn('FATAL: no shadowRoot provided by loader');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){}, destroy: function(){} };
+      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
 
      // Honor the workspace's "Widget Language" setting. When set to a
@@ -4068,12 +3738,8 @@
        workspaceId: config.workspaceId || '',
        sessionToken: config._sessionToken || '',
        locale: resolvedLocale,
-       primaryColor: config.primaryColor || '#6D5DFB',
+       primaryColor: config.primaryColor || '#3B82F6',
        shell: shell,
-       // Operator-facing live preview. Same code path, same DOM, same CSS —
-       // only the I/O seam is stubbed. See createPreviewFetch below.
-       previewMode: !!config.previewMode,
-       previewView: config.previewView || 'home',
      };
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
@@ -4085,39 +3751,6 @@
     ctx.fetchWith = tokenMgr.fetchWith;
     ctx.getToken = tokenMgr.get;
     ctx.tokenManager = tokenMgr;
-
-    // ─── Preview I/O seam ────────────────────────────────────────────
-    // In preview mode the runtime renders from canned payloads instead of
-    // the widget API. This is the ONLY difference from a visitor session:
-    // markup, CSS, RTL handling and view logic are byte-identical because
-    // they come from this same file.
-    if (ctx.previewMode) {
-      try { tokenMgr.destroy(); } catch (_) {}
-      var previewSeed = config.previewSeed || {};
-      function previewJson(body) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: function () { return Promise.resolve(body); },
-          text: function () { return Promise.resolve(JSON.stringify(body)); },
-          headers: { get: function () { return null; } },
-        });
-      }
-      ctx.fetchWith = function (url) {
-        var u = String(url || '');
-        if (u.indexOf('/identity/history') !== -1 || u.indexOf('/conversations') !== -1) {
-          return previewJson({
-            conversation_id: 'preview',
-            messages: previewSeed.messages || [],
-          });
-        }
-        if (u.indexOf('/kb') !== -1 || u.indexOf('knowledge') !== -1) {
-          return previewJson({ articles: previewSeed.articles || [], categories: previewSeed.categories || [] });
-        }
-        return previewJson({ ok: true });
-      };
-      ctx.getToken = function () { return 'preview'; };
-    }
 
     // ─── Shared token bus integration ─────────────────────────────────
     // Bridge runtime tokenManager ↔ window.__gs_token (set up by loader).
@@ -4148,35 +3781,29 @@
       }
     } catch (_) { /* bus optional */ }
 
-    // ─── Canonical design diagnostics ────────────────────────────────
-    // The widget ships exactly ONE design. No template/skin resolution.
-    ctx.widgetDesign = 'canonical-v1';
+    // Expose template slug in the runtime context for CSS scoping + future
+    // template-aware behavior. Today only 'default' is registered server-side.
+    var __tplResolve = TemplateRegistry.resolve(config.templateSlug);
+    ctx.templateSlug = __tplResolve.slug;
+    ctx.template = __tplResolve.descriptor;
+    if (__tplResolve.fellBack) {
+      Util.warn('[template] requested "' + config.templateSlug + '" not registered — using "default"');
+    }
     try {
       var rootEl = (shell && shell.shellEl) || null;
-      if (rootEl) {
-        rootEl.removeAttribute('data-template');
-        rootEl.setAttribute('data-widget-design', 'canonical-v1');
-        rootEl.setAttribute('data-runtime-version', RUNTIME_VERSION);
-        if (config.styleVersion) rootEl.setAttribute('data-style-version', String(config.styleVersion));
-        if (config.manifestVersion) rootEl.setAttribute('data-manifest-version', String(config.manifestVersion));
-      }
-      if (Util.debug) {
-        console.info('[widget-design]', {
-          design: 'canonical-v1',
-          loaderVersion: (window.__gs && window.__gs._version) || null,
-          runtimeVersion: RUNTIME_VERSION,
-          styleVersion: config.styleVersion || null,
-          manifestVersion: config.manifestVersion || null,
-          runtimeUrl: config.runtimeUrl || null,
-          styleUrl: config.styleUrl || null,
-        });
-      }
+      if (rootEl) rootEl.setAttribute('data-template', ctx.templateSlug);
     } catch (_) {}
+    // Run the template's prepareCtx hook (no-op for default today) so future
+    // templates can adjust ctx values (icons, colors, copy keys) before any
+    // rendering happens.
+    if (ctx.template && typeof ctx.template.prepareCtx === 'function') {
+      try { ctx.template.prepareCtx(ctx); } catch (e) { Util.warn('template.prepareCtx err', e); }
+    }
 
     // Tear down the token manager when the panel is unloaded by the host
     // page (SPA route swap). Prevents orphaned refresh timers.
     if (typeof window !== 'undefined' && window.addEventListener) {
-      onEvt(window, 'pagehide', function () { try { tokenMgr.destroy(); } catch (_) {} }, { once: true });
+      window.addEventListener('pagehide', function () { try { tokenMgr.destroy(); } catch (_) {} }, { once: true });
     }
 
     // ─── Visibility / wake-up recovery ───────────────────────────────
@@ -4273,18 +3900,18 @@
           setTimeout(function () { __wakeInflight = false; }, 2000);
         }
       };
-      onEvt(document, 'visibilitychange', function () {
+      document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') triggerWake('visibilitychange');
       });
       if (typeof window !== 'undefined' && window.addEventListener) {
-        onEvt(window, 'pageshow', function (e) {
+        window.addEventListener('pageshow', function (e) {
           // pageshow with persisted=true means restored from BFCache —
           // a definitive signal that all sockets are dead. Plain pageshow
           // (persisted=false) fires on EVERY navigation including the
           // initial load; suppress it to avoid racing the bootstrap path.
           if (e && e.persisted) triggerWake('bfcache');
         });
-        onEvt(window, 'focus', function () {
+        window.addEventListener('focus', function () {
           // focus is a weaker signal; only act if we know we're offline.
           try {
             var s = transportStore && transportStore.get && transportStore.get();
@@ -4348,15 +3975,6 @@
       var engine = window.__gs_call && window.__gs_call.engine;
       if (!engine) return; // try again later when caller invokes us
       __engineSubscribed = true;
-      // Tracked so destroy() detaches the call-engine listeners instead of
-      // leaving them bound to a dead surface store.
-      regDispose(function () {
-        __engineSubscribed = false;
-        try {
-          if (typeof engine.removeAllListeners === 'function') engine.removeAllListeners();
-          else if (typeof engine.off === 'function') { engine.off('state'); engine.off('error'); }
-        } catch (_) {}
-      });
       engine.on('state', function (state) {
         var cur = callSurfaceStore.get();
         if (cur.phase === 'idle') return; // surface already closed
@@ -4664,20 +4282,11 @@
         // Audio-only voice call screen
         html += '<div class="gs-call-surface gs-call-audio" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '" data-channel="audio">';
         html += '  <audio data-call-remote-audio autoplay></audio>';
-        var __team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
-        var __op = null;
-        for (var __i = 0; __i < __team.length; __i++) { if (__team[__i] && __team[__i].online) { __op = __team[__i]; break; } }
-        if (!__op) __op = __team[0] || null;
-        var __opName = (__op && __op.name) ? String(__op.name) : '';
-        var __opAvatar = (__op && __op.avatar) ? String(__op.avatar) : '';
         html += '  <div class="gs-call-voice-stage">';
         html += '    <div class="gs-call-voice-orb" aria-hidden="true">';
         html += '      <span class="gs-call-voice-pulse"></span>';
-        html += (__opAvatar
-          ? '      <img class="gs-call-voice-avatar" src="' + Util.escapeHtml(__opAvatar) + '" alt="" />'
-          : '      <span class="gs-call-voice-icon">' + GS_ICON.phone + '</span>');
+        html += '      <span class="gs-call-voice-icon">' + GS_ICON.phone + '</span>';
         html += '    </div>';
-        if (__opName) html += '    <div class="gs-call-voice-name">' + Util.escapeHtml(__opName) + '</div>';
         html += '    <div class="gs-call-voice-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
         html += '    <div class="gs-call-voice-timer" data-call-timer>00:00</div>';
         html += '    <div class="gs-call-eq" aria-hidden="true">';
@@ -4782,7 +4391,7 @@
     // 1Hz timer ticker — re-renders the surface only when the call is
     // active so the visible mm:ss advances. Defensive: only queues a
     // re-render if the body is actually showing the call surface.
-    everyMs(function () {
+    setInterval(function () {
       try {
         var s = callSurfaceStore.get();
         if (s && s.phase !== 'idle') {
@@ -5125,7 +4734,7 @@
     // before the panel opens. Best-effort; never blocks any UI.
     try { resolveDepartmentMode('chat'); } catch (_) {}
 
-    // Expose for debug.
+    // Expose for debug + future templates.
     ctx.departments = {
       resolve: resolveDepartmentMode,
       select: deptSelect,
@@ -5144,24 +4753,20 @@
     }
     if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
       Util.warn('FATAL: no mount target available inside shadow root');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){}, destroy: function(){} };
+      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
-    try { shellDiv.setAttribute('data-widget-design', 'canonical-v1'); } catch (_) {}
-    // Canonical mode + motion classes (idempotent with loader.js — the runtime
-    // may create the shell itself when it is mounted standalone).
-    try {
-      var _preview = !!ctx.previewMode;
-      shellDiv.classList.toggle('gs-mode-preview', _preview);
-      shellDiv.classList.toggle('gs-mode-runtime', !_preview);
-      var _fab = (config && config.fab) || {};
-      shellDiv.classList.toggle('gs-no-anim', _fab.animation === false);
-    } catch (_) {}
+    // Mirror data-template onto .shell so Shadow-DOM-scoped CSS can target
+    // the entire UI subtree (e.g. `.shell[data-template="default"] .panel`).
+    try { shellDiv.setAttribute('data-template', ctx.templateSlug); } catch (_) {}
+    if (ctx.template && typeof ctx.template.prepareShell === 'function') {
+      try { ctx.template.prepareShell(shellDiv, ctx); } catch (e) { Util.warn('template.prepareShell err', e); }
+    }
     var launcher = shell.launcher;
 
     // ─── Domain stores (each one isolated, with pub/sub) ───
     var shellStore = createStore({
       isOpen: false,
-      activeTab: 'home',
+      activeTab: chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat'),
       mounted: false,
     });
     var transportStore = createStore({
@@ -5315,28 +4920,6 @@
     });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
     var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
-    var homeUI = createHomeUI({
-      ctx: ctx, t: t,
-      presenceStore: presenceStore,
-      chatStore: chatStore,
-      kbStore: kbStore,
-      onOpenChat: function () { switchTab('chat'); },
-      onOpenHelp: function (query) {
-        switchTab('help');
-        if (query && kbUI.setQuery) {
-          kbUI.ensure(function () { kbUI.setQuery(query); });
-        }
-      },
-      onOpenCategory: function (slug) {
-        switchTab('help');
-        if (kbUI.openCategory) kbUI.ensure(function () { kbUI.openCategory(slug); });
-      },
-      onOpenArticle: function (slug) {
-        switchTab('help');
-        if (kbUI.openArticle) kbUI.ensure(function () { kbUI.openArticle(slug); });
-      },
-      operatorAvatarsHtml: function () { return operatorStackHtml(); },
-    });
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
@@ -5358,11 +4941,6 @@
 
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
-    // Operator-facing live preview: the frame is much shorter than a real
-    // browser viewport, so the panel fills the frame and stays aligned with
-    // the launcher instead of being clipped or covered by it.
-    if (ctx.previewMode) panel.classList.add('panel-preview');
-    panel.setAttribute('data-view', shellStore.get().activeTab || 'home');
     // Apply RTL to the entire panel when the resolved widget locale is RTL
     // (currently only fa). Without this, the body, tabs, composer and
     // attachments stay LTR even though the strings are Persian.
@@ -5402,131 +4980,36 @@
 
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
     var headerDirAttr = headerRtl ? ' dir="rtl"' : '';
-    var HDR_ICON = {
-      close: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-      back: '<svg class="ico-dir" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
-      chat: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
-    };
-
-    function brandMarkHtml() {
-      var logo = config.logoUrl || config.logo || '';
-      if (logo) {
-        return '<span class="hdr-mark has-img"><img src="' + Util.escapeHtml(String(logo)) + '" alt="" loading="lazy" decoding="async" /></span>';
-      }
-      return '<span class="hdr-mark">' + HDR_ICON.chat + '</span>';
-    }
-
-    function primaryOperator() {
-      var list = teamMembers.slice();
-      for (var i = 0; i < list.length; i++) { if (list[i] && list[i].online) return list[i]; }
-      return list[0] || null;
-    }
-
-    function operatorAvatarHtml(op, cls) {
-      var name = (op && op.name) ? String(op.name) : t('operator');
-      var avatar = op && op.avatar ? String(op.avatar) : '';
-      var online = !!(op && op.online);
-      var inner = avatar
-        ? '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
-        : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
-      return '<span class="' + cls + (avatar ? ' has-img' : '') + (online ? ' is-online' : '') + '" title="' + Util.escapeHtml(name) + '">' +
-        inner + (online ? '<span class="op-dot"></span>' : '') + '</span>';
-    }
-
-    // Overlapping avatar stack (up to 3 operators) used on the Home CTA card.
-    function operatorStackHtml() {
-      var list = teamMembers.slice(0, 3);
-      if (!list.length) return '';
-      return list.map(function (op) { return operatorAvatarHtml(op, 'home-op-avatar'); }).join('');
-    }
-
-    function closeBtnHtml() {
-      return '<button type="button" class="hdr-icon-btn" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) +
-        '" title="' + Util.escapeHtml(t('closeWidget')) + '">' + HDR_ICON.close + '</button>';
-    }
-    function backBtnHtml() {
-      return '<button type="button" class="hdr-icon-btn" data-header-back aria-label="' + Util.escapeHtml(t('home')) +
-        '" title="' + Util.escapeHtml(t('home')) + '">' + HDR_ICON.back + '</button>';
-    }
-    function presenceHtml() {
-      return '<span class="presence" data-presence aria-live="polite">' +
+    var headerCls = 'header' + (headerRtl ? ' header-rtl' : '');
+    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
+      '<div class="header-brand">' +
+        teamStackHtml +
+        '<div class="header-brand-text">' +
+          '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
+          '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="presence sr-only" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
         '<span class="presence-label" data-presence-label></span>' +
-      '</span>';
-    }
-
-    function headerHtmlFor(view) {
-      var cls = 'header header-' + view + (headerRtl ? ' header-rtl' : '');
-      if (view === 'chat') {
-        var op = primaryOperator();
-        var opName = (op && op.name) ? String(op.name) : (headerTitle || t('support'));
-        var opRole = (op && (op.role || op.title)) ? String(op.role || op.title) : t('supportAgentRole');
-        return '<div class="' + cls + '"' + headerDirAttr + '>' +
-          backBtnHtml() +
-          '<div class="hdr-chat-id">' +
-            operatorAvatarHtml(op, 'hdr-avatar') +
-            '<span class="hdr-chat-text">' +
-              '<span class="hdr-chat-name">' + Util.escapeHtml(opName) + '</span>' +
-              '<span class="hdr-chat-role">' + Util.escapeHtml(opRole) + '</span>' +
-            '</span>' +
-          '</div>' +
-          '<span class="hdr-spacer"></span>' +
-          closeBtnHtml() +
-        '</div>';
-      }
-      if (view === 'help') {
-        return '<div class="' + cls + '"' + headerDirAttr + '>' +
-          backBtnHtml() +
-          '<div class="hdr-center-title">' + Util.escapeHtml(t('help')) + '</div>' +
-          closeBtnHtml() +
-        '</div>';
-      }
-      // home (default)
-      var greetTitle = t('homeGreeting');
-      var cfgWelcome = (typeof config.welcomeMessage === 'string' && config.welcomeMessage.trim())
-        ? config.welcomeMessage.trim() : t('homeGreetingSub');
-      return '<div class="' + cls + '"' + headerDirAttr + '>' +
-        '<div class="hdr-top">' +
-          brandMarkHtml() +
-          '<div class="hdr-top-meta">' +
-            '<span class="hdr-top-title">' + Util.escapeHtml(headerTitle) + '</span>' +
-            presenceHtml() +
-          '</div>' +
-          '<span class="hdr-spacer"></span>' +
-          closeBtnHtml() +
-        '</div>' +
-        '<div class="hdr-greeting">' +
-          '<h2 class="hdr-greeting-title">' + Util.escapeHtml(greetTitle) + '</h2>' +
-          '<p class="hdr-greeting-sub">' + Util.escapeHtml(cfgWelcome).replace(/\n/g, '<br>') + '</p>' +
-        '</div>' +
+      '</div>' +
       '</div>';
-    }
-
-    var headerHtml = headerHtmlFor(shellStore.get().activeTab === 'chat' ? 'chat'
-      : shellStore.get().activeTab === 'help' ? 'help' : 'home');
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
-    var NAV_ICONS = {
-      home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>',
-      chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
-      help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
-    };
-    var tabDefs = [{ key: 'home', label: t('home') }];
+    var tabDefs = [];
     if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
     if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
     var tabsHtml = '';
     if (tabDefs.length > 1) {
       var act = shellStore.get().activeTab;
-      tabsHtml = '<nav class="tabs" role="tablist" aria-label="' + Util.escapeHtml(t('support')) + '">' + tabDefs.map(function (d) {
-        return '<button type="button" role="tab" aria-selected="' + (act === d.key ? 'true' : 'false') +
-          '" class="tab' + (act === d.key ? ' active' : '') + '" data-tab="' + d.key + '">' +
-          '<span class="tab-icon">' + NAV_ICONS[d.key] + '</span>' +
-          '<span class="tab-label">' + Util.escapeHtml(d.label) + '</span>' +
-        '</button>';
-      }).join('') + '</nav>';
+      tabsHtml = '<div class="tabs">' + tabDefs.map(function (d) {
+        return '<button type="button" class="tab' + (act === d.key ? ' active' : '') +
+          '" data-tab="' + d.key + '">' + Util.escapeHtml(d.label) + '</button>';
+      }).join('') + '</div>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
+    var isT2 = (ctx.templateSlug === 'template2');
     var inputHtml = chatEnabled
       ? '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
           '<span class="typing-dots"><span></span><span></span><span></span></span>' +
@@ -5534,91 +5017,39 @@
         '</div>' +
         '<div class="attach-tray" data-attach-tray hidden></div>' +
         '<div class="input-bar" data-input-bar>' +
-          '<div class="composer-field">' +
-            '<button type="button" class="emoji-btn" data-emoji-btn aria-label="Emoji" title="Emoji">' +
+        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
+        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
+        '</button>' +
+        (isT2
+          ? '<button type="button" class="emoji-btn" data-emoji-btn aria-label="Emoji" title="Emoji">' +
               '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
-            '</button>' +
+            '</button>'
+          : '') +
         (attachCfg.enabled
           ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
               '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
             '</button>' +
             '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
           : '') +
-            '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
-          '</div>' +
-          '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
-            '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
-          '</button>' +
+        '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
+        (isT2
+          ? '<button type="button" class="mic-btn" data-mic-btn aria-label="Voice" title="Voice">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>' +
+            '</button>'
+          : '') +
         '</div>'
       : '';
      var poweredHtml = brandName
        ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
-    panel.innerHTML = headerHtml + bodyHtml + inputHtml + tabsHtml + poweredHtml +
+    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
       // Phase 6b — lightbox container, hidden by default.
       '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
         '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' + Util.escapeHtml(t('closePreview')) + '">×</button>' +
         '<img data-att-lightbox-img alt="" />' +
       '</div>';
     shellDiv.appendChild(panel);
-
-    // ─── Panel open/close paint sequencing ───────────────────────────
-    // The panel is created WITHOUT `.visible`. Adding `.visible` in the same
-    // render cycle in which the element was created means the browser never
-    // paints the closed state, so the CSS transition has no starting frame
-    // and the opening animation silently does not run.
-    //
-    // Sequence (animation enabled):
-    //   1. panel exists, closed (opacity 0, pointer-events none, offset)
-    //   2. rAF #1  → closed DOM state is committed (forced reflow)
-    //   3. rAF #2  → `.visible` added after a real paint boundary
-    //   4. CSS transition animates
-    // Animation OFF (`config.fab.animation === false`) or OS reduced-motion:
-    // `.visible` is added synchronously and no rAF is left pending.
-    var __openRafs = [];
-    var __panelPainted = false;
-    function motionDisabled() {
-      var fab = (config && config.fab) || {};
-      if (fab.animation === false) return true;
-      try {
-        return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-      } catch (_) { return false; }
-    }
-    function cancelOpenRafs() {
-      for (var i = 0; i < __openRafs.length; i++) {
-        try { cancelAnimationFrame(__openRafs[i]); } catch (_) {}
-      }
-      __openRafs.length = 0;
-    }
-    function openPanelAnimated() {
-      cancelOpenRafs();
-      if (motionDisabled()) {
-        __panelPainted = true;
-        panel.classList.add('visible');
-        return;
-      }
-      panel.classList.remove('visible');
-      __openRafs.push(requestAnimationFrame(function () {
-        void panel.getBoundingClientRect();
-        if (__panelPainted) {
-          // Already painted at least once — one frame is enough.
-          __openRafs.length = 0;
-          if (!motionDisabled()) panel.classList.add('visible');
-          else panel.classList.add('visible');
-          return;
-        }
-        __openRafs.push(requestAnimationFrame(function () {
-          __openRafs.length = 0;
-          __panelPainted = true;
-          panel.classList.add('visible');
-        }));
-      }));
-    }
-    function closePanelAnimated() {
-      cancelOpenRafs();
-      panel.classList.remove('visible');
-    }
 
     var typingRow = panel.querySelector('[data-typing-row]');
     var typingLabel = panel.querySelector('[data-typing-label]');
@@ -5700,7 +5131,7 @@
       if (e.target === lightboxEl) closeLightbox();
     });
     // ESC closes — bound on the host document because focus may be outside the shadow root.
-    onEvt(document, 'keydown', function (e) {
+    document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
     });
 
@@ -5774,78 +5205,43 @@
     notify.attach(panel);
 
     // Phase 5 — presence indicator: keep header dot/label in sync with presenceStore.
+    var presenceDot = panel.querySelector('[data-presence-dot]');
+    var presenceLabel = panel.querySelector('[data-presence-label]');
+    var presenceWrap = panel.querySelector('[data-presence]');
     function renderPresence(s) {
-      var presenceDot = panel.querySelector('[data-presence-dot]');
-      var presenceLabel = panel.querySelector('[data-presence-label]');
-      var presenceWrap = panel.querySelector('[data-presence]');
       if (!presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
-      // Presence is BOTH visual and screen-reader accessible (a11y rule).
-      presenceWrap.className = 'presence status-' + status;
-      presenceLabel.textContent = s.label
-        || (status === 'online' ? t('onlineLabel') : status === 'away' ? t('awayLabel') : t('offlineLabel'));
+      // sr-only kept so the row stays accessible-only — visual presence
+      // is now communicated by the green dot on operator avatars.
+      presenceWrap.className = 'presence sr-only status-' + status;
+      presenceLabel.textContent = s.label || '';
     }
     presenceStore.subscribe(renderPresence);
     renderPresence(presenceStore.get());
 
-    // Open (user clicked launcher). Goes through the paint-sequenced opener
-    // so the closed frame is painted first and the transition actually runs.
+    // Open immediately (user clicked launcher)
     shellStore.set({ isOpen: true, mounted: true });
-    openPanelAnimated();
+    panel.classList.add('visible');
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
-    function applyHeaderVariant(view) {
-      var host = panel.querySelector('.header');
-      if (!host) return;
-      var wrap = document.createElement('div');
-      wrap.innerHTML = headerHtmlFor(view);
-      var next = wrap.firstChild;
-      if (next && host.parentNode) {
-        host.parentNode.replaceChild(next, host);
-        try { panel.setAttribute('data-view', view); } catch (_) {}
-        renderPresence(presenceStore.get());
-      }
-    }
-    function switchTab(key) {
-      shellStore.set({ activeTab: key });
-      applyHeaderVariant(key === 'chat' ? 'chat' : key === 'help' ? 'help' : 'home');
-      Array.prototype.forEach.call(tabs, function (t2) {
-        var on = t2.getAttribute('data-tab') === key;
-        t2.classList.toggle('active', on);
-        try { t2.setAttribute('aria-selected', on ? 'true' : 'false'); } catch (_) {}
-      });
-      renderBody();
-      if (key === 'chat' && identityStore.get().loaded && !identity.needsPrechat()) {
-        restoreDraftToInput();
-        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
-      }
-    }
     Array.prototype.forEach.call(tabs, function (tab) {
       tab.addEventListener('click', function () {
-        // renderBody() stays the single source of truth for composer
-        // visibility (pre-chat gate, offline fallback, help tab).
-        switchTab(tab.getAttribute('data-tab'));
+        shellStore.set({ activeTab: tab.getAttribute('data-tab') });
+        Array.prototype.forEach.call(tabs, function (t2) { t2.classList.remove('active'); });
+        tab.classList.add('active');
+        renderBody();
+        // NOTE: do NOT force inputBar visibility here. renderBody() is the
+        // single source of truth — it hides the composer when pre-chat is
+        // required, when the offline contact-fallback form owns the input,
+        // or when on the help tab. Forcing 'flex' would re-show the composer
+        // for an unidentified visitor (pre-chat bypass bug).
+        if (shellStore.get().activeTab === 'chat'
+            && identityStore.get().loaded
+            && !identity.needsPrechat()) {
+          restoreDraftToInput();
+        }
       });
-    });
-    function closePanel() {
-      {
-        // Route through the launcher so the loader's own open/close state
-        // (badge, aria, animation) stays authoritative — same trick the
-        // in-shell toast uses to open the panel.
-        try {
-          syncDraftFromInput();
-          shellStore.set({ isOpen: false });
-          if (launcher) launcher.classList.remove('open');
-          closePanelAnimated();
-        } catch (_) {}
-      }
-    }
-    panel.addEventListener('click', function (ev) {
-      var el = ev.target && ev.target.closest ? ev.target.closest('[data-header-close],[data-header-back]') : null;
-      if (!el) return;
-      if (el.hasAttribute('data-header-back')) { switchTab('home'); return; }
-      closePanel();
     });
 
     // ─── Composer state driven by transport store ───
@@ -6002,12 +5398,9 @@
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); }
     });
 
-    // ─── Emoji picker ───
-    // NOTE: there is deliberately no voice/mic control here. Voice input is
-    // NOT a supported capability of this widget (no recorder, no upload path,
-    // no transcription backend), so the former mic button — a non-functional
-    // placeholder — was removed rather than left as dead UI.
+    // ─── Template2 — emoji picker + mic placeholder ───
     var emojiBtn = panel.querySelector('[data-emoji-btn]');
+    var micBtn = panel.querySelector('[data-mic-btn]');
     var emojiPop = null;
     function closeEmojiPop() {
       if (emojiPop && emojiPop.parentNode) emojiPop.parentNode.removeChild(emojiPop);
@@ -6052,19 +5445,19 @@
           msgInput.focus();
           closeEmojiPop();
         });
-        laterMs(function () { onEvt(document, 'click', onDocClickEmoji, true); }, 0);
+        setTimeout(function () { document.addEventListener('click', onDocClickEmoji, true); }, 0);
       });
     }
+    if (micBtn) {
+      micBtn.addEventListener('click', function () {
+        // Voice input not yet implemented — keep as visual control.
+        try { micBtn.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }], { duration: 180 }); } catch (_) {}
+      });
+    }
+
     // ─── Render dispatcher ───
     function renderLoading() {
-      if (!body) return;
-      body.innerHTML =
-        '<div class="gs-skel-group gs-skel-chat" role="status" aria-label="' + Util.escapeHtml(t('loading')) + '">' +
-          '<div class="gs-skel-msg in"><div class="gs-skel gs-skel-av"></div><div class="gs-skel gs-skel-bubble"></div></div>' +
-          '<div class="gs-skel-msg out"><div class="gs-skel gs-skel-bubble sm"></div></div>' +
-          '<div class="gs-skel-msg in"><div class="gs-skel gs-skel-av"></div><div class="gs-skel gs-skel-bubble lg"></div></div>' +
-          '<div class="gs-skel-msg out"><div class="gs-skel gs-skel-bubble"></div></div>' +
-        '</div>';
+      if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';
     }
     // Phase 8H — Department gate. Returns true when the gate rendered
     // (caller must NOT render any further body content for this pass).
@@ -6265,17 +5658,6 @@
         Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
       } catch (_) {}
       var tab = shellStore.get().activeTab;
-      if (tab === 'home') {
-        if (inputBar) inputBar.style.display = 'none';
-        var kbReady = kbStore.get().loaded;
-        homeUI.render(body, { loading: !identityStore.get().loaded });
-        if (!kbReady && kbEnabled) {
-          kbUI.ensure(function () {
-            if (shellStore.get().activeTab === 'home') homeUI.render(body, {});
-          });
-        }
-        return;
-      }
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
@@ -6459,7 +5841,7 @@
             // launcher state, focus, and unread clearing all behave normally.
             shellStore.set({ activeTab: 'chat', isOpen: true });
             if (launcher) launcher.classList.add('open');
-            if (panel) openPanelAnimated();
+            if (panel) panel.classList.add('visible');
             notify.hideToast();
             renderBody();
           }
@@ -6563,49 +5945,13 @@
       if (s.isOpen && s.activeTab === 'chat') clearUnreadForActive();
     });
 
-    // ─── Preview seeding ─────────────────────────────────────────────
-    // Preview renders a representative conversation so the operator can
-    // judge bubbles/typing/composer. Same stores, same renderers.
-    if (ctx.previewMode) {
-      var pv = ctx.previewView || 'home';
-      var seedRaw = (config.previewSeed && config.previewSeed.messages) || [];
-      if (seedRaw.length) {
-        // Normalize into the SAME internal message shape the real ingest
-        // path produces, so the renderer takes an identical branch.
-        var seedMsgs = seedRaw.map(function (m, i) {
-          var senderRaw = m.role || m.sender || m.sender_type || 'agent';
-          return {
-            body: m.text || m.body || m.content || '',
-            sender: (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator',
-            time: m.created_at ? new Date(m.created_at) : new Date(),
-            __id: m.id || ('preview-' + i),
-            attachment: null,
-            senderName: m.sender_name || null,
-            senderAvatar: m.sender_avatar || null,
-            status: senderRaw === 'visitor' || senderRaw === 'contact' ? 'seen' : null,
-            seenAt: null,
-            senderType: senderRaw,
-            metadata: null,
-          };
-        });
-        chatStore.set({ conversationId: 'preview', messages: seedMsgs });
-      }
-      shellStore.set({ isOpen: true });
-      try { transportStore.set({ connectionState: 'online', lastConnectionChange: Date.now() }); } catch (_) {}
-      try { openPanelAnimated(); } catch (_) {}
-      // PREVIEW: the launcher deliberately stays in its closed/idle look —
-      // visible below the panel — so the operator can inspect icon, color,
-      // size, shape, label, badge and alignment while the panel is open.
-      switchTab(pv === 'chat' ? 'chat' : pv === 'help' ? 'help' : 'home');
-    }
-
     // ─── Public API back to loader ───
     return {
       open: function () {
         if (shellStore.get().isOpen) return;
         shellStore.set({ isOpen: true });
-        if (launcher && !ctx.previewMode) launcher.classList.add('open');
-        openPanelAnimated();
+        if (launcher) launcher.classList.add('open');
+        panel.classList.add('visible');
         // Hide any pending toast — user is now looking at the panel.
         notify.hideToast();
         // Phase 4: clear unread for the ACTIVE conversation only.
@@ -6622,7 +5968,7 @@
         syncDraftFromInput();
         shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
-        closePanelAnimated();
+        panel.classList.remove('visible');
       },
       toggle: function () {
         if (shellStore.get().isOpen) this.close(); else this.open();
@@ -6631,58 +5977,6 @@
         // Public bridge: sets the global counter directly (loader API parity).
         notify.setUnread(count);
       },
-
-      /**
-       * PREVIEW ONLY — apply a customization patch to the ALREADY MOUNTED
-       * instance. The admin live preview uses this instead of recreating the
-       * iframe, so loader.js / runtime.js / runtime.css each execute exactly
-       * once per preview session.
-       *
-       * `config` is the same object reference the loader merges the patch
-       * into, so the values are already current when we get here; this method
-       * only re-renders the surfaces that depend on them. It never creates a
-       * second <gs-widget>, panel or runtime, and never starts real visitor
-       * network traffic.
-       */
-      applyPreviewConfig: function (patch) {
-        if (!ctx.previewMode || !patch || typeof patch !== 'object') return;
-        try {
-          // Position (panel anchor) — launcher side is owned by the loader.
-          if (patch.position) {
-            var nextPos = patch.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
-            panel.classList.remove('bottom-left', 'bottom-right');
-            panel.classList.add(nextPos);
-          }
-          // RTL / LTR.
-          var loc = String(patch.widgetLanguage && patch.widgetLanguage !== 'auto'
-            ? patch.widgetLanguage : (patch.locale || ctx.locale || 'en')).toLowerCase().split('-')[0];
-          if (patch.locale !== undefined || patch.widgetLanguage !== undefined) {
-            if (loc === 'fa') { panel.setAttribute('dir', 'rtl'); panel.classList.add('panel-rtl'); }
-            else { panel.setAttribute('dir', 'ltr'); panel.classList.remove('panel-rtl'); }
-          }
-          // Animation toggle must settle IMMEDIATELY — no pending RAF queue,
-          // no half-finished transition.
-          if (patch.fab && patch.fab.animation !== undefined) {
-            cancelOpenRafs();
-            if (patch.fab.animation === false && shellStore.get().isOpen) {
-              panel.classList.add('visible');
-            }
-          }
-          // Brand / copy / logo surfaces.
-          headerTitle = (config.launcherText && String(config.launcherText).trim())
-            || config.brandName || t('support');
-          var view = shellStore.get().activeTab === 'chat' ? 'chat'
-            : shellStore.get().activeTab === 'help' ? 'help' : 'home';
-          if (patch.previewView) {
-            var pvNext = patch.previewView === 'chat' ? 'chat'
-              : (patch.previewView === 'help' || patch.previewView === 'kb') ? 'help' : 'home';
-            switchTab(pvNext);
-          } else {
-            applyHeaderVariant(view);
-            renderBody();
-          }
-        } catch (e) { Util.log('applyPreviewConfig failed', e); }
-      },
       setSoundEnabled: function (enabled) {
         uiPrefsStore.set({ soundEnabled: !!enabled });
       },
@@ -6690,69 +5984,7 @@
       getTransportCapabilities: function () {
         return transport.getCapabilities ? transport.getCapabilities() : {};
       },
-
-      /**
-       * Real teardown of THIS runtime instance.
-       *
-       * `close()` only hides the panel — it is NOT a destroy. This method
-       * releases every resource the instance owns so an SPA route swap or a
-       * loader version upgrade can mount a fresh runtime with zero leaks:
-       *   1. realtime transport (driver socket + polling fallback)
-       *   2. TokenManager (proactive refresh timer + change listeners)
-       *   3. call engine listeners + visitor call surface
-       *   4. notification sounds / toasts / document.title restore
-       *   5. every tracked setInterval / setTimeout / window+document
-       *      listener and every store subscription (registry drain)
-       *   6. the panel DOM inside the shadow root
-       * Idempotent.
-       */
-      destroy: function () {
-        if (__destroyed) return;
-        __destroyed = true;
-        Util.log('Runtime destroy() — releasing instance resources');
-
-        // 1. Realtime transport / polling.
-        try { if (transport && transport.disconnect) transport.disconnect('destroy'); } catch (_) {}
-        // 2. Token manager.
-        try { if (tokenMgr && tokenMgr.destroy) tokenMgr.destroy(); } catch (_) {}
-        // 3. Call engine + visitor call runtime.
-        try { if (window.__gs_call && typeof window.__gs_call.destroy === 'function') window.__gs_call.destroy(); } catch (_) {}
-        // 4. Notifications (title/favicon restore, audio, toasts).
-        try {
-          if (notify && typeof notify.destroy === 'function') notify.destroy();
-          else if (notify && typeof notify.hideToast === 'function') { notify.hideToast(); notify.setUnread(0); }
-        } catch (_) {}
-
-        // 5. Drain the tracked registry (reverse order).
-        for (var i = __instanceRes.length - 1; i >= 0; i--) {
-          try { __instanceRes[i](); } catch (_) {}
-        }
-        __instanceRes.length = 0;
-        if (__RES === __instanceRes) __RES = null;
-
-        // 6. DOM owned by this instance.
-        try { if (panel && panel.parentNode) panel.parentNode.removeChild(panel); } catch (_) {}
-        try { if (launcher && launcher.classList) launcher.classList.remove('open'); } catch (_) {}
-        try { if (shellDiv) shellDiv.innerHTML = ''; } catch (_) {}
-
-        try { __gs_runtime._instance = null; } catch (_) {}
-        try { window.__gs_runtime_destroyed = (window.__gs_runtime_destroyed || 0) + 1; } catch (_) {}
-      },
     };
-  };
-
-  /**
-   * Module-level convenience: destroy whatever instance is currently
-   * registered. Used by the loader's stale-instance teardown path.
-   */
-  __gs_runtime.destroy = function () {
-    var inst = __gs_runtime._instance;
-    if (inst && typeof inst.destroy === 'function') inst.destroy();
-    else if (__RES) {
-      for (var i = __RES.length - 1; i >= 0; i--) { try { __RES[i](); } catch (_) {} }
-      __RES = null;
-    }
-    __gs_runtime._instance = null;
   };
 
   window.__gs_runtime = __gs_runtime;

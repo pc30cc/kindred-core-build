@@ -26,6 +26,7 @@ import {
   publishConversationEvent,
   buildMessageEnvelope,
 } from '../services/realtime/publish.js';
+import { getActiveTemplateSlug } from '../services/widget/templates.js';
 import {
   getLoaderAssetBase,
   getRequestBaseUrl,
@@ -37,7 +38,7 @@ import {
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
-import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache, WidgetManifestUnavailableError } from '../services/widget/manifest.js';
+import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import {
   createSessionToken,
   verifySessionToken,
@@ -78,24 +79,6 @@ import { enforceMaxConversationsLimit } from '../services/billing/conversationLi
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 
 export const widgetRouter = Router();
-
-// Shared handling for WidgetManifestUnavailableError — used by every route
-// that resolves hashed asset names. Returns a controlled 503 instead of a
-// generic 500, with diagnostics logged server-side only.
-function respondManifestUnavailable(res: Response, err: WidgetManifestUnavailableError): void {
-  console.error('[widget] Manifest unavailable:', {
-    remoteUrl: err.diagnostics.remoteUrl,
-    source: err.diagnostics.source,
-    remoteStatus: err.diagnostics.remoteStatus,
-  });
-  res.set('Cache-Control', 'no-store');
-  res.status(503).json({
-    ok: false,
-    error: 'widget_assets_unavailable',
-    message: 'Widget assets are temporarily unavailable. Please try again shortly.',
-    code: 'WIDGET_MANIFEST_UNAVAILABLE',
-  });
-}
 
 // Mount identity sub-router (all routes require widget token + origin)
 widgetRouter.use('/identity', widgetIdentityRouter);
@@ -149,7 +132,7 @@ function resolveLocalizedDefault(
 
 const DEFAULT_WIDGET_SETTINGS = {
   enabled: true,
-  primary_color: '#6D5DFB',
+  primary_color: '#3B82F6',
   secondary_color: '#6366f1',
   greeting_message: '',
   welcome_message: 'Hello! How can we help you?',
@@ -485,16 +468,7 @@ widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
 // ═══════════════════════════════════════════════
 // GET /config — Full widget configuration
 // ═══════════════════════════════════════════════
-/**
- * Canonical widget config builder.
- *
- * Exported so the authenticated admin preview route
- * (`server/routes/widgetPreview.ts`) can reuse the EXACT same payload without
- * weakening `enforceWidgetToken` on the public widget surface. The preview
- * route authenticates the operator via their Supabase JWT + workspace
- * membership and sets `_widgetWorkspaceId` before delegating here.
- */
-export const widgetConfigHandler = async (req: Request, res: Response) => {
+widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
@@ -667,13 +641,6 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
     // with `immutable, max-age=1y`. The widget never contacts a CDN for
     // this asset — see scripts/widget-hash.js VENDOR_FILES.
     const livekitSdkName = getWidgetAssetName('vendor/livekit-client.umd.min.js');
-    // Realtime driver modules. These were previously NOT published in the
-    // config, so the runtime built unhashed `/widget/runtime-rt-*.js?v=`
-    // URLs by hand — which 404 on any deploy that only ships hashed assets
-    // and surfaced as "Chat resources failed to load".
-    const rtResolverName = getWidgetAssetName('runtime-rt-resolver.js');
-    const rtCentrifugoName = getWidgetAssetName('runtime-rt-centrifugo.js');
-    const rtSupabaseName = getWidgetAssetName('runtime-rt-supabase.js');
     const loaderVersion = getLoaderVersion();
     const preChat = buildPreChatConfig(platformPreChatPolicy, workspacePreChatFlags || []);
     const versionedAssetUrl = (url: string | null) => {
@@ -688,7 +655,7 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
       assetBase,
       debugMode: ws.debug_mode ?? false,
       brandName: branding?.platform_name || 'Support',
-      primaryColor: ws.primary_color || branding?.primary_color || '#6D5DFB',
+      primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',
       logoUrl: ws.logo_url || branding?.logo_url || null,
       launcherText: resolveLocalizedDefault(
@@ -714,10 +681,6 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
       locale: ws.locale || 'en',
       widgetLanguage: ws.widget_language || 'auto',
       loaderVersion,
-      // Explicit loader URL so consumers (notably the admin live preview)
-      // never have to guess that the loader lives on the API origin — in
-      // split-domain deployments the loader is served from the asset base.
-      loaderUrl: assetBase ? `${assetBase}/widget/loader.js?v=${encodeURIComponent(loaderVersion)}` : null,
       theme: ws.theme || 'modern',
       fab: {
         icon: ws.fab_icon || 'chat',
@@ -769,8 +732,12 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
       autoOpenDelay: ws.auto_open_delay || 0,
       showLogo: ws.show_logo ?? true,
-      // Single canonical widget design — no template/skin resolution.
-      widgetDesign: 'canonical-v1',
+      // Template selection — resolved server-side with fallback to 'default'
+      // when the workspace's chosen template is missing or has been disabled
+      // by the platform admin. The runtime currently renders the default
+      // template regardless, but this signal is exposed so future template
+      // variants can branch off it without another round-trip.
+      templateSlug: await getActiveTemplateSlug(supabase, workspaceId),
       workspaceName: workspace?.name || '',
       teamMembers,
       onlineOperators: 0, // Resolved client-side from realtime presence when supported.
@@ -789,13 +756,6 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
         chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
         kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
       },
-      // Explicit, manifest-resolved realtime driver URLs. The runtime MUST
-      // consume these instead of guessing unhashed filenames.
-      rtModules: {
-        resolver: versionedAssetUrl(assetBase ? `${assetBase}/widget/${rtResolverName}` : null),
-        centrifugo: versionedAssetUrl(assetBase ? `${assetBase}/widget/${rtCentrifugoName}` : null),
-        supabase: versionedAssetUrl(assetBase ? `${assetBase}/widget/${rtSupabaseName}` : null),
-      },
       // Phase 4 — AI Agent snapshot. Used by the widget runtime to decide
       // whether to suppress the generic welcome greeting (the AI intro will
       // take its place after pre-chat).
@@ -804,15 +764,10 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
 
     res.json(widgetConfig);
   } catch (err: any) {
-    if (err instanceof WidgetManifestUnavailableError) {
-      return respondManifestUnavailable(res, err);
-    }
     console.error('Widget config error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
-};
-
-widgetRouter.get('/config', widgetRateLimit('bootstrap'), widgetConfigHandler);
+});
 
 // ═══════════════════════════════════════════════
 // GET /poll — Poll for new messages
@@ -2217,9 +2172,6 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
     res.set('Cloudflare-CDN-Cache-Control', 'no-store');
     return res.json(manifest);
   } catch (err: any) {
-    if (err instanceof WidgetManifestUnavailableError) {
-      return respondManifestUnavailable(res, err);
-    }
     console.error('[widget-manifest] Error:', err.message);
     return res.status(500).json({ error: 'Manifest generation failed' });
   }

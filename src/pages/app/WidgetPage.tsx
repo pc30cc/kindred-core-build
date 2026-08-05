@@ -113,10 +113,10 @@ function WidgetPageContent() {
     [platformWidget],
   );
 
-  const primaryColor = live?.primary_color || branding?.primary_color || '#7C3AED';
+  const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
   const previewView: PreviewView =
     manualView ??
-    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'home');
+    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'chat');
 
   const windowEmbedCode = useMemo(
     () => buildWidgetEmbedSnippet(urls, {
@@ -713,7 +713,7 @@ function WidgetPageContent() {
             </div>
 
             <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">
-              {(['home', 'chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
+              {(['chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
                 <Button
                   key={v}
                   size="sm"
@@ -726,13 +726,12 @@ function WidgetPageContent() {
               ))}
             </div>
 
-            <div style={{ height: 'calc(100vh - 140px)', minHeight: 720 }}>
+            <div style={{ height: 'calc(100vh - 190px)', minHeight: 560 }}>
               <WidgetLivePreview
                 settings={previewSettings}
                 prechat={prechat}
                 brandName={platformName || t('widgetPage.preview.brandFallback')}
                 view={previewView}
-                workspaceId={workspace?.id}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

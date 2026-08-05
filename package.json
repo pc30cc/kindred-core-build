@@ -14,7 +14,6 @@
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
     "typecheck:all": "npm run typecheck && npm run typecheck:server",
     "test": "vitest run",
-    "smoke:widget": "node scripts/widget-deploy-smoke.mjs",
     "test:watch": "vitest",
     "worker": "tsx worker/index.ts",
     "worker:intelligence": "WORKER_KIND=intelligence tsx worker/index.ts",

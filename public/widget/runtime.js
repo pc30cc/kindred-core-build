@@ -5884,6 +5884,17 @@
         Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
       } catch (_) {}
       var tab = shellStore.get().activeTab;
+      if (tab === 'home') {
+        if (inputBar) inputBar.style.display = 'none';
+        var kbReady = kbStore.get().loaded;
+        homeUI.render(body, { loading: !identityStore.get().loaded });
+        if (!kbReady && kbEnabled) {
+          kbUI.ensure(function () {
+            if (shellStore.get().activeTab === 'home') homeUI.render(body, {});
+          });
+        }
+        return;
+      }
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight

@@ -10,7 +10,7 @@
 import { useMemo } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
-export type PreviewView = 'chat' | 'prechat' | 'offline' | 'kb';
+export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
 type Dict = {
   online: string; offline: string; typing: string; input: string;
@@ -19,6 +19,10 @@ type Dict = {
   sample: string; visitorSample: string; chatTab: string; helpTab: string;
   kbSearch: string; kbArticles: string[]; poweredBy: string;
   welcomeFallback: string; brandFallback: string;
+  homeTab: string; homeGreeting: string; resumeTitle: string; resumeCta: string;
+  actionAi: string; actionAiSub: string; actionHuman: string; actionHumanSub: string;
+  actionKb: string; actionKbSub: string; categories: string; viewAll: string;
+  cats: string[];
 };
 
 const DICTS: Record<string, Dict> = {
@@ -31,6 +35,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'Chat', helpTab: 'Help', kbSearch: 'Search articles…',
     kbArticles: ['Getting started', 'Billing & plans', 'Troubleshooting'],
     poweredBy: 'Powered by', welcomeFallback: 'How can we help?', brandFallback: 'Support',
+    homeTab: 'Home', homeGreeting: 'Hi there 👋', resumeTitle: 'Continue previous conversation',
+    resumeCta: 'Continue', actionAi: 'Ask the AI assistant', actionAiSub: 'Fastest way to get an answer',
+    actionHuman: 'Chat with support', actionHumanSub: 'Talk to a human operator',
+    actionKb: 'Search the help center', actionKbSub: 'Find answers to your questions',
+    categories: 'Categories', viewAll: 'View all',
+    cats: ['Orders', 'Payments', 'Shipping', 'Products'],
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -41,6 +51,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'گفتگو', helpTab: 'راهنما', kbSearch: 'جستجوی مقاله‌ها…',
     kbArticles: ['شروع به کار', 'صورتحساب و پلن‌ها', 'رفع اشکال'],
     poweredBy: 'قدرت‌گرفته از', welcomeFallback: 'چطور می‌توانیم کمک کنیم؟', brandFallback: 'پشتیبانی',
+    homeTab: 'خانه', homeGreeting: 'سلام! 👋', resumeTitle: 'ادامه گفتگوی قبلی',
+    resumeCta: 'ادامه گفتگو', actionAi: 'پرسش از دستیار هوشمند', actionAiSub: 'سریع‌ترین راه برای دریافت پاسخ',
+    actionHuman: 'گفتگو با پشتیبانی', actionHumanSub: 'با اپراتور انسانی صحبت کنید',
+    actionKb: 'جست‌وجو در راهنما', actionKbSub: 'پاسخ سوالات خود را بیابید',
+    categories: 'دسته‌بندی‌ها', viewAll: 'مشاهده همه',
+    cats: ['سفارش‌ها', 'پرداخت', 'ارسال و تحویل', 'محصولات'],
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -51,6 +67,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'Sohbet', helpTab: 'Yardım', kbSearch: 'Makalelerde ara…',
     kbArticles: ['Başlarken', 'Faturalama ve planlar', 'Sorun giderme'],
     poweredBy: 'Destekleyen', welcomeFallback: 'Nasıl yardımcı olabiliriz?', brandFallback: 'Destek',
+    homeTab: 'Ana sayfa', homeGreeting: 'Merhaba 👋', resumeTitle: 'Önceki sohbete devam et',
+    resumeCta: 'Devam et', actionAi: 'Yapay zekâ asistanına sor', actionAiSub: 'Yanıt almanın en hızlı yolu',
+    actionHuman: 'Destek ile sohbet et', actionHumanSub: 'Bir temsilci ile görüşün',
+    actionKb: 'Yardım merkezinde ara', actionKbSub: 'Sorularınızın yanıtını bulun',
+    categories: 'Kategoriler', viewAll: 'Tümünü gör',
+    cats: ['Siparişler', 'Ödeme', 'Kargo', 'Ürünler'],
   },
 };
 

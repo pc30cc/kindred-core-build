@@ -241,17 +241,50 @@ export function WidgetLivePreview({
         </div>
       </div>`;
 
+    // Real published knowledge-base content (falls back to sample titles only
+    // when the workspace has nothing published yet).
+    const realArticles = (kbArticles || []).filter(a => a && a.title);
+    const realCategories = (kbCategories || []).filter(c => c && c.name);
+    const hasRealKb = realArticles.length > 0 || realCategories.length > 0;
+    const homeKbItems: string[] = hasRealKb
+      ? (realArticles.length ? realArticles : realCategories.map(c => ({ title: c.name })) as any)
+          .slice(0, 4)
+          .map((a: { title: string }) => a.title)
+      : [];
+
+    const kbEmptyBlock = `
+      <div class="kb-empty kb-empty-centered">
+        <div class="kb-empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        </div>
+        <p class="kb-empty-text">${esc(d.kbEmpty)}</p>
+      </div>`;
+
     const kbBody = `
       <div class="kb-root" dir="${dir}">
         <div class="kb-search-wrap">
           <input class="kb-search" type="search" placeholder="${esc(d.kbSearch)}" />
         </div>
-        <div class="kb-list">
-          ${d.kbArticles.map(a => `
-            <button type="button" class="kb-article">
-              <div class="kb-article-title">${esc(a)}</div>
-            </button>`).join('')}
-        </div>
+        ${!hasRealKb ? kbEmptyBlock : `
+          ${realArticles.length ? `
+            <div class="kb-section-h">${esc(d.kbAllArticles)}</div>
+            <div class="kb-list">
+              ${realArticles.map(a => `
+                <button type="button" class="kb-article">
+                  <div class="kb-article-title">${esc(a.title)}</div>
+                  ${a.excerpt ? `<div class="kb-article-excerpt">${esc(a.excerpt)}</div>` : ''}
+                </button>`).join('')}
+            </div>` : ''}
+          ${realCategories.length ? `
+            <div class="kb-section-h">${esc(d.kbCategories)}</div>
+            <div class="kb-list">
+              ${realCategories.map(c => `
+                <a class="kb-category">
+                  <div class="kb-article-title">${esc(c.name)}</div>
+                  ${c.description ? `<div class="kb-article-excerpt">${esc(c.description)}</div>` : ''}
+                </a>`).join('')}
+            </div>` : ''}
+        `}
       </div>`;
 
     const offlineBody = `

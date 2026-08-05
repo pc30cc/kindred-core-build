@@ -137,7 +137,8 @@ textarea:focus-visible {
 /* RTL header (Persian) — mirror brand row so avatar stack sits on the right
    and title/subtitle align to the right. Scoped to .header-rtl so other
    widget surfaces stay LTR by default. */
-.header.header-rtl { text-align: right; }
+/* Logical: mirrors automatically with the header's `dir` attribute. */
+.header.header-rtl { text-align: end; }
 .header.header-rtl .header-brand { flex-direction: row-reverse; }
 /* No RTL-specific spacing overrides are needed: the base rules above already
    use logical properties (padding-inline-end / margin-inline-start), which
@@ -321,7 +322,7 @@ textarea:focus-visible {
 .msg-row.visitor  { justify-content: flex-end; }
 /* Text inside bubbles follows the panel's reading direction again. */
 .panel-rtl .msg,
-[dir="rtl"] .msg { direction: rtl; text-align: right; }
+[dir="rtl"] .msg { direction: rtl; text-align: start; }
 .msg-avatar {
   width: 28px;
   height: 28px;
@@ -567,9 +568,9 @@ textarea:focus-visible {
 .prechat-input::placeholder { color: #94a3b8; }
 
 /* RTL: keep icon visually before the input on the start side */
-[dir="rtl"] .prechat-input { text-align: right; }
-[dir="rtl"] .prechat-input[dir="ltr"] { text-align: left; }
-[dir="ltr"] .prechat-input { text-align: left; }
+/* `start` resolves against each input's own `dir`, so the LTR-forced inputs
+   (email / phone / URL) stay left-aligned inside an RTL panel. */
+.prechat-input { text-align: start; }
 
 .prechat-status {
   width: 28px;
@@ -707,7 +708,7 @@ textarea:focus-visible {
 
 /* ─── KB v2: categories, results, article view, RTL ─── */
 .kb-root { display: flex; flex-direction: column; gap: 4px; }
-.kb-root[dir="rtl"] { text-align: right; }
+.kb-root[dir="rtl"] { text-align: start; }
 .kb-search-wrap { position: sticky; top: 0; background: #fff; padding-bottom: 6px; z-index: 1; }
 .kb-section-h {
   font-size: 11px;
@@ -859,6 +860,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   pointer-events: none;
 }
 /* Position follows the launcher position (bottom-right is the default). */
+/* PHYSICAL ON PURPOSE: toasts follow the launcher's viewport anchor class
+   (see .panel.bottom-* above), not the text direction. */
 .gs-toast.bottom-right { right: 24px; left: auto; }
 .gs-toast.bottom-left  { left: 24px;  right: auto; }
 .gs-toast:not(.bottom-right):not(.bottom-left) { right: 24px; }
@@ -1675,6 +1678,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   background: rgba(2, 6, 23, 0.72);
   padding: 4px 6px;
 }
+/* PHYSICAL ON PURPOSE: dev-only orientation debug overlay whose whole point
+   is to label the physical screen edges. */
 .gs-call-orientation-debug strong { top: 8px; left: 8px; }
 .gs-call-orientation-debug small { top: 30px; left: 8px; }
 .gs-call-orientation-debug .left { left: 8px; top: 50%; transform: translateY(-50%); }

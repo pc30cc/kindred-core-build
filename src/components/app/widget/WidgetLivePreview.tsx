@@ -179,14 +179,10 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
         <button type="button" class="header-close" id="gs-close" aria-label="close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <div class="header-brand">
           ${logo ? `<span class="header-logo"><img src="${esc(logo)}" alt="" /></span>` : ''}
-          <div class="header-brand-text">
-            <div class="header-title">${esc(title)}</div>
-            <div class="header-subtitle">${esc(view === 'offline' ? offlineMsg : welcome)}</div>
-          </div>
           <div class="header-op-stack">${avatar}</div>
         </div>
       </div>`;

@@ -85,6 +85,29 @@ function WidgetPageContent() {
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
+  /**
+   * Backfill localized texts: legacy workspaces store English seeds
+   * ("Chat with us" / "Hello! How can we help you?"). Once the widget speaks
+   * another language we write the localized default into the field itself, so
+   * the operator can read and edit real text instead of a grey placeholder.
+   */
+  const backfilled = useRef(false);
+  useEffect(() => {
+    if (backfilled.current || !widget || !effectiveLocale) return;
+    backfilled.current = true;
+    const patch: Record<string, string> = {};
+    if (!widgetTextValue((widget as any).launcher_text, 'launcher', effectiveLocale)) {
+      patch.launcher_text = widgetTextDefault('launcher', effectiveLocale);
+    }
+    if (!widgetTextValue((widget as any).welcome_message, 'welcome', effectiveLocale)) {
+      patch.welcome_message = widgetTextDefault('welcome', effectiveLocale);
+    }
+    if (!Object.keys(patch).length) return;
+    setDraft(prev => ({ ...patch, ...prev }));
+    updateWidget.mutate(patch as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widget, effectiveLocale]);
+
   const urls = useMemo(
     () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
     [platformWidget],
@@ -294,19 +317,19 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
                     <Input
-                      value={widgetTextValue(live?.launcher_text, 'launcher', live?.widget_language)}
+                      value={widgetTextValue(live?.launcher_text, 'launcher', effectiveLocale)}
                       onChange={e => setField('launcher_text', e.target.value)}
-                      placeholder={widgetTextDefault('launcher', live?.widget_language) || platformName}
+                      placeholder={widgetTextDefault('launcher', effectiveLocale) || platformName}
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
-                      value={widgetTextValue(live?.welcome_message, 'welcome', live?.widget_language)}
+                      value={widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)}
                       onChange={e => setField('welcome_message', e.target.value)}
                       rows={3}
-                      placeholder={widgetTextDefault('welcome', live?.widget_language)}
+                      placeholder={widgetTextDefault('welcome', effectiveLocale)}
                     />
                   </div>
 

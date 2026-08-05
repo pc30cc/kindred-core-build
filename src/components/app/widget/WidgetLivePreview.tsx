@@ -128,12 +128,26 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
     const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
-    const tabs = kbEnabled
-      ? `<div class="tabs">
-           <button type="button" class="tab${view === 'kb' ? '' : ' active'}">${esc(d.chatTab)}</button>
-           <button type="button" class="tab${view === 'kb' ? ' active' : ''}">${esc(d.helpTab)}</button>
-         </div>`
-      : '';
+    const NAV_SVG = {
+      home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>',
+      chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+      help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+    };
+    const homeLabel = rtl ? 'خانه' : dir === 'ltr' && d.chatTab === 'Sohbet' ? 'Ana sayfa' : 'Home';
+    const navItems = [
+      { key: 'home', label: homeLabel },
+      { key: 'chat', label: d.chatTab },
+      ...(kbEnabled ? [{ key: 'help', label: d.helpTab }] : []),
+    ];
+    const tabs = `<nav class="tabs">${navItems
+      .map(
+        n => `<button type="button" class="tab${
+          (view === 'kb' ? 'help' : 'chat') === n.key ? ' active' : ''
+        }"><span class="tab-icon">${NAV_SVG[n.key as keyof typeof NAV_SVG]}</span><span class="tab-label">${esc(
+          n.label,
+        )}</span></button>`,
+      )
+      .join('')}</nav>`;
 
     // Operator avatar: use the workspace logo when one is configured (that is
     // what visitors see once an operator picture exists), otherwise the initial.
@@ -149,9 +163,19 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
           <div class="header-op-stack">${avatar}</div>
           <div class="header-brand-text">
             <div class="header-title">${esc(title)}</div>
-            <div class="header-subtitle">${esc(view === 'offline' ? offlineMsg : welcome)}</div>
+            <div class="presence status-${view === 'offline' ? 'offline' : 'online'}">
+              <span class="presence-dot"></span>
+              <span class="presence-label">${esc(
+                view === 'offline'
+                  ? rtl ? 'آفلاین' : 'offline'
+                  : rtl ? 'آنلاین' : 'online',
+              )}</span>
+            </div>
           </div>
         </div>
+        <button type="button" class="header-close" aria-label="close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>`;
 
     const fields = [
@@ -285,9 +309,9 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
   <div class="shell" data-template="default">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}" dir="${dir}">
       ${header}
-      ${tabs}
       <div class="body">${body}</div>
       ${composer}
+      ${tabs}
       ${powered}
     </div>
     <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">

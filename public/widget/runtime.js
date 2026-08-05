@@ -4965,7 +4965,7 @@
     // ─── Domain stores (each one isolated, with pub/sub) ───
     var shellStore = createStore({
       isOpen: false,
-      activeTab: chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat'),
+      activeTab: 'home',
       mounted: false,
     });
     var transportStore = createStore({

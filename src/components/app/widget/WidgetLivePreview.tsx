@@ -321,10 +321,10 @@ export function WidgetLivePreview({
             <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
           </div>
           <div class="home-kb-list">
-            ${d.kbArticles.map(a => `<button type="button" class="home-kb-item">
+            ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="home-kb-item">
               <span class="home-kb-title">${esc(a)}</span>
               <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
-            </button>`).join('')}
+            </button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
           </div>
         </section>` : ''}
       </div>`;
@@ -435,7 +435,7 @@ export function WidgetLivePreview({
 </script>
 </body>
 </html>`;
-  }, [settings, prechat, brandName, view]);
+  }, [settings, prechat, brandName, view, kbArticles, kbCategories]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">

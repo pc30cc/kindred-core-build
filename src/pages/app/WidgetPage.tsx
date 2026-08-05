@@ -116,7 +116,7 @@ function WidgetPageContent() {
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
   const previewView: PreviewView =
     manualView ??
-    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'chat');
+    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'home');
 
   const windowEmbedCode = useMemo(
     () => buildWidgetEmbedSnippet(urls, {

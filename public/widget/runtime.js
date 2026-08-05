@@ -5227,22 +5227,101 @@
 
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
     var headerDirAttr = headerRtl ? ' dir="rtl"' : '';
-    var headerCls = 'header' + (headerRtl ? ' header-rtl' : '');
-    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
-      '<div class="header-brand">' +
-        teamStackHtml +
-        '<div class="header-brand-text">' +
-          '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
-          '<div class="presence" data-presence aria-live="polite">' +
-            '<span class="presence-dot" data-presence-dot></span>' +
-            '<span class="presence-label" data-presence-label></span>' +
+    var HDR_ICON = {
+      close: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+      back: '<svg class="ico-dir" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+      chat: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+    };
+
+    function brandMarkHtml() {
+      var logo = config.logoUrl || config.logo || '';
+      if (logo) {
+        return '<span class="hdr-mark has-img"><img src="' + Util.escapeHtml(String(logo)) + '" alt="" loading="lazy" decoding="async" /></span>';
+      }
+      return '<span class="hdr-mark">' + HDR_ICON.chat + '</span>';
+    }
+
+    function primaryOperator() {
+      var list = teamMembers.slice();
+      for (var i = 0; i < list.length; i++) { if (list[i] && list[i].online) return list[i]; }
+      return list[0] || null;
+    }
+
+    function operatorAvatarHtml(op, cls) {
+      var name = (op && op.name) ? String(op.name) : t('operator');
+      var avatar = op && op.avatar ? String(op.avatar) : '';
+      var online = !!(op && op.online);
+      var inner = avatar
+        ? '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
+        : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
+      return '<span class="' + cls + (avatar ? ' has-img' : '') + (online ? ' is-online' : '') + '" title="' + Util.escapeHtml(name) + '">' +
+        inner + (online ? '<span class="op-dot"></span>' : '') + '</span>';
+    }
+
+    function closeBtnHtml() {
+      return '<button type="button" class="hdr-icon-btn" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) +
+        '" title="' + Util.escapeHtml(t('closeWidget')) + '">' + HDR_ICON.close + '</button>';
+    }
+    function backBtnHtml() {
+      return '<button type="button" class="hdr-icon-btn" data-header-back aria-label="' + Util.escapeHtml(t('home')) +
+        '" title="' + Util.escapeHtml(t('home')) + '">' + HDR_ICON.back + '</button>';
+    }
+    function presenceHtml() {
+      return '<span class="presence" data-presence aria-live="polite">' +
+        '<span class="presence-dot" data-presence-dot></span>' +
+        '<span class="presence-label" data-presence-label></span>' +
+      '</span>';
+    }
+
+    function headerHtmlFor(view) {
+      var cls = 'header header-' + view + (headerRtl ? ' header-rtl' : '');
+      if (view === 'chat') {
+        var op = primaryOperator();
+        var opName = (op && op.name) ? String(op.name) : (headerTitle || t('support'));
+        var opRole = (op && (op.role || op.title)) ? String(op.role || op.title) : t('supportAgentRole');
+        return '<div class="' + cls + '"' + headerDirAttr + '>' +
+          backBtnHtml() +
+          '<div class="hdr-chat-id">' +
+            operatorAvatarHtml(op, 'hdr-avatar') +
+            '<span class="hdr-chat-text">' +
+              '<span class="hdr-chat-name">' + Util.escapeHtml(opName) + '</span>' +
+              '<span class="hdr-chat-role">' + Util.escapeHtml(opRole) + '</span>' +
+            '</span>' +
           '</div>' +
+          '<span class="hdr-spacer"></span>' +
+          closeBtnHtml() +
+        '</div>';
+      }
+      if (view === 'help') {
+        return '<div class="' + cls + '"' + headerDirAttr + '>' +
+          backBtnHtml() +
+          '<div class="hdr-center-title">' + Util.escapeHtml(t('help')) + '</div>' +
+          closeBtnHtml() +
+        '</div>';
+      }
+      // home (default)
+      var greetTitle = t('homeGreeting');
+      var cfgWelcome = (typeof config.welcomeMessage === 'string' && config.welcomeMessage.trim())
+        ? config.welcomeMessage.trim() : t('homeGreetingSub');
+      return '<div class="' + cls + '"' + headerDirAttr + '>' +
+        '<div class="hdr-top">' +
+          brandMarkHtml() +
+          '<div class="hdr-top-meta">' +
+            '<span class="hdr-top-title">' + Util.escapeHtml(headerTitle) + '</span>' +
+            presenceHtml() +
+          '</div>' +
+          '<span class="hdr-spacer"></span>' +
+          closeBtnHtml() +
         '</div>' +
-      '</div>' +
-      '<button type="button" class="header-close" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) + '" title="' + Util.escapeHtml(t('closeWidget')) + '">' +
-        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
-      '</button>' +
+        '<div class="hdr-greeting">' +
+          '<h2 class="hdr-greeting-title">' + Util.escapeHtml(greetTitle) + '</h2>' +
+          '<p class="hdr-greeting-sub">' + Util.escapeHtml(cfgWelcome).replace(/\n/g, '<br>') + '</p>' +
+        '</div>' +
       '</div>';
+    }
+
+    var headerHtml = headerHtmlFor(shellStore.get().activeTab === 'chat' ? 'chat'
+      : shellStore.get().activeTab === 'help' ? 'help' : 'home');
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
     var NAV_ICONS = {

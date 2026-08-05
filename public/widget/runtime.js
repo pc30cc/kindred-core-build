@@ -5185,26 +5185,36 @@
         teamStackHtml +
         '<div class="header-brand-text">' +
           '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
-          '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+          '<div class="presence" data-presence aria-live="polite">' +
+            '<span class="presence-dot" data-presence-dot></span>' +
+            '<span class="presence-label" data-presence-label></span>' +
+          '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="presence sr-only" data-presence aria-live="polite">' +
-        '<span class="presence-dot" data-presence-dot></span>' +
-        '<span class="presence-label" data-presence-label></span>' +
-      '</div>' +
+      '<button type="button" class="header-close" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) + '" title="' + Util.escapeHtml(t('closeWidget')) + '">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+      '</button>' +
       '</div>';
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
-    var tabDefs = [];
+    var NAV_ICONS = {
+      home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>',
+      chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+      help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+    };
+    var tabDefs = [{ key: 'home', label: t('home') }];
     if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
     if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
     var tabsHtml = '';
     if (tabDefs.length > 1) {
       var act = shellStore.get().activeTab;
-      tabsHtml = '<div class="tabs">' + tabDefs.map(function (d) {
-        return '<button type="button" class="tab' + (act === d.key ? ' active' : '') +
-          '" data-tab="' + d.key + '">' + Util.escapeHtml(d.label) + '</button>';
-      }).join('') + '</div>';
+      tabsHtml = '<nav class="tabs" role="tablist" aria-label="' + Util.escapeHtml(t('support')) + '">' + tabDefs.map(function (d) {
+        return '<button type="button" role="tab" aria-selected="' + (act === d.key ? 'true' : 'false') +
+          '" class="tab' + (act === d.key ? ' active' : '') + '" data-tab="' + d.key + '">' +
+          '<span class="tab-icon">' + NAV_ICONS[d.key] + '</span>' +
+          '<span class="tab-label">' + Util.escapeHtml(d.label) + '</span>' +
+        '</button>';
+      }).join('') + '</nav>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };

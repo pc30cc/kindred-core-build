@@ -3940,7 +3940,7 @@
        workspaceId: config.workspaceId || '',
        sessionToken: config._sessionToken || '',
        locale: resolvedLocale,
-       primaryColor: config.primaryColor || '#3B82F6',
+       primaryColor: config.primaryColor || '#7C3AED',
        shell: shell,
      };
 

@@ -186,7 +186,7 @@
     "@keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}",
     ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
     "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",
-    "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
+    "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#7C3AED);color:#fff;}",
     ".launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
     ".badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;",
@@ -439,7 +439,7 @@
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
-    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");
+    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#7C3AED");
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong

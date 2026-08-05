@@ -125,7 +125,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const rtl = locale === 'fa';
     const dir = rtl ? 'rtl' : 'ltr';
 
-    const primary: string = s.primary_color || '#7C3AED';
+    const primary: string = s.primary_color || '#6D5DFB';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     const title = (localizedValue(s.launcher_text, 'launcher', locale) || s.fab_label || brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)

@@ -132,7 +132,7 @@ function resolveLocalizedDefault(
 
 const DEFAULT_WIDGET_SETTINGS = {
   enabled: true,
-  primary_color: '#3B82F6',
+  primary_color: '#6D5DFB',
   secondary_color: '#6366f1',
   greeting_message: '',
   welcome_message: 'Hello! How can we help you?',
@@ -655,7 +655,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       assetBase,
       debugMode: ws.debug_mode ?? false,
       brandName: branding?.platform_name || 'Support',
-      primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
+      primaryColor: ws.primary_color || branding?.primary_color || '#6D5DFB',
       secondaryColor: ws.secondary_color || '#6366f1',
       logoUrl: ws.logo_url || branding?.logo_url || null,
       launcherText: resolveLocalizedDefault(

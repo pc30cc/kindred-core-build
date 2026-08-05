@@ -19,25 +19,74 @@
 (function () {
   "use strict";
 
-  // ─── Singleton guard ───
-  // Multi-layer protection against double inject:
-  //   1. window.__gs_loaded — set by THIS execution; second copy of the
-  //      loader script will see it and return immediately.
-  //   2. existing <gs-widget> element in the DOM — protects against a
-  //      previous execution that was unloaded by an SPA but the shell node
-  //      survived (shouldn't happen, but defense in depth).
-  if (window.__gs_loaded) return;
-  if (typeof document !== "undefined" && document.querySelector("gs-widget")) {
-    // A shell already exists from a prior execution — adopt the singleton
-    // flag and exit. The pre-existing instance owns the widget.
-    window.__gs_loaded = true;
-    return;
-  }
-  window.__gs_loaded = true;
-
   var LOADER_VERSION = "2026-08-05-canonical-v1";
   var WIDGET_DESIGN = "canonical-v1";
   var ELEMENT_TAG = "gs-widget";
+
+  // ─── Version-aware singleton guard ───
+  // A plain "already loaded → return" guard made the SPA version check
+  // downstream unreachable: after a route swap the host page re-injects a
+  // NEWER loader, which would bail out and leave the stale (older) widget
+  // mounted forever.
+  //
+  // New contract:
+  //   window.__gs_loaded holds the VERSION STRING of the active loader.
+  //   • same version already active           → return (true duplicate inject)
+  //   • different version / different design  → tear the old one down and
+  //                                             continue booting this copy.
+  (function versionGuard() {
+    var active = window.__gs_loaded;
+    var existing = (typeof document !== "undefined")
+      ? document.querySelector(ELEMENT_TAG)
+      : null;
+
+    if (active === true) {
+      // Legacy pre-version loader marker — treat as an unknown older
+      // version so it gets torn down rather than silently winning.
+      active = "legacy";
+    }
+
+    if (existing) {
+      var pv = existing.getAttribute("data-loader-version")
+        || existing.getAttribute("data-version") || "";
+      var pd = existing.getAttribute("data-widget-design") || "";
+      if (pv === LOADER_VERSION && pd === WIDGET_DESIGN) {
+        // Exact match — the mounted instance is ours. Nothing to do.
+        window.__gs_loaded = LOADER_VERSION;
+        window.__gs_guard_result = "adopted";
+        return "return";
+      }
+      window.__gs_guard_result = "version-mismatch";
+    } else if (active && active === LOADER_VERSION) {
+      // Same version already executing in this page, shell not yet in the
+      // DOM (mid-boot). Second copy of the same script → duplicate.
+      window.__gs_guard_result = "duplicate";
+      return "return";
+    } else if (active) {
+      window.__gs_guard_result = "version-mismatch";
+    } else {
+      window.__gs_guard_result = "fresh";
+    }
+
+    // Mismatch (or first boot). Stop any previous loader's background
+    // loops before we take over; mountShell() will destroy the stale
+    // shell + runtime instance.
+    if (window.__gs_guard_result === "version-mismatch") {
+      try {
+        if (typeof window.__gs_loader_teardown === "function") {
+          window.__gs_loader_teardown();
+        }
+      } catch (_) {}
+    }
+    window.__gs_loaded = LOADER_VERSION;
+    return "continue";
+  })();
+
+  // The guard IIFE cannot `return` out of this outer function — it records
+  // its decision on window.__gs_guard_result, which we honour here.
+  if (window.__gs_guard_result === "adopted" || window.__gs_guard_result === "duplicate") {
+    return;
+  }
 
   // DEBUG defaults to OFF in production. Opt in via:
   //   window.__gs_debug = true   (developer console)
@@ -238,14 +287,41 @@
   // singleton flag at the top of the IIFE already prevents this in practice).
   var trackingStarted = false;
 
+  // ─── Loader-owned disposables ─────────────────────────────────────
+  // Everything the LOADER (not the runtime) starts — intervals and window/
+  // document listeners — registers a disposer here. A newer loader version
+  // injected by an SPA route swap calls window.__gs_loader_teardown() from
+  // its version guard so the old copy stops ticking.
+  var loaderDisposers = [];
+  function onDispose(fn) { loaderDisposers.push(fn); }
+  function loaderOn(target, evt, fn, opts) {
+    target.addEventListener(evt, fn, opts);
+    onDispose(function () { try { target.removeEventListener(evt, fn, opts); } catch (_) {} });
+  }
+  function loaderEvery(fn, ms) {
+    var id = setInterval(fn, ms);
+    onDispose(function () { clearInterval(id); });
+    return id;
+  }
+  window.__gs_loader_teardown = function () {
+    while (loaderDisposers.length) {
+      var d = loaderDisposers.pop();
+      try { d(); } catch (_) {}
+    }
+    trackingStarted = false;
+  };
+
   // Hard teardown of a stale widget instance left by a previous loader
   // version (SPA remount). Stops timers, drops listeners, unsubscribes
   // transports and removes the element so we can mount fresh.
   function destroyInstance(el) {
     try {
-      var inst = window.__gs_runtime && window.__gs_runtime._instance;
-      if (inst && typeof inst.destroy === "function") inst.destroy();
-      else if (inst && typeof inst.close === "function") inst.close();
+      // NOTE: close() is deliberately NOT used as a fallback — it only
+      // hides the panel and would leave timers/listeners/sockets alive.
+      var rt = window.__gs_runtime;
+      if (rt && typeof rt.destroy === "function") rt.destroy();
+      else if (rt && rt._instance && typeof rt._instance.destroy === "function") rt._instance.destroy();
+      else if (rt && rt._instance) warn("Stale runtime has no destroy() — cannot fully release resources");
     } catch (_) {}
     try { if (window.__gs_runtime) window.__gs_runtime._instance = null; } catch (_) {}
     try { if (window.__gs_call && typeof window.__gs_call.destroy === "function") window.__gs_call.destroy(); } catch (_) {}
@@ -429,6 +505,29 @@
   // ─── Bootstrap flow ───
   function bootstrap() {
     mountShell();
+
+    // ─── Preview mode ────────────────────────────────────────────────
+    // The operator settings page mounts THIS loader inside an iframe with
+    // `window.__gs_preview_config` pre-set. We reuse the exact shell, CSS,
+    // launcher and runtime that a visitor gets — only bootstrap/config
+    // network calls are skipped (the config object is supplied inline).
+    if (window.__gs_preview_config) {
+      configData = window.__gs_preview_config;
+      configData._loaderVersion = LOADER_VERSION;
+      if (configData.debugMode) DEBUG = true;
+      applyConfigToShell(configData);
+      attachLauncherClick({ launcherOnly: false });
+      widgetApi = {
+        open: function () { triggerOpen(); },
+        close: function () { triggerClose(); },
+        toggle: function () { triggerOpen(); },
+        setUnread: function (count) { setUnreadBadge(count); },
+      };
+      ready = true;
+      processQueue();
+      onLauncherClick();
+      return;
+    }
     WORKSPACE_ID = getWorkspaceId();
     var assetBase = getAssetBase();
     var apiBase = getApiBase();
@@ -968,22 +1067,22 @@
             if (!newTok) return;
             STOPPED = false;
             consecutiveFailures = 0;
-            if (!heartbeatTimer) heartbeatTimer = setInterval(ping, 30000);
+            if (!heartbeatTimer) heartbeatTimer = loaderEvery(ping, 30000);
             log('heartbeat resumed', reason);
             return doPing(newTok, false);
           });
         }
         // Background heartbeat — keeps presence "online" and refreshes
         // last_seen_at so the operator UI stays accurate.
-        heartbeatTimer = setInterval(ping, 30000);
+        heartbeatTimer = loaderEvery(ping, 30000);
         // Resume immediately when the tab becomes visible again.
         try {
-          document.addEventListener('visibilitychange', function () {
+          loaderOn(document, 'visibilitychange', function () {
             if (document.hidden) return;
             if (STOPPED) return void resumeHeartbeat('visibilitychange');
             ping();
           });
-          window.addEventListener('online', function () {
+          loaderOn(window, 'online', function () {
             if (STOPPED) return void resumeHeartbeat('online');
             ping();
           });
@@ -1017,8 +1116,14 @@
             try { onUrlChange(); } catch (_) {}
             return r;
           };
-          window.addEventListener("popstate", onUrlChange);
-          window.addEventListener("hashchange", onUrlChange);
+          loaderOn(window, "popstate", onUrlChange);
+          loaderOn(window, "hashchange", onUrlChange);
+          // history.pushState/replaceState were monkey-patched above —
+          // restore the originals on teardown so a stale loader copy can't
+          // keep intercepting the host app's router.
+          onDispose(function () {
+            try { history.pushState = origPush; history.replaceState = origReplace; } catch (_) {}
+          });
         } catch (_) {/* read-only history in some sandboxes */}
       })
       .catch(function () {});

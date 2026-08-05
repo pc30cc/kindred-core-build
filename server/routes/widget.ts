@@ -37,7 +37,7 @@ import {
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
-import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
+import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache, WidgetManifestUnavailableError } from '../services/widget/manifest.js';
 import {
   createSessionToken,
   verifySessionToken,
@@ -78,6 +78,24 @@ import { enforceMaxConversationsLimit } from '../services/billing/conversationLi
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 
 export const widgetRouter = Router();
+
+// Shared handling for WidgetManifestUnavailableError — used by every route
+// that resolves hashed asset names. Returns a controlled 503 instead of a
+// generic 500, with diagnostics logged server-side only.
+function respondManifestUnavailable(res: Response, err: WidgetManifestUnavailableError): void {
+  console.error('[widget] Manifest unavailable:', {
+    remoteUrl: err.diagnostics.remoteUrl,
+    source: err.diagnostics.source,
+    remoteStatus: err.diagnostics.remoteStatus,
+  });
+  res.set('Cache-Control', 'no-store');
+  res.status(503).json({
+    ok: false,
+    error: 'widget_assets_unavailable',
+    message: 'Widget assets are temporarily unavailable. Please try again shortly.',
+    code: 'WIDGET_MANIFEST_UNAVAILABLE',
+  });
+}
 
 // Mount identity sub-router (all routes require widget token + origin)
 widgetRouter.use('/identity', widgetIdentityRouter);
@@ -759,6 +777,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
     res.json(widgetConfig);
   } catch (err: any) {
+    if (err instanceof WidgetManifestUnavailableError) {
+      return respondManifestUnavailable(res, err);
+    }
     console.error('Widget config error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -2167,6 +2188,9 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
     res.set('Cloudflare-CDN-Cache-Control', 'no-store');
     return res.json(manifest);
   } catch (err: any) {
+    if (err instanceof WidgetManifestUnavailableError) {
+      return respondManifestUnavailable(res, err);
+    }
     console.error('[widget-manifest] Error:', err.message);
     return res.status(500).json({ error: 'Manifest generation failed' });
   }

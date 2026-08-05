@@ -125,7 +125,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const rtl = locale === 'fa';
     const dir = rtl ? 'rtl' : 'ltr';
 
-    const primary: string = s.primary_color || '#3B82F6';
+    const primary: string = s.primary_color || '#7C3AED';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     const title = (localizedValue(s.launcher_text, 'launcher', locale) || s.fab_label || brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
@@ -155,17 +155,16 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
       chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
       help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
     };
-    const homeLabel = rtl ? 'خانه' : dir === 'ltr' && d.chatTab === 'Sohbet' ? 'Ana sayfa' : 'Home';
     const navItems = [
-      { key: 'home', label: homeLabel },
+      { key: 'home', label: d.homeTab },
       { key: 'chat', label: d.chatTab },
       ...(kbEnabled ? [{ key: 'help', label: d.helpTab }] : []),
     ];
+    const activeNav = view === 'kb' ? 'help' : view === 'home' ? 'home' : 'chat';
     const tabs = `<nav class="tabs">${navItems
       .map(
-        n => `<button type="button" class="tab${
-          (view === 'kb' ? 'help' : 'chat') === n.key ? ' active' : ''
-        }"><span class="tab-icon">${NAV_SVG[n.key as keyof typeof NAV_SVG]}</span><span class="tab-label">${esc(
+        n => `<button type="button" class="tab${activeNav === n.key ? ' active' : ''}">` +
+          `<span class="tab-icon">${NAV_SVG[n.key as keyof typeof NAV_SVG]}</span><span class="tab-label">${esc(
           n.label,
         )}</span></button>`,
       )

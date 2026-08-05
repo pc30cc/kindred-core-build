@@ -21,7 +21,7 @@ type Dict = {
   welcomeFallback: string; brandFallback: string;
   homeTab: string; homeGreeting: string; resumeTitle: string; resumeCta: string;
   actionAi: string; actionAiSub: string; actionHuman: string; actionHumanSub: string;
-  actionKb: string; actionKbSub: string; categories: string; viewAll: string;
+  actionKb: string; actionKbSub: string; categories: string; viewAll: string; popularArticles: string;
   cats: string[];
 };
 
@@ -39,7 +39,7 @@ const DICTS: Record<string, Dict> = {
     resumeCta: 'Continue', actionAi: 'Ask the AI assistant', actionAiSub: 'Fastest way to get an answer',
     actionHuman: 'Chat with support', actionHumanSub: 'Talk to a human operator',
     actionKb: 'Search the help center', actionKbSub: 'Find answers to your questions',
-    categories: 'Categories', viewAll: 'View all',
+    categories: 'Categories', viewAll: 'View all', popularArticles: 'Popular articles',
     cats: ['Orders', 'Payments', 'Shipping', 'Products'],
   },
   fa: {
@@ -55,7 +55,7 @@ const DICTS: Record<string, Dict> = {
     resumeCta: 'ادامه گفتگو', actionAi: 'پرسش از دستیار هوشمند', actionAiSub: 'سریع‌ترین راه برای دریافت پاسخ',
     actionHuman: 'گفتگو با پشتیبانی', actionHumanSub: 'با اپراتور انسانی صحبت کنید',
     actionKb: 'جست‌وجو در راهنما', actionKbSub: 'پاسخ سوالات خود را بیابید',
-    categories: 'دسته‌بندی‌ها', viewAll: 'مشاهده همه',
+    categories: 'دسته‌بندی‌ها', viewAll: 'مشاهده همه', popularArticles: 'مقالات پرکاربرد',
     cats: ['سفارش‌ها', 'پرداخت', 'ارسال و تحویل', 'محصولات'],
   },
   tr: {
@@ -71,7 +71,7 @@ const DICTS: Record<string, Dict> = {
     resumeCta: 'Devam et', actionAi: 'Yapay zekâ asistanına sor', actionAiSub: 'Yanıt almanın en hızlı yolu',
     actionHuman: 'Destek ile sohbet et', actionHumanSub: 'Bir temsilci ile görüşün',
     actionKb: 'Yardım merkezinde ara', actionKbSub: 'Sorularınızın yanıtını bulun',
-    categories: 'Kategoriler', viewAll: 'Tümünü gör',
+    categories: 'Kategoriler', viewAll: 'Tümünü gör', popularArticles: 'Popüler makaleler',
     cats: ['Siparişler', 'Ödeme', 'Kargo', 'Ürünler'],
   },
 };
@@ -228,27 +228,51 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <p class="prechat-privacy">${esc(d.privacy)}</p>
       </div>`;
 
+    const HOME_ICONS = {
+      ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>',
+      human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+      kb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+      doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    };
+
     const chatBody = `
       <div class="messages">
         <div class="msg-row operator">
           ${logo ? `<span class="msg-avatar has-img"><img src="${esc(logo)}" alt="" /></span>`
                  : `<span class="msg-avatar">${esc(initial)}</span>`}
-          <div class="msg operator welcome-bubble">${esc(d.sample)}</div>
+          <div class="msg operator welcome-bubble">${esc(d.sample)}
+            <span class="msg-time">10:30</span>
+          </div>
         </div>
         <div class="msg-row visitor">
-          <div class="msg visitor" style="background:${esc(primary)}">${esc(d.visitorSample)}</div>
+          <div class="msg visitor" style="background:${esc(primary)}">${esc(d.visitorSample)}
+            <span class="msg-status seen"><span class="msg-status-label">10:31</span></span>
+          </div>
         </div>
       </div>`;
 
     const kbBody = `
       <div class="kb-root" dir="${dir}">
-        <div class="kb-search-wrap">
+        <div class="kb-search-wrap"><div class="kb-search-field">${HOME_ICONS.search}
           <input class="kb-search" type="search" placeholder="${esc(d.kbSearch)}" />
+        </div></div>
+        <div class="kb-section-h">${esc(d.categories)}</div>
+        <div class="kb-cats">
+          ${d.cats.map(c => `<span class="kb-cat">
+            <span class="kb-cat-icon">${HOME_ICONS.folder}</span>
+            <span class="kb-cat-name">${esc(c)}</span>
+          </span>`).join('')}
         </div>
+        <div class="kb-section-h">${esc(d.popularArticles)}</div>
         <div class="kb-list">
           ${d.kbArticles.map(a => `
-            <button type="button" class="kb-article">
-              <div class="kb-article-title">${esc(a)}</div>
+            <button type="button" class="kb-article kb-article-row">
+              <span class="kb-article-icon">${HOME_ICONS.doc}</span>
+              <span class="kb-article-text"><span class="kb-article-title">${esc(a)}</span></span>
+              ${HOME_ICONS.chevron}
             </button>`).join('')}
         </div>
       </div>`;
@@ -258,14 +282,6 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
       </div>` + prechatBody;
 
-    const HOME_ICONS = {
-      ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>',
-      human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
-      kb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
-      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
-      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-    };
     const homeAction = (icon: string, t1: string, t2: string, badge = '') => `
       <button type="button" class="home-action">
         <span class="home-action-icon">${icon}</span>

@@ -3507,6 +3507,31 @@
 
     function isRtl() { return (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
 
+    var KB_ICON = {
+      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+      doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+      chevron: '<svg class="ico-dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+    };
+
+    function kbSkeleton(rowsOnly) {
+      var out = '<div class="gs-skel-group" aria-hidden="true">';
+      if (!rowsOnly) {
+        out += '<div class="gs-skel gs-skel-line w40"></div>' +
+          '<div class="gs-skel-grid">' +
+            '<div class="gs-skel gs-skel-tile"></div>' +
+            '<div class="gs-skel gs-skel-tile"></div>' +
+            '<div class="gs-skel gs-skel-tile"></div>' +
+          '</div>';
+      }
+      out += '<div class="gs-skel gs-skel-line w40"></div>' +
+        '<div class="gs-skel gs-skel-row sm"></div>' +
+        '<div class="gs-skel gs-skel-row sm"></div>' +
+        '<div class="gs-skel gs-skel-row sm"></div>' +
+      '</div>';
+      return out;
+    }
+
     function publicArticleUrl(slug) {
       // Articles are served by the same public host as the site that mounted
       // the widget. We deliberately use window.location.origin so workspaces
@@ -3556,10 +3581,18 @@
       var dirAttr = rtl ? ' dir="rtl"' : '';
       var html = '<div class="kb-root"' + dirAttr + '>';
 
-      html += '<div class="kb-search-wrap">' +
+      html += '<div class="kb-search-wrap"><div class="kb-search-field">' +
+        KB_ICON.search +
         '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
         'placeholder="' + Util.escapeHtml(t('searchKb')) + '" value="' + Util.escapeHtml(currentQuery) + '" />' +
-        '</div>';
+        '</div></div>';
+
+      if (view === 'list' && !s.loaded) {
+        html += kbSkeleton() + '</div>';
+        rootEl.innerHTML = html;
+        bindEvents();
+        return;
+      }
 
       if (view === 'article' && currentArticle) {
         var publicUrl = publicArticleUrl(currentArticle.slug);
@@ -3578,7 +3611,7 @@
             '</div>' +
           '</div>';
       } else if (view === 'searching') {
-        html += '<div class="kb-status">' + Util.escapeHtml(t('kbSearching')) + '</div>';
+        html += kbSkeleton(true);
       } else if (view === 'results') {
         var results = s.searchResults || [];
         if (!results.length) {
@@ -3628,31 +3661,35 @@
             '</button>' +
           '</div>';
         } else {
+          if (cats.length) {
+            html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
+            html += '<div class="kb-cats">';
+            cats.forEach(function (c) {
+              html +=
+                '<a class="kb-cat" target="_blank" rel="noopener noreferrer" ' +
+                  'href="' + Util.escapeHtml(window.location.origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/c/' + encodeURIComponent(c.slug)) + '">' +
+                  '<span class="kb-cat-icon">' + KB_ICON.folder + '</span>' +
+                  '<span class="kb-cat-name">' + Util.escapeHtml(c.name) + '</span>' +
+                '</a>';
+            });
+            html += '</div>';
+          }
           if (articles.length) {
             html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
             html += '<div class="kb-list">';
             articles.forEach(function (a) {
               html +=
-                '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' +
+                '<button type="button" class="kb-article kb-article-row" data-kb-action="open" data-kb-slug="' +
                   Util.escapeHtml(a.slug) + '">' +
-                  '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
-                  (a.excerpt ? '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</div>' : '') +
+                  '<span class="kb-article-icon">' + KB_ICON.doc + '</span>' +
+                  '<span class="kb-article-text">' +
+                    '<span class="kb-article-title">' + Util.escapeHtml(a.title) + '</span>' +
+                    (a.excerpt ? '<span class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</span>' : '') +
+                  '</span>' +
+                  KB_ICON.chevron +
                 '</button>';
             });
             html += '</div>';
-          }
-          if (cats.length) {
-          html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
-          html += '<div class="kb-list">';
-          cats.forEach(function (c) {
-            html +=
-              '<a class="kb-category" target="_blank" rel="noopener noreferrer" ' +
-                'href="' + Util.escapeHtml(window.location.origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/c/' + encodeURIComponent(c.slug)) + '">' +
-                '<div class="kb-article-title">' + Util.escapeHtml(c.name) + '</div>' +
-                (c.description ? '<div class="kb-article-excerpt">' + Util.escapeHtml(c.description) + '</div>' : '') +
-              '</a>';
-          });
-          html += '</div>';
           }
         }
       }
@@ -5693,7 +5730,14 @@
 
     // ─── Render dispatcher ───
     function renderLoading() {
-      if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';
+      if (!body) return;
+      body.innerHTML =
+        '<div class="gs-skel-group gs-skel-chat" role="status" aria-label="' + Util.escapeHtml(t('loading')) + '">' +
+          '<div class="gs-skel-msg in"><div class="gs-skel gs-skel-av"></div><div class="gs-skel gs-skel-bubble"></div></div>' +
+          '<div class="gs-skel-msg out"><div class="gs-skel gs-skel-bubble sm"></div></div>' +
+          '<div class="gs-skel-msg in"><div class="gs-skel gs-skel-av"></div><div class="gs-skel gs-skel-bubble lg"></div></div>' +
+          '<div class="gs-skel-msg out"><div class="gs-skel gs-skel-bubble"></div></div>' +
+        '</div>';
     }
     // Phase 8H — Department gate. Returns true when the gate rendered
     // (caller must NOT render any further body content for this pass).

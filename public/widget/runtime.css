@@ -2938,3 +2938,111 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   .panel { inline-size: 100vw; block-size: 100dvh; max-block-size: 100dvh; border-radius: 0; inset-inline: 0; }
   .panel .home-cats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Reference design layer — help center, skeletons, states.
+   Logical properties only (RTL-safe for fa).
+   ════════════════════════════════════════════════════════════════════ */
+.panel .kb-root { padding: var(--gs-s4, 16px) var(--gs-s4, 16px) var(--gs-s6, 24px); gap: var(--gs-s3, 12px); }
+.panel .kb-search-wrap { background: transparent; padding-block-end: var(--gs-s2, 8px); }
+.panel .kb-search-field {
+  display: flex; align-items: center; gap: 10px;
+  background: #fff; border: 1px solid var(--gs-line, #E8EAF0);
+  border-radius: 999px; padding: 10px 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  color: #94A3B8; transition: border-color .18s ease, box-shadow .18s ease;
+}
+.panel .kb-search-field:focus-within {
+  border-color: var(--gs-primary, #7C3AED);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gs-primary, #7C3AED) 14%, transparent);
+}
+.panel .kb-search-field svg { inline-size: 18px; block-size: 18px; flex: 0 0 auto; }
+.panel .kb-search-field .kb-search {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  padding: 0; font: inherit; font-size: 13px; color: var(--gs-text, #0F172A);
+}
+.panel .kb-search-field .kb-search::-webkit-search-cancel-button { display: none; }
+
+.panel .kb-section-h {
+  font-size: 13px; font-weight: 700; color: var(--gs-text, #0F172A);
+  margin-block: var(--gs-s2, 8px) 2px; padding: 0;
+}
+.panel .kb-cats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gs-s2, 8px); }
+.panel .kb-cat {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  text-align: center; text-decoration: none; cursor: pointer;
+  padding: 14px 8px; background: #fff; border: 1px solid var(--gs-line, #E8EAF0);
+  border-radius: var(--gs-r-lg, 18px); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+.panel .kb-cat:hover { transform: translateY(-1px); border-color: var(--gs-line-strong, #D9DEE8); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07); }
+.panel .kb-cat-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 34px; block-size: 34px; border-radius: 12px;
+  background: color-mix(in srgb, var(--gs-primary, #7C3AED) 10%, #fff);
+  color: var(--gs-primary, #7C3AED);
+}
+.panel .kb-cat-icon svg { inline-size: 18px; block-size: 18px; }
+.panel .kb-cat-name { font-size: 11.5px; font-weight: 600; color: var(--gs-text, #0F172A); line-height: 1.35; }
+
+.panel .kb-list { gap: var(--gs-s2, 8px); }
+.panel .kb-article-row {
+  display: flex; align-items: center; gap: 10px; inline-size: 100%;
+  padding: 12px 14px; background: #fff; border: 1px solid var(--gs-line, #E8EAF0);
+  border-radius: var(--gs-r-md, 14px); text-align: start; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+.panel .kb-article-row:hover { transform: translateY(-1px); border-color: var(--gs-line-strong, #D9DEE8); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07); background: #fff; }
+.panel .kb-article-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  inline-size: 30px; block-size: 30px; border-radius: 10px;
+  background: #F4F1FE; color: var(--gs-primary, #7C3AED);
+}
+.panel .kb-article-icon svg { inline-size: 16px; block-size: 16px; }
+.panel .kb-article-row .kb-article-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.panel .kb-article-row .kb-article-title { font-size: 13px; font-weight: 600; margin: 0; }
+.panel .kb-article-row .kb-article-excerpt { font-size: 11.5px; color: var(--gs-text-2, #64748B); margin: 0; }
+.panel .kb-article-row .ico-dir { inline-size: 16px; block-size: 16px; color: #94A3B8; flex: 0 0 auto; }
+.panel [dir="rtl"] .ico-dir, .panel-rtl .ico-dir { transform: scaleX(-1); }
+
+/* ─── Skeletons (RTL-aware shimmer) ─── */
+.gs-skel-line.w40 { inline-size: 40%; block-size: 14px; }
+.gs-skel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gs-s2, 8px); }
+.gs-skel-tile { block-size: 74px; border-radius: var(--gs-r-lg, 18px); }
+.gs-skel-row.sm { block-size: 52px; border-radius: var(--gs-r-md, 14px); }
+.gs-skel-chat { padding: var(--gs-s4, 16px); gap: var(--gs-s3, 12px); }
+.gs-skel-msg { display: flex; align-items: flex-end; gap: 8px; }
+.gs-skel-msg.in { justify-content: flex-start; }
+.gs-skel-msg.out { justify-content: flex-end; }
+.gs-skel-av { inline-size: 28px; block-size: 28px; border-radius: 999px; flex: 0 0 auto; }
+.gs-skel-bubble { inline-size: 62%; block-size: 44px; border-radius: 18px; }
+.gs-skel-bubble.sm { inline-size: 42%; block-size: 34px; }
+.gs-skel-bubble.lg { inline-size: 72%; block-size: 62px; }
+
+/* ─── Offline / error states ─── */
+.gs-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; text-align: center; padding: var(--gs-s6, 24px) var(--gs-s5, 20px);
+}
+.gs-state-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 56px; block-size: 56px; border-radius: 18px;
+  background: #F4F1FE; color: var(--gs-primary, #7C3AED);
+}
+.gs-state.is-error .gs-state-icon { background: #FEF2F2; color: #EF4444; }
+.gs-state-icon svg { inline-size: 26px; block-size: 26px; }
+.gs-state-title { font-size: 15px; font-weight: 700; color: var(--gs-text, #0F172A); margin: 0; }
+.gs-state-sub { font-size: 12.5px; color: var(--gs-text-2, #64748B); margin: 0; line-height: 1.6; }
+.gs-state-cta {
+  margin-block-start: 4px; border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700;
+  color: #fff; background: var(--gs-primary, #7C3AED); padding: 10px 22px; border-radius: 999px;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--gs-primary, #7C3AED) 30%, transparent);
+  transition: filter .16s ease, transform .16s ease;
+}
+.gs-state-cta:hover { filter: brightness(1.06); }
+.gs-state-cta:active { transform: scale(.985); }
+
+@media (max-width: 480px) {
+  .panel .kb-cats, .gs-skel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

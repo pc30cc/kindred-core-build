@@ -90,10 +90,14 @@ textarea:focus-visible {
   transform: translateY(0) scale(1);
   pointer-events: auto;
 }
+/* physical: viewport anchoring driven by the JS `position` setting (bottom-right/bottom-left)
+   `--gs-launcher-zone` = launcher bottom offset (24px) + launcher box (62px, up to
+   ~66px at scale 105) + breathing room, so the panel never sits under the FAB
+   or its halo rings. The panel height below subtracts the same value. */
+.panel { --gs-launcher-zone: 104px; }
+.panel.bottom-right { bottom: var(--gs-launcher-zone); right: 24px; }
 /* physical: viewport anchoring driven by the JS `position` setting (bottom-right/bottom-left) */
-.panel.bottom-right { bottom: 92px; right: 24px; }
-/* physical: viewport anchoring driven by the JS `position` setting (bottom-right/bottom-left) */
-.panel.bottom-left  { bottom: 92px; left: 24px; }
+.panel.bottom-left  { bottom: var(--gs-launcher-zone); left: 24px; }
 
 /* ─── Header ─── */
 .header > * { position: relative; z-index: 1; }
@@ -848,7 +852,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .gs-toast {
   position: fixed;
   z-index: 2147483646;
-  bottom: 92px;
+  bottom: 104px;
   width: 300px;
   max-width: calc(100vw - 32px);
   background: #fff;
@@ -2057,7 +2061,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   --ref-motion: 170ms cubic-bezier(.2,.8,.2,1);
   inline-size: 368px;
   max-inline-size: calc(100vw - 32px);
-  block-size: min(716px, calc(100vh - 32px));
+  /* Height must leave room for the launcher zone below AND a top margin,
+     otherwise the panel is clipped at the top in short viewports (and the
+     FAB halo bleeds over the panel edge in the admin preview). */
+  block-size: min(716px, calc(100vh - var(--gs-launcher-zone, 104px) - 20px));
   display: flex;
   flex-direction: column;
   background: #ffffff;

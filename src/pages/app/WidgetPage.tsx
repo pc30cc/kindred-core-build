@@ -726,7 +726,7 @@ function WidgetPageContent() {
               ))}
             </div>
 
-            <div style={{ height: 'calc(100vh - 190px)', minHeight: 560 }}>
+            <div style={{ height: 'calc(100vh - 140px)', minHeight: 720 }}>
               <WidgetLivePreview
                 settings={previewSettings}
                 prechat={prechat}

@@ -7,7 +7,7 @@
  * below mirrors what `public/widget/runtime.js` emits at runtime, so what the
  * operator sees here is what the visitor gets on their site.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
@@ -126,11 +126,24 @@ export interface WidgetLivePreviewProps {
   /** Real published knowledge-base data so the preview matches the live widget. */
   kbArticles?: { title: string; excerpt?: string | null }[];
   kbCategories?: { name: string; description?: string | null }[];
+  /** Fired when the operator clicks a nav tab inside the preview. */
+  onViewChange?: (view: PreviewView) => void;
 }
 
 export function WidgetLivePreview({
-  settings, prechat, brandName, view, kbArticles, kbCategories,
+  settings, prechat, brandName, view, kbArticles, kbCategories, onViewChange,
 }: WidgetLivePreviewProps) {
+  useEffect(() => {
+    if (!onViewChange) return;
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { source?: string; nav?: string } | null;
+      if (!data || data.source !== 'gs-widget-preview' || !data.nav) return;
+      onViewChange(data.nav === 'home' ? 'home' : data.nav === 'help' ? 'kb' : 'chat');
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [onViewChange]);
+
   const srcDoc = useMemo(() => {
     const s = settings || {};
     const locale: string = s.widget_language || s.locale || 'en';
@@ -174,7 +187,7 @@ export function WidgetLivePreview({
     const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
     const tabs = `<div class="tabs tabs-bottom">${navDefs
       .map(
-        (n) => `<button type="button" class="tab${n.key === activeNav ? ' active' : ''}">
+        (n) => `<button type="button" data-preview-nav="${n.key}" class="tab${n.key === activeNav ? ' active' : ''}">
            <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
            <span class="tab-label">${esc(n.label)}</span>
          </button>`,
@@ -431,6 +444,16 @@ export function WidgetLivePreview({
     launcher.addEventListener('click', function () { setOpen(panel.hasAttribute('hidden')); });
     var closeBtn = document.getElementById('gs-close');
     if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
+  })();
+
+  // Preview-only: clicking a bottom nav tab tells the parent to switch views.
+  (function () {
+    document.addEventListener('click', function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('[data-preview-nav]') : null;
+      if (!el) return;
+      e.preventDefault();
+      parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-preview-nav') }, '*');
+    });
   })();
 </script>
 </body>

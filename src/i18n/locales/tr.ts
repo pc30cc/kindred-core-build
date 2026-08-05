@@ -3451,6 +3451,8 @@ const tr: TranslationKeys = {
       launcherSection: 'Başlatıcı düğmesi',
       secondaryColor: 'İkincil renk',
       gradientHint: 'Başlık gradyanı için kullanılır',
+      gradientTheme: 'Widget gradyanı',
+      gradientThemeHint: 'Gradyan başlıktan alt menüye kadar devam eder.',
       showLogo: 'Widget başlığında logoyu göster',
       logoUrl: 'Logo URL',
       logoHint: 'Kare PNG/SVG en iyi sonucu verir (önerilen 128×128).',

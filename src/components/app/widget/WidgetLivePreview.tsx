@@ -178,26 +178,62 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         : `<span aria-hidden="true">${esc(initial)}</span>`
     }<span class="header-op-dot"></span></span>`;
 
-    const header = `
-      <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
-        <div class="header-brand">
-          <div class="header-op-stack">${avatar}</div>
-          <div class="header-brand-text">
-            <div class="header-title">${esc(title)}</div>
-            <div class="presence status-${view === 'offline' ? 'offline' : 'online'}">
+    const closeIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    const backIcon = `<svg class="ico-dir" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
+    const presenceStatus = view === 'offline' ? 'offline' : 'online';
+    const presenceLabel = view === 'offline'
+      ? (rtl ? 'آفلاین' : 'offline')
+      : (rtl ? 'آنلاین' : 'online');
+
+    // Header variants mirror runtime.js: purple Home header with greeting,
+    // white Chat header with operator identity, purple centered Help header.
+    const homeHeader = `
+      <div class="header header-home${rtl ? ' header-rtl' : ''}" dir="${dir}">
+        <div class="hdr-top">
+          ${logo ? `<span class="hdr-mark has-img"><img src="${esc(logo)}" alt="" /></span>`
+                 : `<span class="hdr-mark">${esc(initial)}</span>`}
+          <span class="hdr-top-meta">
+            <span class="hdr-top-title">${esc(title)}</span>
+            <span class="presence status-${presenceStatus}">
               <span class="presence-dot"></span>
-              <span class="presence-label">${esc(
-                view === 'offline'
-                  ? rtl ? 'آفلاین' : 'offline'
-                  : rtl ? 'آنلاین' : 'online',
-              )}</span>
-            </div>
-          </div>
+              <span class="presence-label">${esc(presenceLabel)}</span>
+            </span>
+          </span>
+          <span class="hdr-spacer"></span>
+          <button type="button" class="hdr-icon-btn" aria-label="close">${closeIcon}</button>
         </div>
-        <button type="button" class="header-close" aria-label="close">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
+        <div class="hdr-greeting">
+          <h2 class="hdr-greeting-title">${esc(d.homeGreeting)}</h2>
+          <p class="hdr-greeting-sub">${esc(welcome)}</p>
+        </div>
       </div>`;
+
+    const chatHeader = `
+      <div class="header header-chat${rtl ? ' header-rtl' : ''}" dir="${dir}">
+        <button type="button" class="hdr-icon-btn" aria-label="back">${backIcon}</button>
+        <span class="hdr-chat-id">
+          ${logo ? `<span class="hdr-avatar has-img"><img src="${esc(logo)}" alt="" /><span class="op-dot"></span></span>`
+                 : `<span class="hdr-avatar">${esc(initial)}<span class="op-dot"></span></span>`}
+          <span class="hdr-chat-text">
+            <span class="hdr-chat-name">${esc(title)}</span>
+            <span class="hdr-chat-role">${esc(presenceLabel)}</span>
+          </span>
+        </span>
+        <span class="hdr-spacer"></span>
+        <button type="button" class="hdr-icon-btn" aria-label="close">${closeIcon}</button>
+      </div>`;
+
+    const helpHeader = `
+      <div class="header header-help${rtl ? ' header-rtl' : ''}" dir="${dir}">
+        <button type="button" class="hdr-icon-btn" aria-label="back">${backIcon}</button>
+        <span class="hdr-center-title">${esc(d.help)}</span>
+        <button type="button" class="hdr-icon-btn" aria-label="close">${closeIcon}</button>
+      </div>`;
+
+    const header =
+      view === 'home' ? homeHeader :
+      view === 'kb' ? helpHeader :
+      chatHeader;
 
     const fields = [
       prechat?.ask_name !== false && { key: 'name', label: d.name, req: prechat?.require_name },
@@ -261,7 +297,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         </div></div>
         <div class="kb-section-h">${esc(d.categories)}</div>
         <div class="kb-cats">
-          ${d.cats.map(c => `<span class="kb-cat">
+          ${d.cats.map((c, i) => `<span class="kb-cat tone-${['a','b','c','d','e','f'][i % 6]}">
             <span class="kb-cat-icon">${HOME_ICONS.folder}</span>
             <span class="kb-cat-name">${esc(c)}</span>
           </span>`).join('')}
@@ -282,36 +318,37 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
       </div>` + prechatBody;
 
-    const homeAction = (icon: string, t1: string, t2: string, badge = '') => `
+    const homeAction = (icon: string, t1: string, t2: string, badge = '', tone = 'ai') => `
       <button type="button" class="home-action">
-        <span class="home-action-icon">${icon}</span>
+        <span class="home-action-icon tone-${tone}">${icon}</span>
         <span class="home-action-text">
           <span class="home-action-title">${esc(t1)}${badge}</span>
           <span class="home-action-sub">${esc(t2)}</span>
-        </span>${HOME_ICONS.chevron}
+        </span><span class="home-action-go">${HOME_ICONS.chevron}</span>
       </button>`;
     const homeBody = `
-      <div class="home-root" dir="${dir}">
-        <div class="home-greeting">
-          <h2 class="home-greeting-title">${esc(d.homeGreeting)}</h2>
-          <p class="home-greeting-sub">${esc(welcome)}</p>
-        </div>
+      <div class="home-root" dir="${dir}"><div class="home-surface">
         <div class="home-card home-resume">
           <div class="home-resume-head">
+            ${logo ? `<span class="home-resume-avatar has-img"><img src="${esc(logo)}" alt="" /></span>`
+                   : `<span class="home-resume-avatar">${esc(initial)}</span>`}
             <span class="home-resume-title">${esc(d.resumeTitle)}</span>
-            <span class="home-resume-time">10:30</span>
           </div>
           <div class="home-resume-who">${esc(title)}</div>
           <div class="home-resume-msg">${esc(d.sample)}</div>
-          <button type="button" class="home-primary-btn" style="background:${esc(primary)}">${esc(d.resumeCta)}</button>
+          <div class="home-resume-foot">
+            <span class="home-resume-time">10:30</span>
+            <span class="hdr-spacer"></span>
+            <button type="button" class="home-pill-btn" style="background:${esc(primary)}">${esc(d.resumeCta)}</button>
+          </div>
         </div>
         <div class="home-actions">
-          ${homeAction(HOME_ICONS.ai, d.actionAi, d.actionAiSub)}
+          ${homeAction(HOME_ICONS.ai, d.actionAi, d.actionAiSub, '', 'ai')}
           ${homeAction(
             HOME_ICONS.human, d.actionHuman, d.actionHumanSub,
-            `<span class="home-status status-online"><i></i>${esc(d.online)}</span>`,
+            `<span class="home-status status-online"><i></i>${esc(d.online)}</span>`, 'human',
           )}
-          ${kbEnabled ? homeAction(HOME_ICONS.kb, d.actionKb, d.actionKbSub) : ''}
+          ${kbEnabled ? homeAction(HOME_ICONS.kb, d.actionKb, d.actionKbSub, '', 'kb') : ''}
         </div>
         ${kbEnabled ? `
         <div class="home-search">${HOME_ICONS.search}
@@ -321,12 +358,12 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
           <button type="button" class="home-link" style="color:${esc(primary)}">${esc(d.viewAll)}</button>
         </div>
         <div class="home-cats">
-          ${d.cats.map(c => `<button type="button" class="home-cat">
-            <span class="home-cat-icon">${HOME_ICONS.folder}</span>
+          ${d.cats.map((c, i) => `<button type="button" class="home-cat">
+            <span class="home-cat-icon tone-${['a','b','c','d'][i % 4]}">${HOME_ICONS.folder}</span>
             <span class="home-cat-name">${esc(c)}</span>
           </button>`).join('')}
         </div>` : ''}
-      </div>`;
+      </div></div>`;
 
     const body =
       view === 'home' ? homeBody :

@@ -1945,15 +1945,22 @@
 
     // ─── Connection banner (existing behavior, unchanged) ───
     function attach(panel) {
+      // Preview mode has no real transport (the I/O seam is stubbed), so a
+      // connection banner would be permanently wrong noise over the design.
+      if (ctx.config && ctx.config.previewMode) return;
       bannerEl = document.createElement('div');
       bannerEl.className = 'connection-banner';
       bannerEl.setAttribute('role', 'status');
       bannerEl.setAttribute('aria-live', 'polite');
-      var header = panel.querySelector('.header');
-      if (header && header.nextSibling) {
-        panel.insertBefore(bannerEl, header.nextSibling);
+      // Live just above the composer (next to the typing bubble) instead of
+      // floating over the header — it must never cover the conversation.
+      var anchor = panel.querySelector('[data-typing-row]')
+        || panel.querySelector('[data-attach-tray]')
+        || panel.querySelector('[data-input-bar]');
+      if (anchor) {
+        panel.insertBefore(bannerEl, anchor);
       } else {
-        panel.insertBefore(bannerEl, panel.firstChild);
+        panel.appendChild(bannerEl);
       }
       transportStore.subscribe(renderBanner);
       renderBanner(transportStore.get());

@@ -178,12 +178,16 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
 
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
+        <button type="button" class="header-close" id="gs-close" aria-label="close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
         <div class="header-brand">
-          <div class="header-op-stack">${avatar}</div>
+          ${logo ? `<span class="header-logo"><img src="${esc(logo)}" alt="" /></span>` : ''}
           <div class="header-brand-text">
             <div class="header-title">${esc(title)}</div>
             <div class="header-subtitle">${esc(view === 'offline' ? offlineMsg : welcome)}</div>
           </div>
+          <div class="header-op-stack">${avatar}</div>
         </div>
       </div>`;
 
@@ -257,12 +261,14 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
           <p class="home-welcome">${esc(welcome || d.homeWelcome)}</p>
         </section>
         <section class="home-card">
-          <div class="home-avatars">${homeAvatar}</div>
-          <div class="home-status is-online">
-            <span class="home-status-dot"></span>
-            <span>${esc(d.homeTeamOnline)}</span>
+          <div class="home-card-top">
+            <div class="home-avatars">${homeAvatar}</div>
+            <div class="home-status is-online">
+              <span class="home-status-dot"></span>
+              <span>${esc(d.homeTeamOnline)}</span>
+            </div>
+            <p class="home-hint">${esc(d.homeReplyFast)}</p>
           </div>
-          <p class="home-hint">${esc(d.homeReplyFast)}</p>
           <button type="button" class="home-cta" style="background:${esc(primary)}">
             <span class="home-cta-label">${esc(d.homeStartChat)}</span>
             <span class="home-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
@@ -326,11 +332,13 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
      frame the panel must stay a floating card, otherwise it covers the FAB. */
   .panel{position:fixed!important;top:auto!important;width:min(380px, calc(100% - 28px))!important;
     max-width:calc(100% - 28px)!important;border-radius:20px!important;
-    height:calc(100% - ${24 + fabSize + 12 + 20}px)!important;}
+    height:calc(100% - 40px)!important;}
   .panel[hidden]{display:none!important;}
+  .launcher.is-hidden{opacity:0!important;visibility:hidden!important;pointer-events:none!important;}
+  .fab-label.is-hidden{opacity:0!important;visibility:hidden!important;}
   .header-op-avatar.has-img img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
-  .panel.bottom-right{bottom:${24 + fabSize + 12}px!important;right:24px!important;left:auto!important;}
-  .panel.bottom-left{bottom:${24 + fabSize + 12}px!important;left:24px!important;right:auto!important;}
+  .panel.bottom-right{bottom:20px!important;right:20px!important;left:auto!important;}
+  .panel.bottom-left{bottom:20px!important;left:20px!important;right:auto!important;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
   .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
     width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;
@@ -371,11 +379,16 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     var panel = document.querySelector('.panel');
     var launcher = document.getElementById('gs-launcher');
     if (!panel || !launcher) return;
-    launcher.addEventListener('click', function () {
-      var open = !panel.hasAttribute('hidden');
-      if (open) { panel.setAttribute('hidden', ''); }
-      else { panel.removeAttribute('hidden'); }
-    });
+    var label = document.querySelector('.fab-label');
+    function setOpen(open) {
+      if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
+      launcher.classList.toggle('is-hidden', open);
+      if (label) label.classList.toggle('is-hidden', open);
+    }
+    setOpen(true);
+    launcher.addEventListener('click', function () { setOpen(panel.hasAttribute('hidden')); });
+    var closeBtn = document.getElementById('gs-close');
+    if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
   })();
 </script>
 </body>

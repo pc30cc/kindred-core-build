@@ -475,6 +475,7 @@
     var dict = {
       en: {
         chat: 'Chat', help: 'Help Center',
+        closeWidget: 'Close',
         home: 'Home',
         homeGreeting: 'Hello 👋',
         homeWelcome: 'Welcome! How can we help you today?',
@@ -631,6 +632,7 @@
       },
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',
+        closeWidget: 'بستن',
         home: 'خانه',
         homeGreeting: 'سلام 👋',
         homeWelcome: 'خوش آمدید! چطور می‌توانیم کمکتان کنیم؟',
@@ -780,6 +782,7 @@
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım Merkezi',
+        closeWidget: 'Kapat',
         home: 'Ana sayfa',
         homeGreeting: 'Merhaba 👋',
         homeWelcome: 'Hoş geldiniz! Size nasıl yardımcı olabiliriz?',
@@ -3698,22 +3701,9 @@
     prepareShell: function (_shellDiv, _ctx) {
       try {
         if (typeof document === 'undefined') return;
-        var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap';
-        if (!document.getElementById('gs-t2-fonts')) {
-          var l = document.createElement('link');
-          l.id = 'gs-t2-fonts';
-          l.rel = 'stylesheet';
-          l.href = FONT_HREF;
-          document.head.appendChild(l);
-        }
-        var sh = (_shellDiv && _shellDiv.shadowRoot) || null;
-        if (sh && !sh.getElementById('gs-t2-fonts-shadow')) {
-          var l2 = document.createElement('link');
-          l2.id = 'gs-t2-fonts-shadow';
-          l2.rel = 'stylesheet';
-          l2.href = FONT_HREF;
-          sh.appendChild(l2);
-        }
+        // Vazirmatn is self-hosted via @font-face in runtime.css
+        // (public/widget/fonts/*.woff2) — no external CDN request.
+        return;
       } catch (_) { /* font injection optional */ }
     },
   });
@@ -5026,13 +5016,24 @@
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
     var headerDirAttr = headerRtl ? ' dir="rtl"' : '';
     var headerCls = 'header' + (headerRtl ? ' header-rtl' : '');
+    var wsLogoUrl = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+    var headerLogoHtml = wsLogoUrl
+      ? '<span class="header-logo"><img src="' + Util.escapeHtml(wsLogoUrl) + '" alt="' +
+        Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span>'
+      : '';
+    var headerCloseHtml = '<button type="button" class="header-close" data-panel-close aria-label="' +
+      Util.escapeHtml(t('closeWidget') || 'Close') + '" title="' + Util.escapeHtml(t('closeWidget') || 'Close') + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
+      '<path d="M18 6 6 18M6 6l12 12"/></svg></button>';
     var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
+      headerCloseHtml +
       '<div class="header-brand">' +
-        teamStackHtml +
+        headerLogoHtml +
         '<div class="header-brand-text">' +
           '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
           '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
         '</div>' +
+        teamStackHtml +
       '</div>' +
       '<div class="presence sr-only" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
@@ -5164,6 +5165,18 @@
     // ─── Phase 6b — Lightbox (Shadow-DOM scoped image preview) ───
     var lightboxEl = panel.querySelector('[data-att-lightbox]');
     var lightboxImg = panel.querySelector('[data-att-lightbox-img]');
+    // Header close control — routes through the launcher so the loader's
+    // open/closed bookkeeping stays in sync with the runtime.
+    var headerCloseBtn = panel.querySelector('[data-panel-close]');
+    if (headerCloseBtn) {
+      headerCloseBtn.addEventListener('click', function () {
+        try {
+          if (shell && shell.launcher) { shell.launcher.click(); return; }
+        } catch (_) {}
+        try { if (window.__gs_runtime && window.__gs_runtime._instance) window.__gs_runtime._instance.close(); } catch (_) {}
+      });
+    }
+
     var lightboxClose = panel.querySelector('[data-att-lightbox-close]');
     function closeLightbox() {
       if (!lightboxEl) return;
@@ -5772,12 +5785,14 @@
             '<p class="home-welcome">' + Util.escapeHtml(welcomeMessage || t('homeWelcome')) + '</p>' +
           '</section>' +
           '<section class="home-card">' +
-            (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
-            '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
-              '<span class="home-status-dot"></span>' +
-              '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
+            '<div class="home-card-top">' +
+              (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
+              '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
+                '<span class="home-status-dot"></span>' +
+                '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
+              '</div>' +
+              '<p class="home-hint">' + Util.escapeHtml(isOnline ? t('homeReplyFast') : t('homeReplySlow')) + '</p>' +
             '</div>' +
-            '<p class="home-hint">' + Util.escapeHtml(isOnline ? t('homeReplyFast') : t('homeReplySlow')) + '</p>' +
             ctaHtml +
           '</section>' +
           kbHtml +

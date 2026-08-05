@@ -95,6 +95,18 @@ textarea:focus-visible {
    ~66px at scale 105) + breathing room, so the panel never sits under the FAB
    or its halo rings. The panel height below subtracts the same value. */
 .panel { --gs-launcher-zone: 104px; }
+/* RUNTIME (real website): the launcher is hidden while the panel is open, so
+   the panel takes the launcher's own bottom anchor — no reserved empty gap. */
+.shell.gs-mode-runtime .panel { --gs-launcher-zone: 24px; }
+/* PREVIEW (admin customization canvas): the launcher stays visible BELOW the
+   panel, so the panel reserves the launcher box + a 14px spacing gap. */
+.shell.gs-mode-preview .panel { --gs-launcher-zone: 100px; }
+/* Animation OFF (config.fab.animation === false) and OS reduced-motion. */
+.shell.gs-no-anim .panel,
+.shell.gs-no-anim .panel * { transition: none !important; animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .panel, .panel * { transition: none !important; animation: none !important; }
+}
 .panel.bottom-right { bottom: var(--gs-launcher-zone); right: 24px; }
 /* physical: viewport anchoring driven by the JS `position` setting (bottom-right/bottom-left) */
 .panel.bottom-left  { bottom: var(--gs-launcher-zone); left: 24px; }

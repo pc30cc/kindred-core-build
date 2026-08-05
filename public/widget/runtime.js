@@ -5730,7 +5730,14 @@
 
     // ─── Render dispatcher ───
     function renderLoading() {
-      if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';
+      if (!body) return;
+      body.innerHTML =
+        '<div class="gs-skel-group gs-skel-chat" role="status" aria-label="' + Util.escapeHtml(t('loading')) + '">' +
+          '<div class="gs-skel-msg in"><div class="gs-skel gs-skel-av"></div><div class="gs-skel gs-skel-bubble"></div></div>' +
+          '<div class="gs-skel-msg out"><div class="gs-skel gs-skel-bubble sm"></div></div>' +
+          '<div class="gs-skel-msg in"><div class="gs-skel gs-skel-av"></div><div class="gs-skel gs-skel-bubble lg"></div></div>' +
+          '<div class="gs-skel-msg out"><div class="gs-skel gs-skel-bubble"></div></div>' +
+        '</div>';
     }
     // Phase 8H — Department gate. Returns true when the gate rendered
     // (caller must NOT render any further body content for this pass).

@@ -3382,16 +3382,18 @@
       '</div>';
     }
 
-    function actionRow(key, icon, title, sub, badgeHtml) {
+    function actionRow(key, tone, icon, title, sub, badgeHtml) {
       return '<button type="button" class="home-action" data-home-action="' + key + '">' +
-        '<span class="home-action-icon">' + icon + '</span>' +
+        '<span class="home-action-icon tone-' + tone + '">' + icon + '</span>' +
         '<span class="home-action-text">' +
           '<span class="home-action-title">' + Util.escapeHtml(title) + (badgeHtml || '') + '</span>' +
           '<span class="home-action-sub">' + Util.escapeHtml(sub) + '</span>' +
         '</span>' +
-        ICON.chevron +
+        '<span class="home-action-go" aria-hidden="true">' + ICON.chevron + '</span>' +
       '</button>';
     }
+
+    function catTone(i) { return ['a', 'b', 'c', 'd'][i % 4]; }
 
     function render(body, opts) {
       opts = opts || {};
@@ -3400,45 +3402,42 @@
       var cfg = ctx.config || {};
       var feats = cfg.features || {};
       var pres = presenceStore.get();
-      var msgs = (chatStore.get().messages || []);
+      var chat = chatStore.get();
+      var msgs = (chat.messages || []);
       var last = msgs.length ? msgs[msgs.length - 1] : null;
+      var hasConversation = !!(chat.conversationId && last);
       var aiEnabled = !!(cfg.aiAgent && cfg.aiAgent.enabled !== false && cfg.aiAgent.mode && cfg.aiAgent.mode !== 'off');
       var chatEnabled = feats.chat !== false;
       var kbEnabled = feats.knowledgeBase !== false && feats.kb !== false;
 
-      var greetTitle = t('homeGreeting');
-      var greetSub = (typeof cfg.welcomeMessage === 'string' && cfg.welcomeMessage.trim())
-        ? cfg.welcomeMessage.trim()
-        : t('homeGreetingSub');
+      var html = '<div class="home-root"><div class="home-surface">';
 
-      var html = '<div class="home-root">';
-      html += '<div class="home-greeting">' +
-        '<h2 class="home-greeting-title">' + Util.escapeHtml(greetTitle) + '</h2>' +
-        '<p class="home-greeting-sub">' + Util.escapeHtml(greetSub).replace(/\n/g, '<br>') + '</p>' +
-      '</div>';
-
-      if (last) {
+      if (hasConversation) {
         var who = last.sender === 'visitor' ? '' : (last.senderName || '');
+        var initial = (who.trim().charAt(0) || '·').toUpperCase();
         html += '<div class="home-card home-resume">' +
           '<div class="home-resume-head">' +
             '<span class="home-resume-title">' + Util.escapeHtml(t('resumeTitle')) + '</span>' +
-            '<span class="home-resume-time">' + Util.escapeHtml(relTime(last.createdAt || last.created_at)) + '</span>' +
+            '<span class="home-resume-avatar">' + Util.escapeHtml(initial) + '</span>' +
           '</div>' +
           (who ? '<div class="home-resume-who">' + Util.escapeHtml(who) + '</div>' : '') +
           '<div class="home-resume-msg">' + Util.escapeHtml(String(last.body || '').slice(0, 120)) + '</div>' +
-          '<button type="button" class="home-primary-btn" data-home-action="chat">' + Util.escapeHtml(t('resumeCta')) + '</button>' +
+          '<div class="home-resume-foot">' +
+            '<button type="button" class="home-pill-btn" data-home-action="chat">' + Util.escapeHtml(t('resumeCta')) + '</button>' +
+            '<span class="home-resume-time">' + Util.escapeHtml(relTime(last.createdAt || last.created_at)) + '</span>' +
+          '</div>' +
         '</div>';
       }
 
       html += '<div class="home-actions">';
-      if (aiEnabled && chatEnabled) html += actionRow('ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
+      if (aiEnabled && chatEnabled) html += actionRow('ai', 'ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
       if (chatEnabled) {
         var st = pres.status || 'offline';
         var stLabel = st === 'online' ? t('onlineLabel') : (st === 'away' ? t('awayLabel') : t('offlineLabel'));
         var badge = '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>';
-        html += actionRow('chat', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
+        html += actionRow('chat', 'human', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
       }
-      if (kbEnabled) html += actionRow('help', ICON.kb, t('actionKb'), t('actionKbSub'), '');
+      if (kbEnabled) html += actionRow('help', 'kb', ICON.kb, t('actionKb'), t('actionKbSub'), '');
       html += '</div>';
 
       if (kbEnabled) {
@@ -3446,31 +3445,40 @@
           '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
           'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
         '</div>';
-        var cats = (kbStore.get().categories || []).slice(0, 6);
+        var cats = (kbStore.get().categories || []).slice(0, 4);
         html += '<div class="home-section-head"><span>' + Util.escapeHtml(t('categories')) + '</span>' +
           '<button type="button" class="home-link" data-home-action="help">' + Util.escapeHtml(t('viewAll')) + '</button></div>';
         if (!cats.length) {
           html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noCategories')) + '</span></div>';
         } else {
-          html += '<div class="home-cats">' + cats.map(function (c) {
+          html += '<div class="home-cats">' + cats.map(function (c, i) {
             var name = (c && (c.name || c.title || c.slug)) || '';
-            return '<button type="button" class="home-cat" data-home-action="help">' +
-              '<span class="home-cat-icon">' + ICON.folder + '</span>' +
+            var slug = (c && c.slug) ? String(c.slug) : '';
+            return '<button type="button" class="home-cat" data-home-cat="' + Util.escapeHtml(slug) + '">' +
+              '<span class="home-cat-icon tone-' + catTone(i) + '">' + ICON.folder + '</span>' +
               '<span class="home-cat-name">' + Util.escapeHtml(String(name)) + '</span>' +
             '</button>';
           }).join('') + '</div>';
         }
       }
 
-      html += '</div>';
+      html += '</div></div>';
       body.innerHTML = html;
 
       var btns = body.querySelectorAll('[data-home-action]');
       for (var i = 0; i < btns.length; i++) {
         btns[i].addEventListener('click', function () {
           var a = this.getAttribute('data-home-action');
-          if (a === 'help') { deps.onOpenHelp && deps.onOpenHelp(); return; }
+          if (a === 'help') { deps.onOpenHelp && deps.onOpenHelp(''); return; }
           deps.onOpenChat && deps.onOpenChat(a === 'ai' ? 'ai' : 'human');
+        });
+      }
+      var catBtns = body.querySelectorAll('[data-home-cat]');
+      for (var c2 = 0; c2 < catBtns.length; c2++) {
+        catBtns[c2].addEventListener('click', function () {
+          var slug = this.getAttribute('data-home-cat');
+          if (deps.onOpenCategory) deps.onOpenCategory(slug);
+          else deps.onOpenHelp && deps.onOpenHelp('');
         });
       }
       var si = body.querySelector('[data-home-search]');
@@ -3478,7 +3486,6 @@
         si.addEventListener('keydown', function (e) {
           if (e.key === 'Enter') { deps.onOpenHelp && deps.onOpenHelp(si.value || ''); }
         });
-        si.addEventListener('focus', function () { /* keeps focus local; search runs in Help */ });
       }
     }
 
@@ -5188,6 +5195,7 @@
 
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
+    panel.setAttribute('data-view', shellStore.get().activeTab || 'home');
     // Apply RTL to the entire panel when the resolved widget locale is RTL
     // (currently only fa). Without this, the body, tabs, composer and
     // attachments stay LTR even though the strings are Persian.

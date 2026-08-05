@@ -618,6 +618,7 @@
         teamLabel: 'Support team',
         onlineLabel: 'online',
         home: 'Home',
+        supportAgentRole: 'Support specialist',
         homeGreeting: 'Hi there 👋',
         homeGreetingSub: 'How can we help you today?',
         resumeTitle: 'Continue previous conversation',
@@ -774,6 +775,7 @@
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
         home: 'خانه',
+        supportAgentRole: 'کارشناس پشتیبانی',
         homeGreeting: 'سلام! 👋',
         homeGreetingSub: 'چطور می‌توانیم کمک کنیم؟',
         resumeTitle: 'ادامه گفتگوی قبلی',
@@ -930,6 +932,7 @@
         teamLabel: 'Destek ekibi',
         onlineLabel: 'çevrimiçi',
         home: 'Ana sayfa',
+        supportAgentRole: 'Destek uzmanı',
         homeGreeting: 'Merhaba 👋',
         homeGreetingSub: 'Size nasıl yardımcı olabiliriz?',
         resumeTitle: 'Önceki sohbete devam et',
@@ -2554,16 +2557,31 @@
 
       var ariaCard = (t('ciAriaCard') || 'Call invitation') + ' — ' +
         (channel === 'video' ? (t('videoCall') || 'Video') : (t('voiceCall') || 'Voice'));
+      var opAvatarUrl = meta.operator_avatar || meta.operator_avatar_url || '';
+      var opInitial = (op ? op.replace(/&[a-z]+;/g, '').trim().charAt(0) : '').toUpperCase() || '·';
+      var avatarHtml = '<span class="ci-avatar' + (opAvatarUrl ? ' has-img' : '') + '">' +
+        (opAvatarUrl
+          ? '<img src="' + Util.escapeHtml(String(opAvatarUrl)) + '" alt="" loading="lazy" decoding="async" />'
+          : '<span aria-hidden="true">' + Util.escapeHtml(opInitial) + '</span>') +
+        '<span class="ci-avatar-dot" aria-hidden="true"></span>' +
+      '</span>';
+      var channelLabel = channel === 'video'
+        ? (t('ciHeadlineVideo') || 'Incoming video call')
+        : (t('ciHeadlineAudio') || 'Incoming voice call');
       return '<div class="msg-row system">' +
         '<div class="ci-card ci-channel-' + channel + ' ci-status-' + Util.escapeHtml(status) +
           '" data-ci-card="' + inviteId + '" role="group" aria-label="' + Util.escapeHtml(ariaCard) + '">' +
-          '<div class="ci-row">' +
-            '<span class="ci-icon" aria-hidden="true">' + iconSvg + '</span>' +
-            '<div class="ci-text">' +
-              '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
-              bodyBlock +
-              statusBlock +
-            '</div>' +
+          '<div class="ci-head"><span class="ci-head-icon" aria-hidden="true">' + iconSvg + '</span>' +
+            '<span class="ci-head-label">' + Util.escapeHtml(channelLabel) + '</span></div>' +
+          (status === 'pending' ? avatarHtml : '') +
+          '<div class="ci-text">' +
+            (op ? '<div class="ci-name">' + op + '</div>' : '') +
+            '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
+            bodyBlock +
+            statusBlock +
+            (status === 'pending'
+              ? '<div class="ci-dots" aria-hidden="true"><i></i><i></i><i></i></div>'
+              : '') +
           '</div>' +
           actionBlock +
         '</div>' +
@@ -3373,25 +3391,36 @@
     }
 
     function skeleton() {
-      return '<div class="gs-skel-group" aria-hidden="true">' +
-        '<div class="gs-skel gs-skel-line w60"></div>' +
+      // Mirrors the real Home layout: resume card, 3 action rows,
+      // search field and the 4-up category grid.
+      return '<div class="home-surface gs-skel-group" aria-hidden="true">' +
         '<div class="gs-skel gs-skel-card"></div>' +
         '<div class="gs-skel gs-skel-row"></div>' +
         '<div class="gs-skel gs-skel-row"></div>' +
         '<div class="gs-skel gs-skel-row"></div>' +
+        '<div class="gs-skel gs-skel-search"></div>' +
+        '<div class="gs-skel gs-skel-line w40"></div>' +
+        '<div class="gs-skel-grid four">' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+          '<div class="gs-skel gs-skel-tile"></div>' +
+        '</div>' +
       '</div>';
     }
 
-    function actionRow(key, icon, title, sub, badgeHtml) {
+    function actionRow(key, tone, icon, title, sub, badgeHtml) {
       return '<button type="button" class="home-action" data-home-action="' + key + '">' +
-        '<span class="home-action-icon">' + icon + '</span>' +
+        '<span class="home-action-icon tone-' + tone + '">' + icon + '</span>' +
         '<span class="home-action-text">' +
           '<span class="home-action-title">' + Util.escapeHtml(title) + (badgeHtml || '') + '</span>' +
           '<span class="home-action-sub">' + Util.escapeHtml(sub) + '</span>' +
         '</span>' +
-        ICON.chevron +
+        '<span class="home-action-go" aria-hidden="true">' + ICON.chevron + '</span>' +
       '</button>';
     }
+
+    function catTone(i) { return ['a', 'b', 'c', 'd'][i % 4]; }
 
     function render(body, opts) {
       opts = opts || {};
@@ -3400,45 +3429,42 @@
       var cfg = ctx.config || {};
       var feats = cfg.features || {};
       var pres = presenceStore.get();
-      var msgs = (chatStore.get().messages || []);
+      var chat = chatStore.get();
+      var msgs = (chat.messages || []);
       var last = msgs.length ? msgs[msgs.length - 1] : null;
+      var hasConversation = !!(chat.conversationId && last);
       var aiEnabled = !!(cfg.aiAgent && cfg.aiAgent.enabled !== false && cfg.aiAgent.mode && cfg.aiAgent.mode !== 'off');
       var chatEnabled = feats.chat !== false;
       var kbEnabled = feats.knowledgeBase !== false && feats.kb !== false;
 
-      var greetTitle = t('homeGreeting');
-      var greetSub = (typeof cfg.welcomeMessage === 'string' && cfg.welcomeMessage.trim())
-        ? cfg.welcomeMessage.trim()
-        : t('homeGreetingSub');
+      var html = '<div class="home-root"><div class="home-surface">';
 
-      var html = '<div class="home-root">';
-      html += '<div class="home-greeting">' +
-        '<h2 class="home-greeting-title">' + Util.escapeHtml(greetTitle) + '</h2>' +
-        '<p class="home-greeting-sub">' + Util.escapeHtml(greetSub).replace(/\n/g, '<br>') + '</p>' +
-      '</div>';
-
-      if (last) {
+      if (hasConversation) {
         var who = last.sender === 'visitor' ? '' : (last.senderName || '');
+        var initial = (who.trim().charAt(0) || '·').toUpperCase();
         html += '<div class="home-card home-resume">' +
           '<div class="home-resume-head">' +
             '<span class="home-resume-title">' + Util.escapeHtml(t('resumeTitle')) + '</span>' +
-            '<span class="home-resume-time">' + Util.escapeHtml(relTime(last.createdAt || last.created_at)) + '</span>' +
+            '<span class="home-resume-avatar">' + Util.escapeHtml(initial) + '</span>' +
           '</div>' +
           (who ? '<div class="home-resume-who">' + Util.escapeHtml(who) + '</div>' : '') +
           '<div class="home-resume-msg">' + Util.escapeHtml(String(last.body || '').slice(0, 120)) + '</div>' +
-          '<button type="button" class="home-primary-btn" data-home-action="chat">' + Util.escapeHtml(t('resumeCta')) + '</button>' +
+          '<div class="home-resume-foot">' +
+            '<button type="button" class="home-pill-btn" data-home-action="chat">' + Util.escapeHtml(t('resumeCta')) + '</button>' +
+            '<span class="home-resume-time">' + Util.escapeHtml(relTime(last.createdAt || last.created_at)) + '</span>' +
+          '</div>' +
         '</div>';
       }
 
       html += '<div class="home-actions">';
-      if (aiEnabled && chatEnabled) html += actionRow('ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
+      if (aiEnabled && chatEnabled) html += actionRow('ai', 'ai', ICON.ai, t('actionAi'), t('actionAiSub'), '');
       if (chatEnabled) {
         var st = pres.status || 'offline';
         var stLabel = st === 'online' ? t('onlineLabel') : (st === 'away' ? t('awayLabel') : t('offlineLabel'));
         var badge = '<span class="home-status status-' + Util.escapeHtml(st) + '"><i></i>' + Util.escapeHtml(stLabel) + '</span>';
-        html += actionRow('chat', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
+        html += actionRow('chat', 'human', ICON.human, t('actionHuman'), t('actionHumanSub'), badge);
       }
-      if (kbEnabled) html += actionRow('help', ICON.kb, t('actionKb'), t('actionKbSub'), '');
+      if (kbEnabled) html += actionRow('help', 'kb', ICON.kb, t('actionKb'), t('actionKbSub'), '');
       html += '</div>';
 
       if (kbEnabled) {
@@ -3446,31 +3472,40 @@
           '<input class="home-search-input" type="search" data-home-search autocomplete="off" ' +
           'placeholder="' + Util.escapeHtml(t('searchKb')) + '" aria-label="' + Util.escapeHtml(t('searchKb')) + '" />' +
         '</div>';
-        var cats = (kbStore.get().categories || []).slice(0, 6);
+        var cats = (kbStore.get().categories || []).slice(0, 4);
         html += '<div class="home-section-head"><span>' + Util.escapeHtml(t('categories')) + '</span>' +
           '<button type="button" class="home-link" data-home-action="help">' + Util.escapeHtml(t('viewAll')) + '</button></div>';
         if (!cats.length) {
           html += '<div class="home-empty">' + ICON.folder + '<span>' + Util.escapeHtml(t('noCategories')) + '</span></div>';
         } else {
-          html += '<div class="home-cats">' + cats.map(function (c) {
+          html += '<div class="home-cats">' + cats.map(function (c, i) {
             var name = (c && (c.name || c.title || c.slug)) || '';
-            return '<button type="button" class="home-cat" data-home-action="help">' +
-              '<span class="home-cat-icon">' + ICON.folder + '</span>' +
+            var slug = (c && c.slug) ? String(c.slug) : '';
+            return '<button type="button" class="home-cat" data-home-cat="' + Util.escapeHtml(slug) + '">' +
+              '<span class="home-cat-icon tone-' + catTone(i) + '">' + ICON.folder + '</span>' +
               '<span class="home-cat-name">' + Util.escapeHtml(String(name)) + '</span>' +
             '</button>';
           }).join('') + '</div>';
         }
       }
 
-      html += '</div>';
+      html += '</div></div>';
       body.innerHTML = html;
 
       var btns = body.querySelectorAll('[data-home-action]');
       for (var i = 0; i < btns.length; i++) {
         btns[i].addEventListener('click', function () {
           var a = this.getAttribute('data-home-action');
-          if (a === 'help') { deps.onOpenHelp && deps.onOpenHelp(); return; }
+          if (a === 'help') { deps.onOpenHelp && deps.onOpenHelp(''); return; }
           deps.onOpenChat && deps.onOpenChat(a === 'ai' ? 'ai' : 'human');
+        });
+      }
+      var catBtns = body.querySelectorAll('[data-home-cat]');
+      for (var c2 = 0; c2 < catBtns.length; c2++) {
+        catBtns[c2].addEventListener('click', function () {
+          var slug = this.getAttribute('data-home-cat');
+          if (deps.onOpenCategory) deps.onOpenCategory(slug);
+          else deps.onOpenHelp && deps.onOpenHelp('');
         });
       }
       var si = body.querySelector('[data-home-search]');
@@ -3478,7 +3513,6 @@
         si.addEventListener('keydown', function (e) {
           if (e.key === 'Enter') { deps.onOpenHelp && deps.onOpenHelp(si.value || ''); }
         });
-        si.addEventListener('focus', function () { /* keeps focus local; search runs in Help */ });
       }
     }
 
@@ -3499,6 +3533,7 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
+    var activeCategory = null;   // category slug filter (real data only)
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
@@ -3664,20 +3699,35 @@
           if (cats.length) {
             html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
             html += '<div class="kb-cats">';
-            cats.forEach(function (c) {
+            cats.forEach(function (c, ci) {
+              var on = activeCategory && String(activeCategory) === String(c.slug);
               html +=
-                '<a class="kb-cat" target="_blank" rel="noopener noreferrer" ' +
-                  'href="' + Util.escapeHtml(window.location.origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/c/' + encodeURIComponent(c.slug)) + '">' +
+                '<button type="button" class="kb-cat tone-' + (['a','b','c','d','e','f'][ci % 6]) + (on ? ' active' : '') + '" ' +
+                  'data-kb-action="cat" data-kb-cat="' + Util.escapeHtml(c.slug || '') + '">' +
                   '<span class="kb-cat-icon">' + KB_ICON.folder + '</span>' +
                   '<span class="kb-cat-name">' + Util.escapeHtml(c.name) + '</span>' +
-                '</a>';
+                '</button>';
             });
             html += '</div>';
           }
-          if (articles.length) {
+          var shownArticles = articles;
+          if (activeCategory) {
+            var catObj = null;
+            cats.forEach(function (c) { if (String(c.slug) === String(activeCategory)) catObj = c; });
+            if (catObj) {
+              shownArticles = articles.filter(function (a) { return String(a.category_id) === String(catObj.id); });
+            }
+          }
+          if (activeCategory && !shownArticles.length) {
+            html += '<div class="kb-empty kb-empty-centered">' +
+              '<div class="kb-empty-icon" aria-hidden="true">' + KB_ICON.folder + '</div>' +
+              '<p class="kb-empty-text">' + Util.escapeHtml(t('noArticles')) + '</p>' +
+            '</div>';
+          }
+          if (shownArticles.length) {
             html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
             html += '<div class="kb-list">';
-            articles.forEach(function (a) {
+            shownArticles.forEach(function (a) {
               html +=
                 '<button type="button" class="kb-article kb-article-row" data-kb-action="open" data-kb-slug="' +
                   Util.escapeHtml(a.slug) + '">' +
@@ -3751,6 +3801,12 @@
               ev.preventDefault();
               currentArticle = null;
               view = currentQuery.trim() ? 'results' : 'list';
+              paint();
+            } else if (action === 'cat') {
+              ev.preventDefault();
+              var slug = el.getAttribute('data-kb-cat') || '';
+              activeCategory = (activeCategory === slug) ? null : slug;
+              view = 'list';
               paint();
             } else if (action === 'switch-chat') {
               ev.preventDefault();
@@ -3833,7 +3889,22 @@
       paint();
     }
 
-    return { ensure: ensure, render: render };
+    function setQuery(q) {
+      currentQuery = String(q || '');
+      currentArticle = null;
+      if (currentQuery.trim()) { view = 'searching'; paint(); runSearch(); }
+      else { view = 'list'; paint(); }
+    }
+
+    function openCategory(slug) {
+      activeCategory = slug || null;
+      currentQuery = '';
+      currentArticle = null;
+      view = 'list';
+      paint();
+    }
+
+    return { ensure: ensure, render: render, setQuery: setQuery, openCategory: openCategory };
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -4521,11 +4592,20 @@
         // Audio-only voice call screen
         html += '<div class="gs-call-surface gs-call-audio" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '" data-channel="audio">';
         html += '  <audio data-call-remote-audio autoplay></audio>';
+        var __team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
+        var __op = null;
+        for (var __i = 0; __i < __team.length; __i++) { if (__team[__i] && __team[__i].online) { __op = __team[__i]; break; } }
+        if (!__op) __op = __team[0] || null;
+        var __opName = (__op && __op.name) ? String(__op.name) : '';
+        var __opAvatar = (__op && __op.avatar) ? String(__op.avatar) : '';
         html += '  <div class="gs-call-voice-stage">';
         html += '    <div class="gs-call-voice-orb" aria-hidden="true">';
         html += '      <span class="gs-call-voice-pulse"></span>';
-        html += '      <span class="gs-call-voice-icon">' + GS_ICON.phone + '</span>';
+        html += (__opAvatar
+          ? '      <img class="gs-call-voice-avatar" src="' + Util.escapeHtml(__opAvatar) + '" alt="" />'
+          : '      <span class="gs-call-voice-icon">' + GS_ICON.phone + '</span>');
         html += '    </div>';
+        if (__opName) html += '    <div class="gs-call-voice-name">' + Util.escapeHtml(__opName) + '</div>';
         html += '    <div class="gs-call-voice-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
         html += '    <div class="gs-call-voice-timer" data-call-timer>00:00</div>';
         html += '    <div class="gs-call-eq" aria-hidden="true">';
@@ -5165,7 +5245,16 @@
       chatStore: chatStore,
       kbStore: kbStore,
       onOpenChat: function () { switchTab('chat'); },
-      onOpenHelp: function () { switchTab('help'); },
+      onOpenHelp: function (query) {
+        switchTab('help');
+        if (query && kbUI.setQuery) {
+          kbUI.ensure(function () { kbUI.setQuery(query); });
+        }
+      },
+      onOpenCategory: function (slug) {
+        switchTab('help');
+        if (kbUI.openCategory) kbUI.ensure(function () { kbUI.openCategory(slug); });
+      },
     });
 
     // ─── Build panel ───
@@ -5188,6 +5277,7 @@
 
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
+    panel.setAttribute('data-view', shellStore.get().activeTab || 'home');
     // Apply RTL to the entire panel when the resolved widget locale is RTL
     // (currently only fa). Without this, the body, tabs, composer and
     // attachments stay LTR even though the strings are Persian.
@@ -5227,22 +5317,101 @@
 
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
     var headerDirAttr = headerRtl ? ' dir="rtl"' : '';
-    var headerCls = 'header' + (headerRtl ? ' header-rtl' : '');
-    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
-      '<div class="header-brand">' +
-        teamStackHtml +
-        '<div class="header-brand-text">' +
-          '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
-          '<div class="presence" data-presence aria-live="polite">' +
-            '<span class="presence-dot" data-presence-dot></span>' +
-            '<span class="presence-label" data-presence-label></span>' +
+    var HDR_ICON = {
+      close: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+      back: '<svg class="ico-dir" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+      chat: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>',
+    };
+
+    function brandMarkHtml() {
+      var logo = config.logoUrl || config.logo || '';
+      if (logo) {
+        return '<span class="hdr-mark has-img"><img src="' + Util.escapeHtml(String(logo)) + '" alt="" loading="lazy" decoding="async" /></span>';
+      }
+      return '<span class="hdr-mark">' + HDR_ICON.chat + '</span>';
+    }
+
+    function primaryOperator() {
+      var list = teamMembers.slice();
+      for (var i = 0; i < list.length; i++) { if (list[i] && list[i].online) return list[i]; }
+      return list[0] || null;
+    }
+
+    function operatorAvatarHtml(op, cls) {
+      var name = (op && op.name) ? String(op.name) : t('operator');
+      var avatar = op && op.avatar ? String(op.avatar) : '';
+      var online = !!(op && op.online);
+      var inner = avatar
+        ? '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
+        : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
+      return '<span class="' + cls + (avatar ? ' has-img' : '') + (online ? ' is-online' : '') + '" title="' + Util.escapeHtml(name) + '">' +
+        inner + (online ? '<span class="op-dot"></span>' : '') + '</span>';
+    }
+
+    function closeBtnHtml() {
+      return '<button type="button" class="hdr-icon-btn" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) +
+        '" title="' + Util.escapeHtml(t('closeWidget')) + '">' + HDR_ICON.close + '</button>';
+    }
+    function backBtnHtml() {
+      return '<button type="button" class="hdr-icon-btn" data-header-back aria-label="' + Util.escapeHtml(t('home')) +
+        '" title="' + Util.escapeHtml(t('home')) + '">' + HDR_ICON.back + '</button>';
+    }
+    function presenceHtml() {
+      return '<span class="presence" data-presence aria-live="polite">' +
+        '<span class="presence-dot" data-presence-dot></span>' +
+        '<span class="presence-label" data-presence-label></span>' +
+      '</span>';
+    }
+
+    function headerHtmlFor(view) {
+      var cls = 'header header-' + view + (headerRtl ? ' header-rtl' : '');
+      if (view === 'chat') {
+        var op = primaryOperator();
+        var opName = (op && op.name) ? String(op.name) : (headerTitle || t('support'));
+        var opRole = (op && (op.role || op.title)) ? String(op.role || op.title) : t('supportAgentRole');
+        return '<div class="' + cls + '"' + headerDirAttr + '>' +
+          backBtnHtml() +
+          '<div class="hdr-chat-id">' +
+            operatorAvatarHtml(op, 'hdr-avatar') +
+            '<span class="hdr-chat-text">' +
+              '<span class="hdr-chat-name">' + Util.escapeHtml(opName) + '</span>' +
+              '<span class="hdr-chat-role">' + Util.escapeHtml(opRole) + '</span>' +
+            '</span>' +
           '</div>' +
+          '<span class="hdr-spacer"></span>' +
+          closeBtnHtml() +
+        '</div>';
+      }
+      if (view === 'help') {
+        return '<div class="' + cls + '"' + headerDirAttr + '>' +
+          backBtnHtml() +
+          '<div class="hdr-center-title">' + Util.escapeHtml(t('help')) + '</div>' +
+          closeBtnHtml() +
+        '</div>';
+      }
+      // home (default)
+      var greetTitle = t('homeGreeting');
+      var cfgWelcome = (typeof config.welcomeMessage === 'string' && config.welcomeMessage.trim())
+        ? config.welcomeMessage.trim() : t('homeGreetingSub');
+      return '<div class="' + cls + '"' + headerDirAttr + '>' +
+        '<div class="hdr-top">' +
+          brandMarkHtml() +
+          '<div class="hdr-top-meta">' +
+            '<span class="hdr-top-title">' + Util.escapeHtml(headerTitle) + '</span>' +
+            presenceHtml() +
+          '</div>' +
+          '<span class="hdr-spacer"></span>' +
+          closeBtnHtml() +
         '</div>' +
-      '</div>' +
-      '<button type="button" class="header-close" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) + '" title="' + Util.escapeHtml(t('closeWidget')) + '">' +
-        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
-      '</button>' +
+        '<div class="hdr-greeting">' +
+          '<h2 class="hdr-greeting-title">' + Util.escapeHtml(greetTitle) + '</h2>' +
+          '<p class="hdr-greeting-sub">' + Util.escapeHtml(cfgWelcome).replace(/\n/g, '<br>') + '</p>' +
+        '</div>' +
       '</div>';
+    }
+
+    var headerHtml = headerHtmlFor(shellStore.get().activeTab === 'chat' ? 'chat'
+      : shellStore.get().activeTab === 'help' ? 'help' : 'home');
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
     var NAV_ICONS = {
@@ -5462,10 +5631,10 @@
     notify.attach(panel);
 
     // Phase 5 — presence indicator: keep header dot/label in sync with presenceStore.
-    var presenceDot = panel.querySelector('[data-presence-dot]');
-    var presenceLabel = panel.querySelector('[data-presence-label]');
-    var presenceWrap = panel.querySelector('[data-presence]');
     function renderPresence(s) {
+      var presenceDot = panel.querySelector('[data-presence-dot]');
+      var presenceLabel = panel.querySelector('[data-presence-label]');
+      var presenceWrap = panel.querySelector('[data-presence]');
       if (!presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
       // Presence is BOTH visual and screen-reader accessible (a11y rule).
@@ -5482,8 +5651,21 @@
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
+    function applyHeaderVariant(view) {
+      var host = panel.querySelector('.header');
+      if (!host) return;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = headerHtmlFor(view);
+      var next = wrap.firstChild;
+      if (next && host.parentNode) {
+        host.parentNode.replaceChild(next, host);
+        try { panel.setAttribute('data-view', view); } catch (_) {}
+        renderPresence(presenceStore.get());
+      }
+    }
     function switchTab(key) {
       shellStore.set({ activeTab: key });
+      applyHeaderVariant(key === 'chat' ? 'chat' : key === 'help' ? 'help' : 'home');
       Array.prototype.forEach.call(tabs, function (t2) {
         var on = t2.getAttribute('data-tab') === key;
         t2.classList.toggle('active', on);
@@ -5502,9 +5684,8 @@
         switchTab(tab.getAttribute('data-tab'));
       });
     });
-    var headerCloseBtn = panel.querySelector('[data-header-close]');
-    if (headerCloseBtn) {
-      headerCloseBtn.addEventListener('click', function () {
+    function closePanel() {
+      {
         // Route through the launcher so the loader's own open/close state
         // (badge, aria, animation) stays authoritative — same trick the
         // in-shell toast uses to open the panel.
@@ -5514,8 +5695,14 @@
           if (launcher) launcher.classList.remove('open');
           panel.classList.remove('visible');
         } catch (_) {}
-      });
+      }
     }
+    panel.addEventListener('click', function (ev) {
+      var el = ev.target && ev.target.closest ? ev.target.closest('[data-header-close],[data-header-back]') : null;
+      if (!el) return;
+      if (el.hasAttribute('data-header-back')) { switchTab('home'); return; }
+      closePanel();
+    });
 
     // ─── Composer state driven by transport store ───
     function applyComposerState() {

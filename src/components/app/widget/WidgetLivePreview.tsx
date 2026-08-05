@@ -13,7 +13,7 @@
  * (see `ctx.fetchWith` in public/widget/runtime.js). Every pixel — header,
  * home surface, bubbles, composer, tabs, RTL — comes from the real runtime.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
@@ -77,7 +77,8 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
     return () => { cancelled = true; };
   }, [wsId]);
 
-  const srcDoc = useMemo(() => {
+  // ─── Overrides (recomputed on every customization change) ───────────
+  const overrides = useMemo(() => {
     const s = settings || {};
     const lang = String(s.widget_language && s.widget_language !== 'auto' ? s.widget_language : s.locale || 'en')
       .toLowerCase().split('-')[0];
@@ -90,7 +91,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
     // Overrides mirror the field mapping in server/routes/widget.ts so the
     // operator sees unsaved edits. Everything not listed keeps the value the
     // server computed.
-    const overrides: Record<string, any> = {
+    const built: Record<string, any> = {
       brandName,
       primaryColor: s.primary_color || undefined,
       secondaryColor: s.secondary_color || undefined,
@@ -137,10 +138,33 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
       },
     };
     if (view === 'offline') {
-      overrides.availability = { state: 'offline', message: s.offline_message || '' };
+      built.availability = { state: 'offline', message: s.offline_message || '' };
     }
+    return built;
+  }, [settings, prechat, brandName, view]);
 
-    const payload = JSON.stringify({ api: apiBase(), cfg, cfgError, overrides })
+  // The iframe document is EXPENSIVE: recreating it re-executes loader.js,
+  // refetches runtime.css/runtime.js, resets runtime state and destroys the
+  // opening animation. It is therefore keyed ONLY on things that genuinely
+  // require a fresh boot: workspace, loader version, asset build and fatal
+  // boot state. Ordinary customization edits are streamed in as patches.
+  const bootKey = [
+    wsId,
+    cfg?.loaderVersion || '',
+    cfg?.runtimeUrl || '',
+    cfg?.styleUrl || '',
+    cfgError || '',
+  ].join('|');
+
+  const overridesRef = useRef(overrides);
+  overridesRef.current = overrides;
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const bootedKeyRef = useRef<string | null>(null);
+
+  const srcDoc = useMemo(() => {
+    const overrides = overridesRef.current;
+
+    const payload = JSON.stringify({ api: apiBase(), cfg, cfgError, overrides, parentOrigin: window.location.origin })
       .replace(/</g, '\\u003c');
 
     return `<!doctype html>
@@ -203,6 +227,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
   merged._apiBase = P.api;
   merged._assetBase = cfg.assetBase || P.api;
   merged._sessionToken = 'preview';
+  merged.previewParentOrigin = P.parentOrigin;
   window.__gs_preview_config = merged;
   var sc = document.createElement('script');
   // Loader must come from the ASSET base, not the API base — those are
@@ -216,11 +241,35 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
 })();
 </script>
 </body></html>`;
-  }, [settings, prechat, brandName, view, cfg, cfgError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bootKey]);
+
+  // ─── Live patch bridge ───────────────────────────────────────────────
+  // Ordinary customization edits (colors, FAB, copy, view…) are posted to the
+  // already-mounted widget. No iframe reload, no loader re-execution, no CSS
+  // refetch, no animation loss. The operator JWT is never sent.
+  useEffect(() => {
+    if (!cfg || cfgError) return;
+    if (bootedKeyRef.current !== bootKey) {
+      // Fresh document — the boot payload already carries these overrides.
+      bootedKeyRef.current = bootKey;
+      return;
+    }
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const { previewSeed, previewMode, ...patch } = overrides as Record<string, any>;
+    void previewSeed; void previewMode;
+    try {
+      win.postMessage({ type: 'GS_PREVIEW_CONFIG_PATCH', patch }, window.location.origin);
+    } catch {
+      /* preview patch is best-effort; the next boot re-syncs */
+    }
+  }, [overrides, bootKey, cfg, cfgError]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">
       <iframe
+        ref={iframeRef}
         title="widget-preview"
         srcDoc={srcDoc}
         className="h-full w-full border-0"

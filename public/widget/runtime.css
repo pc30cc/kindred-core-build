@@ -3057,3 +3057,88 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 /* Reserve room for the collapse chevron so avatars never sit under it. */
 .shell .header { padding-inline-end: 52px; }
 .shell .header-brand .header-op-stack { margin-inline-start: 4px; margin-inline-end: auto; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Gradient canvas (v4) — "hero fade"
+   The full-bleed gradient looked broken because the white content card sat
+   in the middle of it, cutting the gradient in half. v4 turns the gradient
+   into a HERO band at the top that melts into a soft neutral surface, so
+   there is never a hard white block floating inside colored space.
+   ══════════════════════════════════════════════════════════════════════ */
+.shell .panel {
+  background: #F4F7FB !important;
+}
+.shell .panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 230px;
+  z-index: 0;
+  pointer-events: none;
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
+  background:
+    radial-gradient(120% 90% at 85% -20%, rgba(255,255,255,.28), transparent 60%),
+    linear-gradient(var(--gs-grad-angle), var(--gs-grad-from) 0%, var(--gs-grad-to) 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 100%);
+}
+.shell .panel::after { display: none !important; content: none !important; }
+
+/* Body / input cards: white, but now they float on a neutral surface. */
+.shell .body {
+  background: #FFFFFF !important;
+  margin: 6px 10px 8px;
+  border-radius: 20px;
+  box-shadow: 0 12px 30px -22px rgba(2, 6, 23, .45), 0 0 0 1px rgba(15, 23, 42, .04);
+}
+.shell .input-bar {
+  box-shadow: 0 12px 30px -22px rgba(2, 6, 23, .45), 0 0 0 1px rgba(15, 23, 42, .04);
+}
+.shell .typing-row { color: #64748B; }
+
+/* Bottom navigation sits on the neutral surface → dark, legible labels. */
+.shell .tabs.tabs-bottom {
+  background: rgba(255, 255, 255, .86) !important;
+  border-top: 1px solid rgba(15, 23, 42, .06) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 6px 8px;
+  margin: 0 10px 8px;
+  border-radius: 18px;
+  box-shadow: 0 12px 30px -22px rgba(2, 6, 23, .45);
+}
+.shell .tabs.tabs-bottom .tab { color: #64748B; }
+.shell .tabs.tabs-bottom .tab:hover {
+  background: rgba(15, 23, 42, .05) !important;
+  color: #0F172A;
+}
+.shell .tabs.tabs-bottom .tab.active {
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 12%, #fff) !important;
+  color: var(--gs-primary, #3B82F6) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gs-primary, #3B82F6) 22%, transparent);
+}
+.shell .powered { color: #94A3B8; }
+.shell .powered a { color: #64748B !important; }
+
+/* ─── Collapse control: bigger hit area, clearer affordance ─── */
+.shell .header .header-close {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 12px;
+  cursor: pointer;
+  z-index: 5;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.shell .header .header-close::after {
+  /* invisible padded hit target for touch */
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+.shell .header .header-close:hover { transform: none; background: rgba(255,255,255,.32) !important; }
+.shell .header .header-close:active { transform: scale(.92); }
+.shell .header .header-close svg { width: 18px; height: 18px; }

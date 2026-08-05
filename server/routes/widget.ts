@@ -789,6 +789,13 @@ export const widgetConfigHandler = async (req: Request, res: Response) => {
         chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
         kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
       },
+      // Explicit, manifest-resolved realtime driver URLs. The runtime MUST
+      // consume these instead of guessing unhashed filenames.
+      rtModules: {
+        resolver: versionedAssetUrl(assetBase ? `${assetBase}/widget/${rtResolverName}` : null),
+        centrifugo: versionedAssetUrl(assetBase ? `${assetBase}/widget/${rtCentrifugoName}` : null),
+        supabase: versionedAssetUrl(assetBase ? `${assetBase}/widget/${rtSupabaseName}` : null),
+      },
       // Phase 4 — AI Agent snapshot. Used by the widget runtime to decide
       // whether to suppress the generic welcome greeting (the AI intro will
       // take its place after pre-chat).

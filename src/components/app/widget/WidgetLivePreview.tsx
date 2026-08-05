@@ -126,6 +126,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const dir = rtl ? 'rtl' : 'ltr';
 
     const primary: string = s.primary_color || '#6D5DFB';
+    const secondary: string = (s.secondary_color as string) || '#8B5CF6';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     const title = (localizedValue(s.launcher_text, 'launcher', locale) || s.fab_label || brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
@@ -142,7 +143,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
       1.4,
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
-    const fabSize = Math.round(56 * fabScale);
+    const fabSize = Math.round(58 * fabScale);
     const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
     const fabIcon = FAB_ICONS[(s.fab_icon as string) || 'chat'] || FAB_ICONS.chat;

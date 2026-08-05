@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
+import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
@@ -111,6 +112,21 @@ function WidgetPageContent() {
   const urls = useMemo(
     () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
     [platformWidget],
+  );
+
+  /**
+   * Real knowledge-base content for the preview: the operator must see exactly
+   * the articles/categories visitors get in the Help tab.
+   */
+  const { data: kbArticlesData } = useKBArticles(workspace?.id, effectiveLocale, 'published');
+  const { data: kbCategoriesData } = useKBCategories(workspace?.id, effectiveLocale);
+  const previewKbArticles = useMemo(
+    () => (kbArticlesData || []).slice(0, 6).map((a: any) => ({ title: a.title, excerpt: a.excerpt })),
+    [kbArticlesData],
+  );
+  const previewKbCategories = useMemo(
+    () => (kbCategoriesData || []).slice(0, 6).map((c: any) => ({ name: c.name, description: c.description })),
+    [kbCategoriesData],
   );
 
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
@@ -770,6 +786,8 @@ function WidgetPageContent() {
                 prechat={prechat}
                 brandName={platformName || t('widgetPage.preview.brandFallback')}
                 view={previewView}
+                kbArticles={previewKbArticles}
+                kbCategories={previewKbCategories}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

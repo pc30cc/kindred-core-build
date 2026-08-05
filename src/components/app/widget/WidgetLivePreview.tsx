@@ -24,6 +24,7 @@ type Dict = {
   homeStartChat: string; homeLeaveMessage: string;
   homeReplyFast: string; homeReplySlow: string;
   homeHelpTitle: string; homeSeeAll: string;
+  kbAllArticles: string; kbCategories: string; kbEmpty: string;
 };
 
 const DICTS: Record<string, Dict> = {
@@ -42,6 +43,8 @@ const DICTS: Record<string, Dict> = {
     homeReplyFast: 'Typically replies in a few minutes',
     homeReplySlow: "We'll reply by email as soon as we're back",
     homeHelpTitle: 'Find an answer', homeSeeAll: 'See all',
+    kbAllArticles: 'Popular articles', kbCategories: 'Browse by category',
+    kbEmpty: 'No articles published yet — add some in the Knowledge Base.',
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -58,6 +61,8 @@ const DICTS: Record<string, Dict> = {
     homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
     homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
     homeHelpTitle: 'پاسخ خود را پیدا کنید', homeSeeAll: 'مشاهده همه',
+    kbAllArticles: 'مقالات پرکاربرد', kbCategories: 'دسته‌بندی‌ها',
+    kbEmpty: 'هنوز مقاله‌ای منتشر نشده است — از بخش پایگاه دانش اضافه کنید.',
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -74,6 +79,8 @@ const DICTS: Record<string, Dict> = {
     homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
     homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
     homeHelpTitle: 'Yanıtınızı bulun', homeSeeAll: 'Tümünü gör',
+    kbAllArticles: 'Popüler makaleler', kbCategories: 'Kategoriye göre göz at',
+    kbEmpty: 'Henüz yayınlanmış makale yok — Bilgi Bankası’ndan ekleyin.',
   },
 };
 
@@ -116,9 +123,14 @@ export interface WidgetLivePreviewProps {
   prechat?: WidgetPrechatSettings | null;
   brandName: string;
   view: PreviewView;
+  /** Real published knowledge-base data so the preview matches the live widget. */
+  kbArticles?: { title: string; excerpt?: string | null }[];
+  kbCategories?: { name: string; description?: string | null }[];
 }
 
-export function WidgetLivePreview({ settings, prechat, brandName, view }: WidgetLivePreviewProps) {
+export function WidgetLivePreview({
+  settings, prechat, brandName, view, kbArticles, kbCategories,
+}: WidgetLivePreviewProps) {
   const srcDoc = useMemo(() => {
     const s = settings || {};
     const locale: string = s.widget_language || s.locale || 'en';
@@ -229,17 +241,50 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         </div>
       </div>`;
 
+    // Real published knowledge-base content (falls back to sample titles only
+    // when the workspace has nothing published yet).
+    const realArticles = (kbArticles || []).filter(a => a && a.title);
+    const realCategories = (kbCategories || []).filter(c => c && c.name);
+    const hasRealKb = realArticles.length > 0 || realCategories.length > 0;
+    const homeKbItems: string[] = hasRealKb
+      ? (realArticles.length ? realArticles : realCategories.map(c => ({ title: c.name })) as any)
+          .slice(0, 4)
+          .map((a: { title: string }) => a.title)
+      : [];
+
+    const kbEmptyBlock = `
+      <div class="kb-empty kb-empty-centered">
+        <div class="kb-empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        </div>
+        <p class="kb-empty-text">${esc(d.kbEmpty)}</p>
+      </div>`;
+
     const kbBody = `
       <div class="kb-root" dir="${dir}">
         <div class="kb-search-wrap">
           <input class="kb-search" type="search" placeholder="${esc(d.kbSearch)}" />
         </div>
-        <div class="kb-list">
-          ${d.kbArticles.map(a => `
-            <button type="button" class="kb-article">
-              <div class="kb-article-title">${esc(a)}</div>
-            </button>`).join('')}
-        </div>
+        ${!hasRealKb ? kbEmptyBlock : `
+          ${realArticles.length ? `
+            <div class="kb-section-h">${esc(d.kbAllArticles)}</div>
+            <div class="kb-list">
+              ${realArticles.map(a => `
+                <button type="button" class="kb-article">
+                  <div class="kb-article-title">${esc(a.title)}</div>
+                  ${a.excerpt ? `<div class="kb-article-excerpt">${esc(a.excerpt)}</div>` : ''}
+                </button>`).join('')}
+            </div>` : ''}
+          ${realCategories.length ? `
+            <div class="kb-section-h">${esc(d.kbCategories)}</div>
+            <div class="kb-list">
+              ${realCategories.map(c => `
+                <a class="kb-category">
+                  <div class="kb-article-title">${esc(c.name)}</div>
+                  ${c.description ? `<div class="kb-article-excerpt">${esc(c.description)}</div>` : ''}
+                </a>`).join('')}
+            </div>` : ''}
+        `}
       </div>`;
 
     const offlineBody = `
@@ -276,10 +321,10 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
             <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
           </div>
           <div class="home-kb-list">
-            ${d.kbArticles.map(a => `<button type="button" class="home-kb-item">
+            ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="home-kb-item">
               <span class="home-kb-title">${esc(a)}</span>
               <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
-            </button>`).join('')}
+            </button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
           </div>
         </section>` : ''}
       </div>`;
@@ -390,7 +435,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
 </script>
 </body>
 </html>`;
-  }, [settings, prechat, brandName, view]);
+  }, [settings, prechat, brandName, view, kbArticles, kbCategories]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">

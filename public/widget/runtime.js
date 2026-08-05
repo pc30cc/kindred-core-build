@@ -6480,14 +6480,32 @@
     // judge bubbles/typing/composer. Same stores, same renderers.
     if (ctx.previewMode) {
       var pv = ctx.previewView || 'home';
-      var seedMsgs = (config.previewSeed && config.previewSeed.messages) || [];
-      if (seedMsgs.length) {
-        chatStore.set({ conversationId: 'preview', messages: seedMsgs.slice() });
+      var seedRaw = (config.previewSeed && config.previewSeed.messages) || [];
+      if (seedRaw.length) {
+        // Normalize into the SAME internal message shape the real ingest
+        // path produces, so the renderer takes an identical branch.
+        var seedMsgs = seedRaw.map(function (m, i) {
+          var senderRaw = m.role || m.sender || m.sender_type || 'agent';
+          return {
+            body: m.text || m.body || m.content || '',
+            sender: (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator',
+            time: m.created_at ? new Date(m.created_at) : new Date(),
+            __id: m.id || ('preview-' + i),
+            attachment: null,
+            senderName: m.sender_name || null,
+            senderAvatar: m.sender_avatar || null,
+            status: senderRaw === 'visitor' || senderRaw === 'contact' ? 'seen' : null,
+            seenAt: null,
+            senderType: senderRaw,
+            metadata: null,
+          };
+        });
+        chatStore.set({ conversationId: 'preview', messages: seedMsgs });
       }
-      shellStore.set({ isOpen: true, activeTab: pv === 'chat' ? 'chat' : pv === 'help' ? 'help' : pv });
+      shellStore.set({ isOpen: true });
       try { panel.classList.add('visible'); } catch (_) {}
       if (launcher) launcher.classList.add('open');
-      renderBody();
+      switchTab(pv === 'chat' ? 'chat' : pv === 'help' ? 'help' : 'home');
     }
 
     // ─── Public API back to loader ───

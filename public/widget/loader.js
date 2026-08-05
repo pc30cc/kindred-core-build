@@ -109,6 +109,37 @@
 
   log("Loader version:", LOADER_VERSION);
 
+  // ─── Structured diagnostics ──────────────────────────────────────────
+  // Every terminal failure path records a machine-readable record on
+  // `window.__gs_last_error` so operators can tell WHICH stage failed and
+  // WHICH url/status caused it, instead of reading a generic toast.
+  //   { code, url, status, contentType, resource, message, at }
+  // Codes:
+  //   API_BASE_MISSING     — no data-api-base / window.__gs_api_base
+  //   WORKSPACE_ID_MISSING — no data-workspace-id / window.__gs_id
+  //   WORKSPACE_NOT_FOUND  — bootstrap 404 / MISSING_WORKSPACE
+  //   ORIGIN_DENIED        — bootstrap 401/403 (origin not allow-listed)
+  //   WIDGET_DISABLED      — widget turned off for this workspace
+  //   BOOTSTRAP_FAILED     — bootstrap/config transport or 5xx failure
+  //   ASSET_URLS_MISSING   — config returned no hashed runtime/style url
+  //   STYLE_LOAD_FAILED    — runtime.css failed to load
+  //   RUNTIME_LOAD_FAILED  — runtime.js failed to load
+  //   RUNTIME_INIT_FAILED  — runtime loaded but init threw / didn't register
+  function setLastError(code, detail) {
+    var rec = { code: code, at: new Date().toISOString() };
+    if (detail) {
+      for (var k in detail) { if (detail[k] !== undefined) rec[k] = detail[k]; }
+    }
+    try { window.__gs_last_error = rec; } catch (_) {}
+    try {
+      // Always surfaced (not gated behind DEBUG) — a silent widget with no
+      // console trace is what made these outages hard to diagnose.
+      console.error("[Widget] " + code, rec);
+    } catch (_) {}
+    return rec;
+  }
+  try { window.__gs_last_error = null; } catch (_) {}
+
   // ─── Pending command queue (window.__gs.push(['open']) etc.) ───
   var GS = window.__gs || [];
   var queue = [];

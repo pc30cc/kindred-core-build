@@ -24,7 +24,7 @@ type Dict = {
   homeStartChat: string; homeLeaveMessage: string;
   homeReplyFast: string; homeReplySlow: string;
   homeHelpTitle: string; homeSeeAll: string;
-  kbAllArticles: string; kbCategories: string; kbEmpty: string;
+  kbAllArticles: string; kbCategories: string; kbEmpty: string; kbBack: string;
 };
 
 const DICTS: Record<string, Dict> = {
@@ -45,6 +45,7 @@ const DICTS: Record<string, Dict> = {
     homeHelpTitle: 'Find an answer', homeSeeAll: 'See all',
     kbAllArticles: 'Popular articles', kbCategories: 'Browse by category',
     kbEmpty: 'No articles published yet — add some in the Knowledge Base.',
+    kbBack: 'Back to articles',
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -63,6 +64,7 @@ const DICTS: Record<string, Dict> = {
     homeHelpTitle: 'پاسخ خود را پیدا کنید', homeSeeAll: 'مشاهده همه',
     kbAllArticles: 'مقالات پرکاربرد', kbCategories: 'دسته‌بندی‌ها',
     kbEmpty: 'هنوز مقاله‌ای منتشر نشده است — از بخش پایگاه دانش اضافه کنید.',
+    kbBack: 'بازگشت به مقاله‌ها',
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -81,6 +83,7 @@ const DICTS: Record<string, Dict> = {
     homeHelpTitle: 'Yanıtınızı bulun', homeSeeAll: 'Tümünü gör',
     kbAllArticles: 'Popüler makaleler', kbCategories: 'Kategoriye göre göz at',
     kbEmpty: 'Henüz yayınlanmış makale yok — Bilgi Bankası’ndan ekleyin.',
+    kbBack: 'Makalelere dön',
   },
 };
 
@@ -97,6 +100,15 @@ const FAB_ICONS: Record<string, string> = {
 function esc(v: unknown): string {
   return String(v ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+function articleText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 // Mirrors server/routes/widget.ts: English seed values are treated as unset
@@ -124,7 +136,7 @@ export interface WidgetLivePreviewProps {
   brandName: string;
   view: PreviewView;
   /** Real published knowledge-base data so the preview matches the live widget. */
-  kbArticles?: { title: string; excerpt?: string | null }[];
+  kbArticles?: { title: string; excerpt?: string | null; content?: string | null }[];
   kbCategories?: { name: string; description?: string | null }[];
   /** Fired when the operator clicks a nav tab inside the preview. */
   onViewChange?: (view: PreviewView) => void;
@@ -259,11 +271,28 @@ export function WidgetLivePreview({
     const realArticles = (kbArticles || []).filter(a => a && a.title);
     const realCategories = (kbCategories || []).filter(c => c && c.name);
     const hasRealKb = realArticles.length > 0 || realCategories.length > 0;
-    const homeKbItems: string[] = hasRealKb
-      ? (realArticles.length ? realArticles : realCategories.map(c => ({ title: c.name })) as any)
-          .slice(0, 4)
-          .map((a: { title: string }) => a.title)
+    const homeKbItems: { title: string; articleIndex?: number }[] = hasRealKb
+      ? (realArticles.length
+          ? realArticles.slice(0, 4).map((a, index) => ({ title: a.title, articleIndex: index }))
+          : realCategories.slice(0, 4).map(c => ({ title: c.name })))
       : [];
+
+    const articleTemplates = realArticles.map((a, index) => {
+      const bodyText = articleText(a.content) || articleText(a.excerpt);
+      return `<template id="preview-article-${index}">
+        <div class="kb-root kb-article-view" dir="${dir}">
+          <button type="button" class="kb-back" data-preview-kb-back>
+            <span aria-hidden="true">${rtl ? '→' : '←'}</span>
+            <span>${esc(d.kbBack)}</span>
+          </button>
+          <article>
+            <h2 class="kb-article-h">${esc(a.title)}</h2>
+            ${a.excerpt ? `<p class="kb-article-excerpt-full">${esc(a.excerpt)}</p>` : ''}
+            <div class="kb-article-body">${esc(bodyText).replace(/\n/g, '<br>')}</div>
+          </article>
+        </div>
+      </template>`;
+    }).join('');
 
     const kbEmptyBlock = `
       <div class="kb-empty kb-empty-centered">
@@ -283,7 +312,7 @@ export function WidgetLivePreview({
             <div class="kb-section-h">${esc(d.kbAllArticles)}</div>
             <div class="kb-list">
               ${realArticles.map(a => `
-                <button type="button" class="kb-article">
+                <button type="button" class="kb-article" data-preview-article="${realArticles.indexOf(a)}">
                   <div class="kb-article-title">${esc(a.title)}</div>
                   ${a.excerpt ? `<div class="kb-article-excerpt">${esc(a.excerpt)}</div>` : ''}
                 </button>`).join('')}
@@ -334,8 +363,8 @@ export function WidgetLivePreview({
             <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
           </div>
           <div class="home-kb-list">
-            ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="home-kb-item">
-              <span class="home-kb-title">${esc(a)}</span>
+            ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="home-kb-item"${a.articleIndex !== undefined ? ` data-preview-article="${a.articleIndex}"` : ' data-preview-open-help'}>
+              <span class="home-kb-title">${esc(a.title)}</span>
               <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
             </button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
           </div>
@@ -426,6 +455,7 @@ export function WidgetLivePreview({
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
+    ${articleTemplates}
   </div>
 <script>
   // Preview-only: let the operator open/close the widget exactly like a visitor.
@@ -453,6 +483,37 @@ export function WidgetLivePreview({
       if (!el) return;
       e.preventDefault();
       parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-preview-nav') }, '*');
+    });
+  })();
+
+  // Preview-only: open a real article and support returning to the list.
+  (function () {
+    var body = document.querySelector('.panel > .body');
+    if (!body) return;
+    var initialMarkup = body.innerHTML;
+    document.addEventListener('click', function (e) {
+      var target = e.target && e.target.closest ? e.target : null;
+      if (!target) return;
+      var article = target.closest('[data-preview-article]');
+      if (article) {
+        e.preventDefault();
+        var template = document.getElementById('preview-article-' + article.getAttribute('data-preview-article'));
+        if (template) {
+          body.innerHTML = template.innerHTML;
+          body.scrollTop = 0;
+        }
+        return;
+      }
+      if (target.closest('[data-preview-kb-back]')) {
+        e.preventDefault();
+        body.innerHTML = initialMarkup;
+        body.scrollTop = 0;
+        return;
+      }
+      if (target.closest('[data-preview-open-help]')) {
+        e.preventDefault();
+        parent.postMessage({ source: 'gs-widget-preview', nav: 'help' }, '*');
+      }
     });
   })();
 </script>

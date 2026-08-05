@@ -90,10 +90,14 @@ textarea:focus-visible {
   transform: translateY(0) scale(1);
   pointer-events: auto;
 }
+/* physical: viewport anchoring driven by the JS `position` setting (bottom-right/bottom-left)
+   `--gs-launcher-zone` = launcher bottom offset (24px) + launcher box (62px, up to
+   ~66px at scale 105) + breathing room, so the panel never sits under the FAB
+   or its halo rings. The panel height below subtracts the same value. */
+.panel { --gs-launcher-zone: 104px; }
+.panel.bottom-right { bottom: var(--gs-launcher-zone); right: 24px; }
 /* physical: viewport anchoring driven by the JS `position` setting (bottom-right/bottom-left) */
-.panel.bottom-right { bottom: 92px; right: 24px; }
-/* physical: viewport anchoring driven by the JS `position` setting (bottom-right/bottom-left) */
-.panel.bottom-left  { bottom: 92px; left: 24px; }
+.panel.bottom-left  { bottom: var(--gs-launcher-zone); left: 24px; }
 
 /* ─── Header ─── */
 .header > * { position: relative; z-index: 1; }

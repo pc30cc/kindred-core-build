@@ -591,6 +591,9 @@
     }
 
     var bootstrapUrl = apiBase + "/api/widget/bootstrap";
+    var configUrlUsed = apiBase + "/api/widget/config";
+    var lastBootstrapStatus = 0;
+    var lastConfigStatus = 0;
     var bootstrapBody = JSON.stringify({
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
@@ -656,8 +659,9 @@
           }
         } catch (_) {}
 
+        configUrlUsed = apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID);
         return fetchWithRetry(
-          apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
+          configUrlUsed,
           {
             credentials: "include",
             headers: { "X-Widget-Token": sessionToken },

@@ -14,6 +14,7 @@ class TS(socketserver.TCPServer): allow_reuse_address = True
 srv = TS(("127.0.0.1", PORT), handler)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f"http://127.0.0.1:{PORT}"
+API_BASE = "http://127.0.0.1:8098"  # deliberately different origin (no assets here)
 
 # Exactly the document WidgetLivePreview renders, with the authenticated
 # config response injected by the parent (fa / RTL).
@@ -39,15 +40,19 @@ CFG = {
         {"id": "p1", "sender_type": "agent", "content": "سلام! چطور می‌توانیم کمکتان کنیم؟", "created_at": "2026-08-05T10:00:00Z"},
         {"id": "p2", "sender_type": "contact", "content": "سلام، دربارهٔ تعرفه‌ها سؤال داشتم.", "created_at": "2026-08-05T10:01:00Z"},
     ]},
-    "_apiBase": BASE, "_assetBase": BASE, "_sessionToken": "preview",
+    # loaderUrl is served by the ASSET base; the API base is a DIFFERENT
+    # origin here so a regression that loads the loader from the API origin
+    # fails loudly (split-domain deployment shape).
+    "loaderUrl": f"{BASE}/widget/loader.js?v={MANIFEST['loaderVersion']}",
+    "_apiBase": API_BASE, "_assetBase": BASE, "_sessionToken": "preview",
 }
 
 HTML = """<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%%;background:#F1F5F9}</style></head>
 <body><script>
 window.__gs_preview_config = %s;
 var s=document.createElement('script');
-s.src='%s/widget/loader.js?v=%s';s.async=true;document.body.appendChild(s);
-</script></body></html>""" % (json.dumps(CFG, ensure_ascii=False), BASE, MANIFEST["loaderVersion"])
+s.src=window.__gs_preview_config.loaderUrl;s.async=true;document.body.appendChild(s);
+</script></body></html>""" % (json.dumps(CFG, ensure_ascii=False),)
 
 async def main():
     async with async_playwright() as pw:
@@ -101,13 +106,17 @@ async def main():
             cssApplied: cs.position === 'fixed' || cs.position === 'absolute',
           };
         }""")
+        loader_reqs = [u for _, u in net if '/widget/loader.js' in u]
         assets = [(s, u.split('/')[-1]) for s, u in net if '/widget/' in u]
+        loader_from_asset_base = bool(loader_reqs) and all(u.startswith(BASE) for u in loader_reqs)
+        print("1b. loader origin:", loader_reqs, "from asset base:", loader_from_asset_base)
+        print("1c. config reached iframe:", await page.evaluate("!!(window.__gs_preview_config && window.__gs_preview_config.runtimeUrl)"))
         print("2. widget network:", assets)
         print("3. panel state:", json.dumps(state, ensure_ascii=False))
         print("4. console errors:", errs[:5])
         await page.screenshot(path=str(SHOTS / "preview-fa-rtl.png"))
 
-        ok = (state["panelVisible"] and state["cssApplied"] and state["rtlDir"] == "rtl"
+        ok = (loader_from_asset_base and state["panelVisible"] and state["cssApplied"] and state["rtlDir"] == "rtl"
               and all(s == 200 for s, _ in assets)
               and any(u.startswith("runtime.") and u.endswith(".js") for _, u in assets)
               and any(u.startswith("runtime.") and u.endswith(".css") for _, u in assets))

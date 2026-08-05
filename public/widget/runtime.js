@@ -23,6 +23,8 @@
   'use strict';
 
   var __gs_runtime = {};
+  var RUNTIME_VERSION = '2026-08-05-canonical-v1';
+  __gs_runtime._version = RUNTIME_VERSION;
 
   // ════════════════════════════════════════════════════════════════════
   // Util
@@ -4973,7 +4975,7 @@
     // before the panel opens. Best-effort; never blocks any UI.
     try { resolveDepartmentMode('chat'); } catch (_) {}
 
-    // Expose for debug + future templates.
+    // Expose for debug.
     ctx.departments = {
       resolve: resolveDepartmentMode,
       select: deptSelect,
@@ -4995,9 +4997,6 @@
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
     try { shellDiv.setAttribute('data-widget-design', 'canonical-v1'); } catch (_) {}
-    if (ctx.template && typeof ctx.template.prepareShell === 'function') {
-      try { ctx.template.prepareShell(shellDiv, ctx); } catch (e) { Util.warn('template.prepareShell err', e); }
-    }
     var launcher = shell.launcher;
 
     // ─── Domain stores (each one isolated, with pub/sub) ───

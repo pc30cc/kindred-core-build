@@ -5147,6 +5147,15 @@
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){}, destroy: function(){} };
     }
     try { shellDiv.setAttribute('data-widget-design', 'canonical-v1'); } catch (_) {}
+    // Canonical mode + motion classes (idempotent with loader.js — the runtime
+    // may create the shell itself when it is mounted standalone).
+    try {
+      var _preview = !!ctx.previewMode;
+      shellDiv.classList.toggle('gs-mode-preview', _preview);
+      shellDiv.classList.toggle('gs-mode-runtime', !_preview);
+      var _fab = (config && config.fab) || {};
+      shellDiv.classList.toggle('gs-no-anim', _fab.animation === false);
+    } catch (_) {}
     var launcher = shell.launcher;
 
     // ─── Domain stores (each one isolated, with pub/sub) ───

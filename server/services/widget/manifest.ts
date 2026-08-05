@@ -258,13 +258,22 @@ function hashedPattern(logical: string): RegExp {
   return new RegExp(`^${esc(dir)}${esc(stem)}\\.[a-f0-9]{8}\\.${esc(ext)}$`);
 }
 
-/** Assets that MUST exist and MUST be content-hashed in production. */
+/**
+ * Assets that MUST exist and MUST be content-hashed in production.
+ * This list mirrors HASHED_FILES + VENDOR_FILES in scripts/widget-hash.js:
+ * every asset production can load must be verified, otherwise a partially
+ * built manifest would silently serve an unhashed (uncacheable/stale) file.
+ */
 export const REQUIRED_HASHED_ASSETS: WidgetAssetKey[] = [
   'runtime.js',
   'runtime.css',
   'runtime-chat.js',
   'runtime-kb.js',
   'runtime-call.js',
+  'runtime-rt-centrifugo.js',
+  'runtime-rt-supabase.js',
+  'runtime-rt-resolver.js',
+  'vendor/livekit-client.umd.min.js',
 ];
 
 /**
@@ -408,7 +417,16 @@ function requireManifest(): WidgetManifest {
 
 export function getWidgetAssetName(logical: WidgetAssetKey): string {
   const manifest = requireManifest();
-  return manifest[logical] || logical;
+  const name = manifest[logical];
+  if (unhashedFallbackAllowed()) return name || logical;
+  // Production: never hand back an unhashed logical name for a consumed
+  // asset — that would serve a non-cacheable/possibly-stale file.
+  if (!name || !hashedPattern(logical).test(name)) {
+    const diagnostics = buildDiagnostics(manifest);
+    console.error(`[widget-manifest] Unhashed/missing asset in production: ${logical}=${name ?? 'missing'}`, diagnostics);
+    throw new WidgetManifestUnavailableError(diagnostics);
+  }
+  return name;
 }
 
 export function getLoaderVersion(): string {

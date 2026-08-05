@@ -201,7 +201,11 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
   merged._sessionToken = 'preview';
   window.__gs_preview_config = merged;
   var sc = document.createElement('script');
-  sc.src = P.api + '/widget/loader.js?v=' + encodeURIComponent(cfg.loaderVersion || 'preview');
+  // Loader must come from the ASSET base, not the API base — those are
+  // different domains in split deployments. Prefer the explicit loaderUrl
+  // the config returns; fall back to assetBase, then the API origin.
+  sc.src = cfg.loaderUrl
+    || ((cfg.assetBase || P.api) + '/widget/loader.js?v=' + encodeURIComponent(cfg.loaderVersion || 'preview'));
   sc.async = true;
   sc.onerror = function () { fail('Preview unavailable: widget loader could not be fetched.'); };
   document.body.appendChild(sc);

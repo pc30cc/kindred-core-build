@@ -377,13 +377,21 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <span class="typing-label">${esc(title)} ${esc(d.typing)}</span>
       </div>
       <div class="input-bar">
+        <div class="composer-field">
+          <button type="button" class="emoji-btn" aria-label="emoji">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </button>
+          ${s.attachments_enabled !== false ? `<button type="button" class="attach-btn" aria-label="attach">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>` : ''}
+          <input class="input" placeholder="${esc(placeholder)}" />
+          <button type="button" class="mic-btn" aria-label="voice">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </button>
+        </div>
         <button type="button" class="send-btn" style="background:${esc(primary)}">
           <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
-        ${s.attachments_enabled !== false ? `<button type="button" class="attach-btn">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-        </button>` : ''}
-        <input class="input" placeholder="${esc(placeholder)}" />
       </div>` : '';
 
     const powered = `<div class="powered">${esc(d.poweredBy)} <a href="#">${esc(brandName || title)}</a></div>`;
@@ -436,7 +444,7 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
   <div class="shell" data-template="default">
-    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}" dir="${dir}">
+    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}" dir="${dir}" data-view="${esc(activeNav)}">
       ${header}
       <div class="body">${body}</div>
       ${composer}

@@ -5252,7 +5252,7 @@
        ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
-    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
+    panel.innerHTML = headerHtml + bodyHtml + inputHtml + tabsHtml + poweredHtml +
       // Phase 6b — lightbox container, hidden by default.
       '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
         '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' + Util.escapeHtml(t('closePreview')) + '">×</button>' +

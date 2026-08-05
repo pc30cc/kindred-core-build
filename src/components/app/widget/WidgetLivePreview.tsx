@@ -148,15 +148,8 @@ export function WidgetLivePreview({ settings, prechat, brandName, view, workspac
 <style>
   html,body{margin:0;height:100%;}
   body{background:#F1F5F9;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
-  /* Preview-only sizing: the panel fills the preview frame (minus the launcher
-     zone) and its edge lines up exactly with the floating launcher. */
-  .panel{
-    block-size: calc(100vh - 104px - 16px) !important;
-    max-block-size: none !important;
-    min-block-size: 0 !important;
-    inline-size: min(400px, calc(100vw - 48px)) !important;
-  }
-  /* keep the pulse/hover scale from pushing the launcher past its anchored edge */
+  /* keep the pulse/hover scale from pushing the launcher past its anchored edge
+     (panel sizing itself lives in runtime.css under .panel-preview) */
   .launcher.bottom-right{ transform-origin: bottom right !important; }
   .launcher.bottom-left{ transform-origin: bottom left !important; }
   .site{padding:22px;}

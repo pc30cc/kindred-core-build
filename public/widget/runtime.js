@@ -5563,6 +5563,63 @@
       '</div>';
     shellDiv.appendChild(panel);
 
+    // ─── Panel open/close paint sequencing ───────────────────────────
+    // The panel is created WITHOUT `.visible`. Adding `.visible` in the same
+    // render cycle in which the element was created means the browser never
+    // paints the closed state, so the CSS transition has no starting frame
+    // and the opening animation silently does not run.
+    //
+    // Sequence (animation enabled):
+    //   1. panel exists, closed (opacity 0, pointer-events none, offset)
+    //   2. rAF #1  → closed DOM state is committed (forced reflow)
+    //   3. rAF #2  → `.visible` added after a real paint boundary
+    //   4. CSS transition animates
+    // Animation OFF (`config.fab.animation === false`) or OS reduced-motion:
+    // `.visible` is added synchronously and no rAF is left pending.
+    var __openRafs = [];
+    var __panelPainted = false;
+    function motionDisabled() {
+      var fab = (config && config.fab) || {};
+      if (fab.animation === false) return true;
+      try {
+        return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      } catch (_) { return false; }
+    }
+    function cancelOpenRafs() {
+      for (var i = 0; i < __openRafs.length; i++) {
+        try { cancelAnimationFrame(__openRafs[i]); } catch (_) {}
+      }
+      __openRafs.length = 0;
+    }
+    function openPanelAnimated() {
+      cancelOpenRafs();
+      if (motionDisabled()) {
+        __panelPainted = true;
+        panel.classList.add('visible');
+        return;
+      }
+      panel.classList.remove('visible');
+      __openRafs.push(requestAnimationFrame(function () {
+        void panel.getBoundingClientRect();
+        if (__panelPainted) {
+          // Already painted at least once — one frame is enough.
+          __openRafs.length = 0;
+          if (!motionDisabled()) panel.classList.add('visible');
+          else panel.classList.add('visible');
+          return;
+        }
+        __openRafs.push(requestAnimationFrame(function () {
+          __openRafs.length = 0;
+          __panelPainted = true;
+          panel.classList.add('visible');
+        }));
+      }));
+    }
+    function closePanelAnimated() {
+      cancelOpenRafs();
+      panel.classList.remove('visible');
+    }
+
     var typingRow = panel.querySelector('[data-typing-row]');
     var typingLabel = panel.querySelector('[data-typing-label]');
     var body = panel.querySelector('[data-body]');
@@ -5731,9 +5788,10 @@
     presenceStore.subscribe(renderPresence);
     renderPresence(presenceStore.get());
 
-    // Open immediately (user clicked launcher)
+    // Open (user clicked launcher). Goes through the paint-sequenced opener
+    // so the closed frame is painted first and the transition actually runs.
     shellStore.set({ isOpen: true, mounted: true });
-    panel.classList.add('visible');
+    openPanelAnimated();
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
@@ -5779,7 +5837,7 @@
           syncDraftFromInput();
           shellStore.set({ isOpen: false });
           if (launcher) launcher.classList.remove('open');
-          panel.classList.remove('visible');
+          closePanelAnimated();
         } catch (_) {}
       }
     }
@@ -6401,7 +6459,7 @@
             // launcher state, focus, and unread clearing all behave normally.
             shellStore.set({ activeTab: 'chat', isOpen: true });
             if (launcher) launcher.classList.add('open');
-            if (panel) panel.classList.add('visible');
+            if (panel) openPanelAnimated();
             notify.hideToast();
             renderBody();
           }
@@ -6534,7 +6592,7 @@
       }
       shellStore.set({ isOpen: true });
       try { transportStore.set({ connectionState: 'online', lastConnectionChange: Date.now() }); } catch (_) {}
-      try { panel.classList.add('visible'); } catch (_) {}
+      try { openPanelAnimated(); } catch (_) {}
       // PREVIEW: the launcher deliberately stays in its closed/idle look —
       // visible below the panel — so the operator can inspect icon, color,
       // size, shape, label, badge and alignment while the panel is open.
@@ -6547,7 +6605,7 @@
         if (shellStore.get().isOpen) return;
         shellStore.set({ isOpen: true });
         if (launcher && !ctx.previewMode) launcher.classList.add('open');
-        panel.classList.add('visible');
+        openPanelAnimated();
         // Hide any pending toast — user is now looking at the panel.
         notify.hideToast();
         // Phase 4: clear unread for the ACTIVE conversation only.
@@ -6564,7 +6622,7 @@
         syncDraftFromInput();
         shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
-        panel.classList.remove('visible');
+        closePanelAnimated();
       },
       toggle: function () {
         if (shellStore.get().isOpen) this.close(); else this.open();
@@ -6572,6 +6630,58 @@
       setUnread: function (count) {
         // Public bridge: sets the global counter directly (loader API parity).
         notify.setUnread(count);
+      },
+
+      /**
+       * PREVIEW ONLY — apply a customization patch to the ALREADY MOUNTED
+       * instance. The admin live preview uses this instead of recreating the
+       * iframe, so loader.js / runtime.js / runtime.css each execute exactly
+       * once per preview session.
+       *
+       * `config` is the same object reference the loader merges the patch
+       * into, so the values are already current when we get here; this method
+       * only re-renders the surfaces that depend on them. It never creates a
+       * second <gs-widget>, panel or runtime, and never starts real visitor
+       * network traffic.
+       */
+      applyPreviewConfig: function (patch) {
+        if (!ctx.previewMode || !patch || typeof patch !== 'object') return;
+        try {
+          // Position (panel anchor) — launcher side is owned by the loader.
+          if (patch.position) {
+            var nextPos = patch.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
+            panel.classList.remove('bottom-left', 'bottom-right');
+            panel.classList.add(nextPos);
+          }
+          // RTL / LTR.
+          var loc = String(patch.widgetLanguage && patch.widgetLanguage !== 'auto'
+            ? patch.widgetLanguage : (patch.locale || ctx.locale || 'en')).toLowerCase().split('-')[0];
+          if (patch.locale !== undefined || patch.widgetLanguage !== undefined) {
+            if (loc === 'fa') { panel.setAttribute('dir', 'rtl'); panel.classList.add('panel-rtl'); }
+            else { panel.setAttribute('dir', 'ltr'); panel.classList.remove('panel-rtl'); }
+          }
+          // Animation toggle must settle IMMEDIATELY — no pending RAF queue,
+          // no half-finished transition.
+          if (patch.fab && patch.fab.animation !== undefined) {
+            cancelOpenRafs();
+            if (patch.fab.animation === false && shellStore.get().isOpen) {
+              panel.classList.add('visible');
+            }
+          }
+          // Brand / copy / logo surfaces.
+          headerTitle = (config.launcherText && String(config.launcherText).trim())
+            || config.brandName || t('support');
+          var view = shellStore.get().activeTab === 'chat' ? 'chat'
+            : shellStore.get().activeTab === 'help' ? 'help' : 'home';
+          if (patch.previewView) {
+            var pvNext = patch.previewView === 'chat' ? 'chat'
+              : (patch.previewView === 'help' || patch.previewView === 'kb') ? 'help' : 'home';
+            switchTab(pvNext);
+          } else {
+            applyHeaderVariant(view);
+            renderBody();
+          }
+        } catch (e) { Util.log('applyPreviewConfig failed', e); }
       },
       setSoundEnabled: function (enabled) {
         uiPrefsStore.set({ soundEnabled: !!enabled });

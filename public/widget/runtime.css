@@ -77,6 +77,11 @@ textarea:focus-visible {
 }
 
 /* ─── Panel ─── */
+/* CSS readiness sentinel. loader.js polls this custom property on `.shell`
+   with getComputedStyle() to prove runtime.css was really APPLIED (a `load`
+   event on the <link> is not sufficient — an HTML error document also fires
+   `load`). Do not remove or rename: see `waitForRuntimeCss()` in loader.js. */
+.shell { --gs-runtime-css-ready: 1; }
 .panel {
   position: fixed;
   z-index: 2147483645;

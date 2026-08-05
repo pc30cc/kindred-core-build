@@ -23,6 +23,15 @@
   var WIDGET_DESIGN = "canonical-v1";
   var ELEMENT_TAG = "gs-widget";
 
+  // ─── Lifecycle counters (used by the no-reload acceptance test) ───
+  // Incremented on EVERY execution of this script / every runtime.init().
+  // A live preview that patches config instead of remounting must keep both
+  // of these at 1 across arbitrarily many customization changes.
+  try {
+    window.__gs_loader_execs = (window.__gs_loader_execs || 0) + 1;
+    window.__gs_runtime_inits = window.__gs_runtime_inits || 0;
+  } catch (_) {}
+
   // ─── Version-aware singleton guard ───
   // A plain "already loaded → return" guard made the SPA version check
   // downstream unreachable: after a route swap the host page re-injects a
@@ -123,6 +132,8 @@
   //   BOOTSTRAP_FAILED     — bootstrap/config transport or 5xx failure
   //   ASSET_URLS_MISSING   — config returned no hashed runtime/style url
   //   STYLE_LOAD_FAILED    — runtime.css failed to load
+  //   STYLE_NOT_APPLIED    — runtime.css "loaded" but its readiness sentinel
+  //                          never appeared (wrong content-type / HTML page)
   //   RUNTIME_LOAD_FAILED  — runtime.js failed to load
   //   RUNTIME_INIT_FAILED  — runtime loaded but init threw / didn't register
   function setLastError(code, detail) {
@@ -315,6 +326,14 @@
     ".shell.gs-no-anim .launcher,.shell.gs-no-anim .gs-fab-label,.shell.gs-no-anim .error-toast{transition:none!important;animation:none!important;}",
     ".shell.gs-no-anim .launcher:hover,.shell.gs-no-anim .launcher:active{transform:none!important;}",
     "@media(prefers-reduced-motion:reduce){.launcher,.gs-fab-label{transition:none!important;animation:none!important;}.launcher:hover,.launcher:active{transform:none!important;}}",
+
+    /* ══ Loading cloak (FOUC guard) ═══════════════════════════════════
+       These rules ship INLINE with the shell, so they are in effect before
+       runtime.css has loaded. Any panel markup the runtime creates stays
+       fully invisible and non-interactive until the loader has PROVEN the
+       stylesheet was applied (`gs-css-ready`) and the closed initial state
+       has been committed (`gs-runtime-loading` removed). */
+    ".shell.gs-runtime-loading .panel,.shell:not(.gs-css-ready) .panel{visibility:hidden!important;opacity:0!important;pointer-events:none!important;}",
   ].join("");
 
   // ─── <gs-widget> custom element ───
@@ -470,6 +489,55 @@
     setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
   }
 
+  // ─── Runtime CSS readiness ───────────────────────────────────────────
+  // `link.onload` alone is NOT proof: an asset host that returns index.html
+  // (or a 200 text/html error page) also fires `load`. runtime.css declares
+  // `.shell{--gs-runtime-css-ready:1}`; we poll the computed value across
+  // animation frames and only then treat the stylesheet as applied.
+  function waitForRuntimeCss(shell) {
+    return new Promise(function (resolve, reject) {
+      var attempts = 0;
+      function check() {
+        var ready = false;
+        try {
+          ready = getComputedStyle(shell).getPropertyValue("--gs-runtime-css-ready").trim() === "1";
+        } catch (_) { ready = false; }
+        if (ready) { resolve(); return; }
+        attempts += 1;
+        if (attempts >= 10) { reject(new Error("runtime_css_not_applied")); return; }
+        requestAnimationFrame(check);
+      }
+      requestAnimationFrame(check);
+    });
+  }
+  function shellDivEl() {
+    return shadowRoot ? shadowRoot.querySelector(".shell") : null;
+  }
+  function beginRuntimeCloak() {
+    var s = shellDivEl();
+    if (!s) return;
+    s.classList.add("gs-runtime-loading");
+    s.classList.remove("gs-css-ready");
+  }
+  function markCssReady() {
+    var s = shellDivEl();
+    if (s) s.classList.add("gs-css-ready");
+  }
+  // Removes the cloak on the NEXT frame, after the runtime's closed panel
+  // state has been committed — so the first painted frame of the panel is
+  // the styled, closed one, never raw markup.
+  function endRuntimeCloak() {
+    var s = shellDivEl();
+    if (!s) return;
+    requestAnimationFrame(function () { s.classList.remove("gs-runtime-loading"); });
+  }
+  function destroyPartialPanel() {
+    try {
+      var p = shadowRoot && shadowRoot.querySelector(".panel");
+      if (p && p.parentNode) p.parentNode.removeChild(p);
+    } catch (_) {}
+  }
+
   // ─── Canonical mode + motion flags ───────────────────────────────────
   // mode: "preview" (admin customization canvas) | "runtime" (real site).
   // Motion is driven by the single existing setting `config.fab.animation`.
@@ -595,6 +663,83 @@
   }
 
   // ─── HTTP helper with capped retries & jitter ───
+  // ─── Live preview patch bridge ───────────────────────────────────────
+  // The admin customization page mounts this loader ONCE and then streams
+  // ordinary setting changes in as patches, instead of recreating the iframe
+  // (which reloaded loader.js + runtime.css on every keystroke and killed
+  // both the animation and the styled-first-paint guarantee).
+  //
+  // Security: preview only, same-origin parent only, whitelisted payload.
+  // No operator JWT ever enters this document.
+  var PREVIEW_PATCH_KEYS = [
+    "brandName", "primaryColor", "secondaryColor", "logoUrl", "showLogo",
+    "launcherText", "welcomeMessage", "greetingMessage", "placeholderText",
+    "offlineMessage", "position", "locale", "widgetLanguage", "theme",
+    "supportMode", "fab", "features", "attachments", "preChat",
+    "previewView", "availability",
+  ];
+  var previewBridgeStarted = false;
+  // The preview document is a sandboxed `srcdoc` iframe, so its own
+  // `location.origin` can be the opaque value "null" while `event.origin`
+  // carries the DASHBOARD origin. `event.source === window.parent` is the
+  // real trust anchor (only the embedder can be our parent); the origin
+  // check below additionally pins the dashboard origin when the parent
+  // declared one via `previewParentOrigin`.
+  function isTrustedPreviewOrigin(origin) {
+    var expected = "";
+    try { expected = String((configData && configData.previewParentOrigin) || ""); } catch (_) {}
+    if (expected) return origin === expected || origin === "null";
+    var self = "";
+    try { self = window.location.origin; } catch (_) {}
+    if (!self || self === "null") return true; // opaque doc: parent identity is the guard
+    return origin === self || origin === "null";
+  }
+  function sanitizePreviewPatch(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    var out = {};
+    for (var i = 0; i < PREVIEW_PATCH_KEYS.length; i++) {
+      var k = PREVIEW_PATCH_KEYS[i];
+      if (Object.prototype.hasOwnProperty.call(raw, k) && raw[k] !== undefined) out[k] = raw[k];
+    }
+    return out;
+  }
+  function mergePreviewPatch(target, patch) {
+    for (var k in patch) {
+      if (!Object.prototype.hasOwnProperty.call(patch, k)) continue;
+      var v = patch[k];
+      if (v && typeof v === "object" && !Array.isArray(v)
+          && target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
+        mergePreviewPatch(target[k], v);
+      } else {
+        target[k] = v;
+      }
+    }
+    return target;
+  }
+  function startPreviewBridge() {
+    if (previewBridgeStarted || !isPreviewMode()) return;
+    previewBridgeStarted = true;
+    window.addEventListener("message", function (event) {
+      try {
+        if (event.source !== window.parent) return;
+        if (!isTrustedPreviewOrigin(event.origin)) return;
+        var data = event.data;
+        if (!data || data.type !== "GS_PREVIEW_CONFIG_PATCH") return;
+        var patch = sanitizePreviewPatch(data.patch);
+        if (!patch) return;
+        mergePreviewPatch(configData, patch);
+        try { window.__gs_preview_config = configData; } catch (_) {}
+        // Shell-owned surfaces: colors, launcher icon/shape/size/label,
+        // animation class and the dynamic preview launcher zone.
+        applyConfigToShell(configData);
+        var inst = window.__gs_runtime && window.__gs_runtime._instance;
+        if (inst && typeof inst.applyPreviewConfig === "function") {
+          inst.applyPreviewConfig(patch);
+        }
+      } catch (e) { warn("preview patch failed", e); }
+    });
+  }
+
   function fetchWithRetry(url, opts, attempts) {
     attempts = attempts || 3;
     var attempt = 0;
@@ -642,6 +787,7 @@
       ready = true;
       processQueue();
       onLauncherClick();
+      startPreviewBridge();
       return;
     }
     WORKSPACE_ID = getWorkspaceId();
@@ -910,11 +1056,15 @@
     var cssLoaded = !runtimeCss;
     var jsLoaded = false;
     var failed = false;
+    // Cloak any panel markup until the stylesheet is proven applied.
+    beginRuntimeCloak();
 
     function done() {
       if (failed || !cssLoaded || !jsLoaded) return;
       runtimeLoaded = true;
       runtimeLoading = false;
+      // CSS is proven applied at this point (see waitForRuntimeCss).
+      markCssReady();
       if (window.__gs_runtime && window.__gs_runtime.init) {
         try {
           var instance = window.__gs_runtime.init(configData, {
@@ -924,6 +1074,11 @@
             setUnread: setUnreadBadge,
           });
           window.__gs_runtime._instance = instance;
+          try { window.__gs_runtime_inits = (window.__gs_runtime_inits || 0) + 1; } catch (_) {}
+          // The runtime has created the panel in its CLOSED state; drop the
+          // cloak on the next frame so the closed state is what gets painted
+          // first and the opening transition has a real starting frame.
+          endRuntimeCloak();
           widgetApi = {
             open: function () { instance.open(); isOpen = true; if (!isPreviewMode()) launcherEl.classList.add("open"); },
             close: function () { instance.close(); isOpen = false; launcherEl.classList.remove("open"); },
@@ -1019,7 +1174,29 @@
       link.rel = "stylesheet";
       link.href = runtimeCss;
       link.setAttribute("data-gs-runtime", "true");
-      link.onload = function () { cssLoaded = true; done(); };
+      link.onload = function () {
+        var s = shellDivEl();
+        if (!s) { cssLoaded = true; done(); return; }
+        waitForRuntimeCss(s).then(function () {
+          cssLoaded = true;
+          done();
+        }).catch(function () {
+          if (failed) return;
+          failed = true;
+          runtimeLoading = false;
+          // The stylesheet "loaded" but never applied — typically an HTML
+          // error document served with 200. Never reveal unstyled markup.
+          destroyPartialPanel();
+          setLastError("STYLE_NOT_APPLIED", {
+            resource: "stylesheet",
+            url: runtimeCss,
+            assetBase: assetBase || "",
+            message: 'runtime.css reported load but its readiness sentinel '
+              + '(--gs-runtime-css-ready) never appeared — the response was not the widget stylesheet.',
+          });
+          showShellError("Chat styles failed to load.");
+        });
+      };
       link.onerror = function () { fail("css"); };
       shadowRoot.appendChild(link);
     }

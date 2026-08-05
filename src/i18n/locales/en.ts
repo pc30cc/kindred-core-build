@@ -3514,7 +3514,7 @@ const en = {
     preview: {
       title: 'Live preview',
       liveHint: 'Every text and style change appears here instantly and is saved automatically.',
-      view: { chat: 'Chat', prechat: 'Pre-chat', kb: 'Help', offline: 'Offline' },
+      view: { home: 'Home', chat: 'Chat', prechat: 'Pre-chat', kb: 'Help', offline: 'Offline' },
       brandFallback: 'Support',
       welcomeFallback: 'How can we help?',
       sampleMessage: 'Hi! How can we help?',

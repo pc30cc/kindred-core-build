@@ -10,7 +10,7 @@
 import { useMemo } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 
-export type PreviewView = 'chat' | 'prechat' | 'offline' | 'kb';
+export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
 type Dict = {
   online: string; offline: string; typing: string; input: string;
@@ -19,6 +19,11 @@ type Dict = {
   sample: string; visitorSample: string; chatTab: string; helpTab: string;
   kbSearch: string; kbArticles: string[]; poweredBy: string;
   welcomeFallback: string; brandFallback: string;
+  homeTab: string; homeGreeting: string; homeWelcome: string;
+  homeTeamOnline: string; homeTeamOffline: string;
+  homeStartChat: string; homeLeaveMessage: string;
+  homeReplyFast: string; homeReplySlow: string;
+  homeHelpTitle: string; homeSeeAll: string;
 };
 
 const DICTS: Record<string, Dict> = {
@@ -31,6 +36,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'Chat', helpTab: 'Help', kbSearch: 'Search articles…',
     kbArticles: ['Getting started', 'Billing & plans', 'Troubleshooting'],
     poweredBy: 'Powered by', welcomeFallback: 'How can we help?', brandFallback: 'Support',
+    homeTab: 'Home', homeGreeting: 'Hello 👋', homeWelcome: 'Welcome! How can we help you today?',
+    homeTeamOnline: 'Our team is online right now', homeTeamOffline: "We're offline at the moment",
+    homeStartChat: 'Start a conversation', homeLeaveMessage: 'Leave a message',
+    homeReplyFast: 'Typically replies in a few minutes',
+    homeReplySlow: "We'll reply by email as soon as we're back",
+    homeHelpTitle: 'Find an answer', homeSeeAll: 'See all',
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -41,6 +52,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'گفتگو', helpTab: 'راهنما', kbSearch: 'جستجوی مقاله‌ها…',
     kbArticles: ['شروع به کار', 'صورتحساب و پلن‌ها', 'رفع اشکال'],
     poweredBy: 'قدرت‌گرفته از', welcomeFallback: 'چطور می‌توانیم کمک کنیم؟', brandFallback: 'پشتیبانی',
+    homeTab: 'خانه', homeGreeting: 'سلام 👋', homeWelcome: 'خوش آمدید! چطور می‌توانیم کمکتان کنیم؟',
+    homeTeamOnline: 'تیم ما هم‌اکنون آنلاین است', homeTeamOffline: 'در حال حاضر آفلاین هستیم',
+    homeStartChat: 'شروع گفتگو', homeLeaveMessage: 'پیغام بگذارید',
+    homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
+    homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
+    homeHelpTitle: 'پاسخ خود را پیدا کنید', homeSeeAll: 'مشاهده همه',
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -51,6 +68,12 @@ const DICTS: Record<string, Dict> = {
     chatTab: 'Sohbet', helpTab: 'Yardım', kbSearch: 'Makalelerde ara…',
     kbArticles: ['Başlarken', 'Faturalama ve planlar', 'Sorun giderme'],
     poweredBy: 'Destekleyen', welcomeFallback: 'Nasıl yardımcı olabiliriz?', brandFallback: 'Destek',
+    homeTab: 'Ana sayfa', homeGreeting: 'Merhaba 👋', homeWelcome: 'Hoş geldiniz! Size nasıl yardımcı olabiliriz?',
+    homeTeamOnline: 'Ekibimiz şu anda çevrimiçi', homeTeamOffline: 'Şu anda çevrimdışıyız',
+    homeStartChat: 'Sohbeti başlat', homeLeaveMessage: 'Mesaj bırakın',
+    homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
+    homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
+    homeHelpTitle: 'Yanıtınızı bulun', homeSeeAll: 'Tümünü gör',
   },
 };
 
@@ -128,12 +151,22 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
     const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
-    const tabs = kbEnabled
-      ? `<div class="tabs">
-           <button type="button" class="tab${view === 'kb' ? '' : ' active'}">${esc(d.chatTab)}</button>
-           <button type="button" class="tab${view === 'kb' ? ' active' : ''}">${esc(d.helpTab)}</button>
-         </div>`
-      : '';
+    const NAV_ICONS: Record<string, string> = {
+      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.8"/>',
+      chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+      help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
+    };
+    const navDefs: { key: string; label: string }[] = [{ key: 'home', label: d.homeTab }, { key: 'chat', label: d.chatTab }];
+    if (kbEnabled) navDefs.push({ key: 'help', label: d.helpTab });
+    const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
+    const tabs = `<div class="tabs tabs-bottom">${navDefs
+      .map(
+        (n) => `<button type="button" class="tab${n.key === activeNav ? ' active' : ''}">
+           <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
+           <span class="tab-label">${esc(n.label)}</span>
+         </button>`,
+      )
+      .join('')}</div>`;
 
     // Operator avatar: use the workspace logo when one is configured (that is
     // what visitors see once an operator picture exists), otherwise the initial.
@@ -213,7 +246,44 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
         <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
       </div>` + prechatBody;
 
+    const homeAvatar = `<span class="home-avatar is-online${logo ? ' has-img' : ''}">${
+      logo ? `<img src="${esc(logo)}" alt="" />` : `<span aria-hidden="true">${esc(initial)}</span>`
+    }<span class="home-avatar-dot"></span></span>`;
+
+    const homeBody = `
+      <div class="home-root" dir="${dir}">
+        <section class="home-hero">
+          <div class="home-greeting">${esc(d.homeGreeting)}</div>
+          <p class="home-welcome">${esc(welcome || d.homeWelcome)}</p>
+        </section>
+        <section class="home-card">
+          <div class="home-avatars">${homeAvatar}</div>
+          <div class="home-status is-online">
+            <span class="home-status-dot"></span>
+            <span>${esc(d.homeTeamOnline)}</span>
+          </div>
+          <p class="home-hint">${esc(d.homeReplyFast)}</p>
+          <button type="button" class="home-cta" style="background:${esc(primary)}">
+            <span class="home-cta-label">${esc(d.homeStartChat)}</span>
+            <span class="home-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+          </button>
+        </section>
+        ${kbEnabled ? `<section class="home-section">
+          <div class="home-section-head">
+            <h4 class="home-section-title">${esc(d.homeHelpTitle)}</h4>
+            <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
+          </div>
+          <div class="home-kb-list">
+            ${d.kbArticles.map(a => `<button type="button" class="home-kb-item">
+              <span class="home-kb-title">${esc(a)}</span>
+              <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
+            </button>`).join('')}
+          </div>
+        </section>` : ''}
+      </div>`;
+
     const body =
+      view === 'home' ? homeBody :
       view === 'prechat' ? prechatBody :
       view === 'kb' ? kbBody :
       view === 'offline' ? offlineBody : chatBody;
@@ -283,11 +353,11 @@ export function WidgetLivePreview({ settings, prechat, brandName, view }: Widget
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
   <div class="shell" data-template="default">
-    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}" dir="${dir}">
+    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}">
       ${header}
-      ${tabs}
       <div class="body">${body}</div>
       ${composer}
+      ${tabs}
       ${powered}
     </div>
     <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">

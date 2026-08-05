@@ -475,6 +475,17 @@
     var dict = {
       en: {
         chat: 'Chat', help: 'Help Center',
+        home: 'Home',
+        homeGreeting: 'Hello 👋',
+        homeWelcome: 'Welcome! How can we help you today?',
+        homeTeamOnline: 'Our team is online right now',
+        homeTeamOffline: "We're offline at the moment",
+        homeStartChat: 'Start a conversation',
+        homeLeaveMessage: 'Leave a message',
+        homeReplyFast: 'Typically replies in a few minutes',
+        homeReplySlow: "We'll reply by email as soon as we're back",
+        homeHelpTitle: 'Find an answer',
+        homeSeeAll: 'See all',
         voiceCall: 'Voice', videoCall: 'Video',
         typeMsg: 'Type a message...',
         intro: "Send us a message and we'll get back to you shortly.",
@@ -620,6 +631,17 @@
       },
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',
+        home: 'خانه',
+        homeGreeting: 'سلام 👋',
+        homeWelcome: 'خوش آمدید! چطور می‌توانیم کمکتان کنیم؟',
+        homeTeamOnline: 'تیم ما هم‌اکنون آنلاین است',
+        homeTeamOffline: 'در حال حاضر آفلاین هستیم',
+        homeStartChat: 'شروع گفتگو',
+        homeLeaveMessage: 'پیغام بگذارید',
+        homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
+        homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
+        homeHelpTitle: 'پاسخ خود را پیدا کنید',
+        homeSeeAll: 'مشاهده همه',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         typeMsg: 'پیام خود را بنویسید...',
         intro: 'سوالی دارید؟ اینجا بنویسید.',
@@ -758,6 +780,17 @@
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım Merkezi',
+        home: 'Ana sayfa',
+        homeGreeting: 'Merhaba 👋',
+        homeWelcome: 'Hoş geldiniz! Size nasıl yardımcı olabiliriz?',
+        homeTeamOnline: 'Ekibimiz şu anda çevrimiçi',
+        homeTeamOffline: 'Şu anda çevrimdışıyız',
+        homeStartChat: 'Sohbeti başlat',
+        homeLeaveMessage: 'Mesaj bırakın',
+        homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
+        homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
+        homeHelpTitle: 'Yanıtınızı bulun',
+        homeSeeAll: 'Tümünü gör',
         voiceCall: 'Sesli', videoCall: 'Görüntülü',
         typeMsg: 'Mesajınızı yazın...',
         intro: 'Bir soru mu var? Buraya yazın.',
@@ -3594,7 +3627,12 @@
       paint();
     }
 
-    return { ensure: ensure, render: render };
+    return {
+      ensure: ensure,
+      render: render,
+      openArticle: openArticle,
+      resetToList: function () { view = 'list'; currentArticle = null; },
+    };
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -4766,7 +4804,7 @@
     // ─── Domain stores (each one isolated, with pub/sub) ───
     var shellStore = createStore({
       isOpen: false,
-      activeTab: chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat'),
+      activeTab: 'home',
       mounted: false,
     });
     var transportStore = createStore({
@@ -4940,7 +4978,14 @@
     if (existingPanel && existingPanel.parentNode) existingPanel.parentNode.removeChild(existingPanel);
 
     var panel = document.createElement('div');
-    panel.className = 'panel ' + posClass;
+    var __animOn = (function () {
+      try {
+        var c = ctx.config || {};
+        if (c.fab && typeof c.fab.animation !== 'undefined') return c.fab.animation === true;
+        return c.fab_animation === true;
+      } catch (_) { return false; }
+    })();
+    panel.className = 'panel ' + posClass + (__animOn ? ' anim-on' : '');
     // Apply RTL to the entire panel when the resolved widget locale is RTL
     // (currently only fa). Without this, the body, tabs, composer and
     // attachments stay LTR even though the strings are Persian.
@@ -4996,15 +5041,24 @@
       '</div>';
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
-    var tabDefs = [];
+    var NAV_ICONS = {
+      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.8"/>',
+      chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+      help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
+    };
+    var tabDefs = [{ key: 'home', label: t('home') }];
     if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
     if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
     var tabsHtml = '';
     if (tabDefs.length > 1) {
       var act = shellStore.get().activeTab;
-      tabsHtml = '<div class="tabs">' + tabDefs.map(function (d) {
+      tabsHtml = '<div class="tabs tabs-bottom">' + tabDefs.map(function (d) {
         return '<button type="button" class="tab' + (act === d.key ? ' active' : '') +
-          '" data-tab="' + d.key + '">' + Util.escapeHtml(d.label) + '</button>';
+          '" data-tab="' + d.key + '">' +
+          '<svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+            NAV_ICONS[d.key] + '</svg>' +
+          '<span class="tab-label">' + Util.escapeHtml(d.label) + '</span>' +
+        '</button>';
       }).join('') + '</div>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
@@ -5043,7 +5097,7 @@
        ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
-    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
+    panel.innerHTML = headerHtml + bodyHtml + inputHtml + tabsHtml + poweredHtml +
       // Phase 6b — lightbox container, hidden by default.
       '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
         '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' + Util.escapeHtml(t('closePreview')) + '">×</button>' +
@@ -5637,6 +5691,114 @@
         });
     }
 
+    function switchTab(key) {
+      if (shellStore.get().activeTab === key) { renderBody(); return; }
+      shellStore.set({ activeTab: key });
+      try {
+        var allT = panel.querySelectorAll('.tab');
+        Array.prototype.forEach.call(allT, function (t2) {
+          t2.classList.toggle('active', t2.getAttribute('data-tab') === key);
+        });
+      } catch (_) {}
+      renderBody();
+      if (key === 'chat' && identityStore.get().loaded && !identity.needsPrechat()) {
+        restoreDraftToInput();
+      }
+    }
+
+    function renderHome() {
+      if (!body) return;
+      var rtlHome = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
+      var pState = presenceStore.get();
+      var isOnline = pState.status === 'online' && pState.liveChatEnabled !== false;
+      var avatars = (teamMembers || []).map(function (op) {
+        var name = (op && op.name) ? String(op.name) : t('operator');
+        var av = op && op.avatar ? String(op.avatar) : '';
+        var on = !!(op && op.online);
+        var cls = 'home-avatar' + (av ? ' has-img' : '') + (on ? ' is-online' : '');
+        var inner = av
+          ? '<img src="' + Util.escapeHtml(av) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
+          : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
+        return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner +
+          (on ? '<span class="home-avatar-dot"></span>' : '') + '</span>';
+      }).join('');
+
+      var kbState = kbStore.get();
+      var cats = (kbState && kbState.categories) || [];
+      var arts = (kbState && kbState.articles) || [];
+      var kbHtml = '';
+      if (kbEnabled && (cats.length || arts.length)) {
+        var items = cats.length
+          ? cats.slice(0, 4).map(function (c) {
+              return '<button type="button" class="home-kb-item" data-home-cat="' +
+                Util.escapeHtml(c.slug || c.id || '') + '">' +
+                '<span class="home-kb-title">' + Util.escapeHtml(c.name || c.title || '') + '</span>' +
+                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
+              '</button>';
+            }).join('')
+          : arts.slice(0, 4).map(function (a) {
+              return '<button type="button" class="home-kb-item" data-home-article="' +
+                Util.escapeHtml(a.slug || '') + '">' +
+                '<span class="home-kb-title">' + Util.escapeHtml(a.title || '') + '</span>' +
+                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
+              '</button>';
+            }).join('');
+        kbHtml =
+          '<section class="home-section">' +
+            '<div class="home-section-head">' +
+              '<h4 class="home-section-title">' + Util.escapeHtml(t('homeHelpTitle')) + '</h4>' +
+              '<button type="button" class="home-section-link" data-home-action="help">' +
+                Util.escapeHtml(t('homeSeeAll')) + '</button>' +
+            '</div>' +
+            '<div class="home-kb-list">' + items + '</div>' +
+          '</section>';
+      }
+
+      var ctaLabel = isOnline ? t('homeStartChat') : t('homeLeaveMessage');
+      var ctaHtml = chatEnabled
+        ? '<button type="button" class="home-cta" data-home-action="chat" style="background:' + ctx.primaryColor + '">' +
+            '<span class="home-cta-label">' + Util.escapeHtml(ctaLabel) + '</span>' +
+            '<span class="home-cta-icon" aria-hidden="true">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+            '</span>' +
+          '</button>'
+        : '';
+
+      body.innerHTML =
+        '<div class="home-root"' + (rtlHome ? ' dir="rtl"' : '') + '>' +
+          '<section class="home-hero">' +
+            '<div class="home-greeting">' + Util.escapeHtml(t('homeGreeting')) + '</div>' +
+            '<p class="home-welcome">' + Util.escapeHtml(welcomeMessage || t('homeWelcome')) + '</p>' +
+          '</section>' +
+          '<section class="home-card">' +
+            (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
+            '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
+              '<span class="home-status-dot"></span>' +
+              '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
+            '</div>' +
+            '<p class="home-hint">' + Util.escapeHtml(isOnline ? t('homeReplyFast') : t('homeReplySlow')) + '</p>' +
+            ctaHtml +
+          '</section>' +
+          kbHtml +
+        '</div>';
+
+      var ctaBtn = body.querySelector('[data-home-action="chat"]');
+      if (ctaBtn) ctaBtn.addEventListener('click', function () { switchTab('chat'); });
+      var seeAll = body.querySelector('[data-home-action="help"]');
+      if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {
+        el.addEventListener('click', function () {
+          var slug = el.getAttribute('data-home-article');
+          switchTab('help');
+          if (slug && kbUI.openArticle) kbUI.openArticle(slug);
+        });
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-cat]'), function (el) {
+        el.addEventListener('click', function () { switchTab('help'); });
+      });
+    }
+
     function renderBody() {
       if (!body) return;
       // Pass 2 — when an in-panel call surface is open it owns the
@@ -5658,6 +5820,16 @@
         Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
       } catch (_) {}
       var tab = shellStore.get().activeTab;
+      if (tab === 'home') {
+        if (inputBar) inputBar.style.display = 'none';
+        renderHome();
+        if (kbEnabled && !kbStore.get().loaded) {
+          kbUI.ensure(function () {
+            if (shellStore.get().activeTab === 'home') renderHome();
+          });
+        }
+        return;
+      }
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
@@ -5721,7 +5893,8 @@
     callSurfaceStore.subscribe(function () { renderBody(); });
     // Re-render body when presence flips so fallback/normal swap takes effect.
     presenceStore.subscribe(function () {
-      if (shellStore.get().activeTab === 'chat') renderBody();
+      var at = shellStore.get().activeTab;
+      if (at === 'chat' || at === 'home') renderBody();
     });
 
     // ─── Wire transport events to UI ───

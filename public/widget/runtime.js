@@ -5295,6 +5295,13 @@
         inner + (online ? '<span class="op-dot"></span>' : '') + '</span>';
     }
 
+    // Overlapping avatar stack (up to 3 operators) used on the Home CTA card.
+    function operatorStackHtml() {
+      var list = teamMembers.slice(0, 3);
+      if (!list.length) return '';
+      return list.map(function (op) { return operatorAvatarHtml(op, 'home-op-avatar'); }).join('');
+    }
+
     function closeBtnHtml() {
       return '<button type="button" class="hdr-icon-btn" data-header-close aria-label="' + Util.escapeHtml(t('closeWidget')) +
         '" title="' + Util.escapeHtml(t('closeWidget')) + '">' + HDR_ICON.close + '</button>';

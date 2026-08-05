@@ -7,8 +7,12 @@
    Canonical section order (top to bottom):
    1. Reset & focus rings
    2. Panel shell / positioning (.panel, launcher anchoring)
-   3. Legacy chrome kept alive where not superseded (presence, connection
-      banner, prechat, KB, attachments, calls, mobile overrides)
+   3. Shared surface chrome that predates the canonical design pass and is
+      still the live implementation for presence, the connection banner,
+      pre-chat, KB, attachments, calls and mobile overrides. It is NOT a
+      template/skin layer — there is exactly one design — but it is also not
+      yet folded into the token block in section 4, so treat sections 3 and 4
+      together as the single canonical layer.
    4. CANONICAL WIDGET DESIGN SYSTEM ("canonical-v1"): shared header chrome,
       home/chat/help headers, body, home surface, bottom navigation, chat,
       scrollbars, help center, empty/offline states, pre-chat, skeletons,
@@ -133,11 +137,12 @@ textarea:focus-visible {
 /* RTL header (Persian) — mirror brand row so avatar stack sits on the right
    and title/subtitle align to the right. Scoped to .header-rtl so other
    widget surfaces stay LTR by default. */
-.header.header-rtl { text-align: right; }
+/* Logical: mirrors automatically with the header's `dir` attribute. */
+.header.header-rtl { text-align: end; }
 .header.header-rtl .header-brand { flex-direction: row-reverse; }
-.header.header-rtl .header-op-stack { padding-right: 0; padding-left: 4px; }
-.header.header-rtl .header-op-stack .header-op-avatar { margin-left: 0; margin-right: -10px; }
-.header.header-rtl .header-op-stack .header-op-avatar:first-child { margin-right: 0; }
+/* No RTL-specific spacing overrides are needed: the base rules above already
+   use logical properties (padding-inline-end / margin-inline-start), which
+   mirror automatically under `dir="rtl"`. */
 
 .header-op-avatar:hover { transform: translateY(-1px); z-index: 2; }
 .header-op-avatar.has-img { background: #fff; }
@@ -317,7 +322,7 @@ textarea:focus-visible {
 .msg-row.visitor  { justify-content: flex-end; }
 /* Text inside bubbles follows the panel's reading direction again. */
 .panel-rtl .msg,
-[dir="rtl"] .msg { direction: rtl; text-align: right; }
+[dir="rtl"] .msg { direction: rtl; text-align: start; }
 .msg-avatar {
   width: 28px;
   height: 28px;
@@ -563,9 +568,9 @@ textarea:focus-visible {
 .prechat-input::placeholder { color: #94a3b8; }
 
 /* RTL: keep icon visually before the input on the start side */
-[dir="rtl"] .prechat-input { text-align: right; }
-[dir="rtl"] .prechat-input[dir="ltr"] { text-align: left; }
-[dir="ltr"] .prechat-input { text-align: left; }
+/* `start` resolves against each input's own `dir`, so the LTR-forced inputs
+   (email / phone / URL) stay left-aligned inside an RTL panel. */
+.prechat-input { text-align: start; }
 
 .prechat-status {
   width: 28px;
@@ -703,7 +708,7 @@ textarea:focus-visible {
 
 /* ─── KB v2: categories, results, article view, RTL ─── */
 .kb-root { display: flex; flex-direction: column; gap: 4px; }
-.kb-root[dir="rtl"] { text-align: right; }
+.kb-root[dir="rtl"] { text-align: start; }
 .kb-search-wrap { position: sticky; top: 0; background: #fff; padding-bottom: 6px; z-index: 1; }
 .kb-section-h {
   font-size: 11px;
@@ -855,6 +860,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   pointer-events: none;
 }
 /* Position follows the launcher position (bottom-right is the default). */
+/* PHYSICAL ON PURPOSE: toasts follow the launcher's viewport anchor class
+   (see .panel.bottom-* above), not the text direction. */
 .gs-toast.bottom-right { right: 24px; left: auto; }
 .gs-toast.bottom-left  { left: 24px;  right: auto; }
 .gs-toast:not(.bottom-right):not(.bottom-left) { right: 24px; }
@@ -1671,6 +1678,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   background: rgba(2, 6, 23, 0.72);
   padding: 4px 6px;
 }
+/* PHYSICAL ON PURPOSE: dev-only orientation debug overlay whose whole point
+   is to label the physical screen edges. */
 .gs-call-orientation-debug strong { top: 8px; left: 8px; }
 .gs-call-orientation-debug small { top: 30px; left: 8px; }
 .gs-call-orientation-debug .left { left: 8px; top: 50%; transform: translateY(-50%); }
@@ -2446,22 +2455,22 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .panel .send-btn:active { transform: scale(.93); }
 .panel .send-btn svg { inline-size: 17px; block-size: 17px; fill: currentColor; }
 .panel[dir="rtl"] .send-btn svg { transform: scaleX(-1); }
-.panel .attach-btn, .panel .emoji-btn, .panel .mic-btn {
+.panel .attach-btn, .panel .emoji-btn {
   flex: none; inline-size: 30px; block-size: 30px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   border: 0; background: transparent; color: #9CA3AF; cursor: pointer;
   transition: background var(--ref-motion), color var(--ref-motion), transform var(--ref-motion);
 }
-.panel .attach-btn svg, .panel .emoji-btn svg, .panel .mic-btn svg {
+.panel .attach-btn svg, .panel .emoji-btn svg {
   inline-size: 17px; block-size: 17px;
 }
-.panel .attach-btn:hover, .panel .emoji-btn:hover, .panel .mic-btn:hover {
+.panel .attach-btn:hover, .panel .emoji-btn:hover {
   background: #EDE9FE; color: var(--ref-primary);
 }
-.panel .attach-btn:active, .panel .emoji-btn:active, .panel .mic-btn:active { transform: scale(.9); }
+.panel .attach-btn:active, .panel .emoji-btn:active { transform: scale(.9); }
 .panel .attach-btn:disabled { opacity: .45; cursor: default; }
 
-/* Emoji popover (all templates) */
+/* Emoji popover */
 .panel .emoji-pop {
   position: absolute; inset-inline-start: 12px; inset-block-end: 74px;
   z-index: 12;

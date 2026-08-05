@@ -219,9 +219,12 @@
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
     "width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 16px 30px -14px color-mix(in srgb,var(--gs-primary,#6D5DFB) 88%,transparent),0 0 0 11px color-mix(in srgb,var(--gs-primary,#6D5DFB) 6%,transparent),0 0 0 22px color-mix(in srgb,var(--gs-primary,#6D5DFB) 3%,transparent);",
-    "background-image:linear-gradient(135deg,var(--gs-primary,#6D5DFB),color-mix(in srgb,var(--gs-primary,#6D5DFB) 68%,var(--gs-secondary,#8B5CF6)));",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
-    "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
+    /* `background-color` first, then `background-image`. The shorthand
+       `background:` must NOT be used here — it resets background-image and
+       silently killed the launcher gradient. */
+    "background-color:var(--gs-primary,#6D5DFB);color:#fff;font-family:inherit;",
+    "background-image:linear-gradient(135deg,var(--gs-primary,#6D5DFB),color-mix(in srgb,var(--gs-primary,#6D5DFB) 68%,var(--gs-secondary,#8B5CF6)));",
     "opacity:1;}",
         /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */

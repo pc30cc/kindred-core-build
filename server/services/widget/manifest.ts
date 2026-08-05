@@ -71,8 +71,11 @@ export class WidgetManifestUnavailableError extends Error {
 }
 
 // Development-only fallback gate. Production deployments must never serve
-// unhashed asset names — see module doc above.
-const allowUnhashedFallback = process.env.NODE_ENV !== 'production';
+// unhashed asset names — see module doc above. Evaluated per call (not
+// captured at import time) so tests can exercise both modes.
+function unhashedFallbackAllowed(): boolean {
+  return process.env.NODE_ENV !== 'production';
+}
 
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;
@@ -240,12 +243,60 @@ function unhashedFallbackManifest(): WidgetManifest {
   };
 }
 
-/** A manifest is only "valid" if it has hashed runtime.js/css entries and a resolved loaderVersion. */
+/**
+ * Content-hash filename contract produced by `scripts/widget-hash.js`:
+ * `<stem>.<8 lowercase hex>.<ext>` — e.g. `runtime.341ce9bc.js`,
+ * `runtime.62b620ac.css`. Anything else (bare `runtime.js`, a truncated or
+ * uppercase hash, a path traversal) is rejected in production.
+ */
+function hashedPattern(logical: string): RegExp {
+  const base = logical.split('/').pop() as string;
+  const ext = base.slice(base.lastIndexOf('.') + 1);
+  const stem = base.slice(0, base.lastIndexOf('.'));
+  const dir = logical.includes('/') ? `${logical.slice(0, logical.lastIndexOf('/'))}/` : '';
+  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${esc(dir)}${esc(stem)}\\.[a-f0-9]{8}\\.${esc(ext)}$`);
+}
+
+/** Assets that MUST exist and MUST be content-hashed in production. */
+export const REQUIRED_HASHED_ASSETS: WidgetAssetKey[] = [
+  'runtime.js',
+  'runtime.css',
+  'runtime-chat.js',
+  'runtime-kb.js',
+  'runtime-call.js',
+];
+
+/**
+ * Explains why a manifest is unusable. Empty array = valid.
+ * Exported for tests and for the /diagnostics surface.
+ */
+export function manifestValidationErrors(manifest: unknown): string[] {
+  const errors: string[] = [];
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return ['manifest_missing_or_malformed'];
+  }
+  const m = manifest as Record<string, unknown>;
+  for (const key of REQUIRED_HASHED_ASSETS) {
+    const value = m[key];
+    if (typeof value !== 'string' || !value) {
+      errors.push(`missing_asset:${key}`);
+      continue;
+    }
+    if (!hashedPattern(key).test(value)) {
+      errors.push(`unhashed_asset:${key}=${value}`);
+    }
+  }
+  const version = m.loaderVersion;
+  if (typeof version !== 'string' || !version || version === FALLBACK_VERSION) {
+    errors.push('unresolved_loader_version');
+  }
+  return errors;
+}
+
+/** A manifest is only "valid" if every required asset is hashed and loaderVersion resolved. */
 function isManifestValid(manifest: WidgetManifest | null): manifest is WidgetManifest {
-  if (!manifest) return false;
-  if (!manifest['runtime.js'] || !manifest['runtime.css']) return false;
-  if (!manifest.loaderVersion || manifest.loaderVersion === FALLBACK_VERSION) return false;
-  return true;
+  return manifestValidationErrors(manifest).length === 0;
 }
 
 function syncLoadManifest(): WidgetManifest | null {
@@ -284,7 +335,7 @@ function syncLoadManifest(): WidgetManifest | null {
   });
 
   if (!cachedManifest) {
-    if (allowUnhashedFallback) {
+    if (unhashedFallbackAllowed()) {
       cachedManifest = unhashedFallbackManifest();
       lastSource = 'fallback';
       lastReadTime = now;
@@ -312,6 +363,7 @@ function syncLoadManifest(): WidgetManifest | null {
 function buildDiagnostics(manifest: WidgetManifest | null) {
   return {
     resolved: isManifestValid(manifest),
+    validationErrors: manifestValidationErrors(manifest),
     source: lastSource,
     loaderVersion: manifest?.loaderVersion ?? null,
     runtimeJs: manifest?.['runtime.js'] ?? null,
@@ -327,26 +379,29 @@ function buildDiagnostics(manifest: WidgetManifest | null) {
     remoteLastFetchAt: lastRemoteFetchAt ? new Date(lastRemoteFetchAt).toISOString() : null,
     cacheTtlMs: CACHE_TTL_MS,
     isFallback: lastSource === 'fallback',
-    allowUnhashedFallback,
+    unhashedFallbackAllowed: unhashedFallbackAllowed(),
   };
 }
 
 /** Returns the resolved manifest, or null if none could be resolved (production only). */
 export function getWidgetManifestOrNull(): WidgetManifest | null {
   const manifest = syncLoadManifest();
-  return isManifestValid(manifest) || allowUnhashedFallback ? manifest : null;
+  return isManifestValid(manifest) || unhashedFallbackAllowed() ? manifest : null;
 }
 
 /** True when a usable manifest (hashed, or dev fallback) is currently resolved. */
 export function isManifestResolved(): boolean {
   const manifest = syncLoadManifest();
-  return isManifestValid(manifest) || (allowUnhashedFallback && !!manifest);
+  return isManifestValid(manifest) || (unhashedFallbackAllowed() && !!manifest);
 }
 
 function requireManifest(): WidgetManifest {
   const manifest = syncLoadManifest();
-  if (manifest) return manifest;
-  const diagnostics = buildDiagnostics(null);
+  // A manifest object is not enough — it must pass the hashed-filename
+  // contract. Outside production we keep the documented dev fallback so a
+  // local checkout without a widget build still boots.
+  if (manifest && (isManifestValid(manifest) || unhashedFallbackAllowed())) return manifest;
+  const diagnostics = buildDiagnostics(manifest);
   console.error('[widget-manifest] Unavailable in production:', diagnostics);
   throw new WidgetManifestUnavailableError(diagnostics);
 }

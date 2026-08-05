@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
+import { widgetPreviewRouter } from './routes/widgetPreview.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
@@ -241,6 +242,10 @@ app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 
 // Widget — dynamic CORS + rate limit
 app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetRouter);
+
+// Widget live preview (operator dashboard) — authenticated via Supabase JWT
+// + workspace membership. Standard app CORS, NOT the permissive widget CORS.
+app.use('/api/widget-preview', widgetPreviewRouter);
 
 // KB widget JSON endpoints — same dynamic CORS + rate limit as widget.
 app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, widgetKbRouter);

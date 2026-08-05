@@ -7,7 +7,9 @@
 --
 -- This migration is DESTRUCTIVE for the live schema, so it ARCHIVES
 -- every byte of the old state into the `widget_archive` schema BEFORE
--- dropping anything. `018_widget_template_rollback.sql` can restore it.
+-- dropping anything. `018_widget_template_data_only_recovery.sql` can
+-- restore the ROWS only — not keys, indexes, defaults, FKs, grants, policies
+-- or the trigger; see that file's header.
 --
 -- Idempotent and safe to re-run.
 -- ════════════════════════════════════════════════════════════════════

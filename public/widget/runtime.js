@@ -5435,7 +5435,6 @@
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
-    var isT2 = (ctx.templateSlug === 'template2');
     var inputHtml = chatEnabled
       ? '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
           '<span class="typing-dots"><span></span><span></span><span></span></span>' +
@@ -5443,26 +5442,24 @@
         '</div>' +
         '<div class="attach-tray" data-attach-tray hidden></div>' +
         '<div class="input-bar" data-input-bar>' +
-        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
-        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
-        '</button>' +
-        (isT2
-          ? '<button type="button" class="emoji-btn" data-emoji-btn aria-label="Emoji" title="Emoji">' +
+          '<div class="composer-field">' +
+            '<button type="button" class="emoji-btn" data-emoji-btn aria-label="Emoji" title="Emoji">' +
               '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
-            '</button>'
-          : '') +
+            '</button>' +
         (attachCfg.enabled
           ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
               '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
             '</button>' +
             '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
           : '') +
-        '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
-        (isT2
-          ? '<button type="button" class="mic-btn" data-mic-btn aria-label="Voice" title="Voice">' +
+            '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
+            '<button type="button" class="mic-btn" data-mic-btn aria-label="Voice" title="Voice">' +
               '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>' +
-            '</button>'
-          : '') +
+            '</button>' +
+          '</div>' +
+          '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
+            '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
+          '</button>' +
         '</div>'
       : '';
      var poweredHtml = brandName

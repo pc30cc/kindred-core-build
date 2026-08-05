@@ -3050,3 +3050,6 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   color: rgba(255, 255, 255, .72);
 }
 .shell .powered a { color: rgba(255, 255, 255, .95) !important; }
+/* Collapse chevron always opposite the logo: left in RTL, right in LTR. */
+.shell .header .header-close { right: 12px; left: auto; top: 12px; }
+.shell .header.header-rtl .header-close { left: 12px !important; right: auto !important; }

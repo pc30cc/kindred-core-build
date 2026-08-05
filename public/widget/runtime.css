@@ -5,6 +5,12 @@
    cannot push styles in. We re-establish only what we need.
 */
 
+/* ─── Self-hosted Vazirmatn (no external CDN) ─── */
+@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/vazirmatn-400.woff2') format('woff2'); }
+@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/vazirmatn-500.woff2') format('woff2'); }
+@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/vazirmatn-600.woff2') format('woff2'); }
+@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/vazirmatn-700.woff2') format('woff2'); }
+
 :host {
   /* Re-enable layout + style isolation */
   contain: layout style;
@@ -34,7 +40,7 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -85,7 +91,7 @@ textarea:focus-visible {
   z-index: 2147483645;
   width: 380px;
   max-width: calc(100vw - 32px);
-  height: min(620px, calc(100vh - 100px));
+  height: min(760px, calc(100vh - 40px));
   border-radius: 16px;
   background: #fff;
   color: #1F2937;
@@ -103,8 +109,47 @@ textarea:focus-visible {
   transform: translateY(0) scale(1);
   pointer-events: auto;
 }
-.panel.bottom-right { bottom: 92px; right: 24px; }
-.panel.bottom-left  { bottom: 92px; left: 24px; }
+.panel.bottom-right { bottom: 20px; right: 20px; }
+.panel.bottom-left  { bottom: 20px; left: 20px; }
+
+/* ─── Panel close button (top-left, mirrors Intercom's dismiss control) ─── */
+.header-close {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(4px);
+  transition: background .18s ease, transform .18s ease;
+}
+.header-close:hover { background: rgba(255, 255, 255, 0.3); transform: scale(1.06); }
+.header-close:active { transform: scale(.94); }
+.header-close svg { width: 16px; height: 16px; }
+.header.header-rtl .header-close { left: 12px; right: auto; }
+.header { padding-top: 18px; }
+
+/* Workspace logo — top of the header on the brand side. */
+.header-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.92);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.28);
+}
+.header-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.header.header-rtl .header-brand { flex-direction: row-reverse; }
 
 /* ─── Header ─── */
 .header {

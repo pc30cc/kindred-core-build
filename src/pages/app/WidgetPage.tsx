@@ -786,6 +786,8 @@ function WidgetPageContent() {
                 prechat={prechat}
                 brandName={platformName || t('widgetPage.preview.brandFallback')}
                 view={previewView}
+                kbArticles={previewKbArticles}
+                kbCategories={previewKbCategories}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

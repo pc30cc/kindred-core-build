@@ -4048,7 +4048,7 @@
        workspaceId: config.workspaceId || '',
        sessionToken: config._sessionToken || '',
        locale: resolvedLocale,
-       primaryColor: config.primaryColor || '#7C3AED',
+       primaryColor: config.primaryColor || '#6D5DFB',
        shell: shell,
      };
 

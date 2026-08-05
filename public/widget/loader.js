@@ -168,8 +168,8 @@
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
     "width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;",
-    "box-shadow:0 10px 30px -8px color-mix(in srgb,var(--gs-primary,#7C3AED) 55%,transparent),0 0 0 6px color-mix(in srgb,var(--gs-primary,#7C3AED) 12%,transparent);",
-    "background-image:linear-gradient(145deg,color-mix(in srgb,#fff 16%,var(--gs-primary,#7C3AED)),var(--gs-primary,#7C3AED));",
+    "box-shadow:0 10px 30px -8px color-mix(in srgb,var(--gs-primary,#6D5DFB) 55%,transparent),0 0 0 6px color-mix(in srgb,var(--gs-primary,#6D5DFB) 12%,transparent);",
+    "background-image:linear-gradient(145deg,color-mix(in srgb,#fff 16%,var(--gs-primary,#6D5DFB)),var(--gs-primary,#6D5DFB));",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
@@ -178,7 +178,7 @@
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
-    ".launcher:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 16px 38px -10px color-mix(in srgb,var(--gs-primary,#7C3AED) 65%,transparent),0 0 0 8px color-mix(in srgb,var(--gs-primary,#7C3AED) 14%,transparent);}",
+    ".launcher:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 16px 38px -10px color-mix(in srgb,var(--gs-primary,#6D5DFB) 65%,transparent),0 0 0 8px color-mix(in srgb,var(--gs-primary,#6D5DFB) 14%,transparent);}",
     ".launcher:active{transform:scale(.96);}",
     ".launcher.bottom-right{bottom:24px;right:24px;}",
     ".launcher.bottom-left{bottom:24px;left:24px;}",
@@ -191,8 +191,8 @@
     "@keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}",
     ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
     "padding:9px 16px;border-radius:999px;font-size:12.5px;font-weight:700;font-family:inherit;",
-    "box-shadow:0 10px 26px -8px color-mix(in srgb,var(--gs-primary,#7C3AED) 55%,transparent);white-space:nowrap;",
-    "background-image:linear-gradient(145deg,color-mix(in srgb,#fff 14%,var(--gs-primary,#7C3AED)),var(--gs-primary,#7C3AED));color:#fff;}",
+    "box-shadow:0 10px 26px -8px color-mix(in srgb,var(--gs-primary,#6D5DFB) 55%,transparent);white-space:nowrap;",
+    "background-image:linear-gradient(145deg,color-mix(in srgb,#fff 14%,var(--gs-primary,#6D5DFB)),var(--gs-primary,#6D5DFB));color:#fff;}",
     ".launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
     ".badge{position:absolute;top:-3px;inset-inline-end:-3px;right:auto;min-width:20px;height:20px;border-radius:10px;",
@@ -445,7 +445,7 @@
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
-    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#7C3AED");
+    if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#6D5DFB");
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong

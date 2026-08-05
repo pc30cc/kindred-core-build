@@ -3627,7 +3627,12 @@
       paint();
     }
 
-    return { ensure: ensure, render: render };
+    return {
+      ensure: ensure,
+      render: render,
+      openArticle: openArticle,
+      resetToList: function () { view = 'list'; currentArticle = null; },
+    };
   }
 
   // ════════════════════════════════════════════════════════════════════

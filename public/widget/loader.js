@@ -1261,6 +1261,18 @@
           runAction(rule);
         });
       }
+      // Auto-release: a launcher nudge that the visitor never touches must
+      // not block every other rule forever. After its display window we
+      // remove it WITHOUT marking it dismissed, so the evaluation loop is
+      // free to surface the next matching rule (still behind the global
+      // cooldown). Only the visual surface is released — frequency state
+      // already counted this impression.
+      var behavior = rule.behavior_config || {};
+      var autoSec = Number(behavior.auto_hide_seconds);
+      if (!isFinite(autoSec) || autoSec <= 0) autoSec = 25;
+      setTimeout(function () {
+        if (activeSurface && activeSurface.el === el) clearSurface();
+      }, autoSec * 1000);
       return true;
     }
 

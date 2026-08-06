@@ -1062,6 +1062,25 @@
     function interactionSnapshot() {
       subscribeRuntimeInteractionOnce();
       if (runtimeInteraction) return runtimeInteraction;
+      // The runtime bundle is lazy — it only loads once the panel is opened.
+      // If it has never been loaded AND we never opened the panel, there is
+      // provably no conversation, call or pre-chat form in this page: the
+      // code that could create one does not exist yet. Reporting "unknown"
+      // here would deadlock every panel-bound surface forever, because the
+      // runtime that would resolve the unknown is only loaded by opening the
+      // widget. Anything else stays "unknown" until the runtime reports.
+      if (!runtimeLoaded && !runtimeInstance() && !isOpen) {
+        return {
+          widgetOpen: false,
+          conversationActive: false,
+          visitorTyping: false,
+          callActive: false,
+          prechatOpen: false,
+          visitorReplied: false,
+          widgetError: false,
+          currentView: null,
+        };
+      }
       return {
         widgetOpen: !!isOpen,
         conversationActive: "unknown",

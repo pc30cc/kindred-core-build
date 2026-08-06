@@ -3423,6 +3423,7 @@ const en = {
     tabs: {
       appearance: 'Appearance',
       behavior: 'Behavior',
+      smart: 'Smart actions',
       prechat: 'Pre-chat',
       availability: 'Availability',
       domains: 'Domains',
@@ -3431,10 +3432,18 @@ const en = {
     tabDesc: {
       appearance: 'Template, colors and texts',
       behavior: 'Modules and privacy',
+      smart: 'Automatic widget actions',
       prechat: 'Fields asked before chat',
       availability: 'Working hours and presence',
       domains: 'Where the widget may load',
       install: 'Embed code',
+    },
+    smart: {
+      title: 'Smart widget actions',
+      description: 'Looking for a faster, smarter way to start conversations? Smart actions let your widget act on its own — greeting the right visitor at the right moment, opening automatically on key pages, or stepping aside when it is not needed.',
+      empty: 'No smart action yet. Create your first one to let the widget start conversations for you.',
+      create: 'Create new smart action',
+      soon: 'The smart action builder is coming soon.',
     },
     availabilityScope: {
       workspace: 'Widget business hours',
@@ -3489,8 +3498,8 @@ const en = {
       fabLabel: 'Launcher label',
       fabLabelHint: 'Short text shown next to the launcher button.',
       fabAnimation: 'Launcher animation',
-      autoOpenDelay: 'Auto-open after (seconds)',
-      autoOpenHint: '0 disables automatic opening.',
+      widgetAnimation: 'Widget animations',
+      widgetAnimationHint: 'Enables motion across the whole widget — launcher, opening and closing, buttons and screen transitions.',
     },
     behavior: {
       liveChat: 'Live chat',

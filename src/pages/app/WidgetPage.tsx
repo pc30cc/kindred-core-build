@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { cn } from '@/lib/utils';
@@ -230,6 +230,7 @@ function WidgetPageContent() {
             {([
               { v: 'appearance', icon: Palette },
               { v: 'behavior', icon: Settings },
+              { v: 'smart', icon: Sparkles },
               { v: 'prechat', icon: MessageSquare },
               { v: 'availability', icon: Clock },
               { v: 'domains', icon: Shield },
@@ -546,25 +547,18 @@ function WidgetPageContent() {
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
-                    <Label className="text-sm">{t('widgetPage.appearance.fabAnimation')}</Label>
+                  <div className="flex items-start justify-between gap-3 rounded-lg border border-border/70 p-3">
+                    <div className="min-w-0 space-y-1">
+                      <Label className="text-sm">{t('widgetPage.appearance.widgetAnimation')}</Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('widgetPage.appearance.widgetAnimationHint')}
+                      </p>
+                    </div>
                     <Switch
+                      className="mt-0.5 shrink-0"
                       checked={live?.fab_animation ?? false}
                       onCheckedChange={v => setField('fab_animation', v, 0)}
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.autoOpenDelay')}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      dir="ltr"
-                      value={live?.auto_open_delay ?? 0}
-                      onChange={e => setField('auto_open_delay', Number(e.target.value) || 0)}
-                      className="w-32 text-start"
-                    />
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.autoOpenHint')}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -621,6 +615,34 @@ function WidgetPageContent() {
                     )}
                   </div>
 
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ─── Smart actions ─── */}
+            <TabsContent value="smart">
+              <Card className="card-elevated overflow-hidden">
+                <CardContent className="flex flex-col items-center gap-5 p-10 text-center">
+                  <div className="relative">
+                    <div className="absolute inset-0 rounded-2xl bg-primary/20 blur-xl" />
+                    <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <Sparkles className="h-7 w-7" />
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-w-xl">
+                    <h3 className="text-lg font-semibold">{t('widgetPage.smart.title')}</h3>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {t('widgetPage.smart.description')}
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t('widgetPage.smart.empty')}</p>
+                  <Button
+                    className="gap-2 rounded-full px-5"
+                    onClick={() => toast({ description: t('widgetPage.smart.soon') })}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {t('widgetPage.smart.create')}
+                  </Button>
                 </CardContent>
               </Card>
             </TabsContent>

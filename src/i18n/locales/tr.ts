@@ -3410,6 +3410,7 @@ const tr: TranslationKeys = {
     tabs: {
       appearance: 'Görünüm',
       behavior: 'Davranış',
+      smart: 'Akıllı eylemler',
       prechat: 'Sohbet öncesi',
       availability: 'Uygunluk',
       domains: 'Alan adları',
@@ -3418,10 +3419,18 @@ const tr: TranslationKeys = {
     tabDesc: {
       appearance: 'Şablon, renkler ve metinler',
       behavior: 'Modüller ve gizlilik',
+      smart: 'Otomatik widget eylemleri',
       prechat: 'Sohbet öncesi alanlar',
       availability: 'Çalışma saatleri ve durum',
       domains: 'Widget’ın yükleneceği alan adları',
       install: 'Yerleştirme kodu',
+    },
+    smart: {
+      title: 'Akıllı widget eylemleri',
+      description: 'Sohbetleri başlatmanın daha hızlı ve akıllı bir yolunu mu arıyorsunuz? Akıllı eylemler, widget’ınızın kendi başına hareket etmesini sağlar: doğru ziyaretçiyi doğru anda karşılar, önemli sayfalarda otomatik açılır ve gerekmediğinde geri çekilir.',
+      empty: 'Henüz akıllı eylem yok. İlkini oluşturun; widget sohbetleri sizin yerinize başlatsın.',
+      create: 'Yeni akıllı eylem oluştur',
+      soon: 'Akıllı eylem oluşturucu çok yakında.',
     },
     availabilityScope: {
       workspace: 'Widget çalışma saatleri',
@@ -3472,8 +3481,8 @@ const tr: TranslationKeys = {
       iconSparkles: 'Parıltı',
       iconSmile: 'Gülümseme',
       fabAnimation: 'Başlatıcı animasyonu',
-      autoOpenDelay: 'Otomatik açılma (saniye)',
-      autoOpenHint: '0 otomatik açılmayı devre dışı bırakır.',
+      widgetAnimation: 'Widget animasyonları',
+      widgetAnimationHint: 'Tüm widget’ta hareketi etkinleştirir: başlatıcı, açılma/kapanma, düğmeler ve ekran geçişleri.',
       bottomRight: 'Sağ alt',
       bottomLeft: 'Sol alt',
       welcomePlaceholder: 'Merhaba 👋 Nasıl yardımcı olabiliriz?',

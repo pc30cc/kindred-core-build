@@ -9,7 +9,7 @@
  * `public/widget/smart-engine.js`), so the explanation can never drift from
  * production behaviour.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

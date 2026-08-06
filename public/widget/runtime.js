@@ -6091,6 +6091,15 @@
       getTransportCapabilities: function () {
         return transport.getCapabilities ? transport.getCapabilities() : {};
       },
+      /** Programmatic tab switch (used by Smart Engagement CTA actions). */
+      setTab: function (key, articleSlug) {
+        var target = key === 'kb' ? 'help' : key;
+        if (!target) return;
+        switchTab(target);
+        if (articleSlug && kbUI && kbUI.openArticle) {
+          try { kbUI.openArticle(articleSlug); } catch (_) {}
+        }
+      },
       /**
        * Smart Engagement — render a panel-bound proactive surface.
        * `surface` = { id, mode, title, body, ctaLabel, dismissible, onCta, onDismiss }

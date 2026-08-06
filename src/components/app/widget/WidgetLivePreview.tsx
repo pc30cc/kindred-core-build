@@ -483,7 +483,7 @@ export function WidgetLivePreview({
       ? '<button type="button" class="smart-dismiss" aria-label="dismiss">×</button>' : '';
 
     const smartNudge = sp && sp.mode === 'launcher_nudge'
-      ? `<div class="smart-nudge ${pos}" style="bottom:${fabSize + 40}px">
+      ? `<div class="smart-nudge ${pos}" data-smart-surface style="bottom:${fabSize + 40}px">
            ${spDismiss}${spTitle}
            <div class="smart-body">${esc(sp.body)}</div>
            ${spCta}
@@ -491,13 +491,13 @@ export function WidgetLivePreview({
       : '';
 
     const smartAnnounce = sp && sp.mode === 'announcement'
-      ? `<div class="smart-announce">
+      ? `<div class="smart-announce" data-smart-surface>
            <span class="smart-body">${esc(sp.body)}</span>${spCta}${spDismiss}
          </div>`
       : '';
 
     const smartHomeCard = sp && sp.mode === 'home_card'
-      ? `<div class="smart-home-card">
+      ? `<div class="smart-home-card" data-smart-surface>
            ${spDismiss}${spTitle}
            <div class="smart-body">${esc(sp.body)}</div>
            ${spCta}
@@ -507,7 +507,7 @@ export function WidgetLivePreview({
     /* A smart chat message is automation, not a human operator: it never
        borrows an operator avatar or name — it is labelled as automated. */
     const smartChatMessage = sp && sp.mode === 'chat_message'
-      ? `<div class="msg-row automation">
+      ? `<div class="msg-row automation" data-smart-surface>
            <div class="msg automation">
              <span class="smart-automation-label">${esc(smartScenario?.automationLabel || '')}</span>
              ${esc(sp.body)}${sp.ctaLabel ? `<div class="smart-cta-wrap">${spCta}</div>` : ''}
@@ -746,15 +746,30 @@ export function WidgetLivePreview({
 </script>
 </body>
 </html>`;
-  }, [settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName, smartPreview]);
+    // `phase` intentionally stays out of the dependency list: it is pushed in
+    // via postMessage so the frame animates instead of being re-created.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
+    smartScenario?.rtl, smartScenario?.automationLabel,
+  ]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">
       <iframe
+        ref={frameRef}
         title="widget-preview"
         srcDoc={srcDoc}
         className="h-full w-full border-0"
         sandbox="allow-scripts"
+        onLoad={() => {
+          if (!isSmart) return;
+          frameRef.current?.contentWindow?.postMessage(
+            { source: 'gs-smart-preview', type: 'smart-preview:set-phase', phase },
+            '*',
+          );
+        }}
       />
     </div>
   );

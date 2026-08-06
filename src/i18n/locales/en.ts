@@ -1269,7 +1269,7 @@ const en = {
     autoSaved: 'Automatically saved',
     general: 'General information',
     icon: 'Icon',
-    iconHint: 'File smaller than 5 MB and at least 400px by 400px (1:1 ratio).',
+    iconHint: 'Recommended size: 60x60 pixels, PNG format. This image can also be shown in the widget header from your widget settings.',
     iconUpdated: 'Workspace icon updated',
     uploadImage: 'Upload image',
     domain: 'Domain',

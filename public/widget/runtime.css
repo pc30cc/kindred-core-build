@@ -113,27 +113,26 @@ textarea:focus-visible{
 .header.header-rtl .header-close { left: 12px; right: auto; }
 .header { padding-top: 18px; }
 
-/* Logo hidden → the header collapses to a slim strip. Keep the dismiss
-   control readable by turning it into a compact floating chip. */
+/* Logo hidden → the header collapses to a slim strip and the dismiss
+   control sits inline (not absolutely positioned) inside that strip. */
 .header:not(:has(.header-op-stack)) {
   padding: 8px 12px;
-  min-height: 38px;
+  display: flex;
+  align-items: center;
 }
 .header:not(:has(.header-op-stack)) .header-close {
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
   width: 28px;
   height: 28px;
   background: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 .header:not(:has(.header-op-stack)) .header-close:hover {
   background: rgba(255, 255, 255, 0.34);
-  transform: translateY(-50%) scale(1.06);
+  transform: scale(1.06);
 }
-.header:not(:has(.header-op-stack)) .header-close:active {
-  transform: translateY(-50%) scale(.94);
-}
+.header:not(:has(.header-op-stack)) .header-close:active { transform: scale(.94); }
+.header.header-rtl:not(:has(.header-op-stack)) { flex-direction: row-reverse; }
 
 /* Workspace logo — top of the header on the brand side. */
 .header-logo {

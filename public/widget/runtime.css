@@ -2598,3 +2598,20 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 .shell .header .header-close:hover { transform: none; background: rgba(255,255,255,.32) !important; }
 .shell .header .header-close:active { transform: scale(.92); }
 .shell .header .header-close svg { width: 18px; height: 18px; }
+
+/* ─── Logo hidden → keep a slim top strip so the collapse control stays put ───
+   The chevron is pinned to the top line of the panel (never floating over the
+   content, never disappearing when the header has no brand content). */
+.shell .header:not(:has(.header-logo)):not(:has(.header-op-stack)) {
+  min-height: 46px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+}
+.shell .header:not(:has(.header-logo)):not(:has(.header-op-stack)) .header-close {
+  position: absolute !important;
+  top: 8px;
+  background: rgba(255, 255, 255, .24) !important;
+  border: 1px solid rgba(255, 255, 255, .28);
+  box-shadow: 0 6px 16px -10px rgba(2, 6, 23, .6);
+}

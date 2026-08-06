@@ -5010,6 +5010,66 @@
     var attachInput = panel.querySelector('[data-attach-input]');
     var attachTray = panel.querySelector('[data-attach-tray]');
 
+    // ─── Smart Engagement bridge ───────────────────────────────────────
+    // The loader owns rule evaluation (it runs before the runtime is even
+    // loaded). Panel-bound surfaces — home card, chat message, plain open —
+    // are handed over here so they render with the real widget chrome and
+    // report their lifecycle back through the same telemetry callbacks.
+    var smartSurface = null;
+    var smartDock = document.createElement('div');
+    smartDock.className = 'smart-chat-dock';
+    smartDock.hidden = true;
+    try {
+      panel.insertBefore(smartDock, inputBar || panel.querySelector('.tabs') || null);
+    } catch (_) { panel.appendChild(smartDock); }
+
+    function smartInnerHtml(s) {
+      return (s.dismissible === false
+        ? ''
+        : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="close">\u00d7</button>') +
+        (s.title ? '<div class="smart-title">' + Util.escapeHtml(s.title) + '</div>' : '') +
+        '<div class="smart-body">' + Util.escapeHtml(s.body || '') + '</div>' +
+        (s.ctaLabel
+          ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + ctx.primaryColor + '">' +
+              Util.escapeHtml(s.ctaLabel) + '</button>'
+          : '');
+    }
+
+    function bindSmartSurface(root, s) {
+      if (!root) return;
+      var dismissBtn = root.querySelector('[data-smart-dismiss]');
+      if (dismissBtn) {
+        dismissBtn.addEventListener('click', function () {
+          try { if (s && typeof s.onDismiss === 'function') s.onDismiss(); } catch (_) {}
+          clearSmartSurface();
+        });
+      }
+      var ctaBtn2 = root.querySelector('[data-smart-cta]');
+      if (ctaBtn2) {
+        ctaBtn2.addEventListener('click', function () {
+          try { if (s && typeof s.onCta === 'function') s.onCta(); } catch (_) {}
+          clearSmartSurface();
+        });
+      }
+    }
+
+    function renderSmartDock() {
+      if (!smartSurface || smartSurface.mode !== 'chat_message') {
+        smartDock.hidden = true;
+        smartDock.innerHTML = '';
+        return;
+      }
+      smartDock.innerHTML = smartInnerHtml(smartSurface);
+      smartDock.hidden = false;
+      bindSmartSurface(smartDock, smartSurface);
+    }
+
+    function clearSmartSurface() {
+      smartSurface = null;
+      renderSmartDock();
+      if (shellStore.get().activeTab === 'home') renderBody();
+    }
+
     // ─── Phase 6a: Attachment UX wiring (separate domain) ───
     function renderAttachmentChip() {
       if (!attachTray) return;
@@ -5630,8 +5690,13 @@
           '</button>'
         : '';
 
+      var smartCardHtml = (smartSurface && smartSurface.mode === 'home_card')
+        ? '<section class="smart-home-card">' + smartInnerHtml(smartSurface) + '</section>'
+        : '';
+
       body.innerHTML =
         '<div class="home-root"' + (rtlHome ? ' dir="rtl"' : '') + '>' +
+          smartCardHtml +
           '<section class="home-hero">' +
             '<div class="home-greeting">' + Util.escapeHtml(t('homeGreeting')) + '</div>' +
             '<p class="home-welcome">' + Util.escapeHtml(welcomeMessage || t('homeWelcome')) + '</p>' +
@@ -5664,6 +5729,7 @@
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-cat]'), function (el) {
         el.addEventListener('click', function () { switchTab('help'); });
       });
+      bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
     }
 
     function renderBody() {
@@ -6025,6 +6091,22 @@
       getTransportCapabilities: function () {
         return transport.getCapabilities ? transport.getCapabilities() : {};
       },
+      /**
+       * Smart Engagement — render a panel-bound proactive surface.
+       * `surface` = { id, mode, title, body, ctaLabel, dismissible, onCta, onDismiss }
+       */
+      showSmart: function (surface) {
+        if (!surface || !surface.body) return false;
+        smartSurface = surface;
+        if (surface.mode === 'home_card') {
+          switchTab('home');
+        } else if (surface.mode === 'chat_message') {
+          switchTab('chat');
+          renderSmartDock();
+        }
+        return true;
+      },
+      hideSmart: function () { clearSmartSurface(); },
     };
   };
 

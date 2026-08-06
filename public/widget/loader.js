@@ -806,6 +806,415 @@
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Smart Engagement — production rule evaluation.
+  //
+  // The loader owns this because a proactive nudge must be able to appear
+  // before the (much larger) chat runtime is downloaded. Evaluation uses the
+  // EXACT same bundle the operator preview uses (`smart-engine.js`, built
+  // from src/lib/widget/smartEngine.ts), so what is authored is what fires.
+  // ═══════════════════════════════════════════════════════════════════
+  function ensureRuntimeCss(cb) {
+    try {
+      var href = (configData && configData.styleUrl) || "";
+      if (!href || !shadowRoot) { if (cb) cb(); return; }
+      if (shadowRoot.querySelector('link[data-gs-runtime]')) { if (cb) cb(); return; }
+      var l = document.createElement("link");
+      l.rel = "stylesheet";
+      l.href = href;
+      l.setAttribute("data-gs-runtime", "true");
+      l.onload = function () { if (cb) cb(); };
+      l.onerror = function () { if (cb) cb(); };
+      shadowRoot.appendChild(l);
+    } catch (_) { if (cb) cb(); }
+  }
+
+  function startSmart(config) {
+    if (smartStarted) return;
+    smartStarted = true;
+
+    var apiBase = configData._apiBase;
+    var rules = config.smart.rules || [];
+    var engineUrl = config.smart.engineUrl;
+    if (!engineUrl) { warn("smart: no engine url"); return; }
+
+    var LS_KEY = "gs_smart_" + WORKSPACE_ID;
+    var SS_KEY = "gs_smart_s_" + WORKSPACE_ID;
+
+    function readJson(store, key) {
+      try { return JSON.parse(store.getItem(key) || "{}") || {}; } catch (_) { return {}; }
+    }
+    function writeJson(store, key, value) {
+      try { store.setItem(key, JSON.stringify(value)); } catch (_) {}
+    }
+    function dayKey() { return new Date().toISOString().slice(0, 10); }
+    function weekKey() { return String(Math.floor(Date.now() / 604800000)); }
+
+    var persisted = readJson(window.localStorage, LS_KEY);
+    var session = readJson(window.sessionStorage, SS_KEY);
+    if (!session.rules) session.rules = {};
+    session.pages = (Number(session.pages) || 0) + 1;
+    if (!session.seed) session.seed = String(Date.now()) + "-" + Math.random().toString(36).slice(2, 8);
+    writeJson(window.sessionStorage, SS_KEY, session);
+
+    function frequencyState(ruleId) {
+      var rec = persisted[ruleId] || {};
+      return {
+        shownInSession: Number(session.rules[ruleId] || 0),
+        shownTotal: Number(rec.total || 0),
+        shownToday: rec.dayKey === dayKey() ? Number(rec.today || 0) : 0,
+        shownThisWeek: rec.weekKey === weekKey() ? Number(rec.week || 0) : 0,
+        lastShownAt: rec.last || null,
+        dismissed: !!rec.dismissed,
+        ctaClicked: !!rec.cta,
+      };
+    }
+    function recordShown(ruleId) {
+      var rec = persisted[ruleId] || {};
+      rec.total = (Number(rec.total) || 0) + 1;
+      rec.today = (rec.dayKey === dayKey() ? Number(rec.today) || 0 : 0) + 1;
+      rec.dayKey = dayKey();
+      rec.week = (rec.weekKey === weekKey() ? Number(rec.week) || 0 : 0) + 1;
+      rec.weekKey = weekKey();
+      rec.last = Date.now();
+      persisted[ruleId] = rec;
+      writeJson(window.localStorage, LS_KEY, persisted);
+      session.rules[ruleId] = (Number(session.rules[ruleId]) || 0) + 1;
+      writeJson(window.sessionStorage, SS_KEY, session);
+    }
+    function markRule(ruleId, field) {
+      var rec = persisted[ruleId] || {};
+      rec[field] = true;
+      persisted[ruleId] = rec;
+      writeJson(window.localStorage, LS_KEY, persisted);
+    }
+
+    // ─── Per-page signals ───
+    var pageStart = Date.now();
+    var lastActivity = Date.now();
+    var scrollPercent = 0;
+    var exitIntent = false;
+    var lastSurfaceAt = null;
+    var activeSurface = null;   // { ruleId, el }
+    var eventSeq = 0;
+
+    function resetPageSignals() {
+      pageStart = Date.now();
+      lastActivity = Date.now();
+      scrollPercent = 0;
+      exitIntent = false;
+      session.pages = (Number(session.pages) || 0) + 1;
+      writeJson(window.sessionStorage, SS_KEY, session);
+    }
+
+    function measureScroll() {
+      try {
+        var doc = document.documentElement;
+        var max = (doc.scrollHeight || 0) - (window.innerHeight || 0);
+        if (max <= 0) { scrollPercent = 100; return; }
+        scrollPercent = Math.max(scrollPercent, Math.min(100, ((window.pageYOffset || doc.scrollTop || 0) / max) * 100));
+      } catch (_) {}
+    }
+
+    function currentQuery() {
+      var out = {};
+      try {
+        var sp = new URLSearchParams(window.location.search || "");
+        sp.forEach(function (v, k) { out[k.toLowerCase()] = v; });
+      } catch (_) {}
+      return out;
+    }
+
+    function buildContext() {
+      var q = currentQuery();
+      var ua = navigator.userAgent || "";
+      var device = /iPad|Tablet/i.test(ua) ? "tablet" : (/Mobi|Android/i.test(ua) ? "mobile" : "desktop");
+      var hasActive = false;
+      try { hasActive = (document.cookie || "").indexOf("gs_active=") !== -1; } catch (_) {}
+      return {
+        masterEnabled: true,
+        mode: "production",
+        page: {
+          url: window.location.href,
+          path: window.location.pathname,
+          hostname: window.location.hostname,
+          title: document.title || "",
+          query: q,
+        },
+        referrer: document.referrer || "",
+        utm: { source: q.utm_source, medium: q.utm_medium, campaign: q.utm_campaign },
+        device: device,
+        browser: detectBrowser(),
+        os: detectOS(),
+        locale: (configData.locale || document.documentElement.lang || navigator.language || "en"),
+        visitor: {
+          isReturning: visitorIsNew === null ? false : !visitorIsNew,
+          sessionPageCount: Number(session.pages) || 1,
+        },
+        availability: { online: !!availabilityOnline },
+        interaction: {
+          widgetOpen: !!isOpen,
+          conversationActive: hasActive,
+          anotherRuleShowing: !!activeSurface,
+        },
+        signals: {
+          elapsedMs: Date.now() - pageStart,
+          scrollPercent: scrollPercent,
+          inactiveMs: Date.now() - lastActivity,
+          exitIntent: exitIntent,
+          pageHidden: typeof document !== "undefined" ? !!document.hidden : false,
+        },
+        msSinceLastSurface: lastSurfaceAt == null ? null : Date.now() - lastSurfaceAt,
+      };
+    }
+
+    // ─── Telemetry (best-effort, never blocks the UI) ───
+    function report(rule, type) {
+      try {
+        eventSeq += 1;
+        var token = (window.__gs_token && window.__gs_token.get()) || sessionToken;
+        fetch(apiBase + "/api/widget/smart/event", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          body: JSON.stringify({
+            workspace_id: WORKSPACE_ID,
+            rule_id: rule.id,
+            rule_version: rule.version || 1,
+            event_type: type,
+            page_path: (window.location.pathname || "/").slice(0, 500),
+            idempotency_key: (session.seed + ":" + rule.id + ":" + type + ":" + eventSeq).slice(0, 120),
+          }),
+        }).catch(function () {});
+      } catch (_) {}
+    }
+
+    // ─── Actions ───
+    function runtimeInstance() {
+      try { return window.__gs_runtime && window.__gs_runtime._instance; } catch (_) { return null; }
+    }
+    function openRuntime(tab, slug) {
+      triggerOpen();
+      var tries = 0;
+      (function waitReady() {
+        var inst = runtimeInstance();
+        if (inst && inst.setTab) { try { inst.setTab(tab, slug); } catch (_) {} return; }
+        if (tries++ > 60) return;
+        setTimeout(waitReady, 150);
+      })();
+    }
+    function runAction(rule) {
+      var p = rule.presentation_config || {};
+      switch (p.action) {
+        case "open_chat": openRuntime("chat"); break;
+        case "open_home": openRuntime("home"); break;
+        case "open_kb": openRuntime("help"); break;
+        case "open_article": openRuntime("help", p.article_slug || null); break;
+        case "open_url":
+          if (SmartEngineRef && SmartEngineRef.isSafeSmartUrl(p.url)) {
+            try {
+              if (p.open_in_new_tab === false) window.location.href = p.url;
+              else window.open(p.url, "_blank", "noopener,noreferrer");
+            } catch (_) {}
+          }
+          break;
+        default: break;
+      }
+    }
+
+    // ─── Surface rendering (loader-owned: nudge + announcement) ───
+    function clearSurface() {
+      if (activeSurface && activeSurface.el && activeSurface.el.parentNode) {
+        activeSurface.el.parentNode.removeChild(activeSurface.el);
+      }
+      activeSurface = null;
+    }
+
+    function surfaceHtml(content, dismissible) {
+      return (dismissible === false
+        ? ""
+        : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="close">\u00d7</button>') +
+        (content.title ? '<div class="smart-title">' + escapeText(content.title) + "</div>" : "") +
+        '<div class="smart-body">' + escapeText(content.body || "") + "</div>" +
+        (content.cta_label
+          ? '<button type="button" class="smart-cta" data-smart-cta>' + escapeText(content.cta_label) + "</button>"
+          : "");
+    }
+
+    function escapeText(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    function showLoaderSurface(rule, content) {
+      if (!shellContentEl) return;
+      var mode = (rule.presentation_config || {}).mode;
+      var el = document.createElement("div");
+      if (mode === "announcement") {
+        el.className = "smart-announce smart-announce-fixed";
+      } else {
+        var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
+        el.className = "smart-nudge " + posClass;
+      }
+      el.innerHTML = surfaceHtml(content, (rule.presentation_config || {}).dismissible);
+      shellContentEl.appendChild(el);
+      activeSurface = { ruleId: rule.id, el: el };
+
+      var dismissBtn = el.querySelector("[data-smart-dismiss]");
+      if (dismissBtn) {
+        dismissBtn.addEventListener("click", function () {
+          markRule(rule.id, "dismissed");
+          report(rule, "dismissed");
+          clearSurface();
+        });
+      }
+      var ctaBtn = el.querySelector("[data-smart-cta]");
+      if (ctaBtn) {
+        ctaBtn.addEventListener("click", function () {
+          markRule(rule.id, "cta");
+          report(rule, "cta_clicked");
+          clearSurface();
+          runAction(rule);
+        });
+      }
+    }
+
+    function showPanelSurface(rule, content) {
+      var pres = rule.presentation_config || {};
+      triggerOpen();
+      report(rule, "widget_opened");
+      if (pres.mode === "open_widget") return;
+      var tries = 0;
+      (function waitReady() {
+        var inst = runtimeInstance();
+        if (inst && inst.showSmart) {
+          activeSurface = { ruleId: rule.id, el: null };
+          inst.showSmart({
+            id: rule.id,
+            mode: pres.mode,
+            title: content.title || "",
+            body: content.body || "",
+            ctaLabel: content.cta_label || "",
+            dismissible: pres.dismissible !== false,
+            onDismiss: function () {
+              markRule(rule.id, "dismissed");
+              report(rule, "dismissed");
+              activeSurface = null;
+            },
+            onCta: function () {
+              markRule(rule.id, "cta");
+              report(rule, "cta_clicked");
+              activeSurface = null;
+              runAction(rule);
+            },
+          });
+          return;
+        }
+        if (tries++ > 60) return;
+        setTimeout(waitReady, 150);
+      })();
+    }
+
+    function fire(rule) {
+      var content = SmartEngineRef.resolveSmartContent(rule, buildContext().locale);
+      if (!content || !content.body) return;
+      var vars = {
+        "workspace.name": configData.brandName || "",
+        "page.title": document.title || "",
+        "page.path": window.location.pathname || "",
+      };
+      var rendered = {
+        title: SmartEngineRef.renderSmartTemplate(content.title || "", vars),
+        body: SmartEngineRef.renderSmartTemplate(content.body || "", vars),
+        cta_label: SmartEngineRef.renderSmartTemplate(content.cta_label || "", vars),
+      };
+      var mode = (rule.presentation_config || {}).mode;
+      recordShown(rule.id);
+      lastSurfaceAt = Date.now();
+      if (mode === "launcher_nudge" || mode === "announcement") {
+        ensureRuntimeCss(function () { showLoaderSurface(rule, rendered); });
+      } else {
+        showPanelSurface(rule, rendered);
+      }
+      report(rule, "shown");
+    }
+
+    // ─── Evaluation loop ───
+    var SmartEngineRef = null;
+    var ticking = null;
+
+    function tick() {
+      if (!SmartEngineRef || activeSurface) return;
+      measureScroll();
+      var ctx = buildContext();
+      var now = new Date();
+      var best = null;
+      for (var i = 0; i < rules.length; i++) {
+        var rule = rules[i];
+        ctx.frequency = frequencyState(rule.id);
+        var result = SmartEngineRef.evaluateSmartRule(rule, ctx, now);
+        if (result.outcome !== "matched") continue;
+        if (!best) { best = rule; continue; }
+        var dp = (Number(rule.priority) || 0) - (Number(best.priority) || 0);
+        if (dp > 0 || (dp === 0 && String(rule.id) < String(best.id))) best = rule;
+      }
+      if (best) fire(best);
+    }
+
+    function attachSignals() {
+      var mark = function () { lastActivity = Date.now(); };
+      window.addEventListener("scroll", function () { measureScroll(); mark(); }, { passive: true });
+      window.addEventListener("mousemove", mark, { passive: true });
+      window.addEventListener("keydown", mark, { passive: true });
+      window.addEventListener("touchstart", mark, { passive: true });
+      document.addEventListener("mouseleave", function (ev) {
+        if (!ev || ev.clientY == null || ev.clientY <= 0) { exitIntent = true; tick(); }
+      });
+      document.addEventListener("visibilitychange", function () { mark(); });
+
+      // SPA navigation — treat every route change as a fresh page.
+      var onNav = function () {
+        clearSurface();
+        resetPageSignals();
+        setTimeout(tick, 60);
+      };
+      try {
+        ["pushState", "replaceState"].forEach(function (fn) {
+          var original = history[fn];
+          if (typeof original !== "function" || original.__gs_smart) return;
+          var patched = function () {
+            var out = original.apply(this, arguments);
+            try { onNav(); } catch (_) {}
+            return out;
+          };
+          patched.__gs_smart = true;
+          history[fn] = patched;
+        });
+      } catch (_) {}
+      window.addEventListener("popstate", onNav);
+
+      ticking = setInterval(tick, 1000);
+    }
+
+    var engineScript = document.createElement("script");
+    engineScript.src = engineUrl;
+    engineScript.async = true;
+    engineScript.setAttribute("data-gs-smart", "true");
+    engineScript.onload = function () {
+      SmartEngineRef = window.__gs_smart_engine;
+      if (!SmartEngineRef || !SmartEngineRef.evaluateSmartRule) {
+        warn("smart: engine bundle did not register");
+        return;
+      }
+      log("smart: engine ready with", rules.length, "rule(s)");
+      attachSignals();
+      tick();
+    };
+    engineScript.onerror = function () { warn("smart: engine failed to load"); };
+    document.head.appendChild(engineScript);
+  }
+
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {
     if (!apiBase || !workspaceId) return;

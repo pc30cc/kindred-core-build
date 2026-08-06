@@ -2331,11 +2331,16 @@
         '<div class="messages welcome-only">' +
           '<div class="msg-row operator">' +
             (function () {
-              var logo = ctx.config && ctx.config.logoUrl;
-              if (logo) {
-                return '<span class="msg-avatar has-img"><img src="' + Util.escapeHtml(logo) + '" alt="" loading="lazy" decoding="async" /></span>';
+              // Chat bubbles show the operator's profile picture — never the
+              // workspace logo.
+              var team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
+              var op = team.find ? team.find(function (m) { return m && (m.avatar_url || m.avatar); }) : null;
+              var opAvatar = op && (op.avatar_url || op.avatar);
+              if (opAvatar) {
+                return '<span class="msg-avatar has-img"><img src="' + Util.escapeHtml(String(opAvatar)) + '" alt="" loading="lazy" decoding="async" /></span>';
               }
-              var initial = ((ctx.config && ctx.config.brandName ? ctx.config.brandName : 'S').trim().charAt(0) || 'S').toUpperCase();
+              var opName = (team[0] && (team[0].name || team[0].full_name)) || '';
+              var initial = ((opName || (ctx.config && ctx.config.brandName ? ctx.config.brandName : 'S')).trim().charAt(0) || 'S').toUpperCase();
               return '<span class="msg-avatar" aria-hidden="true">' + Util.escapeHtml(initial) + '</span>';
             })() +
             '<div class="msg operator welcome-bubble">' + lines + '</div>' +

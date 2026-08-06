@@ -464,7 +464,16 @@ export function WidgetLivePreview({
       view === 'offline' ? offlineBody : chatBody;
 
     /* ── Smart Engagement surfaces (same markup as the runtime emits) ── */
-    const sp = smartPreview && smartPreview.body ? smartPreview : null;
+    const scenarioContent = smartScenario?.content;
+    const sp = smartScenario && scenarioContent && scenarioContent.body
+      ? {
+          mode: smartScenario.rule.presentation_config?.mode || 'launcher_nudge',
+          title: scenarioContent.title,
+          body: scenarioContent.body,
+          ctaLabel: scenarioContent.ctaLabel,
+          dismissible: smartScenario.rule.presentation_config?.dismissible !== false,
+        }
+      : null;
     const spTitle = sp?.title ? `<div class="smart-title">${esc(sp.title)}</div>` : '';
     const spCta = sp?.ctaLabel ? `<button type="button" class="smart-cta">${esc(sp.ctaLabel)}</button>` : '';
     const spDismiss = sp && sp.dismissible !== false
@@ -492,12 +501,14 @@ export function WidgetLivePreview({
          </div>`
       : '';
 
+    /* A smart chat message is automation, not a human operator: it never
+       borrows an operator avatar or name — it is labelled as automated. */
     const smartChatMessage = sp && sp.mode === 'chat_message'
-      ? `<div class="msg-row agent">
-           ${operatorAvatar
-             ? `<span class="msg-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="" /></span>`
-             : `<span class="msg-avatar">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span>`}
-           <div class="msg agent">${esc(sp.body)}${sp.ctaLabel ? `<div class="smart-cta-wrap">${spCta}</div>` : ''}</div>
+      ? `<div class="msg-row automation">
+           <div class="msg automation">
+             <span class="smart-automation-label">${esc(smartScenario?.automationLabel || '')}</span>
+             ${esc(sp.body)}${sp.ctaLabel ? `<div class="smart-cta-wrap">${spCta}</div>` : ''}
+           </div>
          </div>`
       : '';
 

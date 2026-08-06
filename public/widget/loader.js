@@ -35,7 +35,7 @@
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-08-06-canonical-v1";
+  var LOADER_VERSION = "2026-08-06-smart-engagement-v1";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
@@ -202,6 +202,30 @@
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
     ".error-toast.visible{display:block;}",
     "@media(max-width:480px){.launcher{width:50px;height:50px;}}",
+    /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
+    /* Values mirror .smart-nudge / .smart-title / .smart-body / .smart-cta / */
+    /* .smart-dismiss in runtime.css exactly — same look, no runtime.css load. */
+    ".smart-nudge{position:fixed;z-index:6;max-width:280px;display:flex;flex-direction:column;gap:8px;",
+    "padding:12px 14px;border-radius:16px;background:#fff;color:#1f2937;",
+    "border:1px solid rgba(15,23,42,.08);",
+    "box-shadow:0 18px 40px -18px rgba(2,6,23,.45),0 2px 6px -2px rgba(2,6,23,.12);",
+    "font-size:13px;line-height:1.6;bottom:96px;}",
+    ".smart-nudge[hidden]{display:none !important;}",
+    ".smart-nudge .smart-title{font-weight:700;font-size:13px;}",
+    ".smart-nudge .smart-body{color:#475569;white-space:pre-wrap;word-break:break-word;}",
+    ".smart-nudge .smart-cta{align-self:flex-start;border:none;cursor:pointer;padding:7px 14px;",
+    "border-radius:999px;font:inherit;font-weight:700;font-size:12px;color:#fff;",
+    "background:var(--gs-primary,#3b82f6);}",
+    ".smart-nudge .smart-dismiss{position:absolute;top:-8px;width:22px;height:22px;border-radius:50%;",
+    "border:1px solid rgba(15,23,42,.1);background:#fff;color:#64748b;cursor:pointer;display:flex;",
+    "align-items:center;justify-content:center;font-size:13px;line-height:1;padding:0;}",
+    ".smart-nudge.bottom-right{right:24px;}",
+    ".smart-nudge.bottom-left{left:24px;}",
+    ".smart-nudge.bottom-right .smart-dismiss{left:-8px;}",
+    ".smart-nudge.bottom-left .smart-dismiss{right:-8px;}",
+    "@keyframes gs-smart-in{from{opacity:0;transform:translateY(10px) scale(.96);}to{opacity:1;transform:translateY(0) scale(1);}}",
+    ".anim-on .smart-nudge{animation:gs-smart-in .34s cubic-bezier(.22,1,.36,1) both;}",
+    "@media(max-width:480px){.smart-nudge{bottom:84px;max-width:calc(100vw - 40px);}}",
   ].join("");
 
   // ─── <gs-widget> custom element ───

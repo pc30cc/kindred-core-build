@@ -4899,7 +4899,7 @@
       teamStackHtml = '<div class="header-op-stack">' +
         '<span class="header-op-avatar has-img"><img src="' + Util.escapeHtml(__wsLogo) + '" alt="' +
         Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span></div>';
-    } else if (teamMembers.length) {
+    } else if (false && teamMembers.length) {
       var stackInner = teamMembers.map(function (op) {
          var name = (op && op.name) ? String(op.name) : t('operator');
         var avatar = op && op.avatar ? String(op.avatar) : '';

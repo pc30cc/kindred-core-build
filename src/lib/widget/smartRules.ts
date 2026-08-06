@@ -189,21 +189,28 @@ export type SmartRuleDraft = Omit<SmartRuleRow, 'id' | 'workspace_id'> & {
  * verdict of the exact same evaluator the visitor's browser runs.
  */
 export function draftToSmartRule(draft: SmartRuleDraft): SmartRule {
-  return {
+  const rule: SmartRule = {
     id: draft.id || 'preview-rule',
     name: draft.name || '',
     status: draft.status,
     priority: Number(draft.priority) || 0,
     schema_version: Number(draft.schema_version) || SMART_ENGINE_SCHEMA_VERSION,
     version: Number(draft.published_version) || 0,
-    trigger_config: draft.trigger_config,
-    audience_config: draft.audience_config,
-    content_config: draft.content_config,
-    presentation_config: draft.presentation_config,
-    schedule_config: draft.schedule_config,
-    frequency_config: draft.frequency_config,
-    behavior_config: draft.behavior_config,
+    trigger_config: { type: 'page_load', ...(draft.trigger_config || {}) } as SmartRule['trigger_config'],
+    audience_config: { match: 'all', conditions: [], ...(draft.audience_config || {}) } as SmartRule['audience_config'],
+    content_config: {
+      default_locale: 'en', locales: {}, ...(draft.content_config || {}),
+    } as SmartRule['content_config'],
+    presentation_config: {
+      mode: 'launcher_nudge', action: 'none', ...(draft.presentation_config || {}),
+    } as SmartRule['presentation_config'],
+    schedule_config: (draft.schedule_config || {}) as SmartRule['schedule_config'],
+    frequency_config: {
+      mode: 'once_per_session', ...(draft.frequency_config || {}),
+    } as SmartRule['frequency_config'],
+    behavior_config: (draft.behavior_config || {}) as SmartRule['behavior_config'],
   };
+  return rule;
 }
 
 export function createEmptySmartRule(locale: string, timezone: string | null): SmartRuleDraft {

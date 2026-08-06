@@ -27,7 +27,6 @@ function scenario(
     device: 'desktop',
     locale: 'en',
     rtl: false,
-    automationLabel: 'Automated message',
   };
 }
 
@@ -66,7 +65,7 @@ describe('smart scenario preview', () => {
     expect(srcdoc(scenario('launcher_nudge'))).toContain('class="smart-nudge');
     expect(srcdoc(scenario('announcement'))).toContain('class="smart-announce"');
     expect(srcdoc(scenario('home_card'))).toContain('class="smart-home-card"');
-    expect(srcdoc(scenario('chat_message'), 'chat')).toContain('msg-row automation');
+    expect(srcdoc(scenario('chat_message'), 'chat')).toContain('class="smart-chat-dock"');
   });
 
   it('docks the announcement directly under the header, above the body', () => {
@@ -91,11 +90,11 @@ describe('smart scenario preview', () => {
       />,
     );
     const doc = container.querySelector('iframe')!.getAttribute('srcdoc') || '';
-    const start = doc.indexOf('msg-row automation');
-    const automation = doc.slice(start, doc.indexOf('msg-row operator', start));
+    const start = doc.indexOf('class="smart-chat-dock"');
+    const automation = doc.slice(start, doc.indexOf('</div>', doc.indexOf('smart-body', start)));
+    expect(start).toBeGreaterThan(-1);
     expect(automation).not.toContain('msg-avatar');
     expect(automation).not.toContain('Sara');
-    expect(automation).toContain('Automated message');
   });
 
   it('marks every smart surface so the phase script can toggle it', () => {

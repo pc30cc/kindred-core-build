@@ -225,7 +225,6 @@ export function SmartRulePreviewStudio({
     device: device === 'desktop' ? 'desktop' : 'mobile',
     locale: previewLocale,
     rtl: rtlOverride === null ? previewLocale === 'fa' : rtlOverride,
-    automationLabel: t('widgetPage.smart.studio.automationLabel'),
   }), [draft, content, verdict, phase, device, previewLocale, rtlOverride, t]);
 
   const previewSettings = useMemo(

@@ -40,8 +40,6 @@ export interface SmartPreviewScenario {
   device: 'desktop' | 'mobile';
   locale: string;
   rtl: boolean;
-  /** Localized "Automated message" label shown on chat-mode surfaces. */
-  automationLabel: string;
 }
 
 /** Messages the studio pushes into, or receives from, the smart iframe. */
@@ -504,14 +502,14 @@ export function WidgetLivePreview({
          </div>`
       : '';
 
-    /* A smart chat message is automation, not a human operator: it never
-       borrows an operator avatar or name — it is labelled as automated. */
-    const smartChatMessage = sp && sp.mode === 'chat_message'
-      ? `<div class="msg-row automation" data-smart-surface>
-           <div class="msg automation">
-             <span class="smart-automation-label">${esc(smartScenario?.automationLabel || '')}</span>
-             ${esc(sp.body)}${sp.ctaLabel ? `<div class="smart-cta-wrap">${spCta}</div>` : ''}
-           </div>
+    /* A smart chat message is automation, not a human operator: it is docked
+       above the composer exactly like `renderSmartDock()` in runtime.js and
+       never borrows an operator avatar or name. */
+    const smartChatDock = sp && sp.mode === 'chat_message'
+      ? `<div class="smart-chat-dock" data-smart-surface>
+           ${spDismiss}${spTitle}
+           <div class="smart-body">${esc(sp.body)}</div>
+           ${spCta}
          </div>`
       : '';
 
@@ -520,7 +518,7 @@ export function WidgetLivePreview({
     const bodyWithSmart = (smartHomeCard && view === 'home'
       ? `${smartHomeCard}${body}`
       : body
-    ).replace('<!--SMART_CHAT_SLOT-->', view === 'chat' ? smartChatMessage : '');
+    ).replace('<!--SMART_CHAT_SLOT-->', '');
 
     const composer = view === 'chat' ? `
       <div class="typing-row" aria-live="polite">
@@ -584,11 +582,6 @@ export function WidgetLivePreview({
   [data-smart-surface]{transition:opacity .22s ease, transform .22s ease;}
   [data-smart-surface][hidden]{display:none!important;}
   [data-smart-surface].smart-enter{opacity:0;transform:translateY(6px);}
-  .msg-row.automation{display:flex;justify-content:flex-start;}
-  .msg.automation{position:relative;background:#EEF2FF;color:#1F2937;border:1px dashed rgba(99,102,241,.45);
-    border-radius:14px;padding:10px 12px;max-width:80%;font-size:13px;line-height:1.6;}
-  .smart-automation-label{display:block;font-size:10px;font-weight:700;letter-spacing:.04em;
-    text-transform:uppercase;color:#6366F1;margin-bottom:4px;}
 </style>
 </head>
 <body>
@@ -602,6 +595,7 @@ export function WidgetLivePreview({
       ${header}
       ${smartAnnounce}
       <div class="body">${bodyWithSmart}</div>
+      ${view === 'chat' ? smartChatDock : ''}
       ${composer}
       ${tabs}
       ${powered}
@@ -752,7 +746,7 @@ export function WidgetLivePreview({
   }, [
     settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
-    smartScenario?.rtl, smartScenario?.automationLabel,
+    smartScenario?.rtl,
   ]);
 
   return (

@@ -4728,6 +4728,52 @@
     });
     var DRAFT_PENDING_KEY = '__pending__';
 
+    // ─── Smart Engagement interaction bridge state ──────────────────────
+    var smartInteractionListeners = [];
+    var visitorRepliedFlag = false;
+    var visitorTypingFlag = false;
+    var widgetErrorFlag = false;
+    var visitorTypingTimer = null;
+    function markVisitorTyping() {
+      visitorTypingFlag = true;
+      notifySmartInteractionChange();
+      if (visitorTypingTimer) clearTimeout(visitorTypingTimer);
+      visitorTypingTimer = setTimeout(function () {
+        visitorTypingFlag = false;
+        notifySmartInteractionChange();
+      }, 1500);
+    }
+    function computeSmartInteractionState() {
+      var cs = callSurfaceStore.get();
+      var ss = shellStore.get();
+      var cst = chatStore.get();
+      var prechatOpenNow = false;
+      try { prechatOpenNow = !!(ss.isOpen && ss.activeTab === 'chat' && identity && identity.needsPrechat && identity.needsPrechat()); } catch (_) {}
+      var view = ss.activeTab;
+      if (cs.phase !== 'idle') view = 'call';
+      return {
+        widgetOpen: !!ss.isOpen,
+        conversationActive: !!cst.conversationId,
+        visitorTyping: !!visitorTypingFlag,
+        callActive: cs.phase !== 'idle',
+        prechatOpen: prechatOpenNow,
+        visitorReplied: !!visitorRepliedFlag,
+        widgetError: !!widgetErrorFlag,
+        currentView: view,
+      };
+    }
+    var __lastSmartSnapshotJson = null;
+    function notifySmartInteractionChange() {
+      var next = computeSmartInteractionState();
+      var json = JSON.stringify(next);
+      if (json === __lastSmartSnapshotJson) return;
+      __lastSmartSnapshotJson = json;
+      for (var i = 0; i < smartInteractionListeners.length; i++) {
+        try { smartInteractionListeners[i](next); } catch (_) {}
+      }
+    }
+
+
     // ─── Phase 6a: Attachment domain store ───
     // Kept SEPARATE from chatStore (per Part 12 rule). Tracks the single
     // pending attachment for the current draft. State machine:
@@ -5004,6 +5050,7 @@
     var typingLabel = panel.querySelector('[data-typing-label]');
     var body = panel.querySelector('[data-body]');
     var msgInput = panel.querySelector('[data-msg-input]');
+    if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); }
     var sendBtn = panel.querySelector('[data-send-btn]');
     var inputBar = panel.querySelector('[data-input-bar]');
     var attachBtn = panel.querySelector('[data-attach-btn]');
@@ -5825,6 +5872,16 @@
     // Pass 2 — re-render whenever the in-panel call surface changes so
     // status text, mic/cam state, and remote tracks paint immediately.
     callSurfaceStore.subscribe(function () { renderBody(); });
+    callSurfaceStore.subscribe(notifySmartInteractionChange);
+    shellStore.subscribe(notifySmartInteractionChange);
+    chatStore.subscribe(function () {
+      var msgs = chatStore.get().messages || [];
+      for (var mi = 0; mi < msgs.length; mi++) {
+        if (msgs[mi].sender === 'visitor') { visitorRepliedFlag = true; break; }
+      }
+      notifySmartInteractionChange();
+    });
+
     // Re-render body when presence flips so fallback/normal swap takes effect.
     presenceStore.subscribe(function () {
       var at = shellStore.get().activeTab;

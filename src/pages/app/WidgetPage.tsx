@@ -633,6 +633,10 @@ function WidgetPageContent() {
                 localeLabels={LOCALE_LABELS}
                 kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a: any) => ({ title: a.title, slug: a.slug }))}
                 onPreviewChange={setSmartPreview}
+                previewSettings={previewSettings}
+                brandName={platformName || t('widgetPage.preview.brandFallback')}
+                studioKbArticles={previewKbArticles}
+                studioKbCategories={previewKbCategories}
               />
             </TabsContent>
 

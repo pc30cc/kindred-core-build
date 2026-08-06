@@ -5010,22 +5010,8 @@
         '<span class="header-op-avatar has-img"><img src="' + Util.escapeHtml(__wsLogo) + '" alt="' +
         Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span></div>';
     }
-    // Chat view always shows the operator avatars, independent of the
-    // workspace-logo toggle (the logo only brands the other views).
-    var opStackHtml = '';
-    if (teamMembers.length) {
-      opStackHtml = '<div class="header-op-stack" data-header-ops hidden>' + teamMembers.map(function (m) {
-        var nm = (m && (m.name || m.full_name)) || '';
-        var img = m && (m.avatar_url || m.avatar);
-        if (img) {
-          return '<span class="header-op-avatar has-img"><img src="' + Util.escapeHtml(String(img)) +
-            '" alt="' + Util.escapeHtml(nm) + '" loading="lazy" decoding="async" /></span>';
-        }
-        return '<span class="header-op-avatar">' +
-          Util.escapeHtml((nm.trim().charAt(0) || '?').toUpperCase()) + '</span>';
-      }).join('') + '</div>';
-    }
-    teamStackHtml = teamStackHtml + opStackHtml;
+    // Operator profile pictures are NEVER shown in the header — they belong
+    // to the chat bubbles only. The header brands with the workspace logo.
 
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
     var headerDirAttr = headerRtl ? ' dir="rtl"' : '';

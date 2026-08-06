@@ -46,14 +46,14 @@ function srcdoc(s: SmartPreviewScenario, view: 'home' | 'chat' = 'home') {
 
 describe('smart scenario preview', () => {
   it('hides the generic bottom navigation in smart mode', () => {
-    expect(srcdoc(scenario('home_card'))).not.toContain('data-preview-nav');
+    expect(srcdoc(scenario('home_card'))).not.toContain('tabs tabs-bottom');
   });
 
   it('keeps generic navigation in the ordinary preview', () => {
     const { container } = render(
       <WidgetLivePreview settings={{ widget_language: 'en' }} brandName="Acme" view="home" />,
     );
-    expect(container.querySelector('iframe')!.getAttribute('srcdoc')).toContain('data-preview-nav');
+    expect(container.querySelector('iframe')!.getAttribute('srcdoc')).toContain('tabs tabs-bottom');
   });
 
   it('starts the panel closed and drives it from the phase', () => {
@@ -91,7 +91,8 @@ describe('smart scenario preview', () => {
       />,
     );
     const doc = container.querySelector('iframe')!.getAttribute('srcdoc') || '';
-    const automation = doc.slice(doc.indexOf('msg-row automation'), doc.indexOf('msg-row automation') + 400);
+    const start = doc.indexOf('msg-row automation');
+    const automation = doc.slice(start, doc.indexOf('msg-row operator', start));
     expect(automation).not.toContain('msg-avatar');
     expect(automation).not.toContain('Sara');
     expect(automation).toContain('Automated message');

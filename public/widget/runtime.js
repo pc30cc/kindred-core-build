@@ -5966,6 +5966,7 @@
           return;
         }
         chatUI.renderChat(body);
+        renderSmartDock();
       } else if (tab === 'help') {
         if (inputBar) inputBar.style.display = 'none';
         kbUI.ensure(function () { kbUI.render(body); });

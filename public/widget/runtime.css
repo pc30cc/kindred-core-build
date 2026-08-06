@@ -2796,6 +2796,42 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
   box-shadow: 0 12px 30px -22px rgba(2, 6, 23, .5);
 }
 .shell .smart-chat-dock[hidden] { display: none !important; }
+/* Proactive smart message rendered as a real operator bubble inside the
+   conversation list. */
+.shell .msg.smart-msg {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+}
+.shell .msg.smart-msg .smart-title { font-weight: 700; font-size: 13px; }
+.shell .msg.smart-msg .smart-body { font-size: 13px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+.shell .msg.smart-msg .smart-cta {
+  align-self: flex-start;
+  margin-top: 2px;
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+.shell .msg.smart-msg .smart-dismiss {
+  position: absolute;
+  top: 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: .45;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.shell .panel:not(.panel-rtl) .msg.smart-msg .smart-dismiss { right: 4px; }
+.shell .panel-rtl .msg.smart-msg .smart-dismiss { left: 4px; }
 .shell .smart-chat-dock .smart-title { font-weight: 700; font-size: 13px; color: #0f172a; }
 .shell .smart-chat-dock .smart-body { font-size: 12.5px; line-height: 1.65; color: #475569; white-space: pre-wrap; word-break: break-word; }
 .shell .smart-chat-dock .smart-cta {

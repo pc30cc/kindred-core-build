@@ -2603,15 +2603,23 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
    The chevron is pinned to the top line of the panel (never floating over the
    content, never disappearing when the header has no brand content). */
 .shell .header:not(:has(.header-logo)):not(:has(.header-op-stack)) {
-  min-height: 46px;
-  padding: 6px 12px;
+  min-height: 30px;
+  padding: 0 8px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 .shell .header:not(:has(.header-logo)):not(:has(.header-op-stack)) .header-close {
   position: absolute !important;
-  top: 8px;
+  top: 2px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 9px;
   background: rgba(255, 255, 255, .24) !important;
   border: 1px solid rgba(255, 255, 255, .28);
   box-shadow: 0 6px 16px -10px rgba(2, 6, 23, .6);
+}
+.shell .header:not(:has(.header-logo)):not(:has(.header-op-stack)) .header-close svg {
+  width: 15px;
+  height: 15px;
 }

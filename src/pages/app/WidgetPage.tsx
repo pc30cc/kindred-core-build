@@ -546,25 +546,18 @@ function WidgetPageContent() {
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
-                    <Label className="text-sm">{t('widgetPage.appearance.fabAnimation')}</Label>
+                  <div className="flex items-start justify-between gap-3 rounded-lg border border-border/70 p-3">
+                    <div className="min-w-0 space-y-1">
+                      <Label className="text-sm">{t('widgetPage.appearance.widgetAnimation')}</Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('widgetPage.appearance.widgetAnimationHint')}
+                      </p>
+                    </div>
                     <Switch
+                      className="mt-0.5 shrink-0"
                       checked={live?.fab_animation ?? false}
                       onCheckedChange={v => setField('fab_animation', v, 0)}
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.autoOpenDelay')}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      dir="ltr"
-                      value={live?.auto_open_delay ?? 0}
-                      onChange={e => setField('auto_open_delay', Number(e.target.value) || 0)}
-                      className="w-32 text-start"
-                    />
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.autoOpenHint')}</p>
                   </div>
                 </CardContent>
               </Card>

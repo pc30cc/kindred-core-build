@@ -42,6 +42,9 @@ function WidgetPageContent() {
   const { t, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
+  // Chat bubbles in the preview show a real operator profile picture.
+  const { data: workspaceMembers } = useWorkspaceMembers(workspace?.id);
+  const previewOperator = (workspaceMembers || []).find((m) => m.avatar_url) || (workspaceMembers || [])[0];
   const { branding, platformName } = useBrandingContext();
   // Single source of truth — widget URLs come from platform widget settings only.
   const { data: platformWidget } = useWidgetPlatformSettings();

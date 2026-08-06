@@ -6188,17 +6188,51 @@
        */
       showSmart: function (surface) {
         if (!surface || !surface.body) return false;
+        // A proactive surface must never interrupt real activity.
+        var st = computeSmartInteractionState();
+        if (st.conversationActive || st.callActive || st.prechatOpen) return false;
+        if (surface.mode === 'open_widget') {
+          this.open();
+          return true;
+        }
         smartSurface = surface;
         if (surface.mode === 'home_card') {
           switchTab('home');
         } else if (surface.mode === 'chat_message') {
           switchTab('chat');
           renderSmartDock();
+        } else if (surface.mode === 'announcement') {
+          renderSmartAnnounce();
+        } else {
+          smartSurface = null;
+          return false;
         }
         return true;
       },
       hideSmart: function () { clearSmartSurface(); },
+      /** Smart Engagement — real interaction state for the loader's evaluator. */
+      getSmartInteractionState: function () { return computeSmartInteractionState(); },
+      /** Subscribe to interaction changes; returns an unsubscribe function. */
+      onSmartInteractionChange: function (listener) {
+        if (typeof listener !== 'function') return function () {};
+        smartInteractionListeners.push(listener);
+        return function () {
+          var i = smartInteractionListeners.indexOf(listener);
+          if (i >= 0) smartInteractionListeners.splice(i, 1);
+        };
+      },
     };
+  };
+
+  // Bridge helpers mirrored on the namespace so the loader can reach them
+  // without holding a reference to the instance closure.
+  __gs_runtime.getSmartInteractionState = function () {
+    var inst = __gs_runtime._instance;
+    return inst && inst.getSmartInteractionState ? inst.getSmartInteractionState() : null;
+  };
+  __gs_runtime.onSmartInteractionChange = function (listener) {
+    var inst = __gs_runtime._instance;
+    return inst && inst.onSmartInteractionChange ? inst.onSmartInteractionChange(listener) : function () {};
   };
 
   window.__gs_runtime = __gs_runtime;

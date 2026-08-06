@@ -285,11 +285,14 @@ and runtime bundle. They do not share runtime code at the bundle level.
   refuses to fall back to unhashed URLs in production — failing loud
   is the documented preference over silently serving stale assets for
   a year (CDN cache).
-- Shadow-DOM scoped: all widget CSS lives in
-  `.shell[data-template="<slug>"] ...` blocks inside `runtime.css`.
-- Templates are registered in `runtime.js` (`TemplateRegistry.register`)
-  and listed in the `widget_templates` table. The selected slug for a
-  workspace is read from `widget_settings.template_slug`.
+- Shadow-DOM scoped: all widget CSS lives under `.shell ...` selectors
+  inside `runtime.css`.
+- **Single canonical design**: the chat widget has exactly one visual
+  implementation and one runtime path. There is no template registry,
+  no template selector, and no per-template branching — the legacy
+  multi-template system was removed. `src/test/widget/noTemplateSystem.test.ts`
+  guards against reintroducing it. The legacy `widget_templates` table and
+  `widget_settings.template_slug` column are no longer read by any code.
 - **Internal identifiers** (legacy, intentionally preserved):
   `__gs_runtime`, `<gs-widget>`, `.gs-launcher`, runtime log prefix
   `[Widget Runtime]`, loader log prefix `[Widget]` with constant

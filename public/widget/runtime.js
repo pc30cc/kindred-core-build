@@ -5070,6 +5070,19 @@
       panel.insertBefore(smartDock, inputBar || panel.querySelector('.tabs') || null);
     } catch (_) { panel.appendChild(smartDock); }
 
+    // Announcements dock INSIDE the panel, directly under the header and above
+    // the body — never floating over the chrome, so they can't cover the tabs,
+    // the composer or the conversation.
+    var smartAnnounce = document.createElement('div');
+    smartAnnounce.className = 'smart-announce';
+    smartAnnounce.hidden = true;
+    try {
+      var headerEl = panel.querySelector('.header');
+      if (headerEl && headerEl.nextSibling) panel.insertBefore(smartAnnounce, headerEl.nextSibling);
+      else if (headerEl) panel.insertBefore(smartAnnounce, body || null);
+      else panel.insertBefore(smartAnnounce, panel.firstChild);
+    } catch (_) { panel.appendChild(smartAnnounce); }
+
     function smartInnerHtml(s) {
       return (s.dismissible === false
         ? ''
@@ -5111,9 +5124,21 @@
       bindSmartSurface(smartDock, smartSurface);
     }
 
+    function renderSmartAnnounce() {
+      if (!smartSurface || smartSurface.mode !== 'announcement') {
+        smartAnnounce.hidden = true;
+        smartAnnounce.innerHTML = '';
+        return;
+      }
+      smartAnnounce.innerHTML = smartInnerHtml(smartSurface);
+      smartAnnounce.hidden = false;
+      bindSmartSurface(smartAnnounce, smartSurface);
+    }
+
     function clearSmartSurface() {
       smartSurface = null;
       renderSmartDock();
+      renderSmartAnnounce();
       if (shellStore.get().activeTab === 'home') renderBody();
     }
 

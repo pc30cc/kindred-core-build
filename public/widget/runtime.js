@@ -4894,7 +4894,12 @@
     // avatar_url is set. The whole stack is hidden when there are no team
     // members configured.
     var teamStackHtml = '';
-    if (teamMembers.length) {
+    var __wsLogo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+    if (__wsLogo) {
+      teamStackHtml = '<div class="header-op-stack">' +
+        '<span class="header-op-avatar has-img"><img src="' + Util.escapeHtml(__wsLogo) + '" alt="' +
+        Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span></div>';
+    } else if (teamMembers.length) {
       var stackInner = teamMembers.map(function (op) {
          var name = (op && op.name) ? String(op.name) : t('operator');
         var avatar = op && op.avatar ? String(op.avatar) : '';

@@ -258,7 +258,9 @@ export function WidgetLivePreview({
     const chatBody = `
       <div class="messages">
         <div class="msg-row operator">
-          ${`<span class="msg-avatar">${esc(initial)}</span>`}
+          ${operatorAvatar
+            ? `<span class="msg-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
+            : `<span class="msg-avatar">${esc(((operatorName || '').trim().charAt(0) || initial).toUpperCase())}</span>`}
           <div class="msg operator welcome-bubble">${esc(d.sample)}</div>
         </div>
         <div class="msg-row visitor">
@@ -518,7 +520,7 @@ export function WidgetLivePreview({
 </script>
 </body>
 </html>`;
-  }, [settings, prechat, brandName, view, kbArticles, kbCategories]);
+  }, [settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">

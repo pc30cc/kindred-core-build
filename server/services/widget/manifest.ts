@@ -46,6 +46,7 @@ type WidgetAssetKey =
   | 'runtime-rt-centrifugo.js'
   | 'runtime-rt-supabase.js'
   | 'runtime-rt-resolver.js'
+  | 'smart-engine.js'
   | 'vendor/livekit-client.umd.min.js';
 
 let cachedManifest: WidgetManifest | null = null;

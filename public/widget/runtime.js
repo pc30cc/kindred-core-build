@@ -5663,6 +5663,7 @@
 
     function renderBody() {
       if (!body) return;
+      syncHeaderBrand();
       // Pass 2 — when an in-panel call surface is open it owns the
       // entire body. Tabs + composer are hidden; we render the call view
       // full-bleed inside the existing .body container (Shadow DOM).

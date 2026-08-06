@@ -5158,15 +5158,51 @@
       }
     }
 
-    function renderSmartDock() {
-      if (!smartSurface || smartSurface.mode !== 'chat_message') {
-        smartDock.hidden = true;
-        smartDock.innerHTML = '';
-        return;
+    // A `chat_message` surface must look and live exactly like a real
+    // operator reply: it is appended INSIDE the conversation list, with the
+    // operator avatar, not in a separate dock above the composer.
+    function smartOperatorAvatarHtml() {
+      var team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
+      var op = team.filter(function (m) { return m && (m.avatar_url || m.avatar); })[0];
+      var img = op && (op.avatar_url || op.avatar);
+      if (img) {
+        return '<span class="msg-avatar has-img"><img src="' + Util.escapeHtml(String(img)) +
+          '" alt="" loading="lazy" decoding="async" /></span>';
       }
-      smartDock.innerHTML = smartInnerHtml(smartSurface);
-      smartDock.hidden = false;
-      bindSmartSurface(smartDock, smartSurface);
+      var nm = (team[0] && (team[0].name || team[0].full_name)) || (ctx.config && ctx.config.brandName) || 'S';
+      return '<span class="msg-avatar" aria-hidden="true">' +
+        Util.escapeHtml((String(nm).trim().charAt(0) || 'S').toUpperCase()) + '</span>';
+    }
+
+    function renderSmartDock() {
+      // Legacy dock is never used any more — keep it inert.
+      smartDock.hidden = true;
+      smartDock.innerHTML = '';
+      if (!body) return;
+      var existing = body.querySelector('.smart-msg-row');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      if (!smartSurface || smartSurface.mode !== 'chat_message') return;
+      if (shellStore.get().activeTab !== 'chat') return;
+      var list = body.querySelector('.messages');
+      if (!list) return;
+      var s = smartSurface;
+      var row = document.createElement('div');
+      row.className = 'msg-row operator smart-msg-row';
+      row.innerHTML = smartOperatorAvatarHtml() +
+        '<div class="msg operator smart-msg">' +
+          (s.title ? '<div class="smart-title">' + Util.escapeHtml(s.title) + '</div>' : '') +
+          '<div class="smart-body">' + Util.escapeHtml(s.body || '') + '</div>' +
+          (s.ctaLabel
+            ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + ctx.primaryColor + '">' +
+                Util.escapeHtml(s.ctaLabel) + '</button>'
+            : '') +
+          (s.dismissible === false
+            ? ''
+            : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="close">\u00d7</button>') +
+        '</div>';
+      list.appendChild(row);
+      bindSmartSurface(row, s);
+      try { body.scrollTop = body.scrollHeight; } catch (_) {}
     }
 
     function renderSmartAnnounce() {

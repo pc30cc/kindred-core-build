@@ -3502,17 +3502,76 @@
     }
 
     // Defence-in-depth sanitizer for KB content displayed inside the widget
-    // (the content was authored by an operator but we still strip script/style/iframe/on*).
+    // (the content was authored by an operator / an ingestion pipeline, so
+    // it is untrusted from the widget's point of view). Allowlist-based:
+    // walks the parsed DOM and keeps only known-safe tags/attributes,
+    // rather than blacklisting known-bad patterns (which regexes reliably
+    // fail to cover — e.g. tag/attribute syntax without a leading space,
+    // or HTML-entity-encoded `javascript:` URLs that the parser decodes).
+    var KB_ALLOWED_TAGS = {
+      P: 1, BR: 1, B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, STRIKE: 1,
+      A: 1, UL: 1, OL: 1, LI: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1,
+      BLOCKQUOTE: 1, CODE: 1, PRE: 1, SPAN: 1, DIV: 1, IMG: 1, TABLE: 1,
+      THEAD: 1, TBODY: 1, TR: 1, TD: 1, TH: 1, HR: 1, SUB: 1, SUP: 1,
+      MARK: 1, SMALL: 1,
+    };
+    var KB_ALLOWED_ATTRS = {
+      A: ['href', 'title'],
+      IMG: ['src', 'alt', 'title', 'width', 'height'],
+    };
+    function isSafeKbUrl(v) {
+      if (!v) return false;
+      var raw = String(v).trim();
+      // Strip control/whitespace chars the HTML parser itself ignores when
+      // sniffing a URL scheme, so "java\tscript:" style tricks don't slip
+      // past a naive prefix check.
+      var stripped = raw.replace(/[\u0000-\u001F\u007F\s]/g, '');
+      if (/^(javascript|data|vbscript|file):/i.test(stripped)) return false;
+      return /^(https?:|mailto:|tel:)/i.test(raw) || /^[/#]/.test(raw);
+    }
+    function cleanKbNode(node) {
+      var children = Array.prototype.slice.call(node.childNodes);
+      children.forEach(function (child) {
+        if (child.nodeType === 1) {
+          cleanKbNode(child); // sanitize the subtree before deciding on this node
+          var tag = child.tagName;
+          if (!KB_ALLOWED_TAGS[tag]) {
+            // Unknown/dangerous element (script, style, iframe, svg, form, ...):
+            // drop the tag but keep its already-sanitized text/children.
+            while (child.firstChild) node.insertBefore(child.firstChild, child);
+            node.removeChild(child);
+            return;
+          }
+          var allowedAttrs = KB_ALLOWED_ATTRS[tag] || [];
+          Array.prototype.slice.call(child.attributes).forEach(function (attr) {
+            var name = attr.name.toLowerCase();
+            if (allowedAttrs.indexOf(name) === -1) { child.removeAttribute(attr.name); return; }
+            if ((name === 'href' || name === 'src') && !isSafeKbUrl(attr.value)) {
+              child.removeAttribute(attr.name);
+            }
+          });
+          if (tag === 'A') {
+            child.setAttribute('target', '_blank');
+            child.setAttribute('rel', 'noopener noreferrer nofollow');
+          }
+        } else if (child.nodeType !== 3) {
+          // Drop comments, processing instructions, etc. Text nodes (3) are kept as-is.
+          node.removeChild(child);
+        }
+      });
+    }
     function sanitizeHtml(input) {
       if (!input) return '';
-      return String(input)
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
-        .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
-        .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
-        .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
-        .replace(/javascript:/gi, '');
+      try {
+        var doc = new DOMParser().parseFromString('<div>' + String(input) + '</div>', 'text/html');
+        if (!doc || !doc.body || !doc.body.firstChild) return '';
+        cleanKbNode(doc.body);
+        return doc.body.firstChild.innerHTML;
+      } catch (_) {
+        // If parsing/sanitizing fails for any reason, fail safe: escape
+        // everything rather than risk rendering unsanitized markup.
+        return Util.escapeHtml(input);
+      }
     }
 
     function bindEvents() {

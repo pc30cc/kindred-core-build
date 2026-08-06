@@ -3423,6 +3423,7 @@ const en = {
     tabs: {
       appearance: 'Appearance',
       behavior: 'Behavior',
+      smart: 'Smart actions',
       prechat: 'Pre-chat',
       availability: 'Availability',
       domains: 'Domains',
@@ -3431,6 +3432,7 @@ const en = {
     tabDesc: {
       appearance: 'Template, colors and texts',
       behavior: 'Modules and privacy',
+      smart: 'Automatic widget actions',
       prechat: 'Fields asked before chat',
       availability: 'Working hours and presence',
       domains: 'Where the widget may load',
@@ -3489,8 +3491,8 @@ const en = {
       fabLabel: 'Launcher label',
       fabLabelHint: 'Short text shown next to the launcher button.',
       fabAnimation: 'Launcher animation',
-      autoOpenDelay: 'Auto-open after (seconds)',
-      autoOpenHint: '0 disables automatic opening.',
+      widgetAnimation: 'Widget animations',
+      widgetAnimationHint: 'Enables motion across the whole widget — launcher, opening and closing, buttons and screen transitions.',
     },
     behavior: {
       liveChat: 'Live chat',

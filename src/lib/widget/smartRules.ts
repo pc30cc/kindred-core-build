@@ -156,13 +156,55 @@ export type SmartRuleRow = z.infer<typeof smartRuleSchema> & {
   created_at?: string;
   updated_at?: string;
   published_at?: string | null;
+  /**
+   * Published snapshot columns. Editing a live rule only mutates the draft
+   * columns above; the visitor payload is always built from these.
+   */
+  published_trigger_config?: SmartRule['trigger_config'] | null;
+  published_audience_config?: SmartRule['audience_config'] | null;
+  published_content_config?: SmartRule['content_config'] | null;
+  published_presentation_config?: SmartRule['presentation_config'] | null;
+  published_schedule_config?: SmartRule['schedule_config'] | null;
+  published_frequency_config?: SmartRule['frequency_config'] | null;
+  published_behavior_config?: SmartRule['behavior_config'] | null;
+  published_priority?: number | null;
+  published_schema_version?: number | null;
 };
+
+/** Config blobs that are snapshotted on publish. */
+export const SMART_SNAPSHOT_CONFIG_KEYS = [
+  'trigger_config', 'audience_config', 'content_config',
+  'presentation_config', 'schedule_config', 'frequency_config', 'behavior_config',
+] as const;
 
 /** Draft shape used by the editor before it is persisted. */
 export type SmartRuleDraft = Omit<SmartRuleRow, 'id' | 'workspace_id'> & {
   id?: string;
   workspace_id?: string;
 };
+
+/**
+ * Adapt an editor draft to the evaluator's `SmartRule` contract without
+ * casting through `any`. Used by the preview studio so the operator sees the
+ * verdict of the exact same evaluator the visitor's browser runs.
+ */
+export function draftToSmartRule(draft: SmartRuleDraft): SmartRule {
+  return {
+    id: draft.id || 'preview-rule',
+    name: draft.name || '',
+    status: draft.status,
+    priority: Number(draft.priority) || 0,
+    schema_version: Number(draft.schema_version) || SMART_ENGINE_SCHEMA_VERSION,
+    version: Number(draft.published_version) || 0,
+    trigger_config: draft.trigger_config,
+    audience_config: draft.audience_config,
+    content_config: draft.content_config,
+    presentation_config: draft.presentation_config,
+    schedule_config: draft.schedule_config,
+    frequency_config: draft.frequency_config,
+    behavior_config: draft.behavior_config,
+  };
+}
 
 export function createEmptySmartRule(locale: string, timezone: string | null): SmartRuleDraft {
   const lang = (locale || 'en').toLowerCase().split('-')[0];

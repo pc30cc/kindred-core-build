@@ -21,6 +21,7 @@ import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerifi
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
@@ -41,6 +42,9 @@ function WidgetPageContent() {
   const { t, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
+  // Chat bubbles in the preview show a real operator profile picture.
+  const { data: workspaceMembers } = useWorkspaceMembers(workspace?.id);
+  const previewOperator = (workspaceMembers || []).find((m) => m.avatar_url) || (workspaceMembers || [])[0];
   const { branding, platformName } = useBrandingContext();
   // Single source of truth — widget URLs come from platform widget settings only.
   const { data: platformWidget } = useWidgetPlatformSettings();
@@ -808,6 +812,8 @@ function WidgetPageContent() {
                 kbArticles={previewKbArticles}
                 kbCategories={previewKbCategories}
                 onViewChange={setManualView}
+                operatorAvatar={previewOperator?.avatar_url}
+                operatorName={previewOperator?.full_name}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

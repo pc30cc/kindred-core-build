@@ -328,9 +328,8 @@ export function WidgetLivePreview({
         <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
       </div>` + prechatBody;
 
-    const homeAvatar = `<span class="home-avatar is-online${logo ? ' has-img' : ''}">${
-      logo ? `<img src="${esc(logo)}" alt="" />` : `<span aria-hidden="true">${esc(initial)}</span>`
-    }<span class="home-avatar-dot"></span></span>`;
+    // Operator avatars only — the workspace logo is not shown here.
+    const homeAvatar = `<span class="home-avatar"><span aria-hidden="true">${esc(initial)}</span></span>`;
 
     const homeBody = `
       <div class="home-root" dir="${dir}">

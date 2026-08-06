@@ -28,7 +28,9 @@ describe('chat widget — single canonical design', () => {
 
   it('server widget config does not expose a template selector', () => {
     const src = readFileSync('server/routes/widget.ts', 'utf8');
-    expect(src.includes('templateSlug:')).toBe(false);
+    // NOTE: `templateSlug: 'offline_message_received'` in this file belongs to
+    // the transactional EMAIL template system and is unrelated to widget UI.
     expect(src.includes('getActiveTemplateSlug')).toBe(false);
+    expect(/templateSlug:\s*await/.test(src)).toBe(false);
   });
 });

@@ -4899,26 +4899,6 @@
       teamStackHtml = '<div class="header-op-stack">' +
         '<span class="header-op-avatar has-img"><img src="' + Util.escapeHtml(__wsLogo) + '" alt="' +
         Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span></div>';
-    } else if (false && teamMembers.length) {
-      var stackInner = teamMembers.map(function (op) {
-         var name = (op && op.name) ? String(op.name) : t('operator');
-        var avatar = op && op.avatar ? String(op.avatar) : '';
-        var online = !!(op && op.online);
-        var onlineCls = online ? ' is-online' : '';
-         var dotHtml = '';
-        if (avatar) {
-          return '<span class="header-op-avatar has-img' + onlineCls + '" title="' + Util.escapeHtml(name) + '">' +
-            '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />' +
-            dotHtml +
-          '</span>';
-        }
-        var initial = (name.trim().charAt(0) || 'O').toUpperCase();
-        return '<span class="header-op-avatar' + onlineCls + '" title="' + Util.escapeHtml(name) + '">' +
-          '<span aria-hidden="true">' + Util.escapeHtml(initial) + '</span>' +
-          dotHtml +
-        '</span>';
-      }).join('');
-       teamStackHtml = '<div class="header-op-stack" aria-label="' + Util.escapeHtml(t('teamLabel')) + '">' + stackInner + '</div>';
     }
 
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';

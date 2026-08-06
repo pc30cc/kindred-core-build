@@ -271,7 +271,12 @@ function WidgetPageContent() {
           </TabsList>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        {/* The smart tab owns its own scenario studio, so the generic preview
+            sidebar steps aside and the builder takes the full width. */}
+        <div className={cn(
+          'grid grid-cols-1 gap-6',
+          tab !== 'smart' && 'xl:grid-cols-[minmax(0,1fr)_420px]',
+        )}>
           {/* Main config area */}
           <div className="space-y-6">
             {/* ─── Appearance ─── */}
@@ -633,6 +638,10 @@ function WidgetPageContent() {
                 localeLabels={LOCALE_LABELS}
                 kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a: any) => ({ title: a.title, slug: a.slug }))}
                 onPreviewChange={setSmartPreview}
+                previewSettings={previewSettings}
+                brandName={platformName || t('widgetPage.preview.brandFallback')}
+                studioKbArticles={previewKbArticles}
+                studioKbCategories={previewKbCategories}
               />
             </TabsContent>
 
@@ -774,7 +783,7 @@ function WidgetPageContent() {
         </div>
 
         {/* Live Preview — full-size, reflects every edit instantly */}
-        <div className="hidden xl:block">
+        <div className={cn('hidden', tab !== 'smart' && 'xl:block')}>
           <div className="sticky top-6 space-y-2">
             <div className="flex items-center justify-between">
               <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">

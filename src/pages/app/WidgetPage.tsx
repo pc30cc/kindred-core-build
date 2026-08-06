@@ -80,8 +80,15 @@ function WidgetPageContent() {
   const effectiveLocale =
     live?.locale && regionLocales.includes(live.locale) ? live.locale : regionLocales[0];
   const previewSettings = useMemo(
-    () => ({ ...live, locale: effectiveLocale, widget_language: effectiveLocale }),
-    [live, effectiveLocale],
+    () => ({
+      ...live,
+      // Logo is no longer a widget-level URL field: fall back to the logo the
+      // workspace owner uploaded in Settings → General.
+      logo_url: (live as any)?.logo_url || (branding as any)?.logo_url || null,
+      locale: effectiveLocale,
+      widget_language: effectiveLocale,
+    }),
+    [live, branding, effectiveLocale],
   );
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };

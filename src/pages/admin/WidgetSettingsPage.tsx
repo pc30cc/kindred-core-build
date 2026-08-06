@@ -13,7 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap, Video, ArrowRight } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
-import { WidgetTemplatesSection } from '@/components/admin/widget/WidgetTemplatesSection';
 import {
   RealtimeTransportSection,
   SecurityIsolationSection,
@@ -84,7 +83,6 @@ export default function AdminWidgetSettingsPage() {
       <Tabs defaultValue="urls" className="space-y-4">
         <TabsList className="bg-secondary/50 border border-border flex-wrap h-auto">
           <TabsTrigger value="urls" className="gap-1.5 text-xs"><Rocket className="h-3.5 w-3.5" />Deployment & URLs</TabsTrigger>
-          <TabsTrigger value="templates" className="gap-1.5 text-xs"><Layers className="h-3.5 w-3.5" />Templates</TabsTrigger>
           <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />Pre-chat fields</TabsTrigger>
           <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Feature locks</TabsTrigger>
           <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />Deployment defaults</TabsTrigger>
@@ -102,11 +100,6 @@ export default function AdminWidgetSettingsPage() {
             onSave={update}
             saving={updateMut.isPending}
           />
-        </TabsContent>
-
-        {/* Templates registry */}
-        <TabsContent value="templates">
-          <WidgetTemplatesSection />
         </TabsContent>
 
         {/* Pre-chat */}

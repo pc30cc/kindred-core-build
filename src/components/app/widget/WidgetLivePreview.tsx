@@ -337,7 +337,9 @@ export function WidgetLivePreview({
       </div>` + prechatBody;
 
     // Operator avatars only — the workspace logo is not shown here.
-    const homeAvatar = `<span class="home-avatar"><span aria-hidden="true">${esc(initial)}</span></span>`;
+    const homeAvatar = operatorAvatar
+      ? `<span class="home-avatar has-img is-online"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
+      : `<span class="home-avatar is-online"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
 
     const homeBody = `
       <div class="home-root" dir="${dir}">

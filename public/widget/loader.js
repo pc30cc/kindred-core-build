@@ -1069,7 +1069,7 @@
       // here would deadlock every panel-bound surface forever, because the
       // runtime that would resolve the unknown is only loaded by opening the
       // widget. Anything else stays "unknown" until the runtime reports.
-      if (!runtimeInstance() && !isOpen && !panelEverOpened) {
+      if (!runtimeLoaded && !runtimeInstance() && !isOpen) {
         return {
           widgetOpen: false,
           conversationActive: false,

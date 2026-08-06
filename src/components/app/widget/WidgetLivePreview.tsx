@@ -209,7 +209,7 @@ export function WidgetLivePreview({
     // Header shows the uploaded workspace logo; falls back to the initial.
     const avatar = logo
       ? `<span class="header-op-avatar has-img"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
-      : `<span class="header-op-avatar"><span aria-hidden="true">${esc(initial)}</span></span>`;
+      : '';
 
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
@@ -217,7 +217,7 @@ export function WidgetLivePreview({
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <div class="header-brand">
-          <div class="header-op-stack">${avatar}</div>
+          ${avatar ? `<div class="header-op-stack">${avatar}</div>` : ''}
         </div>
       </div>`;
 

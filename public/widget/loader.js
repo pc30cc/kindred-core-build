@@ -227,6 +227,7 @@
   var runtimeLoading = false;
   var shellEl = null;
   var shadowRoot = null;
+  var shellContentEl = null;
   var launcherEl = null;
   var errorToastEl = null;
   var isOpen = false;
@@ -234,6 +235,10 @@
   // start in case bootstrap() is somehow re-entered (defense in depth — the
   // singleton flag at the top of the IIFE already prevents this in practice).
   var trackingStarted = false;
+  // Smart Engagement — bootstrap-derived facts the evaluator needs.
+  var visitorIsNew = null;
+  var availabilityOnline = true;
+  var smartStarted = false;
 
   function mountShell() {
     if (shellEl) return; // singleton
@@ -244,6 +249,7 @@
     if (existing && existing.shadowRoot) {
       shellEl = existing;
       shadowRoot = existing.shadowRoot;
+      shellContentEl = shadowRoot.querySelector(".shell");
       var existingLauncher = shadowRoot.querySelector(".launcher");
       if (existingLauncher) launcherEl = existingLauncher;
       var existingToast = shadowRoot.querySelector(".error-toast");
@@ -262,6 +268,7 @@
 
     var shellDiv = document.createElement("div");
     shellDiv.className = "shell";
+    shellContentEl = shellDiv;
     // Do NOT set a brand color here — that would cause a blue-flash before
     // the workspace's real color arrives via /config. The launcher itself
     // stays hidden until applyConfigToShell() runs (or, in launcher-only

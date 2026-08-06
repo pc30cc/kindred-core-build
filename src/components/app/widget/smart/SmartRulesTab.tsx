@@ -1,7 +1,7 @@
 /**
  * Smart Engagement tab — master switch, rule list and inline editor.
- * Selecting or editing a rule drives the real widget Live Preview through
- * `onPreviewChange`, so nothing here is a mock-up.
+ * Editing a rule opens the scenario studio next to the builder, so the
+ * operator always sees the real widget reacting to the real evaluator.
  */
 import { useState } from 'react';
 import { useTranslation } from '@/i18n';

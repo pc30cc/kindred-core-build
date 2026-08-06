@@ -4900,7 +4900,7 @@
         var avatar = op && op.avatar ? String(op.avatar) : '';
         var online = !!(op && op.online);
         var onlineCls = online ? ' is-online' : '';
-         var dotHtml = online ? '<span class="header-op-dot" aria-label="' + Util.escapeHtml(t('onlineLabel')) + '"></span>' : '';
+         var dotHtml = '';
         if (avatar) {
           return '<span class="header-op-avatar has-img' + onlineCls + '" title="' + Util.escapeHtml(name) + '">' +
             '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />' +
@@ -4920,6 +4920,7 @@
     var headerDirAttr = headerRtl ? ' dir="rtl"' : '';
     var headerCls = 'header' + (headerRtl ? ' header-rtl' : '');
     var wsLogoUrl = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+    // Header shows operator avatars only (workspace logo removed).
     var headerLogoHtml = wsLogoUrl
       ? '<span class="header-logo"><img src="' + Util.escapeHtml(wsLogoUrl) + '" alt="' +
         Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span>'
@@ -4931,7 +4932,6 @@
     var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
       headerCloseHtml +
       '<div class="header-brand">' +
-        headerLogoHtml +
         teamStackHtml +
       '</div>' +
       '<div class="presence sr-only" data-presence aria-live="polite">' +
@@ -5567,8 +5567,7 @@
         var inner = av
           ? '<img src="' + Util.escapeHtml(av) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
           : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
-        return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner +
-          (on ? '<span class="home-avatar-dot"></span>' : '') + '</span>';
+        return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner + '</span>';
       }).join('');
 
       var kbState = kbStore.get();

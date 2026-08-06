@@ -6,6 +6,17 @@ WORKDIR /app
 COPY server/package.json server/package-lock.json* ./
 RUN npm install
 
+# server/routes/workspaceSmartRules.ts imports these via a relative path
+# (`../../src/lib/widget/smartRules.js`) that assumes the original monorepo
+# layout with `server/` and `src/` as siblings — so they must land at
+# /src/lib/widget, outside WORKDIR, to satisfy that import. But Node's
+# module resolution for smartRules.ts's own bare-specifier import
+# (`import { z } from 'zod'`) walks up from /src/lib/widget looking for a
+# node_modules directory, and never reaches /app/node_modules where `zod`
+# actually got installed above. Symlink the root node_modules to /app's so
+# that walk terminates successfully instead of throwing MODULE_NOT_FOUND.
+RUN ln -s /app/node_modules /node_modules
+
 # Copy server source code
 COPY server/ .
 

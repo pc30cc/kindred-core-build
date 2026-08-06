@@ -155,6 +155,9 @@ textarea:focus-visible{
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  /* Keeps the header tall enough for the close button even when the
+     workspace logo is hidden. */
+  min-height: 40px;
 }
 .header-brand-text { min-width: 0; flex: 1; }
 

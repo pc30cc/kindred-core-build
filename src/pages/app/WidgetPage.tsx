@@ -426,31 +426,16 @@ function WidgetPageContent() {
                 </CardHeader>
                 <CardContent className="space-y-4 p-6 pt-0">
                   <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
-                    <Label className="text-sm">{t('widgetPage.appearance.showLogo')}</Label>
+                    <div className="space-y-1">
+                      <Label className="text-sm">{t('widgetPage.appearance.showLogo')}</Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('widgetPage.appearance.logoHint')}
+                      </p>
+                    </div>
                     <Switch
                       checked={live?.show_logo ?? true}
                       onCheckedChange={v => setField('show_logo', v, 0)}
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.logoUrl')}</Label>
-                    <div className="flex items-center gap-3">
-                      {live?.logo_url ? (
-                        <img
-                          src={live.logo_url}
-                          alt=""
-                          className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
-                        />
-                      ) : null}
-                      <Input
-                        value={live?.logo_url || ''}
-                        dir="ltr"
-                        placeholder="https://…/logo.png"
-                        onChange={e => setField('logo_url', e.target.value)}
-                        className="text-start"
-                      />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.logoHint')}</p>
                   </div>
                 </CardContent>
               </Card>

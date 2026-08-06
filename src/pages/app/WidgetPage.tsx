@@ -25,7 +25,7 @@ import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
-import { SmartRulesTab, type SmartPreviewSurface } from '@/components/app/widget/smart/SmartRulesTab';
+import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -57,8 +57,6 @@ function WidgetPageContent() {
   const [domainError, setDomainError] = useState('');
   const [tab, setTab] = useState<string>('appearance');
   const [manualView, setManualView] = useState<PreviewView | null>(null);
-  /** Smart Engagement surface currently being authored — mirrored into the preview. */
-  const [smartPreview, setSmartPreview] = useState<SmartPreviewSurface | null>(null);
 
   /**
    * Local draft layer: every keystroke updates the preview instantly while the
@@ -156,8 +154,6 @@ function WidgetPageContent() {
     manualView ??
     (tab === 'prechat' ? 'prechat'
       : tab === 'availability' ? 'offline'
-      // Smart tab: jump to the surface the rule actually targets.
-      : tab === 'smart' && smartPreview?.mode === 'chat_message' ? 'chat'
       : 'home');
 
   const windowEmbedCode = useMemo(
@@ -637,7 +633,6 @@ function WidgetPageContent() {
                 locales={regionLocales}
                 localeLabels={LOCALE_LABELS}
                 kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a: any) => ({ title: a.title, slug: a.slug }))}
-                onPreviewChange={setSmartPreview}
                 previewSettings={previewSettings}
                 brandName={platformName || t('widgetPage.preview.brandFallback')}
                 studioKbArticles={previewKbArticles}
@@ -816,7 +811,6 @@ function WidgetPageContent() {
                 onViewChange={setManualView}
                 operatorAvatar={previewOperator?.avatar_url}
                 operatorName={previewOperator?.full_name}
-                smartPreview={tab === 'smart' ? smartPreview : null}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

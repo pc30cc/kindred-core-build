@@ -3,7 +3,7 @@
  * Selecting or editing a rule drives the real widget Live Preview through
  * `onPreviewChange`, so nothing here is a mock-up.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -17,17 +17,8 @@ import {
   useDeleteSmartRule, useDuplicateSmartRule, useSmartRuleStats,
 } from '@/hooks/useSmartRules';
 import { createEmptySmartRule, type SmartRuleDraft, type SmartRuleRow } from '@/lib/widget/smartRules';
-import { resolveSmartContent } from '@/lib/widget/smartEngine';
 import { SmartRuleEditor } from './SmartRuleEditor';
 import { SmartRulePreviewStudio } from './SmartRulePreviewStudio';
-
-export interface SmartPreviewSurface {
-  mode: 'launcher_nudge' | 'open_widget' | 'home_card' | 'chat_message' | 'announcement';
-  title?: string;
-  body: string;
-  ctaLabel?: string;
-  dismissible?: boolean;
-}
 
 export interface SmartRulesTabProps {
   workspaceId: string | undefined;
@@ -37,7 +28,6 @@ export interface SmartRulesTabProps {
   locales: string[];
   localeLabels: Record<string, string>;
   kbArticles?: { title: string; slug?: string | null }[];
-  onPreviewChange: (surface: SmartPreviewSurface | null) => void;
   /** Real widget settings — the studio renders the production preview with them. */
   previewSettings?: Record<string, any> | null;
   brandName?: string;
@@ -47,7 +37,7 @@ export interface SmartRulesTabProps {
 
 export function SmartRulesTab({
   workspaceId, masterEnabled, onToggleMaster, locale, locales, localeLabels,
-  kbArticles, onPreviewChange, previewSettings, brandName,
+  kbArticles, previewSettings, brandName,
   studioKbArticles, studioKbCategories,
 }: SmartRulesTabProps) {
   const { t, dir } = useTranslation();
@@ -60,22 +50,6 @@ export function SmartRulesTab({
 
   const [draft, setDraft] = useState<SmartRuleDraft | null>(null);
 
-  // Keep the widget preview in sync with whatever is being edited.
-  const surface = useMemo<SmartPreviewSurface | null>(() => {
-    if (!draft) return null;
-    const content = resolveSmartContent(draft as any, locale);
-    if (!content || !content.body) return null;
-    return {
-      mode: draft.presentation_config.mode,
-      title: content.title,
-      body: content.body,
-      ctaLabel: content.cta_label,
-      dismissible: draft.presentation_config.dismissible !== false,
-    };
-  }, [draft, locale]);
-
-  useEffect(() => { onPreviewChange(surface); }, [surface, onPreviewChange]);
-  useEffect(() => () => onPreviewChange(null), [onPreviewChange]);
 
   const handleSave = async (status: 'draft' | 'active') => {
     if (!draft) return;

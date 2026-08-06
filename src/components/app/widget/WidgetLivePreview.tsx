@@ -7,10 +7,52 @@
  * below mirrors what `public/widget/runtime.js` emits at runtime, so what the
  * operator sees here is what the visitor gets on their site.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
+import type { SmartEvalResult } from '@/lib/widget/smartEngine';
+import type { SmartRuleDraft } from '@/lib/widget/smartRules';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
+
+/** Lifecycle a smart action walks through inside the scenario studio. */
+export type SmartPreviewPhase =
+  | 'idle' | 'waiting' | 'matched' | 'surface_shown'
+  | 'widget_opened' | 'cta_clicked' | 'dismissed' | 'suppressed';
+
+/** Resolved, already-sanitized copy for the surface being simulated. */
+export interface SmartPreviewContent {
+  title?: string;
+  body: string;
+  ctaLabel?: string;
+}
+
+/**
+ * Everything the smart iframe needs. The preview receives the *whole rule*
+ * plus the scenario state — never a flattened surface — because the panel's
+ * open/closed state, the active view and the surface placement are all
+ * derived from the rule's presentation mode and the current phase.
+ */
+export interface SmartPreviewScenario {
+  rule: SmartRuleDraft;
+  content: SmartPreviewContent | null;
+  verdict: SmartEvalResult;
+  phase: SmartPreviewPhase;
+  device: 'desktop' | 'mobile';
+  locale: string;
+  rtl: boolean;
+  /** Localized "Automated message" label shown on chat-mode surfaces. */
+  automationLabel: string;
+}
+
+/** Messages the studio pushes into, or receives from, the smart iframe. */
+export type SmartPreviewMessage =
+  | { source: 'gs-smart-preview'; type: 'smart-preview:set-phase'; phase: SmartPreviewPhase }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:trigger' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:reset' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:dismiss' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:cta' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:widget-opened' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:widget-closed' };
 
 type Dict = {
   online: string; offline: string; typing: string; input: string;

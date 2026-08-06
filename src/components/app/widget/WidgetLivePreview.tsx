@@ -144,11 +144,23 @@ export interface WidgetLivePreviewProps {
   operatorAvatar?: string | null;
   /** Operator display name — used for the initial fallback avatar. */
   operatorName?: string | null;
+  /**
+   * Smart Engagement surface to render on top of the widget. The markup and
+   * class names match `public/widget/runtime.js` exactly, so the operator
+   * previews the real thing rather than an approximation.
+   */
+  smartPreview?: {
+    mode: 'launcher_nudge' | 'open_widget' | 'home_card' | 'chat_message' | 'announcement';
+    title?: string;
+    body: string;
+    ctaLabel?: string;
+    dismissible?: boolean;
+  } | null;
 }
 
 export function WidgetLivePreview({
   settings, prechat, brandName, view, kbArticles, kbCategories, onViewChange,
-  operatorAvatar, operatorName,
+  operatorAvatar, operatorName, smartPreview,
 }: WidgetLivePreviewProps) {
   useEffect(() => {
     if (!onViewChange) return;
@@ -257,6 +269,7 @@ export function WidgetLivePreview({
 
     const chatBody = `
       <div class="messages">
+        <!--SMART_CHAT_SLOT-->
         <div class="msg-row operator">
           ${operatorAvatar
             ? `<span class="msg-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
@@ -380,6 +393,51 @@ export function WidgetLivePreview({
       view === 'kb' ? kbBody :
       view === 'offline' ? offlineBody : chatBody;
 
+    /* ── Smart Engagement surfaces (same markup as the runtime emits) ── */
+    const sp = smartPreview && smartPreview.body ? smartPreview : null;
+    const spTitle = sp?.title ? `<div class="smart-title">${esc(sp.title)}</div>` : '';
+    const spCta = sp?.ctaLabel ? `<button type="button" class="smart-cta">${esc(sp.ctaLabel)}</button>` : '';
+    const spDismiss = sp && sp.dismissible !== false
+      ? '<button type="button" class="smart-dismiss" aria-label="dismiss">×</button>' : '';
+
+    const smartNudge = sp && sp.mode === 'launcher_nudge'
+      ? `<div class="smart-nudge ${pos}" style="bottom:${fabSize + 40}px">
+           ${spDismiss}${spTitle}
+           <div class="smart-body">${esc(sp.body)}</div>
+           ${spCta}
+         </div>`
+      : '';
+
+    const smartAnnounce = sp && sp.mode === 'announcement'
+      ? `<div class="smart-announce">
+           <span class="smart-body">${esc(sp.body)}</span>${spCta}${spDismiss}
+         </div>`
+      : '';
+
+    const smartHomeCard = sp && sp.mode === 'home_card'
+      ? `<div class="smart-home-card">
+           ${spDismiss}${spTitle}
+           <div class="smart-body">${esc(sp.body)}</div>
+           ${spCta}
+         </div>`
+      : '';
+
+    const smartChatMessage = sp && sp.mode === 'chat_message'
+      ? `<div class="msg-row agent">
+           ${operatorAvatar
+             ? `<span class="msg-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="" /></span>`
+             : `<span class="msg-avatar">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span>`}
+           <div class="msg agent">${esc(sp.body)}${sp.ctaLabel ? `<div class="smart-cta-wrap">${spCta}</div>` : ''}</div>
+         </div>`
+      : '';
+
+    // Home card renders inside the home view; the chat message goes into the
+    // message list via a dedicated slot. Everything else floats over the shell.
+    const bodyWithSmart = (smartHomeCard && view === 'home'
+      ? `${smartHomeCard}${body}`
+      : body
+    ).replace('<!--SMART_CHAT_SLOT-->', view === 'chat' ? smartChatMessage : '');
+
     const composer = view === 'chat' ? `
       <div class="typing-row" aria-live="polite">
         <span class="typing-dots"><span></span><span></span><span></span></span>
@@ -446,10 +504,11 @@ export function WidgetLivePreview({
     <div class="block"></div>
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
-  <div class="shell">
+  <div class="shell${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}">
       ${header}
-      <div class="body">${body}</div>
+      ${smartAnnounce}
+      <div class="body">${bodyWithSmart}</div>
       ${composer}
       ${tabs}
       ${powered}
@@ -458,6 +517,7 @@ export function WidgetLivePreview({
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
+    ${smartNudge}
     ${articleTemplates}
   </div>
 <script>
@@ -522,7 +582,7 @@ export function WidgetLivePreview({
 </script>
 </body>
 </html>`;
-  }, [settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName]);
+  }, [settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName, smartPreview]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">

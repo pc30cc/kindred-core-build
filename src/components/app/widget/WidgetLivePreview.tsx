@@ -206,8 +206,10 @@ export function WidgetLivePreview({
       )
       .join('')}</div>`;
 
-    // Operator avatar only — the workspace logo is never used here.
-    const avatar = `<span class="header-op-avatar"><span aria-hidden="true">${esc(initial)}</span></span>`;
+    // Header shows the uploaded workspace logo; falls back to the initial.
+    const avatar = logo
+      ? `<span class="header-op-avatar has-img"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
+      : `<span class="header-op-avatar"><span aria-hidden="true">${esc(initial)}</span></span>`;
 
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">

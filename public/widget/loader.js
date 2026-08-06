@@ -853,6 +853,33 @@
     } catch (_) { if (cb) cb(); }
   }
 
+  // ─── Shared history-patch bus (SPA route-change notifications) ───
+  // Both visitor tracking and Smart Engagement need to know when a
+  // pushState/replaceState-driven route change happens. Patching
+  // history.pushState/replaceState more than once is wasteful and, if any
+  // consumer forgets `.apply`, actively breaks the chain — so there is
+  // exactly one patch, shared via window, with a listener list.
+  function onHistoryChange(cb) {
+    if (!window.__gs_history_listeners) window.__gs_history_listeners = [];
+    window.__gs_history_listeners.push(cb);
+    if (window.__gs_history_patched) return;
+    window.__gs_history_patched = true;
+    try {
+      ["pushState", "replaceState"].forEach(function (fn) {
+        var original = history[fn];
+        if (typeof original !== "function") return;
+        history[fn] = function () {
+          var out = original.apply(this, arguments);
+          var listeners = window.__gs_history_listeners || [];
+          for (var i = 0; i < listeners.length; i++) {
+            try { listeners[i](); } catch (_) {}
+          }
+          return out;
+        };
+      });
+    } catch (_) {}
+  }
+
   function startSmart(config) {
     if (smartStarted) return;
     smartStarted = true;
@@ -862,29 +889,81 @@
     var engineUrl = config.smart.engineUrl;
     if (!engineUrl) { warn("smart: no engine url"); return; }
 
-    var LS_KEY = "gs_smart_" + WORKSPACE_ID;
-    var SS_KEY = "gs_smart_s_" + WORKSPACE_ID;
+    var isPreview = configData.mode === "preview" || window.__gs_preview === true;
+
+    // ═══ smartFrequency:isoWeekKey ═══
+    // ES5 mirror of src/lib/widget/smartFrequency.ts#isoWeekKey — kept in
+    // lockstep by src/test/widget/smartLoader.test.ts.
+    function isoWeekKey(date) {
+      var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      var dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      var weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+      return d.getUTCFullYear() + "-W" + (weekNo < 10 ? "0" + weekNo : String(weekNo));
+    }
+    // ═══ /smartFrequency:isoWeekKey ═══
+
+    // ═══ smartFrequency:buildFrequencyKey ═══
+    function buildFrequencyKey(workspaceId, ruleId, ruleVersion) {
+      return "gs:smart:v1:" + workspaceId + ":" + ruleId + ":" + (ruleVersion || 1);
+    }
+    // ═══ /smartFrequency:buildFrequencyKey ═══
+
+    // ═══ smartFrequency:buildSessionKey ═══
+    function buildSessionKey(workspaceId) {
+      return "gs:smart:v1:" + workspaceId + ":session";
+    }
+    // ═══ /smartFrequency:buildSessionKey ═══
+
+    // ═══ smartFrequency:buildIdempotencyKey ═══
+    function buildIdempotencyKey(sessionId, ruleId, ruleVersion, eventType, occurrence) {
+      return (sessionId + ":" + ruleId + ":" + (ruleVersion || 1) + ":" + eventType + ":" + occurrence).slice(0, 160);
+    }
+    // ═══ /smartFrequency:buildIdempotencyKey ═══
+
+    // ═══ smartFrequency:suppressionDedupeKey ═══
+    function suppressionDedupeKey(ruleId, reason) {
+      return ruleId + "::" + reason;
+    }
+    // ═══ /smartFrequency:suppressionDedupeKey ═══
 
     function readJson(store, key) {
-      try { return JSON.parse(store.getItem(key) || "{}") || {}; } catch (_) { return {}; }
+      try {
+        var raw = store.getItem(key);
+        if (!raw) return {};
+        var parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === "object") ? parsed : {};
+      } catch (_) { return {}; } // corrupt JSON resets silently
     }
     function writeJson(store, key, value) {
       try { store.setItem(key, JSON.stringify(value)); } catch (_) {}
     }
     function dayKey() { return new Date().toISOString().slice(0, 10); }
-    function weekKey() { return String(Math.floor(Date.now() / 604800000)); }
+    function weekKey() { return isoWeekKey(new Date()); }
+    function ruleVersion(rule) { return rule.version || 1; }
 
-    var persisted = readJson(window.localStorage, LS_KEY);
-    var session = readJson(window.sessionStorage, SS_KEY);
+    var sessionKey = buildSessionKey(WORKSPACE_ID);
+    var session = readJson(window.sessionStorage, sessionKey);
     if (!session.rules) session.rules = {};
     session.pages = (Number(session.pages) || 0) + 1;
     if (!session.seed) session.seed = String(Date.now()) + "-" + Math.random().toString(36).slice(2, 8);
-    writeJson(window.sessionStorage, SS_KEY, session);
+    writeJson(window.sessionStorage, sessionKey, session);
 
-    function frequencyState(ruleId) {
-      var rec = persisted[ruleId] || {};
+    // No identity data is ever stored here — only counters/flags keyed by
+    // workspace + rule + rule VERSION, so publishing a new version starts
+    // with a clean slate (never inherits the old version's state).
+    function readRuleRecord(rule) {
+      return readJson(window.localStorage, buildFrequencyKey(WORKSPACE_ID, rule.id, ruleVersion(rule)));
+    }
+    function writeRuleRecord(rule, rec) {
+      writeJson(window.localStorage, buildFrequencyKey(WORKSPACE_ID, rule.id, ruleVersion(rule)), rec);
+    }
+
+    function frequencyState(rule) {
+      var rec = readRuleRecord(rule);
       return {
-        shownInSession: Number(session.rules[ruleId] || 0),
+        shownInSession: Number(session.rules[rule.id] || 0),
         shownTotal: Number(rec.total || 0),
         shownToday: rec.dayKey === dayKey() ? Number(rec.today || 0) : 0,
         shownThisWeek: rec.weekKey === weekKey() ? Number(rec.week || 0) : 0,
@@ -893,24 +972,32 @@
         ctaClicked: !!rec.cta,
       };
     }
-    function recordShown(ruleId) {
-      var rec = persisted[ruleId] || {};
+    function recordShown(rule) {
+      var rec = readRuleRecord(rule);
       rec.total = (Number(rec.total) || 0) + 1;
       rec.today = (rec.dayKey === dayKey() ? Number(rec.today) || 0 : 0) + 1;
       rec.dayKey = dayKey();
       rec.week = (rec.weekKey === weekKey() ? Number(rec.week) || 0 : 0) + 1;
       rec.weekKey = weekKey();
       rec.last = Date.now();
-      persisted[ruleId] = rec;
-      writeJson(window.localStorage, LS_KEY, persisted);
-      session.rules[ruleId] = (Number(session.rules[ruleId]) || 0) + 1;
-      writeJson(window.sessionStorage, SS_KEY, session);
+      writeRuleRecord(rule, rec);
+      session.rules[rule.id] = (Number(session.rules[rule.id]) || 0) + 1;
+      writeJson(window.sessionStorage, sessionKey, session);
     }
-    function markRule(ruleId, field) {
-      var rec = persisted[ruleId] || {};
+    function markRule(rule, field) {
+      var rec = readRuleRecord(rule);
       rec[field] = true;
-      persisted[ruleId] = rec;
-      writeJson(window.localStorage, LS_KEY, persisted);
+      writeRuleRecord(rule, rec);
+    }
+    // Deterministic per-rule/version/event occurrence counter, persisted so
+    // a page-reload-before-ack retry of the same logical event reuses the
+    // same idempotency key instead of minting a new one.
+    function nextOccurrence(rule, eventType) {
+      var rec = readRuleRecord(rule);
+      rec.events = rec.events || {};
+      rec.events[eventType] = (Number(rec.events[eventType]) || 0) + 1;
+      writeRuleRecord(rule, rec);
+      return rec.events[eventType];
     }
 
     // ─── Per-page signals ───
@@ -920,15 +1007,16 @@
     var exitIntent = false;
     var lastSurfaceAt = null;
     var activeSurface = null;   // { ruleId, el }
-    var eventSeq = 0;
+    var suppressedThisPage = {}; // dedupe: "ruleId::reason" -> true
 
     function resetPageSignals() {
       pageStart = Date.now();
       lastActivity = Date.now();
       scrollPercent = 0;
       exitIntent = false;
+      suppressedThisPage = {};
       session.pages = (Number(session.pages) || 0) + 1;
-      writeJson(window.sessionStorage, SS_KEY, session);
+      writeJson(window.sessionStorage, sessionKey, session);
     }
 
     function measureScroll() {
@@ -949,15 +1037,57 @@
       return out;
     }
 
+    // ─── Runtime interaction bridge ─────────────────────────────────────
+    // The identity cookie is HttpOnly (unreadable from JS) so, before the
+    // runtime is loaded, only loader-trustworthy state is known: whether
+    // WE opened the panel. Everything else the runtime tracks (an active
+    // conversation, a live call, an open pre-chat form) is UNKNOWN until
+    // the runtime hands us a real snapshot — we never guess "false".
+    var runtimeInteraction = null; // real snapshot once the runtime subscribes
+    function runtimeInstance() {
+      try { return window.__gs_runtime && window.__gs_runtime._instance; } catch (_) { return null; }
+    }
+    function subscribeRuntimeInteractionOnce() {
+      if (runtimeInteraction) return;
+      var inst = runtimeInstance();
+      if (!inst || typeof inst.getSmartInteractionState !== "function") return;
+      try {
+        runtimeInteraction = inst.getSmartInteractionState();
+        if (typeof inst.onSmartInteractionChange === "function") {
+          inst.onSmartInteractionChange(function (next) { runtimeInteraction = next; });
+        }
+      } catch (_) {}
+    }
+    // "unknown" while the runtime hasn't reported yet — never coerced to false.
+    function interactionSnapshot() {
+      subscribeRuntimeInteractionOnce();
+      if (runtimeInteraction) return runtimeInteraction;
+      return {
+        widgetOpen: !!isOpen,
+        conversationActive: "unknown",
+        visitorTyping: "unknown",
+        callActive: "unknown",
+        prechatOpen: "unknown",
+        visitorReplied: "unknown",
+        widgetError: false,
+        currentView: null,
+      };
+    }
+    function isUnknownInteraction(snap) {
+      return snap.conversationActive === "unknown" ||
+        snap.callActive === "unknown" ||
+        snap.prechatOpen === "unknown";
+    }
+    function isPanelBoundMode(mode) { return mode !== "launcher_nudge"; }
+
     function buildContext() {
       var q = currentQuery();
       var ua = navigator.userAgent || "";
       var device = /iPad|Tablet/i.test(ua) ? "tablet" : (/Mobi|Android/i.test(ua) ? "mobile" : "desktop");
-      var hasActive = false;
-      try { hasActive = (document.cookie || "").indexOf("gs_active=") !== -1; } catch (_) {}
+      var snap = interactionSnapshot();
       return {
         masterEnabled: true,
-        mode: "production",
+        mode: isPreview ? "preview" : "production",
         page: {
           url: window.location.href,
           path: window.location.pathname,
@@ -977,8 +1107,11 @@
         },
         availability: { online: !!availabilityOnline },
         interaction: {
-          widgetOpen: !!isOpen,
-          conversationActive: hasActive,
+          widgetOpen: !!snap.widgetOpen,
+          // Fail-safe: unknown is treated as "not active" for the ENGINE
+          // pass (so nudges can still fire); the extra unknown-gate below
+          // separately blocks panel-bound surfaces until we know for sure.
+          conversationActive: snap.conversationActive === true,
           anotherRuleShowing: !!activeSurface,
         },
         signals: {
@@ -993,9 +1126,14 @@
     }
 
     // ─── Telemetry (best-effort, never blocks the UI) ───
+    function currentSessionId() {
+      try { if (window.__gs_session_id) return String(window.__gs_session_id); } catch (_) {}
+      return session.seed;
+    }
     function report(rule, type) {
+      if (isPreview) return; // never send telemetry from preview contexts
       try {
-        eventSeq += 1;
+        var occurrence = nextOccurrence(rule, type);
         var token = (window.__gs_token && window.__gs_token.get()) || sessionToken;
         fetch(apiBase + "/api/widget/smart/event", {
           method: "POST",
@@ -1004,19 +1142,22 @@
           body: JSON.stringify({
             workspace_id: WORKSPACE_ID,
             rule_id: rule.id,
-            rule_version: rule.version || 1,
+            rule_version: ruleVersion(rule),
             event_type: type,
             page_path: (window.location.pathname || "/").slice(0, 500),
-            idempotency_key: (session.seed + ":" + rule.id + ":" + type + ":" + eventSeq).slice(0, 120),
+            idempotency_key: buildIdempotencyKey(currentSessionId(), rule.id, ruleVersion(rule), type, occurrence),
           }),
         }).catch(function () {});
       } catch (_) {}
     }
+    function reportSuppressed(rule, reasonCode) {
+      var key = suppressionDedupeKey(rule.id, reasonCode);
+      if (suppressedThisPage[key]) return;
+      suppressedThisPage[key] = true;
+      report(rule, "suppressed");
+    }
 
     // ─── Actions ───
-    function runtimeInstance() {
-      try { return window.__gs_runtime && window.__gs_runtime._instance; } catch (_) { return null; }
-    }
     function openRuntime(tab, slug) {
       triggerOpen();
       var tries = 0;
@@ -1046,7 +1187,11 @@
       }
     }
 
-    // ─── Surface rendering (loader-owned: nudge + announcement) ───
+    // ─── Surface rendering ──────────────────────────────────────────────
+    // Loader-owned surface: `launcher_nudge` ONLY. `announcement`,
+    // `home_card`, `chat_message` and `open_widget` are ALWAYS handed to
+    // the runtime (inst.showSmart) so they render inside the real widget
+    // chrome — the loader never paints a floating announcement itself.
     function clearSurface() {
       if (activeSurface && activeSurface.el && activeSurface.el.parentNode) {
         activeSurface.el.parentNode.removeChild(activeSurface.el);
@@ -1071,16 +1216,11 @@
       });
     }
 
-    function showLoaderSurface(rule, content) {
-      if (!shellContentEl) return;
-      var mode = (rule.presentation_config || {}).mode;
+    function showNudge(rule, content) {
+      if (!shellContentEl) return false;
+      var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
       var el = document.createElement("div");
-      if (mode === "announcement") {
-        el.className = "smart-announce smart-announce-fixed";
-      } else {
-        var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
-        el.className = "smart-nudge " + posClass;
-      }
+      el.className = "smart-nudge " + posClass;
       el.innerHTML = surfaceHtml(content, (rule.presentation_config || {}).dismissible);
       shellContentEl.appendChild(el);
       activeSurface = { ruleId: rule.id, el: el };
@@ -1088,7 +1228,7 @@
       var dismissBtn = el.querySelector("[data-smart-dismiss]");
       if (dismissBtn) {
         dismissBtn.addEventListener("click", function () {
-          markRule(rule.id, "dismissed");
+          markRule(rule, "dismissed");
           report(rule, "dismissed");
           clearSurface();
         });
@@ -1096,25 +1236,35 @@
       var ctaBtn = el.querySelector("[data-smart-cta]");
       if (ctaBtn) {
         ctaBtn.addEventListener("click", function () {
-          markRule(rule.id, "cta");
+          markRule(rule, "cta");
           report(rule, "cta_clicked");
           clearSurface();
           runAction(rule);
         });
       }
+      return true;
     }
 
     function showPanelSurface(rule, content) {
       var pres = rule.presentation_config || {};
+      var wasOpen = !!isOpen;
       triggerOpen();
-      report(rule, "widget_opened");
-      if (pres.mode === "open_widget") return;
+      if (!wasOpen) {
+        // widget_opened is only ever reported once the panel actually opens.
+        var tries0 = 0;
+        (function waitOpen() {
+          if (isOpen) { report(rule, "widget_opened"); return; }
+          if (tries0++ > 40) return;
+          setTimeout(waitOpen, 100);
+        })();
+      }
+      if (pres.mode === "open_widget") return true;
       var tries = 0;
+      var delivered = false;
       (function waitReady() {
         var inst = runtimeInstance();
         if (inst && inst.showSmart) {
-          activeSurface = { ruleId: rule.id, el: null };
-          inst.showSmart({
+          delivered = inst.showSmart({
             id: rule.id,
             mode: pres.mode,
             title: content.title || "",
@@ -1122,25 +1272,35 @@
             ctaLabel: content.cta_label || "",
             dismissible: pres.dismissible !== false,
             onDismiss: function () {
-              markRule(rule.id, "dismissed");
+              markRule(rule, "dismissed");
               report(rule, "dismissed");
               activeSurface = null;
             },
             onCta: function () {
-              markRule(rule.id, "cta");
+              markRule(rule, "cta");
               report(rule, "cta_clicked");
               activeSurface = null;
               runAction(rule);
             },
           });
+          if (delivered) activeSurface = { ruleId: rule.id, el: null };
           return;
         }
         if (tries++ > 60) return;
         setTimeout(waitReady, 150);
       })();
+      return true; // async delivery — "shown" fires once the render call is issued
     }
 
     function fire(rule) {
+      var mode = (rule.presentation_config || {}).mode;
+      var snap = interactionSnapshot();
+      // Fail-safe: while the runtime hasn't confirmed real interaction
+      // state yet, panel-bound surfaces never fire — only the nudge may.
+      if (isPanelBoundMode(mode) && isUnknownInteraction(snap)) {
+        reportSuppressed(rule, "INTERACTION_UNKNOWN");
+        return;
+      }
       var content = SmartEngineRef.resolveSmartContent(rule, buildContext().locale);
       if (!content || !content.body) return;
       var vars = {
@@ -1153,14 +1313,10 @@
         body: SmartEngineRef.renderSmartTemplate(content.body || "", vars),
         cta_label: SmartEngineRef.renderSmartTemplate(content.cta_label || "", vars),
       };
-      var mode = (rule.presentation_config || {}).mode;
-      recordShown(rule.id);
+      var rendered_ok = mode === "launcher_nudge" ? showNudge(rule, rendered) : showPanelSurface(rule, rendered);
+      if (!rendered_ok) return;
+      recordShown(rule);
       lastSurfaceAt = Date.now();
-      if (mode === "launcher_nudge" || mode === "announcement") {
-        ensureRuntimeCss(function () { showLoaderSurface(rule, rendered); });
-      } else {
-        showPanelSurface(rule, rendered);
-      }
       report(rule, "shown");
     }
 
@@ -1176,8 +1332,11 @@
       var best = null;
       for (var i = 0; i < rules.length; i++) {
         var rule = rules[i];
-        ctx.frequency = frequencyState(rule.id);
+        ctx.frequency = frequencyState(rule);
         var result = SmartEngineRef.evaluateSmartRule(rule, ctx, now);
+        if (result.outcome === "suppressed" && result.reasons && result.reasons.length) {
+          reportSuppressed(rule, result.reasons[result.reasons.length - 1].code);
+        }
         if (result.outcome !== "matched") continue;
         if (!best) { best = rule; continue; }
         var dp = (Number(rule.priority) || 0) - (Number(best.priority) || 0);
@@ -1197,30 +1356,28 @@
       });
       document.addEventListener("visibilitychange", function () { mark(); });
 
-      // SPA navigation — treat every route change as a fresh page.
+      // SPA navigation — treat every route change as a fresh page. Uses the
+      // shared history bus so pushState/replaceState are patched only once
+      // process-wide (shared with startTracking's page-view pings).
       var onNav = function () {
         clearSurface();
         resetPageSignals();
         setTimeout(tick, 60);
       };
-      try {
-        ["pushState", "replaceState"].forEach(function (fn) {
-          var original = history[fn];
-          if (typeof original !== "function" || original.__gs_smart) return;
-          var patched = function () {
-            var out = original.apply(this, arguments);
-            try { onNav(); } catch (_) {}
-            return out;
-          };
-          patched.__gs_smart = true;
-          history[fn] = patched;
-        });
-      } catch (_) {}
+      onHistoryChange(onNav);
       window.addEventListener("popstate", onNav);
 
       ticking = setInterval(tick, 1000);
     }
 
+    // Engine bundle injected at most once — guards a second loader
+    // execution (e.g. a stray duplicate <script> tag on the host page)
+    // from downloading/registering it twice.
+    if (document.querySelector('script[data-gs-smart]')) {
+      SmartEngineRef = window.__gs_smart_engine || null;
+      if (SmartEngineRef && SmartEngineRef.evaluateSmartRule) { attachSignals(); tick(); }
+      return;
+    }
     var engineScript = document.createElement("script");
     engineScript.src = engineUrl;
     engineScript.async = true;
@@ -1235,9 +1392,12 @@
       attachSignals();
       tick();
     };
+    // Engine load failure is non-blocking — chat itself must keep working.
     engineScript.onerror = function () { warn("smart: engine failed to load"); };
     document.head.appendChild(engineScript);
   }
+
+
 
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {
@@ -1348,6 +1508,7 @@
       .then(function (data) {
         var sessionId = data && data.session_id ? data.session_id : null;
         if (!sessionId) return;
+        try { window.__gs_session_id = sessionId; } catch (_) {}
         var lastPage = currentPage();
         function doPing(tokenToUse, isRetry) {
           if (STOPPED) return;
@@ -1432,22 +1593,9 @@
           // up to 30 seconds for the next heartbeat tick.
           ping();
         }
-        try {
-          var origPush = history.pushState;
-          var origReplace = history.replaceState;
-          history.pushState = function () {
-            var r = origPush.apply(this, arguments);
-            try { onUrlChange(); } catch (_) {}
-            return r;
-          };
-          history.replaceState = function () {
-            var r = origReplace.apply(this, arguments);
-            try { onUrlChange(); } catch (_) {}
-            return r;
-          };
-          window.addEventListener("popstate", onUrlChange);
-          window.addEventListener("hashchange", onUrlChange);
-        } catch (_) {/* read-only history in some sandboxes */}
+        onHistoryChange(onUrlChange);
+        window.addEventListener("popstate", onUrlChange);
+        window.addEventListener("hashchange", onUrlChange);
       })
       .catch(function () {});
   }

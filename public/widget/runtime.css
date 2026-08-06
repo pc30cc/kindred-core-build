@@ -2549,9 +2549,9 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 /* Body / input cards: white, but now they float on a neutral surface. */
 .shell .body {
   background: #FFFFFF !important;
-  margin: 6px 10px 8px;
+  margin: 0 10px 8px;
   border-radius: 20px;
-  box-shadow: 0 12px 30px -22px rgba(2, 6, 23, .45), 0 0 0 1px rgba(15, 23, 42, .04);
+  box-shadow: 0 18px 40px -26px rgba(2, 6, 23, .5), 0 0 0 1px rgba(15, 23, 42, .045);
 }
 .shell .input-bar {
   box-shadow: 0 12px 30px -22px rgba(2, 6, 23, .45), 0 0 0 1px rgba(15, 23, 42, .04);

@@ -19,6 +19,7 @@ import {
 import { createEmptySmartRule, type SmartRuleDraft, type SmartRuleRow } from '@/lib/widget/smartRules';
 import { resolveSmartContent } from '@/lib/widget/smartEngine';
 import { SmartRuleEditor } from './SmartRuleEditor';
+import { SmartRulePreviewStudio } from './SmartRulePreviewStudio';
 
 export interface SmartPreviewSurface {
   mode: 'launcher_nudge' | 'open_widget' | 'home_card' | 'chat_message' | 'announcement';
@@ -37,11 +38,17 @@ export interface SmartRulesTabProps {
   localeLabels: Record<string, string>;
   kbArticles?: { title: string; slug?: string | null }[];
   onPreviewChange: (surface: SmartPreviewSurface | null) => void;
+  /** Real widget settings — the studio renders the production preview with them. */
+  previewSettings?: Record<string, any> | null;
+  brandName?: string;
+  studioKbArticles?: { title: string; excerpt?: string | null; content?: string | null }[];
+  studioKbCategories?: { name: string; description?: string | null }[];
 }
 
 export function SmartRulesTab({
   workspaceId, masterEnabled, onToggleMaster, locale, locales, localeLabels,
-  kbArticles, onPreviewChange,
+  kbArticles, onPreviewChange, previewSettings, brandName,
+  studioKbArticles, studioKbCategories,
 }: SmartRulesTabProps) {
   const { t, dir } = useTranslation();
   const { data: rules } = useSmartRules(workspaceId);
@@ -88,16 +95,33 @@ export function SmartRulesTab({
 
   if (draft) {
     return (
-      <SmartRuleEditor
-        value={draft}
-        locales={locales}
-        localeLabels={localeLabels}
-        kbArticles={kbArticles}
-        saving={save.isPending}
-        onChange={setDraft}
-        onCancel={() => setDraft(null)}
-        onSave={handleSave}
-      />
+      <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(0,560px)]">
+        <SmartRuleEditor
+          value={draft}
+          locales={locales}
+          localeLabels={localeLabels}
+          kbArticles={kbArticles}
+          saving={save.isPending}
+          onChange={setDraft}
+          onCancel={() => setDraft(null)}
+          onSave={handleSave}
+        />
+        {/* Scenario studio — a simulator, not the generic tab preview. */}
+        <div className="min-w-0">
+          <div className="sticky top-6">
+            <SmartRulePreviewStudio
+              draft={draft}
+              settings={previewSettings}
+              brandName={brandName || ''}
+              locale={locale}
+              locales={locales}
+              localeLabels={localeLabels}
+              kbArticles={studioKbArticles}
+              kbCategories={studioKbCategories}
+            />
+          </div>
+        </div>
+      </div>
     );
   }
 

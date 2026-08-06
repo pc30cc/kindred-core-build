@@ -35,7 +35,7 @@
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-22-token-bus-v1";
+  var LOADER_VERSION = "2026-08-06-canonical-v1";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:

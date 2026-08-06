@@ -187,23 +187,26 @@ export interface WidgetLivePreviewProps {
   /** Operator display name — used for the initial fallback avatar. */
   operatorName?: string | null;
   /**
-   * Smart Engagement surface to render on top of the widget. The markup and
-   * class names match `public/widget/runtime.js` exactly, so the operator
-   * previews the real thing rather than an approximation.
+   * `generic` is the ordinary settings preview. `smart` turns the frame into a
+   * scenario simulator: the panel's open state, the active view and the surface
+   * placement are all derived from the rule + phase instead of the tab.
    */
-  smartPreview?: {
-    mode: 'launcher_nudge' | 'open_widget' | 'home_card' | 'chat_message' | 'announcement';
-    title?: string;
-    body: string;
-    ctaLabel?: string;
-    dismissible?: boolean;
-  } | null;
+  previewMode?: 'generic' | 'smart';
+  /** Scenario driving the smart simulation (required when previewMode==='smart'). */
+  smartScenario?: SmartPreviewScenario | null;
+  /** Interaction feedback coming back out of the simulated widget. */
+  onSmartEvent?: (type: 'dismiss' | 'cta' | 'widget-opened' | 'widget-closed') => void;
 }
 
 export function WidgetLivePreview({
   settings, prechat, brandName, view, kbArticles, kbCategories, onViewChange,
-  operatorAvatar, operatorName, smartPreview,
+  operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent,
 }: WidgetLivePreviewProps) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const isSmart = previewMode === 'smart' && !!smartScenario;
+  const smartMode = smartScenario?.rule.presentation_config?.mode || 'launcher_nudge';
+  const phase = smartScenario?.phase || 'idle';
+
   useEffect(() => {
     if (!onViewChange) return;
     const onMessage = (e: MessageEvent) => {
@@ -215,11 +218,36 @@ export function WidgetLivePreview({
     return () => window.removeEventListener('message', onMessage);
   }, [onViewChange]);
 
+  // Smart interactions travel back from the sandboxed frame.
+  useEffect(() => {
+    if (!onSmartEvent) return;
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { source?: string; type?: string } | null;
+      if (!data || data.source !== 'gs-smart-preview' || !data.type) return;
+      const kind = data.type.replace('smart-preview:', '');
+      if (kind === 'dismiss' || kind === 'cta' || kind === 'widget-opened' || kind === 'widget-closed') {
+        onSmartEvent(kind);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [onSmartEvent]);
+
+  // Phase changes are pushed into the frame so the panel animates instead of
+  // the whole document being re-created on every scenario tick.
+  useEffect(() => {
+    if (!isSmart) return;
+    frameRef.current?.contentWindow?.postMessage(
+      { source: 'gs-smart-preview', type: 'smart-preview:set-phase', phase },
+      '*',
+    );
+  }, [isSmart, phase, smartMode]);
+
   const srcDoc = useMemo(() => {
     const s = settings || {};
-    const locale: string = s.widget_language || s.locale || 'en';
+    const locale: string = smartScenario?.locale || s.widget_language || s.locale || 'en';
     const d = DICTS[locale] || DICTS.en;
-    const rtl = locale === 'fa';
+    const rtl = smartScenario ? smartScenario.rtl : locale === 'fa';
     const dir = rtl ? 'rtl' : 'ltr';
 
     const primary: string = s.primary_color || '#3B82F6';

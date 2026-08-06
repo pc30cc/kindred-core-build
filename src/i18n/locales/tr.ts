@@ -1257,7 +1257,7 @@ const tr: TranslationKeys = {
     autoSaved: 'Otomatik olarak kaydedildi',
     general: 'Genel bilgiler',
     icon: 'Simge',
-    iconHint: 'Dosya 5 MB’tan küçük ve en az 400px × 400px (1:1 oran) olmalıdır.',
+    iconHint: 'Önerilen boyut: 60x60 piksel, PNG formatı. Bu görsel, kendi ayarlarından widget başlığında da gösterilebilir.',
     iconUpdated: 'Çalışma alanı simgesi güncellendi',
     uploadImage: 'Resim yükle',
     domain: 'Alan adı',

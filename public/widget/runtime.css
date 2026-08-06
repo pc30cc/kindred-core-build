@@ -16,27 +16,9 @@
   contain: layout style;
 }
 
-/* ════════════════════════════════════════════════════════════════════
-   Template scoping (Task 4)
-   ────────────────────────────────────────────────────────────────────
-   The runtime sets data-template="<slug>" on <gs-widget> AND on .shell.
-   Use these selectors when adding template-specific overrides:
-
-     .shell[data-template="default"]  .panel { ... }
-     .shell[data-template="<slug>"]   .panel { ... }
-
-   No global rules belong here. Future templates can ship as additional
-   stylesheet blocks scoped via these attributes — no rebundling needed.
-   ════════════════════════════════════════════════════════════════════ */
-.shell[data-template="default"] {
-  /* default visual tokens — kept identical to the legacy un-scoped values
-     so existing widgets render byte-identically. */
-}
-
-/* Internal reset — scoped to the shadow root only */
-*,
+/* Internal reset — scoped to the shadow root only */*,
 *::before,
-*::after {
+*::after{
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -50,23 +32,20 @@ button {
   background: none;
   border: 0;
   cursor: pointer;
-}
-
-input, textarea {
+}input,
+textarea{
   font: inherit;
   color: inherit;
-}
-
-input:disabled, button:disabled {
+}input:disabled,
+button:disabled{
   cursor: not-allowed;
 }
 
 /* Keyboard focus — visible ring on every interactive element.
-   Mouse-only focus stays clean (no ring) thanks to :focus-visible. */
-button:focus-visible,
+   Mouse-only focus stays clean (no ring) thanks to :focus-visible. */button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible{
   outline: 2px solid var(--gs-primary, #3B82F6);
   outline-offset: 2px;
   border-radius: 6px;
@@ -75,12 +54,11 @@ textarea:focus-visible {
 /* Inputs/textareas that live inside a styled wrapper (prechat-control,
    composer, kb-search…) already show focus via the wrapper's border +
    box-shadow. The extra outline above creates a doubled ring around the
-   field, so we suppress it for those cases. */
-.prechat-control input:focus-visible,
+   field, so we suppress it for those cases. */.prechat-control input:focus-visible,
 .prechat-control textarea:focus-visible,
 .prechat .input:focus-visible,
 .composer .input:focus-visible,
-.kb-search:focus-visible {
+.kb-search:focus-visible{
   outline: none;
   border-radius: inherit;
 }
@@ -288,8 +266,8 @@ textarea:focus-visible {
 .presence.status-offline .presence-dot { background: #9CA3AF; }
 .presence.status-unavailable .presence-dot { background: #6B7280; }
 .presence.status-unavailable { opacity: 0.85; }
-@keyframes gs-presence-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 0 0 rgba(16, 185, 129, 0.5); }
+@keyframes gs-presence-pulse {0%,
+100%{ box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 0 0 rgba(16, 185, 129, 0.5); }
   50%      { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 0 6px rgba(16, 185, 129, 0); }
 }
 
@@ -355,8 +333,8 @@ textarea:focus-visible {
   animation: none;
   opacity: 1;
 }
-@keyframes gs-conn-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.4; }
+@keyframes gs-conn-pulse {0%,
+100%{ transform: scale(1); opacity: 0.4; }
   50%      { transform: scale(1.3); opacity: 1; }
 }
 
@@ -446,9 +424,8 @@ textarea:focus-visible {
 }
 .msg-row.operator { justify-content: flex-start; }
 .msg-row.visitor  { justify-content: flex-end; }
-/* Text inside bubbles follows the panel's reading direction again. */
-.panel-rtl .msg,
-[dir="rtl"] .msg { direction: rtl; text-align: right; }
+/* Text inside bubbles follows the panel's reading direction again. */.panel-rtl .msg,
+[dir="rtl"] .msg{ direction: rtl; text-align: right; }
 .msg-avatar {
   width: 28px;
   height: 28px;
@@ -796,11 +773,12 @@ textarea:focus-visible {
   70%  { opacity: 1; transform: scale(1.06); }
   100% { transform: scale(1); }
 }
-@keyframes prechat-shake {
-  10%, 90% { transform: translateX(-1px); }
-  20%, 80% { transform: translateX(2px); }
-  30%, 50%, 70% { transform: translateX(-3px); }
-  40%, 60% { transform: translateX(3px); }
+@keyframes prechat-shake {10%,
+90%{ transform: translateX(-1px); }20%,
+80%{ transform: translateX(2px); }30%,
+50%,
+70%{ transform: translateX(-3px); }40%,
+60%{ transform: translateX(3px); }
 }
 
 /* ─── Contact fallback (Phase 5) — offline lead form ─── */
@@ -884,8 +862,8 @@ textarea:focus-visible {
   color: #6B7280;
   margin: 6px 2px 6px;
 }
-.kb-list { display: flex; flex-direction: column; gap: 6px; }
-button.kb-article, a.kb-category {
+.kb-list { display: flex; flex-direction: column; gap: 6px; }button.kb-article,
+a.kb-category{
   text-align: inherit;
   background: #fff;
   display: block;
@@ -898,8 +876,8 @@ button.kb-article, a.kb-category {
   font: inherit;
   width: 100%;
   transition: background 0.1s ease, border-color 0.1s ease;
-}
-button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color: #E5E7EB; }
+}button.kb-article:hover,
+a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 
 .kb-status { color: #6B7280; font-size: 13px; padding: 16px 4px; }
 .kb-empty { padding: 18px 4px; color: #6B7280; font-size: 13px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
@@ -990,8 +968,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .kb-article-body p { margin: 0 0 0.8em; }
 .kb-article-body h2 { font-size: 14px; margin: 14px 0 6px; }
 .kb-article-body h3 { font-size: 13px; margin: 12px 0 4px; }
-.kb-article-body a { color: var(--gs-primary, #3B82F6); }
-.kb-article-body ul, .kb-article-body ol { padding-inline-start: 18px; margin: 0 0 0.8em; }
+.kb-article-body a { color: var(--gs-primary, #3B82F6); }.kb-article-body ul,
+.kb-article-body ol{ padding-inline-start: 18px; margin: 0 0 0.8em; }
 .kb-article-body img { max-width: 100%; height: auto; border-radius: 6px; }
 .kb-article-footer { padding-top: 6px; border-top: 1px solid #F3F4F6; margin-top: 6px; }
 .kb-open-browser { font-size: 12px; color: var(--gs-primary, #3B82F6); text-decoration: none; }
@@ -1366,9 +1344,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   .input-bar {
     padding-bottom: max(12px, env(safe-area-inset-bottom, 0));
   }
-  /* Larger touch targets on mobile (44×44 WCAG minimum) */
-  .send-btn,
-  .attach-btn {
+  /* Larger touch targets on mobile (44×44 WCAG minimum) */.send-btn,
+.attach-btn{
     width: 40px;
     height: 40px;
   }
@@ -1381,10 +1358,9 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   }
   .header {
     padding-top: max(18px, env(safe-area-inset-top, 0));
-  }
-  .gs-toast,
-  .gs-toast.bottom-right,
-  .gs-toast.bottom-left {
+  }.gs-toast,
+.gs-toast.bottom-right,
+.gs-toast.bottom-left{
     bottom: 80px;
     right: 12px;
     left: 12px;
@@ -1464,8 +1440,9 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
 .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
-@keyframes gs-typing-bounce {
-  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+@keyframes gs-typing-bounce {0%,
+80%,
+100%{ transform: translateY(0); opacity: 0.4; }
   40% { transform: translateY(-3px); opacity: 1; }
 }
 
@@ -1568,9 +1545,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   object-fit: contain;
   background: #000;
 }
-/* Orientation-aware stage: blurred backdrop fill behind portrait video. */
-.gs-call-stage.gs-call-video--portrait::before,
-.gs-call-stage.gs-call-video--square::before {
+/* Orientation-aware stage: blurred backdrop fill behind portrait video. */.gs-call-stage.gs-call-video--portrait::before,
+.gs-call-stage.gs-call-video--square::before{
   content: '';
   position: absolute;
   inset: 0;
@@ -1579,9 +1555,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 .gs-call-stage.gs-call-video--landscape .gs-call-remote-video {
   object-fit: cover;
-}
-.gs-call-stage.gs-call-video--portrait .gs-call-remote-video,
-.gs-call-stage.gs-call-video--square .gs-call-remote-video {
+}.gs-call-stage.gs-call-video--portrait .gs-call-remote-video,
+.gs-call-stage.gs-call-video--square .gs-call-remote-video{
   object-fit: contain;
   position: relative;
   z-index: 1;
@@ -1750,14 +1725,13 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   0% { height: 18%; opacity: .55; }
   100% { height: 100%; opacity: 1; }
 }
-/* Camera orientation correction (preserved from prior pass). */
-.gs-call-remote-video,
+/* Camera orientation correction (preserved from prior pass). */.gs-call-remote-video,
 .gs-call-local-video,
 .gs-call-surface video,
 [data-call-remote-video],
 [data-call-local-video],
 [data-call-remote-video] video,
-[data-call-local-video] video {
+[data-call-local-video] video{
   transform: scaleX(-1) !important;
   scale: 1 !important;
   rotate: 0deg !important;
@@ -1835,11 +1809,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   color: #f8fafc;
   font-size: 10px;
   line-height: 1.2;
-}
-.gs-call-orientation-debug strong,
+}.gs-call-orientation-debug strong,
 .gs-call-orientation-debug small,
 .gs-call-orientation-debug .left,
-.gs-call-orientation-debug .right {
+.gs-call-orientation-debug .right{
   position: absolute;
   border-radius: 6px;
   background: rgba(2, 6, 23, 0.72);
@@ -1848,9 +1821,8 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .gs-call-orientation-debug strong { top: 8px; left: 8px; }
 .gs-call-orientation-debug small { top: 30px; left: 8px; }
 .gs-call-orientation-debug .left { left: 8px; top: 50%; transform: translateY(-50%); }
-.gs-call-orientation-debug .right { right: 8px; top: 50%; transform: translateY(-50%); }
-.gs-call-surface[data-phase="failed"] .gs-call-topbar,
-.gs-call-surface[data-phase="failed"] .gs-call-topbar-dot { background: rgba(220,38,38,.6); }
+.gs-call-orientation-debug .right { right: 8px; top: 50%; transform: translateY(-50%); }.gs-call-surface[data-phase="failed"] .gs-call-topbar,
+.gs-call-surface[data-phase="failed"] .gs-call-topbar-dot{ background: rgba(220,38,38,.6); }
 .gs-call-surface[data-phase="ended"] .gs-call-topbar-dot { background: #94a3b8; animation: none; box-shadow: none; }
 
 /* ──────────────────────────────────────────────────────────
@@ -2089,11 +2061,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .ci-btn-ghost:hover:not(:disabled) { background: #e2e8f0; }
 .ci-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-/* Terminal-state cards: dim slightly so they read as historical, not active. */
-.ci-card.ci-status-joined,
+/* Terminal-state cards: dim slightly so they read as historical, not active. */.ci-card.ci-status-joined,
 .ci-card.ci-status-expired,
 .ci-card.ci-status-cancelled,
-.ci-card.ci-status-declined {
+.ci-card.ci-status-declined{
   background: #f8fafc;
 }
 .ci-card.ci-status-declined  { border-color: color-mix(in srgb, #dc2626 18%, #e2e8f0); }
@@ -2108,11 +2079,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   .ci-card.ci-status-joined    .ci-meta { color: #4ade80; }
   .ci-card.ci-status-declined  .ci-meta { color: #f87171; }
   .ci-btn-ghost { background: #1e293b; color: #f1f5f9; border-color: #334155; }
-  .ci-btn-ghost:hover:not(:disabled) { background: #334155; }
-  .ci-card.ci-status-joined,
-  .ci-card.ci-status-expired,
-  .ci-card.ci-status-cancelled,
-  .ci-card.ci-status-declined { background: #0b1220; }
+  .ci-btn-ghost:hover:not(:disabled) { background: #334155; }.ci-card.ci-status-joined,
+.ci-card.ci-status-expired,
+.ci-card.ci-status-cancelled,
+.ci-card.ci-status-declined{ background: #0b1220; }
 }
 
 /* Phase 9 — inline error row beneath the invitation card.
@@ -2163,555 +2133,28 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   }
 }
 
-/* ════════════════════════════════════════════════════════════════════
-   Template: "template2" — premium light skin
-   ────────────────────────────────────────────────────────────────────
-   White card with rounded squircle avatar, soft shadow message cards,
-   blue accent. Fully scoped under .shell[data-template="template2"].
-   ════════════════════════════════════════════════════════════════════ */
-
-.shell[data-template="template2"] {
-  --gs-t2-primary: #2563eb;
-  --gs-t2-primary-2: #3b82f6;
-  --gs-t2-primary-hover: #1d4ed8;
-  --gs-t2-primary-soft: #eff6ff;
-  --gs-t2-bg: #ffffff;
-  --gs-t2-surface: #f6f8fb;
-  --gs-t2-border: #eceff3;
-  --gs-t2-text: #0f172a;
-  --gs-t2-muted: #6b7280;
-}
-
-.shell[data-template="template2"],
-.shell[data-template="template2"] *,
-.shell[data-template="template2"] *::before,
-.shell[data-template="template2"] *::after {
-  font-family: "Vazirmatn", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-/* ─── Panel ─── */
-.shell[data-template="template2"] .panel {
-  width: 380px;
-  height: min(640px, calc(100vh - 96px));
-  border-radius: 22px;
-  background: var(--gs-t2-bg);
-  color: var(--gs-t2-text);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow:
-    0 24px 60px -18px rgba(15, 23, 42, 0.22),
-    0 6px 16px -4px rgba(15, 23, 42, 0.08),
-    0 0 0 1px rgba(15, 23, 42, 0.04);
-}
-.shell[data-template="template2"] .panel.bottom-right { bottom: 96px; right: 24px; }
-.shell[data-template="template2"] .panel.bottom-left  { bottom: 96px; left: 24px; }
-
-/* ─── Header — clean white with squircle avatar ─── */
-.shell[data-template="template2"] .header {
-  position: relative;
-  background: #fff;
-  color: var(--gs-t2-text);
-  padding: 16px 18px 14px;
-  border-bottom: 1px solid var(--gs-t2-border);
-  flex-shrink: 0;
-}
-.shell[data-template="template2"] .header::before,
-.shell[data-template="template2"] .header::after { content: none; display: none; }
-
-.shell[data-template="template2"] .header-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--gs-t2-text);
-  letter-spacing: -0.01em;
-  line-height: 1.3;
-}
-.shell[data-template="template2"] .header-subtitle {
-  font-size: 12.5px;
-  font-weight: 400;
-  color: var(--gs-t2-muted);
-  margin-top: 2px;
-  line-height: 1.4;
-}
-
-/* Squircle avatar (rounded-square style for template2) */
-.shell[data-template="template2"] .header-op-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px !important;
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%);
-  color: #fff;
-  font-weight: 700;
-  font-size: 16px;
-  box-shadow: 0 6px 16px -4px rgba(37, 99, 235, 0.45);
-  overflow: hidden;
-}
-.shell[data-template="template2"] .header-op-avatar img {
-  border-radius: 14px;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.shell[data-template="template2"] .header-op-avatar.is-online {
-  box-shadow: 0 6px 16px -4px rgba(37, 99, 235, 0.45);
-}
-.shell[data-template="template2"] .header-op-dot {
-  background: #22c55e;
-  border: 2px solid #fff;
-}
-
-/* Header close/notification action buttons */
-.shell[data-template="template2"] .header button,
-.shell[data-template="template2"] .header-actions button,
-.shell[data-template="template2"] .header-close,
-.shell[data-template="template2"] .header-mute {
-  color: var(--gs-t2-text);
-  opacity: 0.75;
-  border-radius: 10px;
-  transition: background 0.15s ease, opacity 0.15s ease;
-}
-.shell[data-template="template2"] .header button:hover,
-.shell[data-template="template2"] .header-close:hover,
-.shell[data-template="template2"] .header-mute:hover {
-  background: var(--gs-t2-surface);
-  opacity: 1;
-}
-
-/* ─── Tabs ─── */
-.shell[data-template="template2"] .tabs {
-  background: #fff;
-  border-bottom: 1px solid var(--gs-t2-border);
-}
-.shell[data-template="template2"] .tab {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--gs-t2-muted);
-}
-.shell[data-template="template2"] .tab.active { color: var(--gs-t2-primary); font-weight: 600; }
-.shell[data-template="template2"] .tab.active::after {
-  background: var(--gs-t2-primary);
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-}
-
-/* ─── Body / messages ─── */
-.shell[data-template="template2"] .body {
-  background: var(--gs-t2-bg);
-  flex: 1;
-  min-height: 0;
-}
-.shell[data-template="template2"] .messages {
-  gap: 10px;
-  padding: 16px;
-}
-
-/* Sender name label above bubble (e.g., "هوش مصنوعی") */
-.shell[data-template="template2"] .msg-sender,
-.shell[data-template="template2"] .sender-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--gs-t2-text);
-  margin-bottom: 4px;
-}
-
-.shell[data-template="template2"] .msg {
-  border-radius: 16px;
-  padding: 12px 14px;
-  font-size: 14px;
-  line-height: 1.7;
-  font-weight: 400;
-  max-width: 86%;
-}
-.shell[data-template="template2"] .msg.operator {
-  background: #fff;
-  color: var(--gs-t2-text);
-  border: 1px solid var(--gs-t2-border);
-  box-shadow: 0 2px 6px -2px rgba(15, 23, 42, 0.06);
-  border-bottom-left-radius: 6px;
-}
-.shell[data-template="template2"] .msg.visitor {
-  background: var(--gs-t2-primary);
-  color: #fff;
-  border-bottom-right-radius: 6px;
-  box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.32);
-}
-
-/* ─── Suggestion chips (KB suggestions / quick prompts) ─── */
-.shell[data-template="template2"] .kb-suggestion,
-.shell[data-template="template2"] .prompt-chip,
-.shell[data-template="template2"] .suggested-chip {
-  background: #fff;
-  color: var(--gs-t2-primary);
-  border: 1px solid var(--gs-t2-primary);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.shell[data-template="template2"] .kb-suggestion:hover,
-.shell[data-template="template2"] .prompt-chip:hover,
-.shell[data-template="template2"] .suggested-chip:hover {
-  background: var(--gs-t2-primary-soft);
-}
-
-/* ─── Input bar / composer ─── */
-.shell[data-template="template2"] .input-bar {
-  border-top: 1px solid var(--gs-t2-border);
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
-  background: #fff;
-  gap: 6px;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-.shell[data-template="template2"] .input,
-.shell[data-template="template2"] .composer textarea,
-.shell[data-template="template2"] .composer input[type="text"] {
-  border-radius: 14px;
-  background: var(--gs-t2-surface);
-  border: 1px solid transparent;
-  font-size: 14px;
-  padding: 12px 16px;
-  min-height: 44px;
-  flex: 1;
-  min-width: 0;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-}
-.shell[data-template="template2"] .input:focus,
-.shell[data-template="template2"] .composer textarea:focus,
-.shell[data-template="template2"] .composer input[type="text"]:focus {
-  background: #fff;
-  border-color: var(--gs-t2-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-  outline: none;
-}
-.shell[data-template="template2"] .input::placeholder { color: #9ca3af; }
-
-/* Send button — squircle blue gradient (overrides inline primaryColor) */
-.shell[data-template="template2"] .send-btn {
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%) !important;
-  color: #fff !important;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  border-radius: 14px !important;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 6px 14px -4px rgba(37, 99, 235, 0.55);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
-}
-.shell[data-template="template2"] .send-btn:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.05);
-  box-shadow: 0 10px 20px -6px rgba(37, 99, 235, 0.6);
-}
-.shell[data-template="template2"] .send-btn:active { transform: scale(0.94); }
-.shell[data-template="template2"] .send-btn svg { width: 18px; height: 18px; fill: currentColor; }
-/* In RTL the paper-plane icon should point toward the start (right). */
-.shell[data-template="template2"][dir="rtl"] .send-btn svg,
-.shell[data-template="template2"] .panel-rtl .send-btn svg {
-  transform: scaleX(-1);
-}
-
-/* Attach / emoji / mic icon buttons in composer */
-.shell[data-template="template2"] .attach-btn,
-.shell[data-template="template2"] .emoji-btn,
-.shell[data-template="template2"] .mic-btn {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  border-radius: 12px;
-  color: #6b7280;
-  background: transparent;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
-}
-.shell[data-template="template2"] .attach-btn:hover:not(:disabled),
-.shell[data-template="template2"] .emoji-btn:hover,
-.shell[data-template="template2"] .mic-btn:hover {
-  background: var(--gs-t2-surface);
-  color: var(--gs-t2-primary);
-}
-.shell[data-template="template2"] .attach-btn:active,
-.shell[data-template="template2"] .emoji-btn:active,
-.shell[data-template="template2"] .mic-btn:active {
-  transform: scale(0.94);
-}
-
-/* Composer order — LTR default: [send] [emoji] [attach] [input] [mic]
-   visually mirrors the reference design (send leads on the action side). */
-.shell[data-template="template2"] .send-btn   { order: 1; }
-.shell[data-template="template2"] .emoji-btn  { order: 2; }
-.shell[data-template="template2"] .attach-btn { order: 3; }
-.shell[data-template="template2"] .input      { order: 4; }
-.shell[data-template="template2"] .mic-btn    { order: 5; }
-
-/* RTL — flexbox already mirrors; explicit orders keep mic on the start (right)
-   and send on the end (left), matching the reference screenshot. */
-.shell[data-template="template2"][dir="rtl"] .mic-btn,
-.shell[data-template="template2"] .panel-rtl .mic-btn    { order: 1; }
-.shell[data-template="template2"][dir="rtl"] .input,
-.shell[data-template="template2"] .panel-rtl .input      { order: 2; text-align: right; }
-.shell[data-template="template2"][dir="rtl"] .attach-btn,
-.shell[data-template="template2"] .panel-rtl .attach-btn { order: 3; }
-.shell[data-template="template2"][dir="rtl"] .emoji-btn,
-.shell[data-template="template2"] .panel-rtl .emoji-btn  { order: 4; }
-.shell[data-template="template2"][dir="rtl"] .send-btn,
-.shell[data-template="template2"] .panel-rtl .send-btn   { order: 5; }
-
-/* ─── Emoji popover ─── */
-.shell[data-template="template2"] .emoji-pop {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 2px;
-  padding: 8px;
-  margin: 0 12px 6px;
-  background: #fff;
-  border: 1px solid var(--gs-t2-border);
-  border-radius: 14px;
-  box-shadow: 0 12px 30px -10px rgba(15, 23, 42, 0.18);
-  max-height: 220px;
-  overflow-y: auto;
-  animation: gs-emoji-pop 160ms ease-out;
-}
-@keyframes gs-emoji-pop {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.shell[data-template="template2"] .emoji-pop-item {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 10px;
-  font-size: 20px;
-  cursor: pointer;
-  transition: background 0.12s ease, transform 0.1s ease;
-}
-.shell[data-template="template2"] .emoji-pop-item:hover {
-  background: var(--gs-t2-surface);
-  transform: scale(1.1);
-}
-
-/* ─── Prechat form ─── */
-.shell[data-template="template2"] .prechat-control input,
-.shell[data-template="template2"] .prechat-control textarea,
-.shell[data-template="template2"] .prechat-control select {
-  border-radius: 12px;
-  border: 1px solid var(--gs-t2-border);
-  background: #fff;
-  font-size: 14px;
-  padding: 10px 12px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.shell[data-template="template2"] .prechat-control input:focus,
-.shell[data-template="template2"] .prechat-control textarea:focus,
-.shell[data-template="template2"] .prechat-control select:focus {
-  border-color: var(--gs-t2-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-  outline: none;
-}
-.shell[data-template="template2"] .prechat button[type="submit"],
-.shell[data-template="template2"] .prechat .submit-btn {
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%);
-  color: #fff;
-  border-radius: 12px;
-  font-weight: 600;
-  padding: 11px 18px;
-  font-size: 14px;
-  box-shadow: 0 6px 14px -4px rgba(37, 99, 235, 0.45);
-  transition: filter 0.15s ease, transform 0.15s ease;
-}
-.shell[data-template="template2"] .prechat button[type="submit"]:hover,
-.shell[data-template="template2"] .prechat .submit-btn:hover {
-  filter: brightness(1.05);
-  transform: translateY(-1px);
-}
-
-/* ─── KB search ─── */
-.shell[data-template="template2"] .kb-search {
-  border-radius: 12px;
-  background: var(--gs-t2-surface);
-  border: 1px solid transparent;
-  padding: 10px 14px;
-  font-size: 14px;
-}
-.shell[data-template="template2"] .kb-search:focus,
-.shell[data-template="template2"] .kb-search:focus-within {
-  background: #fff;
-  border-color: var(--gs-t2-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-  outline: none;
-}
-
-/* ─── AI badge ─── */
-.shell[data-template="template2"] .msg-ai-badge {
-  background: var(--gs-t2-primary-soft);
-  color: var(--gs-t2-primary);
-  border-radius: 6px;
-  font-weight: 700;
-}
-
-/* ─── Powered footer ─── */
-.shell[data-template="template2"] .powered {
-  background: #fff;
-  border-top: 1px solid var(--gs-t2-border);
-  font-size: 11px;
-  padding: 8px;
-  color: #9ca3af;
-}
-.shell[data-template="template2"] .powered a {
-  color: var(--gs-t2-primary);
-  font-weight: 600;
-}
-
-/* ─── Connection banner ─── */
-.shell[data-template="template2"] .connection-banner {
-  border-radius: 0;
-  font-weight: 500;
-}
-
-/* ─── Launcher (the floating button) ─── */
-.shell[data-template="template2"] .launcher,
-.shell[data-template="template2"] .gs-launcher {
-  background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%);
-  width: 60px;
-  height: 60px;
-  border-radius: 18px;
-  box-shadow:
-    0 14px 32px -6px rgba(37, 99, 235, 0.55),
-    0 6px 14px -2px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transition: transform 0.22s cubic-bezier(0.22, 1.2, 0.36, 1), box-shadow 0.22s ease;
-}
-.shell[data-template="template2"] .launcher:hover,
-.shell[data-template="template2"] .gs-launcher:hover {
-  transform: translateY(-3px) scale(1.05);
-  box-shadow:
-    0 20px 40px -8px rgba(37, 99, 235, 0.6),
-    0 8px 18px -2px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.26);
-}
-
-/* ─── Scrollbar ─── */
-.shell[data-template="template2"] .body::-webkit-scrollbar { width: 6px; }
-.shell[data-template="template2"] .body::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.14);
-  border-radius: 6px;
-}
-.shell[data-template="template2"] .body::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, 0.24);
-}
-
-/* ─── RTL polish (Persian default) ─── */
-/* Bubble sides are physical now (visitor right / operator left in every
-   locale), so the tail corners must NOT be mirrored in RTL. */
-.shell[data-template="template2"][dir="rtl"] .msg.operator,
-.shell[data-template="template2"] .panel-rtl .msg.operator {
-  border-bottom-left-radius: 6px;
-  border-bottom-right-radius: 16px;
-}
-.shell[data-template="template2"][dir="rtl"] .msg.visitor,
-.shell[data-template="template2"] .panel-rtl .msg.visitor {
-  border-bottom-right-radius: 6px;
-  border-bottom-left-radius: 16px;
-}
-
-/* ─── Tablet — keep panel windowed but slightly wider/taller ─── */
-@media (max-width: 768px) and (min-width: 481px) {
-  .shell[data-template="template2"] .panel {
-    width: min(420px, calc(100vw - 24px));
-    height: min(640px, calc(100vh - 96px));
-  }
-  .shell[data-template="template2"] .input-bar {
-    gap: 8px;
-  }
-}
-
-/* ─── Mobile / small screens ─── */
-@media (max-width: 480px) {
-  .shell[data-template="template2"] .panel {
-    width: 100vw;
-    max-width: 100vw;
-    height: 100dvh;
-    max-height: 100dvh;
-    border-radius: 0;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-  }
-  .shell[data-template="template2"] .header {
-    padding: 14px 16px 12px;
-    padding-top: max(16px, env(safe-area-inset-top, 0px));
-  }
-  .shell[data-template="template2"] .input-bar {
-    gap: 6px;
-    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
-  }
-  .shell[data-template="template2"] .input {
-    font-size: 16px; /* prevents iOS zoom on focus */
-    min-height: 44px;
-    padding: 12px 14px;
-  }
-  .shell[data-template="template2"] .send-btn {
-    width: 44px;
-    height: 44px;
-  }
-  .shell[data-template="template2"] .attach-btn,
-  .shell[data-template="template2"] .emoji-btn,
-  .shell[data-template="template2"] .mic-btn {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-  }
-  .shell[data-template="template2"] .emoji-pop {
-    grid-template-columns: repeat(7, 1fr);
-    margin: 0 8px 6px;
-  }
-}
-
-/* ─── Very small screens — tighten composer gap further ─── */
-@media (max-width: 360px) {
-  .shell[data-template="template2"] .input-bar { gap: 4px; padding-left: 8px; padding-right: 8px; }
-  .shell[data-template="template2"] .attach-btn,
-  .shell[data-template="template2"] .emoji-btn,
-  .shell[data-template="template2"] .mic-btn { width: 40px; height: 40px; min-width: 40px; }
-}
-
 /* ══════════════════════════════════════════════════════════════════════
-   Default template — UI refresh (v2)
+   Chat widget UI — refresh layer (v2)
    Softer geometry, richer gradient header, card-like KB/prechat surfaces
    and a friendlier composer. Presentation only: no markup contract change,
    so the panel-side live preview (which loads this same file) stays 1:1.
    ══════════════════════════════════════════════════════════════════════ */
-.shell[data-template="default"] .panel {
+.shell .panel {
   border-radius: 20px;
   box-shadow: 0 24px 60px -16px rgba(15, 23, 42, .28), 0 0 0 1px rgba(15, 23, 42, .06);
   background: #FBFCFE;
 }
-.shell[data-template="default"] .header {
+.shell .header {
   padding: 20px 20px 32px;
 }
-.shell[data-template="default"] .header::before {
+.shell .header::before {
   background:
     radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--gs-primary, #3B82F6), #fff 26%) 0%, transparent 58%),
     linear-gradient(150deg,
       color-mix(in srgb, var(--gs-primary, #3B82F6), #fff 6%),
       color-mix(in srgb, var(--gs-primary, #3B82F6), #000 34%));
 }
-.shell[data-template="default"] .header::after {
+.shell .header::after {
   content: '';
   position: absolute;
   left: 0; right: 0; bottom: -1px;
@@ -2720,88 +2163,88 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   border-radius: 20px 20px 0 0;
   z-index: 0;
 }
-.shell[data-template="default"] .header-title { font-size: 18px; letter-spacing: -.02em; }
-.shell[data-template="default"] .header-subtitle { opacity: .9; }
-.shell[data-template="default"] .header-op-avatar { width: 38px; height: 38px; }
+.shell .header-title { font-size: 18px; letter-spacing: -.02em; }
+.shell .header-subtitle { opacity: .9; }
+.shell .header-op-avatar { width: 38px; height: 38px; }
 
-.shell[data-template="default"] .tabs {
+.shell .tabs {
   background: #FBFCFE;
   padding: 0 12px;
   border-bottom: 1px solid rgba(15, 23, 42, .06);
 }
-.shell[data-template="default"] .tab { font-weight: 600; border-radius: 10px 10px 0 0; }
-.shell[data-template="default"] .tab.active::after { height: 3px; border-radius: 3px 3px 0 0; }
+.shell .tab { font-weight: 600; border-radius: 10px 10px 0 0; }
+.shell .tab.active::after { height: 3px; border-radius: 3px 3px 0 0; }
 
-.shell[data-template="default"] .body { background: #FBFCFE; }
-.shell[data-template="default"] .msg { border-radius: 16px; line-height: 1.55; }
-.shell[data-template="default"] .msg.operator {
+.shell .body { background: #FBFCFE; }
+.shell .msg { border-radius: 16px; line-height: 1.55; }
+.shell .msg.operator {
   background: #FFFFFF;
   border: 1px solid rgba(15, 23, 42, .07);
   box-shadow: 0 2px 10px -4px rgba(15, 23, 42, .12);
   border-bottom-left-radius: 6px;
 }
-.shell[data-template="default"] .panel-rtl .msg.operator {
+.shell .panel-rtl .msg.operator {
   border-bottom-left-radius: 16px;
   border-bottom-right-radius: 6px;
 }
-.shell[data-template="default"] .msg.visitor {
+.shell .msg.visitor {
   border-bottom-right-radius: 6px;
   box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--gs-primary, #3B82F6), transparent 30%);
 }
-.shell[data-template="default"] .panel-rtl .msg.visitor {
+.shell .panel-rtl .msg.visitor {
   border-bottom-right-radius: 16px;
   border-bottom-left-radius: 6px;
 }
 
-.shell[data-template="default"] .kb-search {
+.shell .kb-search {
   border-radius: 14px;
   background: #FFFFFF;
   border: 1px solid rgba(15, 23, 42, .1);
   box-shadow: 0 2px 10px -6px rgba(15, 23, 42, .2);
   padding: 11px 14px;
 }
-.shell[data-template="default"] .kb-list { display: flex; flex-direction: column; gap: 8px; }
-.shell[data-template="default"] .kb-article {
+.shell .kb-list { display: flex; flex-direction: column; gap: 8px; }
+.shell .kb-article {
   border-radius: 14px;
   background: #FFFFFF;
   border: 1px solid rgba(15, 23, 42, .07);
   box-shadow: 0 2px 10px -8px rgba(15, 23, 42, .3);
   transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
-.shell[data-template="default"] .kb-article:hover {
+.shell .kb-article:hover {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--gs-primary, #3B82F6), transparent 60%);
   box-shadow: 0 10px 22px -14px rgba(15, 23, 42, .45);
 }
 
-.shell[data-template="default"] .prechat-input {
+.shell .prechat-input {
   border-radius: 12px;
   background: #FFFFFF;
 }
-.shell[data-template="default"] .prechat-submit {
+.shell .prechat-submit {
   border-radius: 14px;
   box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--gs-primary, #3B82F6), transparent 20%);
 }
 
-.shell[data-template="default"] .input-bar {
+.shell .input-bar {
   background: #FFFFFF;
   border-top: 1px solid rgba(15, 23, 42, .06);
   padding: 10px 12px;
 }
-.shell[data-template="default"] .input {
+.shell .input {
   border-radius: 14px;
   background: #F5F7FB;
   border: 1px solid transparent;
 }
-.shell[data-template="default"] .input:focus {
+.shell .input:focus {
   background: #FFFFFF;
   border-color: color-mix(in srgb, var(--gs-primary, #3B82F6), transparent 55%);
 }
-.shell[data-template="default"] .send-btn {
+.shell .send-btn {
   border-radius: 12px;
   box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--gs-primary, #3B82F6), transparent 20%);
 }
-.shell[data-template="default"] .powered { background: #FFFFFF; }
+.shell .powered { background: #FFFFFF; }
 
 /* ═══════════════════════════════════════════════════════════════
    Bottom navigation (Home / Chat / Help)
@@ -2931,14 +2374,12 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .panel.anim-on .home-kb-item:nth-child(2) { animation-delay: .04s; }
 .panel.anim-on .home-kb-item:nth-child(3) { animation-delay: .08s; }
 .panel.anim-on .home-kb-item:nth-child(4) { animation-delay: .12s; }
-.panel.anim-on { transition: opacity .3s ease, transform .38s cubic-bezier(.34,1.56,.64,1); }
-.panel.anim-on button,
-.panel.anim-on .tab { transition: transform .18s cubic-bezier(.34,1.56,.64,1), background .18s ease, color .18s ease, filter .18s ease; }
+.panel.anim-on { transition: opacity .3s ease, transform .38s cubic-bezier(.34,1.56,.64,1); }.panel.anim-on button,
+.panel.anim-on .tab{ transition: transform .18s cubic-bezier(.34,1.56,.64,1), background .18s ease, color .18s ease, filter .18s ease; }
 .panel.anim-on button:active { transform: scale(.96); }
-@media (prefers-reduced-motion: reduce) {
-  .panel.anim-on .body > *,
-  .panel.anim-on .home-root > *,
-  .panel.anim-on .home-kb-item { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {.panel.anim-on .body > *,
+.panel.anim-on .home-root > *,
+.panel.anim-on .home-kb-item{ animation: none !important; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -2969,22 +2410,16 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 .shell .panel > * { position: relative; z-index: 1; }
 
-/* ─── Header: pure branding, no text ─── */
-.shell .header,
-.shell[data-template="default"] .header {
+/* ─── Header: pure branding, no text ─── */.shell .header{
   background: transparent !important;
   box-shadow: none !important;
   color: #fff;
   padding: 14px 16px 10px;
   min-height: 0;
-}
-.shell .header::before,
-.shell .header::after,
-.shell[data-template="default"] .header::before,
-.shell[data-template="default"] .header::after { content: none !important; display: none !important; }
-.shell .header-title,
+}.shell .header::before,
+.shell .header::after{ content: none !important; display: none !important; }.shell .header-title,
 .shell .header-subtitle,
-.shell .header-brand-text { display: none !important; }
+.shell .header-brand-text{ display: none !important; }
 .shell .header-brand { display: flex; align-items: center; gap: 10px; }
 .shell .header-op-stack { margin-inline-start: auto; }
 .shell .header-logo {

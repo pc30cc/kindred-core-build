@@ -474,6 +474,13 @@
         sessionToken = data.session_token;
         WORKSPACE_ID = data.workspace_id || WORKSPACE_ID;
         window.__gs._id = WORKSPACE_ID;
+        // Smart Engagement facts that only bootstrap knows.
+        if (typeof data.is_new_visitor === 'boolean') visitorIsNew = data.is_new_visitor;
+        try {
+          if (data && data.availability && data.availability.state) {
+            availabilityOnline = data.availability.state === 'online';
+          }
+        } catch (_) {}
         // Publish to shared bus so runtime + realtime driver use the same token.
         try { window.__gs_token.set(sessionToken); } catch (_) {}
         // Phase 6C — stash the effective realtime policy snapshot from
@@ -520,6 +527,15 @@
             startTracking(apiBase, WORKSPACE_ID, sessionToken);
           });
         }
+
+        // Smart Engagement — proactive rules. Runs entirely in the loader so
+        // a nudge can appear before the heavy runtime bundle is fetched.
+        try {
+          if (config.smart && config.smart.enabled &&
+              config.smart.rules && config.smart.rules.length) {
+            startSmart(config);
+          }
+        } catch (e) { warn("smart init failed", e); }
 
         // Public API placeholder until runtime mounts
         widgetApi = {

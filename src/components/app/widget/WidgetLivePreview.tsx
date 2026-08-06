@@ -443,7 +443,7 @@ export function WidgetLivePreview({
     <div class="block"></div>
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
-  <div class="shell" data-template="default">
+  <div class="shell">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}">
       ${header}
       <div class="body">${body}</div>

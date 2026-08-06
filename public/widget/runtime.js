@@ -5726,11 +5726,8 @@
     // avatars while chatting, workspace logo (when enabled) elsewhere.
     function syncHeaderBrand() {
       try {
-        var isChat = shellStore.get().activeTab === 'chat';
         var logoEl = panel.querySelector('[data-header-logo]');
-        var opsEl = panel.querySelector('[data-header-ops]');
-        if (opsEl) opsEl.hidden = !isChat;
-        if (logoEl) logoEl.hidden = isChat && !!opsEl;
+        if (logoEl) logoEl.hidden = false;
       } catch (_) {}
     }
 

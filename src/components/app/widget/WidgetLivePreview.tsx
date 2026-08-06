@@ -140,10 +140,15 @@ export interface WidgetLivePreviewProps {
   kbCategories?: { name: string; description?: string | null }[];
   /** Fired when the operator clicks a nav tab inside the preview. */
   onViewChange?: (view: PreviewView) => void;
+  /** Operator profile picture shown next to chat bubbles (not the workspace logo). */
+  operatorAvatar?: string | null;
+  /** Operator display name — used for the initial fallback avatar. */
+  operatorName?: string | null;
 }
 
 export function WidgetLivePreview({
   settings, prechat, brandName, view, kbArticles, kbCategories, onViewChange,
+  operatorAvatar, operatorName,
 }: WidgetLivePreviewProps) {
   useEffect(() => {
     if (!onViewChange) return;

@@ -25,6 +25,7 @@ import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
+import { SmartRulesTab, type SmartPreviewSurface } from '@/components/app/widget/smart/SmartRulesTab';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -56,6 +57,8 @@ function WidgetPageContent() {
   const [domainError, setDomainError] = useState('');
   const [tab, setTab] = useState<string>('appearance');
   const [manualView, setManualView] = useState<PreviewView | null>(null);
+  /** Smart Engagement surface currently being authored — mirrored into the preview. */
+  const [smartPreview, setSmartPreview] = useState<SmartPreviewSurface | null>(null);
 
   /**
    * Local draft layer: every keystroke updates the preview instantly while the
@@ -151,7 +154,11 @@ function WidgetPageContent() {
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
   const previewView: PreviewView =
     manualView ??
-    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'home');
+    (tab === 'prechat' ? 'prechat'
+      : tab === 'availability' ? 'offline'
+      // Smart tab: jump to the surface the rule actually targets.
+      : tab === 'smart' && smartPreview?.mode === 'chat_message' ? 'chat'
+      : 'home');
 
   const windowEmbedCode = useMemo(
     () => buildWidgetEmbedSnippet(urls, {
@@ -617,30 +624,16 @@ function WidgetPageContent() {
 
             {/* ─── Smart actions ─── */}
             <TabsContent value="smart">
-              <Card className="card-elevated overflow-hidden">
-                <CardContent className="flex flex-col items-center gap-5 p-10 text-center">
-                  <div className="relative">
-                    <div className="absolute inset-0 rounded-2xl bg-primary/20 blur-xl" />
-                    <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                      <Sparkles className="h-7 w-7" />
-                    </div>
-                  </div>
-                  <div className="space-y-2 max-w-xl">
-                    <h3 className="text-lg font-semibold">{t('widgetPage.smart.title')}</h3>
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      {t('widgetPage.smart.description')}
-                    </p>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{t('widgetPage.smart.empty')}</p>
-                  <Button
-                    className="gap-2 rounded-full px-5"
-                    onClick={() => toast({ description: t('widgetPage.smart.soon') })}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {t('widgetPage.smart.create')}
-                  </Button>
-                </CardContent>
-              </Card>
+              <SmartRulesTab
+                workspaceId={workspace?.id}
+                masterEnabled={(live as any)?.smart_engagement_enabled === true}
+                onToggleMaster={(v) => handleToggle('smart_engagement_enabled', v)}
+                locale={effectiveLocale}
+                locales={regionLocales}
+                localeLabels={LOCALE_LABELS}
+                kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a: any) => ({ title: a.title, slug: a.slug }))}
+                onPreviewChange={setSmartPreview}
+              />
             </TabsContent>
 
             {/* ─── Availability ─── */}
@@ -814,6 +807,7 @@ function WidgetPageContent() {
                 onViewChange={setManualView}
                 operatorAvatar={previewOperator?.avatar_url}
                 operatorName={previewOperator?.full_name}
+                smartPreview={tab === 'smart' ? smartPreview : null}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

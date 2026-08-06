@@ -38,6 +38,7 @@ import {
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
+import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import {
   createSessionToken,
   verifySessionToken,
@@ -515,6 +516,14 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
     const ws = { ...DEFAULT_WIDGET_SETTINGS, ...widget };
 
+    // Smart Engagement rules (active + published only). Failure here must
+    // never take down /config — the helper already degrades to an empty list.
+    const smartPayload = await loadPublicSmartRules(
+      supabase,
+      workspaceId,
+      ws.smart_engagement_enabled === true,
+    );
+
     // Get workspace info + team members
     const { data: workspace } = await supabase
       .from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
@@ -636,6 +645,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
+    const smartEngineName = getWidgetAssetName('smart-engine.js');
     // Self-hosted LiveKit JS SDK. Hashed at build time so we can serve it
     // with `immutable, max-age=1y`. The widget never contacts a CDN for
     // this asset — see scripts/widget-hash.js VENDOR_FILES.
@@ -749,6 +759,16 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
         kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
       },
+      // Smart Engagement — proactive rules. The payload is already
+      // sanitized and stripped of management fields; evaluation happens in
+      // the browser with the shared engine bundle.
+      smart: {
+        enabled: smartPayload.enabled,
+        engineUrl: smartPayload.enabled
+          ? versionedAssetUrl(assetBase ? `${assetBase}/widget/${smartEngineName}` : null)
+          : null,
+        rules: smartPayload.rules,
+      },
       // Phase 4 — AI Agent snapshot. Used by the widget runtime to decide
       // whether to suppress the generic welcome greeting (the AI intro will
       // take its place after pre-chat).
@@ -765,6 +785,50 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 // ═══════════════════════════════════════════════
 // GET /poll — Poll for new messages
 // ═══════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════
+// POST /smart/event — Smart Engagement telemetry
+// Token + origin enforced by the middleware above. Idempotent by key.
+// ═══════════════════════════════════════════════
+const smartEventSchema = z.object({
+  rule_id: z.string().uuid(),
+  rule_version: z.number().int().min(1).max(100000).optional(),
+  event_type: z.enum(['shown', 'opened', 'dismissed', 'cta_clicked', 'widget_opened', 'conversation_started', 'suppressed']),
+  visitor_id: z.string().max(120).optional().nullable(),
+  session_id: z.string().max(120).optional().nullable(),
+  page_path: z.string().max(500).optional().nullable(),
+  idempotency_key: z.string().min(6).max(120),
+});
+
+widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const parsed = smartEventSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+
+  try {
+    const supabase = getServiceClient(config);
+    const result = await recordSmartEvent(supabase, {
+      workspaceId,
+      ruleId: parsed.data.rule_id,
+      ruleVersion: parsed.data.rule_version,
+      visitorId: parsed.data.visitor_id ?? null,
+      sessionId: parsed.data.session_id ?? null,
+      eventType: parsed.data.event_type,
+      pagePath: parsed.data.page_path ?? null,
+      idempotencyKey: parsed.data.idempotency_key,
+    });
+    if (!result.ok) return res.status(400).json({ error: result.reason || 'rejected' });
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[smart-event] failed:', err?.message || err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 /**
  * Resolve operator profile (full_name + avatar_url) for any agent/ai message.
  * Single batched lookup keeps /poll and /history fast even on long threads.

@@ -40,7 +40,7 @@ if (!existsSync(SRC_DIR)) {
 }
 
 // Files that get content-hashed filenames
-const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
+const HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
 
 // Files copied as-is (stable entry points)
 const STABLE_FILES = ['loader.js'];

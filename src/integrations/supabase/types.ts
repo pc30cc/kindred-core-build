@@ -7012,6 +7012,7 @@ export type Database = {
           read_receipts_enabled: boolean
           secondary_color: string | null
           show_logo: boolean | null
+          smart_engagement_enabled: boolean
           store_raw_ip: boolean
           support_mode: string | null
           theme: string | null
@@ -7062,6 +7063,7 @@ export type Database = {
           read_receipts_enabled?: boolean
           secondary_color?: string | null
           show_logo?: boolean | null
+          smart_engagement_enabled?: boolean
           store_raw_ip?: boolean
           support_mode?: string | null
           theme?: string | null
@@ -7112,6 +7114,7 @@ export type Database = {
           read_receipts_enabled?: boolean
           secondary_color?: string | null
           show_logo?: boolean | null
+          smart_engagement_enabled?: boolean
           store_raw_ip?: boolean
           support_mode?: string | null
           theme?: string | null
@@ -7126,6 +7129,137 @@ export type Database = {
             foreignKeyName: "widget_settings_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_smart_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          idempotency_key: string
+          page_path: string | null
+          rule_id: string
+          rule_version: number
+          session_id: string | null
+          visitor_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          idempotency_key: string
+          page_path?: string | null
+          rule_id: string
+          rule_version?: number
+          session_id?: string | null
+          visitor_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          idempotency_key?: string
+          page_path?: string | null
+          rule_id?: string
+          rule_version?: number
+          session_id?: string | null
+          visitor_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_smart_events_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "widget_smart_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_smart_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_smart_rules: {
+        Row: {
+          audience_config: Json
+          behavior_config: Json
+          content_config: Json
+          created_at: string
+          created_by: string | null
+          description: string | null
+          frequency_config: Json
+          id: string
+          name: string
+          presentation_config: Json
+          priority: number
+          published_at: string | null
+          published_version: number
+          schedule_config: Json
+          schema_version: number
+          status: string
+          trigger_config: Json
+          updated_at: string
+          updated_by: string | null
+          workspace_id: string
+        }
+        Insert: {
+          audience_config?: Json
+          behavior_config?: Json
+          content_config?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          frequency_config?: Json
+          id?: string
+          name: string
+          presentation_config?: Json
+          priority?: number
+          published_at?: string | null
+          published_version?: number
+          schedule_config?: Json
+          schema_version?: number
+          status?: string
+          trigger_config?: Json
+          updated_at?: string
+          updated_by?: string | null
+          workspace_id: string
+        }
+        Update: {
+          audience_config?: Json
+          behavior_config?: Json
+          content_config?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          frequency_config?: Json
+          id?: string
+          name?: string
+          presentation_config?: Json
+          priority?: number
+          published_at?: string | null
+          published_version?: number
+          schedule_config?: Json
+          schema_version?: number
+          status?: string
+          trigger_config?: Json
+          updated_at?: string
+          updated_by?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_smart_rules_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },

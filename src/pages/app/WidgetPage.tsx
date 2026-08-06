@@ -154,7 +154,11 @@ function WidgetPageContent() {
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
   const previewView: PreviewView =
     manualView ??
-    (tab === 'prechat' ? 'prechat' : tab === 'availability' ? 'offline' : 'home');
+    (tab === 'prechat' ? 'prechat'
+      : tab === 'availability' ? 'offline'
+      // Smart tab: jump to the surface the rule actually targets.
+      : tab === 'smart' && smartPreview?.mode === 'chat_message' ? 'chat'
+      : 'home');
 
   const windowEmbedCode = useMemo(
     () => buildWidgetEmbedSnippet(urls, {

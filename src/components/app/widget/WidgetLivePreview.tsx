@@ -580,6 +580,15 @@ export function WidgetLivePreview({
   .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
     background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;
      box-shadow:0 4px 14px -4px rgba(0,0,0,.25);z-index:5;}
+  /* Smart simulation: surfaces fade in/out with the real transition timing. */
+  [data-smart-surface]{transition:opacity .22s ease, transform .22s ease;}
+  [data-smart-surface][hidden]{display:none!important;}
+  [data-smart-surface].smart-enter{opacity:0;transform:translateY(6px);}
+  .msg-row.automation{display:flex;justify-content:flex-start;}
+  .msg.automation{position:relative;background:#EEF2FF;color:#1F2937;border:1px dashed rgba(99,102,241,.45);
+    border-radius:14px;padding:10px 12px;max-width:80%;font-size:13px;line-height:1.6;}
+  .smart-automation-label{display:block;font-size:10px;font-weight:700;letter-spacing:.04em;
+    text-transform:uppercase;color:#6366F1;margin-bottom:4px;}
 </style>
 </head>
 <body>
@@ -605,6 +614,8 @@ export function WidgetLivePreview({
     ${articleTemplates}
   </div>
 <script>
+  var GS_SMART = ${JSON.stringify({ enabled: smartDoc, mode: sp?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' })};
+
   // Preview-only: let the operator open/close the widget exactly like a visitor.
   (function () {
     var panel = document.querySelector('.panel');
@@ -617,14 +628,83 @@ export function WidgetLivePreview({
       launcher.classList.remove('is-hidden');
       if (label) label.classList.remove('is-hidden');
     }
-    setOpen(true);
-    launcher.addEventListener('click', function () { setOpen(panel.hasAttribute('hidden')); });
+    window.__gsSetOpen = setOpen;
+    // In the scenario studio the panel state belongs to the simulation, so it
+    // starts closed and only opens when the rule says a visitor would see it.
+    setOpen(!GS_SMART.enabled);
+    launcher.addEventListener('click', function () {
+      var willOpen = panel.hasAttribute('hidden');
+      setOpen(willOpen);
+      if (GS_SMART.enabled) {
+        parent.postMessage({
+          source: 'gs-smart-preview',
+          type: willOpen ? 'smart-preview:widget-opened' : 'smart-preview:widget-closed',
+        }, '*');
+      }
+    });
     var closeBtn = document.getElementById('gs-close');
-    if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
+    if (closeBtn) closeBtn.addEventListener('click', function () {
+      setOpen(false);
+      if (GS_SMART.enabled) parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:widget-closed' }, '*');
+    });
+  })();
+
+  // Preview-only: drive the smart surface lifecycle from the parent studio.
+  (function () {
+    if (!GS_SMART.enabled) return;
+    var surfaces = [].slice.call(document.querySelectorAll('[data-smart-surface]'));
+    surfaces.forEach(function (el) { el.setAttribute('hidden', ''); el.classList.add('smart-enter'); });
+
+    function showSurface(show) {
+      surfaces.forEach(function (el) {
+        if (show) {
+          el.removeAttribute('hidden');
+          requestAnimationFrame(function () { el.classList.remove('smart-enter'); });
+        } else {
+          el.classList.add('smart-enter');
+          el.setAttribute('hidden', '');
+        }
+      });
+    }
+
+    function applyPhase(phase) {
+      var visible = phase === 'surface_shown' || phase === 'cta_clicked'
+        || (phase === 'widget_opened' && GS_SMART.mode !== 'open_widget');
+      var open = GS_SMART.mode === 'launcher_nudge'
+        ? false
+        : GS_SMART.mode === 'open_widget'
+          ? phase === 'widget_opened' || phase === 'cta_clicked'
+          : visible;
+      if (window.__gsSetOpen) window.__gsSetOpen(open);
+      showSurface(visible);
+    }
+
+    window.addEventListener('message', function (e) {
+      var data = e.data;
+      if (!data || data.source !== 'gs-smart-preview') return;
+      if (data.type === 'smart-preview:set-phase') applyPhase(data.phase);
+    });
+
+    document.addEventListener('click', function (e) {
+      var t = e.target && e.target.closest ? e.target : null;
+      if (!t) return;
+      if (t.closest('.smart-dismiss')) {
+        e.preventDefault();
+        parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:dismiss' }, '*');
+        return;
+      }
+      if (t.closest('.smart-cta')) {
+        e.preventDefault();
+        parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:cta' }, '*');
+      }
+    });
+
+    applyPhase(${JSON.stringify(phase)});
   })();
 
   // Preview-only: clicking a bottom nav tab tells the parent to switch views.
   (function () {
+    if (GS_SMART.enabled) return;
     document.addEventListener('click', function (e) {
       var el = e.target && e.target.closest ? e.target.closest('[data-preview-nav]') : null;
       if (!el) return;

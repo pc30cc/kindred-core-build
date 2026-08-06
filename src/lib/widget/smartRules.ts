@@ -8,7 +8,7 @@ import {
   SMART_ENGINE_SCHEMA_VERSION,
   isSafeSmartUrl,
   type SmartRule,
-} from './smartEngine';
+} from './smartEngine.js';
 
 export const SMART_LIMITS = {
   maxActiveRules: 20,

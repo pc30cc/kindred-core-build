@@ -7186,6 +7186,13 @@ export type Database = {
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "widget_smart_events_workspace_rule_fkey"
+            columns: ["workspace_id", "rule_id"]
+            isOneToOne: false
+            referencedRelation: "widget_smart_rules"
+            referencedColumns: ["workspace_id", "id"]
+          },
         ]
       }
       widget_smart_rules: {
@@ -7202,6 +7209,15 @@ export type Database = {
           presentation_config: Json
           priority: number
           published_at: string | null
+          published_audience_config: Json | null
+          published_behavior_config: Json | null
+          published_content_config: Json | null
+          published_frequency_config: Json | null
+          published_presentation_config: Json | null
+          published_priority: number | null
+          published_schedule_config: Json | null
+          published_schema_version: number | null
+          published_trigger_config: Json | null
           published_version: number
           schedule_config: Json
           schema_version: number
@@ -7224,6 +7240,15 @@ export type Database = {
           presentation_config?: Json
           priority?: number
           published_at?: string | null
+          published_audience_config?: Json | null
+          published_behavior_config?: Json | null
+          published_content_config?: Json | null
+          published_frequency_config?: Json | null
+          published_presentation_config?: Json | null
+          published_priority?: number | null
+          published_schedule_config?: Json | null
+          published_schema_version?: number | null
+          published_trigger_config?: Json | null
           published_version?: number
           schedule_config?: Json
           schema_version?: number
@@ -7246,6 +7271,15 @@ export type Database = {
           presentation_config?: Json
           priority?: number
           published_at?: string | null
+          published_audience_config?: Json | null
+          published_behavior_config?: Json | null
+          published_content_config?: Json | null
+          published_frequency_config?: Json | null
+          published_presentation_config?: Json | null
+          published_priority?: number | null
+          published_schedule_config?: Json | null
+          published_schema_version?: number | null
+          published_trigger_config?: Json | null
           published_version?: number
           schedule_config?: Json
           schema_version?: number

@@ -8,7 +8,7 @@ import {
   SMART_ENGINE_SCHEMA_VERSION,
   isSafeSmartUrl,
   type SmartRule,
-} from './smartEngine';
+} from './smartEngine.js';
 
 export const SMART_LIMITS = {
   maxActiveRules: 20,
@@ -156,13 +156,62 @@ export type SmartRuleRow = z.infer<typeof smartRuleSchema> & {
   created_at?: string;
   updated_at?: string;
   published_at?: string | null;
+  /**
+   * Published snapshot columns. Editing a live rule only mutates the draft
+   * columns above; the visitor payload is always built from these.
+   */
+  published_trigger_config?: SmartRule['trigger_config'] | null;
+  published_audience_config?: SmartRule['audience_config'] | null;
+  published_content_config?: SmartRule['content_config'] | null;
+  published_presentation_config?: SmartRule['presentation_config'] | null;
+  published_schedule_config?: SmartRule['schedule_config'] | null;
+  published_frequency_config?: SmartRule['frequency_config'] | null;
+  published_behavior_config?: SmartRule['behavior_config'] | null;
+  published_priority?: number | null;
+  published_schema_version?: number | null;
 };
+
+/** Config blobs that are snapshotted on publish. */
+export const SMART_SNAPSHOT_CONFIG_KEYS = [
+  'trigger_config', 'audience_config', 'content_config',
+  'presentation_config', 'schedule_config', 'frequency_config', 'behavior_config',
+] as const;
 
 /** Draft shape used by the editor before it is persisted. */
 export type SmartRuleDraft = Omit<SmartRuleRow, 'id' | 'workspace_id'> & {
   id?: string;
   workspace_id?: string;
 };
+
+/**
+ * Adapt an editor draft to the evaluator's `SmartRule` contract without
+ * casting through `any`. Used by the preview studio so the operator sees the
+ * verdict of the exact same evaluator the visitor's browser runs.
+ */
+export function draftToSmartRule(draft: SmartRuleDraft): SmartRule {
+  const rule: SmartRule = {
+    id: draft.id || 'preview-rule',
+    name: draft.name || '',
+    status: draft.status,
+    priority: Number(draft.priority) || 0,
+    schema_version: Number(draft.schema_version) || SMART_ENGINE_SCHEMA_VERSION,
+    version: Number(draft.published_version) || 0,
+    trigger_config: { type: 'page_load', ...(draft.trigger_config || {}) } as SmartRule['trigger_config'],
+    audience_config: { match: 'all', conditions: [], ...(draft.audience_config || {}) } as SmartRule['audience_config'],
+    content_config: {
+      default_locale: 'en', locales: {}, ...(draft.content_config || {}),
+    } as SmartRule['content_config'],
+    presentation_config: {
+      mode: 'launcher_nudge', action: 'none', ...(draft.presentation_config || {}),
+    } as SmartRule['presentation_config'],
+    schedule_config: (draft.schedule_config || {}) as SmartRule['schedule_config'],
+    frequency_config: {
+      mode: 'once_per_session', ...(draft.frequency_config || {}),
+    } as SmartRule['frequency_config'],
+    behavior_config: (draft.behavior_config || {}) as SmartRule['behavior_config'],
+  };
+  return rule;
+}
 
 export function createEmptySmartRule(locale: string, timezone: string | null): SmartRuleDraft {
   const lang = (locale || 'en').toLowerCase().split('-')[0];

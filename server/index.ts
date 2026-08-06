@@ -40,6 +40,7 @@ import { workspaceCallsRouter } from './routes/workspaceCalls.js';
 import { callAvailabilityRouter } from './routes/callAvailability.js';
 import { callbacksRouter } from './routes/callbacks.js';
 import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
+import { workspaceSmartRulesRouter } from './routes/workspaceSmartRules.js';
 import { callInvitationsRouter } from './routes/callInvitations.js';
 import { aiKbRouter } from './routes/aiKb.js';
 import { knowledgeBaseRouter } from './routes/knowledgeBase.js';
@@ -354,6 +355,7 @@ app.use('/api/callbacks', callbacksRouter);
 
 // Phase 8H — Workspace-scoped department management.
 app.use('/api/workspace-departments', workspaceDepartmentsRouter);
+app.use('/api/workspaces', workspaceSmartRulesRouter);
 
 // Phase 9 — Operator-side Call Invitations (invitation-first calling).
 // Auth + workspace membership enforced inside the router.

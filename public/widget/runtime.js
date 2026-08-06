@@ -4728,6 +4728,52 @@
     });
     var DRAFT_PENDING_KEY = '__pending__';
 
+    // ─── Smart Engagement interaction bridge state ──────────────────────
+    var smartInteractionListeners = [];
+    var visitorRepliedFlag = false;
+    var visitorTypingFlag = false;
+    var widgetErrorFlag = false;
+    var visitorTypingTimer = null;
+    function markVisitorTyping() {
+      visitorTypingFlag = true;
+      notifySmartInteractionChange();
+      if (visitorTypingTimer) clearTimeout(visitorTypingTimer);
+      visitorTypingTimer = setTimeout(function () {
+        visitorTypingFlag = false;
+        notifySmartInteractionChange();
+      }, 1500);
+    }
+    function computeSmartInteractionState() {
+      var cs = callSurfaceStore.get();
+      var ss = shellStore.get();
+      var cst = chatStore.get();
+      var prechatOpenNow = false;
+      try { prechatOpenNow = !!(ss.isOpen && ss.activeTab === 'chat' && identity && identity.needsPrechat && identity.needsPrechat()); } catch (_) {}
+      var view = ss.activeTab;
+      if (cs.phase !== 'idle') view = 'call';
+      return {
+        widgetOpen: !!ss.isOpen,
+        conversationActive: !!cst.conversationId,
+        visitorTyping: !!visitorTypingFlag,
+        callActive: cs.phase !== 'idle',
+        prechatOpen: prechatOpenNow,
+        visitorReplied: !!visitorRepliedFlag,
+        widgetError: !!widgetErrorFlag,
+        currentView: view,
+      };
+    }
+    var __lastSmartSnapshotJson = null;
+    function notifySmartInteractionChange() {
+      var next = computeSmartInteractionState();
+      var json = JSON.stringify(next);
+      if (json === __lastSmartSnapshotJson) return;
+      __lastSmartSnapshotJson = json;
+      for (var i = 0; i < smartInteractionListeners.length; i++) {
+        try { smartInteractionListeners[i](next); } catch (_) {}
+      }
+    }
+
+
     // ─── Phase 6a: Attachment domain store ───
     // Kept SEPARATE from chatStore (per Part 12 rule). Tracks the single
     // pending attachment for the current draft. State machine:
@@ -5004,6 +5050,7 @@
     var typingLabel = panel.querySelector('[data-typing-label]');
     var body = panel.querySelector('[data-body]');
     var msgInput = panel.querySelector('[data-msg-input]');
+    if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); }
     var sendBtn = panel.querySelector('[data-send-btn]');
     var inputBar = panel.querySelector('[data-input-bar]');
     var attachBtn = panel.querySelector('[data-attach-btn]');
@@ -5022,6 +5069,19 @@
     try {
       panel.insertBefore(smartDock, inputBar || panel.querySelector('.tabs') || null);
     } catch (_) { panel.appendChild(smartDock); }
+
+    // Announcements dock INSIDE the panel, directly under the header and above
+    // the body — never floating over the chrome, so they can't cover the tabs,
+    // the composer or the conversation.
+    var smartAnnounce = document.createElement('div');
+    smartAnnounce.className = 'smart-announce';
+    smartAnnounce.hidden = true;
+    try {
+      var headerEl = panel.querySelector('.header');
+      if (headerEl && headerEl.nextSibling) panel.insertBefore(smartAnnounce, headerEl.nextSibling);
+      else if (headerEl) panel.insertBefore(smartAnnounce, body || null);
+      else panel.insertBefore(smartAnnounce, panel.firstChild);
+    } catch (_) { panel.appendChild(smartAnnounce); }
 
     function smartInnerHtml(s) {
       return (s.dismissible === false
@@ -5064,9 +5124,21 @@
       bindSmartSurface(smartDock, smartSurface);
     }
 
+    function renderSmartAnnounce() {
+      if (!smartSurface || smartSurface.mode !== 'announcement') {
+        smartAnnounce.hidden = true;
+        smartAnnounce.innerHTML = '';
+        return;
+      }
+      smartAnnounce.innerHTML = smartInnerHtml(smartSurface);
+      smartAnnounce.hidden = false;
+      bindSmartSurface(smartAnnounce, smartSurface);
+    }
+
     function clearSmartSurface() {
       smartSurface = null;
       renderSmartDock();
+      renderSmartAnnounce();
       if (shellStore.get().activeTab === 'home') renderBody();
     }
 
@@ -5825,6 +5897,16 @@
     // Pass 2 — re-render whenever the in-panel call surface changes so
     // status text, mic/cam state, and remote tracks paint immediately.
     callSurfaceStore.subscribe(function () { renderBody(); });
+    callSurfaceStore.subscribe(notifySmartInteractionChange);
+    shellStore.subscribe(notifySmartInteractionChange);
+    chatStore.subscribe(function () {
+      var msgs = chatStore.get().messages || [];
+      for (var mi = 0; mi < msgs.length; mi++) {
+        if (msgs[mi].sender === 'visitor') { visitorRepliedFlag = true; break; }
+      }
+      notifySmartInteractionChange();
+    });
+
     // Re-render body when presence flips so fallback/normal swap takes effect.
     presenceStore.subscribe(function () {
       var at = shellStore.get().activeTab;
@@ -6106,17 +6188,51 @@
        */
       showSmart: function (surface) {
         if (!surface || !surface.body) return false;
+        // A proactive surface must never interrupt real activity.
+        var st = computeSmartInteractionState();
+        if (st.conversationActive || st.callActive || st.prechatOpen) return false;
+        if (surface.mode === 'open_widget') {
+          this.open();
+          return true;
+        }
         smartSurface = surface;
         if (surface.mode === 'home_card') {
           switchTab('home');
         } else if (surface.mode === 'chat_message') {
           switchTab('chat');
           renderSmartDock();
+        } else if (surface.mode === 'announcement') {
+          renderSmartAnnounce();
+        } else {
+          smartSurface = null;
+          return false;
         }
         return true;
       },
       hideSmart: function () { clearSmartSurface(); },
+      /** Smart Engagement — real interaction state for the loader's evaluator. */
+      getSmartInteractionState: function () { return computeSmartInteractionState(); },
+      /** Subscribe to interaction changes; returns an unsubscribe function. */
+      onSmartInteractionChange: function (listener) {
+        if (typeof listener !== 'function') return function () {};
+        smartInteractionListeners.push(listener);
+        return function () {
+          var i = smartInteractionListeners.indexOf(listener);
+          if (i >= 0) smartInteractionListeners.splice(i, 1);
+        };
+      },
     };
+  };
+
+  // Bridge helpers mirrored on the namespace so the loader can reach them
+  // without holding a reference to the instance closure.
+  __gs_runtime.getSmartInteractionState = function () {
+    var inst = __gs_runtime._instance;
+    return inst && inst.getSmartInteractionState ? inst.getSmartInteractionState() : null;
+  };
+  __gs_runtime.onSmartInteractionChange = function (listener) {
+    var inst = __gs_runtime._instance;
+    return inst && inst.onSmartInteractionChange ? inst.onSmartInteractionChange(listener) : function () {};
   };
 
   window.__gs_runtime = __gs_runtime;

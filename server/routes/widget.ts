@@ -821,7 +821,10 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
       pagePath: parsed.data.page_path ?? null,
       idempotencyKey: parsed.data.idempotency_key,
     });
-    if (!result.ok) return res.status(400).json({ error: result.reason || 'rejected' });
+    if (!result.ok) {
+      const status = result.reason === 'rule_workspace_mismatch' ? 403 : 400;
+      return res.status(status).json({ error: result.reason || 'rejected' });
+    }
     res.json({ ok: true });
   } catch (err: any) {
     console.error('[smart-event] failed:', err?.message || err);

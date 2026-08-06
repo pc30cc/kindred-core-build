@@ -7,10 +7,50 @@
  * below mirrors what `public/widget/runtime.js` emits at runtime, so what the
  * operator sees here is what the visitor gets on their site.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
+import type { SmartEvalResult } from '@/lib/widget/smartEngine';
+import type { SmartRuleDraft } from '@/lib/widget/smartRules';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
+
+/** Lifecycle a smart action walks through inside the scenario studio. */
+export type SmartPreviewPhase =
+  | 'idle' | 'waiting' | 'matched' | 'surface_shown'
+  | 'widget_opened' | 'cta_clicked' | 'dismissed' | 'suppressed';
+
+/** Resolved, already-sanitized copy for the surface being simulated. */
+export interface SmartPreviewContent {
+  title?: string;
+  body: string;
+  ctaLabel?: string;
+}
+
+/**
+ * Everything the smart iframe needs. The preview receives the *whole rule*
+ * plus the scenario state — never a flattened surface — because the panel's
+ * open/closed state, the active view and the surface placement are all
+ * derived from the rule's presentation mode and the current phase.
+ */
+export interface SmartPreviewScenario {
+  rule: SmartRuleDraft;
+  content: SmartPreviewContent | null;
+  verdict: SmartEvalResult;
+  phase: SmartPreviewPhase;
+  device: 'desktop' | 'mobile';
+  locale: string;
+  rtl: boolean;
+}
+
+/** Messages the studio pushes into, or receives from, the smart iframe. */
+export type SmartPreviewMessage =
+  | { source: 'gs-smart-preview'; type: 'smart-preview:set-phase'; phase: SmartPreviewPhase }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:trigger' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:reset' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:dismiss' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:cta' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:widget-opened' }
+  | { source: 'gs-smart-preview'; type: 'smart-preview:widget-closed' };
 
 type Dict = {
   online: string; offline: string; typing: string; input: string;
@@ -145,23 +185,26 @@ export interface WidgetLivePreviewProps {
   /** Operator display name — used for the initial fallback avatar. */
   operatorName?: string | null;
   /**
-   * Smart Engagement surface to render on top of the widget. The markup and
-   * class names match `public/widget/runtime.js` exactly, so the operator
-   * previews the real thing rather than an approximation.
+   * `generic` is the ordinary settings preview. `smart` turns the frame into a
+   * scenario simulator: the panel's open state, the active view and the surface
+   * placement are all derived from the rule + phase instead of the tab.
    */
-  smartPreview?: {
-    mode: 'launcher_nudge' | 'open_widget' | 'home_card' | 'chat_message' | 'announcement';
-    title?: string;
-    body: string;
-    ctaLabel?: string;
-    dismissible?: boolean;
-  } | null;
+  previewMode?: 'generic' | 'smart';
+  /** Scenario driving the smart simulation (required when previewMode==='smart'). */
+  smartScenario?: SmartPreviewScenario | null;
+  /** Interaction feedback coming back out of the simulated widget. */
+  onSmartEvent?: (type: 'dismiss' | 'cta' | 'widget-opened' | 'widget-closed') => void;
 }
 
 export function WidgetLivePreview({
   settings, prechat, brandName, view, kbArticles, kbCategories, onViewChange,
-  operatorAvatar, operatorName, smartPreview,
+  operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent,
 }: WidgetLivePreviewProps) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const isSmart = previewMode === 'smart' && !!smartScenario;
+  const smartMode = smartScenario?.rule.presentation_config?.mode || 'launcher_nudge';
+  const phase = smartScenario?.phase || 'idle';
+
   useEffect(() => {
     if (!onViewChange) return;
     const onMessage = (e: MessageEvent) => {
@@ -173,11 +216,36 @@ export function WidgetLivePreview({
     return () => window.removeEventListener('message', onMessage);
   }, [onViewChange]);
 
+  // Smart interactions travel back from the sandboxed frame.
+  useEffect(() => {
+    if (!onSmartEvent) return;
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { source?: string; type?: string } | null;
+      if (!data || data.source !== 'gs-smart-preview' || !data.type) return;
+      const kind = data.type.replace('smart-preview:', '');
+      if (kind === 'dismiss' || kind === 'cta' || kind === 'widget-opened' || kind === 'widget-closed') {
+        onSmartEvent(kind);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [onSmartEvent]);
+
+  // Phase changes are pushed into the frame so the panel animates instead of
+  // the whole document being re-created on every scenario tick.
+  useEffect(() => {
+    if (!isSmart) return;
+    frameRef.current?.contentWindow?.postMessage(
+      { source: 'gs-smart-preview', type: 'smart-preview:set-phase', phase },
+      '*',
+    );
+  }, [isSmart, phase, smartMode]);
+
   const srcDoc = useMemo(() => {
     const s = settings || {};
-    const locale: string = s.widget_language || s.locale || 'en';
+    const locale: string = smartScenario?.locale || s.widget_language || s.locale || 'en';
     const d = DICTS[locale] || DICTS.en;
-    const rtl = locale === 'fa';
+    const rtl = smartScenario ? smartScenario.rtl : locale === 'fa';
     const dir = rtl ? 'rtl' : 'ltr';
 
     const primary: string = s.primary_color || '#3B82F6';
@@ -211,10 +279,13 @@ export function WidgetLivePreview({
       chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
       help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
     };
+    const smartDoc = previewMode === 'smart';
     const navDefs: { key: string; label: string }[] = [{ key: 'home', label: d.homeTab }, { key: 'chat', label: d.chatTab }];
     if (kbEnabled) navDefs.push({ key: 'help', label: d.helpTab });
     const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
-    const tabs = `<div class="tabs tabs-bottom">${navDefs
+    // The scenario studio is a simulation of one moment, not a browsable
+    // widget — generic navigation would let the operator leave the scenario.
+    const tabs = smartDoc ? '' : `<div class="tabs tabs-bottom">${navDefs
       .map(
         (n) => `<button type="button" data-preview-nav="${n.key}" class="tab${n.key === activeNav ? ' active' : ''}">
            <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
@@ -394,14 +465,23 @@ export function WidgetLivePreview({
       view === 'offline' ? offlineBody : chatBody;
 
     /* ── Smart Engagement surfaces (same markup as the runtime emits) ── */
-    const sp = smartPreview && smartPreview.body ? smartPreview : null;
+    const scenarioContent = smartScenario?.content;
+    const sp = smartScenario && scenarioContent && scenarioContent.body
+      ? {
+          mode: smartScenario.rule.presentation_config?.mode || 'launcher_nudge',
+          title: scenarioContent.title,
+          body: scenarioContent.body,
+          ctaLabel: scenarioContent.ctaLabel,
+          dismissible: smartScenario.rule.presentation_config?.dismissible !== false,
+        }
+      : null;
     const spTitle = sp?.title ? `<div class="smart-title">${esc(sp.title)}</div>` : '';
     const spCta = sp?.ctaLabel ? `<button type="button" class="smart-cta">${esc(sp.ctaLabel)}</button>` : '';
     const spDismiss = sp && sp.dismissible !== false
       ? '<button type="button" class="smart-dismiss" aria-label="dismiss">×</button>' : '';
 
     const smartNudge = sp && sp.mode === 'launcher_nudge'
-      ? `<div class="smart-nudge ${pos}" style="bottom:${fabSize + 40}px">
+      ? `<div class="smart-nudge ${pos}" data-smart-surface style="bottom:${fabSize + 40}px">
            ${spDismiss}${spTitle}
            <div class="smart-body">${esc(sp.body)}</div>
            ${spCta}
@@ -409,25 +489,27 @@ export function WidgetLivePreview({
       : '';
 
     const smartAnnounce = sp && sp.mode === 'announcement'
-      ? `<div class="smart-announce">
+      ? `<div class="smart-announce" data-smart-surface>
            <span class="smart-body">${esc(sp.body)}</span>${spCta}${spDismiss}
          </div>`
       : '';
 
     const smartHomeCard = sp && sp.mode === 'home_card'
-      ? `<div class="smart-home-card">
+      ? `<div class="smart-home-card" data-smart-surface>
            ${spDismiss}${spTitle}
            <div class="smart-body">${esc(sp.body)}</div>
            ${spCta}
          </div>`
       : '';
 
-    const smartChatMessage = sp && sp.mode === 'chat_message'
-      ? `<div class="msg-row agent">
-           ${operatorAvatar
-             ? `<span class="msg-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="" /></span>`
-             : `<span class="msg-avatar">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span>`}
-           <div class="msg agent">${esc(sp.body)}${sp.ctaLabel ? `<div class="smart-cta-wrap">${spCta}</div>` : ''}</div>
+    /* A smart chat message is automation, not a human operator: it is docked
+       above the composer exactly like `renderSmartDock()` in runtime.js and
+       never borrows an operator avatar or name. */
+    const smartChatDock = sp && sp.mode === 'chat_message'
+      ? `<div class="smart-chat-dock" data-smart-surface>
+           ${spDismiss}${spTitle}
+           <div class="smart-body">${esc(sp.body)}</div>
+           ${spCta}
          </div>`
       : '';
 
@@ -436,7 +518,7 @@ export function WidgetLivePreview({
     const bodyWithSmart = (smartHomeCard && view === 'home'
       ? `${smartHomeCard}${body}`
       : body
-    ).replace('<!--SMART_CHAT_SLOT-->', view === 'chat' ? smartChatMessage : '');
+    ).replace('<!--SMART_CHAT_SLOT-->', '');
 
     const composer = view === 'chat' ? `
       <div class="typing-row" aria-live="polite">
@@ -496,6 +578,10 @@ export function WidgetLivePreview({
   .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
     background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;
      box-shadow:0 4px 14px -4px rgba(0,0,0,.25);z-index:5;}
+  /* Smart simulation: surfaces fade in/out with the real transition timing. */
+  [data-smart-surface]{transition:opacity .22s ease, transform .22s ease;}
+  [data-smart-surface][hidden]{display:none!important;}
+  [data-smart-surface].smart-enter{opacity:0;transform:translateY(6px);}
 </style>
 </head>
 <body>
@@ -509,6 +595,7 @@ export function WidgetLivePreview({
       ${header}
       ${smartAnnounce}
       <div class="body">${bodyWithSmart}</div>
+      ${view === 'chat' ? smartChatDock : ''}
       ${composer}
       ${tabs}
       ${powered}
@@ -521,6 +608,8 @@ export function WidgetLivePreview({
     ${articleTemplates}
   </div>
 <script>
+  var GS_SMART = ${JSON.stringify({ enabled: smartDoc, mode: sp?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' })};
+
   // Preview-only: let the operator open/close the widget exactly like a visitor.
   (function () {
     var panel = document.querySelector('.panel');
@@ -533,14 +622,83 @@ export function WidgetLivePreview({
       launcher.classList.remove('is-hidden');
       if (label) label.classList.remove('is-hidden');
     }
-    setOpen(true);
-    launcher.addEventListener('click', function () { setOpen(panel.hasAttribute('hidden')); });
+    window.__gsSetOpen = setOpen;
+    // In the scenario studio the panel state belongs to the simulation, so it
+    // starts closed and only opens when the rule says a visitor would see it.
+    setOpen(!GS_SMART.enabled);
+    launcher.addEventListener('click', function () {
+      var willOpen = panel.hasAttribute('hidden');
+      setOpen(willOpen);
+      if (GS_SMART.enabled) {
+        parent.postMessage({
+          source: 'gs-smart-preview',
+          type: willOpen ? 'smart-preview:widget-opened' : 'smart-preview:widget-closed',
+        }, '*');
+      }
+    });
     var closeBtn = document.getElementById('gs-close');
-    if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
+    if (closeBtn) closeBtn.addEventListener('click', function () {
+      setOpen(false);
+      if (GS_SMART.enabled) parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:widget-closed' }, '*');
+    });
+  })();
+
+  // Preview-only: drive the smart surface lifecycle from the parent studio.
+  (function () {
+    if (!GS_SMART.enabled) return;
+    var surfaces = [].slice.call(document.querySelectorAll('[data-smart-surface]'));
+    surfaces.forEach(function (el) { el.setAttribute('hidden', ''); el.classList.add('smart-enter'); });
+
+    function showSurface(show) {
+      surfaces.forEach(function (el) {
+        if (show) {
+          el.removeAttribute('hidden');
+          requestAnimationFrame(function () { el.classList.remove('smart-enter'); });
+        } else {
+          el.classList.add('smart-enter');
+          el.setAttribute('hidden', '');
+        }
+      });
+    }
+
+    function applyPhase(phase) {
+      var visible = phase === 'surface_shown' || phase === 'cta_clicked'
+        || (phase === 'widget_opened' && GS_SMART.mode !== 'open_widget');
+      var open = GS_SMART.mode === 'launcher_nudge'
+        ? false
+        : GS_SMART.mode === 'open_widget'
+          ? phase === 'widget_opened' || phase === 'cta_clicked'
+          : visible;
+      if (window.__gsSetOpen) window.__gsSetOpen(open);
+      showSurface(visible);
+    }
+
+    window.addEventListener('message', function (e) {
+      var data = e.data;
+      if (!data || data.source !== 'gs-smart-preview') return;
+      if (data.type === 'smart-preview:set-phase') applyPhase(data.phase);
+    });
+
+    document.addEventListener('click', function (e) {
+      var t = e.target && e.target.closest ? e.target : null;
+      if (!t) return;
+      if (t.closest('.smart-dismiss')) {
+        e.preventDefault();
+        parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:dismiss' }, '*');
+        return;
+      }
+      if (t.closest('.smart-cta')) {
+        e.preventDefault();
+        parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:cta' }, '*');
+      }
+    });
+
+    applyPhase(${JSON.stringify(phase)});
   })();
 
   // Preview-only: clicking a bottom nav tab tells the parent to switch views.
   (function () {
+    if (GS_SMART.enabled) return;
     document.addEventListener('click', function (e) {
       var el = e.target && e.target.closest ? e.target.closest('[data-preview-nav]') : null;
       if (!el) return;
@@ -582,15 +740,30 @@ export function WidgetLivePreview({
 </script>
 </body>
 </html>`;
-  }, [settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName, smartPreview]);
+    // `phase` intentionally stays out of the dependency list: it is pushed in
+    // via postMessage so the frame animates instead of being re-created.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
+    smartScenario?.rtl,
+  ]);
 
   return (
     <div className="h-full w-full overflow-hidden rounded-xl border border-border bg-muted/20">
       <iframe
+        ref={frameRef}
         title="widget-preview"
         srcDoc={srcDoc}
         className="h-full w-full border-0"
         sandbox="allow-scripts"
+        onLoad={() => {
+          if (!isSmart) return;
+          frameRef.current?.contentWindow?.postMessage(
+            { source: 'gs-smart-preview', type: 'smart-preview:set-phase', phase },
+            '*',
+          );
+        }}
       />
     </div>
   );

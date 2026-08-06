@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { supabase as authSupabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   smartRuleSchema,
@@ -8,6 +9,39 @@ import {
 } from '@/lib/widget/smartRules';
 
 const TABLE = 'widget_smart_rules';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await authSupabase.auth.getSession();
+  return session?.access_token
+    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
+    : { 'Content-Type': 'application/json' };
+}
+
+/** Server-side publish boundary — never write status:'active' directly. */
+async function publishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
+  const headers = await authHeaders();
+  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/publish`, {
+    method: 'POST', headers,
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    const err: any = new Error(json.error || `Publish failed: ${res.status}`);
+    err.issues = json.issues;
+    throw err;
+  }
+  return json.rule as SmartRuleRow;
+}
+
+async function unpublishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
+  const headers = await authHeaders();
+  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/unpublish`, {
+    method: 'POST', headers,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `Unpublish failed: ${res.status}`);
+  return json.rule as SmartRuleRow;
+}
 
 const SELECT = 'id, workspace_id, name, description, status, priority, schema_version, published_version, '
   + 'trigger_config, audience_config, content_config, presentation_config, schedule_config, '
@@ -70,35 +104,28 @@ export function useSaveSmartRule(workspaceId: string | undefined) {
     mutationFn: async (draft: SmartRuleDraft) => {
       if (!workspaceId) throw new Error('workspace_required');
       const payload = stripDraft(draft);
+      const wantsPublish = payload.status === 'active';
+      // Draft writes never set the rule live directly — `active` is only
+      // reachable through the server-side publish endpoint below, which
+      // re-validates and owns published_version.
+      if (wantsPublish) payload.status = draft.id ? 'paused' : 'draft';
 
-      // A rule may only reach `active` when the whole config validates.
-      if (payload.status === 'active') {
-        const issues = validateSmartRuleForPublish({
-          ...payload,
-          id: draft.id || '00000000-0000-0000-0000-000000000000',
-          workspace_id: workspaceId,
-        });
-        if (issues.length) {
-          const err: any = new Error('validation_failed');
-          err.issues = issues;
-          throw err;
-        }
-        payload.published_version = (Number(draft.published_version) || 0) + 1;
-        payload.published_at = new Date().toISOString();
-      }
-
+      let saved: SmartRuleRow;
       if (draft.id) {
         const { data, error } = await (supabase as any)
           .from(TABLE).update(payload).eq('id', draft.id).eq('workspace_id', workspaceId)
           .select(SELECT).single();
         if (error) throw error;
-        return data as SmartRuleRow;
+        saved = data as SmartRuleRow;
+      } else {
+        const { data, error } = await (supabase as any)
+          .from(TABLE).insert({ ...payload, workspace_id: workspaceId })
+          .select(SELECT).single();
+        if (error) throw error;
+        saved = data as SmartRuleRow;
       }
-      const { data, error } = await (supabase as any)
-        .from(TABLE).insert({ ...payload, workspace_id: workspaceId })
-        .select(SELECT).single();
-      if (error) throw error;
-      return data as SmartRuleRow;
+      if (wantsPublish) saved = await publishSmartRule(workspaceId, saved.id);
+      return saved;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['widget-smart-rules', workspaceId] });
@@ -110,19 +137,18 @@ export function useSetSmartRuleStatus(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ rule, status }: { rule: SmartRuleRow; status: 'draft' | 'active' | 'paused' }) => {
-      const patch: Record<string, any> = { status };
+      if (!workspaceId) throw new Error('workspace_required');
       if (status === 'active') {
-        const issues = validateSmartRuleForPublish({ ...rule, status: 'active' });
-        if (issues.length) {
-          const err: any = new Error('validation_failed');
-          err.issues = issues;
-          throw err;
-        }
-        patch.published_version = (Number(rule.published_version) || 0) + 1;
-        patch.published_at = new Date().toISOString();
+        await publishSmartRule(workspaceId, rule.id);
+        return;
+      }
+      if (status === 'paused' && rule.status === 'active') {
+        // Unpublish keeps the published snapshot intact for a re-publish.
+        await unpublishSmartRule(workspaceId, rule.id);
+        return;
       }
       const { error } = await (supabase as any)
-        .from(TABLE).update(patch).eq('id', rule.id).eq('workspace_id', workspaceId!);
+        .from(TABLE).update({ status }).eq('id', rule.id).eq('workspace_id', workspaceId);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['widget-smart-rules', workspaceId] }),

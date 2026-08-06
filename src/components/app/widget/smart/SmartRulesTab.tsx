@@ -56,7 +56,7 @@ export function SmartRulesTab({
   // Keep the widget preview in sync with whatever is being edited.
   const surface = useMemo<SmartPreviewSurface | null>(() => {
     if (!draft) return null;
-    const content = resolveSmartContent(draft.content_config as any, locale);
+    const content = resolveSmartContent(draft as any, locale);
     if (!content || !content.body) return null;
     return {
       mode: draft.presentation_config.mode,

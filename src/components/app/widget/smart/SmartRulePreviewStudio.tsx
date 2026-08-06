@@ -63,7 +63,7 @@ export function SmartRulePreviewStudio({
   const mode = draft.presentation_config?.mode || 'launcher_nudge';
 
   const content = useMemo(
-    () => resolveSmartContent(draft.content_config as any, previewLocale),
+    () => resolveSmartContent(draft as any, previewLocale),
     [draft.content_config, previewLocale],
   );
 
@@ -237,7 +237,7 @@ export function SmartRulePreviewStudio({
                   r.state === 'fail' && 'border-destructive/40 bg-destructive/10 text-destructive',
                 )}
               >
-                {t(`widgetPage.smart.studio.reason.${r.code}` as any, { defaultValue: r.code })}
+                {t(`widgetPage.smart.studio.reason.${r.code}` as any)}
                 {r.detail
                   ? ` (${Object.entries(r.detail).map(([k, v]) => `${k}: ${v}`).join(', ')})`
                   : ''}

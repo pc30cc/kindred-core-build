@@ -3485,8 +3485,8 @@ const fa: TranslationKeys = {
       iconSparkles: 'درخشش',
       iconSmile: 'لبخند',
       fabAnimation: 'انیمیشن دکمه شناور',
-      autoOpenDelay: 'باز شدن خودکار پس از (ثانیه)',
-      autoOpenHint: 'مقدار ۰ یعنی باز شدن خودکار غیرفعال است.',
+      widgetAnimation: 'انیمیشن کل ویجت',
+      widgetAnimationHint: 'با فعال بودن این گزینه، انیمیشن روی همهٔ بخش‌های ویجت اعمال می‌شود: دکمه شناور، باز و بسته شدن، دکمه‌ها و جابه‌جایی بین صفحه‌ها.',
     },
     behavior: {
       liveChat: 'گفتگوی زنده',

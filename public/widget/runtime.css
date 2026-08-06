@@ -2512,7 +2512,7 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 }
 .shell .powered a { color: rgba(255, 255, 255, .95) !important; }
 /* Collapse chevron always opposite the logo: left in RTL, right in LTR. */
-.shell .header .header-close { right: 12px; left: auto; top: 12px; }
+.shell .header .header-close { right: 12px; left: auto; top: 10px; }
 .shell .header.header-rtl .header-close { left: 12px !important; right: auto !important; }
 .shell .header .header-close { position: absolute !important; }
 /* Reserve room for the collapse chevron so avatars never sit under it. */

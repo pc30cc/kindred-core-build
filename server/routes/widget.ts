@@ -26,7 +26,6 @@ import {
   publishConversationEvent,
   buildMessageEnvelope,
 } from '../services/realtime/publish.js';
-import { getActiveTemplateSlug } from '../services/widget/templates.js';
 import {
   getLoaderAssetBase,
   getRequestBaseUrl,
@@ -732,12 +731,6 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
       autoOpenDelay: ws.auto_open_delay || 0,
       showLogo: ws.show_logo ?? true,
-      // Template selection — resolved server-side with fallback to 'default'
-      // when the workspace's chosen template is missing or has been disabled
-      // by the platform admin. The runtime currently renders the default
-      // template regardless, but this signal is exposed so future template
-      // variants can branch off it without another round-trip.
-      templateSlug: await getActiveTemplateSlug(supabase, workspaceId),
       workspaceName: workspace?.name || '',
       teamMembers,
       onlineOperators: 0, // Resolved client-side from realtime presence when supported.

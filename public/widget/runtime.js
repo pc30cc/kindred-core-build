@@ -3639,79 +3639,6 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // Template Registry (Task 4)
-  //
-  // Lightweight template-aware foundation. Today only `default` is registered
-  // — additional templates can plug in later WITHOUT a new runtime bundle.
-  //
-  // Each template is just a small descriptor. Future templates can override
-  // `prepareShell` / `prepareCtx` to influence rendering (CSS variables,
-  // skin classes, behavioral hooks) while the core pipeline is unchanged.
-  //
-  // Resolution order in init():
-  //   1. config.templateSlug (server-resolved against widget_templates)
-  //   2. fallback to 'default' if slug unknown to the runtime registry
-  //
-  // The selected slug is exposed as:
-  //   - ctx.templateSlug                (string)
-  //   - data-template="<slug>" on <gs-widget> AND on .shell
-  //   - body class `gs-template-<slug>` is NOT used (Shadow DOM scoping only)
-  // ════════════════════════════════════════════════════════════════════
-  var TemplateRegistry = (function () {
-    var entries = {};
-    function register(descriptor) {
-      if (!descriptor || !descriptor.slug) return;
-      entries[descriptor.slug] = descriptor;
-    }
-    function get(slug) { return entries[slug] || null; }
-    function resolve(requestedSlug) {
-      var slug = requestedSlug || 'default';
-      var entry = entries[slug] || entries['default'] || null;
-      return {
-        slug: entry ? entry.slug : 'default',
-        descriptor: entry,
-        // True when caller asked for X but we fell back to default. Useful
-        // for diagnostics — the server still owns the canonical decision,
-        // this is purely a runtime safety net.
-        fellBack: !!requestedSlug && (!entry || entry.slug !== requestedSlug),
-      };
-    }
-    return { register: register, get: get, resolve: resolve, all: function () { return entries; } };
-  })();
-
-  // Register the only real template that ships today. Future templates are
-  // additive — they just call TemplateRegistry.register(...).
-  TemplateRegistry.register({
-    slug: 'default',
-    name: 'Default',
-    /** Hook: optionally tweak the ctx object before any UI is built. */
-    prepareCtx: function (_ctx) { /* no-op for default */ },
-    /** Hook: called once shellDiv exists, before panel mounts. */
-    prepareShell: function (_shellDiv, _ctx) { /* no-op for default */ },
-  });
-
-  // ── Widget Template 2 — premium skin ─────────────────────────────────
-  // Pure CSS skin scoped to .shell[data-template="template2"]. Loads the
-  // Vazirmatn webfont (Google Fonts) into both the host document and the
-  // shadow root so Persian + Latin text renders with the correct family.
-  TemplateRegistry.register({
-    slug: 'template2',
-    name: 'Widget Template 2',
-    prepareCtx: function (_ctx) { /* no-op */ },
-    prepareShell: function (_shellDiv, _ctx) {
-      try {
-        if (typeof document === 'undefined') return;
-        // Vazirmatn is self-hosted via @font-face in runtime.css
-        // (public/widget/fonts/*.woff2) — no external CDN request.
-        return;
-      } catch (_) { /* font injection optional */ }
-    },
-  });
-
-  // Expose for debugging / future runtime template registration from outside.
-  __gs_runtime.templates = TemplateRegistry;
-
-  // ════════════════════════════════════════════════════════════════════
   // Core — orchestrates everything inside the shadow root
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
@@ -3809,24 +3736,6 @@
       }
     } catch (_) { /* bus optional */ }
 
-    // Expose template slug in the runtime context for CSS scoping + future
-    // template-aware behavior. Today only 'default' is registered server-side.
-    var __tplResolve = TemplateRegistry.resolve(config.templateSlug);
-    ctx.templateSlug = __tplResolve.slug;
-    ctx.template = __tplResolve.descriptor;
-    if (__tplResolve.fellBack) {
-      Util.warn('[template] requested "' + config.templateSlug + '" not registered — using "default"');
-    }
-    try {
-      var rootEl = (shell && shell.shellEl) || null;
-      if (rootEl) rootEl.setAttribute('data-template', ctx.templateSlug);
-    } catch (_) {}
-    // Run the template's prepareCtx hook (no-op for default today) so future
-    // templates can adjust ctx values (icons, colors, copy keys) before any
-    // rendering happens.
-    if (ctx.template && typeof ctx.template.prepareCtx === 'function') {
-      try { ctx.template.prepareCtx(ctx); } catch (e) { Util.warn('template.prepareCtx err', e); }
-    }
 
     // Tear down the token manager when the panel is unloaded by the host
     // page (SPA route swap). Prevents orphaned refresh timers.
@@ -4783,12 +4692,6 @@
       Util.warn('FATAL: no mount target available inside shadow root');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
-    // Mirror data-template onto .shell so Shadow-DOM-scoped CSS can target
-    // the entire UI subtree (e.g. `.shell[data-template="default"] .panel`).
-    try { shellDiv.setAttribute('data-template', ctx.templateSlug); } catch (_) {}
-    if (ctx.template && typeof ctx.template.prepareShell === 'function') {
-      try { ctx.template.prepareShell(shellDiv, ctx); } catch (e) { Util.warn('template.prepareShell err', e); }
-    }
     var launcher = shell.launcher;
 
     // ─── Domain stores (each one isolated, with pub/sub) ───
@@ -5060,7 +4963,6 @@
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
-    var isT2 = (ctx.templateSlug === 'template2');
     var inputHtml = chatEnabled
       ? '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
           '<span class="typing-dots"><span></span><span></span><span></span></span>' +
@@ -5071,11 +4973,6 @@
         '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
         '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
         '</button>' +
-        (isT2
-          ? '<button type="button" class="emoji-btn" data-emoji-btn aria-label="Emoji" title="Emoji">' +
-              '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
-            '</button>'
-          : '') +
         (attachCfg.enabled
           ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
               '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
@@ -5083,11 +4980,6 @@
             '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
           : '') +
         '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
-        (isT2
-          ? '<button type="button" class="mic-btn" data-mic-btn aria-label="Voice" title="Voice">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>' +
-            '</button>'
-          : '') +
         '</div>'
       : '';
      var poweredHtml = brandName
@@ -5464,63 +5356,6 @@
     if (msgInput) msgInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); }
     });
-
-    // ─── Template2 — emoji picker + mic placeholder ───
-    var emojiBtn = panel.querySelector('[data-emoji-btn]');
-    var micBtn = panel.querySelector('[data-mic-btn]');
-    var emojiPop = null;
-    function closeEmojiPop() {
-      if (emojiPop && emojiPop.parentNode) emojiPop.parentNode.removeChild(emojiPop);
-      emojiPop = null;
-      document.removeEventListener('click', onDocClickEmoji, true);
-    }
-    function onDocClickEmoji(e) {
-      if (!emojiPop) return;
-      if (emojiPop.contains(e.target) || (emojiBtn && emojiBtn.contains(e.target))) return;
-      closeEmojiPop();
-    }
-    if (emojiBtn && msgInput) {
-      emojiBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        if (emojiPop) { closeEmojiPop(); return; }
-        var emojis = ['😀','😁','😂','🤣','😊','😍','🥰','😘','😎','🤩','🤔','😅','😉','😢','😭','😡','👍','👎','👏','🙏','💙','💚','💛','❤️','🔥','✨','🎉','✅','❌','📎','📷','📝'];
-        emojiPop = document.createElement('div');
-        emojiPop.className = 'emoji-pop';
-        emojiPop.setAttribute('role', 'dialog');
-        emojiPop.innerHTML = emojis.map(function (em) {
-          return '<button type="button" class="emoji-pop-item" data-em="' + em + '">' + em + '</button>';
-        }).join('');
-        var inputBarEl = panel.querySelector('[data-input-bar]');
-        if (inputBarEl && inputBarEl.parentNode) {
-          inputBarEl.parentNode.insertBefore(emojiPop, inputBarEl);
-        } else {
-          panel.appendChild(emojiPop);
-        }
-        emojiPop.addEventListener('click', function (ev) {
-          var btn = ev.target.closest('[data-em]');
-          if (!btn) return;
-          var em = btn.getAttribute('data-em');
-          try {
-            var start = msgInput.selectionStart || 0;
-            var end = msgInput.selectionEnd || 0;
-            var v = msgInput.value || '';
-            msgInput.value = v.slice(0, start) + em + v.slice(end);
-            msgInput.selectionStart = msgInput.selectionEnd = start + em.length;
-          } catch (_) {
-            msgInput.value = (msgInput.value || '') + em;
-          }
-          msgInput.focus();
-          closeEmojiPop();
-        });
-        setTimeout(function () { document.addEventListener('click', onDocClickEmoji, true); }, 0);
-      });
-    }
-    if (micBtn) {
-      micBtn.addEventListener('click', function () {
-        // Voice input not yet implemented — keep as visual control.
-        try { micBtn.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }], { duration: 180 }); } catch (_) {}
-      });
-    }
 
     // ─── Render dispatcher ───
     function renderLoading() {

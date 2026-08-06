@@ -56,9 +56,11 @@ export function widgetCorsMiddleware() {
 
     const config = (req as any).serverConfig as ServerConfig;
     if (!config) {
-      // Fail open on origin echo so we never strand the client with a CORS error
-      // when configuration is missing — downstream handlers still enforce auth.
-      applyCorsHeaders(res, origin);
+      // Fail closed: no server config means we cannot verify the workspace's
+      // origin allow-list, so do not echo Access-Control-Allow-Origin (which,
+      // combined with Allow-Credentials, would let any origin read
+      // cookie-authenticated widget responses). The browser will surface a
+      // CORS error to the client, which is the safe outcome here.
       return next();
     }
 
@@ -88,9 +90,9 @@ export function widgetCorsMiddleware() {
         applyCorsHeaders(res, origin);
       }
     } catch {
-      // On lookup error fall back to echoing origin; downstream handlers still
-      // enforce auth + origin checks.
-      applyCorsHeaders(res, origin);
+      // Fail closed: a lookup error means we cannot confirm this origin is
+      // allowed for the workspace, so do not echo it back. Do not widen
+      // trust on an error path — see widget-cors fail-open fix.
     }
 
     next();

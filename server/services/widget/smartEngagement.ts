@@ -88,7 +88,7 @@ export async function loadPublicSmartRules(
   try {
     const { data, error } = await supabase
       .from('widget_smart_rules')
-      .select('id, status, priority, schema_version, published_version, trigger_config, audience_config, content_config, presentation_config, schedule_config, frequency_config, behavior_config, published_at')
+      .select('id, status, priority, schema_version, published_version, published_trigger_config, published_audience_config, published_content_config, published_presentation_config, published_schedule_config, published_frequency_config, published_behavior_config, published_priority, published_schema_version, published_at')
       .eq('workspace_id', workspaceId)
       .eq('status', 'active')
       .gt('published_version', 0)
@@ -97,6 +97,25 @@ export async function loadPublicSmartRules(
     if (error) throw error;
     const now = Date.now();
     const rules = (data || [])
+      // A row with no published snapshot has never been published (or was
+      // unpublished) — never fall back to the draft columns.
+      .filter((row: any) => row.published_trigger_config != null
+        && row.published_content_config != null
+        && row.published_presentation_config != null)
+      .map((row: any) => ({
+        id: row.id,
+        status: row.status,
+        priority: row.published_priority,
+        schema_version: row.published_schema_version,
+        published_version: row.published_version,
+        trigger_config: row.published_trigger_config,
+        audience_config: row.published_audience_config,
+        content_config: row.published_content_config,
+        presentation_config: row.published_presentation_config,
+        schedule_config: row.published_schedule_config,
+        frequency_config: row.published_frequency_config,
+        behavior_config: row.published_behavior_config,
+      }))
       .filter((row: any) => {
         const end = row?.schedule_config?.end_at;
         if (!end) return true;
@@ -130,6 +149,21 @@ export async function recordSmartEvent(
 ): Promise<{ ok: boolean; reason?: string }> {
   if (!EVENT_TYPES.has(payload.eventType)) return { ok: false, reason: 'invalid_event_type' };
   if (!payload.idempotencyKey) return { ok: false, reason: 'missing_idempotency_key' };
+
+  // The event route runs with the service role, which bypasses RLS — verify
+  // the rule actually belongs to the resolved workspace before inserting so
+  // a forged workspace_id can never attribute telemetry to another tenant's
+  // rule (or vice versa).
+  const { data: ruleRow, error: ruleErr } = await supabase
+    .from('widget_smart_rules')
+    .select('workspace_id')
+    .eq('id', payload.ruleId)
+    .maybeSingle();
+  if (ruleErr) return { ok: false, reason: ruleErr.message };
+  if (!ruleRow || ruleRow.workspace_id !== payload.workspaceId) {
+    return { ok: false, reason: 'rule_workspace_mismatch' };
+  }
+
   // Only the path is stored — query strings can carry personal data.
   const path = payload.pagePath ? String(payload.pagePath).split('?')[0].slice(0, 300) : null;
   const { error } = await supabase.from('widget_smart_events').insert({

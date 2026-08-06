@@ -281,10 +281,13 @@ export function WidgetLivePreview({
       chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
       help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
     };
+    const smartDoc = previewMode === 'smart';
     const navDefs: { key: string; label: string }[] = [{ key: 'home', label: d.homeTab }, { key: 'chat', label: d.chatTab }];
     if (kbEnabled) navDefs.push({ key: 'help', label: d.helpTab });
     const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
-    const tabs = `<div class="tabs tabs-bottom">${navDefs
+    // The scenario studio is a simulation of one moment, not a browsable
+    // widget — generic navigation would let the operator leave the scenario.
+    const tabs = smartDoc ? '' : `<div class="tabs tabs-bottom">${navDefs
       .map(
         (n) => `<button type="button" data-preview-nav="${n.key}" class="tab${n.key === activeNav ? ' active' : ''}">
            <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>

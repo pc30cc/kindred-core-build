@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap, Video, ArrowRight } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Activity, Zap, Video, ArrowRight } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import {

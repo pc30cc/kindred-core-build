@@ -258,9 +258,6 @@ function WidgetPageContent() {
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
               <div className="space-y-4">
-              {/* Single unified template: the widget always uses the built-in template,
-                  fully customizable through the controls below. */}
-              {/* Per-template customization — settings here apply to whichever template is active. */}
               <Card className="card-elevated">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">

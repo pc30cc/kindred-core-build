@@ -3438,6 +3438,13 @@ const en = {
       domains: 'Where the widget may load',
       install: 'Embed code',
     },
+    smart: {
+      title: 'Smart widget actions',
+      description: 'Looking for a faster, smarter way to start conversations? Smart actions let your widget act on its own — greeting the right visitor at the right moment, opening automatically on key pages, or stepping aside when it is not needed.',
+      empty: 'No smart action yet. Create your first one to let the widget start conversations for you.',
+      create: 'Create new smart action',
+      soon: 'The smart action builder is coming soon.',
+    },
     availabilityScope: {
       workspace: 'Widget business hours',
       workspaceDesc: 'Applies to the chat widget on your website',

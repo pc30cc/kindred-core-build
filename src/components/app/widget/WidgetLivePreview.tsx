@@ -206,14 +206,10 @@ export function WidgetLivePreview({
       )
       .join('')}</div>`;
 
-    // Header shows the uploaded workspace logo, except in the chat view where
-    // the operator avatar is always shown (independent of the logo toggle).
-    const isChatView = view !== 'home' && view !== 'kb';
-    const avatar = isChatView
-      ? `<span class="header-op-avatar">${esc(initial)}</span>`
-      : logo
-        ? `<span class="header-op-avatar has-img"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
-        : '';
+    // Header shows the uploaded workspace logo; falls back to nothing.
+    const avatar = logo
+      ? `<span class="header-op-avatar has-img"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
+      : '';
 
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
@@ -257,8 +253,7 @@ export function WidgetLivePreview({
     const chatBody = `
       <div class="messages">
         <div class="msg-row operator">
-          ${logo ? `<span class="msg-avatar has-img"><img src="${esc(logo)}" alt="" /></span>`
-                 : `<span class="msg-avatar">${esc(initial)}</span>`}
+          ${`<span class="msg-avatar">${esc(initial)}</span>`}
           <div class="msg operator welcome-bubble">${esc(d.sample)}</div>
         </div>
         <div class="msg-row visitor">

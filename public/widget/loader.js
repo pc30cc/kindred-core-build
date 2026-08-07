@@ -249,6 +249,12 @@
   var configData = null;
   var runtimeLoaded = false;
   var runtimeLoading = false;
+  // Set once a runtime asset load has failed. Guards the SILENT preload
+  // path only (preloadRuntimeForSmart) so a visitor whose network/ad-blocker
+  // blocks runtime.js/css doesn't get re-fetched every tick() (1s) forever.
+  // An explicit launcher click bypasses this and retries anyway, since
+  // that's a user gesture and self-limited.
+  var runtimeLoadFailed = false;
   // True once something wants the panel visibly open when the runtime
   // finishes loading — a real launcher click, or a click that raced in
   // while a Smart Engagement silent preload (see preloadRuntimeForSmart)
@@ -733,6 +739,7 @@
       if (failed) return;
       failed = true;
       runtimeLoading = false;
+      runtimeLoadFailed = true;
       warn("Runtime asset failed:", what);
       // Clean up any half-loaded sibling so a successful CSS load does
       // not later flip `cssLoaded=true` and re-enter `done()` with a
@@ -845,7 +852,7 @@
   // If the rule still matches, fire() re-enters and shows it through the
   // normal triggerOpen() -> instance.open() path.
   function preloadRuntimeForSmart() {
-    if (!configData) return;
+    if (!configData || runtimeLoadFailed) return;
     loadRuntimeAssets();
   }
 
@@ -1153,6 +1160,11 @@
           // pass (so nudges can still fire); the extra unknown-gate below
           // separately blocks panel-bound surfaces until we know for sure.
           conversationActive: snap.conversationActive === true,
+          visitorTyping: snap.visitorTyping === true,
+          callActive: snap.callActive === true,
+          prechatOpen: snap.prechatOpen === true,
+          visitorReplied: snap.visitorReplied === true,
+          widgetError: !!snap.widgetError,
           anotherRuleShowing: !!activeSurface,
         },
         signals: {
@@ -1286,7 +1298,12 @@
       return true;
     }
 
-    function showPanelSurface(rule, content) {
+    // Delivery is async (inst.showSmart may not exist yet, and may itself
+    // refuse to render — e.g. a call/prechat is active). `onResult(delivered)`
+    // fires once the real outcome is known, so the caller can gate
+    // recordShown/"shown" telemetry on an actual render instead of assuming
+    // success — see fire().
+    function showPanelSurface(rule, content, onResult) {
       var pres = rule.presentation_config || {};
       var wasOpen = !!isOpen;
       triggerOpen();
@@ -1299,13 +1316,12 @@
           setTimeout(waitOpen, 100);
         })();
       }
-      if (pres.mode === "open_widget") return true;
+      if (pres.mode === "open_widget") { onResult(true); return; }
       var tries = 0;
-      var delivered = false;
       (function waitReady() {
         var inst = runtimeInstance();
         if (inst && inst.showSmart) {
-          delivered = inst.showSmart({
+          var delivered = inst.showSmart({
             id: rule.id,
             mode: pres.mode,
             title: content.title || "",
@@ -1325,12 +1341,12 @@
             },
           });
           if (delivered) activeSurface = { ruleId: rule.id, el: null };
+          onResult(delivered);
           return;
         }
-        if (tries++ > 60) return;
+        if (tries++ > 60) { onResult(false); return; }
         setTimeout(waitReady, 150);
       })();
-      return true; // async delivery — "shown" fires once the render call is issued
     }
 
     function fire(rule) {
@@ -1358,11 +1374,18 @@
         body: SmartEngineRef.renderSmartTemplate(content.body || "", vars),
         cta_label: SmartEngineRef.renderSmartTemplate(content.cta_label || "", vars),
       };
-      var rendered_ok = mode === "launcher_nudge" ? showNudge(rule, rendered) : showPanelSurface(rule, rendered);
-      if (!rendered_ok) return;
-      recordShown(rule);
-      lastSurfaceAt = Date.now();
-      report(rule, "shown");
+      function onShown() {
+        recordShown(rule);
+        lastSurfaceAt = Date.now();
+        report(rule, "shown");
+      }
+      if (mode === "launcher_nudge") {
+        if (showNudge(rule, rendered)) onShown();
+        return;
+      }
+      showPanelSurface(rule, rendered, function (delivered) {
+        if (delivered) onShown();
+      });
     }
 
     // ─── Evaluation loop ───

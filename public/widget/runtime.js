@@ -2335,7 +2335,7 @@
 
     function tickTypewriter() {
       if (!typewriter) return;
-      var step = typewriter.tokens.length > 60 ? 2 : 1;
+      var step = typewriter.tokens.length > 90 ? 2 : 1;
       typewriter.revealedCount = Math.min(typewriter.tokens.length, typewriter.revealedCount + step);
       var done = typewriter.revealedCount >= typewriter.tokens.length;
       var body = lastRenderedBody;
@@ -2368,7 +2368,7 @@
       stopTypewriter(true);
       var tokens = str.match(/\S+\s*/g) || [str];
       typewriter = { id: id, tokens: tokens, revealedCount: 0, timer: null };
-      typewriter.timer = setInterval(tickTypewriter, 45);
+      typewriter.timer = setInterval(tickTypewriter, 85);
     }
 
     function startTypewriter(msg) {
@@ -3261,6 +3261,21 @@
       }
     }
 
+    // "AI is thinking…" — rendered as a trailing row inside the message
+    // list itself (like a normal AI bubble that hasn't arrived yet), not
+    // as a separate bar above the composer. showAiThinking()/
+    // hideThinkingIndicator() toggle chatStore.aiThinking; buildMessagesHtml
+    // appends this on every render while that flag is true.
+    function renderAiThinkingRow() {
+      return '<div class="msg-row operator ai-thinking-row">' +
+        '<div class="msg operator ai-thinking-bubble">' +
+          '<span class="ai-thinking-spark" aria-hidden="true"></span>' +
+          '<span class="typing-dots"><span></span><span></span><span></span></span>' +
+          '<span class="ai-thinking-label">' + Util.escapeHtml(t('aiThinking') || 'AI assistant is thinking…') + '</span>' +
+        '</div>' +
+      '</div>';
+    }
+
     function buildMessagesHtml(s, extraRowHtml) {
       // Phase 7 — read-receipts toggle (admin-controlled, surfaced via /config).
       var rrCfg = ctx.config && ctx.config.readReceipts;
@@ -3403,6 +3418,7 @@
         }
       });
       if (extraRowHtml) html += extraRowHtml;
+      if (s.aiThinking) html += renderAiThinkingRow();
       html += '</div>';
       return html;
     }
@@ -3532,7 +3548,10 @@
       var subtitleHtml = animateSubtitle
         ? '<div class="hc-subtitle" data-typing-host data-typing-active="1" data-typing-id="hc-subtitle"></div>'
         : '<div class="hc-subtitle">' + Util.escapeHtml(subtitle) + '</div>';
-      return '<div class="msg-row operator">' +
+      // `.msg-row.visitor` (not `.operator`) — the pre-chat card sits on
+      // the same physical side as the visitor's own outgoing messages, per
+      // explicit request, rather than the AI/operator side.
+      return '<div class="msg-row visitor">' +
         '<div class="hc-card" dir="' + dir + '" role="group" aria-label="' + Util.escapeHtml(t('prechatTitle')) + '">' +
           '<div class="hc-header">' +
             '<span class="hc-icon" aria-hidden="true">' + iconSvg + '</span>' +
@@ -5341,6 +5360,11 @@
       // it is migrated to the real cid as soon as one is known, so the user
       // never loses what they typed during the transition.
       drafts: {},
+      // True while waiting on the AI's reply — rendered as a trailing row
+      // INSIDE the message list itself (see renderAiThinkingRow in
+      // createChatUI), not as a separate bar above the composer. Toggled by
+      // showAiThinking()/hideThinkingIndicator() further down this file.
+      aiThinking: false,
     });
     var DRAFT_PENDING_KEY = '__pending__';
 
@@ -7152,25 +7176,32 @@
     // ─── AI "thinking…" indicator ───
     // The AI has no realtime typing signal (it's request/response, not a
     // live stream) — this is triggered client-side the moment the visitor
-    // sends something into an AI-owned thread, reusing the exact same
-    // above-composer row/dots as the operator typing indicator so the two
-    // states look consistent. Hidden as soon as any AI/operator message
-    // actually arrives (see the newCount>0 branch in transport.on('message')
-    // below), with a generous timeout as a safety net so a provider
-    // failure or slow handoff never leaves "thinking…" stuck forever.
+    // sends something into an AI-owned thread. Unlike operator-typing above
+    // (a transient bar over the composer), this renders AS A ROW INSIDE
+    // THE MESSAGE LIST — chatStore.aiThinking + buildMessagesHtml's trailing
+    // renderAiThinkingRow() — so it reads as "the AI's reply is on its way"
+    // rather than a disconnected status line. Hidden as soon as any AI/
+    // operator message actually arrives (see the newCount>0 branch in
+    // transport.on('message') below), with a generous timeout as a safety
+    // net so a provider failure or slow handoff never leaves it stuck.
     function showAiThinking() {
-      if (!typingRow || !typingLabel) return;
-      typingRow.classList.add('ai-thinking');
-      typingLabel.textContent = t('aiThinking') || 'AI assistant is thinking…';
-      typingRow.hidden = false;
+      chatStore.set({ aiThinking: true });
+      if (shellStore.get().activeTab === 'chat') renderBody();
       if (typingHideTimer) clearTimeout(typingHideTimer);
       typingHideTimer = setTimeout(function () {
-        if (typingRow) typingRow.hidden = true;
+        chatStore.set({ aiThinking: false });
+        if (shellStore.get().activeTab === 'chat') renderBody();
       }, 25000);
     }
     function hideThinkingIndicator() {
       if (typingHideTimer) { clearTimeout(typingHideTimer); typingHideTimer = null; }
-      if (typingRow) { typingRow.hidden = true; typingRow.classList.remove('ai-thinking'); }
+      // Also clears a stray operator-typing bar, if one happened to be
+      // showing at the same moment — same as the pre-refactor behavior.
+      if (typingRow) typingRow.hidden = true;
+      if (chatStore.get().aiThinking) {
+        chatStore.set({ aiThinking: false });
+        if (shellStore.get().activeTab === 'chat') renderBody();
+      }
     }
 
     // ─── Boot sequence ───

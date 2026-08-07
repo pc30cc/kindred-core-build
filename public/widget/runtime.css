@@ -1764,6 +1764,33 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
   50% { opacity: 1; transform: scale(1.05) rotate(20deg); }
 }
 
+/* "AI is thinking…" — rendered INSIDE the message list (a bubble at the
+   bottom of the thread) rather than as a bar above the composer, so it
+   reads as part of the conversation instead of a disconnected status
+   line. Reuses the same dot-bounce/spark animations as the composer-bar
+   version above. */
+.ai-thinking-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: color-mix(in srgb, var(--gs-primary, #3B82F6), #111 15%);
+}
+.ai-thinking-spark {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'/%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'/%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3C/svg%3E") center / contain no-repeat;
+  animation: gs-ai-spark 1.6s ease-in-out infinite;
+}
+.ai-thinking-bubble .typing-dots span { background: var(--gs-primary, #3B82F6); opacity: 0.65; }
+.ai-thinking-label { font-size: 12px; }
+@media (prefers-color-scheme: dark) {
+  .ai-thinking-bubble { color: color-mix(in srgb, var(--gs-primary, #3B82F6), #fff 20%); }
+}
+
 /* ─── Phase 8C — Call channel panel (visitor-facing) ─── */
 .call-panel {
   display: flex;
@@ -2426,11 +2453,12 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 
 /* Inline handoff pre-chat prompt — deliberately NOT a bordered/shadowed
    card (that read as "yet another box" popping up over the conversation).
-   It sits in the message flow like an operator/AI turn: same left-aligned
-   `.msg-row.operator` placement, same ~80% width ceiling as a bubble, no
-   background or frame of its own — just the icon + prompt + fields,
-   blended into the chat instead of boxed off from it. Field/validation
-   styling is the existing .prechat-* set; this block only covers layout. */
+   It sits in the message flow on the visitor's own side (`.msg-row.visitor`
+   → physical right edge of the widget), same ~85% width ceiling as a
+   bubble, no background or frame of its own — just the icon + prompt +
+   fields, blended into the chat instead of boxed off from it.
+   Field/validation styling is the existing .prechat-* set; this block only
+   covers layout. */
 .hc-card {
   width: 100%;
   max-width: 85%;

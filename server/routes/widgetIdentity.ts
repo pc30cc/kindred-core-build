@@ -54,6 +54,43 @@ import { enrichMessagesWithAttachments } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 
 /**
+ * markNeedsHuman() (server/services/ai-agent/handoffState.ts) defers actual
+ * operator routing when pre-chat is still pending, flagging the
+ * conversation `metadata.routing_pending = true` instead of routing right
+ * away — the visitor shouldn't see "an operator joined" before they've even
+ * filled in the inline pre-chat card. This is that deferred trigger: once
+ * pre-chat is submitted, route any of the visitor's recent conversations
+ * that were left waiting. Best-effort — a failure here must never fail the
+ * pre-chat submission itself.
+ */
+async function triggerDeferredRoutingForContact(
+  config: ServerConfig,
+  supabase: any,
+  workspaceId: string,
+  contactId: string,
+): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: convs } = await supabase
+      .from('conversations')
+      .select('id, metadata')
+      .eq('workspace_id', workspaceId)
+      .eq('contact_id', contactId)
+      .gte('updated_at', cutoff)
+      .order('updated_at', { ascending: false })
+      .limit(5);
+    for (const c of convs ?? []) {
+      const meta = (c.metadata || {}) as Record<string, unknown>;
+      if (meta.routing_pending !== true) continue;
+      const { routeConversationToOperator } = await import('../services/chatRouting.js');
+      await routeConversationToOperator(config, { workspaceId, conversationId: c.id });
+    }
+  } catch (e: any) {
+    console.warn('[identity-prechat] deferred routing failed:', e?.message || e);
+  }
+}
+
+/**
  * Phase 4b — Emit a stable `identified` timeline event on every conversation
  * that just got linked to a contact via merge. Best-effort, never throws.
  *
@@ -249,6 +286,7 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
     });
 
     void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
+    void triggerDeferredRoutingForContact(config, supabase, workspaceId, merge.contactId);
     // Hand the call widget a continuity cookie for the same contact so its
     // pre-call form is skipped on the very next open.
     await issueContinuityCookieForContact(

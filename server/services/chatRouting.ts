@@ -269,6 +269,12 @@ export async function routeConversationToOperator(
     if (conv.assigned_to) return { outcome: 'already_assigned', assignedTo: conv.assigned_to };
 
     const metadata = ((conv as any).metadata || {}) as Record<string, unknown>;
+    // If routing was deferred until pre-chat identification (see
+    // handoffState.ts's markNeedsHuman → shouldDeferRoutingForPrechat),
+    // this call is that deferred trigger actually firing — clear the flag
+    // so it doesn't linger. Every branch below spreads this same `metadata`
+    // object into its update, so mutating it once here covers all of them.
+    if (metadata.routing_pending) metadata.routing_pending = false;
     // A visitor may send several messages while still unassigned (manual
     // queue, or genuinely nobody eligible) — markNeedsHuman's choke point
     // can re-invoke routing on each one. Without this guard the "queue"/

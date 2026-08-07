@@ -2354,6 +2354,16 @@
         var id = m.id || (m.time + ':' + (m.text || m.body || ''));
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
+        // `role` is a lossy server-side mapping (system/widget.ts, realtime/
+        // publish.ts) that collapses BOTH real human operators and the AI
+        // into 'agent' — it was only ever meant to answer "which side of
+        // the bubble" (visitor vs. everyone else), never "is this a human".
+        // `sender_type` is the accurate raw DB value ('contact'|'agent'|
+        // 'system'|'ai') and is present on every delivery path (poll,
+        // history, realtime) — prefer it here so AI-vs-human distinctions
+        // (the "AI" badge, and deriveChatTabState's handoff detection)
+        // don't misfire the moment an AI reply arrives over realtime.
+        var senderTypeRaw = m.sender_type || senderRaw;
         var text = m.text || m.body || '';
         var seenAt = m.seen_at || null;
 
@@ -2446,7 +2456,7 @@
           // { kind: 'call_invitation', invitation_id, channel, status,
           // expires_at }). Plain chat bubbles ignore this; the renderer
           // detects the kind and draws an interactive card instead.
-          senderType: senderRaw,
+          senderType: senderTypeRaw,
           metadata: (m.metadata && typeof m.metadata === 'object') ? m.metadata : null,
         });
         changed = true;

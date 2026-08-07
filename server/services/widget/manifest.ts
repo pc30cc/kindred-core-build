@@ -136,6 +136,65 @@ function getRemoteManifestUrl(): string | null {
 
 let inflightRemoteFetch: Promise<WidgetManifest | null> | null = null;
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Single attempt — no retry logic here, that lives in fetchRemoteManifest. */
+async function attemptRemoteFetch(url: string): Promise<{ ok: true; manifest: WidgetManifest | null } | { ok: false }> {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    // Conditional GET when we already have an ETag — saves bandwidth and
+    // proves freshness without re-parsing JSON. URL changes invalidate
+    // the prior etag (different deployments may live behind different
+    // hosts).
+    const headers: Record<string, string> = {};
+    if (lastRemoteEtag && lastRemoteUrl === url) {
+      headers['If-None-Match'] = lastRemoteEtag;
+    }
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { ...headers, 'Cache-Control': 'no-cache' },
+    });
+    lastRemoteUrl = url;
+    lastRemoteFetchAt = Date.now();
+
+    // 304 — manifest unchanged. Keep the existing cachedManifest as-is.
+    if (res.status === 304 && cachedManifest) {
+      lastRemoteStatus = 'not_modified';
+      return { ok: true, manifest: cachedManifest };
+    }
+    if (!res.ok) {
+      console.warn(`[widget-manifest] Remote fetch ${url} returned ${res.status}`);
+      // 5xx / 429 are transient (frontend mid-deploy, briefly overloaded) —
+      // worth a retry. 4xx (other than 429) won't be fixed by retrying.
+      if (res.status >= 500 || res.status === 429) return { ok: false };
+      lastRemoteStatus = 'failed';
+      return { ok: true, manifest: null };
+    }
+    const etag = res.headers.get('etag');
+    if (etag) lastRemoteEtag = etag;
+    const body = (await res.json()) as WidgetManifest;
+    if (!body || typeof body !== 'object') {
+      lastRemoteStatus = 'failed';
+      return { ok: true, manifest: null };
+    }
+    body.loaderVersion ||= FALLBACK_VERSION;
+    lastRemoteStatus = 'ok';
+    console.log(
+      `[widget-manifest] Loaded from remote ${url}` +
+        ` (loaderVersion=${body.loaderVersion}, etag=${etag || 'none'})`,
+    );
+    return { ok: true, manifest: body };
+  } catch {
+    // Network error / abort (timeout) — transient, worth a retry.
+    return { ok: false };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchRemoteManifest(): Promise<WidgetManifest | null> {
   const url = getRemoteManifestUrl();
   if (!url) return null;
@@ -144,52 +203,23 @@ async function fetchRemoteManifest(): Promise<WidgetManifest | null> {
 
   inflightRemoteFetch = (async () => {
     try {
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 4000);
-      // Conditional GET when we already have an ETag — saves bandwidth and
-      // proves freshness without re-parsing JSON. URL changes invalidate
-      // the prior etag (different deployments may live behind different
-      // hosts).
-      const headers: Record<string, string> = {};
-      if (lastRemoteEtag && lastRemoteUrl === url) {
-        headers['If-None-Match'] = lastRemoteEtag;
+      // A single network blip (frontend mid-deploy, brief DNS/proxy hiccup
+      // between the two Coolify services) used to fall straight through to
+      // the unhashed fallback for every request until the NEXT one
+      // happened to land after the TTL. A couple of quick retries absorb
+      // that without ever surfacing to a visitor request — this all runs
+      // in the background regardless (callers never await it directly).
+      const backoffMs = [300, 800];
+      for (let attempt = 0; ; attempt++) {
+        const result = await attemptRemoteFetch(url);
+        if (result.ok) return result.manifest;
+        if (attempt >= backoffMs.length) {
+          lastRemoteStatus = 'failed';
+          console.warn(`[widget-manifest] Remote fetch failed after ${attempt + 1} attempts (timeout/network error)`);
+          return null;
+        }
+        await sleep(backoffMs[attempt]);
       }
-      const res = await fetch(url, {
-        signal: ctrl.signal,
-        headers: { ...headers, 'Cache-Control': 'no-cache' },
-      });
-      clearTimeout(timeout);
-      lastRemoteUrl = url;
-      lastRemoteFetchAt = Date.now();
-
-      // 304 — manifest unchanged. Keep the existing cachedManifest as-is.
-      if (res.status === 304 && cachedManifest) {
-        lastRemoteStatus = 'not_modified';
-        return cachedManifest;
-      }
-      if (!res.ok) {
-        lastRemoteStatus = 'failed';
-        console.warn(`[widget-manifest] Remote fetch ${url} returned ${res.status}`);
-        return null;
-      }
-      const etag = res.headers.get('etag');
-      if (etag) lastRemoteEtag = etag;
-      const body = (await res.json()) as WidgetManifest;
-      if (!body || typeof body !== 'object') {
-        lastRemoteStatus = 'failed';
-        return null;
-      }
-      body.loaderVersion ||= FALLBACK_VERSION;
-      lastRemoteStatus = 'ok';
-      console.log(
-        `[widget-manifest] Loaded from remote ${url}` +
-          ` (loaderVersion=${body.loaderVersion}, etag=${etag || 'none'})`,
-      );
-      return body;
-    } catch (err: any) {
-      lastRemoteStatus = 'failed';
-      console.warn(`[widget-manifest] Remote fetch failed: ${err?.message || err}`);
-      return null;
     } finally {
       inflightRemoteFetch = null;
     }

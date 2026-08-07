@@ -328,6 +328,47 @@
     log("Shell mounted (Shadow DOM)");
   }
 
+  // Loader-level error strings — a tiny, standalone dict (not the full
+  // runtime.js I18n table, which isn't loaded yet when these can fire).
+  var LOADER_STRINGS = {
+    en: {
+      notConfigured: "Chat is not configured.",
+      resourcesUnavailable: "Chat resources unavailable.",
+      couldNotStart: "Chat could not start.",
+      resourcesFailed: "Chat resources failed to load.",
+      chatUnavailable: "Chat unavailable.",
+      notAuthorized: "Chat not authorized for this site.",
+      bootstrapFailed: "Could not start chat.",
+      configFailed: "Could not load chat settings.",
+    },
+    fa: {
+      notConfigured: "چت پیکربندی نشده است.",
+      resourcesUnavailable: "منابع چت در دسترس نیست.",
+      couldNotStart: "چت راه‌اندازی نشد.",
+      resourcesFailed: "بارگذاری منابع چت ناموفق بود.",
+      chatUnavailable: "چت در دسترس نیست.",
+      notAuthorized: "این سایت مجاز به استفاده از چت نیست.",
+      bootstrapFailed: "راه‌اندازی چت ممکن نشد.",
+      configFailed: "بارگذاری تنظیمات چت ناموفق بود.",
+    },
+    tr: {
+      notConfigured: "Sohbet yapılandırılmamış.",
+      resourcesUnavailable: "Sohbet kaynakları kullanılamıyor.",
+      couldNotStart: "Sohbet başlatılamadı.",
+      resourcesFailed: "Sohbet kaynakları yüklenemedi.",
+      chatUnavailable: "Sohbet kullanılamıyor.",
+      notAuthorized: "Bu site için sohbete izin verilmiyor.",
+      bootstrapFailed: "Sohbet başlatılamadı.",
+      configFailed: "Sohbet ayarları yüklenemedi.",
+    },
+  };
+  function lt(key) {
+    var raw = (configData && configData.locale) || document.documentElement.lang || navigator.language || "en";
+    var locale = String(raw).toLowerCase().split("-")[0];
+    var dict = LOADER_STRINGS[locale] || LOADER_STRINGS.en;
+    return dict[key] || LOADER_STRINGS.en[key] || key;
+  }
+
   function showShellError(message) {
     if (!errorToastEl) return;
     errorToastEl.textContent = message;
@@ -585,10 +626,10 @@
       .catch(function (err) {
         var msg = (err && err.message) || "unknown";
         warn("Bootstrap error:", msg);
-        var human = "Chat unavailable.";
-        if (msg === "unauthorized") human = "Chat not authorized for this site.";
-        else if (msg.indexOf("bootstrap_failed") === 0) human = "Could not start chat.";
-        else if (msg.indexOf("config_failed") === 0) human = "Could not load chat settings.";
+        var human = lt("chatUnavailable");
+        if (msg === "unauthorized") human = lt("notAuthorized");
+        else if (msg.indexOf("bootstrap_failed") === 0) human = lt("bootstrapFailed");
+        else if (msg.indexOf("config_failed") === 0) human = lt("configFailed");
         attachLauncherClick({ launcherOnly: true, errorMessage: human });
       });
   }
@@ -612,7 +653,7 @@
     }
     launcherEl.addEventListener("click", function () {
       if (opts.errorMessage) { showShellError(opts.errorMessage); return; }
-      if (opts.launcherOnly) { showShellError("Chat is not configured."); return; }
+      if (opts.launcherOnly) { showShellError(lt("notConfigured")); return; }
       onLauncherClick();
     });
   }
@@ -691,7 +732,7 @@
     if (!runtimeJs || !runtimeCss) {
       warn("No runtime URL");
       runtimeLoading = false;
-      if (wantRuntimeOpen) showShellError("Chat resources unavailable.");
+      if (wantRuntimeOpen) showShellError(lt("resourcesUnavailable"));
       return;
     }
 
@@ -726,11 +767,11 @@
           processQueue();
         } catch (e) {
           warn("Runtime init failed", e);
-          if (wantRuntimeOpen) showShellError("Chat could not start.");
+          if (wantRuntimeOpen) showShellError(lt("couldNotStart"));
         }
       } else {
         warn("Runtime did not register __gs_runtime");
-        if (wantRuntimeOpen) showShellError("Chat could not start.");
+        if (wantRuntimeOpen) showShellError(lt("couldNotStart"));
       }
     }
 
@@ -755,7 +796,7 @@
           if (staleLink) staleLink.remove();
         }
       } catch (_) { /* noop */ }
-      if (wantRuntimeOpen) showShellError("Chat resources failed to load.");
+      if (wantRuntimeOpen) showShellError(lt("resourcesFailed"));
     }
 
     if (runtimeCss) {

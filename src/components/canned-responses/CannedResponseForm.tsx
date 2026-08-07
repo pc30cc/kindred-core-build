@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -58,6 +59,8 @@ export function CannedResponseForm({
   onCancel,
 }: Props) {
   const { t } = useTranslation();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const activeLocales = (allowedLocales.length ? allowedLocales : ['en', 'fa', 'tr']) as CannedLocale[];
   const [locale, setLocale] = useState<CannedLocale>(initial?.locale ?? defaultLocale);
   const [shortcut, setShortcut] = useState(initial?.shortcut ?? '');
   const [title, setTitle] = useState(initial?.title ?? '');
@@ -104,18 +107,20 @@ export function CannedResponseForm({
       }}
       className="space-y-4"
     >
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid gap-3 ${canSwitchLanguage ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        {canSwitchLanguage && (
         <div className="space-y-1.5">
           <Label htmlFor="cr-locale">{t('canned.form.locale')}</Label>
           <Select value={locale} onValueChange={(v) => setLocale(v as CannedLocale)}>
             <SelectTrigger id="cr-locale"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {LOCALES.map((l) => (
+              {LOCALES.filter((l) => activeLocales.includes(l.value)).map((l) => (
                 <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="cr-shortcut">{t('canned.form.shortcut')}</Label>
           <Input

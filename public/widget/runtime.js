@@ -6374,12 +6374,20 @@
         } catch (_) {}
         // Phase 5 — when offline + contact_fallback mode and there's no
         // active thread yet, render the fallback form instead of the chat.
+        // AI-online + Human-offline is a fully valid state (the AI can run
+        // 24/7) — if the AI is effectively visitor-facing for this fresh
+        // conversation, it owns the chat and the offline form must NOT
+        // pre-empt it. The offline form only takes over when there is no
+        // AI to answer (AI off, or AI itself later hands off — see
+        // resolveHandoffAckMessage server-side, which already gives the
+        // visitor offline-aware copy at that point instead).
         var pStatus = presenceStore.get().status;
         var pMode = presenceStore.get().offlineMode;
         var hasMessages = (chatStore.get().messages || []).length > 0;
         var shouldFallback = (pStatus === 'offline' || pStatus === 'unavailable')
           && (pMode === 'contact_fallback' || pMode === 'capture_message')
-          && !hasMessages;
+          && !hasMessages
+          && !__aiActiveNow;
         if (shouldFallback) {
           // Contact-fallback form owns the input area — hide the chat composer.
           if (inputBar) inputBar.style.display = 'none';

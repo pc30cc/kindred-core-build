@@ -3552,7 +3552,7 @@
       // the same physical side as the visitor's own outgoing messages, per
       // explicit request, rather than the AI/operator side.
       return '<div class="msg-row visitor">' +
-        '<div class="hc-card" dir="' + dir + '" role="group" aria-label="' + Util.escapeHtml(t('prechatTitle')) + '">' +
+        '<div class="hc-card prechat-pro" dir="' + dir + '" role="group" aria-label="' + Util.escapeHtml(t('prechatTitle')) + '">' +
           '<div class="hc-header">' +
             '<span class="hc-icon" aria-hidden="true">' + iconSvg + '</span>' +
             '<div class="hc-text">' +

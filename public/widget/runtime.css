@@ -2467,28 +2467,29 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
   flex-direction: column;
   gap: 12px;
 }
-.hc-header { display: flex; align-items: flex-start; gap: 10px; }
+.hc-header { display: flex; align-items: flex-start; gap: 11px; }
 .hc-icon {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 14%, #eff6ff);
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 20%, #eff6ff);
   color: var(--gs-primary, #3B82F6);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gs-primary, #3B82F6) 22%, transparent);
 }
-.hc-icon svg { width: 18px; height: 18px; }
+.hc-icon svg { width: 19px; height: 19px; }
 .hc-text { flex: 1; min-width: 0; }
-.hc-title { font-size: 13px; font-weight: 600; color: #0f172a; line-height: 1.4; }
-.hc-subtitle { margin-top: 2px; font-size: 12px; line-height: 1.45; color: #475569; }
-.hc-fields { margin-top: 2px; }
+.hc-title { font-size: 15px; font-weight: 700; color: #0f172a; line-height: 1.4; letter-spacing: -0.01em; }
+.hc-subtitle { margin-top: 3px; font-size: 12.5px; line-height: 1.5; color: #334155; }
+.hc-fields { margin-top: 4px; }
 .hc-submit { width: 100%; }
 @media (prefers-color-scheme: dark) {
-  .hc-icon { background: color-mix(in srgb, var(--gs-primary, #3B82F6) 22%, #1e293b); }
-  .hc-title { color: #f1f5f9; }
-  .hc-subtitle { color: #cbd5e1; }
+  .hc-icon { background: color-mix(in srgb, var(--gs-primary, #3B82F6) 26%, #1e293b); }
+  .hc-title { color: #f8fafc; }
+  .hc-subtitle { color: #e2e8f0; }
 }
 
 /* Phase 3 — AI Agent message badge.

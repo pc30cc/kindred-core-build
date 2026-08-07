@@ -161,8 +161,15 @@ export async function mergeVisitorIdentity(
       .eq('id', contact.id)
       .maybeSingle();
 
+    // A contact touched before any name was known (e.g. identified by
+    // email/phone alone on an earlier visit) gets seeded with the literal
+    // placeholder 'Visitor' below — that's a non-empty string, so a plain
+    // `!existing.name` check treats it as "already has a name" and a real
+    // name typed into pre-chat later would never actually get saved. Only
+    // a genuinely blank name, or the placeholder itself, counts as unset.
+    const hasRealName = !!existing?.name && existing.name !== 'Visitor';
     const updates: Record<string, unknown> = {};
-    if (existing && !existing.name && name) updates.name = name;
+    if (existing && !hasRealName && name) updates.name = name;
     if (existing && !existing.email && email) updates.email = email;
     if (existing && !existing.phone && phone) updates.phone = phone;
 

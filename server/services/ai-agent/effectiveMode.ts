@@ -39,6 +39,38 @@ const AUTO_REPLY_MODES = new Set([
 ]);
 
 /**
+ * Pure classification of platform-gate + workspace settings, with no I/O —
+ * everything that can be decided synchronously once the caller already has
+ * the two inputs in hand. Exported so the mode-precedence rules (platform
+ * beats workspace, off/suggest_only never visitor-facing) are directly
+ * unit-testable without mocking Supabase or the AI provider resolver.
+ * The one input this deliberately leaves out is provider configuration —
+ * that requires an actual resolveAIConfig() call and is layered on top by
+ * resolveEffectiveAiMode below.
+ */
+export function classifyEffectiveAiMode(
+  platformAllowed: boolean,
+  settings: Pick<AgentSettings, 'enabled' | 'mode'>,
+): Omit<EffectiveAiMode, 'reason'> & { reason: Exclude<EffectiveAiMode['reason'], 'ok' | 'no_provider'> | 'provider_pending' } {
+  if (!platformAllowed) {
+    return { visitorFacing: false, reason: 'platform_disabled' };
+  }
+  if (!settings.enabled) {
+    return { visitorFacing: false, reason: 'workspace_disabled' };
+  }
+  if (settings.mode === 'off') {
+    return { visitorFacing: false, reason: 'mode_off' };
+  }
+  if (settings.mode === 'suggest_only') {
+    return { visitorFacing: false, reason: 'mode_suggest_only' };
+  }
+  if (!AUTO_REPLY_MODES.has(settings.mode)) {
+    return { visitorFacing: false, reason: 'mode_off' };
+  }
+  return { visitorFacing: false, reason: 'provider_pending' };
+}
+
+/**
  * `settings` is optional — pass it when the caller already loaded
  * ai_agent_settings this request, to avoid a duplicate query.
  */
@@ -48,9 +80,6 @@ export async function resolveEffectiveAiMode(
   settings?: Pick<AgentSettings, 'enabled' | 'mode'>,
 ): Promise<EffectiveAiMode> {
   const platformGate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
-  if (platformGate.allowed !== true) {
-    return { visitorFacing: false, reason: 'platform_disabled' };
-  }
 
   let s = settings;
   if (!s) {
@@ -58,17 +87,9 @@ export async function resolveEffectiveAiMode(
     s = await getOrCreateSettings(config, workspaceId);
   }
 
-  if (!s.enabled) {
-    return { visitorFacing: false, reason: 'workspace_disabled' };
-  }
-  if (s.mode === 'off') {
-    return { visitorFacing: false, reason: 'mode_off' };
-  }
-  if (s.mode === 'suggest_only') {
-    return { visitorFacing: false, reason: 'mode_suggest_only' };
-  }
-  if (!AUTO_REPLY_MODES.has(s.mode)) {
-    return { visitorFacing: false, reason: 'mode_off' };
+  const classified = classifyEffectiveAiMode(platformGate.allowed === true, s);
+  if (classified.reason !== 'provider_pending') {
+    return classified as EffectiveAiMode;
   }
 
   const aiConfig = await resolveAIConfig(config, workspaceId).catch(() => null);

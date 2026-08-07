@@ -40,7 +40,7 @@ import { loadAiAgentRuntimeConfig } from './runtimeConfig.js';
 import { detectTopics } from './topics/detector.js';
 import { evaluateRoutingRules, buildRoutingMetadata } from './runtime/routingRuntime.js';
 import { updateRuntimeFlags } from './runtime/conversationState.js';
-import { pickTemplate, pickHandoffOfflineMessage } from './runtime/templates.js';
+import { pickTemplate, pickHandoffOfflineMessage, hasOfflineContactCapability } from './runtime/templates.js';
 import { evaluateMessageTriggers, buildTriggerMetadata, type TriggerEvaluationResult } from './runtime/triggerRuntime.js';
 import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from './runtime/workflowRuntime.js';
 import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } from './runtime/toolRuntime.js';
@@ -1368,10 +1368,7 @@ async function resolveHandoffAckMessage(
       .select('ask_email, ask_phone')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    const hasContactCapability = data
-      ? ((data as any).ask_email !== false || (data as any).ask_phone === true)
-      : true;
-    return pickHandoffOfflineMessage(locale, hasContactCapability);
+    return pickHandoffOfflineMessage(locale, hasOfflineContactCapability(data as any));
   } catch {
     return pickHandoffOfflineMessage(locale, true);
   }

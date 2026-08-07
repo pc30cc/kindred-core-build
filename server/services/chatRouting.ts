@@ -42,6 +42,31 @@ export interface RouteResult {
   assignedTo: string | null;
 }
 
+/**
+ * Auto-mode candidate order: least active load first, alphabetical id as a
+ * stable tie-break. Pure and exported so the "never random" requirement is
+ * directly unit-testable without a database.
+ */
+export function rankAutoCandidates(candidates: string[], load: Map<string, number>): string[] {
+  return candidates.slice().sort((a, b) => {
+    const diff = (load.get(a) || 0) - (load.get(b) || 0);
+    return diff !== 0 ? diff : a.localeCompare(b);
+  });
+}
+
+/**
+ * Round-robin candidate order: alphabetical for determinism, rotated to
+ * start right after the stored cursor so the same operator isn't picked
+ * twice in a row. Pure and exported for the same reason as above.
+ */
+export function rotateFromCursor(candidates: string[], cursor: string | null): string[] {
+  const ordered = candidates.slice().sort();
+  if (!cursor) return ordered;
+  const idx = ordered.indexOf(cursor);
+  if (idx < 0) return ordered;
+  return [...ordered.slice(idx + 1), ...ordered.slice(0, idx + 1)];
+}
+
 async function loadAssignmentConfig(
   config: ServerConfig,
   workspaceId: string,
@@ -201,11 +226,7 @@ export async function routeConversationToOperator(
     if (candidates.length) {
       if (mode === 'round_robin') {
         // Rotate starting right after the stored cursor for fairness.
-        let ordered = candidates.slice().sort();
-        if (cursor) {
-          const idx = ordered.indexOf(cursor);
-          if (idx >= 0) ordered = [...ordered.slice(idx + 1), ...ordered.slice(0, idx + 1)];
-        }
+        const ordered = rotateFromCursor(candidates, cursor);
         for (const candidate of ordered) {
           if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
             picked = candidate;
@@ -221,10 +242,7 @@ export async function routeConversationToOperator(
       } else {
         // auto — least-loaded eligible online operator, stable tie-break.
         const load = await loadActiveLoad(config, args.workspaceId, candidates);
-        const ranked = candidates.slice().sort((a, b) => {
-          const diff = (load.get(a) || 0) - (load.get(b) || 0);
-          return diff !== 0 ? diff : a.localeCompare(b);
-        });
+        const ranked = rankAutoCandidates(candidates, load);
         for (const candidate of ranked) {
           if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
             picked = candidate;

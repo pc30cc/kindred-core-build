@@ -74,6 +74,21 @@ export function pickHandoffOfflineMessage(
 }
 
 /**
+ * Never promise a callback the workspace has no way to make (spec: don't
+ * say "we'll call you" if pre-chat collects no email/phone). Contact
+ * capability exists only when the workspace's pre-chat policy actually
+ * asks for email, or requires phone. `ask_email` defaults to true when
+ * unset (matches getPrechatSettings' own default in widgetIdentity.ts),
+ * so `null`/`undefined` reads as "still asking".
+ */
+export function hasOfflineContactCapability(
+  prechat: { ask_email?: boolean | null; ask_phone?: boolean | null } | null | undefined,
+): boolean {
+  if (!prechat) return true;
+  return prechat.ask_email !== false || prechat.ask_phone === true;
+}
+
+/**
  * Pick a localized message from a translations map, with visitor language
  * preference and fallback to en, then any first available value.
  */

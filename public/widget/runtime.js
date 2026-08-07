@@ -1677,11 +1677,31 @@
       return !!(s.prechat.ask_name || s.prechat.ask_email || s.prechat.ask_phone);
     }
 
+    // Contextual pre-chat decision (spec §4) — the flow the visitor is
+    // actually in decides whether pre-chat applies; field-presence alone
+    // (needsPrechat()) is necessary but not sufficient.
+    //   'ai_entry'        — AI is effectively visitor-facing and this is a
+    //                        brand-new conversation with no messages yet.
+    //                        Pre-chat NEVER shows here, even if the owner
+    //                        has fields configured — the visitor goes
+    //                        straight into AI chat with zero friction.
+    //   'ai_handoff'      — AI already handed off (or is mid-conversation);
+    //                        normal field-presence rules apply.
+    //   'human_entry'     — AI is off/unavailable; normal field-presence
+    //                        rules apply.
+    //   'offline_contact' — owns its own dedicated field set
+    //                        (renderContactFallback) and never calls this.
+    function shouldRequirePrechat(flow) {
+      if (flow === 'ai_entry') return false;
+      return needsPrechat();
+    }
+
     return {
       fetchMe: fetchMe,
       submitPrechat: submitPrechat,
       isAsked: isAsked,
       isRequired: isRequired,
+      shouldRequirePrechat: shouldRequirePrechat,
       needsPrechat: needsPrechat,
     };
   }
@@ -6339,7 +6359,8 @@
         var __ai = ctx.config && ctx.config.aiAgent;
         var __hasMsgs = (chatStore.get().messages || []).length > 0;
         var __aiActiveNow = !!(__ai && __ai.suppressGreeting === true);
-        var __showPrechatNow = identity.needsPrechat() && !(__aiActiveNow && !__hasMsgs);
+        var __flow = (__aiActiveNow && !__hasMsgs) ? 'ai_entry' : (__aiActiveNow ? 'ai_handoff' : 'human_entry');
+        var __showPrechatNow = identity.shouldRequirePrechat(__flow);
         if (__showPrechatNow) {
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.

@@ -246,14 +246,23 @@ widgetKbRouter.get('/article', async (req: Request, res: Response) => {
 
   if (!article) {
     // Fallback: same slug in any other locale (cross-language content).
-    const { data: anyArticle } = await supabase
+    // The unique constraint is (workspace_id, slug, locale) — the SAME slug
+    // legitimately exists once per locale (e.g. an 'en' and a 'tr' article
+    // sharing one slug), so this can match more than one row. .maybeSingle()
+    // errors out on >1 row and silently swallows the error (only `data` was
+    // destructured), which turned a perfectly normal multi-locale slug into
+    // a 404. Ordered + limited to one row instead, so a match always wins
+    // deterministically rather than erroring on the exact case this
+    // fallback exists to handle.
+    const { data: anyArticles } = await supabase
       .from('knowledge_base_articles')
       .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
       .eq('workspace_id', workspace_id)
       .eq('slug', slug)
       .eq('status', 'published')
-      .maybeSingle();
-    article = anyArticle || null;
+      .order('locale', { ascending: true })
+      .limit(1);
+    article = (anyArticles && anyArticles[0]) || null;
   }
 
   if (!article) return res.status(404).json({ error: 'not_found' });

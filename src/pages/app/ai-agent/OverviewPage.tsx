@@ -1,10 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -20,6 +23,13 @@ const SEVERITY_STYLES: Record<string, string> = {
   info: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
   warn: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
   error: 'border-destructive/40 bg-destructive/10 text-destructive',
+};
+
+const ENABLE_ERROR_MESSAGES: Record<string, string> = {
+  ai_provider_not_configured: 'یک سرویس‌دهنده هوش مصنوعی برای این ورک‌اسپیس تنظیم نشده است.',
+  no_published_knowledge: 'برای پاسخ‌دهی فقط از پایگاه دانش، باید حداقل یک مقاله منتشر شده داشته باشید.',
+  module_ai_assistant_not_enabled: 'ماژول دستیار هوشمند در پلن فعلی این ورک‌اسپیس فعال نیست.',
+  owner_or_admin_required: 'فقط مالک یا ادمین ورک‌اسپیس می‌تواند این تنظیم را تغییر دهد.',
 };
 
 export default function OverviewPage() {
@@ -111,6 +121,24 @@ export default function OverviewPage() {
     staleTime: 15_000,
   });
 
+  const updateSettings = useUpdateAiAgentSettings(wsId);
+  const [enabling, setEnabling] = useState(false);
+  const toggleEnabled = async (v: boolean) => {
+    setEnabling(true);
+    try {
+      await updateSettings.mutateAsync({ enabled: v });
+      toast({ title: v ? 'دستیار هوشمند فعال شد' : 'دستیار هوشمند غیرفعال شد' });
+      overview.refetch();
+    } catch (e: any) {
+      toast({
+        title: ENABLE_ERROR_MESSAGES[e?.code] || e?.message || 'ذخیره‌سازی ناموفق بود',
+        variant: 'destructive',
+      });
+    } finally {
+      setEnabling(false);
+    }
+  };
+
   const rebuild = useMutation({
     mutationFn: () => aiAgentApi.rebuildKnowledgeIndex(wsId!),
     onSuccess: () => { toast({ title: tr('toast.rebuilt', 'Knowledge index rebuilt') }); qc.invalidateQueries({ queryKey: ['ai-overview', wsId] }); },
@@ -159,10 +187,17 @@ export default function OverviewPage() {
               </div>
             </div>
           </div>
-          <Button variant="outline" size="sm" className="self-start sm:self-auto" onClick={() => overview.refetch()} disabled={overview.isFetching}>
-            <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', overview.isFetching && 'animate-spin')} />
-            {tr('refresh', 'Refresh')}
-          </Button>
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-background/60 px-4 py-2.5">
+              <span className={cn('h-2 w-2 rounded-full', data.settings.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/40')} />
+              <span className="text-sm font-medium">{data.settings.enabled ? 'دستیار هوشمند فعال است' : 'دستیار هوشمند غیرفعال است'}</span>
+              <Switch checked={!!data.settings.enabled} onCheckedChange={toggleEnabled} disabled={enabling} />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => overview.refetch()} disabled={overview.isFetching}>
+              <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', overview.isFetching && 'animate-spin')} />
+              {tr('refresh', 'Refresh')}
+            </Button>
+          </div>
         </div>
       </div>
 

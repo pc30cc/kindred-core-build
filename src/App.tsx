@@ -70,7 +70,6 @@ import AiAgentKnowledgePage from "@/pages/app/ai-agent/KnowledgePage";
 import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
 import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
 import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
-import AiAgentIntroPage from "@/pages/app/ai-agent/IntroPage";
 import { AdvancedAiAgentGuard } from "@/features/ai-agent/AdvancedAiAgentGuard";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
@@ -285,7 +284,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="knowledge" element={<AiAgentKnowledgePage />} />
                   <Route path="behavior" element={<AiAgentBehaviorPage />} />
                   <Route path="operator-assist" element={<AiAgentOperatorAssistPage />} />
-                  <Route path="intro" element={<AiAgentIntroPage />} />
                   <Route path="activity" element={<AiAgentActivityPage />} />
                   <Route path="settings" element={<AiAgentSettingsPage />} />
                   {/* Advanced / internal QA / debug routes — guarded.

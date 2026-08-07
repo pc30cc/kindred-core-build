@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,15 +10,35 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Sparkles, Bot, Loader2, Upload, Trash2, Settings as SettingsIcon, User, FileText, Eye, MessageCircle } from 'lucide-react';
+import { Sparkles, Bot, Loader2, Upload, Trash2, Settings as SettingsIcon, User, FileText, Eye, MessageCircle, Languages, Tags, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+
+const FALLBACK_INTRO_TEMPLATES: Record<string, (name: string) => string> = {
+  en: (name) =>
+    `Hi! I'm ${name}, an AI assistant. I can answer questions from our help center. If I'm not sure about something, I'll connect you with a human agent.`,
+  fa: (name) =>
+    `سلام! من ${name} هستم، یک دستیار هوشمند. می‌توانم به سوالات شما با کمک پایگاه دانش پاسخ بدهم. اگر مطمئن نباشم، شما را به یک کارشناس انسانی وصل می‌کنم.`,
+  tr: (name) =>
+    `Merhaba! Ben ${name}, bir yapay zeka asistanıyım. Yardım merkezimizden sorularınızı yanıtlayabilirim. Emin olmadığım konularda sizi bir temsilciye bağlarım.`,
+};
+const LOCALE_LABELS: Record<string, string> = { fa: 'فارسی', en: 'English', tr: 'Türkçe' };
+const LOCALE_DIR: Record<string, 'rtl' | 'ltr'> = { fa: 'rtl', en: 'ltr', tr: 'ltr' };
+
+const ENABLE_ERROR_MESSAGES: Record<string, string> = {
+  ai_provider_not_configured: 'یک سرویس‌دهنده هوش مصنوعی برای این ورک‌اسپیس تنظیم نشده است.',
+  no_published_knowledge: 'برای پاسخ‌دهی فقط از پایگاه دانش، باید حداقل یک مقاله منتشر شده داشته باشید.',
+  module_ai_assistant_not_enabled: 'ماژول دستیار هوشمند در پلن فعلی این ورک‌اسپیس فعال نیست.',
+  owner_or_admin_required: 'فقط مالک یا ادمین ورک‌اسپیس می‌تواند این تنظیم را تغییر دهد.',
+};
 
 export default function AiAgentSettingsPage() {
   const { workspace } = useActiveWorkspace();
   const { data, isLoading } = useAiAgentSettings(workspace?.id);
   const update = useUpdateAiAgentSettings(workspace?.id);
   const { t, dir } = useTranslation();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const activeLocales = allowedLocales.length ? allowedLocales : ['fa', 'en', 'tr'];
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
     const v = t(`aiAgent.settings.${k}` as any, vars);
     return !v || v === `aiAgent.settings.${k}` ? fb : v;
@@ -25,15 +46,89 @@ export default function AiAgentSettingsPage() {
   const [form, setForm] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [enabling, setEnabling] = useState(false);
+  const [introDrafts, setIntroDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
+  const [newKeyword, setNewKeyword] = useState('');
+  const [keywordError, setKeywordError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (data?.settings) setForm(data.settings); }, [data]);
+  useEffect(() => {
+    const localized = (data?.settings?.intro_message_localized || {}) as Record<string, string>;
+    setIntroDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
+  }, [data?.settings?.intro_message_localized]);
 
   if (isLoading || !form) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
   const set = (patch: any) => setForm({ ...form, ...patch });
+
+  const toggleEnabled = async (v: boolean) => {
+    setEnabling(true);
+    try {
+      await update.mutateAsync({ enabled: v });
+      set({ enabled: v });
+      toast.success(v ? 'دستیار هوشمند فعال شد' : 'دستیار هوشمند غیرفعال شد');
+    } catch (e: any) {
+      toast.error(ENABLE_ERROR_MESSAGES[e?.code] || e?.message || 'ذخیره‌سازی ناموفق بود');
+    } finally {
+      setEnabling(false);
+    }
+  };
+
+  const toggleIntro = async (v: boolean) => {
+    try {
+      await update.mutateAsync({ ai_intro_enabled: v });
+      set({ ai_intro_enabled: v });
+      toast.success(v ? 'ارسال پیام معرفی فعال شد' : 'ارسال پیام معرفی غیرفعال شد');
+    } catch (e: any) {
+      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    }
+  };
+
+  const saveIntroMessage = async (code: string, value: string) => {
+    const current = (form.intro_message_localized || {}) as Record<string, string>;
+    if ((current[code] || '') === value) return;
+    const next = { ...current, [code]: value };
+    try {
+      await update.mutateAsync({ intro_message_localized: next });
+      set({ intro_message_localized: next });
+      toast.success('پیام معرفی ذخیره شد');
+    } catch (e: any) {
+      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    }
+  };
+
+  const handoffKeywords: string[] = form.handoff_keywords || [];
+
+  const handleAddKeyword = async () => {
+    const trimmed = newKeyword.trim();
+    if (!trimmed) return;
+    if (handoffKeywords.some((k) => k.toLowerCase() === trimmed.toLowerCase())) {
+      setKeywordError('این کلمه قبلاً اضافه شده است.');
+      return;
+    }
+    setKeywordError(null);
+    const next = [...handoffKeywords, trimmed];
+    try {
+      await update.mutateAsync({ handoff_keywords: next });
+      set({ handoff_keywords: next });
+      setNewKeyword('');
+    } catch (e: any) {
+      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    }
+  };
+
+  const handleRemoveKeyword = async (word: string) => {
+    const next = handoffKeywords.filter((k) => k !== word);
+    try {
+      await update.mutateAsync({ handoff_keywords: next });
+      set({ handoff_keywords: next });
+    } catch (e: any) {
+      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    }
+  };
 
   const onSave = async () => {
     try {
@@ -113,13 +208,20 @@ export default function AiAgentSettingsPage() {
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
         <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex items-start gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-            <SettingsIcon className="h-6 w-6 text-primary-foreground" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
+              <SettingsIcon className="h-6 w-6 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Agent Settings')}</h1>
+              <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Configure how the AI agent presents itself and answers visitors.')}</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Agent Settings')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Configure how the AI agent presents itself and answers visitors.')}</p>
+          <div className="flex items-center gap-2.5 self-start sm:self-auto rounded-xl border border-border/60 bg-background/60 px-4 py-2.5">
+            <span className={`h-2 w-2 rounded-full ${form.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/40'}`} />
+            <span className="text-sm font-medium">{form.enabled ? 'دستیار هوشمند فعال است' : 'دستیار هوشمند غیرفعال است'}</span>
+            <Switch checked={!!form.enabled} onCheckedChange={toggleEnabled} disabled={enabling} />
           </div>
         </div>
       </div>
@@ -228,12 +330,93 @@ export default function AiAgentSettingsPage() {
                 <Switch checked={form.answer_only_from_kb} onCheckedChange={(v) => set({ answer_only_from_kb: v })} />
               </div>
               <div>
-                <Label>{tr('welcome', 'Welcome message')}</Label>
-                <Input value={form.welcome_message || ''} onChange={(e) => set({ welcome_message: e.target.value || null })} placeholder={tr('welcomePlaceholder', 'Hi! How can I help?')} />
-              </div>
-              <div>
                 <Label>{tr('fallback', 'Fallback message')}</Label>
                 <Input value={form.fallback_message} onChange={(e) => set({ fallback_message: e.target.value })} />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Pre-chat introduction — the AI's welcome message. Single source
+              of truth for what used to be two separate settings: this
+              replaces the legacy plain "Welcome message" field above with a
+              per-language editor (collapses to one field on a
+              single-language platform). */}
+          <Card className="overflow-hidden border-border/60">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2.5">
+                  <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-sky-500/10 text-sky-600 ring-sky-500/20">
+                    <Languages className="h-4 w-4" />
+                  </span>
+                  پیام معرفی (خوش‌آمدگویی)
+                </CardTitle>
+                <Switch checked={form.ai_intro_enabled !== false} onCheckedChange={toggleIntro} disabled={update.isPending} />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground -mt-2">
+                وقتی ویزیتور پیش‌گفتگو را کامل کرد، هوش مصنوعی این پیام را می‌فرستد. فقط در حالت‌های پاسخ خودکار فعال است.
+              </p>
+              {activeLocales.map((code) => (
+                <div key={code}>
+                  {canSwitchLanguage && <Label htmlFor={`intro-${code}`}>{LOCALE_LABELS[code] || code}</Label>}
+                  <Textarea
+                    id={`intro-${code}`}
+                    className={canSwitchLanguage ? 'mt-1.5' : ''}
+                    rows={3}
+                    dir={LOCALE_DIR[code] || 'ltr'}
+                    placeholder={(FALLBACK_INTRO_TEMPLATES[code] || FALLBACK_INTRO_TEMPLATES.en)(form.agent_name || 'AI Assistant')}
+                    value={introDrafts[code] ?? ''}
+                    onChange={(e) => setIntroDrafts((d) => ({ ...d, [code]: e.target.value }))}
+                    onBlur={(e) => saveIntroMessage(code, e.target.value)}
+                  />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2.5">
+                <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-amber-500/10 text-amber-600 ring-amber-500/20">
+                  <Tags className="h-4 w-4" />
+                </span>
+                کلمات کلیدی ارجاع به انسان
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground -mt-2">
+                وقتی ویزیتور یکی از این کلمات را در پیام خود بنویسد (مثلاً «اپراتور» یا «انسان»)، گفتگو به یک کارشناس واقعی ارجاع داده می‌شود.
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="مثلاً: پشتیبان"
+                  value={newKeyword}
+                  onChange={(e) => { setNewKeyword(e.target.value); setKeywordError(null); }}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddKeyword())}
+                />
+                <Button onClick={handleAddKeyword} variant="outline" size="sm" className="shrink-0" disabled={update.isPending}>
+                  افزودن
+                </Button>
+              </div>
+              {keywordError && <p className="text-xs text-destructive">{keywordError}</p>}
+              <div className="flex flex-wrap gap-2">
+                {handoffKeywords.map((word) => (
+                  <div key={word} className="flex items-center gap-1.5 bg-muted/50 rounded-full ps-3 pe-1.5 py-1 border border-border text-sm">
+                    <span>{word}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveKeyword(word)}
+                      className="h-5 w-5 rounded-full flex items-center justify-center hover:bg-destructive/15 hover:text-destructive transition-colors"
+                      aria-label="حذف"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {handoffKeywords.length === 0 && (
+                  <p className="text-xs text-muted-foreground">هنوز کلمه‌ای اضافه نشده است.</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -281,7 +464,8 @@ export default function AiAgentSettingsPage() {
                   </div>
                 </div>
                 <div className="bg-muted rounded-2xl rounded-tl-sm px-3 py-2 text-sm max-w-[85%]">
-                  {form.welcome_message || tr('sampleWelcome', `Hi! I'm ${form.agent_name}. How can I help today?`, { name: form.agent_name })}
+                  {introDrafts[activeLocales[0]]
+                    || (FALLBACK_INTRO_TEMPLATES[activeLocales[0]] || FALLBACK_INTRO_TEMPLATES.en)(form.agent_name || 'AI Assistant')}
                 </div>
                 <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3 py-2 text-sm max-w-[85%] ms-auto">
                   {tr('sampleVisitor', 'How do I get started?')}

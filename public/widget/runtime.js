@@ -3489,6 +3489,14 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
+    // In-flight de-dup for ensure() — renderBody() can call ensure() from
+    // more than one branch (home preload + help tab) within the same tick
+    // (e.g. two store subscriptions firing off the same underlying event),
+    // and kbStore.loaded only flips true once the async fetch resolves. Without
+    // this, both calls see loaded:false and each kick off their own network
+    // fetch. Callbacks queue and all fire once the single in-flight load
+    // resolves.
+    var kbEnsurePending = null; // array of callbacks, or null when idle
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
@@ -3511,6 +3519,15 @@
       var TTL_MS = 60 * 1000;
       var fresh = s.loaded && s.loadedAt && (Date.now() - s.loadedAt) < TTL_MS;
       if (fresh) return cb && cb();
+      // A load is already in flight — queue this callback instead of
+      // starting a second, redundant fetch (see kbEnsurePending above).
+      if (kbEnsurePending) { kbEnsurePending.push(cb); return; }
+      kbEnsurePending = [cb];
+      function resolveAll() {
+        var queued = kbEnsurePending || [];
+        kbEnsurePending = null;
+        queued.forEach(function (fn) { fn && fn(); });
+      }
       ModuleLoader.load('kb', moduleUrl(), function () {
         var mod = ModuleLoader.modules.kb;
         if (mod && mod.loadCategories) {
@@ -3524,12 +3541,12 @@
               var cats = r.categories || [];
               try { console.info('[Widget KB] loaded articles', { count: arts.length, categories: cats.length, locale: ctx.locale, workspaceId: ctx.workspaceId }); } catch (_) {}
               kbStore.set({ loaded: true, loadedAt: Date.now(), categories: cats, articles: arts });
-              cb && cb();
+              resolveAll();
             },
           });
         } else {
           kbStore.set({ loaded: true, loadedAt: Date.now(), categories: [], articles: [] });
-          cb && cb();
+          resolveAll();
         }
       });
     }

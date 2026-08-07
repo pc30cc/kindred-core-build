@@ -76,6 +76,7 @@ import { emitMetric, emitLog } from '../services/observability/metrics.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
+import { getPlatformAllowedLocales } from '../services/platformRegion.js';
 
 export const widgetRouter = Router();
 
@@ -654,6 +655,23 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const livekitSdkName = getWidgetAssetName('vendor/livekit-client.umd.min.js');
     const loaderVersion = getLoaderVersion();
     const preChat = buildPreChatConfig(platformPreChatPolicy, workspacePreChatFlags || []);
+    // Platform region lock — a single-language deployment must serve the
+    // widget only in that language, whatever the workspace row still holds.
+    const platformLocales = await getPlatformAllowedLocales(config);
+    const clampLoc = (loc: string | null | undefined, fallbackToFirst = true) => {
+      const base = String(loc || '').toLowerCase().split('-')[0];
+      if (base && platformLocales.includes(base)) return base;
+      return fallbackToFirst ? (platformLocales[0] || 'en') : '';
+    };
+    const effectiveLocale = clampLoc(
+      ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
+    );
+    const effectiveWidgetLanguage =
+      platformLocales.length === 1
+        ? platformLocales[0]
+        : ws.widget_language && ws.widget_language !== 'auto'
+          ? clampLoc(ws.widget_language)
+          : 'auto';
     const versionedAssetUrl = (url: string | null) => {
       if (!url) return null;
       const separator = url.includes('?') ? '&' : '?';
@@ -672,7 +690,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       launcherText: resolveLocalizedDefault(
         ws.launcher_text,
         'launcher',
-        ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
+        effectiveLocale,
       ),
       // Three-tier resolution: workspace override → platform default → hardcoded fallback.
       // Stored in `widget_settings.welcome_message` (per-workspace) or
@@ -681,7 +699,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         resolveLocalizedDefault(
           ws.welcome_message,
           'welcome',
-          ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
+          effectiveLocale,
         )
         || platformWidget?.default_welcome_message
         || '',
@@ -689,8 +707,8 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       placeholderText: ws.placeholder_text || '',
       offlineMessage: ws.offline_message || '',
       position: ws.position || 'bottom-right',
-      locale: ws.locale || 'en',
-      widgetLanguage: ws.widget_language || 'auto',
+      locale: effectiveLocale,
+      widgetLanguage: effectiveWidgetLanguage,
       loaderVersion,
       theme: ws.theme || 'modern',
       fab: {
@@ -719,7 +737,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       availability: snapshotToWirePayload(
         await resolveAvailability(config, {
           workspaceId,
-          locale: ws.locale || 'en',
+          locale: effectiveLocale,
         }),
       ),
       // Phase 6a — Attachment config exposed to the widget runtime.

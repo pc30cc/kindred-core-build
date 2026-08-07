@@ -47,6 +47,7 @@ import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } f
 import { executeRuntimeActions } from './runtime/actionExecutor.js';
 import { executeMatchedWorkflows, buildExecutedWorkflowMetadata, type WorkflowExecutionResult } from './runtime/workflowExecutor.js';
 import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
+import { getPlatformAllowedLocales } from '../platformRegion.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -174,16 +175,26 @@ async function runInternal(
 
   // Phase A — language policy. Decide what language to RESPOND in regardless
   // of what language the visitor wrote in.
+  // Platform region lock — on a single-language deployment the visitor's
+  // detected/browser language must never override the active language.
+  const platformAllowed = await getPlatformAllowedLocales(config);
+  const settingsAllowed = (settings.allowed_locales || []).map((l) => l.toLowerCase().split('-')[0]);
+  const effectiveAllowed = settingsAllowed.length
+    ? settingsAllowed.filter((l) => platformAllowed.includes(l))
+    : platformAllowed;
+  const allowList = effectiveAllowed.length ? effectiveAllowed : platformAllowed;
+
   const langDecision = decideResponseLanguage({
     visitorText: question,
     widgetLocale,
     workspaceLocale,
-    allowedLocales: settings.allowed_locales,
+    allowedLocales: allowList,
   });
   // `locale` from here on means the response locale.
   let locale = (input.locale || '').toLowerCase() || langDecision.responseLanguage || 'en';
-  if (settings.allowed_locales?.length && !settings.allowed_locales.includes(locale)) {
-    locale = settings.allowed_locales[0];
+  locale = locale.split('-')[0];
+  if (allowList.length && !allowList.includes(locale)) {
+    locale = allowList[0];
   }
   const inputLanguage = langDecision.inputLanguage !== 'unknown'
     ? langDecision.inputLanguage

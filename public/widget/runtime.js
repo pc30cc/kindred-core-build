@@ -3100,10 +3100,12 @@
                 '" autocomplete="' + ac + '"' +
                 (inputDir ? ' dir="' + inputDir + '"' : '') +
                 ' placeholder="' + Util.escapeHtml(ph) + '"' +
+                (req ? ' aria-required="true"' : '') +
+                ' aria-invalid="false" aria-describedby="prechat-err-' + key + '"' +
                 ' value="' + Util.escapeHtml(value || '') + '" />' +
               '<span class="prechat-status" aria-hidden="true"></span>' +
             '</div>' +
-            '<div class="prechat-error" data-err="' + key + '"></div>' +
+            '<div class="prechat-error" id="prechat-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
           '</div>';
       }
 
@@ -3140,6 +3142,8 @@
         if (el) { el.classList.remove('visible'); el.textContent = ''; }
         var f = body.querySelector('[data-field="' + key + '"]');
         if (f) f.classList.remove('has-error');
+        var input = getInput(key);
+        if (input) input.setAttribute('aria-invalid', 'false');
       }
       function showError(key, msg) {
         var el = body.querySelector('[data-err="' + key + '"]');
@@ -3147,7 +3151,10 @@
         var f = body.querySelector('[data-field="' + key + '"]');
         if (f) f.classList.add('has-error');
         var input = getInput(key);
-        if (input) try { input.focus(); } catch (_) {}
+        if (input) {
+          input.setAttribute('aria-invalid', 'true');
+          try { input.focus(); } catch (_) {}
+        }
       }
       function markValid(key, valid) {
         var f = body.querySelector('[data-field="' + key + '"]');
@@ -3320,12 +3327,15 @@
       function fieldRow(key, type, value, required) {
         var label = t(key);
         return '<div>' +
-          '<label class="prechat-label">' + Util.escapeHtml(label) +
+          '<label class="prechat-label" for="fb-' + key + '">' + Util.escapeHtml(label) +
             (required ? ' <span class="prechat-required">*</span>' : '') + '</label>' +
-          '<input class="input" data-fb="' + key + '" type="' + type +
+          '<input id="fb-' + key + '" class="input" data-fb="' + key + '" type="' + type +
           '" autocomplete="' + (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
-          '" placeholder="' + Util.escapeHtml(label) + '" value="' + Util.escapeHtml(value || '') + '" />' +
-          '<div class="prechat-error" data-err="' + key + '"></div>' +
+          '" placeholder="' + Util.escapeHtml(label) + '"' +
+          (required ? ' aria-required="true"' : '') +
+          ' aria-invalid="false" aria-describedby="fb-err-' + key + '"' +
+          ' value="' + Util.escapeHtml(value || '') + '" />' +
+          '<div class="prechat-error" id="fb-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
         '</div>';
       }
 
@@ -3341,15 +3351,16 @@
         '<p class="prechat-intro">' + Util.escapeHtml(intro) + '</p>' +
         '<div class="prechat-fields">' + fieldsHtml +
           '<div>' +
-            '<label class="prechat-label">' + Util.escapeHtml(t('fallbackMessageLabel')) +
+            '<label class="prechat-label" for="fb-message">' + Util.escapeHtml(t('fallbackMessageLabel')) +
             ' <span class="prechat-required">*</span></label>' +
-            '<textarea class="input" data-fb="message" rows="3" placeholder="' +
-              Util.escapeHtml(t('typeMsg')) + '"></textarea>' +
-            '<div class="prechat-error" data-err="message"></div>' +
+            '<textarea id="fb-message" class="input" data-fb="message" rows="3" placeholder="' +
+              Util.escapeHtml(t('typeMsg')) + '"' +
+              ' aria-required="true" aria-invalid="false" aria-describedby="fb-err-message"></textarea>' +
+            '<div class="prechat-error" id="fb-err-message" data-err="message" role="alert" aria-live="polite"></div>' +
           '</div>' +
         '</div>' +
         '<button type="button" class="prechat-submit" data-fb-submit>' + Util.escapeHtml(t('fallbackSubmit')) + '</button>' +
-        '<div class="fallback-status" data-fb-status></div>' +
+        '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div>' +
         '</div>';
 
       var statusEl = body.querySelector('[data-fb-status]');
@@ -3358,10 +3369,14 @@
       function showErr(k, msg) {
         var el = body.querySelector('[data-err="' + k + '"]');
         if (el) { el.textContent = msg; el.classList.add('visible'); }
+        var input = body.querySelector('[data-fb="' + k + '"]');
+        if (input) input.setAttribute('aria-invalid', 'true');
       }
       function clearErr(k) {
         var el = body.querySelector('[data-err="' + k + '"]');
         if (el) { el.textContent = ''; el.classList.remove('visible'); }
+        var input = body.querySelector('[data-fb="' + k + '"]');
+        if (input) input.setAttribute('aria-invalid', 'false');
       }
       ['name', 'email', 'phone', 'message'].forEach(function (k) {
         var input = body.querySelector('[data-fb="' + k + '"]');
@@ -5280,6 +5295,22 @@
     var typingRow = panel.querySelector('[data-typing-row]');
     var typingLabel = panel.querySelector('[data-typing-label]');
     var body = panel.querySelector('[data-body]');
+    // Screen-reader announcer for new incoming chat messages (spec §29 —
+    // status transitions need aria-live=polite). The visible message list
+    // is fully re-rendered via innerHTML on every change, which assistive
+    // tech cannot reliably treat as "content added" — this sr-only region
+    // is updated with just the newest message text so it gets announced
+    // without re-reading the whole history. Created here (not baked into
+    // the panel's HTML template) to keep this additive and low-risk.
+    var srAnnouncer = document.createElement('div');
+    srAnnouncer.className = 'sr-only';
+    srAnnouncer.setAttribute('aria-live', 'polite');
+    srAnnouncer.setAttribute('role', 'status');
+    panel.appendChild(srAnnouncer);
+    function announceIncoming(senderName, text) {
+      if (!text) return;
+      srAnnouncer.textContent = (senderName ? senderName + ': ' : '') + text;
+    }
     var msgInput = panel.querySelector('[data-msg-input]');
     if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); }
     var sendBtn = panel.querySelector('[data-send-btn]');
@@ -6308,6 +6339,67 @@
       bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
     }
 
+    // Canonical entry-flow state names (spec §21). Internal naming only —
+    // no visual/template redesign implied. See deriveChatTabState() below
+    // for which of these the client can actually distinguish today.
+    var ENTRY_FLOW_STATE = {
+      AI_CHAT: 'AI_CHAT',
+      HUMAN_WELCOME: 'HUMAN_WELCOME',
+      PRECHAT_FOR_HUMAN: 'PRECHAT_FOR_HUMAN',
+      HANDOFF_PRECHAT: 'HANDOFF_PRECHAT',
+      OFFLINE_CONTACT: 'OFFLINE_CONTACT',
+      // CONNECTING_TO_AGENT / WAITING_UNASSIGNED / HUMAN_CONNECTED /
+      // OFFLINE_SUBMITTED collapse to this: the widget has no
+      // assignment/routing-outcome signal in /config or the message
+      // stream to draw distinct chrome for them — today they're conveyed
+      // purely via chat message text (server-side resolveHandoffAckMessage
+      // / operator's own first reply / the offline form's own status
+      // text). Naming it ACTIVE_THREAD is honest about that gap rather
+      // than faking a distinction the client can't make.
+      ACTIVE_THREAD: 'ACTIVE_THREAD',
+    };
+
+    // Contextual pre-chat (spec §4) — the most important entry-flow change:
+    // when the AI is effectively visitor-facing (enabled, real auto-reply
+    // mode, intro enabled — the same suppressGreeting signal the intro
+    // request below trusts) and this is a fresh conversation with no
+    // messages yet, the visitor goes STRAIGHT into AI chat with zero
+    // friction, even if the owner has pre-chat fields turned on. Pre-chat
+    // becomes relevant again the moment the conversation has any messages
+    // (AI already said something, or a human handoff/welcome started).
+    //
+    // AI-online + Human-offline is a fully valid state (the AI can run
+    // 24/7) — the offline contact form only takes over when there is
+    // genuinely no one, human or AI, available to answer.
+    function deriveChatTabState() {
+      var ai = ctx.config && ctx.config.aiAgent;
+      var aiActiveNow = !!(ai && ai.suppressGreeting === true);
+      var hasMsgs = (chatStore.get().messages || []).length > 0;
+      var flow = (aiActiveNow && !hasMsgs) ? 'ai_entry' : (aiActiveNow ? 'ai_handoff' : 'human_entry');
+
+      if (identity.shouldRequirePrechat(flow)) {
+        return {
+          name: flow === 'ai_handoff' ? ENTRY_FLOW_STATE.HANDOFF_PRECHAT : ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN,
+          aiActiveNow: aiActiveNow,
+          hasMsgs: hasMsgs,
+        };
+      }
+      if (aiActiveNow && !hasMsgs) {
+        return { name: ENTRY_FLOW_STATE.AI_CHAT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+      }
+      var pStatus = presenceStore.get().status;
+      var pMode = presenceStore.get().offlineMode;
+      var isOfflineFallbackMode = (pStatus === 'offline' || pStatus === 'unavailable')
+        && (pMode === 'contact_fallback' || pMode === 'capture_message');
+      if (isOfflineFallbackMode && !hasMsgs && !aiActiveNow) {
+        return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+      }
+      if (!aiActiveNow && !hasMsgs) {
+        return { name: ENTRY_FLOW_STATE.HUMAN_WELCOME, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+      }
+      return { name: ENTRY_FLOW_STATE.ACTIVE_THREAD, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+    }
+
     function renderBody() {
       if (!body) return;
       syncHeaderBrand();
@@ -6346,22 +6438,23 @@
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.
         // General mode is a no-op. Resolved-once-per-session via store.
         if (renderDepartmentGateIfNeeded('chat')) return;
-        // Contextual pre-chat — the most important entry-flow change: when
-        // the AI is effectively visitor-facing (enabled, real auto-reply
-        // mode, intro enabled — same signal the greeting-suppression logic
-        // below already trusts) and this is a fresh conversation with no
-        // messages yet, the visitor goes STRAIGHT into AI chat with zero
-        // friction, even if the owner has pre-chat fields turned on.
-        // Pre-chat becomes relevant again the moment the conversation has
-        // any messages — which covers both "AI already said something" and
-        // "a human handoff/welcome already started" — at which point the
-        // normal field-presence needsPrechat() re-applies unchanged.
-        var __ai = ctx.config && ctx.config.aiAgent;
-        var __hasMsgs = (chatStore.get().messages || []).length > 0;
-        var __aiActiveNow = !!(__ai && __ai.suppressGreeting === true);
-        var __flow = (__aiActiveNow && !__hasMsgs) ? 'ai_entry' : (__aiActiveNow ? 'ai_handoff' : 'human_entry');
-        var __showPrechatNow = identity.shouldRequirePrechat(__flow);
-        if (__showPrechatNow) {
+
+        // Entry-flow state (spec §21) — ONE deterministic decision point
+        // instead of scattered/contradictory booleans. Every branch below
+        // reads only from `state`.
+        //   PRECHAT_FOR_HUMAN / HANDOFF_PRECHAT — pre-chat form owns the tab.
+        //   OFFLINE_CONTACT   — dedicated offline capture form owns the tab.
+        //   AI_CHAT / HUMAN_WELCOME / ACTIVE_THREAD — normal chat renders;
+        //     these three are honestly collapsed into one render path
+        //     (chatUI.renderChat) because the widget has no assignment/
+        //     routing-outcome signal to draw distinct chrome for
+        //     CONNECTING_TO_AGENT / WAITING_UNASSIGNED / HUMAN_CONNECTED —
+        //     today those are conveyed purely via chat message text
+        //     (resolveHandoffAckMessage server-side). The name is still
+        //     derived and used below to decide the AI-intro request.
+        var state = deriveChatTabState();
+
+        if (state.name === ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN || state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.
           if (inputBar) inputBar.style.display = 'none';
@@ -6377,7 +6470,17 @@
           });
           return;
         }
-        // Identified visitor (or AI-active first open) on chat tab → composer visible.
+
+        if (state.name === ENTRY_FLOW_STATE.OFFLINE_CONTACT) {
+          // Contact-fallback form owns the input area — hide the chat composer.
+          if (inputBar) inputBar.style.display = 'none';
+          chatUI.renderContactFallback(body, identity, ctx.locale, presenceStore.get(), function () {
+            renderBody();
+          });
+          return;
+        }
+
+        // AI_CHAT / HUMAN_WELCOME / ACTIVE_THREAD — composer visible.
         if (inputBar) inputBar.style.display = 'flex';
         // Phase 4 — already-identified visitors (no pre-chat needed) still
         // get the AI intro the first time they open chat with no history.
@@ -6389,34 +6492,10 @@
           // the visitor should see the operator-configured nudge first,
           // not have the AI cut in front of it. Once that surface is
           // dismissed, the next render (smartSurface null) fires normally.
-          if (__ai && __ai.suppressGreeting === true && !__hasMsgs && !smartSurface) {
+          if (state.name === ENTRY_FLOW_STATE.AI_CHAT && !smartSurface) {
             requestAiAgentIntro('chat_open');
           }
         } catch (_) {}
-        // Phase 5 — when offline + contact_fallback mode and there's no
-        // active thread yet, render the fallback form instead of the chat.
-        // AI-online + Human-offline is a fully valid state (the AI can run
-        // 24/7) — if the AI is effectively visitor-facing for this fresh
-        // conversation, it owns the chat and the offline form must NOT
-        // pre-empt it. The offline form only takes over when there is no
-        // AI to answer (AI off, or AI itself later hands off — see
-        // resolveHandoffAckMessage server-side, which already gives the
-        // visitor offline-aware copy at that point instead).
-        var pStatus = presenceStore.get().status;
-        var pMode = presenceStore.get().offlineMode;
-        var hasMessages = (chatStore.get().messages || []).length > 0;
-        var shouldFallback = (pStatus === 'offline' || pStatus === 'unavailable')
-          && (pMode === 'contact_fallback' || pMode === 'capture_message')
-          && !hasMessages
-          && !__aiActiveNow;
-        if (shouldFallback) {
-          // Contact-fallback form owns the input area — hide the chat composer.
-          if (inputBar) inputBar.style.display = 'none';
-          chatUI.renderContactFallback(body, identity, ctx.locale, presenceStore.get(), function () {
-            renderBody();
-          });
-          return;
-        }
         chatUI.renderChat(body);
         renderSmartDock();
       } else if (tab === 'help') {
@@ -6529,6 +6608,13 @@
       } catch (_) { /* never break on audio */ }
 
       if (newCount > 0 && lastIncoming) {
+        // Screen-reader announcement fires regardless of canToast below —
+        // a sighted user viewing the open chat tab sees the new bubble
+        // render; a screen-reader user needs the aria-live nudge either way.
+        announceIncoming(
+          lastIncoming.sender_name || lastIncoming.from_name || (ctx.config.brandName || ''),
+          lastIncoming.text || lastIncoming.body || '',
+        );
         // Toast only when the user can't see the message (panel closed or KB tab).
         var canToast = !panelOpen || (activeTab !== 'chat');
         if (canToast) {

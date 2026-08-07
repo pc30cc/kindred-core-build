@@ -3036,9 +3036,143 @@
       } catch (_) { return ''; }
     }
 
-    function renderChat(body) {
-      var s = chatStore.get();
-      if (!s.messages.length) { renderEmpty(body); return; }
+    // Shared pre-chat field icons — used by both the full-page pre-chat
+    // form (initial entry) and the inline handoff pre-chat card (mid-thread).
+    var PRECHAT_ICONS = {
+      name: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+      email: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+      phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>',
+      check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+      alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+      lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+    };
+
+    function renderPrechatFieldRow(identity, key, type, value) {
+      var label = t(key);
+      var ph = t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
+      var req = identity.isRequired(key);
+      // Inline "required" marker — single red asterisk next to the label,
+      // matching native form conventions. Optional fields show nothing.
+      var badge = req
+        ? '<span class="prechat-req-mark" aria-label="' + Util.escapeHtml(t('required')) + '" title="' + Util.escapeHtml(t('required')) + '">*</span>'
+        : '';
+      var ac = key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel';
+      var inputDir = key === 'email' || key === 'phone' ? 'ltr' : '';
+      return '<div class="prechat-field" data-field="' + key + '">' +
+          '<div class="prechat-row">' +
+            '<label class="prechat-label" for="prechat-' + key + '">' +
+              Util.escapeHtml(label) + badge +
+            '</label>' +
+          '</div>' +
+          '<div class="prechat-control">' +
+            '<span class="prechat-icon" aria-hidden="true">' + PRECHAT_ICONS[key] + '</span>' +
+            '<input id="prechat-' + key + '" class="prechat-input" data-prechat="' + key + '" type="' + type +
+              '" autocomplete="' + ac + '"' +
+              (inputDir ? ' dir="' + inputDir + '"' : '') +
+              ' placeholder="' + Util.escapeHtml(ph) + '"' +
+              (req ? ' aria-required="true"' : '') +
+              ' aria-invalid="false" aria-describedby="prechat-err-' + key + '"' +
+              ' value="' + Util.escapeHtml(value || '') + '" />' +
+            '<span class="prechat-status" aria-hidden="true"></span>' +
+          '</div>' +
+          '<div class="prechat-error" id="prechat-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
+        '</div>';
+    }
+
+    // Wires validation + submit behavior for a rendered pre-chat field set —
+    // shared by the full-page form and the inline handoff card, since both
+    // emit the same `data-prechat`/`data-field`/`data-err`/data-prechat-submit`
+    // markup via renderPrechatFieldRow(). Only the surrounding HTML differs.
+    function wirePrechatForm(body, identity, onSubmitted, opts) {
+      opts = opts || {};
+      function getInput(key) { return body.querySelector('[data-prechat="' + key + '"]'); }
+      function clearError(key) {
+        var el = body.querySelector('[data-err="' + key + '"]');
+        if (el) { el.classList.remove('visible'); el.textContent = ''; }
+        var f = body.querySelector('[data-field="' + key + '"]');
+        if (f) f.classList.remove('has-error');
+        var input = getInput(key);
+        if (input) input.setAttribute('aria-invalid', 'false');
+      }
+      function showError(key, msg) {
+        var el = body.querySelector('[data-err="' + key + '"]');
+        if (el) { el.textContent = msg; el.classList.add('visible'); }
+        var f = body.querySelector('[data-field="' + key + '"]');
+        if (f) f.classList.add('has-error');
+        var input = getInput(key);
+        if (input) {
+          input.setAttribute('aria-invalid', 'true');
+          try { input.focus(); } catch (_) {}
+        }
+      }
+      function markValid(key, valid) {
+        var f = body.querySelector('[data-field="' + key + '"]');
+        if (!f) return;
+        if (valid) f.classList.add('is-valid'); else f.classList.remove('is-valid');
+      }
+      function liveValidate(k, val) {
+        var v = (val || '').trim();
+        if (!v) { markValid(k, false); return; }
+        if (k === 'email') markValid(k, Util.isValidEmail(v));
+        else if (k === 'phone') markValid(k, Util.isValidPhone(v));
+        else markValid(k, v.length >= 2);
+      }
+      ['name', 'email', 'phone'].forEach(function (k) {
+        var input = getInput(k);
+        if (!input) return;
+        liveValidate(k, input.value);
+        input.addEventListener('input', function () {
+          clearError(k);
+          liveValidate(k, input.value);
+        });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            var btn = body.querySelector('[data-prechat-submit]');
+            if (btn) btn.click();
+          }
+        });
+      });
+      if (opts.autofocus !== false) {
+        var firstInput = body.querySelector('.prechat-input');
+        if (firstInput) try { firstInput.focus({ preventScroll: true }); } catch (_) {}
+      }
+
+      var submitBtn = body.querySelector('[data-prechat-submit]');
+      if (submitBtn) {
+        submitBtn.addEventListener('click', function () {
+          var payload = {
+            name: getInput('name') ? getInput('name').value.trim() : '',
+            email: getInput('email') ? getInput('email').value.trim() : '',
+            phone: getInput('phone') ? getInput('phone').value.trim() : '',
+          };
+          var ok = true;
+          if (identity.isRequired('name') && !payload.name) { showError('name', t('required')); ok = false; }
+          if (identity.isAsked('email') && payload.email) {
+            if (!Util.isValidEmail(payload.email)) { showError('email', t('invalidEmail')); ok = false; }
+          } else if (identity.isRequired('email') && !payload.email) { showError('email', t('required')); ok = false; }
+          if (identity.isAsked('phone') && payload.phone) {
+            if (!Util.isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
+          } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('required')); ok = false; }
+          if (!ok) return;
+
+          submitBtn.disabled = true;
+          submitBtn.style.opacity = '0.6';
+          identity.submitPrechat(payload, function (success, resp) {
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+            if (!success) {
+              var f = resp && resp.field;
+              if (f) showError(f, t('required'));
+              return;
+            }
+            if (typeof onSubmitted === 'function') onSubmitted();
+          });
+        });
+      }
+    }
+
+    function buildMessagesHtml(s, extraRowHtml) {
       // Phase 7 — read-receipts toggle (admin-controlled, surfaced via /config).
       var rrCfg = ctx.config && ctx.config.readReceipts;
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
@@ -3163,8 +3297,16 @@
           html += renderQnaChips();
         }
       });
+      if (extraRowHtml) html += extraRowHtml;
       html += '</div>';
-      body.innerHTML = html;
+      return html;
+    }
+
+    // Event wiring for a rendered messages list — shared by the normal chat
+    // render and the inline handoff pre-chat render (which shows the same
+    // message list plus a trailing pre-chat card). Safe to call even when
+    // the body has zero `.msg`/attachment elements.
+    function wireChatEvents(body) {
       wireQnaChips(body);
       // Wire up image preview triggers (lightbox) — Shadow-DOM scoped.
       var triggers = body.querySelectorAll('[data-att-preview]');
@@ -3226,53 +3368,62 @@
       body.scrollTop = body.scrollHeight;
     }
 
+    function renderChat(body) {
+      var s = chatStore.get();
+      if (!s.messages.length) { renderEmpty(body); return; }
+      body.innerHTML = buildMessagesHtml(s);
+      wireChatEvents(body);
+    }
+
+    // Inline handoff pre-chat — HANDOFF_PRECHAT state only (spec: identify
+    // the visitor mid-thread, without hiding the conversation that already
+    // happened with the AI). Renders the normal message list PLUS a trailing
+    // `.msg-row` card carrying the same pre-chat fields/validation as the
+    // full-page form, then wires both the chat and the card in one pass.
+    function renderHandoffPrechatInline(body, identity, locale, onSubmitted) {
+      var s = chatStore.get();
+      var cardHtml = renderHandoffPrechatCardHtml(identity, locale);
+      body.innerHTML = buildMessagesHtml(s, cardHtml);
+      wireChatEvents(body);
+      wirePrechatForm(body, identity, onSubmitted, { autofocus: false });
+    }
+
+    function renderHandoffPrechatCardHtml(identity, locale) {
+      var contact = (identityStore.get().contact) || {};
+      var fieldsHtml = '';
+      if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
+      if (identity.isAsked('email')) fieldsHtml += renderPrechatFieldRow(identity, 'email', 'email', contact.email);
+      if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
+      var dir = locale === 'fa' ? 'rtl' : 'ltr';
+      var iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+      return '<div class="msg-row system">' +
+        '<div class="hc-card" dir="' + dir + '" role="group" aria-label="' + Util.escapeHtml(t('prechatTitle')) + '">' +
+          '<div class="hc-header">' +
+            '<span class="hc-icon" aria-hidden="true">' + iconSvg + '</span>' +
+            '<div class="hc-text">' +
+              '<div class="hc-title">' + Util.escapeHtml(t('prechatTitle')) + '</div>' +
+              '<div class="hc-subtitle">' + Util.escapeHtml(t('prechatSubtitle')) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="prechat-fields hc-fields">' + fieldsHtml + '</div>' +
+          '<button type="button" class="prechat-submit hc-submit" data-prechat-submit>' +
+            '<span class="prechat-submit-label">' + Util.escapeHtml(t('continue')) + '</span>' +
+            '<span class="prechat-submit-arrow" aria-hidden="true">' +
+              (dir === 'rtl'
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>') +
+            '</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+    }
+
     function renderPreChat(body, identity, locale, onSubmitted) {
       var contact = (identityStore.get().contact) || {};
-      var ICONS = {
-        name: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-        email: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
-        phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>',
-        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
-        alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
-        lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
-      };
-
-      function fieldRow(key, type, value) {
-        var label = t(key);
-        var ph = t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
-        var req = identity.isRequired(key);
-        // Inline "required" marker — single red asterisk next to the label,
-        // matching native form conventions. Optional fields show nothing.
-        var badge = req
-          ? '<span class="prechat-req-mark" aria-label="' + Util.escapeHtml(t('required')) + '" title="' + Util.escapeHtml(t('required')) + '">*</span>'
-          : '';
-        var ac = key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel';
-        var inputDir = key === 'email' || key === 'phone' ? 'ltr' : '';
-        return '<div class="prechat-field" data-field="' + key + '">' +
-            '<div class="prechat-row">' +
-              '<label class="prechat-label" for="prechat-' + key + '">' +
-                Util.escapeHtml(label) + badge +
-              '</label>' +
-            '</div>' +
-            '<div class="prechat-control">' +
-              '<span class="prechat-icon" aria-hidden="true">' + ICONS[key] + '</span>' +
-              '<input id="prechat-' + key + '" class="prechat-input" data-prechat="' + key + '" type="' + type +
-                '" autocomplete="' + ac + '"' +
-                (inputDir ? ' dir="' + inputDir + '"' : '') +
-                ' placeholder="' + Util.escapeHtml(ph) + '"' +
-                (req ? ' aria-required="true"' : '') +
-                ' aria-invalid="false" aria-describedby="prechat-err-' + key + '"' +
-                ' value="' + Util.escapeHtml(value || '') + '" />' +
-              '<span class="prechat-status" aria-hidden="true"></span>' +
-            '</div>' +
-            '<div class="prechat-error" id="prechat-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
-          '</div>';
-      }
-
       var fieldsHtml = '';
-      if (identity.isAsked('name')) fieldsHtml += fieldRow('name', 'text', contact.name);
-      if (identity.isAsked('email')) fieldsHtml += fieldRow('email', 'email', contact.email);
-      if (identity.isAsked('phone')) fieldsHtml += fieldRow('phone', 'tel', contact.phone);
+      if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
+      if (identity.isAsked('email')) fieldsHtml += renderPrechatFieldRow(identity, 'email', 'email', contact.email);
+      if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
 
       var dir = locale === 'fa' ? 'rtl' : 'ltr';
       body.innerHTML =
@@ -3291,94 +3442,12 @@
             '</span>' +
           '</button>' +
           '<p class="prechat-privacy">' +
-            '<span class="prechat-privacy-icon" aria-hidden="true">' + ICONS.lock + '</span>' +
+            '<span class="prechat-privacy-icon" aria-hidden="true">' + PRECHAT_ICONS.lock + '</span>' +
             Util.escapeHtml(t('prechatPrivacy')) +
           '</p>' +
         '</div>';
 
-      function getInput(key) { return body.querySelector('[data-prechat="' + key + '"]'); }
-      function clearError(key) {
-        var el = body.querySelector('[data-err="' + key + '"]');
-        if (el) { el.classList.remove('visible'); el.textContent = ''; }
-        var f = body.querySelector('[data-field="' + key + '"]');
-        if (f) f.classList.remove('has-error');
-        var input = getInput(key);
-        if (input) input.setAttribute('aria-invalid', 'false');
-      }
-      function showError(key, msg) {
-        var el = body.querySelector('[data-err="' + key + '"]');
-        if (el) { el.textContent = msg; el.classList.add('visible'); }
-        var f = body.querySelector('[data-field="' + key + '"]');
-        if (f) f.classList.add('has-error');
-        var input = getInput(key);
-        if (input) {
-          input.setAttribute('aria-invalid', 'true');
-          try { input.focus(); } catch (_) {}
-        }
-      }
-      function markValid(key, valid) {
-        var f = body.querySelector('[data-field="' + key + '"]');
-        if (!f) return;
-        if (valid) f.classList.add('is-valid'); else f.classList.remove('is-valid');
-      }
-      function liveValidate(k, val) {
-        var v = (val || '').trim();
-        if (!v) { markValid(k, false); return; }
-        if (k === 'email') markValid(k, Util.isValidEmail(v));
-        else if (k === 'phone') markValid(k, Util.isValidPhone(v));
-        else markValid(k, v.length >= 2);
-      }
-      ['name', 'email', 'phone'].forEach(function (k) {
-        var input = getInput(k);
-        if (!input) return;
-        liveValidate(k, input.value);
-        input.addEventListener('input', function () {
-          clearError(k);
-          liveValidate(k, input.value);
-        });
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            var btn = body.querySelector('[data-prechat-submit]');
-            if (btn) btn.click();
-          }
-        });
-      });
-      var firstInput = body.querySelector('.prechat-input');
-      if (firstInput) try { firstInput.focus({ preventScroll: true }); } catch (_) {}
-
-      var submitBtn = body.querySelector('[data-prechat-submit]');
-      if (submitBtn) {
-        submitBtn.addEventListener('click', function () {
-          var payload = {
-            name: getInput('name') ? getInput('name').value.trim() : '',
-            email: getInput('email') ? getInput('email').value.trim() : '',
-            phone: getInput('phone') ? getInput('phone').value.trim() : '',
-          };
-          var ok = true;
-          if (identity.isRequired('name') && !payload.name) { showError('name', t('required')); ok = false; }
-          if (identity.isAsked('email') && payload.email) {
-            if (!Util.isValidEmail(payload.email)) { showError('email', t('invalidEmail')); ok = false; }
-          } else if (identity.isRequired('email') && !payload.email) { showError('email', t('required')); ok = false; }
-          if (identity.isAsked('phone') && payload.phone) {
-            if (!Util.isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
-          } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('required')); ok = false; }
-          if (!ok) return;
-
-          submitBtn.disabled = true;
-          submitBtn.style.opacity = '0.6';
-          identity.submitPrechat(payload, function (success, resp) {
-            submitBtn.disabled = false;
-            submitBtn.style.opacity = '1';
-            if (!success) {
-              var f = resp && resp.field;
-              if (f) showError(f, t('required'));
-              return;
-            }
-            if (typeof onSubmitted === 'function') onSubmitted();
-          });
-        });
-      }
+      wirePrechatForm(body, identity, onSubmitted, { autofocus: true });
     }
 
     function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
@@ -3625,6 +3694,7 @@
     return {
       renderChat: renderChat,
       renderPreChat: renderPreChat,
+      renderHandoffPrechatInline: renderHandoffPrechatInline,
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
       bootstrapHistory: bootstrapHistory,
@@ -6688,7 +6758,7 @@
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.
           if (inputBar) inputBar.style.display = 'none';
-          chatUI.renderPreChat(body, identity, ctx.locale, function () {
+          var onPrechatSubmitted = function () {
             // Pre-chat just submitted → reveal composer for the now-identified visitor.
             if (inputBar) inputBar.style.display = 'flex';
             renderBody();
@@ -6697,7 +6767,16 @@
             // blocks the chat. Backend enforces mode/intro_enabled and
             // dedupes by (conversation_id | session_id).
             try { requestAiAgentIntro('prechat_submit'); } catch (_) {}
-          });
+          };
+          // HANDOFF_PRECHAT (mid-thread, after an AI conversation already
+          // happened) renders fields inline, inside the message list, so the
+          // prior conversation stays visible — the full-page form is only
+          // for PRECHAT_FOR_HUMAN, the very first thing a visitor sees.
+          if (state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
+            chatUI.renderHandoffPrechatInline(body, identity, ctx.locale, onPrechatSubmitted);
+          } else {
+            chatUI.renderPreChat(body, identity, ctx.locale, onPrechatSubmitted);
+          }
           return;
         }
 

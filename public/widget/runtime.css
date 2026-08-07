@@ -2424,6 +2424,56 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
   }
 }
 
+/* Inline handoff pre-chat card — same chrome family as .ci-card, so the
+   identify-yourself prompt reads as part of the conversation instead of
+   replacing it. Field/validation styling is the existing .prechat-* set;
+   this block only covers the card frame + header. */
+.hc-card {
+  width: 100%;
+  max-width: 340px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 6px 18px -10px rgba(15, 23, 42, 0.18), 0 1px 2px rgba(15, 23, 42, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+.hc-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gs-primary, #3B82F6), color-mix(in srgb, var(--gs-primary, #3B82F6) 40%, transparent));
+}
+.hc-header { display: flex; align-items: flex-start; gap: 10px; }
+.hc-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 14%, #eff6ff);
+  color: var(--gs-primary, #3B82F6);
+}
+.hc-icon svg { width: 18px; height: 18px; }
+.hc-text { flex: 1; min-width: 0; }
+.hc-title { font-size: 13px; font-weight: 600; color: #0f172a; line-height: 1.4; }
+.hc-subtitle { margin-top: 2px; font-size: 12px; line-height: 1.45; color: #475569; }
+.hc-fields { margin-top: 2px; }
+.hc-submit { width: 100%; }
+@media (prefers-color-scheme: dark) {
+  .hc-card { background: #0f172a; border-color: #1e293b; box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.5); }
+  .hc-icon { background: color-mix(in srgb, var(--gs-primary, #3B82F6) 22%, #1e293b); }
+  .hc-title { color: #f1f5f9; }
+  .hc-subtitle { color: #cbd5e1; }
+}
+
 /* Phase 3 — AI Agent message badge.
    Small, low-key tag shown on AI-authored bubbles so visitors know they
    are talking to an automated assistant (vs a human operator). */

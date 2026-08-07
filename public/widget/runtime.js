@@ -6482,8 +6482,18 @@
     function deriveChatTabState() {
       var ai = ctx.config && ctx.config.aiAgent;
       var aiActiveNow = !!(ai && ai.suppressGreeting === true);
-      var hasMsgs = (chatStore.get().messages || []).length > 0;
-      var flow = (aiActiveNow && !hasMsgs) ? 'ai_entry' : (aiActiveNow ? 'ai_handoff' : 'human_entry');
+      var msgs = chatStore.get().messages || [];
+      var hasMsgs = msgs.length > 0;
+      // While the AI still owns the conversation, pre-chat must never
+      // interrupt the visitor — not on the first open and not mid-thread.
+      // Contact details are only asked once the AI actually hands off to a
+      // human (explicit escalation, or a human/system handoff message).
+      var handedOff = !!ctx.__handoffRequested || msgs.some(function (m) {
+        var s = m && (m.senderType || m.sender || m.role || '');
+        return s === 'agent' || s === 'operator' || s === 'human';
+      });
+      var aiOwnsThread = aiActiveNow && !handedOff;
+      var flow = aiOwnsThread ? 'ai_entry' : (aiActiveNow ? 'ai_handoff' : 'human_entry');
 
       if (identity.shouldRequirePrechat(flow)) {
         return {
@@ -6492,7 +6502,7 @@
           hasMsgs: hasMsgs,
         };
       }
-      if (aiActiveNow && !hasMsgs) {
+      if (aiOwnsThread) {
         return { name: ENTRY_FLOW_STATE.AI_CHAT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
       }
       var pStatus = presenceStore.get().status;

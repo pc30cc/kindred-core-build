@@ -1,6 +1,11 @@
 /**
  * Phase 8D — Widget-side callback request creation.
- * Mounted under the widget router so it inherits widget token + origin.
+ * Mounted under the widget router. Unlike its sibling sub-routers
+ * (identity/departments/call-invitations) this one is mounted BEFORE the
+ * parent widgetRouter's enforceWidgetToken/enforceOrigin/visitor-cookie
+ * middleware, so it must apply its own token + origin gate and resolve the
+ * visitor cookie itself — it cannot rely on the parent to have set
+ * req._widgetWorkspaceId / req.visitorId.
  */
 import { Router } from 'express';
 import { z } from 'zod';
@@ -9,8 +14,13 @@ import { createCallbackRequest } from '../services/calls/callbacks.js';
 import { markEntryAsCallback } from '../services/calls/queue.js';
 import { getServiceClient } from '../supabase.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
+import { enforceWidgetToken, enforceOrigin } from '../services/widget/security.js';
+import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
 
 export const widgetCallbacksRouter = Router();
+
+widgetCallbacksRouter.use(enforceWidgetToken);
+widgetCallbacksRouter.use(enforceOrigin);
 
 // Phase 8D++ — Visible cooldown window for the widget UI. Mirrors the
 // dedupe window used in createCallbackRequest (10 minutes). UI-only;
@@ -26,8 +36,8 @@ const CALLBACK_COOLDOWN_MS = 10 * 60 * 1000;
 widgetCallbacksRouter.get('/status', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
-  const visitorId = (req as any).visitorId as string | undefined;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+  const visitorId = readVisitorCookie(req, workspaceId)?.v;
   if (!visitorId) {
     return res.json({ has_open_callback: false });
   }
@@ -62,8 +72,8 @@ widgetCallbacksRouter.get('/status', async (req, res) => {
 widgetCallbacksRouter.post('/request', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
-  const visitorId = (req as any).visitorId as string | undefined;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+  const visitorId = readVisitorCookie(req, workspaceId)?.v;
   // Plan composer gate — visitor-initiated callback request.
   // Deny-on-create only; the GET /status path above stays reachable so
   // visitors with already-created callbacks can still see their state.

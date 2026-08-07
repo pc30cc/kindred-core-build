@@ -5243,7 +5243,7 @@
         // Do NOT force inputBar to flex here — that would let an unidentified
         // visitor type before completing pre-chat.
         renderBody();
-        if (identityStore.get().loaded && !identity.needsPrechat()) {
+        if (identityStore.get().loaded && !contextualNeedsPrechat()) {
           restoreDraftToInput();
           if (msgInput) { try { msgInput.focus(); } catch (_) {} }
         }
@@ -5991,7 +5991,7 @@
         // for an unidentified visitor (pre-chat bypass bug).
         if (shellStore.get().activeTab === 'chat'
             && identityStore.get().loaded
-            && !identity.needsPrechat()) {
+            && !contextualNeedsPrechat()) {
           restoreDraftToInput();
         }
       });
@@ -6126,7 +6126,18 @@
       if (att.status === 'uploading') return; // wait for upload to finish
       if (!identityStore.get().loaded) return;
       if (transportStore.get().connectionState !== 'online') return;
-      if (identity.needsPrechat()) { renderBody(); return; }
+      // Contextual pre-chat gate (spec §4) — must match renderBody()'s own
+      // decision exactly, not the raw field-presence identity.needsPrechat().
+      // Using the raw check here meant every send silently no-op'd (just
+      // re-rendered) for any AI-active/no-prechat-needed visitor with
+      // owner-configured prechat fields, since needsPrechat() alone knows
+      // nothing about the AI_CHAT flow that legitimately skips the form —
+      // exactly the "I can type but nothing sends" bug report.
+      var sendState = deriveChatTabState();
+      if (sendState.name === ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN || sendState.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
+        renderBody();
+        return;
+      }
       msgInput.value = '';
       setDraftFor(currentDraftKey(), '');
       if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
@@ -6147,7 +6158,7 @@
       if (hasReadyAttach) resetAttachment();
       chatUI.sendMessage(text, renderBody, attachmentId, optimisticAtt);
       try {
-        if (deriveChatTabState().aiOwnsThread) showAiThinking();
+        if (sendState.aiOwnsThread) showAiThinking();
       } catch (_) {}
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
@@ -6356,7 +6367,7 @@
         });
       } catch (_) {}
       renderBody();
-      if (key === 'chat' && identityStore.get().loaded && !identity.needsPrechat()) {
+      if (key === 'chat' && identityStore.get().loaded && !contextualNeedsPrechat()) {
         restoreDraftToInput();
       }
     }
@@ -6541,6 +6552,18 @@
         return { name: ENTRY_FLOW_STATE.HUMAN_WELCOME, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
       return { name: ENTRY_FLOW_STATE.ACTIVE_THREAD, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
+    }
+
+    // Contextual replacement for raw identity.needsPrechat() at every call
+    // site that GATES something (blocks history load, blocks focus/draft
+    // restore) rather than just rendering the form. Using the raw,
+    // flow-blind check at these points reproduces the exact class of bug
+    // fixed in trySend() above: an AI_CHAT visitor for whom renderBody()
+    // correctly skips pre-chat would still get silently blocked here since
+    // raw needsPrechat() only looks at field-presence, never flow.
+    function contextualNeedsPrechat() {
+      var name = deriveChatTabState().name;
+      return name === ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN || name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT;
     }
 
     function renderBody() {
@@ -6876,7 +6899,7 @@
       if (fsm.get() === 'bootstrapping') fsm.transition('restoring_session', 'identity:resolved');
       renderBody();
       transport.connect();
-      if (!identity.needsPrechat()) {
+      if (!contextualNeedsPrechat()) {
         if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
           chatUI.bootstrapHistory(function () {
             if (shellStore.get().activeTab === 'chat') renderBody();
@@ -6933,7 +6956,7 @@
         if (shellStore.get().activeTab === 'chat') clearUnreadForActive();
         // Restore preserved draft on reopen (in-memory only)
         if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
-        if (msgInput && transportStore.get().connectionState === 'online' && !identity.needsPrechat()) {
+        if (msgInput && transportStore.get().connectionState === 'online' && !contextualNeedsPrechat()) {
           setTimeout(function () { msgInput.focus(); }, 300);
         }
       },

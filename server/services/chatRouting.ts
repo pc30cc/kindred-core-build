@@ -24,7 +24,7 @@ import {
   resolveWorkspaceOwnerId,
 } from './calls/departments.js';
 import { listWorkspacePresence } from './widget/operatorPresence.js';
-import { publishOperatorEvent } from './realtime/publish.js';
+import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -176,15 +176,76 @@ async function tagOutcome(
   conversationId: string,
   metadata: Record<string, unknown>,
   outcome: RoutingOutcome,
+  extra?: Record<string, unknown>,
 ): Promise<void> {
   try {
     const sb = getServiceClient(config);
     await sb
       .from('conversations')
-      .update({ metadata: { ...metadata, routing_outcome: outcome, routing_outcome_at: new Date().toISOString() } })
+      .update({
+        metadata: {
+          ...metadata,
+          routing_outcome: outcome,
+          routing_outcome_at: new Date().toISOString(),
+          ...extra,
+        },
+      })
       .eq('id', conversationId)
       .eq('workspace_id', workspaceId);
   } catch { /* best-effort */ }
+}
+
+async function resolveAgentDisplayName(config: ServerConfig, userId: string): Promise<string> {
+  try {
+    const sb = getServiceClient(config);
+    const { data } = await sb.from('profiles').select('full_name').eq('id', userId).maybeSingle();
+    const name = (data as any)?.full_name;
+    return typeof name === 'string' && name.trim() ? name.trim() : 'a colleague';
+  } catch {
+    return 'a colleague';
+  }
+}
+
+/**
+ * Visible routing-outcome messages (spec §22) — inserted as real
+ * `sender_type: 'system'` conversation messages so they flow through the
+ * exact same delivery paths (poll/history/realtime) the widget already
+ * uses for everything else, rather than inventing a second signal. Body
+ * is an English fallback only; the widget renders the actual text from
+ * `metadata.kind` per-locale (same convention as the existing
+ * `call_ended` system message — see server/services/calls/endSession.ts).
+ * Never throws — a failed notice must never break routing itself.
+ */
+async function insertRoutingSystemMessage(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  body: string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const sb = getServiceClient(config);
+    const { data: msgRow, error } = await sb
+      .from('conversation_messages')
+      .insert({ conversation_id: conversationId, sender_type: 'system', body, metadata })
+      .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
+      .single();
+    if (error || !msgRow) return;
+    void publishConversationEvent(
+      config,
+      workspaceId,
+      conversationId,
+      buildMessageEnvelope({
+        id: msgRow.id as string,
+        conversation_id: msgRow.conversation_id as string,
+        sender_type: 'system',
+        body: msgRow.body as string,
+        created_at: msgRow.created_at as string | null,
+        metadata: (msgRow.metadata as Record<string, unknown>) ?? metadata,
+        seen_at: (msgRow as any).seen_at ?? null,
+      }),
+    );
+  } catch { /* best-effort — never break routing */ }
 }
 
 /**
@@ -208,10 +269,25 @@ export async function routeConversationToOperator(
     if (conv.assigned_to) return { outcome: 'already_assigned', assignedTo: conv.assigned_to };
 
     const metadata = ((conv as any).metadata || {}) as Record<string, unknown>;
+    // A visitor may send several messages while still unassigned (manual
+    // queue, or genuinely nobody eligible) — markNeedsHuman's choke point
+    // can re-invoke routing on each one. Without this guard the "queue"/
+    // "no one available" notice would repeat itself on every message.
+    const noticeAlreadySent = metadata.routing_notice_sent === true;
     const { mode, cursor } = await loadAssignmentConfig(config, args.workspaceId);
 
     if (mode === 'manual') {
-      await tagOutcome(config, args.workspaceId, args.conversationId, metadata, 'manual_queue');
+      if (!noticeAlreadySent) {
+        await insertRoutingSystemMessage(
+          config, args.workspaceId, args.conversationId,
+          'Your message is in the support queue.',
+          { kind: 'routing_in_queue' },
+        );
+      }
+      await tagOutcome(
+        config, args.workspaceId, args.conversationId, metadata, 'manual_queue',
+        noticeAlreadySent ? undefined : { routing_notice_sent: true },
+      );
       return { outcome: 'manual_queue', assignedTo: null };
     }
 
@@ -270,9 +346,14 @@ export async function routeConversationToOperator(
       }
     }
 
-    await tagOutcome(config, args.workspaceId, args.conversationId, metadata, outcome);
-
     if (picked) {
+      await tagOutcome(config, args.workspaceId, args.conversationId, metadata, outcome, { routing_notice_sent: true });
+      const agentName = await resolveAgentDisplayName(config, picked);
+      await insertRoutingSystemMessage(
+        config, args.workspaceId, args.conversationId,
+        `${agentName} joined the conversation.`,
+        { kind: 'routing_agent_joined', agent_name: agentName, agent_id: picked },
+      );
       try {
         await publishOperatorEvent(config, {
           kind: 'conversation_updated',
@@ -282,6 +363,20 @@ export async function routeConversationToOperator(
           reason: 'auto_assigned',
         });
       } catch { /* best-effort */ }
+    } else {
+      // Team looked online but nobody was actually eligible/available —
+      // never leave the visitor in a silent "connecting…" limbo (spec §16).
+      if (!noticeAlreadySent) {
+        await insertRoutingSystemMessage(
+          config, args.workspaceId, args.conversationId,
+          "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+          { kind: 'routing_no_agent_available' },
+        );
+      }
+      await tagOutcome(
+        config, args.workspaceId, args.conversationId, metadata, outcome,
+        noticeAlreadySent ? undefined : { routing_notice_sent: true },
+      );
     }
 
     return { outcome, assignedTo: picked };
@@ -311,6 +406,12 @@ export async function claimConversationManually(
       .maybeSingle();
     return { claimed: false, assignedTo: (data as any)?.assigned_to || null };
   }
+  const agentName = await resolveAgentDisplayName(config, args.userId);
+  await insertRoutingSystemMessage(
+    config, args.workspaceId, args.conversationId,
+    `${agentName} joined the conversation.`,
+    { kind: 'routing_agent_joined', agent_name: agentName, agent_id: args.userId },
+  );
   try {
     await publishOperatorEvent(config, {
       kind: 'conversation_updated',

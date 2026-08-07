@@ -567,6 +567,11 @@
         msgFailed: 'Not delivered',
         typingOperator: 'Support is typing…',
         aiThinking: 'AI assistant is thinking…',
+        routingAgentJoined: '{name} joined the conversation',
+        routingAgentJoinedSuffix: 'joined the conversation',
+        routingAgentJoinedGeneric: 'A colleague joined the conversation',
+        routingNoAgentAvailable: "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+        routingInQueue: 'Your message is in the support queue.',
         // Phase 9 — Call invitation card (visitor side)
         ciJoinAudio: 'Join call',
         ciJoinVideo: 'Join video call',
@@ -741,6 +746,11 @@
         msgFailed: 'ارسال نشد',
         typingOperator: 'پشتیبانی در حال نوشتن…',
         aiThinking: 'دستیار هوش مصنوعی در حال فکر کردن…',
+        routingAgentJoined: '{name} به گفتگو پیوست',
+        routingAgentJoinedSuffix: 'به گفتگو پیوست',
+        routingAgentJoinedGeneric: 'یکی از همکاران به گفتگو پیوست',
+        routingNoAgentAvailable: 'در حال حاضر همکاران ما مشغولند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم.',
+        routingInQueue: 'پیام شما در صف پشتیبانی قرار گرفت.',
         ciJoinAudio: 'پیوستن به تماس',
         ciJoinVideo: 'پیوستن به تماس تصویری',
         ciDecline: 'رد کردن',
@@ -909,6 +919,11 @@
         msgFailed: 'İletilemedi',
         typingOperator: 'Destek yazıyor…',
         aiThinking: 'Yapay zeka asistanı düşünüyor…',
+        routingAgentJoined: '{name} görüşmeye katıldı',
+        routingAgentJoinedSuffix: 'görüşmeye katıldı',
+        routingAgentJoinedGeneric: 'Bir temsilci görüşmeye katıldı',
+        routingNoAgentAvailable: 'Şu anda ekibimiz meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız.',
+        routingInQueue: 'Mesajınız destek kuyruğuna alındı.',
         ciJoinAudio: 'Aramaya katıl',
         ciJoinVideo: 'Görüntülü aramaya katıl',
         ciDecline: 'Reddet',
@@ -2632,6 +2647,35 @@
         + '</div></div>';
     }
 
+    // Agent-routing outcome row — spec §22: "Connecting…" must always
+    // resolve to something concrete. Never fabricates an agent name (only
+    // renders one when the server actually resolved and sent one).
+    function renderRoutingOutcomeRow(msg) {
+      var meta = msg.metadata || {};
+      var kind = meta.kind;
+      var text;
+      if (kind === 'routing_agent_joined') {
+        var name = meta.agent_name ? String(meta.agent_name) : '';
+        var raw = t('routingAgentJoined');
+        text = (raw && raw !== 'routingAgentJoined' && name)
+          ? String(raw).replace('{name}', name)
+          : (name ? (name + ' ' + t('routingAgentJoinedSuffix')) : t('routingAgentJoinedGeneric'));
+      } else if (kind === 'routing_no_agent_available') {
+        text = t('routingNoAgentAvailable');
+      } else {
+        text = t('routingInQueue');
+      }
+      var icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+      if (kind === 'routing_agent_joined') {
+        icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          + '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+      }
+      return '<div class="msg-row system"><div class="msg-system-pill">'
+        + icon + '<span>' + Util.escapeHtml(text) + '</span>'
+        + '</div></div>';
+    }
+
     function renderCallInvitationCard(msg) {
       var meta = msg.metadata || {};
       var channel = meta.channel === 'video' ? 'video' : 'audio';
@@ -3030,6 +3074,16 @@
         // ("Call ended by operator · Duration 00:34"). Localized.
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_ended') {
           html += renderCallEndedRow(m);
+          return;
+        }
+        // Agent-routing outcome — connected / everyone busy / queued.
+        // System messages inserted server-side by chatRouting.ts, same
+        // centered-pill treatment as the call-ended row above.
+        if (m.senderType === 'system' && m.metadata
+            && (m.metadata.kind === 'routing_agent_joined'
+              || m.metadata.kind === 'routing_no_agent_available'
+              || m.metadata.kind === 'routing_in_queue')) {
+          html += renderRoutingOutcomeRow(m);
           return;
         }
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';

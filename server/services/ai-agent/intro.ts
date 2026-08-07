@@ -11,6 +11,7 @@ import { getOrCreateSettings, type AgentSettings } from './settings.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { logRun } from './logs.js';
 import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
+import { clampLocaleToPlatformRegion } from '../platformRegion.js';
 
 export interface IntroInput {
   workspaceId: string;
@@ -204,7 +205,13 @@ export async function maybeSendIntro(
       return { sent: false, reason: 'already_sent', conversationId };
     }
 
-    const body = buildIntroBody(settings, input.locale);
+    // A visitor's browser can still negotiate a language the platform
+    // doesn't actually offer (e.g. a Persian-only deployment reached by a
+    // Turkish browser) — clamp to what the platform's region lock allows
+    // so the admin's edited text (set for the platform's one language)
+    // always wins over a stale per-locale fallback.
+    const clampedLocale = await clampLocaleToPlatformRegion(config, input.locale);
+    const body = buildIntroBody(settings, clampedLocale);
     const display = deriveAgentDisplay(settings);
 
     let messageId: string | null = null;

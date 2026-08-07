@@ -3709,6 +3709,11 @@ const en = {
       voiceNotesHint: 'Show the voice-recording button in the widget.',
       emoji: 'Emoji',
       emojiHint: 'Show the emoji picker in the message box.',
+      assignmentMode: 'Conversation assignment',
+      assignmentModeHint: 'How a conversation is handed to an operator once the AI hands off (or when AI is off).',
+      assignmentModeAuto: 'Auto — least-busy online operator',
+      assignmentModeRoundRobin: 'Round robin — fair rotation among online operators',
+      assignmentModeManual: 'Manual — goes to Unassigned, first to claim it owns it',
     },
     domains: {
       description: 'Restrict widget loading to specific domains. Leave empty to allow all.',

@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Users } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { cn } from '@/lib/utils';
@@ -599,6 +599,35 @@ function WidgetPageContent() {
                       />
                     </div>
                   ))}
+
+                  {/* Chat assignment — how a conversation is handed to an
+                      operator once AI hands off (or AI is off). Replaces
+                      what used to be manual-only assignment with a real,
+                      never-random routing algorithm. */}
+                  <div className="pt-4 mt-2 border-t border-border space-y-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="p-2 rounded-lg bg-primary/10 shrink-0">
+                        <Users className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <Label className="text-sm">{t('widgetPage.behavior.assignmentMode')}</Label>
+                        <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                          {t('widgetPage.behavior.assignmentModeHint')}
+                        </p>
+                        <Select
+                          value={(widget as any)?.assignment_mode || 'auto'}
+                          onValueChange={(v) => handleToggle('assignment_mode', v as any)}
+                        >
+                          <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto">{t('widgetPage.behavior.assignmentModeAuto')}</SelectItem>
+                            <SelectItem value="round_robin">{t('widgetPage.behavior.assignmentModeRoundRobin')}</SelectItem>
+                            <SelectItem value="manual">{t('widgetPage.behavior.assignmentModeManual')}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Privacy: optional raw IP capture (default OFF). */}
                   <div className="pt-4 mt-2 border-t border-border space-y-3">

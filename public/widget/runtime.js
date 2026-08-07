@@ -6326,7 +6326,21 @@
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.
         // General mode is a no-op. Resolved-once-per-session via store.
         if (renderDepartmentGateIfNeeded('chat')) return;
-        if (identity.needsPrechat()) {
+        // Contextual pre-chat — the most important entry-flow change: when
+        // the AI is effectively visitor-facing (enabled, real auto-reply
+        // mode, intro enabled — same signal the greeting-suppression logic
+        // below already trusts) and this is a fresh conversation with no
+        // messages yet, the visitor goes STRAIGHT into AI chat with zero
+        // friction, even if the owner has pre-chat fields turned on.
+        // Pre-chat becomes relevant again the moment the conversation has
+        // any messages — which covers both "AI already said something" and
+        // "a human handoff/welcome already started" — at which point the
+        // normal field-presence needsPrechat() re-applies unchanged.
+        var __ai = ctx.config && ctx.config.aiAgent;
+        var __hasMsgs = (chatStore.get().messages || []).length > 0;
+        var __aiActiveNow = !!(__ai && __ai.suppressGreeting === true);
+        var __showPrechatNow = identity.needsPrechat() && !(__aiActiveNow && !__hasMsgs);
+        if (__showPrechatNow) {
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.
           if (inputBar) inputBar.style.display = 'none';
@@ -6342,15 +6356,13 @@
           });
           return;
         }
-        // Identified visitor on chat tab → composer visible.
+        // Identified visitor (or AI-active first open) on chat tab → composer visible.
         if (inputBar) inputBar.style.display = 'flex';
         // Phase 4 — already-identified visitors (no pre-chat needed) still
         // get the AI intro the first time they open chat with no history.
         // Backend dedupes by conversation/session so it's safe to call
         // every render — the in-flight guard prevents duplicate requests.
         try {
-          var __ai = ctx.config && ctx.config.aiAgent;
-          var __hasMsgs = (chatStore.get().messages || []).length > 0;
           // Don't let the AI intro race ahead of a Smart Engagement
           // chat_message surface that is the reason this tab is open —
           // the visitor should see the operator-configured nudge first,

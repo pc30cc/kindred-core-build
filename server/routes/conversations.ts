@@ -615,6 +615,73 @@ conversationsRouter.patch('/:id', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// POST /api/conversations/:id/claim
+// Manual-routing-mode claim: the first operator to claim an unassigned
+// conversation owns it. Atomic via public.claim_conversation() — unlike
+// the PATCH assigned_to path above (a plain read-then-write, fine for a
+// deliberate reassignment by anyone with permission), this is a
+// compare-and-set so two operators racing to claim the same conversation
+// can never both succeed.
+// ═══════════════════════════════════════════════════════════════════
+const claimConversationSchema = z.object({
+  workspace_id: z.string().uuid(),
+});
+
+conversationsRouter.post('/:id/claim', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = claimConversationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
+    }
+    const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    const conversationId = req.params.id;
+    const { data: before } = await sb
+      .from('conversations')
+      .select('id, workspace_id, assigned_to')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!before || before.workspace_id !== parsed.data.workspace_id) {
+      return res.status(404).json({ error: 'Conversation not found in workspace' });
+    }
+
+    const { claimConversationManually } = await import('../services/chatRouting.js');
+    const result = await claimConversationManually(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId,
+      userId: auth.userId,
+    });
+
+    if (!result.claimed) {
+      return res.status(409).json({
+        error: 'already_claimed',
+        assigned_to: result.assignedTo,
+      });
+    }
+
+    void recordAuditAndEvent(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId,
+      actorType: 'agent',
+      actorId: auth.userId,
+      eventType: 'assigned',
+      auditAction: 'conversation.claimed',
+      oldValue: { assigned_to: before.assigned_to },
+      newValue: { assigned_to: auth.userId },
+      payload: { from: before.assigned_to, to: auth.userId, method: 'manual_claim' },
+    });
+
+    return res.json({ ok: true, assigned_to: auth.userId });
+  } catch (err: any) {
+    console.error('[conversations claim] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
 // ─── Spam routing ─────────────────────────────────────────────────────
 // POST /api/conversations/spam       → mark spam
 // POST /api/conversations/not-spam   → clear spam flag

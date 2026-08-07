@@ -15,6 +15,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { publishOperatorEvent } from '../realtime/publish.js';
+import { routeConversationToOperator } from '../chatRouting.js';
 
 export type AiConversationState =
   | 'ai_managed'
@@ -200,6 +201,17 @@ export async function markNeedsHuman(
       reason: args.reason,
     } as any);
   } catch { /* best-effort */ }
+
+  // Single choke point — every caller that transitions a conversation to
+  // needs_human gets real routing (auto/round-robin/manual + owner
+  // fallback), replacing what used to be no assignment at all. Never
+  // blocks or fails the handoff itself.
+  try {
+    await routeConversationToOperator(config, {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+    });
+  } catch { /* best-effort — routing failure must never break handoff */ }
 }
 
 /**

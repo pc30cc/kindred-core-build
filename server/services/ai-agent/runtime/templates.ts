@@ -46,6 +46,34 @@ export function pickTemplate(key: TemplateKey, locale: string | undefined): stri
 }
 
 /**
+ * Handoff acknowledgement when the human team is offline. Never promises a
+ * callback/follow-up contact the workspace has no way to make — the copy
+ * only says "we'll reach out" when the workspace actually collects email
+ * or phone in pre-chat; otherwise it points the visitor back to this chat.
+ */
+const HANDOFF_OFFLINE_WITH_CONTACT: Record<string, string> = {
+  fa: 'در حال حاضر همکاران ما آنلاین نیستند. لطفاً پیام و اطلاعات تماس خود را بگذارید تا در اولین فرصت با شما در ارتباط باشیم.',
+  tr: 'Şu anda ekibimiz çevrimdışı. Lütfen mesajınızı ve iletişim bilgilerinizi bırakın; en kısa sürede sizinle iletişime geçeceğiz.',
+  en: "Our team isn't online right now. Please leave your message and contact details and we'll get back to you as soon as we can.",
+};
+const HANDOFF_OFFLINE_NO_CONTACT: Record<string, string> = {
+  fa: 'در حال حاضر همکاران ما آنلاین نیستند. پیام شما ثبت می‌شود و می‌توانید پاسخ را در همین گفتگو دریافت کنید.',
+  tr: 'Şu anda ekibimiz çevrimdışı. Mesajınız kaydedilecek ve yanıtı bu sohbetten alabilirsiniz.',
+  en: "Our team isn't online right now. Your message will be saved and you can get the reply right here in this chat.",
+};
+
+export function pickHandoffOfflineMessage(
+  locale: string | undefined,
+  hasContactCapability: boolean,
+): string {
+  const l = (locale || 'en').toLowerCase();
+  const map = hasContactCapability ? HANDOFF_OFFLINE_WITH_CONTACT : HANDOFF_OFFLINE_NO_CONTACT;
+  if (l.startsWith('fa')) return map.fa;
+  if (l.startsWith('tr')) return map.tr;
+  return map.en;
+}
+
+/**
  * Pick a localized message from a translations map, with visitor language
  * preference and fallback to en, then any first available value.
  */

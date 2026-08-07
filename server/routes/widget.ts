@@ -584,13 +584,27 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           || mode === 'auto_reply_until_human_joins'
           || mode === 'auto_reply_always';
         const introEnabled = aiSettings.ai_intro_enabled !== false;
+        // Effective AI Mode — a toggle+auto-mode being set is not sufficient
+        // on its own; also require platform/workspace gates and an actually
+        // resolvable AI provider before treating the AI as visitor-facing.
+        // Best-effort: any resolver failure falls back to the pre-existing
+        // toggle-only computation so this never regresses widget config.
+        let visitorFacing = !!aiSettings.enabled && isAuto;
+        try {
+          const { resolveEffectiveAiMode } = await import('../services/ai-agent/effectiveMode.js');
+          const effective = await resolveEffectiveAiMode(config, workspaceId, {
+            enabled: !!aiSettings.enabled,
+            mode: mode as any,
+          });
+          visitorFacing = effective.visitorFacing;
+        } catch (_) { /* keep toggle-only fallback */ }
         aiAgentInfo = {
           enabled: !!aiSettings.enabled,
           mode,
           introEnabled,
           // Suppress the generic greeting only when AI will actually speak
-          // first to the visitor — i.e. enabled + auto mode + intro enabled.
-          suppressGreeting: !!aiSettings.enabled && isAuto && introEnabled,
+          // first to the visitor — i.e. effectively enabled + intro enabled.
+          suppressGreeting: visitorFacing && introEnabled,
           agentName: aiSettings.agent_name || null,
           agentLogoUrl: aiSettings.agent_logo_url || null,
           disabledByPlatform: false,

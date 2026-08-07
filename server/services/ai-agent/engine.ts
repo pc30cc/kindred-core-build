@@ -40,7 +40,7 @@ import { loadAiAgentRuntimeConfig } from './runtimeConfig.js';
 import { detectTopics } from './topics/detector.js';
 import { evaluateRoutingRules, buildRoutingMetadata } from './runtime/routingRuntime.js';
 import { updateRuntimeFlags } from './runtime/conversationState.js';
-import { pickTemplate } from './runtime/templates.js';
+import { pickTemplate, pickHandoffOfflineMessage } from './runtime/templates.js';
 import { evaluateMessageTriggers, buildTriggerMetadata, type TriggerEvaluationResult } from './runtime/triggerRuntime.js';
 import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from './runtime/workflowRuntime.js';
 import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } from './runtime/toolRuntime.js';
@@ -642,7 +642,8 @@ async function runInternal(
     let messageId: string | null = null;
     if (!handoffAlreadyDone && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
       const display = deriveAgentDisplay(settings);
-      const ack = pickTemplate('handoff', locale);
+      const teamOffline = availability.state === 'offline';
+      const ack = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickTemplate('handoff', locale));
       const inserted = await insertAiMessage(config, {
         workspaceId,
         conversationId,
@@ -977,7 +978,12 @@ async function runInternal(
         }).catch(() => {});
         await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
         const display = deriveAgentDisplay(settings);
-        const body = (settings.fallback_message || pickTemplate('no_answer_handoff', locale));
+        const body = settings.fallback_message
+          || await resolveHandoffAckMessage(
+            config, workspaceId, locale,
+            availability.state === 'offline',
+            pickTemplate('no_answer_handoff', locale),
+          );
         const inserted = await insertAiMessage(config, {
           workspaceId,
           conversationId,
@@ -1194,10 +1200,16 @@ async function runInternal(
         reason: 'low_confidence',
       }).catch(() => {});
       const display = deriveAgentDisplay(settings);
+      const handoffAckBody = settings.fallback_message
+        || await resolveHandoffAckMessage(
+          config, workspaceId, locale,
+          availability.state === 'offline',
+          pickHandoffAck(locale, display.agentName),
+        );
       const inserted = await insertAiMessage(config, {
         workspaceId,
         conversationId,
-        body: settings.fallback_message || pickHandoffAck(locale, display.agentName),
+        body: handoffAckBody,
         source: 'ai_agent_fallback',
         runId,
         mode: settings.mode,
@@ -1331,6 +1343,38 @@ async function runInternal(
     suggestionId: suggestion?.id || null,
     runId,
   };
+}
+
+/**
+ * AI-online / human-offline is a valid, common state (the AI keeps
+ * answering around the clock even when the team is asleep) — but the
+ * moment the AI itself needs to hand off, a visitor must never be told
+ * "connecting you to an agent" when nobody is actually online. This picks
+ * the right acknowledgement and never promises a callback the workspace
+ * has no way to make (see pickHandoffOfflineMessage).
+ */
+async function resolveHandoffAckMessage(
+  config: ServerConfig,
+  workspaceId: string,
+  locale: string,
+  isTeamOffline: boolean,
+  onlineMessage: string,
+): Promise<string> {
+  if (!isTeamOffline) return onlineMessage;
+  try {
+    const sb = getServiceClient(config);
+    const { data } = await sb
+      .from('widget_prechat_settings')
+      .select('ask_email, ask_phone')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    const hasContactCapability = data
+      ? ((data as any).ask_email !== false || (data as any).ask_phone === true)
+      : true;
+    return pickHandoffOfflineMessage(locale, hasContactCapability);
+  } catch {
+    return pickHandoffOfflineMessage(locale, true);
+  }
 }
 
 function pickHandoffAck(locale: string | undefined, agentName: string): string {

@@ -3696,6 +3696,11 @@ const tr: TranslationKeys = {
       voiceNotesHint: 'Widget üzerinde ses kaydı düğmesini göster.',
       emoji: 'Emoji',
       emojiHint: 'Mesaj kutusunda emoji seçiciyi göster.',
+      assignmentMode: 'Görüşme ataması',
+      assignmentModeHint: 'AI devraldıktan sonra (veya AI kapalıyken) bir görüşme bir temsilciye nasıl atanır.',
+      assignmentModeAuto: 'Otomatik — en az meşgul çevrimiçi temsilci',
+      assignmentModeRoundRobin: 'Sırayla — çevrimiçi temsilciler arasında adil dağıtım',
+      assignmentModeManual: 'Manuel — Atanmamış kuyruğuna gider; ilk üstlenen sahip olur',
     },
     domains: {
       description: 'Widget yüklemesini belirli alan adlarıyla sınırlayın. Tümüne izin vermek için boş bırakın.',

@@ -203,7 +203,7 @@ export default function CallCenterSettingsPage() {
         // region/language mode — the call center can never offer a language
         // the rest of the product doesn't speak on this deployment.
         const rawPlatformAvail: string[] = (platform as any)?.widget_available_locales || ['en'];
-        const regionScoped = rawPlatformAvail.filter((c) => regionLocales.includes(c));
+        const regionScoped = rawPlatformAvail.filter((c) => (regionLocales as string[]).includes(c));
         const platformAvail: string[] = regionScoped.length ? regionScoped : (regionLocales.length ? regionLocales : rawPlatformAvail);
         const platformDefault: string = (platform as any)?.widget_default_locale || 'en';
         const wsEnabled: string[] = (s.widget_enabled_locales && s.widget_enabled_locales.length > 0)

@@ -43,6 +43,9 @@ const HARD_MAX_BYTES = 25 * 1024 * 1024; // 25MB absolute ceiling for v1
 const GLOBAL_ALLOWED_MIMES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'application/pdf', 'text/plain',
+  // Voice notes recorded in-browser via MediaRecorder — covers Chrome/
+  // Firefox (audio/webm), Safari (audio/mp4), and generic fallbacks.
+  'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
 ]);
 const EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png',
@@ -51,6 +54,11 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/gif': 'gif',
   'application/pdf': 'pdf',
   'text/plain': 'txt',
+  'audio/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -365,7 +373,13 @@ export interface PublicAttachmentMeta {
   file_name: string;
   mime_type: string;
   size_bytes: number;
-  kind: 'image' | 'file';
+  kind: 'image' | 'audio' | 'file';
+}
+
+function classifyAttachmentKind(mimeType: string): 'image' | 'audio' | 'file' {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return 'file';
 }
 
 export async function enrichMessagesWithAttachments(
@@ -402,7 +416,7 @@ export async function enrichMessagesWithAttachments(
         file_name: r.file_name,
         mime_type: r.mime_type,
         size_bytes: r.size_bytes,
-        kind: r.mime_type.startsWith('image/') ? 'image' : 'file',
+        kind: classifyAttachmentKind(r.mime_type),
       };
       byAttId[r.id] = meta;
       if (r.message_id) byMsgId[r.message_id] = meta;
@@ -424,7 +438,7 @@ export async function enrichMessagesWithAttachments(
         file_name: r.file_name,
         mime_type: r.mime_type,
         size_bytes: r.size_bytes,
-        kind: r.mime_type.startsWith('image/') ? 'image' : 'file',
+        kind: classifyAttachmentKind(r.mime_type),
       };
     }
   }

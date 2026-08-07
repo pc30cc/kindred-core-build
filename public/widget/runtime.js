@@ -537,6 +537,18 @@
         typeNotAllowed: 'File type not allowed',
         tooLarge: 'File is too large',
         selected: 'Selected',
+        // Voice notes + emoji + escalate
+        recordVoice: 'Record voice message',
+        recording: 'Recording…',
+        stopRecording: 'Stop recording',
+        cancelRecording: 'Cancel',
+        micDenied: 'Microphone access denied',
+        micUnavailable: 'Voice messages are not supported in this browser',
+        voiceNote: 'Voice message',
+        emojiPicker: 'Emoji',
+        talkToHuman: 'Talk to a human',
+        escalateRequested: "We've let our team know — someone will join shortly.",
+        escalateFailed: 'Could not reach an operator right now.',
         // Phase 6b — preview / file actions
         retry: 'Retry',
         download: 'Download',
@@ -693,6 +705,18 @@
         typeNotAllowed: 'این نوع فایل مجاز نیست',
         tooLarge: 'حجم فایل بیش از حد مجاز است',
         selected: 'انتخاب شده',
+        // پیام صوتی + شکلک + ارجاع به اپراتور
+        recordVoice: 'ضبط پیام صوتی',
+        recording: 'در حال ضبط…',
+        stopRecording: 'توقف ضبط',
+        cancelRecording: 'لغو',
+        micDenied: 'دسترسی به میکروفون رد شد',
+        micUnavailable: 'پیام صوتی در این مرورگر پشتیبانی نمی‌شود',
+        voiceNote: 'پیام صوتی',
+        emojiPicker: 'شکلک',
+        talkToHuman: 'صحبت با اپراتور',
+        escalateRequested: 'به تیم پشتیبانی اطلاع داده شد؛ به‌زودی یک اپراتور به گفتگو ملحق می‌شود.',
+        escalateFailed: 'در حال حاضر امکان اتصال به اپراتور وجود ندارد.',
         // Phase 6b — preview / file actions
         retry: 'تلاش مجدد',
         download: 'دانلود',
@@ -843,6 +867,18 @@
         typeNotAllowed: 'Bu dosya türü desteklenmiyor',
         tooLarge: 'Dosya çok büyük',
         selected: 'Seçildi',
+        // Sesli mesaj + emoji + temsilciye yönlendirme
+        recordVoice: 'Sesli mesaj kaydet',
+        recording: 'Kaydediliyor…',
+        stopRecording: 'Kaydı durdur',
+        cancelRecording: 'İptal',
+        micDenied: 'Mikrofon erişimi reddedildi',
+        micUnavailable: 'Bu tarayıcıda sesli mesaj desteklenmiyor',
+        voiceNote: 'Sesli mesaj',
+        emojiPicker: 'Emoji',
+        talkToHuman: 'Bir temsilciyle konuşun',
+        escalateRequested: 'Ekibimize bildirdik — kısa süre içinde biri katılacak.',
+        escalateFailed: 'Şu anda bir temsilciye ulaşılamadı.',
         // Phase 6b — preview / file actions
         retry: 'Yeniden dene',
         download: 'İndir',
@@ -2363,18 +2399,30 @@
       var apiBase = ctx.config.apiBase || '';
       return apiBase + '/api/widget/attachments/' + encodeURIComponent(id);
     }
+    // The proxy route requires the X-Widget-Token header (see server —
+    // "single auth header"), which a plain <img>/<audio> src or <a href>
+    // navigation can never send. ctx.loadAuthedMediaBlobUrl (defined once on
+    // the shared ctx in __gs_runtime.init, since the lightbox needs the same
+    // helper outside this closure) does an authenticated fetch instead and
+    // hands back a blob: URL.
     function renderMessageAttachment(att) {
       if (!att || !att.id) return '';
-      var url = attachmentProxyUrl(att.id);
+      var id = Util.escapeHtml(att.id);
       var name = Util.escapeHtml(att.file_name || 'file');
       var size = humanSize(att.size_bytes);
       var isImage = att.kind === 'image' || (att.mime_type && /^image\//.test(att.mime_type));
+      var isAudio = att.kind === 'audio' || (att.mime_type && /^audio\//.test(att.mime_type));
       if (isImage) {
         return '<div class="msg-att msg-att-image">' +
-          '<button type="button" class="msg-att-img-btn" data-att-preview="' + Util.escapeHtml(att.id) + '" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
-            '<img loading="lazy" decoding="async" src="' + Util.escapeHtml(url) + '" alt="' + name + '" />' +
+          '<button type="button" class="msg-att-img-btn" data-att-preview="' + id + '" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
+            '<img loading="lazy" decoding="async" data-att-media-src="' + id + '" alt="' + name + '" />' +
             '<span class="msg-att-img-fallback">' + Util.escapeHtml(t('imageUnavailable')) + '</span>' +
           '</button>' +
+          '</div>';
+      }
+      if (isAudio) {
+        return '<div class="msg-att msg-att-audio">' +
+          '<audio controls preload="none" data-att-media-src="' + id + '"></audio>' +
           '</div>';
       }
       var iconSvg = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
@@ -2384,7 +2432,7 @@
           '<div class="msg-att-name" title="' + name + '">' + name + '</div>' +
           '<div class="msg-att-sub">' + Util.escapeHtml(size) + '</div>' +
         '</div>' +
-        '<a class="msg-att-action" href="' + Util.escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" download="' + name + '" aria-label="' + Util.escapeHtml(t('download')) + '">' +
+        '<a class="msg-att-action" href="#" data-att-download="' + id + '" data-att-download-name="' + name + '" aria-label="' + Util.escapeHtml(t('download')) + '">' +
           '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg>' +
         '</a>' +
         '</div>';
@@ -2929,6 +2977,41 @@
       var ciButtons = body.querySelectorAll('[data-ci-action]');
       for (var ci = 0; ci < ciButtons.length; ci++) {
         ciButtons[ci].addEventListener('click', handleCallInvitationClick);
+      }
+      // Inline media (image thumbnails, audio players) needs an authenticated
+      // fetch — the proxy route requires a header a plain src= can't send.
+      var mediaEls = body.querySelectorAll('[data-att-media-src]');
+      for (var me = 0; me < mediaEls.length; me++) {
+        (function (el) {
+          var mid = el.getAttribute('data-att-media-src');
+          if (!mid) return;
+          ctx.loadAuthedMediaBlobUrl(mid).then(function (blobUrl) {
+            if (blobUrl) { el.src = blobUrl; } else { el.dispatchEvent(new Event('error')); }
+          });
+        })(mediaEls[me]);
+      }
+      // File downloads are click-triggered fetches (same auth constraint).
+      var dlEls = body.querySelectorAll('[data-att-download]');
+      for (var de = 0; de < dlEls.length; de++) {
+        dlEls[de].addEventListener('click', function (e) {
+          e.preventDefault();
+          var el = this;
+          if (el.classList.contains('downloading')) return;
+          var did = el.getAttribute('data-att-download');
+          var dname = el.getAttribute('data-att-download-name') || 'file';
+          el.classList.add('downloading');
+          ctx.loadAuthedMediaBlobUrl(did).then(function (blobUrl) {
+            el.classList.remove('downloading');
+            if (!blobUrl) return;
+            var a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = dname;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          });
+        });
       }
       // Image load failure: swap in fallback label without breaking layout.
       var imgs = body.querySelectorAll('.msg-att-image img');
@@ -3781,6 +3864,27 @@
     ctx.fetchWith = tokenMgr.fetchWith;
     ctx.getToken = tokenMgr.get;
     ctx.tokenManager = tokenMgr;
+
+    // ─── Authenticated media loader (shared: chatUI's inline attachments +
+    // this closure's lightbox both need it) ───────────────────────────
+    // GET /api/widget/attachments/:id requires the X-Widget-Token header
+    // (the widget's only auth mechanism for that route) — something a plain
+    // <img>/<audio> src= or <a href=> navigation can never send. So inline
+    // media and downloads fetch the bytes via ctx.fetchWith (which attaches
+    // the header) and hand back a blob: URL instead. Cached per attachment
+    // id for the runtime instance's lifetime so re-renders don't re-fetch.
+    var __mediaBlobCache = {};
+    ctx.loadAuthedMediaBlobUrl = function (id) {
+      if (!id) return Promise.resolve(null);
+      if (__mediaBlobCache[id]) return __mediaBlobCache[id];
+      var url = (ctx.config.apiBase || ctx.apiBase || '') + '/api/widget/attachments/' + encodeURIComponent(id);
+      var p = ctx.fetchWith(url, { method: 'GET' })
+        .then(function (r) { if (!r.ok) throw new Error('attachment_fetch_failed'); return r.blob(); })
+        .then(function (blob) { return URL.createObjectURL(blob); })
+        .catch(function () { delete __mediaBlobCache[id]; return null; });
+      __mediaBlobCache[id] = p;
+      return p;
+    };
 
     // ─── Shared token bus integration ─────────────────────────────────
     // Bridge runtime tokenManager ↔ window.__gs_token (set up by loader).
@@ -5071,15 +5175,21 @@
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
+    var micSupported = !!(typeof navigator !== 'undefined' && navigator.mediaDevices
+      && navigator.mediaDevices.getUserMedia && typeof window.MediaRecorder === 'function');
     var inputHtml = chatEnabled
       ? '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
           '<span class="typing-dots"><span></span><span></span><span></span></span>' +
           '<span class="typing-label" data-typing-label></span>' +
         '</div>' +
         '<div class="attach-tray" data-attach-tray hidden></div>' +
+        '<div class="emoji-picker" data-emoji-picker hidden></div>' +
         '<div class="input-bar" data-input-bar>' +
         '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
         '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
+        '</button>' +
+        '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + Util.escapeHtml(t('talkToHuman')) + '" aria-label="' + Util.escapeHtml(t('talkToHuman')) + '">' +
+          '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>' +
         '</button>' +
         (attachCfg.enabled
           ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
@@ -5087,6 +5197,14 @@
             '</button>' +
             '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
           : '') +
+        (attachCfg.enabled && micSupported
+          ? '<button type="button" class="mic-btn" data-mic-btn title="' + Util.escapeHtml(t('recordVoice')) + '" aria-label="' + Util.escapeHtml(t('recordVoice')) + '">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>' +
+            '</button>'
+          : '') +
+        '<button type="button" class="emoji-btn" data-emoji-btn title="' + Util.escapeHtml(t('emojiPicker')) + '" aria-label="' + Util.escapeHtml(t('emojiPicker')) + '">' +
+          '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
+        '</button>' +
         '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
         '</div>'
       : '';
@@ -5112,6 +5230,10 @@
     var attachBtn = panel.querySelector('[data-attach-btn]');
     var attachInput = panel.querySelector('[data-attach-input]');
     var attachTray = panel.querySelector('[data-attach-tray]');
+    var micBtn = panel.querySelector('[data-mic-btn]');
+    var emojiBtn = panel.querySelector('[data-emoji-btn]');
+    var emojiPickerEl = panel.querySelector('[data-emoji-picker]');
+    var escalateBtn = panel.querySelector('[data-escalate-btn]');
 
     // ─── Smart Engagement bridge ───────────────────────────────────────
     // The loader owns rule evaluation (it runs before the runtime is even
@@ -5308,12 +5430,16 @@
     }
     lightboxOpener = function (attachmentId) {
       if (!lightboxEl || !lightboxImg || !attachmentId) return;
-      var url = (ctx.config.apiBase || '') + '/api/widget/attachments/' + encodeURIComponent(attachmentId);
-      lightboxImg.src = url;
+      lightboxImg.removeAttribute('src');
       lightboxImg.alt = '';
       lightboxEl.hidden = false;
       // Defer to next frame so transition can run
       requestAnimationFrame(function () { lightboxEl.classList.add('visible'); });
+      // Same auth constraint as inline thumbnails — needs a fetched blob:
+      // URL, a plain src= can't carry the widget token header.
+      ctx.loadAuthedMediaBlobUrl(attachmentId).then(function (blobUrl) {
+        if (blobUrl && !lightboxEl.hidden) lightboxImg.src = blobUrl;
+      });
     };
     if (lightboxClose) lightboxClose.addEventListener('click', closeLightbox);
     if (lightboxEl) lightboxEl.addEventListener('click', function (e) {
@@ -5378,6 +5504,208 @@
         if (file) startUpload(file);
       });
     }
+
+    // ─── Emoji picker — self-contained, no external requests ───
+    var EMOJI_LIST = [
+      '😀', '😁', '😂', '🤣', '😊', '🙂', '😉', '😍', '😘', '😎',
+      '🤔', '😐', '😢', '😭', '😡', '😴', '🥳', '😇', '🤗', '😮',
+      '👍', '👎', '👏', '🙏', '💪', '🤝', '✋', '👋', '✌️', '🤞',
+      '❤️', '🔥', '⭐', '✨', '🎉', '🎁', '💯', '⚡', '✅', '❌',
+      '💬', '📎', '📷', '📞', '⏰', '☕', '👌', '🙌', '😅', '🤒',
+    ];
+    if (emojiBtn && emojiPickerEl) {
+      emojiPickerEl.innerHTML = EMOJI_LIST.map(function (e) {
+        return '<button type="button" class="emoji-item" data-emoji="' + e + '" aria-label="' + e + '">' + e + '</button>';
+      }).join('');
+      emojiPickerEl.addEventListener('click', function (e) {
+        var target = e.target;
+        var btn = (target && target.closest) ? target.closest('[data-emoji]') : null;
+        if (!btn || !msgInput) return;
+        var emoji = btn.getAttribute('data-emoji') || '';
+        var start = msgInput.selectionStart != null ? msgInput.selectionStart : msgInput.value.length;
+        var end = msgInput.selectionEnd != null ? msgInput.selectionEnd : msgInput.value.length;
+        var val = msgInput.value || '';
+        msgInput.value = val.slice(0, start) + emoji + val.slice(end);
+        var pos = start + emoji.length;
+        try { msgInput.setSelectionRange(pos, pos); } catch (_) {}
+        msgInput.focus();
+        try { msgInput.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+      });
+      emojiBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        emojiPickerEl.hidden = !emojiPickerEl.hidden;
+      });
+      // Click-outside-to-close. Attached on `panel` (inside the shadow
+      // root) rather than `document` — a document-level listener would see
+      // every in-panel click retargeted to the shadow host by the Shadow
+      // DOM event-retargeting rules, making `.contains()` checks useless.
+      panel.addEventListener('click', function (e) {
+        if (emojiPickerEl.hidden) return;
+        var t2 = e.target;
+        if (t2 === emojiBtn || (emojiBtn.contains && emojiBtn.contains(t2))) return;
+        if (emojiPickerEl.contains && emojiPickerEl.contains(t2)) return;
+        emojiPickerEl.hidden = true;
+      });
+    }
+
+    // ─── Voice notes — record via MediaRecorder, upload through the same
+    // provider-backed attachment pipeline as picked files (see startUpload
+    // above / server/services/storage — the recording is just another
+    // attachment as far as storage is concerned). ───
+    var AUDIO_EXT_BY_MIME = {
+      'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a',
+      'audio/mpeg': 'mp3', 'audio/wav': 'wav',
+    };
+    var mediaRecorder = null;
+    var recordStream = null;
+    var recordedChunks = [];
+    var recordTimer = null;
+    var recordStartedAt = 0;
+    var recordingActive = false;
+    var recordCommitted = false;
+
+    function fmtRecordTime(ms) {
+      var s = Math.max(0, Math.floor(ms / 1000));
+      var m = Math.floor(s / 60);
+      s = s % 60;
+      return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+    function stopMicStream() {
+      if (recordStream) {
+        try { recordStream.getTracks().forEach(function (tr) { tr.stop(); }); } catch (_) {}
+        recordStream = null;
+      }
+    }
+    function renderRecordingUI() {
+      if (!attachTray) return;
+      attachTray.hidden = false;
+      attachTray.innerHTML =
+        '<div class="attach-chip status-recording recording-chip">' +
+          '<span class="rec-dot" aria-hidden="true"></span>' +
+          '<div class="attach-chip-meta">' +
+            '<div class="attach-chip-name">' + Util.escapeHtml(t('recording') || 'Recording…') + '</div>' +
+            '<div class="attach-chip-sub" data-rec-timer>00:00</div>' +
+          '</div>' +
+          '<button type="button" class="attach-chip-retry" data-rec-stop aria-label="' + Util.escapeHtml(t('stopRecording') || 'Stop') + '" title="' + Util.escapeHtml(t('stopRecording') || 'Stop') + '">' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' +
+          '</button>' +
+          '<button type="button" class="attach-chip-remove" data-rec-cancel aria-label="' + Util.escapeHtml(t('cancelRecording') || 'Cancel') + '">×</button>' +
+        '</div>';
+      var stopBtn = attachTray.querySelector('[data-rec-stop]');
+      if (stopBtn) stopBtn.addEventListener('click', function () { finishRecording(true); });
+      var cancelBtn = attachTray.querySelector('[data-rec-cancel]');
+      if (cancelBtn) cancelBtn.addEventListener('click', function () { finishRecording(false); });
+    }
+    function tickRecordTimer() {
+      if (!attachTray) return;
+      var el = attachTray.querySelector('[data-rec-timer]');
+      if (el) el.textContent = fmtRecordTime(Date.now() - recordStartedAt);
+    }
+    function startRecording() {
+      if (recordingActive || !micBtn) return;
+      if (attachmentStore.get().status !== 'idle') return; // one pending attachment at a time
+      if (emojiPickerEl) emojiPickerEl.hidden = true;
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        recordStream = stream;
+        recordedChunks = [];
+        var mr;
+        try { mr = new MediaRecorder(stream); } catch (e) {
+          stopMicStream();
+          attachmentStore.set({ status: 'error', error: t('micUnavailable') || 'Voice messages are not supported in this browser' });
+          return;
+        }
+        mediaRecorder = mr;
+        mr.addEventListener('dataavailable', function (e) {
+          if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+        });
+        mr.addEventListener('stop', function () {
+          stopMicStream();
+          recordingActive = false;
+          micBtn.classList.remove('recording');
+          syncAttachButton();
+          if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+          var chunks = recordedChunks;
+          recordedChunks = [];
+          if (!chunks.length || !recordCommitted) return;
+          var cleanMime = (mr.mimeType || 'audio/webm').split(';')[0];
+          var blob = new Blob(chunks, { type: cleanMime });
+          var ext = AUDIO_EXT_BY_MIME[cleanMime] || 'webm';
+          var fileName = (t('voiceNote') || 'Voice message') + '.' + ext;
+          var file;
+          try { file = new File([blob], fileName, { type: cleanMime }); }
+          catch (_) { file = blob; try { file.name = fileName; } catch (_2) {} }
+          startUpload(file);
+        });
+        recordingActive = true;
+        recordCommitted = false;
+        micBtn.classList.add('recording');
+        if (attachBtn) attachBtn.disabled = true;
+        recordStartedAt = Date.now();
+        renderRecordingUI();
+        recordTimer = setInterval(tickRecordTimer, 500);
+        mr.start();
+      }).catch(function () {
+        attachmentStore.set({ status: 'error', error: t('micDenied') || 'Microphone access denied' });
+      });
+    }
+    function finishRecording(commit) {
+      if (!recordingActive || !mediaRecorder) return;
+      recordCommitted = commit;
+      try { mediaRecorder.stop(); } catch (_) {
+        stopMicStream();
+        recordingActive = false;
+        if (micBtn) micBtn.classList.remove('recording');
+        syncAttachButton();
+        if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+      }
+      if (!commit) resetAttachment(); // clears the tray via the store subscriber
+    }
+    if (micBtn) {
+      micBtn.addEventListener('click', function () {
+        if (recordingActive) finishRecording(true);
+        else startRecording();
+      });
+    }
+
+    // ─── Escalate to a human operator ───────────────────────────────────
+    // Invokes the existing AI-handoff state machine server-side (same
+    // transition keyword-detection already triggers), reachable from an
+    // explicit button instead of requiring the visitor to type the right
+    // words. Only shown once a conversation exists (needs a conversation_id
+    // to escalate).
+    function syncEscalateButton() {
+      if (!escalateBtn) return;
+      escalateBtn.hidden = !chatStore.get().conversationId;
+    }
+    chatStore.subscribe(syncEscalateButton);
+    syncEscalateButton();
+    if (escalateBtn) {
+      escalateBtn.addEventListener('click', function () {
+        if (escalateBtn.disabled) return;
+        var cid = chatStore.get().conversationId;
+        if (!cid) return;
+        escalateBtn.disabled = true;
+        ctx.fetchWith(ctx.apiBase + '/api/widget/escalate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_id: cid,
+            visitor_id: identityStore.get().visitorId || undefined,
+            session_id: identityStore.get().sessionId || undefined,
+          }),
+        }).then(function (r) { return r.json().catch(function () { return {}; }); })
+          .then(function (resp) {
+            if (resp && resp.ok) {
+              escalateBtn.classList.add('sent');
+              escalateBtn.title = t('escalateRequested') || "We've let our team know.";
+            } else {
+              escalateBtn.disabled = false;
+            }
+          })
+          .catch(function () { escalateBtn.disabled = false; });
+      });
+    }
+
     function syncAttachButton() {
       if (!attachBtn) return;
       var conn = transportStore.get().connectionState;
@@ -5386,6 +5714,7 @@
         && !((pState.status === 'offline' || pState.status === 'unavailable')
           && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
       attachBtn.disabled = !(conn === 'online' && availOk);
+      if (micBtn && !recordingActive) micBtn.disabled = !(conn === 'online' && availOk);
     }
     transportStore.subscribe(syncAttachButton);
     presenceStore.subscribe(syncAttachButton);
@@ -5577,7 +5906,8 @@
         file_name: att.fileName,
         mime_type: att.mimeType,
         size_bytes: att.sizeBytes,
-        kind: (att.mimeType && /^image\//.test(att.mimeType)) ? 'image' : 'file',
+        kind: (att.mimeType && /^image\//.test(att.mimeType)) ? 'image'
+          : (att.mimeType && /^audio\//.test(att.mimeType)) ? 'audio' : 'file',
       } : null;
       if (hasReadyAttach) resetAttachment();
       chatUI.sendMessage(text, renderBody, attachmentId, optimisticAtt);

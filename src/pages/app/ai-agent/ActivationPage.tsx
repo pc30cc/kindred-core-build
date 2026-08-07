@@ -1,11 +1,9 @@
-import { useState, useEffect } from 'react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentDiagnostics, useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
@@ -41,12 +39,6 @@ export default function ActivationPage() {
   const { data: settingsData } = useAiAgentSettings(workspace?.id);
   const update = useUpdateAiAgentSettings(workspace?.id);
   const settings = settingsData?.settings;
-
-  // Local draft for the intro message textarea so typing isn't blocked by mutation latency.
-  const [introDraft, setIntroDraft] = useState<string>('');
-  useEffect(() => {
-    if (settings) setIntroDraft(settings.intro_message || '');
-  }, [settings?.intro_message]);
 
   if (isLoading || !diag || !settings) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -122,37 +114,15 @@ export default function ActivationPage() {
         </CardContent>
       </Card>
 
-      {/* Intro */}
+      {/* Intro — moved to the dedicated "Intro & Handoff" tab, which supports
+          per-language text. Kept as a pointer here to avoid two conflicting
+          editors for the same setting. */}
       <Card>
         <CardHeader><CardTitle className="text-base">Pre-chat introduction</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Send AI intro after pre-chat</Label>
-              <p className="text-xs text-muted-foreground mt-1">When a visitor finishes pre-chat, the AI sends a single welcome message. Only fires in auto-reply modes.</p>
-            </div>
-            <Switch
-              checked={settings.ai_intro_enabled !== false}
-              onCheckedChange={(v) => patch({ ai_intro_enabled: v })}
-              disabled={update.isPending}
-            />
-          </div>
-          <div>
-            <Label htmlFor="intro_message">Intro message</Label>
-            <Textarea
-              id="intro_message"
-              className="mt-1.5"
-              rows={3}
-              placeholder="Leave empty to use a default templated greeting in the visitor's language."
-              value={introDraft}
-              onChange={(e) => setIntroDraft(e.target.value)}
-              onBlur={() => {
-                if ((settings.intro_message || '') !== introDraft) {
-                  patch({ intro_message: introDraft || null });
-                }
-              }}
-            />
-          </div>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Manage the intro message (per language) and handoff keywords from the <strong>Intro &amp; Handoff</strong> tab.
+          </p>
         </CardContent>
       </Card>
 

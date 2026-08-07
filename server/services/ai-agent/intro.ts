@@ -47,6 +47,14 @@ function pickLocale(loc?: string): 'en' | 'fa' | 'tr' {
 }
 
 export function buildIntroBody(settings: AgentSettings, locale?: string): string {
+  const localized = settings.intro_message_localized;
+  if (localized && typeof localized === 'object') {
+    const loc = pickLocale(locale);
+    const direct = localized[loc];
+    if (typeof direct === 'string' && direct.trim()) return direct.trim();
+    const en = localized.en;
+    if (typeof en === 'string' && en.trim()) return en.trim();
+  }
   if (settings.intro_message && settings.intro_message.trim()) {
     return settings.intro_message.trim();
   }

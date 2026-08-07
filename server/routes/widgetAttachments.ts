@@ -40,11 +40,16 @@ export const widgetAttachmentsRouter = Router();
 
 // ─── Hard global bounds (regardless of workspace settings) ──────────
 const HARD_MAX_BYTES = 25 * 1024 * 1024; // 25MB absolute ceiling for v1
+// File attachments — gated by attachments_enabled + attachments_allowed_mimes.
 const GLOBAL_ALLOWED_MIMES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'application/pdf', 'text/plain',
-  // Voice notes recorded in-browser via MediaRecorder — covers Chrome/
-  // Firefox (audio/webm), Safari (audio/mp4), and generic fallbacks.
+]);
+// Voice notes — a SEPARATE toggle (voice_notes_enabled) from file
+// attachments, with a fixed mime set (not admin-configurable, unlike
+// attachments_allowed_mimes) — covers Chrome/Firefox (audio/webm),
+// Safari (audio/mp4), and generic fallbacks.
+const AUDIO_MIMES = new Set([
   'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
 ]);
 const EXT_BY_MIME: Record<string, string> = {
@@ -91,13 +96,14 @@ async function loadWorkspaceAttachmentSettings(config: ServerConfig, workspaceId
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('widget_settings')
-    .select('attachments_enabled, attachments_max_size_mb, attachments_allowed_mimes, enabled, chat_enabled')
+    .select('attachments_enabled, attachments_max_size_mb, attachments_allowed_mimes, voice_notes_enabled, enabled, chat_enabled')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   return {
     widgetEnabled: data?.enabled !== false,
     chatEnabled: data?.chat_enabled !== false,
     enabled: !!data?.attachments_enabled,
+    voiceEnabled: !!data?.voice_notes_enabled,
     maxBytes: Math.min(((data?.attachments_max_size_mb ?? 10) * 1024 * 1024), HARD_MAX_BYTES),
     allowedMimes: new Set<string>(
       (data?.attachments_allowed_mimes && Array.isArray(data.attachments_allowed_mimes)
@@ -137,11 +143,21 @@ widgetAttachmentsRouter.post('/init', enforceWidgetToken, async (req: Request, r
   if (!settings.widgetEnabled || !settings.chatEnabled) {
     return res.status(403).json({ error: 'Widget chat not enabled' });
   }
-  if (!settings.enabled) {
-    return res.status(403).json({ error: 'Attachments not enabled for this workspace' });
-  }
-  if (!settings.allowedMimes.has(data.mime_type)) {
-    return res.status(415).json({ error: 'File type not allowed', mime_type: data.mime_type });
+
+  const isVoiceNote = AUDIO_MIMES.has(data.mime_type);
+  if (isVoiceNote) {
+    // Voice notes have their own toggle — independent of file attachments,
+    // and not subject to the admin-configurable allowedMimes list.
+    if (!settings.voiceEnabled) {
+      return res.status(403).json({ error: 'Voice notes not enabled for this workspace' });
+    }
+  } else {
+    if (!settings.enabled) {
+      return res.status(403).json({ error: 'Attachments not enabled for this workspace' });
+    }
+    if (!settings.allowedMimes.has(data.mime_type)) {
+      return res.status(415).json({ error: 'File type not allowed', mime_type: data.mime_type });
+    }
   }
   if (data.size_bytes > settings.maxBytes) {
     return res.status(413).json({ error: 'File too large', max_bytes: settings.maxBytes });

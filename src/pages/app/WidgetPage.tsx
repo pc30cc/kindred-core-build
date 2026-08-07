@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { cn } from '@/lib/utils';
@@ -574,16 +574,24 @@ function WidgetPageContent() {
               <Card className="card-elevated">
                 <CardContent className="p-6 space-y-5">
                   {[
-                    { key: 'chat_enabled', label: t('widgetPage.behavior.liveChat'), icon: MessageSquare, default: true },
-                    { key: 'kb_enabled', label: t('widgetPage.behavior.knowledgeBase'), icon: Globe, default: true },
-                    { key: 'visitor_tracking_enabled', label: t('widgetPage.behavior.visitorTracking'), icon: Eye, default: true },
+                    { key: 'chat_enabled', label: t('widgetPage.behavior.liveChat'), hint: undefined as string | undefined, icon: MessageSquare, default: true },
+                    { key: 'kb_enabled', label: t('widgetPage.behavior.knowledgeBase'), hint: undefined as string | undefined, icon: Globe, default: true },
+                    { key: 'visitor_tracking_enabled', label: t('widgetPage.behavior.visitorTracking'), hint: undefined as string | undefined, icon: Eye, default: true },
+                    { key: 'attachments_enabled', label: t('widgetPage.behavior.fileSharing'), hint: t('widgetPage.behavior.fileSharingHint'), icon: Paperclip, default: false },
+                    { key: 'voice_notes_enabled', label: t('widgetPage.behavior.voiceNotes'), hint: t('widgetPage.behavior.voiceNotesHint'), icon: Mic, default: false },
+                    { key: 'emoji_enabled', label: t('widgetPage.behavior.emoji'), hint: t('widgetPage.behavior.emojiHint'), icon: Smile, default: true },
                   ].map(feature => (
                     <div key={feature.key} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                       <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-primary/10">
                           <feature.icon className="h-4 w-4 text-primary" />
                         </div>
-                        <Label className="text-sm">{feature.label}</Label>
+                        <div>
+                          <Label className="text-sm">{feature.label}</Label>
+                          {feature.hint && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{feature.hint}</p>
+                          )}
+                        </div>
                       </div>
                       <Switch
                         checked={(widget as any)?.[feature.key] ?? feature.default}

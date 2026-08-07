@@ -5198,8 +5198,14 @@
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
+    var composerCfg = (ctx.config && ctx.config.composer) || {};
     var micSupported = !!(typeof navigator !== 'undefined' && navigator.mediaDevices
       && navigator.mediaDevices.getUserMedia && typeof window.MediaRecorder === 'function');
+    // Voice notes and file attachments are independent workspace toggles —
+    // see server DEFAULT_WIDGET_SETTINGS.voice_notes_enabled /
+    // .attachments_enabled. Emoji defaults to on unless explicitly disabled.
+    var voiceNotesEnabled = attachCfg.voiceNotesEnabled === true;
+    var emojiEnabled = composerCfg.emojiEnabled !== false;
     var inputHtml = chatEnabled
       ? '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
           '<span class="typing-dots"><span></span><span></span><span></span></span>' +
@@ -5223,16 +5229,18 @@
               '</button>' +
               '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
             : '') +
-          (attachCfg.enabled && micSupported
+          (voiceNotesEnabled && micSupported
             ? '<button type="button" class="mic-btn" data-mic-btn title="' + Util.escapeHtml(t('recordVoice')) + '" aria-label="' + Util.escapeHtml(t('recordVoice')) + '">' +
                 '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>' +
                 '<span class="mic-ring" aria-hidden="true"></span>' +
               '</button>'
             : '') +
         '</div>' +
-        '<button type="button" class="emoji-btn" data-emoji-btn title="' + Util.escapeHtml(t('emojiPicker')) + '" aria-label="' + Util.escapeHtml(t('emojiPicker')) + '">' +
-          '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
-        '</button>' +
+        (emojiEnabled
+          ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + Util.escapeHtml(t('emojiPicker')) + '" aria-label="' + Util.escapeHtml(t('emojiPicker')) + '">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
+            '</button>'
+          : '') +
         '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
         '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
         '</button>' +

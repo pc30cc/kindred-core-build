@@ -3690,6 +3690,12 @@ const tr: TranslationKeys = {
       liveChat: 'Canlı sohbet',
       knowledgeBase: 'Bilgi bankası',
       visitorTracking: 'Ziyaretçi takibi',
+      fileSharing: 'Dosya paylaşımı',
+      fileSharingHint: 'Ziyaretçilerin sohbetten dosya göndermesine izin ver.',
+      voiceNotes: 'Sesli mesajlar',
+      voiceNotesHint: 'Widget üzerinde ses kaydı düğmesini göster.',
+      emoji: 'Emoji',
+      emojiHint: 'Mesaj kutusunda emoji seçiciyi göster.',
     },
     domains: {
       description: 'Widget yüklemesini belirli alan adlarıyla sınırlayın. Tümüne izin vermek için boş bırakın.',

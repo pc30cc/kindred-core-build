@@ -164,9 +164,12 @@ const DEFAULT_WIDGET_SETTINGS = {
   attachments_allowed_mimes: [
     'image/png', 'image/jpeg', 'image/webp', 'image/gif',
     'application/pdf', 'text/plain',
-    // Voice notes (see widgetAttachments.ts GLOBAL_ALLOWED_MIMES — keep in sync).
-    'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
   ],
+  // Voice notes — independent of file attachments (own toggle, own
+  // fixed audio-mime allow-list server-side; see widgetAttachments.ts).
+  voice_notes_enabled: false,
+  // Emoji picker — client-side only, on by default.
+  emoji_enabled: true,
   // Phase 7 — Read receipts (on by default; admin can disable per-workspace)
   read_receipts_enabled: true,
 };
@@ -728,6 +731,13 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           ? ws.attachments_allowed_mimes
           : ['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain'],
         maxCount: 1, // v1: single file per message
+        // Voice notes — independent toggle from file attachments (own
+        // fixed audio-mime allow-list is enforced server-side, not
+        // configurable via allowedMimes above).
+        voiceNotesEnabled: ws.voice_notes_enabled === true,
+      },
+      composer: {
+        emojiEnabled: ws.emoji_enabled !== false,
       },
       // Phase 7 — Read receipts toggle. When false, the widget shows only
       // sending/sent (no "Seen" indicator). The widget never invents seen

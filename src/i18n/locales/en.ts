@@ -3703,6 +3703,12 @@ const en = {
       liveChat: 'Live chat',
       knowledgeBase: 'Knowledge base',
       visitorTracking: 'Visitor tracking',
+      fileSharing: 'File sharing',
+      fileSharingHint: 'Let visitors send files from the chat.',
+      voiceNotes: 'Voice messages',
+      voiceNotesHint: 'Show the voice-recording button in the widget.',
+      emoji: 'Emoji',
+      emojiHint: 'Show the emoji picker in the message box.',
     },
     domains: {
       description: 'Restrict widget loading to specific domains. Leave empty to allow all.',

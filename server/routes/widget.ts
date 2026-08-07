@@ -53,7 +53,7 @@ import {
 } from '../services/widget/security.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
 import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
-import { clearAiManagementForPlatformOff } from '../services/ai-agent/handoffState.js';
+import { clearAiManagementForPlatformOff, markNeedsHuman } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import {
   pinContactOnVisitorSessions,
@@ -164,6 +164,8 @@ const DEFAULT_WIDGET_SETTINGS = {
   attachments_allowed_mimes: [
     'image/png', 'image/jpeg', 'image/webp', 'image/gif',
     'application/pdf', 'text/plain',
+    // Voice notes (see widgetAttachments.ts GLOBAL_ALLOWED_MIMES — keep in sync).
+    'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
   ],
   // Phase 7 — Read receipts (on by default; admin can disable per-workspace)
   read_receipts_enabled: true,
@@ -1930,6 +1932,50 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
   } catch (err: any) {
     console.error('[widget-action] Error:', err.message);
     res.status(500).json({ error: 'Action failed' });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// POST /escalate — Visitor-initiated "talk to a human" request.
+// Invokes the existing AI handoff state machine (markNeedsHuman) so the
+// conversation moves to `needs_human` in the inbox and the AI stops
+// auto-replying — the same transition that keyword-detection already
+// triggers server-side, just reachable from an explicit widget button
+// instead of requiring the visitor to type the right words.
+// ═══════════════════════════════════════════════
+const escalateSchema = z.object({
+  conversation_id: z.string().uuid(),
+  visitor_id: z.string().min(1).max(255).optional(),
+  session_id: z.string().uuid().nullable().optional(),
+});
+widgetRouter.post('/escalate', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const parsed = escalateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  const { conversation_id, visitor_id, session_id } = parsed.data;
+
+  const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
+  if (!ownership.valid) {
+    return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+  }
+
+  try {
+    await markNeedsHuman(config, { workspaceId, conversationId: conversation_id, reason: 'human_request' });
+    void recordConversationEvent(config, {
+      workspaceId,
+      conversationId: conversation_id,
+      eventType: 'escalation_requested',
+      actorType: 'visitor',
+      payload: { source: 'widget_button' },
+    });
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[widget-escalate] Error:', err.message);
+    return res.status(500).json({ error: 'escalate_failed' });
   }
 });
 

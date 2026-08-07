@@ -47,6 +47,7 @@ import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } f
 import { executeRuntimeActions } from './runtime/actionExecutor.js';
 import { executeMatchedWorkflows, buildExecutedWorkflowMetadata, type WorkflowExecutionResult } from './runtime/workflowExecutor.js';
 import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
+import { getPlatformAllowedLocales } from '../platformRegion.js';
 
 export interface MaybeRunInput {
   workspaceId: string;

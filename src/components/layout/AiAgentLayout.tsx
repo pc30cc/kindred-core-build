@@ -4,7 +4,7 @@ import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, MessageCircle, Activity, Settings as SettingsIcon } from 'lucide-react';
+import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { PlanAccessGate } from '@/components/plan/PlanAccessGate';
 
@@ -18,7 +18,6 @@ const groups: NavGroup[] = [
       { key: 'knowledge', label: 'Knowledge Sources', subPath: '/ai-agent/knowledge', icon: BookOpen },
       { key: 'behavior', label: 'Behavior', subPath: '/ai-agent/behavior', icon: Sliders },
       { key: 'operatorAssist', label: 'Operator Assist', subPath: '/ai-agent/operator-assist', icon: Sparkles },
-      { key: 'intro', label: 'Intro & Handoff', subPath: '/ai-agent/intro', icon: MessageCircle },
       { key: 'activity', label: 'Activity', subPath: '/ai-agent/activity', icon: Activity },
       { key: 'settings', label: 'Settings', subPath: '/ai-agent/settings', icon: SettingsIcon },
     ],

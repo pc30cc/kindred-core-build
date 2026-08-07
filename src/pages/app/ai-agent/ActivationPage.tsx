@@ -114,14 +114,14 @@ export default function ActivationPage() {
         </CardContent>
       </Card>
 
-      {/* Intro — moved to the dedicated "Intro & Handoff" tab, which supports
-          per-language text. Kept as a pointer here to avoid two conflicting
-          editors for the same setting. */}
+      {/* Intro — lives in the Settings tab now, which supports per-language
+          text. Kept as a pointer here to avoid two conflicting editors for
+          the same setting. */}
       <Card>
         <CardHeader><CardTitle className="text-base">Pre-chat introduction</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Manage the intro message (per language) and handoff keywords from the <strong>Intro &amp; Handoff</strong> tab.
+            Manage the intro message (per language) and handoff keywords from the <strong>Settings</strong> tab.
           </p>
         </CardContent>
       </Card>

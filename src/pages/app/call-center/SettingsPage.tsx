@@ -16,6 +16,7 @@ import { AlertCircle, ChevronDown, RotateCcw, Save, Languages } from 'lucide-rea
 import { CheckCircle2, XCircle, ShieldCheck, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
 // Team & Departments instead of the deprecated Call Center departments
 // hook. Only departments with a Call Center channel enabled are
@@ -52,6 +53,7 @@ function Row({ label, hint, locked, children }: { label: string; hint?: string; 
 export default function CallCenterSettingsPage() {
   const { t, dir } = useTranslation();
   const { workspace } = useActiveWorkspace();
+  const { allowedLocales: regionLocales, canSwitchLanguage: regionMultilingual } = usePlatformRegion();
   const { slug } = useParams();
   const { data, isLoading } = useCallCenterSettings(workspace?.id);
   const update = useUpdateCallCenterSettings(workspace?.id);
@@ -196,19 +198,34 @@ export default function CallCenterSettingsPage() {
           fa: { label: 'Persian', native: 'فارسی' },
           tr: { label: 'Turkish', native: 'Türkçe' },
         };
-        const platformAvail: string[] = (platform as any)?.widget_available_locales || ['en'];
+        // Intersect the call-center-specific "available locales" (set by a
+        // super admin for this feature) with the platform's active
+        // region/language mode — the call center can never offer a language
+        // the rest of the product doesn't speak on this deployment.
+        const rawPlatformAvail: string[] = (platform as any)?.widget_available_locales || ['en'];
+        const regionScoped = rawPlatformAvail.filter((c) => regionLocales.includes(c));
+        const platformAvail: string[] = regionScoped.length ? regionScoped : (regionLocales.length ? regionLocales : rawPlatformAvail);
         const platformDefault: string = (platform as any)?.widget_default_locale || 'en';
         const wsEnabled: string[] = (s.widget_enabled_locales && s.widget_enabled_locales.length > 0)
           ? s.widget_enabled_locales
           : platformAvail;
-        const wsDefault: string = s.widget_default_locale
-          || (platformAvail.includes(platformDefault) ? platformDefault : platformAvail[0]);
+        const wsDefault: string = (s.widget_default_locale && platformAvail.includes(s.widget_default_locale))
+          ? s.widget_default_locale
+          : (platformAvail.includes(platformDefault) ? platformDefault : platformAvail[0]);
         const effective = wsEnabled.filter((c) => platformAvail.includes(c));
+        const singleLanguage = !regionMultilingual || platformAvail.length <= 1;
         return (
           <Section
             title={t('callCenter.settingsPage.widgetLanguages')}
             description={t('callCenter.settingsPage.widgetLanguagesHint')}
           >
+            {singleLanguage ? (
+              <p className="text-sm text-muted-foreground">
+                {(LOC_LABELS[platformAvail[0]]?.label) || platformAvail[0]}
+                <span className="ms-1">({LOC_LABELS[platformAvail[0]]?.native || platformAvail[0]})</span>
+              </p>
+            ) : (
+            <>
             <Row label={t('callCenter.settingsPage.defaultLanguage')} hint={t('callCenter.settingsPage.defaultLanguageHint')}>
               <Select
                 value={wsDefault}
@@ -272,10 +289,9 @@ export default function CallCenterSettingsPage() {
                   );
                 })}
               </div>
-              {platformAvail.length <= 1 && (
-                <p className="text-xs text-amber-600">{t('callCenter.settingsPage.onlyOneLanguage')}</p>
-              )}
             </div>
+            </>
+            )}
           </Section>
         );
       })()}

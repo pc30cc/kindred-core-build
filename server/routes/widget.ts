@@ -76,6 +76,7 @@ import { emitMetric, emitLog } from '../services/observability/metrics.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
+import { getPlatformAllowedLocales } from '../services/platformRegion.js';
 
 export const widgetRouter = Router();
 

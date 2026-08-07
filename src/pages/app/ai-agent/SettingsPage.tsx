@@ -27,6 +27,11 @@ const FALLBACK_HANDOFF_TEMPLATES: Record<string, string> = {
   tr: 'Tamam — sizi bir temsilciye bağlıyorum.',
   en: "Sure — I'll connect you with a human agent.",
 };
+const FALLBACK_HANDOFF_PRECHAT_TEMPLATES: Record<string, string> = {
+  fa: 'برای اینکه اپراتورهای ما بتوانند بهتر به شما پاسخگو باشند لطفا اطلاعات خودتان را تکمیل کنید.',
+  tr: 'Ekibimizin size daha iyi yardımcı olabilmesi için lütfen bilgilerinizi tamamlayın.',
+  en: 'So our team can help you faster, please complete your info below.',
+};
 const LOCALE_LABELS: Record<string, string> = { fa: 'فارسی', en: 'English', tr: 'Türkçe' };
 const LOCALE_DIR: Record<string, 'rtl' | 'ltr'> = { fa: 'rtl', en: 'ltr', tr: 'ltr' };
 
@@ -54,6 +59,7 @@ export default function AiAgentSettingsPage() {
   const [enabling, setEnabling] = useState(false);
   const [introDrafts, setIntroDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [handoffDrafts, setHandoffDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
+  const [handoffPrechatDrafts, setHandoffPrechatDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [newKeyword, setNewKeyword] = useState('');
   const [keywordError, setKeywordError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,6 +73,10 @@ export default function AiAgentSettingsPage() {
     const localized = (data?.settings?.handoff_message_localized || {}) as Record<string, string>;
     setHandoffDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
   }, [data?.settings?.handoff_message_localized]);
+  useEffect(() => {
+    const localized = (data?.settings?.handoff_prechat_message_localized || {}) as Record<string, string>;
+    setHandoffPrechatDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
+  }, [data?.settings?.handoff_prechat_message_localized]);
 
   if (isLoading || !form) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -118,6 +128,19 @@ export default function AiAgentSettingsPage() {
       await update.mutateAsync({ handoff_message_localized: next });
       set({ handoff_message_localized: next });
       toast.success('پیام ارجاع به اپراتور ذخیره شد');
+    } catch (e: any) {
+      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    }
+  };
+
+  const saveHandoffPrechatMessage = async (code: string, value: string) => {
+    const current = (form.handoff_prechat_message_localized || {}) as Record<string, string>;
+    if ((current[code] || '') === value) return;
+    const next = { ...current, [code]: value };
+    try {
+      await update.mutateAsync({ handoff_prechat_message_localized: next });
+      set({ handoff_prechat_message_localized: next });
+      toast.success('پیام درخواست اطلاعات ذخیره شد');
     } catch (e: any) {
       toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
     }
@@ -428,6 +451,42 @@ export default function AiAgentSettingsPage() {
                     value={handoffDrafts[code] ?? ''}
                     onChange={(e) => setHandoffDrafts((d) => ({ ...d, [code]: e.target.value }))}
                     onBlur={(e) => saveHandoffMessage(code, e.target.value)}
+                  />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Handoff pre-chat prompt — the line shown above the inline
+              name/email/phone fields when the AI hands off mid-thread
+              ("so our team can help you faster, please complete your
+              info"). Distinct from the intro/handoff-ack cards above:
+              this is a label on a form, not something the AI "says". */}
+          <Card className="overflow-hidden border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2.5">
+                <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-emerald-500/10 text-emerald-600 ring-emerald-500/20">
+                  <User className="h-4 w-4" />
+                </span>
+                پیام درخواست اطلاعات (هنگام ارجاع)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground -mt-2">
+                وقتی هوش مصنوعی گفتگو را به اپراتور ارجاع می‌دهد و فیلدهای نام/ایمیل/تلفن داخل همان چت نمایش داده می‌شوند، این متن بالای آن‌ها نشان داده می‌شود.
+              </p>
+              {activeLocales.map((code) => (
+                <div key={code}>
+                  {canSwitchLanguage && <Label htmlFor={`handoff-prechat-${code}`}>{LOCALE_LABELS[code] || code}</Label>}
+                  <Textarea
+                    id={`handoff-prechat-${code}`}
+                    className={canSwitchLanguage ? 'mt-1.5' : ''}
+                    rows={2}
+                    dir={LOCALE_DIR[code] || 'ltr'}
+                    placeholder={FALLBACK_HANDOFF_PRECHAT_TEMPLATES[code] || FALLBACK_HANDOFF_PRECHAT_TEMPLATES.en}
+                    value={handoffPrechatDrafts[code] ?? ''}
+                    onChange={(e) => setHandoffPrechatDrafts((d) => ({ ...d, [code]: e.target.value }))}
+                    onBlur={(e) => saveHandoffPrechatMessage(code, e.target.value)}
                   />
                 </div>
               ))}

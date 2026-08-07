@@ -498,6 +498,7 @@
         invalidPhone: 'Please enter a valid phone number.',
         prechatTitle: 'Welcome 👋',
         prechatSubtitle: "Tell us a bit about you so we can help faster.",
+        handoffPrechatSubtitle: 'So our team can help you faster, please complete your info below.',
         prechatOptional: 'optional',
         prechatNamePh: 'Your full name',
         prechatEmailPh: 'name@example.com',
@@ -678,6 +679,7 @@
         invalidPhone: 'لطفاً یک شماره تلفن معتبر وارد کنید.',
         prechatTitle: 'خوش آمدید 👋',
         prechatSubtitle: 'برای پاسخ‌گویی سریع‌تر، چند نکته کوتاه دربارهٔ خودتان بگویید.',
+        handoffPrechatSubtitle: 'برای اینکه اپراتورهای ما بتوانند بهتر به شما پاسخگو باشند لطفا اطلاعات خودتان را تکمیل کنید.',
         prechatOptional: 'اختیاری',
         prechatNamePh: 'نام و نام خانوادگی',
         prechatEmailPh: 'name@example.com',
@@ -851,6 +853,7 @@
         invalidPhone: 'Lütfen geçerli bir telefon numarası girin.',
         prechatTitle: 'Hoş geldiniz 👋',
         prechatSubtitle: 'Size daha hızlı yardımcı olabilmemiz için kendinizden kısaca bahsedin.',
+        handoffPrechatSubtitle: 'Ekibimizin size daha iyi yardımcı olabilmesi için lütfen bilgilerinizi tamamlayın.',
         prechatOptional: 'isteğe bağlı',
         prechatNamePh: 'Ad ve soyad',
         prechatEmailPh: 'ad@ornek.com',
@@ -2292,6 +2295,86 @@
     // kbUI.ensure() is (see the KB module for why that guard matters).
     var qnaState = { loaded: false, loading: false, questions: [], expanded: false };
     var QNA_COLLAPSED_COUNT = 4;
+
+    // ─── AI reply typewriter — word-by-word reveal for a freshly-arrived AI
+    // message only (never on history bootstrap/reload — see the single
+    // call site in the transport 'message' handler). Mutates one bubble's
+    // text node directly on each tick instead of re-rendering, so a full
+    // re-render mid-animation (another message arriving, a store update)
+    // can't fight the interval: buildMessagesHtml() always renders the
+    // CURRENTLY revealed slice for the active id, so the two stay in sync.
+    var lastRenderedBody = null;
+    var lastMergedNewAiMessage = null;
+    var typewriter = null; // { id, tokens, revealedCount, timer }
+    // The handoff pre-chat card's prompt line animates once, the very
+    // first time the card appears — later re-renders (e.g. another store
+    // update while it's still on screen) just show the full text.
+    var handoffPrechatSubtitleAnimated = false;
+
+    // finish=true instantly completes whatever was mid-reveal instead of
+    // leaving it frozen partway through — used when a second thing (e.g.
+    // the handoff pre-chat card's subtitle) claims the single shared
+    // animation slot while an AI chat bubble is still revealing. The
+    // bubble just jumps to its full text rather than staying stuck at
+    // whatever word it was on.
+    function stopTypewriter(finish) {
+      if (typewriter) {
+        if (typewriter.timer) clearInterval(typewriter.timer);
+        if (finish) {
+          var body = lastRenderedBody;
+          var el = body && body.querySelector ? body.querySelector('[data-typing-id="' + typewriter.id + '"]') : null;
+          if (el) {
+            el.textContent = typewriter.tokens.join('');
+            var host = el.closest('[data-typing-host]');
+            if (host) host.removeAttribute('data-typing-active');
+          }
+        }
+      }
+      typewriter = null;
+    }
+
+    function tickTypewriter() {
+      if (!typewriter) return;
+      var step = typewriter.tokens.length > 60 ? 2 : 1;
+      typewriter.revealedCount = Math.min(typewriter.tokens.length, typewriter.revealedCount + step);
+      var done = typewriter.revealedCount >= typewriter.tokens.length;
+      var body = lastRenderedBody;
+      var el = body && body.querySelector ? body.querySelector('[data-typing-id="' + typewriter.id + '"]') : null;
+      if (el) {
+        el.textContent = typewriter.tokens.slice(0, typewriter.revealedCount).join('');
+        if (done) {
+          var host = el.closest('[data-typing-host]');
+          if (host) host.removeAttribute('data-typing-active');
+        }
+        var list = body.querySelector('.messages');
+        if (list) {
+          var nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+          if (nearBottom) list.scrollTop = list.scrollHeight;
+        }
+      }
+      if (done) stopTypewriter();
+    }
+
+    // Word-per-tick reveal, not char-per-tick — each token is one word plus
+    // its trailing whitespace, so join('') reconstructs the original text
+    // exactly (including newlines) once fully revealed. Generic: id just
+    // has to match a `data-typing-id` attribute buildMessagesHtml() (or any
+    // other renderer) puts on the element to reveal into.
+    function startTypewriterFor(id, text) {
+      if (!id) return;
+      var str = (text || '').toString();
+      if (!str.trim()) return;
+      if (typewriter && typewriter.id === id) return; // already animating this one
+      stopTypewriter(true);
+      var tokens = str.match(/\S+\s*/g) || [str];
+      typewriter = { id: id, tokens: tokens, revealedCount: 0, timer: null };
+      typewriter.timer = setInterval(tickTypewriter, 45);
+    }
+
+    function startTypewriter(msg) {
+      if (!msg || !msg.__id || msg.senderType !== 'ai') return;
+      startTypewriterFor(msg.__id, msg.body);
+    }
     function loadQnaSuggestions() {
       if (qnaState.loaded || qnaState.loading) return;
       qnaState.loading = true;
@@ -2359,6 +2442,7 @@
     }
 
     function mergeIncoming(incoming) {
+      lastMergedNewAiMessage = null;
       if (!incoming || !incoming.length) return false;
       var s = chatStore.get();
       var messages = s.messages.slice();
@@ -2474,6 +2558,11 @@
           senderType: senderTypeRaw,
           metadata: (m.metadata && typeof m.metadata === 'object') ? m.metadata : null,
         });
+        // Live-arrival marker for the typewriter reveal — the caller (the
+        // realtime/poll transport handler) reads this after merge to know
+        // whether a NEW AI reply just landed, as opposed to bootstrapHistory
+        // replaying the past. Last one wins if a batch has more than one.
+        if (senderTypeRaw === 'ai') lastMergedNewAiMessage = messages[messages.length - 1];
         changed = true;
       });
 
@@ -3280,11 +3369,27 @@
         // the conversation.
         var leadingHtml = cls === 'operator' ? avatarHtml : statusHtml;
 
+        // Word-by-word reveal — only the one message currently being
+        // "typed" (see startTypewriter) renders its partial slice; every
+        // other bubble (including this same one once the reveal finishes)
+        // renders its full text as normal.
+        var isTypingThis = !!(typewriter && typewriter.id === m.__id);
+        var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
+        var displayText = isTypingThis && !typingDone
+          ? typewriter.tokens.slice(0, typewriter.revealedCount).join('')
+          : m.body;
+        var textHtml = hasText
+          ? '<span class="msg-text"' + (isTypingThis && !typingDone ? ' data-typing-id="' + Util.escapeHtml(m.__id) + '"' : '') + '>' +
+              Util.escapeHtml(displayText) +
+            '</span>'
+          : '';
+
         html += '<div class="msg-row ' + cls + '">' +
           leadingHtml +
-          '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '" ' + bg + '>' +
+          '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '"' +
+            (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
             aiBadgeHtml +
-            (hasText ? Util.escapeHtml(m.body) : '') + attHtml + timeHtml +
+            textHtml + attHtml + timeHtml +
           '</div>' +
           '</div>';
 
@@ -3371,6 +3476,7 @@
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
+      lastRenderedBody = body;
       body.innerHTML = buildMessagesHtml(s);
       wireChatEvents(body);
     }
@@ -3382,13 +3488,34 @@
     // full-page form, then wires both the chat and the card in one pass.
     function renderHandoffPrechatInline(body, identity, locale, onSubmitted) {
       var s = chatStore.get();
-      var cardHtml = renderHandoffPrechatCardHtml(identity, locale);
+      var subtitle = resolveHandoffPrechatSubtitle(locale);
+      var animateSubtitle = !handoffPrechatSubtitleAnimated;
+      var cardHtml = renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle);
+      lastRenderedBody = body;
       body.innerHTML = buildMessagesHtml(s, cardHtml);
       wireChatEvents(body);
       wirePrechatForm(body, identity, onSubmitted, { autofocus: false });
+      if (animateSubtitle) {
+        handoffPrechatSubtitleAnimated = true;
+        startTypewriterFor('hc-subtitle', subtitle);
+      }
     }
 
-    function renderHandoffPrechatCardHtml(identity, locale) {
+    // Owner-configurable per-locale text (AI Agent settings) with a
+    // built-in fallback — same resolution order as the server-side
+    // pickHandoffAckMessage/buildIntroBody helpers.
+    function resolveHandoffPrechatSubtitle(locale) {
+      var cfg = (ctx.config && ctx.config.aiAgent && ctx.config.aiAgent.handoffPrechatMessageLocalized) || {};
+      var loc = (locale || 'en').toLowerCase();
+      var candidates = [loc, loc.split('-')[0], 'en'];
+      for (var i = 0; i < candidates.length; i++) {
+        var v = cfg[candidates[i]];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+      }
+      return t('handoffPrechatSubtitle') || t('prechatSubtitle');
+    }
+
+    function renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle) {
       var contact = (identityStore.get().contact) || {};
       var fieldsHtml = '';
       if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
@@ -3396,13 +3523,22 @@
       if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
       var dir = locale === 'fa' ? 'rtl' : 'ltr';
       var iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
-      return '<div class="msg-row system">' +
+      // The prompt line animates word-by-word the first time it's shown
+      // (data-typing-id="hc-subtitle" + empty text — startTypewriterFor
+      // fills it in right after this HTML lands in the DOM). Every other
+      // field/label here is already accessible/professional as-is — the
+      // request was specifically about this line and about not boxing the
+      // fields off from the rest of the conversation (see .hc-card CSS).
+      var subtitleHtml = animateSubtitle
+        ? '<div class="hc-subtitle" data-typing-host data-typing-active="1" data-typing-id="hc-subtitle"></div>'
+        : '<div class="hc-subtitle">' + Util.escapeHtml(subtitle) + '</div>';
+      return '<div class="msg-row operator">' +
         '<div class="hc-card" dir="' + dir + '" role="group" aria-label="' + Util.escapeHtml(t('prechatTitle')) + '">' +
           '<div class="hc-header">' +
             '<span class="hc-icon" aria-hidden="true">' + iconSvg + '</span>' +
             '<div class="hc-text">' +
               '<div class="hc-title">' + Util.escapeHtml(t('prechatTitle')) + '</div>' +
-              '<div class="hc-subtitle">' + Util.escapeHtml(t('prechatSubtitle')) + '</div>' +
+              subtitleHtml +
             '</div>' +
           '</div>' +
           '<div class="prechat-fields hc-fields">' + fieldsHtml + '</div>' +
@@ -3699,6 +3835,8 @@
       sendMessage: sendMessage,
       bootstrapHistory: bootstrapHistory,
       mergeIncoming: mergeIncoming,
+      startTypewriter: startTypewriter,
+      getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
     };
   }
 
@@ -6844,6 +6982,13 @@
     transport.on('message', function (payload) {
       var incoming = (payload && payload.messages) || [];
       var changed = chatUI.mergeIncoming(incoming);
+      // Word-by-word reveal only for a message that just arrived live over
+      // realtime/poll — never for bootstrapHistory's replay of the past,
+      // which calls mergeIncoming directly and never touches this marker.
+      if (changed) {
+        var freshAiMsg = chatUI.getLastMergedAiMessage && chatUI.getLastMergedAiMessage();
+        if (freshAiMsg) chatUI.startTypewriter(freshAiMsg);
+      }
       if (changed && shellStore.get().activeTab === 'chat') renderBody();
       if (!incoming.length) return;
 

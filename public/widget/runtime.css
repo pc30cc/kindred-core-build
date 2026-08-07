@@ -2424,30 +2424,20 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
   }
 }
 
-/* Inline handoff pre-chat card — same chrome family as .ci-card, so the
-   identify-yourself prompt reads as part of the conversation instead of
-   replacing it. Field/validation styling is the existing .prechat-* set;
-   this block only covers the card frame + header. */
+/* Inline handoff pre-chat prompt — deliberately NOT a bordered/shadowed
+   card (that read as "yet another box" popping up over the conversation).
+   It sits in the message flow like an operator/AI turn: same left-aligned
+   `.msg-row.operator` placement, same ~80% width ceiling as a bubble, no
+   background or frame of its own — just the icon + prompt + fields,
+   blended into the chat instead of boxed off from it. Field/validation
+   styling is the existing .prechat-* set; this block only covers layout. */
 .hc-card {
   width: 100%;
-  max-width: 340px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 14px;
-  padding: 14px 14px 12px;
+  max-width: 85%;
+  padding: 2px 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 6px 18px -10px rgba(15, 23, 42, 0.18), 0 1px 2px rgba(15, 23, 42, 0.04);
-  position: relative;
-  overflow: hidden;
-}
-.hc-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--gs-primary, #3B82F6), color-mix(in srgb, var(--gs-primary, #3B82F6) 40%, transparent));
 }
 .hc-header { display: flex; align-items: flex-start; gap: 10px; }
 .hc-icon {
@@ -2468,7 +2458,6 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 .hc-fields { margin-top: 2px; }
 .hc-submit { width: 100%; }
 @media (prefers-color-scheme: dark) {
-  .hc-card { background: #0f172a; border-color: #1e293b; box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.5); }
   .hc-icon { background: color-mix(in srgb, var(--gs-primary, #3B82F6) 22%, #1e293b); }
   .hc-title { color: #f1f5f9; }
   .hc-subtitle { color: #cbd5e1; }
@@ -2499,6 +2488,26 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
     background: rgba(96, 165, 250, 0.18);
     color: #93c5fd;
   }
+}
+
+/* Word-by-word reveal caret — shown only on the one AI bubble currently
+   being "typed" (see startTypewriter in runtime.js). Removed the instant
+   the reveal finishes; not present on any historical/bootstrapped bubble. */
+[data-typing-host][data-typing-active="1"] .msg-text::after,
+[data-typing-host][data-typing-active="1"] .hc-subtitle::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-inline-start: 2px;
+  background: currentColor;
+  opacity: 0.6;
+  vertical-align: text-bottom;
+  animation: gs-typing-caret 0.85s step-end infinite;
+}
+@keyframes gs-typing-caret {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════

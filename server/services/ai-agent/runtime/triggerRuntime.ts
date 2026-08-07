@@ -17,6 +17,7 @@
 import type { MessageTrigger } from '../runtimeConfig.js';
 import type { RuntimeEvaluationContext, RuntimeAction } from './types.js';
 import { readRuntimeFlags } from './conversationState.js';
+import { textMatchesLocale } from '../../platformRegion.js';
 
 export type TriggerEventType =
   | 'after_prechat'
@@ -190,6 +191,20 @@ export function evaluateMessageTriggers(
             reason: 'send_message', executed: false, skippedReason: 'empty_message',
           };
           out.actions.push(sk); out.skipped.push(sk);
+          break;
+        }
+        // Content authored in one language only (no per-locale translations
+        // set up) must never leak verbatim to a visitor expecting a
+        // different language — e.g. a trigger typed only in Turkish firing
+        // as-is on a Persian response. Same script-based heuristic already
+        // used to keep the AI intro from leaking the wrong language.
+        if (!textMatchesLocale(body, ctx.responseLanguage)) {
+          const sk: RuntimeAction = {
+            type: 'skip', source: 'message_trigger', sourceId: trig.id, sourceName: trig.name,
+            reason: 'send_message', executed: false, skippedReason: 'language_mismatch',
+          };
+          out.actions.push(sk); out.skipped.push(sk);
+          console.log('[ai-agent.runtime.trigger] skipped_language_mismatch', { id: trig.id, responseLanguage: ctx.responseLanguage });
           break;
         }
         const continueAi = payload.continue_ai === true;

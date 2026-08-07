@@ -543,6 +543,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       agentLogoUrl: string | null;
       disabledByPlatform: boolean;
       disabledMessage: string | null;
+      // Owner-configurable text for the inline pre-chat card shown when the
+      // AI hands off to a human mid-conversation. Empty = client falls back
+      // to its own built-in copy.
+      handoffPrechatMessageLocalized: Record<string, string>;
     } = {
       enabled: false,
       mode: 'off',
@@ -552,6 +556,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       agentLogoUrl: null,
       disabledByPlatform: false,
       disabledMessage: null,
+      handoffPrechatMessageLocalized: {},
     };
     try {
       // E12 — platform kill switch wins over workspace AI settings.
@@ -571,11 +576,12 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           agentLogoUrl: null,
           disabledByPlatform: true,
           disabledMessage: platform?.disabled_message || null,
+          handoffPrechatMessageLocalized: {},
         };
       } else {
       const { data: aiSettings } = await supabase
         .from('ai_agent_settings')
-        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url')
+        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, handoff_prechat_message_localized')
         .eq('workspace_id', workspaceId)
         .maybeSingle();
       if (aiSettings) {
@@ -620,6 +626,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           agentLogoUrl: aiSettings.agent_logo_url || null,
           disabledByPlatform: false,
           disabledMessage: null,
+          handoffPrechatMessageLocalized: (aiSettings as any).handoff_prechat_message_localized
+            && typeof (aiSettings as any).handoff_prechat_message_localized === 'object'
+            ? (aiSettings as any).handoff_prechat_message_localized
+            : {},
         };
       }
       }

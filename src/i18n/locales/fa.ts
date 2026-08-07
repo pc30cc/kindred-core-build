@@ -3690,6 +3690,12 @@ const fa: TranslationKeys = {
       liveChat: 'گفتگوی زنده',
       knowledgeBase: 'پایگاه دانش',
       visitorTracking: 'ردیابی بازدیدکنندگان',
+      fileSharing: 'ارسال فایل',
+      fileSharingHint: 'به بازدیدکننده اجازه بده از داخل چت فایل بفرسته.',
+      voiceNotes: 'ارسال پیام صوتی',
+      voiceNotesHint: 'دکمه‌ی ضبط صدا در ویجت نمایش داده بشه.',
+      emoji: 'شکلک (Emoji)',
+      emojiHint: 'دکمه‌ی انتخاب شکلک در کادر تایپ نمایش داده بشه.',
     },
     domains: {
       description: 'بارگذاری ویجت را به دامنه‌های مشخصی محدود کنید. برای اجازه به همه، خالی بگذارید.',

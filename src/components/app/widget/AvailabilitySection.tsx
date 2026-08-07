@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation, useI18n } from '@/i18n';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -18,6 +19,7 @@ type DayKey = (typeof DAY_KEYS)[number];
 
 const LOCALES = ['en', 'fa', 'tr'] as const;
 type Locale = (typeof LOCALES)[number];
+const LOCALE_LABELS: Record<Locale, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
 // Common IANA timezones — extend later if needed.
 const TIMEZONES = [
@@ -35,6 +37,61 @@ const TIMEZONES = [
   'Asia/Singapore',
   'Australia/Sydney',
 ];
+
+function LocaleFields({
+  loc,
+  t,
+  labels,
+  localizedMsg,
+  setLabel,
+  setLocalizedMessage,
+}: {
+  loc: Locale;
+  t: ReturnType<typeof useTranslation>['t'];
+  labels: Record<string, { online?: string; offline?: string }>;
+  localizedMsg: Record<string, string>;
+  setLabel: (locale: Locale, kind: 'online' | 'offline', value: string) => void;
+  setLocalizedMessage: (locale: Locale, value: string) => void;
+}) {
+  const dir = loc === 'fa' ? 'rtl' : 'ltr';
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('widgetPage.availability.onlineLabel')}</Label>
+          <Input
+            dir={dir}
+            value={labels[loc]?.online || ''}
+            placeholder={t('widgetPage.availability.onlinePlaceholder')}
+            onChange={(e) => setLabel(loc, 'online', e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('widgetPage.availability.offlineLabel')}</Label>
+          <Input
+            dir={dir}
+            value={labels[loc]?.offline || ''}
+            placeholder={t('widgetPage.availability.offlinePlaceholder')}
+            onChange={(e) => setLabel(loc, 'offline', e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">{t('widgetPage.availability.offlineMessage')}</Label>
+        <Textarea
+          dir={dir}
+          rows={4}
+          value={localizedMsg[loc] || ''}
+          placeholder={t('widgetPage.availability.offlineMessagePlaceholder')}
+          onChange={(e) => setLocalizedMessage(loc, e.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t('widgetPage.availability.offlineMessageHint')}
+        </p>
+      </div>
+    </>
+  );
+}
 
 function tzLabel(tz: string, locale: string): string {
   try {
@@ -171,6 +228,11 @@ export function AvailabilitySection({
 }) {
   const { t, dir } = useTranslation();
   const { locale } = useI18n();
+  // The platform's active region/language mode decides which languages are
+  // editable here — a single-language platform (e.g. Persian-only) must not
+  // show a language picker or fields for languages it never speaks.
+  const { allowedLocales } = usePlatformRegion();
+  const activeLocales = (allowedLocales.length ? allowedLocales : LOCALES) as Locale[];
   const DAY_LABELS: Record<DayKey, string> = {
     mon: t('widgetPage.availability.days.mon'),
     tue: t('widgetPage.availability.days.tue'),
@@ -185,7 +247,13 @@ export function AvailabilitySection({
   const liveChatEnabled = settings.live_chat_enabled !== false;
   const labels = (settings.availability_labels || {}) as Record<string, { online?: string; offline?: string }>;
   const localizedMsg = (settings.offline_message_localized || {}) as Record<string, string>;
-  const [activeLocale, setActiveLocale] = useState<Locale>('en');
+  const [activeLocale, setActiveLocale] = useState<Locale>(activeLocales[0] || 'en');
+  useEffect(() => {
+    if (activeLocales.length && !activeLocales.includes(activeLocale)) {
+      setActiveLocale(activeLocales[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLocales.join(',')]);
   const [testEmail, setTestEmail] = useState('');
   const [testing, setTesting] = useState(false);
 
@@ -572,53 +640,38 @@ export function AvailabilitySection({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeLocale} onValueChange={(v) => setActiveLocale(v as Locale)}>
-            <TabsList>
-              <TabsTrigger value="en">English</TabsTrigger>
-              <TabsTrigger value="fa">فارسی</TabsTrigger>
-              <TabsTrigger value="tr">Türkçe</TabsTrigger>
-            </TabsList>
-            {LOCALES.map((loc) => {
-              const dir = loc === 'fa' ? 'rtl' : 'ltr';
-              return (
+          {activeLocales.length > 1 ? (
+            <Tabs value={activeLocale} onValueChange={(v) => setActiveLocale(v as Locale)}>
+              <TabsList>
+                {activeLocales.map((loc) => (
+                  <TabsTrigger key={loc} value={loc}>{LOCALE_LABELS[loc]}</TabsTrigger>
+                ))}
+              </TabsList>
+              {activeLocales.map((loc) => (
                 <TabsContent key={loc} value={loc} className="space-y-4 pt-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">{t('widgetPage.availability.onlineLabel')}</Label>
-                      <Input
-                        dir={dir}
-                        value={labels[loc]?.online || ''}
-                        placeholder={t('widgetPage.availability.onlinePlaceholder')}
-                        onChange={(e) => setLabel(loc, 'online', e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">{t('widgetPage.availability.offlineLabel')}</Label>
-                      <Input
-                        dir={dir}
-                        value={labels[loc]?.offline || ''}
-                        placeholder={t('widgetPage.availability.offlinePlaceholder')}
-                        onChange={(e) => setLabel(loc, 'offline', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">{t('widgetPage.availability.offlineMessage')}</Label>
-                    <Textarea
-                      dir={dir}
-                      rows={4}
-                      value={localizedMsg[loc] || ''}
-                      placeholder={t('widgetPage.availability.offlineMessagePlaceholder')}
-                      onChange={(e) => setLocalizedMessage(loc, e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t('widgetPage.availability.offlineMessageHint')}
-                    </p>
-                  </div>
+                  <LocaleFields
+                    loc={loc}
+                    t={t}
+                    labels={labels}
+                    localizedMsg={localizedMsg}
+                    setLabel={setLabel}
+                    setLocalizedMessage={setLocalizedMessage}
+                  />
                 </TabsContent>
-              );
-            })}
-          </Tabs>
+              ))}
+            </Tabs>
+          ) : (
+            <div className="space-y-4">
+              <LocaleFields
+                loc={activeLocales[0]}
+                t={t}
+                labels={labels}
+                localizedMsg={localizedMsg}
+                setLabel={setLabel}
+                setLocalizedMessage={setLocalizedMessage}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

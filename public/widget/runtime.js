@@ -2953,13 +2953,22 @@
         var timeStr = formatMsgTime(m.time);
         var timeHtml = timeStr ? '<span class="msg-time">' + Util.escapeHtml(timeStr) + '</span>' : '';
 
+        // Visitor rows have no avatar slot, so `statusHtml` (sending/sent/
+        // seen) takes that leading position instead — it must render
+        // BEFORE the bubble, not after. `.msg-row.visitor` is packed to
+        // the physical right edge (`justify-content: flex-end`), so a
+        // trailing sibling lands OUTSIDE the bubble, past it, right up
+        // against the panel edge — a leading sibling lands where a normal
+        // chat app puts it: just inside the bubble, facing the rest of
+        // the conversation.
+        var leadingHtml = cls === 'operator' ? avatarHtml : statusHtml;
+
         html += '<div class="msg-row ' + cls + '">' +
-          avatarHtml +
+          leadingHtml +
           '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '" ' + bg + '>' +
             aiBadgeHtml +
             (hasText ? Util.escapeHtml(m.body) : '') + attHtml + timeHtml +
           '</div>' +
-          statusHtml +
           '</div>';
       });
       html += '</div>';
@@ -5199,27 +5208,32 @@
         '<div class="attach-tray" data-attach-tray hidden></div>' +
         '<div class="emoji-picker" data-emoji-picker hidden></div>' +
         '<div class="input-bar" data-input-bar>' +
-        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
-        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
-        '</button>' +
         '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + Util.escapeHtml(t('talkToHuman')) + '" aria-label="' + Util.escapeHtml(t('talkToHuman')) + '">' +
           '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>' +
         '</button>' +
-        (attachCfg.enabled
-          ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
-            '</button>' +
-            '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
-          : '') +
-        (attachCfg.enabled && micSupported
-          ? '<button type="button" class="mic-btn" data-mic-btn title="' + Util.escapeHtml(t('recordVoice')) + '" aria-label="' + Util.escapeHtml(t('recordVoice')) + '">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>' +
-            '</button>'
-          : '') +
-        '<button type="button" class="emoji-btn" data-emoji-btn title="' + Util.escapeHtml(t('emojiPicker')) + '" aria-label="' + Util.escapeHtml(t('emojiPicker')) + '">' +
-          '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
+        // Emoji, the text field, attach and the mic all live INSIDE one
+        // pill (input-wrap) — a single visually-integrated field instead
+        // of a row of separate circular buttons competing with the input.
+        '<div class="input-wrap" data-input-wrap>' +
+          '<button type="button" class="emoji-btn" data-emoji-btn title="' + Util.escapeHtml(t('emojiPicker')) + '" aria-label="' + Util.escapeHtml(t('emojiPicker')) + '">' +
+            '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
+          '</button>' +
+          '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
+          (attachCfg.enabled
+            ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
+                '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
+              '</button>' +
+              '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
+            : '') +
+          (attachCfg.enabled && micSupported
+            ? '<button type="button" class="mic-btn" data-mic-btn title="' + Util.escapeHtml(t('recordVoice')) + '" aria-label="' + Util.escapeHtml(t('recordVoice')) + '">' +
+                '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>' +
+              '</button>'
+            : '') +
+        '</div>' +
+        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
+        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
         '</button>' +
-        '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
         '</div>'
       : '';
      var poweredHtml = brandName

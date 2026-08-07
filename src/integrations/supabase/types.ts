@@ -701,6 +701,7 @@ export type Database = {
           id: string
           instructions: Json
           intro_message: string | null
+          intro_message_localized: Json
           keep_in_automated_until_handoff: boolean
           learning_enabled: boolean
           max_clarification_attempts: number
@@ -742,6 +743,7 @@ export type Database = {
           id?: string
           instructions?: Json
           intro_message?: string | null
+          intro_message_localized?: Json
           keep_in_automated_until_handoff?: boolean
           learning_enabled?: boolean
           max_clarification_attempts?: number
@@ -783,6 +785,7 @@ export type Database = {
           id?: string
           instructions?: Json
           intro_message?: string | null
+          intro_message_localized?: Json
           keep_in_automated_until_handoff?: boolean
           learning_enabled?: boolean
           max_clarification_attempts?: number
@@ -6984,6 +6987,7 @@ export type Database = {
           created_at: string | null
           debug_mode: boolean
           default_mode: string | null
+          emoji_enabled: boolean
           enabled: boolean | null
           fab_animation: boolean | null
           fab_chat_label: string | null
@@ -7018,6 +7022,7 @@ export type Database = {
           theme: string | null
           updated_at: string | null
           visitor_tracking_enabled: boolean | null
+          voice_notes_enabled: boolean
           welcome_message: string | null
           widget_language: string | null
           workspace_id: string
@@ -7035,6 +7040,7 @@ export type Database = {
           created_at?: string | null
           debug_mode?: boolean
           default_mode?: string | null
+          emoji_enabled?: boolean
           enabled?: boolean | null
           fab_animation?: boolean | null
           fab_chat_label?: string | null
@@ -7069,6 +7075,7 @@ export type Database = {
           theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null
+          voice_notes_enabled?: boolean
           welcome_message?: string | null
           widget_language?: string | null
           workspace_id: string
@@ -7086,6 +7093,7 @@ export type Database = {
           created_at?: string | null
           debug_mode?: boolean
           default_mode?: string | null
+          emoji_enabled?: boolean
           enabled?: boolean | null
           fab_animation?: boolean | null
           fab_chat_label?: string | null
@@ -7120,6 +7128,7 @@ export type Database = {
           theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null
+          voice_notes_enabled?: boolean
           welcome_message?: string | null
           widget_language?: string | null
           workspace_id?: string

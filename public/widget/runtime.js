@@ -549,6 +549,9 @@
         talkToHuman: 'Talk to a human',
         escalateRequested: "We've let our team know — someone will join shortly.",
         escalateFailed: 'Could not reach an operator right now.',
+        chatUnavailable: 'Chat is currently unavailable',
+        attachmentsDisabled: 'File attachments are not enabled',
+        voiceNotesDisabled: 'Voice messages are not enabled',
         // Phase 6b — preview / file actions
         retry: 'Retry',
         download: 'Download',
@@ -717,6 +720,9 @@
         talkToHuman: 'صحبت با اپراتور',
         escalateRequested: 'به تیم پشتیبانی اطلاع داده شد؛ به‌زودی یک اپراتور به گفتگو ملحق می‌شود.',
         escalateFailed: 'در حال حاضر امکان اتصال به اپراتور وجود ندارد.',
+        chatUnavailable: 'چت در حال حاضر در دسترس نیست',
+        attachmentsDisabled: 'ارسال فایل فعال نیست',
+        voiceNotesDisabled: 'ارسال پیام صوتی فعال نیست',
         // Phase 6b — preview / file actions
         retry: 'تلاش مجدد',
         download: 'دانلود',
@@ -879,6 +885,9 @@
         talkToHuman: 'Bir temsilciyle konuşun',
         escalateRequested: 'Ekibimize bildirdik — kısa süre içinde biri katılacak.',
         escalateFailed: 'Şu anda bir temsilciye ulaşılamadı.',
+        chatUnavailable: 'Sohbet şu anda kullanılamıyor',
+        attachmentsDisabled: 'Dosya paylaşımı etkin değil',
+        voiceNotesDisabled: 'Sesli mesajlar etkin değil',
         // Phase 6b — preview / file actions
         retry: 'Yeniden dene',
         download: 'İndir',
@@ -5452,10 +5461,30 @@
       if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
     });
 
+    // The server returns a fixed, known vocabulary of plain-English error
+    // strings for /attachments/init and /upload (see widgetAttachments.ts).
+    // Those are OUR OWN fixed strings, not arbitrary/untrusted text, so a
+    // lookup table can safely map each one to the visitor's locale instead
+    // of leaking English into a Persian/Turkish chat.
+    function localizeUploadError(serverMsg) {
+      var map = {
+        'Widget chat not enabled': t('chatUnavailable') || 'Chat is currently unavailable',
+        'Attachments not enabled for this workspace': t('attachmentsDisabled') || 'File attachments are not enabled',
+        'Voice notes not enabled for this workspace': t('voiceNotesDisabled') || 'Voice messages are not enabled',
+        'File type not allowed': t('typeNotAllowed'),
+        'File too large': t('tooLarge'),
+      };
+      return (serverMsg && map[serverMsg]) || (t('uploadFailed') || 'Upload failed');
+    }
     function startUpload(file) {
       var allowed = (attachCfg.allowedMimes || []);
       var maxBytes = (attachCfg.maxSizeMb || 10) * 1024 * 1024;
-      if (allowed.indexOf(file.type) < 0) {
+      // Voice notes go through this same upload function but are a SEPARATE
+      // toggle/allow-list from file attachments server-side (see
+      // widgetAttachments.ts AUDIO_MIMES) — they must not be checked
+      // against attachCfg.allowedMimes, which only ever lists file types.
+      var isVoiceNote = Object.prototype.hasOwnProperty.call(AUDIO_EXT_BY_MIME, file.type);
+      if (!isVoiceNote && allowed.indexOf(file.type) < 0) {
         attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('typeNotAllowed') || 'File type not allowed', attachmentId: null });
         return;
       }
@@ -5474,7 +5503,7 @@
         body: JSON.stringify({ file_name: file.name, mime_type: file.type, size_bytes: file.size, conversation_id: chatStore.get().conversationId || null }),
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
         .then(function (resp) {
-          if (!resp.ok || !resp.data || !resp.data.attachment_id) throw new Error((resp.data && resp.data.error) || 'init_failed');
+          if (!resp.ok || !resp.data || !resp.data.attachment_id) throw new Error(localizeUploadError(resp.data && resp.data.error));
           attachmentStore.set({ attachmentId: resp.data.attachment_id, progress: 40 });
           return new Promise(function (resolve, reject) {
             var reader = new FileReader();
@@ -5489,11 +5518,15 @@
           });
         })
         .then(function (resp) {
-          if (!resp.ok) throw new Error((resp.data && resp.data.error) || 'upload_failed');
+          if (!resp.ok) throw new Error(localizeUploadError(resp.data && resp.data.error));
           attachmentStore.set({ status: 'ready', progress: 100, error: '' });
         })
         .catch(function (err) {
-          attachmentStore.set({ status: 'error', progress: 0, error: (err && err.message) || (t('uploadFailed') || 'Upload failed') });
+          // read_failed (FileReader) and any network-level rejection never
+          // carry a localized message — fall back to the generic string.
+          var msg = (err && err.message) || '';
+          var isKnownLocalized = msg && msg !== 'read_failed';
+          attachmentStore.set({ status: 'error', progress: 0, error: isKnownLocalized ? msg : (t('uploadFailed') || 'Upload failed') });
         });
     }
     if (attachBtn && attachInput) {
@@ -5702,9 +5735,13 @@
               escalateBtn.title = t('escalateRequested') || "We've let our team know.";
             } else {
               escalateBtn.disabled = false;
+              escalateBtn.title = t('escalateFailed') || 'Could not reach an operator right now.';
             }
           })
-          .catch(function () { escalateBtn.disabled = false; });
+          .catch(function () {
+            escalateBtn.disabled = false;
+            escalateBtn.title = t('escalateFailed') || 'Could not reach an operator right now.';
+          });
       });
     }
 

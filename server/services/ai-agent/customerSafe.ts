@@ -37,6 +37,7 @@ export interface CustomerSafeAgentSettings {
   handoff_when_no_kb_match: boolean;
   ai_intro_enabled: boolean;
   intro_message: string | null;
+  intro_message_localized: Record<string, string>;
   fallback_behavior: 'handoff' | 'silent';
   stop_on_handoff: boolean;
   pause_auto_reply_after_human_reply?: boolean;
@@ -89,6 +90,9 @@ export function toCustomerSafeAiAgentSettings(s: AgentSettings): CustomerSafeAge
     handoff_when_no_kb_match: !!s.handoff_when_no_kb_match,
     ai_intro_enabled: s.ai_intro_enabled !== false,
     intro_message: s.intro_message ?? null,
+    intro_message_localized: (s.intro_message_localized && typeof s.intro_message_localized === 'object')
+      ? s.intro_message_localized
+      : {},
     fallback_behavior: s.fallback_behavior || 'handoff',
     stop_on_handoff: s.stop_on_handoff !== false,
     pause_auto_reply_after_human_reply: s.pause_auto_reply_after_human_reply,

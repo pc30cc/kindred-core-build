@@ -1018,7 +1018,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
     const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-    const messages = await enrichMessagesWithSender(supabase, enriched);
+    const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
 
     let operatorInfo = null;
     if (conv.assigned_to) {
@@ -1106,7 +1106,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-  const messages = await enrichMessagesWithSender(supabase, enriched);
+  const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
 
   return res.json({ messages });
 });

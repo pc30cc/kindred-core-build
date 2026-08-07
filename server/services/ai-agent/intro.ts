@@ -64,7 +64,15 @@ export function buildIntroBody(
   const localized = settings.intro_message_localized;
   if (localized && typeof localized === 'object') {
     const direct = localized[loc];
-    if (typeof direct === 'string' && direct.trim()) return direct.trim();
+    // Locale keys are admin-managed data and can contain stale text copied
+    // from a previously-active language. In a single-language deployment,
+    // validate the text itself as well as its JSON key so a Turkish value
+    // accidentally stored under `fa` can never leak into a new intro.
+    if (
+      typeof direct === 'string'
+      && direct.trim()
+      && (!singleLanguage || textMatchesLocale(direct, loc))
+    ) return direct.trim();
     // Only fall back to another locale's text when the platform actually
     // offers that language — a single-language deployment must never emit
     // text stored for a different locale.

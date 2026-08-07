@@ -581,9 +581,29 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       } else {
       const { data: aiSettings } = await supabase
         .from('ai_agent_settings')
-        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, handoff_prechat_message_localized')
+        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url')
         .eq('workspace_id', workspaceId)
         .maybeSingle();
+      // Best-effort, separate from the query above on purpose: this column
+      // ships in a migration that may not be applied to every environment
+      // yet. Fetching it in the SAME select as the fields above would make
+      // one missing column fail the whole lookup — which previously broke
+      // suppressGreeting entirely (aiAgentInfo silently fell back to its
+      // all-off default, forcing pre-chat to show for every visitor even
+      // with AI correctly enabled). Never let this one field take down the
+      // fields everything else here depends on.
+      let handoffPrechatMessageLocalized: Record<string, string> = {};
+      try {
+        const { data: hpRow } = await supabase
+          .from('ai_agent_settings')
+          .select('handoff_prechat_message_localized')
+          .eq('workspace_id', workspaceId)
+          .maybeSingle();
+        if (hpRow && (hpRow as any).handoff_prechat_message_localized
+          && typeof (hpRow as any).handoff_prechat_message_localized === 'object') {
+          handoffPrechatMessageLocalized = (hpRow as any).handoff_prechat_message_localized;
+        }
+      } catch (_) { /* column may not exist yet — fine, client has its own fallback copy */ }
       if (aiSettings) {
         const mode = String(aiSettings.mode || 'off');
         const isAuto = mode === 'auto_reply_when_offline'
@@ -626,10 +646,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           agentLogoUrl: aiSettings.agent_logo_url || null,
           disabledByPlatform: false,
           disabledMessage: null,
-          handoffPrechatMessageLocalized: (aiSettings as any).handoff_prechat_message_localized
-            && typeof (aiSettings as any).handoff_prechat_message_localized === 'object'
-            ? (aiSettings as any).handoff_prechat_message_localized
-            : {},
+          handoffPrechatMessageLocalized: handoffPrechatMessageLocalized,
         };
       }
       }

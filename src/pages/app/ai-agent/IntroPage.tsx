@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -20,11 +21,8 @@ const FALLBACK_INTRO_TEMPLATES: Record<string, (name: string) => string> = {
     `Merhaba! Ben ${name}, bir yapay zeka asistanıyım. Yardım merkezimizden sorularınızı yanıtlayabilirim. Emin olmadığım konularda sizi bir temsilciye bağlarım.`,
 };
 
-const LOCALES: { code: string; label: string }[] = [
-  { code: 'fa', label: 'فارسی' },
-  { code: 'en', label: 'English' },
-  { code: 'tr', label: 'Türkçe' },
-];
+const LOCALE_LABELS: Record<string, string> = { fa: 'فارسی', en: 'English', tr: 'Türkçe' };
+const LOCALE_DIR: Record<string, 'rtl' | 'ltr'> = { fa: 'rtl', en: 'ltr', tr: 'ltr' };
 
 export default function IntroPage() {
   const { workspace } = useActiveWorkspace();
@@ -32,6 +30,12 @@ export default function IntroPage() {
   const update = useUpdateAiAgentSettings(workspace?.id);
   const { dir } = useTranslation();
   const settings = data?.settings;
+  // The platform's active region/language mode decides which languages show
+  // here — a single-language platform (e.g. Persian-only) must not show a
+  // language picker or fields for languages it never speaks.
+  const { allowedLocales } = usePlatformRegion();
+  const activeLocales: string[] = allowedLocales.length ? allowedLocales : ['fa', 'en', 'tr'];
+  const isMultilingual = activeLocales.length > 1;
 
   const [drafts, setDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [newKeyword, setNewKeyword] = useState('');
@@ -137,23 +141,25 @@ export default function IntroPage() {
             <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-sky-500/10 text-sky-600 ring-sky-500/20">
               <Languages className="h-4 w-4" />
             </span>
-            متن پیام معرفی به تفکیک زبان
+            {isMultilingual ? 'متن پیام معرفی به تفکیک زبان' : 'متن پیام معرفی'}
           </CardTitle>
           <CardDescription className="mt-1">
-            برای هر زبان می‌توانید متن دلخواه بنویسید. اگر خالی بگذارید، متن پیش‌فرض همان زبان به‌طور خودکار استفاده می‌شود.
+            {isMultilingual
+              ? 'برای هر زبان می‌توانید متن دلخواه بنویسید. اگر خالی بگذارید، متن پیش‌فرض همان زبان به‌طور خودکار استفاده می‌شود.'
+              : 'اگر خالی بگذارید، متن پیش‌فرض به‌طور خودکار استفاده می‌شود.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {LOCALES.map(({ code, label }) => (
+          {activeLocales.map((code) => (
             <div key={code}>
-              <Label htmlFor={`intro-${code}`}>{label}</Label>
+              {isMultilingual && <Label htmlFor={`intro-${code}`}>{LOCALE_LABELS[code] || code}</Label>}
               <Textarea
                 id={`intro-${code}`}
-                className="mt-1.5"
+                className={isMultilingual ? 'mt-1.5' : ''}
                 rows={3}
-                dir={code === 'fa' ? 'rtl' : code === 'en' ? 'ltr' : 'ltr'}
-                placeholder={FALLBACK_INTRO_TEMPLATES[code](agentName)}
-                value={drafts[code]}
+                dir={LOCALE_DIR[code] || 'ltr'}
+                placeholder={(FALLBACK_INTRO_TEMPLATES[code] || FALLBACK_INTRO_TEMPLATES.en)(agentName)}
+                value={drafts[code] ?? ''}
                 onChange={(e) => setDrafts((d) => ({ ...d, [code]: e.target.value }))}
                 onBlur={(e) => saveLocalizedMessage(code, e.target.value)}
               />

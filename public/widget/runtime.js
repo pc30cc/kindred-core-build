@@ -566,6 +566,7 @@
         msgSeen: 'Seen',
         msgFailed: 'Not delivered',
         typingOperator: 'Support is typing…',
+        aiThinking: 'AI assistant is thinking…',
         // Phase 9 — Call invitation card (visitor side)
         ciJoinAudio: 'Join call',
         ciJoinVideo: 'Join video call',
@@ -739,6 +740,7 @@
         msgSeen: 'دیده شد',
         msgFailed: 'ارسال نشد',
         typingOperator: 'پشتیبانی در حال نوشتن…',
+        aiThinking: 'دستیار هوش مصنوعی در حال فکر کردن…',
         ciJoinAudio: 'پیوستن به تماس',
         ciJoinVideo: 'پیوستن به تماس تصویری',
         ciDecline: 'رد کردن',
@@ -906,6 +908,7 @@
         msgSeen: 'Görüldü',
         msgFailed: 'İletilemedi',
         typingOperator: 'Destek yazıyor…',
+        aiThinking: 'Yapay zeka asistanı düşünüyor…',
         ciJoinAudio: 'Aramaya katıl',
         ciJoinVideo: 'Görüntülü aramaya katıl',
         ciDecline: 'Reddet',
@@ -2326,6 +2329,9 @@
           if (!question) return;
           if (transportStore.get().connectionState !== 'online') return;
           sendMessage(question, renderBody);
+          // Chips only ever render while the AI still owns the thread (no
+          // visitor message sent yet), so this is always the right moment.
+          try { callBridge.showAiThinking && callBridge.showAiThinking(); } catch (_) {}
         });
       }
       var moreBtn = block.querySelector('[data-qna-more]');
@@ -5208,6 +5214,11 @@
         stopRingtone: function () {
           try { if (notify && notify.stopRingtone) notify.stopRingtone(); } catch (_) {}
         },
+        // Same lazy-forward pattern as stopRingtone above — showAiThinking
+        // is defined later in this closure, alongside showOperatorTyping.
+        showAiThinking: function () {
+          try { if (typeof showAiThinking === 'function') showAiThinking(); } catch (_) {}
+        },
       },
     });
     var kbUI = createKbUI({
@@ -6135,6 +6146,9 @@
       } : null;
       if (hasReadyAttach) resetAttachment();
       chatUI.sendMessage(text, renderBody, attachmentId, optimisticAtt);
+      try {
+        if (deriveChatTabState().aiOwnsThread) showAiThinking();
+      } catch (_) {}
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
     if (msgInput) msgInput.addEventListener('keydown', function (e) {
@@ -6487,10 +6501,20 @@
       // While the AI still owns the conversation, pre-chat must never
       // interrupt the visitor — not on the first open and not mid-thread.
       // Contact details are only asked once the AI actually hands off to a
-      // human (explicit escalation, or a human/system handoff message).
+      // human (explicit escalation, an actual human reply, OR the AI's own
+      // handoff-transition message — e.g. the visitor just typed "connect
+      // me to a human" and the AI replied "sure, connecting you now").
+      // That last case has NO human-sender message yet (no operator has
+      // joined) and no escalate-button click either, so it was previously
+      // invisible to this check — the server already tags exactly this
+      // moment via conversation_messages.metadata.handoff === true on the
+      // AI's own transitional message (see engine.ts's three handoff
+      // insertAiMessage call sites, all pass handoff: true) — reuse that
+      // signal instead of guessing from sender type alone.
       var handedOff = !!ctx.__handoffRequested || msgs.some(function (m) {
         var s = m && (m.senderType || m.sender || m.role || '');
-        return s === 'agent' || s === 'operator' || s === 'human';
+        if (s === 'agent' || s === 'operator' || s === 'human') return true;
+        return !!(m && m.metadata && m.metadata.handoff === true);
       });
       var aiOwnsThread = aiActiveNow && !handedOff;
       var flow = aiOwnsThread ? 'ai_entry' : (aiActiveNow ? 'ai_handoff' : 'human_entry');
@@ -6500,22 +6524,23 @@
           name: flow === 'ai_handoff' ? ENTRY_FLOW_STATE.HANDOFF_PRECHAT : ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN,
           aiActiveNow: aiActiveNow,
           hasMsgs: hasMsgs,
+          aiOwnsThread: aiOwnsThread,
         };
       }
       if (aiOwnsThread) {
-        return { name: ENTRY_FLOW_STATE.AI_CHAT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+        return { name: ENTRY_FLOW_STATE.AI_CHAT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
       var pStatus = presenceStore.get().status;
       var pMode = presenceStore.get().offlineMode;
       var isOfflineFallbackMode = (pStatus === 'offline' || pStatus === 'unavailable')
         && (pMode === 'contact_fallback' || pMode === 'capture_message');
       if (isOfflineFallbackMode && !hasMsgs && !aiActiveNow) {
-        return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+        return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
       if (!aiActiveNow && !hasMsgs) {
-        return { name: ENTRY_FLOW_STATE.HUMAN_WELCOME, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+        return { name: ENTRY_FLOW_STATE.HUMAN_WELCOME, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
-      return { name: ENTRY_FLOW_STATE.ACTIVE_THREAD, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs };
+      return { name: ENTRY_FLOW_STATE.ACTIVE_THREAD, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
     }
 
     function renderBody() {
@@ -6726,6 +6751,7 @@
       } catch (_) { /* never break on audio */ }
 
       if (newCount > 0 && lastIncoming) {
+        hideThinkingIndicator();
         // Screen-reader announcement fires regardless of canToast below —
         // a sighted user viewing the open chat tab sees the new bubble
         // render; a screen-reader user needs the aria-live nudge either way.
@@ -6796,6 +6822,7 @@
     var typingHideTimer = null;
     function showOperatorTyping() {
       if (!typingRow || !typingLabel) return;
+      typingRow.classList.remove('ai-thinking');
       typingLabel.textContent = t('typingOperator') || 'Support is typing…';
       typingRow.hidden = false;
       if (typingHideTimer) clearTimeout(typingHideTimer);
@@ -6809,6 +6836,30 @@
         if (actor === 'visitor') return; // ignore self-echo
         showOperatorTyping();
       });
+    }
+
+    // ─── AI "thinking…" indicator ───
+    // The AI has no realtime typing signal (it's request/response, not a
+    // live stream) — this is triggered client-side the moment the visitor
+    // sends something into an AI-owned thread, reusing the exact same
+    // above-composer row/dots as the operator typing indicator so the two
+    // states look consistent. Hidden as soon as any AI/operator message
+    // actually arrives (see the newCount>0 branch in transport.on('message')
+    // below), with a generous timeout as a safety net so a provider
+    // failure or slow handoff never leaves "thinking…" stuck forever.
+    function showAiThinking() {
+      if (!typingRow || !typingLabel) return;
+      typingRow.classList.add('ai-thinking');
+      typingLabel.textContent = t('aiThinking') || 'AI assistant is thinking…';
+      typingRow.hidden = false;
+      if (typingHideTimer) clearTimeout(typingHideTimer);
+      typingHideTimer = setTimeout(function () {
+        if (typingRow) typingRow.hidden = true;
+      }, 25000);
+    }
+    function hideThinkingIndicator() {
+      if (typingHideTimer) { clearTimeout(typingHideTimer); typingHideTimer = null; }
+      if (typingRow) { typingRow.hidden = true; typingRow.classList.remove('ai-thinking'); }
     }
 
     // ─── Boot sequence ───

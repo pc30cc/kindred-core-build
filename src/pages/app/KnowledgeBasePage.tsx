@@ -80,8 +80,15 @@ export default function KnowledgeBasePage() {
   const [editorTab, setEditorTab] = useState<'editor' | 'preview'>('editor');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { data: articles, isLoading } = useKBArticles(workspace?.id, locale, statusFilter);
-  const { data: categories } = useKBCategories(workspace?.id, locale);
+  // The list must never hide articles just because they were authored in a
+  // language the platform no longer offers for NEW content — a Turkish
+  // article on a now-Persian-only platform still exists and still needs to
+  // be visible/editable/deletable. Only the create/edit form's default
+  // locale is locked to the platform's active language; the list itself is
+  // unfiltered by locale on a single-language platform.
+  const listLocale = canSwitchLanguage ? locale : undefined;
+  const { data: articles, isLoading } = useKBArticles(workspace?.id, listLocale, statusFilter);
+  const { data: categories } = useKBCategories(workspace?.id, listLocale);
   const createArticle = useCreateKBArticle(workspace?.id);
   const updateArticle = useUpdateKBArticle(workspace?.id);
   const deleteArticle = useDeleteKBArticle(workspace?.id);

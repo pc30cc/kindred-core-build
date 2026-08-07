@@ -249,6 +249,11 @@
   var configData = null;
   var runtimeLoaded = false;
   var runtimeLoading = false;
+  // True once something wants the panel visibly open when the runtime
+  // finishes loading — a real launcher click, or a click that raced in
+  // while a Smart Engagement silent preload (see preloadRuntimeForSmart)
+  // was already in flight. A silent preload alone never sets this.
+  var wantRuntimeOpen = false;
   var shellEl = null;
   var shadowRoot = null;
   var shellContentEl = null;
@@ -636,7 +641,23 @@
       launcherEl.classList.toggle("open", isOpen);
       return;
     }
+    // A Smart Engagement silent preload (see preloadRuntimeForSmart) may
+    // already have a load in flight. Upgrade it to "open when ready"
+    // instead of starting a second, redundant load.
+    wantRuntimeOpen = true;
     if (runtimeLoading) return;
+    loadRuntimeAssets();
+  }
+
+  // Loads runtime.css + runtime.js (+ the call-module sidecar) and calls
+  // window.__gs_runtime.init(). Shared by onLauncherClick (visitor clicked
+  // the launcher) and preloadRuntimeForSmart (Smart Engagement background
+  // preload — see there). `wantRuntimeOpen` decides whether the panel
+  // actually opens once ready and whether a load failure surfaces a visible
+  // error — a silent preload must never pop an error at a visitor who
+  // hasn't asked for anything yet.
+  function loadRuntimeAssets() {
+    if (runtimeLoaded || runtimeLoading) return;
     runtimeLoading = true;
 
     var assetBase = configData._assetBase;
@@ -664,7 +685,7 @@
     if (!runtimeJs || !runtimeCss) {
       warn("No runtime URL");
       runtimeLoading = false;
-      showShellError("Chat resources unavailable.");
+      if (wantRuntimeOpen) showShellError("Chat resources unavailable.");
       return;
     }
 
@@ -692,16 +713,18 @@
             setUnread: setUnreadBadge,
           };
           ready = true;
-          isOpen = true;
-          launcherEl.classList.add("open");
+          if (wantRuntimeOpen) {
+            isOpen = true;
+            launcherEl.classList.add("open");
+          }
           processQueue();
         } catch (e) {
           warn("Runtime init failed", e);
-          showShellError("Chat could not start.");
+          if (wantRuntimeOpen) showShellError("Chat could not start.");
         }
       } else {
         warn("Runtime did not register __gs_runtime");
-        showShellError("Chat could not start.");
+        if (wantRuntimeOpen) showShellError("Chat could not start.");
       }
     }
 
@@ -725,7 +748,7 @@
           if (staleLink) staleLink.remove();
         }
       } catch (_) { /* noop */ }
-      showShellError("Chat resources failed to load.");
+      if (wantRuntimeOpen) showShellError("Chat resources failed to load.");
     }
 
     if (runtimeCss) {
@@ -806,6 +829,24 @@
     };
     script.onerror = function () { fail("js"); };
     document.head.appendChild(script);
+  }
+
+  // Smart Engagement — silent background preload.
+  //
+  // A panel-bound presentation (anything but launcher_nudge) only fires
+  // once the visitor's real interaction state is known (see
+  // isUnknownInteraction / fire() below), and that state is only ever
+  // reported by the full runtime — which otherwise loads exclusively on a
+  // launcher click. A visitor who never clicked anything would leave that
+  // state permanently unknown, so a rule targeting exactly that audience
+  // (the point of a proactive nudge) could never fire. This loads the same
+  // runtime assets in the background, WITHOUT opening the panel
+  // (wantRuntimeOpen stays false), so the next tick() sees a real snapshot.
+  // If the rule still matches, fire() re-enters and shows it through the
+  // normal triggerOpen() -> instance.open() path.
+  function preloadRuntimeForSmart() {
+    if (!configData) return;
+    loadRuntimeAssets();
   }
 
   // ─── Unread badge (in shadow root) ───
@@ -1299,6 +1340,10 @@
       // state yet, panel-bound surfaces never fire — only the nudge may.
       if (isPanelBoundMode(mode) && isUnknownInteraction(snap)) {
         reportSuppressed(rule, "INTERACTION_UNKNOWN");
+        // Kick off a silent background load so interaction state becomes
+        // known on a later tick() instead of staying unknown forever — see
+        // preloadRuntimeForSmart(). No-ops once a load is already underway.
+        preloadRuntimeForSmart();
         return;
       }
       var content = SmartEngineRef.resolveSmartContent(rule, buildContext().locale);

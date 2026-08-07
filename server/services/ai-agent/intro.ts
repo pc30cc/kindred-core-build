@@ -11,7 +11,11 @@ import { getOrCreateSettings, type AgentSettings } from './settings.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { logRun } from './logs.js';
 import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
-import { clampLocaleToPlatformRegion } from '../platformRegion.js';
+import {
+  clampLocaleToPlatformRegion,
+  getPlatformAllowedLocales,
+  textMatchesLocale,
+} from '../platformRegion.js';
 
 export interface IntroInput {
   workspaceId: string;
@@ -47,23 +51,38 @@ function pickLocale(loc?: string): 'en' | 'fa' | 'tr' {
   return 'en';
 }
 
-export function buildIntroBody(settings: AgentSettings, locale?: string): string {
+export function buildIntroBody(
+  settings: AgentSettings,
+  locale?: string,
+  allowedLocales?: string[],
+): string {
+  const loc = pickLocale(locale);
+  const allowed = (allowedLocales && allowedLocales.length ? allowedLocales : ['en', 'fa', 'tr'])
+    .map((l) => l.toLowerCase().split('-')[0]);
+  const singleLanguage = allowed.length === 1;
+
   const localized = settings.intro_message_localized;
   if (localized && typeof localized === 'object') {
-    const loc = pickLocale(locale);
     const direct = localized[loc];
     if (typeof direct === 'string' && direct.trim()) return direct.trim();
-    const en = localized.en;
-    if (typeof en === 'string' && en.trim()) return en.trim();
+    // Only fall back to another locale's text when the platform actually
+    // offers that language — a single-language deployment must never emit
+    // text stored for a different locale.
+    if (!singleLanguage) {
+      const en = localized.en;
+      if (typeof en === 'string' && en.trim() && allowed.includes('en')) return en.trim();
+    }
   }
-  if (settings.intro_message && settings.intro_message.trim()) {
-    return settings.intro_message.trim();
-  }
-  if (settings.welcome_message && settings.welcome_message.trim()) {
-    return settings.welcome_message.trim();
+  // Legacy single-string fields carry no locale — accept them only when the
+  // script matches the active language.
+  const legacy = [settings.intro_message, settings.welcome_message]
+    .map((v) => (v || '').trim())
+    .filter(Boolean);
+  for (const text of legacy) {
+    if (!singleLanguage || textMatchesLocale(text, loc)) return text;
   }
   const name = settings.agent_name || 'AI Assistant';
-  return FALLBACK_INTRO[pickLocale(locale)](name);
+  return FALLBACK_INTRO[loc](name);
 }
 
 /**
@@ -211,7 +230,8 @@ export async function maybeSendIntro(
     // so the admin's edited text (set for the platform's one language)
     // always wins over a stale per-locale fallback.
     const clampedLocale = await clampLocaleToPlatformRegion(config, input.locale);
-    const body = buildIntroBody(settings, clampedLocale);
+    const allowedLocales = await getPlatformAllowedLocales(config);
+    const body = buildIntroBody(settings, clampedLocale, allowedLocales);
     const display = deriveAgentDisplay(settings);
 
     let messageId: string | null = null;

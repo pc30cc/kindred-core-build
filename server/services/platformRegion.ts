@@ -76,3 +76,18 @@ export async function clampLocaleToPlatformRegion(
 export function __resetPlatformRegionCache(): void {
   cache = null;
 }
+
+/**
+ * Heuristic script check — used to reject stored strings that were written
+ * in a language the platform no longer offers (e.g. a legacy Turkish intro
+ * left in the DB on a Persian-only deployment).
+ */
+export function textMatchesLocale(text: string, locale: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  const persian = /[\u0600-\u06FF]/.test(t);
+  const loc = (locale || '').toLowerCase().split('-')[0];
+  if (loc === 'fa') return persian;
+  // Latin-script locales must not be dominated by Arabic/Persian script.
+  return !persian;
+}

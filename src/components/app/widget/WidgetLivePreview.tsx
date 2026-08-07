@@ -65,6 +65,8 @@ type Dict = {
   homeReplyFast: string; homeReplySlow: string;
   homeHelpTitle: string; homeSeeAll: string;
   kbAllArticles: string; kbCategories: string; kbEmpty: string; kbBack: string;
+  attachTitle: string; micTitle: string; emojiTitle: string; talkToHuman: string;
+  msgSeen: string;
 };
 
 const DICTS: Record<string, Dict> = {
@@ -86,6 +88,8 @@ const DICTS: Record<string, Dict> = {
     kbAllArticles: 'Popular articles', kbCategories: 'Browse by category',
     kbEmpty: 'No articles published yet — add some in the Knowledge Base.',
     kbBack: 'Back to articles',
+    attachTitle: 'Attach file', micTitle: 'Record voice message', emojiTitle: 'Emoji',
+    talkToHuman: 'Talk to a human', msgSeen: 'Seen',
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -105,6 +109,8 @@ const DICTS: Record<string, Dict> = {
     kbAllArticles: 'مقالات پرکاربرد', kbCategories: 'دسته‌بندی‌ها',
     kbEmpty: 'هنوز مقاله‌ای منتشر نشده است — از بخش پایگاه دانش اضافه کنید.',
     kbBack: 'بازگشت به مقاله‌ها',
+    attachTitle: 'پیوست فایل', micTitle: 'ضبط پیام صوتی', emojiTitle: 'شکلک',
+    talkToHuman: 'صحبت با اپراتور', msgSeen: 'دیده شد',
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -124,6 +130,8 @@ const DICTS: Record<string, Dict> = {
     kbAllArticles: 'Popüler makaleler', kbCategories: 'Kategoriye göre göz at',
     kbEmpty: 'Henüz yayınlanmış makale yok — Bilgi Bankası’ndan ekleyin.',
     kbBack: 'Makalelere dön',
+    attachTitle: 'Dosya ekle', micTitle: 'Sesli mesaj kaydet', emojiTitle: 'Emoji',
+    talkToHuman: 'Bir temsilciyle konuşun', msgSeen: 'Görüldü',
   },
 };
 
@@ -338,6 +346,18 @@ export function WidgetLivePreview({
         <p class="prechat-privacy">${esc(d.privacy)}</p>
       </div>`;
 
+    // Sample timestamps + a "seen" status, matching runtime.js's renderChat():
+    // .msg-time sits INSIDE each bubble, and .msg-status is the LEADING
+    // sibling of the visitor's bubble (not trailing) — it renders on the
+    // physical LEFT of the bubble, not pushed past it to the panel edge.
+    let sampleTimeA = '';
+    let sampleTimeB = '';
+    try {
+      const now = new Date();
+      const earlier = new Date(now.getTime() - 90 * 1000);
+      sampleTimeA = earlier.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+      sampleTimeB = now.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    } catch { /* toLocaleTimeString can throw on an unrecognized locale tag */ }
     const chatBody = `
       <div class="messages">
         <!--SMART_CHAT_SLOT-->
@@ -345,10 +365,11 @@ export function WidgetLivePreview({
           ${operatorAvatar
             ? `<span class="msg-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
             : `<span class="msg-avatar">${esc(((operatorName || '').trim().charAt(0) || initial).toUpperCase())}</span>`}
-          <div class="msg operator welcome-bubble">${esc(d.sample)}</div>
+          <div class="msg operator welcome-bubble">${esc(d.sample)}${sampleTimeA ? `<span class="msg-time">${esc(sampleTimeA)}</span>` : ''}</div>
         </div>
         <div class="msg-row visitor">
-          <div class="msg visitor" style="background:${esc(primary)}">${esc(d.visitorSample)}</div>
+          <div class="msg-status status-seen"><span class="msg-status-icon seen">✓✓</span><span class="msg-status-label">${esc(d.msgSeen)}</span></div>
+          <div class="msg visitor" style="background:${esc(primary)}">${esc(d.visitorSample)}${sampleTimeB ? `<span class="msg-time">${esc(sampleTimeB)}</span>` : ''}</div>
         </div>
       </div>`;
 
@@ -520,19 +541,40 @@ export function WidgetLivePreview({
       : body
     ).replace('<!--SMART_CHAT_SLOT-->', '');
 
+    // Mirrors the composer built by __gs_runtime.init() in runtime.js:
+    // escalate (outside) -> input-wrap[input, attach, mic] -> emoji
+    // (outside) -> send (outside). Keep this in lockstep with that file —
+    // see its own comment pointing back here.
+    const attachmentsOn = s.attachments_enabled === true;
+    const voiceOn = s.voice_notes_enabled === true;
+    const emojiOn = s.emoji_enabled !== false;
     const composer = view === 'chat' ? `
       <div class="typing-row" aria-live="polite">
         <span class="typing-dots"><span></span><span></span><span></span></span>
         <span class="typing-label">${esc(title)} ${esc(d.typing)}</span>
       </div>
+      <div class="attach-tray" hidden></div>
+      <div class="emoji-picker" hidden></div>
       <div class="input-bar">
+        <button type="button" class="escalate-btn" title="${esc(d.talkToHuman)}" aria-label="${esc(d.talkToHuman)}">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>
+        </button>
+        <div class="input-wrap">
+          <input class="input" placeholder="${esc(placeholder)}" />
+          ${attachmentsOn ? `<button type="button" class="attach-btn" title="${esc(d.attachTitle)}" aria-label="${esc(d.attachTitle)}">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>` : ''}
+          ${voiceOn ? `<button type="button" class="mic-btn" title="${esc(d.micTitle)}" aria-label="${esc(d.micTitle)}">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+            <span class="mic-ring" aria-hidden="true"></span>
+          </button>` : ''}
+        </div>
+        ${emojiOn ? `<button type="button" class="emoji-btn" title="${esc(d.emojiTitle)}" aria-label="${esc(d.emojiTitle)}">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        </button>` : ''}
         <button type="button" class="send-btn" style="background:${esc(primary)}">
           <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
-        ${s.attachments_enabled !== false ? `<button type="button" class="attach-btn">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-        </button>` : ''}
-        <input class="input" placeholder="${esc(placeholder)}" />
       </div>` : '';
 
     const powered = `<div class="powered">${esc(d.poweredBy)} <a href="#">${esc(brandName || title)}</a></div>`;

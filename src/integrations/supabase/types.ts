@@ -6977,6 +6977,7 @@ export type Database = {
         Row: {
           allow_subdomains: boolean
           allowed_domains: string[] | null
+          assignment_mode: string
           attachments_allowed_mimes: string[]
           attachments_enabled: boolean
           attachments_max_size_mb: number
@@ -7014,6 +7015,7 @@ export type Database = {
           position: string | null
           primary_color: string | null
           read_receipts_enabled: boolean
+          round_robin_cursor_user_id: string | null
           secondary_color: string | null
           show_logo: boolean | null
           smart_engagement_enabled: boolean
@@ -7030,6 +7032,7 @@ export type Database = {
         Insert: {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
+          assignment_mode?: string
           attachments_allowed_mimes?: string[]
           attachments_enabled?: boolean
           attachments_max_size_mb?: number
@@ -7067,6 +7070,7 @@ export type Database = {
           position?: string | null
           primary_color?: string | null
           read_receipts_enabled?: boolean
+          round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
           show_logo?: boolean | null
           smart_engagement_enabled?: boolean
@@ -7083,6 +7087,7 @@ export type Database = {
         Update: {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
+          assignment_mode?: string
           attachments_allowed_mimes?: string[]
           attachments_enabled?: boolean
           attachments_max_size_mb?: number
@@ -7120,6 +7125,7 @@ export type Database = {
           position?: string | null
           primary_color?: string | null
           read_receipts_enabled?: boolean
+          round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
           show_logo?: boolean | null
           smart_engagement_enabled?: boolean
@@ -8377,6 +8383,38 @@ export type Database = {
       check_workspace_entitlement: {
         Args: { _feature: string; _workspace_id: string }
         Returns: Json
+      }
+      claim_conversation: {
+        Args: {
+          p_conversation_id: string
+          p_force?: boolean
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: {
+          ai_state: string | null
+          assigned_to: string | null
+          contact_id: string | null
+          created_at: string | null
+          id: string
+          is_spam: boolean
+          metadata: Json
+          priority: Database["public"]["Enums"]["conversation_priority"] | null
+          spam_marked_at: string | null
+          spam_marked_by: string | null
+          status: Database["public"]["Enums"]["conversation_status"] | null
+          subject: string | null
+          tags: string[] | null
+          updated_at: string | null
+          visitor_session_id: string | null
+          workspace_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "conversations"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       claim_entitlement_fanout_jobs: {
         Args: { _lease_seconds?: number; _limit?: number; _worker_id: string }

@@ -544,6 +544,53 @@ textarea:focus-visible{
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--gs-primary, #3B82F6) 12%, transparent);
 }
 .input::placeholder { color: #9CA3AF; }
+
+/* Composer pill — emoji / text / attach / mic all live inside ONE visual
+   field (WhatsApp/Telegram-style) instead of a row of separate circular
+   buttons. `.input` keeps its own standalone styling above (still used
+   as-is by the offline/fallback contact form) — these rules only apply
+   when it's nested inside the composer's `.input-wrap`. */
+.input-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid #E5E7EB;
+  border-radius: 22px;
+  background: #F8FAFC;
+  padding: 2px 3px 2px 6px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.input-wrap:focus-within {
+  border-color: var(--gs-primary, #3B82F6);
+  background: #fff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gs-primary, #3B82F6) 12%, transparent);
+}
+.input-wrap .input,
+.shell .input-wrap .input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  padding: 8px 6px;
+  background: transparent;
+}
+.input-wrap .input:focus,
+.shell .input-wrap .input:focus { border: none; background: transparent; box-shadow: none; }
+.input-wrap .emoji-btn,
+.input-wrap .attach-btn,
+.input-wrap .mic-btn {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+.input-wrap .emoji-btn svg,
+.input-wrap .attach-btn svg,
+.input-wrap .mic-btn svg {
+  width: 17px;
+  height: 17px;
+}
 .send-btn {
   width: 36px;
   height: 36px;

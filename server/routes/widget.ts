@@ -2933,3 +2933,58 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
     return res.json({ sent: false, reason: 'intro_failed' });
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /api/widget/ai-agent/qna-suggestions
+// Query: { locale?, limit? }
+// Quick-reply chips shown under the AI intro message — reuses the
+// existing ai_agent_qna table (already populated for AI retrieval) as
+// the question source rather than building a second, parallel content
+// type. Token + origin already enforced by widgetRouter.use() above.
+// Never throws — an empty list just means no chips render.
+// ═══════════════════════════════════════════════════════════════════
+widgetRouter.get('/ai-agent/qna-suggestions', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+
+  const parsed = z.object({
+    locale: z.string().max(10).optional(),
+    limit: z.coerce.number().int().min(1).max(20).optional(),
+  }).safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+
+  const limit = parsed.data.limit || 10;
+  const locale = (parsed.data.locale || 'en').toLowerCase().split('-')[0];
+
+  try {
+    const sb = getServiceClient(config);
+    let { data } = await sb
+      .from('ai_agent_qna')
+      .select('id, question')
+      .eq('workspace_id', workspaceId)
+      .eq('enabled', true)
+      .eq('locale', locale)
+      .order('created_at', { ascending: true })
+      .limit(limit);
+    if (!data || !data.length) {
+      // Same cross-locale fallback as the KB article endpoint — a
+      // workspace with all its Q&A authored in one locale shouldn't show
+      // zero chips just because the visitor's locale differs.
+      const fallback = await sb
+        .from('ai_agent_qna')
+        .select('id, question')
+        .eq('workspace_id', workspaceId)
+        .eq('enabled', true)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+      data = fallback.data || [];
+    }
+    return res.json({
+      questions: (data || []).map((q: any) => ({ id: q.id, question: q.question })),
+    });
+  } catch (err: any) {
+    console.warn('[widget/qna-suggestions] failed:', err?.message);
+    return res.json({ questions: [] });
+  }
+});

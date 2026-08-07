@@ -488,6 +488,82 @@ textarea:focus-visible{
 /* Bubble can fill more width once the avatar takes its 28px slot. */
 .msg-row.operator .msg { max-width: calc(80% - 36px); }
 
+/* ─── AI intro quick-question chips ─── */
+.qna-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 4px 36px; /* aligns under the operator bubble, past the avatar column */
+  animation: gsQnaIn 0.22s ease-out;
+}
+[dir="rtl"] .qna-suggestions { margin-left: 0; margin-right: 36px; }
+@keyframes gsQnaIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.qna-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #6B7280;
+  padding: 0 2px;
+}
+.qna-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.qna-chip {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--gs-primary, #3B82F6) 28%, #E5E7EB);
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 6%, #fff);
+  color: color-mix(in srgb, var(--gs-primary, #3B82F6), #111 15%);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 7px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  text-align: start;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  max-width: 100%;
+}
+.qna-chip:hover {
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 14%, #fff);
+  border-color: color-mix(in srgb, var(--gs-primary, #3B82F6) 45%, #E5E7EB);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--gs-primary, #3B82F6) 16%, transparent);
+}
+.qna-chip:active { transform: scale(0.97); }
+.qna-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--gs-primary, #3B82F6);
+}
+.qna-more-btn {
+  appearance: none;
+  border: 1px dashed #D1D5DB;
+  background: transparent;
+  color: #6B7280;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.qna-more-btn:hover {
+  border-color: color-mix(in srgb, var(--gs-primary, #3B82F6) 45%, #D1D5DB);
+  color: var(--gs-primary, #3B82F6);
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 5%, #fff);
+}
+.qna-more-count {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--gs-primary, #3B82F6);
+}
+
 /* Empty state */
 .empty {
   display: flex;

@@ -529,6 +529,8 @@
         fallbackSent: "Thanks — we've got your message and will reply shortly.",
         fallbackSentTransitioning: "Thanks — we've got your message. We may be back online sooner than expected and will reply right away.",
         fallbackError: "Couldn't send right now. Please try again.",
+        qnaTitle: 'You might also want to ask',
+        qnaMore: 'More questions',
         // Phase 6a — attachments
         attachFile: 'Attach file',
         uploading: 'Uploading…',
@@ -700,6 +702,8 @@
         fallbackSent: 'پیام شما دریافت شد. به‌زودی پاسخ می‌دهیم.',
         fallbackSentTransitioning: 'پیام شما دریافت شد. ممکن است زودتر از انتظار آنلاین شویم و فوراً پاسخ دهیم.',
         fallbackError: 'ارسال انجام نشد. لطفاً دوباره تلاش کنید.',
+        qnaTitle: 'شاید این سوال‌ها رو هم بخوای بپرسی',
+        qnaMore: 'سوال‌های بیشتر',
         // Phase 6a — attachments
         attachFile: 'پیوست فایل',
         uploading: 'در حال بارگذاری…',
@@ -865,6 +869,8 @@
         fallbackSent: 'Mesajınızı aldık, kısa süre içinde yanıtlayacağız.',
         fallbackSentTransitioning: 'Mesajınızı aldık. Beklenenden önce çevrimiçi olabiliriz ve hemen yanıt verebiliriz.',
         fallbackError: 'Şu an gönderilemedi. Lütfen tekrar deneyin.',
+        qnaTitle: 'Şunları da sorabilirsiniz',
+        qnaMore: 'Daha fazla soru',
         // Phase 6a — attachments
         attachFile: 'Dosya ekle',
         uploading: 'Yükleniyor…',
@@ -2263,6 +2269,74 @@
       ? callBridge.renderBody
       : function () {};
 
+    // ─── AI intro quick-question chips (ai_agent_qna) ───
+    // Fetched once per panel lifetime, in-flight de-duped the same way
+    // kbUI.ensure() is (see the KB module for why that guard matters).
+    var qnaState = { loaded: false, loading: false, questions: [], expanded: false };
+    var QNA_COLLAPSED_COUNT = 4;
+    function loadQnaSuggestions() {
+      if (qnaState.loaded || qnaState.loading) return;
+      qnaState.loading = true;
+      var url = ctx.apiBase + '/api/widget/ai-agent/qna-suggestions?locale=' +
+        encodeURIComponent(ctx.locale || 'en') + '&limit=10';
+      ctx.fetchWith(url, { method: 'GET' })
+        .then(function (r) { return r.ok ? r.json() : { questions: [] }; })
+        .then(function (data) {
+          qnaState.loading = false;
+          qnaState.loaded = true;
+          qnaState.questions = (data && Array.isArray(data.questions)) ? data.questions : [];
+          if (qnaState.questions.length) renderBody();
+        })
+        .catch(function () {
+          qnaState.loading = false;
+          qnaState.loaded = true; // don't retry every render on persistent failure
+          qnaState.questions = [];
+        });
+    }
+
+    function renderQnaChips() {
+      var all = qnaState.questions;
+      var visible = qnaState.expanded ? all : all.slice(0, QNA_COLLAPSED_COUNT);
+      var remaining = all.length - visible.length;
+      var chipsHtml = visible.map(function (q) {
+        var text = (q && q.question) ? String(q.question) : '';
+        if (!text) return '';
+        return '<button type="button" class="qna-chip" data-qna-question="' +
+          Util.escapeHtml(text) + '">' + Util.escapeHtml(text) + '</button>';
+      }).join('');
+      var moreHtml = (!qnaState.expanded && remaining > 0)
+        ? '<button type="button" class="qna-more-btn" data-qna-more>' +
+            Util.escapeHtml(t('qnaMore')) +
+            '<span class="qna-more-count">+' + remaining + '</span>' +
+          '</button>'
+        : '';
+      return '<div class="qna-suggestions" data-qna>' +
+        '<div class="qna-title">' + Util.escapeHtml(t('qnaTitle')) + '</div>' +
+        '<div class="qna-chips">' + chipsHtml + moreHtml + '</div>' +
+      '</div>';
+    }
+
+    function wireQnaChips(body) {
+      var block = body.querySelector('[data-qna]');
+      if (!block) return;
+      var chips = block.querySelectorAll('[data-qna-question]');
+      for (var i = 0; i < chips.length; i++) {
+        chips[i].addEventListener('click', function () {
+          var question = this.getAttribute('data-qna-question');
+          if (!question) return;
+          if (transportStore.get().connectionState !== 'online') return;
+          sendMessage(question, renderBody);
+        });
+      }
+      var moreBtn = block.querySelector('[data-qna-more]');
+      if (moreBtn) {
+        moreBtn.addEventListener('click', function () {
+          qnaState.expanded = true;
+          renderBody();
+        });
+      }
+    }
+
     function mergeIncoming(incoming) {
       if (!incoming || !incoming.length) return false;
       var s = chatStore.get();
@@ -2921,6 +2995,12 @@
       var groupKeys = s.messages.map(function (m) {
         return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
       });
+      // Quick-question chips render right under the AI's intro bubble, only
+      // while the visitor hasn't engaged yet — once they've sent their own
+      // message the suggestions have done their job and would just be
+      // clutter on an active thread.
+      var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
+      if (!visitorHasReplied) loadQnaSuggestions();
       s.messages.forEach(function (m, idx) {
         // Phase 9 — Call invitation card. System messages with
         // metadata.kind === 'call_invitation' render as an interactive
@@ -3003,9 +3083,19 @@
             (hasText ? Util.escapeHtml(m.body) : '') + attHtml + timeHtml +
           '</div>' +
           '</div>';
+
+        // Right after the AI's intro bubble (and nowhere else), while the
+        // visitor hasn't replied yet: quick-question chips sourced from the
+        // workspace's own AI Q&A entries (ai_agent_qna) — reusing existing
+        // content instead of a second, parallel "suggested questions" list.
+        var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
+        if (isIntro && !visitorHasReplied && qnaState.questions.length) {
+          html += renderQnaChips();
+        }
       });
       html += '</div>';
       body.innerHTML = html;
+      wireQnaChips(body);
       // Wire up image preview triggers (lightbox) — Shadow-DOM scoped.
       var triggers = body.querySelectorAll('[data-att-preview]');
       for (var i = 0; i < triggers.length; i++) {

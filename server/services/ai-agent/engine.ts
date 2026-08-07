@@ -40,7 +40,7 @@ import { loadAiAgentRuntimeConfig } from './runtimeConfig.js';
 import { detectTopics } from './topics/detector.js';
 import { evaluateRoutingRules, buildRoutingMetadata } from './runtime/routingRuntime.js';
 import { updateRuntimeFlags } from './runtime/conversationState.js';
-import { pickTemplate, pickHandoffOfflineMessage, hasOfflineContactCapability } from './runtime/templates.js';
+import { pickTemplate, pickHandoffAckMessage, pickHandoffOfflineMessage, hasOfflineContactCapability } from './runtime/templates.js';
 import { evaluateMessageTriggers, buildTriggerMetadata, type TriggerEvaluationResult } from './runtime/triggerRuntime.js';
 import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from './runtime/workflowRuntime.js';
 import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } from './runtime/toolRuntime.js';
@@ -612,20 +612,6 @@ async function runInternal(
     const handoffAlreadyDone = triggerForcesHandoff || workflowHandoffExecuted;
     if (!handoffAlreadyDone) {
       await markHandoffRequested(config, conversationId).catch(() => {});
-      await markNeedsHuman(config, {
-        workspaceId,
-        conversationId,
-        reason: 'human_request',
-      }).catch(() => {});
-    }
-    // C2A — execute safe non-handoff routing actions (mark_priority).
-    await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
-    await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
-    // Persist routing rule executed ids for dedup.
-    if (routingResult) {
-      for (const id of routingResult.matchedRuleIds) {
-        await updateRuntimeFlags(config, conversationId, { appendRoutingRuleId: id }).catch(() => {});
-      }
     }
     const runId = await logRun(config, {
       workspaceId,
@@ -638,12 +624,17 @@ async function runInternal(
       skipReason: decision.reason,
       metadata: { ...baseRuntimeMeta(), language: languageMeta, locale },
     });
-    // In auto-reply modes we acknowledge the handoff to the visitor.
+    // In auto-reply modes we acknowledge the handoff to the visitor. This
+    // insert MUST happen before markNeedsHuman() below — markNeedsHuman
+    // synchronously runs routing (chatRouting.ts) and inserts its own
+    // "X joined" / "no one's available" system message, so the ack has to
+    // land first or the visitor sees the routing outcome appear before the
+    // AI ever says it's connecting them.
     let messageId: string | null = null;
     if (!handoffAlreadyDone && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
       const display = deriveAgentDisplay(settings);
       const teamOffline = availability.state === 'offline';
-      const ack = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickTemplate('handoff', locale));
+      const ack = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickHandoffAckMessage(settings, locale));
       const inserted = await insertAiMessage(config, {
         workspaceId,
         conversationId,
@@ -659,6 +650,22 @@ async function runInternal(
     } else if (handoffAlreadyDone) {
       messageId = triggerMessageId || workflowMessageId;
       decisionTimeline.push('handoff_message_already_sent');
+    }
+    if (!handoffAlreadyDone) {
+      await markNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'human_request',
+      }).catch(() => {});
+    }
+    // C2A — execute safe non-handoff routing actions (mark_priority).
+    await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
+    await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+    // Persist routing rule executed ids for dedup.
+    if (routingResult) {
+      for (const id of routingResult.matchedRuleIds) {
+        await updateRuntimeFlags(config, conversationId, { appendRoutingRuleId: id }).catch(() => {});
+      }
     }
     return { ran: true, action: 'handoff', reason: decision.reason, runId, messageId };
   }
@@ -971,12 +978,8 @@ async function runInternal(
           return { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null };
         }
         await markHandoffRequested(config, conversationId).catch(() => {});
-        await markNeedsHuman(config, {
-          workspaceId,
-          conversationId,
-          reason: strategy.reason as any,
-        }).catch(() => {});
-        await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+        // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
+        // ordering note on the human-request handoff branch above.
         const display = deriveAgentDisplay(settings);
         const body = settings.fallback_message
           || await resolveHandoffAckMessage(
@@ -995,6 +998,12 @@ async function runInternal(
           agentName: display.agentName,
           agentLogoUrl: display.agentLogoUrl,
         });
+        await markNeedsHuman(config, {
+          workspaceId,
+          conversationId,
+          reason: strategy.reason as any,
+        }).catch(() => {});
+        await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
         return { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: inserted.id };
       }
     }
@@ -1194,11 +1203,8 @@ async function runInternal(
     });
     if (decision.canAutoReply) {
       await markHandoffRequested(config, conversationId).catch(() => {});
-      await markNeedsHuman(config, {
-        workspaceId,
-        conversationId,
-        reason: 'low_confidence',
-      }).catch(() => {});
+      // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
+      // ordering note on the human-request handoff branch above.
       const display = deriveAgentDisplay(settings);
       const handoffAckBody = settings.fallback_message
         || await resolveHandoffAckMessage(
@@ -1217,6 +1223,11 @@ async function runInternal(
         agentName: display.agentName,
         agentLogoUrl: display.agentLogoUrl,
       });
+      await markNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'low_confidence',
+      }).catch(() => {});
       return { ran: true, action: 'handoff', reason: valid.reason, runId, messageId: inserted.id };
     }
     return { ran: true, action: 'handoff', reason: valid.reason, runId };

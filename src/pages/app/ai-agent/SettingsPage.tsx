@@ -22,6 +22,11 @@ const FALLBACK_INTRO_TEMPLATES: Record<string, (name: string) => string> = {
   tr: (name) =>
     `Merhaba! Ben ${name}, bir yapay zeka asistanıyım. Yardım merkezimizden sorularınızı yanıtlayabilirim. Emin olmadığım konularda sizi bir temsilciye bağlarım.`,
 };
+const FALLBACK_HANDOFF_TEMPLATES: Record<string, string> = {
+  fa: 'باشه — همین الان شما را به یک کارشناس انسانی وصل می‌کنم.',
+  tr: 'Tamam — sizi bir temsilciye bağlıyorum.',
+  en: "Sure — I'll connect you with a human agent.",
+};
 const LOCALE_LABELS: Record<string, string> = { fa: 'فارسی', en: 'English', tr: 'Türkçe' };
 const LOCALE_DIR: Record<string, 'rtl' | 'ltr'> = { fa: 'rtl', en: 'ltr', tr: 'ltr' };
 
@@ -48,6 +53,7 @@ export default function AiAgentSettingsPage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [introDrafts, setIntroDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
+  const [handoffDrafts, setHandoffDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [newKeyword, setNewKeyword] = useState('');
   const [keywordError, setKeywordError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +63,10 @@ export default function AiAgentSettingsPage() {
     const localized = (data?.settings?.intro_message_localized || {}) as Record<string, string>;
     setIntroDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
   }, [data?.settings?.intro_message_localized]);
+  useEffect(() => {
+    const localized = (data?.settings?.handoff_message_localized || {}) as Record<string, string>;
+    setHandoffDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
+  }, [data?.settings?.handoff_message_localized]);
 
   if (isLoading || !form) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -95,6 +105,19 @@ export default function AiAgentSettingsPage() {
       await update.mutateAsync({ intro_message_localized: next });
       set({ intro_message_localized: next });
       toast.success('پیام معرفی ذخیره شد');
+    } catch (e: any) {
+      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    }
+  };
+
+  const saveHandoffMessage = async (code: string, value: string) => {
+    const current = (form.handoff_message_localized || {}) as Record<string, string>;
+    if ((current[code] || '') === value) return;
+    const next = { ...current, [code]: value };
+    try {
+      await update.mutateAsync({ handoff_message_localized: next });
+      set({ handoff_message_localized: next });
+      toast.success('پیام ارجاع به اپراتور ذخیره شد');
     } catch (e: any) {
       toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
     }
@@ -369,6 +392,42 @@ export default function AiAgentSettingsPage() {
                     value={introDrafts[code] ?? ''}
                     onChange={(e) => setIntroDrafts((d) => ({ ...d, [code]: e.target.value }))}
                     onBlur={(e) => saveIntroMessage(code, e.target.value)}
+                  />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Handoff acknowledgement — the message the AI sends right when it
+              connects the visitor to a human ("Sure — I'll connect you with
+              a human agent now."). Same per-locale editor pattern as the
+              intro card above; falls back to the built-in template text
+              when a locale is left blank. */}
+          <Card className="overflow-hidden border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2.5">
+                <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-violet-500/10 text-violet-600 ring-violet-500/20">
+                  <MessageCircle className="h-4 w-4" />
+                </span>
+                پیام ارجاع به اپراتور
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground -mt-2">
+                وقتی هوش مصنوعی گفتگو را به یک کارشناس انسانی ارجاع می‌دهد، این پیام را می‌فرستد.
+              </p>
+              {activeLocales.map((code) => (
+                <div key={code}>
+                  {canSwitchLanguage && <Label htmlFor={`handoff-${code}`}>{LOCALE_LABELS[code] || code}</Label>}
+                  <Textarea
+                    id={`handoff-${code}`}
+                    className={canSwitchLanguage ? 'mt-1.5' : ''}
+                    rows={2}
+                    dir={LOCALE_DIR[code] || 'ltr'}
+                    placeholder={FALLBACK_HANDOFF_TEMPLATES[code] || FALLBACK_HANDOFF_TEMPLATES.en}
+                    value={handoffDrafts[code] ?? ''}
+                    onChange={(e) => setHandoffDrafts((d) => ({ ...d, [code]: e.target.value }))}
+                    onBlur={(e) => saveHandoffMessage(code, e.target.value)}
                   />
                 </div>
               ))}

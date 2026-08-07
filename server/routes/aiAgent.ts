@@ -396,6 +396,7 @@ const updateSchema = z.object({
   ai_intro_enabled: z.boolean().optional(),
   intro_message: z.string().max(1000).nullable().optional(),
   intro_message_localized: z.record(z.string().max(1000)).optional(),
+  handoff_message_localized: z.record(z.string().max(1000)).optional(),
   fallback_behavior: z.enum(['handoff','silent']).optional(),
   stop_on_handoff: z.boolean().optional(),
   pause_auto_reply_after_human_reply: z.boolean().optional(),

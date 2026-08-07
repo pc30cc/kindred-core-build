@@ -30,7 +30,7 @@ import { pickStepMessage, type NormalizedWorkflowStep } from './workflowSteps.js
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markNeedsHuman, readAiConversationMeta } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
-import { pickTemplate } from './templates.js';
+import { pickHandoffAckMessage } from './templates.js';
 
 export interface WorkflowExecutorContext {
   config: ServerConfig;
@@ -138,13 +138,12 @@ async function executeHandoff(
   );
   if (alreadyHandoff) return { messageId: null, alreadyDone: true };
   await markHandoffRequested(ctx.config, ctx.conversationId).catch(() => {});
-  await markNeedsHuman(ctx.config, {
-    workspaceId: ctx.workspaceId,
-    conversationId: ctx.conversationId,
-    reason: 'human_request',
-  }).catch(() => {});
+  // Insert the ack BEFORE markNeedsHuman() — markNeedsHuman synchronously
+  // runs routing and inserts its own "X joined" / "no one's available"
+  // system message, so the ack has to land first or the routing outcome
+  // renders ahead of the AI's own "connecting you now" message.
   const display = deriveAgentDisplay(ctx.settings);
-  const ack = pickTemplate('handoff', ctx.responseLanguage);
+  const ack = pickHandoffAckMessage(ctx.settings, ctx.responseLanguage);
   const inserted = await insertAiMessage(ctx.config, {
     workspaceId: ctx.workspaceId,
     conversationId: ctx.conversationId,
@@ -156,6 +155,11 @@ async function executeHandoff(
     agentName: display.agentName,
     agentLogoUrl: display.agentLogoUrl,
   });
+  await markNeedsHuman(ctx.config, {
+    workspaceId: ctx.workspaceId,
+    conversationId: ctx.conversationId,
+    reason: 'human_request',
+  }).catch(() => {});
   return { messageId: inserted.id || null, alreadyDone: false };
 }
 

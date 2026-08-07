@@ -222,6 +222,7 @@ export interface AgentSettings {
   ai_intro_enabled?: boolean;
   intro_message?: string | null;
   intro_message_localized?: Record<string, string>;
+  handoff_message_localized?: Record<string, string>;
   fallback_behavior?: 'handoff' | 'silent';
   stop_on_handoff?: boolean;
   pause_auto_reply_after_human_reply?: boolean;

@@ -46,6 +46,24 @@ export function pickTemplate(key: TemplateKey, locale: string | undefined): stri
 }
 
 /**
+ * Handoff acknowledgement — the "connecting you to a human now" message.
+ * Prefers the workspace owner's own per-locale text (AI Agent settings,
+ * mirrors intro_message_localized) and only falls back to the built-in
+ * template when nothing has been configured for this locale.
+ */
+export function pickHandoffAckMessage(
+  settings: { handoff_message_localized?: Record<string, string> | null } | null | undefined,
+  locale: string | undefined,
+): string {
+  const configured = pickLocalizedMessage(
+    { translations: settings?.handoff_message_localized || {} },
+    locale,
+  );
+  if (configured && configured.trim()) return configured.trim();
+  return pickTemplate('handoff', locale);
+}
+
+/**
  * Handoff acknowledgement when the human team is offline. Never promises a
  * callback/follow-up contact the workspace has no way to make — the copy
  * only says "we'll reach out" when the workspace actually collects email

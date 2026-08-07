@@ -17,7 +17,7 @@ import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markNeedsHuman, readAiConversationMeta } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from './conversationState.js';
-import { pickTemplate } from './templates.js';
+import { pickHandoffAckMessage } from './templates.js';
 import type { AgentSettings } from '../settings.js';
 
 export interface ExecutorContext {
@@ -109,13 +109,14 @@ export async function executeRuntimeActions(
           continue;
         }
         await markHandoffRequested(ctx.config, ctx.conversationId).catch(() => {});
-        await markNeedsHuman(ctx.config, {
-          workspaceId: ctx.workspaceId,
-          conversationId: ctx.conversationId,
-          reason: 'human_request',
-        });
+        // The AI's own "connecting you now" ack must land in the thread
+        // BEFORE any routing-outcome message ("X joined" / "no one's
+        // available") — markNeedsHuman() below synchronously runs routing
+        // (chatRouting.ts) and inserts that outcome message itself, so the
+        // ack has to be inserted first or it renders out of order (visitor
+        // sees "operator joined" before the AI ever says it's connecting).
         const display = deriveAgentDisplay(ctx.settings);
-        const ack = pickTemplate('handoff', ctx.responseLanguage);
+        const ack = pickHandoffAckMessage(ctx.settings, ctx.responseLanguage);
         const ins = await insertAiMessage(ctx.config, {
           workspaceId: ctx.workspaceId,
           conversationId: ctx.conversationId,
@@ -128,6 +129,11 @@ export async function executeRuntimeActions(
           agentLogoUrl: display.agentLogoUrl,
         });
         if (ins.id) result.insertedMessageIds.push(ins.id);
+        await markNeedsHuman(ctx.config, {
+          workspaceId: ctx.workspaceId,
+          conversationId: ctx.conversationId,
+          reason: 'human_request',
+        });
         await updateRuntimeFlags(ctx.config, ctx.conversationId, { handoffSent: true }).catch(() => {});
         if (a.source === 'message_trigger' && a.sourceId) {
           await updateRuntimeFlags(ctx.config, ctx.conversationId, {

@@ -133,11 +133,6 @@ export async function runLimitHandoff(
 
   // Always route to human queue, even when fallback_behavior='silent'.
   await markHandoffRequested(config, input.conversationId).catch(() => {});
-  await markNeedsHuman(config, {
-    workspaceId: input.workspaceId,
-    conversationId: input.conversationId,
-    reason: input.reason as HandoffReason,
-  }).catch(() => {});
 
   const nowIso = new Date().toISOString();
   await patchMeta(config, input.conversationId, {
@@ -147,11 +142,21 @@ export async function runLimitHandoff(
   });
 
   // Suppress visitor-facing message when fallback_behavior='silent' or
-  // mode=suggest_only.
+  // mode=suggest_only. No ack is being sent, so there's no message-ordering
+  // hazard — route to the human queue right away.
   if (fallbackBehavior === 'silent' || input.suppressVisitorMessage) {
+    await markNeedsHuman(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      reason: input.reason as HandoffReason,
+    }).catch(() => {});
     return { sentMessage: false, duplicate: false, runId, messageId: null };
   }
 
+  // Insert the ack BEFORE markNeedsHuman() — markNeedsHuman synchronously
+  // runs routing and inserts its own "X joined" / "no one's available"
+  // system message, so the ack has to land first or the routing outcome
+  // renders ahead of the AI's own message.
   const display = deriveAgentDisplay(input.settings);
   const body = pickLimitHandoffMessage(input.locale, input.reason);
   const inserted = await insertAiMessage(config, {
@@ -166,6 +171,11 @@ export async function runLimitHandoff(
     agentName: display.agentName,
     agentLogoUrl: display.agentLogoUrl,
   });
+  await markNeedsHuman(config, {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    reason: input.reason as HandoffReason,
+  }).catch(() => {});
 
   // Tag this specific message so the timeline can render the limit badge.
   try {

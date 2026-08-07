@@ -53,6 +53,7 @@ export interface AgentSettings {
   ai_intro_enabled: boolean;
   intro_message: string | null;
   intro_message_localized: Record<string, string>;
+  handoff_message_localized: Record<string, string>;
   fallback_behavior: 'handoff' | 'silent';
   stop_on_handoff: boolean;
   max_auto_replies_per_conversation?: number;
@@ -105,6 +106,7 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     ai_intro_enabled: true,
     intro_message: null,
     intro_message_localized: {},
+    handoff_message_localized: {},
     fallback_behavior: 'handoff',
     stop_on_handoff: true,
     pause_auto_reply_after_human_reply: true,
@@ -149,7 +151,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'show_sources_to_operator','show_sources_to_visitor',
   'handoff_on_low_confidence','handoff_on_human_request','handoff_when_no_kb_match',
   'confidence_threshold','instructions','metadata',
-  'ai_intro_enabled','intro_message','intro_message_localized','fallback_behavior','stop_on_handoff',
+  'ai_intro_enabled','intro_message','intro_message_localized','handoff_message_localized','fallback_behavior','stop_on_handoff',
   'pause_auto_reply_after_human_reply','allow_suggestions_after_takeover',
   'keep_in_automated_until_handoff',
   'escalation_style','allow_clarifying_questions','max_clarification_attempts',

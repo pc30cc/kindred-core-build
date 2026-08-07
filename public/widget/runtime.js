@@ -5916,6 +5916,7 @@
           .then(function (resp) {
             if (resp && resp.ok) {
               escalateBtn.classList.add('sent');
+              try { ctx.__handoffRequested = true; } catch (_) {}
               escalateBtn.title = t('escalateRequested') || "We've let our team know.";
             } else {
               escalateBtn.disabled = false;

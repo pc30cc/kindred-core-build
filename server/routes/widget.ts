@@ -585,18 +585,29 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           || mode === 'auto_reply_always';
         const introEnabled = aiSettings.ai_intro_enabled !== false;
         // Effective AI Mode — a toggle+auto-mode being set is not sufficient
-        // on its own; also require platform/workspace gates and an actually
-        // resolvable AI provider before treating the AI as visitor-facing.
-        // Best-effort: any resolver failure falls back to the pre-existing
-        // toggle-only computation so this never regresses widget config.
+        // on its own; also require the platform kill-switch/feature/
+        // entitlement gates before treating the AI as visitor-facing.
+        // Deliberately NOT requiring a resolvable AI provider here: the
+        // intro message this flag gates is static/templated
+        // (server/services/ai-agent/intro.ts never calls resolveAIConfig),
+        // so it doesn't need one. Gating pre-chat-skip on provider
+        // resolvability caused prechat to show (and the intro to never
+        // fire) for workspaces with the AI toggle correctly on whenever
+        // provider resolution had ANY hiccup — worse than before. Whether
+        // the AI can actually generate a conversational reply is enforced
+        // independently, deeper in engine.ts's own reply pipeline.
         let visitorFacing = !!aiSettings.enabled && isAuto;
         try {
-          const { resolveEffectiveAiMode } = await import('../services/ai-agent/effectiveMode.js');
-          const effective = await resolveEffectiveAiMode(config, workspaceId, {
+          const { classifyEffectiveAiMode } = await import('../services/ai-agent/effectiveMode.js');
+          const { isAutoAnswerAllowedForWorkspace } = await import('../services/ai-agent/platformGuards.js');
+          const platformGate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
+          const classified = classifyEffectiveAiMode(platformGate.allowed === true, {
             enabled: !!aiSettings.enabled,
             mode: mode as any,
           });
-          visitorFacing = effective.visitorFacing;
+          // 'provider_pending' means every non-provider gate passed —
+          // exactly what this greeting-suppression decision needs.
+          visitorFacing = classified.visitorFacing || classified.reason === 'provider_pending';
         } catch (_) { /* keep toggle-only fallback */ }
         aiAgentInfo = {
           enabled: !!aiSettings.enabled,

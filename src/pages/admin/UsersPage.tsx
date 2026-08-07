@@ -218,6 +218,7 @@ export default function AdminUsersPage() {
 /* ─── User Detail View ─── */
 function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void }) {
   const { t, dir } = useTranslation();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { data: detail, isLoading, refetch } = useAdminUserDetail(userId);
   const { data: roles, refetch: refetchRoles } = useAdminUserRoles(userId);
   const assignRole = useAssignRole();
@@ -831,17 +832,21 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               </div>
               <p className="text-[11px] text-muted-foreground">{t('admin.users.phoneEditHint')}</p>
             </div>
+            {canSwitchLanguage && (
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{t('admin.users.preferredLocale')}</label>
-              <Select value={editForm.preferred_locale || 'en'} onValueChange={v => setEditForm(f => ({ ...f, preferred_locale: v }))}>
+              <Select value={editForm.preferred_locale || allowedLocales[0] || 'en'} onValueChange={v => setEditForm(f => ({ ...f, preferred_locale: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="fa">فارسی</SelectItem>
-                  <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="tr">Türkçe</SelectItem>
+                  {allowedLocales.map((loc) => (
+                    <SelectItem key={loc} value={loc}>
+                      {loc === 'fa' ? 'فارسی' : loc === 'tr' ? 'Türkçe' : 'English'}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialog(false)}>{t('admin.users.cancel')}</Button>

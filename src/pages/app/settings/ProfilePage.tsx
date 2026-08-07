@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -78,6 +79,7 @@ const SUPPORTED_AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/
 
 export default function SettingsProfilePage() {
   const { t } = useTranslation();
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { platformName } = useBrandingContext();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -441,7 +443,11 @@ export default function SettingsProfilePage() {
         </div>
       </Card>
 
-      {/* Preferences */}
+      {/* Preferences — hidden entirely on a single-language platform, where
+          there is nothing to pick between (see Settings → Interface, which
+          governs this same preferred_locale field and applies the same
+          canSwitchLanguage gate). */}
+      {canSwitchLanguage && (
       <Card className="overflow-hidden border-border/60 shadow-sm">
         <div className="border-b border-border/60 px-6 py-4">
           <h2 className="text-base font-semibold text-foreground">{t('account.preferences')}</h2>
@@ -456,15 +462,18 @@ export default function SettingsProfilePage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="fa">فارسی</SelectItem>
-                <SelectItem value="tr">Türkçe</SelectItem>
+                {allowedLocales.map((loc) => (
+                  <SelectItem key={loc} value={loc}>
+                    {loc === 'fa' ? 'فارسی' : loc === 'tr' ? 'Türkçe' : 'English'}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">{t('account.preferredLanguageHelper')}</p>
           </div>
         </div>
       </Card>
+      )}
 
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
     </div>

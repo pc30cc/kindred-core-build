@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -67,11 +68,17 @@ const LOCALES = [
 ];
 
 export default function EmailTemplatesTab() {
+  // The platform's active region/language mode decides which languages a
+  // transactional email can be sent in — a single-language platform never
+  // sends (or needs) templates in a language no account can be set to.
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const activeLocales = allowedLocales.length ? allowedLocales : LOCALES.map(l => l.code);
+
   const [templates, setTemplates] = useState<DbTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedSlug, setSelectedSlug] = useState('email_verify');
-  const [selectedLocale, setSelectedLocale] = useState('en');
+  const [selectedLocale, setSelectedLocale] = useState(activeLocales[0] || 'en');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [viewMode, setViewMode] = useState<'code' | 'preview'>('code');
 
@@ -83,6 +90,12 @@ export default function EmailTemplatesTab() {
 
   useEffect(() => { fetchTemplates(); }, []);
   useEffect(() => { loadTemplateForEdit(); }, [selectedSlug, selectedLocale, templates]);
+  useEffect(() => {
+    if (activeLocales.length && !activeLocales.includes(selectedLocale)) {
+      setSelectedLocale(activeLocales[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLocales.join(',')]);
 
   async function fetchTemplates() {
     setLoading(true);
@@ -135,7 +148,7 @@ export default function EmailTemplatesTab() {
 
   async function handleDuplicate() {
     const existingLocales = templates.filter(t => t.slug === selectedSlug).map(t => t.locale);
-    const nextLocale = LOCALES.find(l => !existingLocales.includes(l.code));
+    const nextLocale = LOCALES.find(l => activeLocales.includes(l.code) && !existingLocales.includes(l.code));
     if (!nextLocale) { toast.info('Template exists for all locales'); return; }
     const { error } = await supabase.from('email_templates').insert({
       slug: selectedSlug, locale: nextLocale.code, subject: editSubject,
@@ -195,10 +208,16 @@ export default function EmailTemplatesTab() {
                 <CardDescription>{selectedSlug}</CardDescription>
               </div>
               <div className="flex items-center gap-2">
+                {canSwitchLanguage && (
                 <Select value={selectedLocale} onValueChange={setSelectedLocale}>
                   <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-                  <SelectContent>{LOCALES.map(l => (<SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>))}</SelectContent>
+                  <SelectContent>
+                    {LOCALES.filter(l => activeLocales.includes(l.code)).map(l => (
+                      <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
+                )}
                 <div className="flex items-center gap-2">
                   <Label className="text-sm">Active</Label>
                   <Switch checked={editActive} onCheckedChange={setEditActive} />

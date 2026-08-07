@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useKBArticles, useKBCategories, useCreateKBArticle, useUpdateKBArticle, useDeleteKBArticle } from '@/hooks/useKnowledgeBase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,7 +59,20 @@ function calcSeoScore(form: FormData) {
 export default function KnowledgeBasePage() {
   const { t, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
-  const [locale, setLocale] = useState('en');
+  // The platform's active region/language mode decides which article
+  // languages exist here — a single-language platform must not offer a
+  // language picker or let articles be authored in a language visitors on
+  // this platform can never see.
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const activeLocales = allowedLocales.length ? allowedLocales : ['en', 'fa', 'tr'];
+  const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
+  const [locale, setLocale] = useState(activeLocales[0] || 'en');
+  useEffect(() => {
+    if (activeLocales.length && !activeLocales.includes(locale)) {
+      setLocale(activeLocales[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLocales.join(',')]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showEditor, setShowEditor] = useState(false);
@@ -158,7 +172,7 @@ export default function KnowledgeBasePage() {
               </p>
             </div>
           </div>
-          <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
+          <Button onClick={() => { setShowEditor(true); setEditId(null); setForm({ ...emptyForm, locale }); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
               <Plus className="w-4 h-4" />
             <span>{t('knowledgeBase.newArticle')}</span>
           </Button>
@@ -277,8 +291,10 @@ export default function KnowledgeBasePage() {
               )}
             </div>
 
-            {/* Slug, Status, Locale */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Slug, Status, Locale — locale picker only shown on a
+                multi-language platform; single-language platforms author
+                every article in that one language, no choice to make. */}
+            <div className={`grid grid-cols-1 gap-3 ${canSwitchLanguage ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Slug</label>
                 <Input value={form.slug} onChange={e => setForm(p => ({ ...p, slug: e.target.value }))} dir="ltr" placeholder="my-article-slug" />
@@ -294,17 +310,19 @@ export default function KnowledgeBasePage() {
                   </SelectContent>
                 </Select>
               </div>
+              {canSwitchLanguage && (
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Locale</label>
                 <Select value={form.locale} onValueChange={v => setForm(p => ({ ...p, locale: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="fa">فارسی</SelectItem>
-                    <SelectItem value="tr">Türkçe</SelectItem>
+                    {activeLocales.map((loc) => (
+                      <SelectItem key={loc} value={loc}>{LOCALE_LABELS[loc] || loc}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+              )}
             </div>
 
             {/* Excerpt (SEO description) */}
@@ -375,14 +393,16 @@ export default function KnowledgeBasePage() {
             onChange={e => setSearchQuery(e.target.value)}
           />
         </div>
+        {canSwitchLanguage && (
         <Select value={locale} onValueChange={setLocale}>
           <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="en">English</SelectItem>
-            <SelectItem value="fa">فارسی</SelectItem>
-            <SelectItem value="tr">Türkçe</SelectItem>
+            {activeLocales.map((loc) => (
+              <SelectItem key={loc} value={loc}>{LOCALE_LABELS[loc] || loc}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
+        )}
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
           <SelectContent>

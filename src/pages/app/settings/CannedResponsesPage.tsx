@@ -11,9 +11,10 @@
  * - Live preview happens inside the form using SAMPLE_CONTEXT only.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import {
@@ -53,7 +54,18 @@ export default function SettingsCannedResponsesPage() {
   const { data: role } = useWorkspaceRole(workspace?.id);
   const isAdmin = isWorkspaceAdmin(role);
 
-  const [activeLocale, setActiveLocale] = useState<CannedLocale>('en');
+  // The platform's active region/language mode decides which languages a
+  // canned response can be authored in — a single-language platform has no
+  // locale to pick between, so the tab bar collapses away entirely.
+  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const activeLocales = (allowedLocales.length ? allowedLocales : ['en', 'fa', 'tr']) as CannedLocale[];
+  const [activeLocale, setActiveLocale] = useState<CannedLocale>(activeLocales[0] || 'en');
+  useEffect(() => {
+    if (activeLocales.length && !activeLocales.includes(activeLocale)) {
+      setActiveLocale(activeLocales[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLocales.join(',')]);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -138,13 +150,15 @@ export default function SettingsCannedResponsesPage() {
 
       {/* Locale tabs + search */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
+        {canSwitchLanguage && (
         <Tabs value={activeLocale} onValueChange={(v) => setActiveLocale(v as CannedLocale)}>
           <TabsList>
-            {LOCALES.map((l) => (
+            {LOCALES.filter((l) => activeLocales.includes(l.value)).map((l) => (
               <TabsTrigger key={l.value} value={l.value}>{l.label}</TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
+        )}
 
         <div className="relative w-full max-w-xs">
           <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

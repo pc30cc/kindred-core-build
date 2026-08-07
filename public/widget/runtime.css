@@ -427,6 +427,16 @@ textarea:focus-visible{
   border-bottom-right-radius: 5px;
   border-bottom-left-radius: 14px;
 }
+.msg-time {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1;
+  text-align: end;
+  user-select: none;
+  color: rgba(31, 41, 55, 0.45);
+}
+.msg.visitor .msg-time { color: rgba(255, 255, 255, 0.75); }
 
 /* ─── Per-message operator avatar (Intercom-style) ─── */
 /* The chat renderer wraps each message in `.msg-row`. For operator rows we
@@ -2781,23 +2791,31 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 @media (max-width: 480px) {
   .shell .smart-nudge { bottom: 84px; max-width: calc(100vw - 40px); }
 }
-/* Chat dock: proactive message docked above the composer. Lives on the
-   panel (not the body) so tab re-renders never wipe it. */
+/* Chat dock: proactive message docked above the composer, styled to read
+   as a normal received chat bubble (same shape/color as .msg.operator)
+   rather than a floating notification card — it sits IN the conversation,
+   so it should look like part of it. Lives on the panel (not the body) so
+   tab re-renders never wipe it. */
 .shell .smart-chat-dock {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 0 12px 8px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, .08);
-  box-shadow: 0 12px 30px -22px rgba(2, 6, 23, .5);
+  gap: 6px;
+  align-self: flex-start;
+  max-width: calc(100% - 24px);
+  margin: 0 12px 10px;
+  padding: 9px 30px 9px 13px;
+  border-radius: 14px;
+  border-bottom-left-radius: 5px;
+  background: #F3F4F6;
+  color: #1F2937;
+  border: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
+.shell .panel-rtl .smart-chat-dock { padding: 9px 13px 9px 30px; border-bottom-left-radius: 14px; border-bottom-right-radius: 5px; }
 .shell .smart-chat-dock[hidden] { display: none !important; }
 .shell .smart-chat-dock .smart-title { font-weight: 700; font-size: 13px; color: #0f172a; }
-.shell .smart-chat-dock .smart-body { font-size: 12.5px; line-height: 1.65; color: #475569; white-space: pre-wrap; word-break: break-word; }
+.shell .smart-chat-dock .smart-body { font-size: 13px; line-height: 1.5; color: #1F2937; white-space: pre-wrap; word-break: break-word; }
 .shell .smart-chat-dock .smart-cta {
   align-self: flex-start;
   border: none;
@@ -2810,18 +2828,27 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
   color: #fff;
   background: var(--gs-primary, #3b82f6);
 }
+/* A small, quiet close affordance inline in the bubble corner — not a
+   detached floating circle sitting outside the message like a notification. */
 .shell .smart-chat-dock .smart-dismiss {
   position: absolute;
-  top: 8px;
+  top: 6px;
+  width: 18px;
+  height: 18px;
   border: none;
+  border-radius: 50%;
   background: transparent;
-  color: #94a3b8;
+  color: #9CA3AF;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1;
-  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
-.shell .panel:not(.panel-rtl) .smart-chat-dock .smart-dismiss { right: 8px; }
-.shell .panel-rtl .smart-chat-dock .smart-dismiss { left: 8px; }
+.shell .smart-chat-dock .smart-dismiss:hover { background: rgba(15, 23, 42, .06); color: #64748b; }
+.shell .panel:not(.panel-rtl) .smart-chat-dock .smart-dismiss { right: 6px; }
+.shell .panel-rtl .smart-chat-dock .smart-dismiss { left: 6px; }
 .shell.anim-on .smart-chat-dock,
 .shell .anim-on .smart-chat-dock { animation: gs-smart-in .3s cubic-bezier(.22, 1, .36, 1) both; }

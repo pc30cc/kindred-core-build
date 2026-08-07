@@ -2813,6 +2813,14 @@
       } catch (_) { /* noop */ }
     }
 
+    function formatMsgTime(d) {
+      try {
+        var date = (d instanceof Date) ? d : new Date(d);
+        if (!date || isNaN(date.getTime())) return '';
+        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
+      } catch (_) { return ''; }
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
@@ -2894,11 +2902,14 @@
           }
         }
 
+        var timeStr = formatMsgTime(m.time);
+        var timeHtml = timeStr ? '<span class="msg-time">' + Util.escapeHtml(timeStr) + '</span>' : '';
+
         html += '<div class="msg-row ' + cls + '">' +
           avatarHtml +
           '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '" ' + bg + '>' +
             aiBadgeHtml +
-            (hasText ? Util.escapeHtml(m.body) : '') + attHtml +
+            (hasText ? Util.escapeHtml(m.body) : '') + attHtml + timeHtml +
           '</div>' +
           statusHtml +
           '</div>';
@@ -5945,7 +5956,12 @@
         try {
           var __ai = ctx.config && ctx.config.aiAgent;
           var __hasMsgs = (chatStore.get().messages || []).length > 0;
-          if (__ai && __ai.suppressGreeting === true && !__hasMsgs) {
+          // Don't let the AI intro race ahead of a Smart Engagement
+          // chat_message surface that is the reason this tab is open —
+          // the visitor should see the operator-configured nudge first,
+          // not have the AI cut in front of it. Once that surface is
+          // dismissed, the next render (smartSurface null) fires normally.
+          if (__ai && __ai.suppressGreeting === true && !__hasMsgs && !smartSurface) {
             requestAiAgentIntro('chat_open');
           }
         } catch (_) {}

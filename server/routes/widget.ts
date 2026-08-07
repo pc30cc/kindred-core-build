@@ -46,7 +46,6 @@ import {
   enforceWidgetToken,
   enforceOrigin,
   widgetRateLimit,
-  widgetSecurityCors,
   resolveWorkspaceId,
   verifyConversationOwnership,
   getClientIp,
@@ -86,8 +85,9 @@ widgetRouter.use('/identity', widgetIdentityRouter);
 // Phase 6a — Mount attachments sub-router (token + origin enforced inside)
 widgetRouter.use('/attachments', widgetAttachmentsRouter);
 
-// Phase 8D — Visitor-side callback request endpoint.
-// Mounted under widget so it inherits CORS + token + origin gate.
+// Phase 8D — Visitor-side callback request endpoint (token + origin
+// enforced inside the sub-router — it is mounted before the parent's own
+// enforceWidgetToken/enforceOrigin, so it cannot rely on those).
 widgetRouter.use('/callback', widgetCallbacksRouter);
 
 // Phase 8H — Widget-facing department visibility (token + origin enforced
@@ -99,9 +99,6 @@ widgetRouter.use('/departments', widgetDepartmentsRouter);
 // its own widget token + origin; visitor identity is verified via the
 // existing conversation-ownership helper.
 widgetRouter.use('/call-invitations', widgetCallInvitationsRouter);
-
-// ─── CORS preflight for all widget routes ───
-widgetRouter.use(widgetSecurityCors);
 
 // ─── Default widget settings ───
 // Seeded English defaults. When the widget locale is not English these are

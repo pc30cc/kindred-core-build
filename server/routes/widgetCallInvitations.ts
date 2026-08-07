@@ -55,9 +55,9 @@ import { endCallSession } from '../services/calls/endSession.js';
 
 export const widgetCallInvitationsRouter = Router();
 
-// Sub-router needs its own token + origin enforcement (the parent applies
-// widgetSecurityCors before mounting, then enforceWidgetToken globally only
-// AFTER sub-routers — same pattern as widgetIdentityRouter).
+// Sub-router needs its own token + origin enforcement — the parent applies
+// enforceWidgetToken/enforceOrigin globally only AFTER sub-routers are
+// mounted, same pattern as widgetIdentityRouter.
 widgetCallInvitationsRouter.use(enforceWidgetToken);
 widgetCallInvitationsRouter.use(enforceOrigin);
 

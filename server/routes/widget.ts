@@ -864,7 +864,11 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
  * Single batched lookup keeps /poll and /history fast even on long threads.
  * Visitor + system messages are passed through unchanged.
  */
-async function enrichMessagesWithSender(supabase: any, messages: any[]): Promise<any[]> {
+async function enrichMessagesWithSender(
+  supabase: any,
+  messages: any[],
+  workspaceId?: string | null,
+): Promise<any[]> {
   if (!messages || !messages.length) return messages || [];
   const ids = Array.from(new Set(
     messages
@@ -885,7 +889,33 @@ async function enrichMessagesWithSender(supabase: any, messages: any[]): Promise
       console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);
     }
   }
+  // AI messages have no operator profile — their identity comes from the
+  // agent settings (name + logo). Older rows may predate the metadata
+  // snapshot, so fall back to the workspace's current agent settings.
+  let aiDisplay: { name: string | null; avatar: string | null } | null = null;
+  const hasAi = messages.some((m) => m.sender_type === 'ai');
+  if (hasAi && workspaceId) {
+    try {
+      const { data: s } = await supabase
+        .from('ai_agent_settings')
+        .select('agent_name, agent_logo_url')
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      if (s) aiDisplay = { name: s.agent_name || null, avatar: s.agent_logo_url || null };
+    } catch (e: any) {
+      console.warn('[widget-sender-enrich] ai settings lookup failed:', e?.message || e);
+    }
+  }
   return messages.map((m) => {
+    if (m.sender_type === 'ai') {
+      const { _sender_id: _ignored, ...rest } = m;
+      const meta = (m.metadata && typeof m.metadata === 'object') ? m.metadata : {};
+      return {
+        ...rest,
+        sender_name: meta.agent_name || aiDisplay?.name || null,
+        sender_avatar: meta.agent_logo_url || aiDisplay?.avatar || null,
+      };
+    }
     const { _sender_id, ...rest } = m;
     if (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai') {
       const profile = _sender_id ? profileMap.get(_sender_id) : null;
@@ -988,7 +1018,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
     const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-    const messages = await enrichMessagesWithSender(supabase, enriched);
+    const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
 
     let operatorInfo = null;
     if (conv.assigned_to) {
@@ -1076,7 +1106,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-  const messages = await enrichMessagesWithSender(supabase, enriched);
+  const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
 
   return res.json({ messages });
 });

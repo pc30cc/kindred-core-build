@@ -2333,8 +2333,12 @@
           // chat renderer to draw a small avatar next to each agent bubble
           // (Intercom-style). Null on visitor / system / AI messages with no
           // resolvable profile.
-          senderName: m.sender_name || null,
-          senderAvatar: m.sender_avatar || null,
+          senderName: m.sender_name
+            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_name || null) : null)
+            || null,
+          senderAvatar: m.sender_avatar
+            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_logo_url || null) : null)
+            || null,
           // Phase 7 — lifecycle (visitor messages only have a meaningful status).
           status: sender === 'visitor' ? (seenAt ? 'seen' : 'sent') : null,
           seenAt: sender === 'visitor' ? seenAt : null,

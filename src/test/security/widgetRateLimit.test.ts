@@ -25,7 +25,7 @@ describe('ipBlockMiddleware is fail-closed', () => {
   beforeEach(() => rpc.mockReset());
 
   it('rejects with 503 when the block lookup throws', async () => {
-    rpc.mockRejectedValue(new Error('db down'));
+    rpc.mockImplementation(async () => { throw new Error('db down'); });
     const req: any = { ip: `1.2.3.${Math.floor(Math.random() * 250)}`, socket: {}, serverConfig: {} };
     const res = makeRes();
     const next = vi.fn();
@@ -34,8 +34,18 @@ describe('ipBlockMiddleware is fail-closed', () => {
     expect(res.state.code).toBe(503);
   });
 
+  it('rejects with 503 when the RPC returns a postgrest error', async () => {
+    rpc.mockImplementation(async () => ({ data: null, error: { message: 'permission denied' } }));
+    const req: any = { ip: '7.7.7.7', socket: {}, serverConfig: {} };
+    const res = makeRes();
+    const next = vi.fn();
+    await ipBlockMiddleware()(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.state.code).toBe(503);
+  });
+
   it('blocks with 403 when the IP is flagged', async () => {
-    rpc.mockResolvedValue({ data: true });
+    rpc.mockImplementation(async () => ({ data: true, error: null }));
     const req: any = { ip: '9.9.9.9', socket: {}, serverConfig: {} };
     const res = makeRes();
     const next = vi.fn();
@@ -45,7 +55,7 @@ describe('ipBlockMiddleware is fail-closed', () => {
   });
 
   it('passes clean IPs through', async () => {
-    rpc.mockResolvedValue({ data: false });
+    rpc.mockImplementation(async () => ({ data: false, error: null }));
     const req: any = { ip: '8.8.4.4', socket: {}, serverConfig: {} };
     const res = makeRes();
     const next = vi.fn();

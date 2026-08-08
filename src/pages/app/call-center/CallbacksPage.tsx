@@ -20,6 +20,9 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
+import { useVisitorNetworkBatchBySession, type VisitorNetworkProfile } from '@/hooks/useVisitorNetwork';
+import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
+import { VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 
 type StatusKey = 'requested' | 'in_progress' | 'scheduled' | 'completed' | 'cancelled';
 
@@ -71,12 +74,15 @@ function CallbackRow({
   onComplete,
   highlight,
   rowRef,
+  profile,
 }: {
   c: CallbackRequest;
   onAction: (id: string, fn: 'assignCallback' | 'cancelCallback') => void;
   onComplete: (c: CallbackRequest) => void;
   highlight?: boolean;
   rowRef?: (el: HTMLDivElement | null) => void;
+  /** Pre-fetched by the page in ONE batched request — never fetched per row. */
+  profile?: VisitorNetworkProfile | null;
 }) {
   const { t } = useTranslation();
   const meta = (c.metadata || {}) as Record<string, any>;
@@ -185,6 +191,7 @@ function CallbackRow({
               <span className="inline-flex items-center gap-1" title={new Date(requested).toLocaleString()}>
                 <Clock className="h-3 w-3" />{relativeTime(requested)}
               </span>
+              <VisitorNetworkInline profile={profile} t={t as any} />
               {c.scheduled_for && (
                 <span className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400">
                   <CalendarClock className="h-3 w-3" />{new Date(c.scheduled_for).toLocaleString()}

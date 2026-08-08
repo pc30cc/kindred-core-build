@@ -382,6 +382,122 @@ export async function resolveNetworkProfile(
 }
 
 /**
+ * Batch conversation → canonical network profile.
+ *
+ * Inbox used to do this client-side (a direct `visitor_sessions` read that
+ * returned only `country` / `geo_country_code` and no IP at all, which also
+ * meant the privacy/entitlement decision was implicitly made in the browser).
+ * The mapping now lives here, server-side, and every conversation is resolved
+ * through `resolveNetworkProfiles`, so Inbox cannot disagree with Visitors or
+ * the Call Center.
+ *
+ * Session selection is canonical: `conversations.visitor_session_id` — the
+ * exact session that produced the thread, never the contact's newest one.
+ * The contact-level lookup survives ONLY as a compatibility fallback for
+ * legacy rows written before the column existed (those carry no session id at
+ * all), and it is capped to one batched query.
+ *
+ * Cost: at most three queries total, independent of the number of
+ * conversations on the page.
+ */
+export async function resolveConversationNetworkProfiles(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationIds: string[],
+  policy: IpVisibilityPolicy,
+): Promise<Map<string, VisitorNetworkProfile>> {
+  const out = new Map<string, VisitorNetworkProfile>();
+  const ids = Array.from(new Set(conversationIds.filter(Boolean)));
+  if (!ids.length) return out;
+  const sb = getServiceClient(config);
+
+  const { data: convos } = await sb
+    .from('conversations')
+    .select('id, visitor_session_id, contact_id')
+    .eq('workspace_id', workspaceId)
+    .in('id', ids);
+  const rows = (convos ?? []) as Array<{
+    id: string; visitor_session_id: string | null; contact_id: string | null;
+  }>;
+  if (!rows.length) return out;
+
+  const sessionByConversation = new Map<string, string>();
+  for (const c of rows) {
+    if (c.visitor_session_id) sessionByConversation.set(c.id, c.visitor_session_id);
+  }
+
+  // Legacy compatibility only: conversations with no session link.
+  const orphanContactIds = Array.from(
+    new Set(
+      rows
+        .filter((c) => !c.visitor_session_id && c.contact_id)
+        .map((c) => c.contact_id as string),
+    ),
+  );
+  if (orphanContactIds.length) {
+    const { data: sessions } = await sb
+      .from('visitor_sessions')
+      .select('id, contact_id, last_seen_at')
+      .eq('workspace_id', workspaceId)
+      .in('contact_id', orphanContactIds)
+      .order('last_seen_at', { ascending: false })
+      .limit(500);
+    const latestByContact = new Map<string, string>();
+    for (const s of (sessions ?? []) as any[]) {
+      if (!s.contact_id || latestByContact.has(s.contact_id)) continue;
+      latestByContact.set(s.contact_id, s.id);
+    }
+    for (const c of rows) {
+      if (c.visitor_session_id || !c.contact_id) continue;
+      const sid = latestByContact.get(c.contact_id);
+      if (sid) sessionByConversation.set(c.id, sid);
+    }
+  }
+
+  const profiles = await resolveNetworkProfiles(
+    config,
+    workspaceId,
+    Array.from(new Set(sessionByConversation.values())),
+    policy,
+  );
+  for (const [conversationId, sessionId] of sessionByConversation) {
+    const p = profiles.get(sessionId);
+    if (p) out.set(conversationId, p);
+  }
+  return out;
+}
+
+/**
+ * Canonical session pick for a CONTACT (contact detail page).
+ *
+ * Prefers the newest session that actually carries a network identity
+ * (`ip_hash`), then falls back to the newest session at all, so the contact
+ * page and the Inbox thread for the same visit resolve through the same
+ * profile builder and policy.
+ */
+export async function resolveContactNetworkProfile(
+  config: ServerConfig,
+  workspaceId: string,
+  contactId: string,
+  policy: IpVisibilityPolicy,
+): Promise<VisitorNetworkProfile | null> {
+  const sb = getServiceClient(config);
+  const pick = async (withIp: boolean) => {
+    let q = sb
+      .from('visitor_sessions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('contact_id', contactId);
+    if (withIp) q = q.not('ip_hash', 'is', null);
+    const { data } = await q.order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
+    return ((data as any)?.id as string | null) ?? null;
+  };
+  const sessionId = (await pick(true)) ?? (await pick(false));
+  if (!sessionId) return null;
+  return resolveNetworkProfile(config, workspaceId, sessionId, policy);
+}
+
+/**
  * Collapse the canonical geo onto the legacy `GeoResult.source` union that the
  * Visitors page / map legend already speak. Kept in ONE place so the mapping
  * can never drift between surfaces.

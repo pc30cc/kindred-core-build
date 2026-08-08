@@ -3,6 +3,10 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
+import {
+  fetchVisitorNetworkForConversations,
+  type VisitorNetworkProfile,
+} from '@/hooks/useVisitorNetwork';
 
 /**
  * Inbox queue selector.
@@ -92,6 +96,7 @@ export function useConversations(
         visitor_device?: string | null;
         visitor_country_code?: string | null;
         visitor_country_name?: string | null;
+        visitor_network?: VisitorNetworkProfile | null;
       })[];
 
       // Enrich each conversation with the latest visitor (sender_type='contact')
@@ -142,65 +147,30 @@ export function useConversations(
         }
       }
 
-      // Enrich with the visitor's device/OS/country.
+      // Enrich with the visitor's network profile (geo + IP + device).
       //
-      // Canonical precedence: the conversation's OWN `visitor_session_id`.
-      // This list used to key purely off the CONTACT's newest session, so a
-      // returning visitor made every one of their older conversations display
-      // the country/device of the newest visit. The contact-level lookup is now
-      // only a fallback for legacy rows that carry no session link.
-      type SessInfo = { os: string | null; device: string | null; cc: string | null; cn: string | null };
-      const toInfo = (s: any): SessInfo => ({
-        os: s.os ?? null,
-        device: s.device ?? null,
-        cc: s.geo_country_code ?? null,
-        cn: s.geo_country_name ?? s.country ?? null,
-      });
-      const SESSION_COLS =
-        'id, contact_id, os, device, last_seen_at, geo_country_code, geo_country_name, country';
-
-      const sessionIds = Array.from(
-        new Set(convos.map((c) => (c as any).visitor_session_id).filter(Boolean) as string[]),
-      );
-      const bySession: Record<string, SessInfo> = {};
-      if (sessionIds.length > 0) {
-        const { data: rows } = await supabase
-          .from('visitor_sessions')
-          .select(SESSION_COLS)
-          .in('id', sessionIds);
-        for (const s of (rows || []) as any[]) bySession[s.id] = toInfo(s);
-      }
-
-      const contactIds = Array.from(
-        new Set(
-          convos
-            .filter((c) => !bySession[(c as any).visitor_session_id as string])
-            .map((c) => (c as any).contact_id)
-            .filter(Boolean) as string[],
-        ),
-      );
-      const byContact: Record<string, SessInfo> = {};
-      if (contactIds.length > 0) {
-        const { data: sessions } = await supabase
-          .from('visitor_sessions')
-          .select(SESSION_COLS)
-          .in('contact_id', contactIds)
-          .order('last_seen_at', { ascending: false })
-          .limit(500);
-        for (const s of (sessions || []) as any[]) {
-          if (!s.contact_id || byContact[s.contact_id]) continue;
-          byContact[s.contact_id] = toInfo(s);
+      // This goes through the canonical server resolver
+      // (services/visitors/networkProfile.ts) in ONE batched request — the
+      // browser no longer reads `visitor_sessions` directly, so the IP
+      // privacy / entitlement decision is never made client-side, and Inbox
+      // can't disagree with Visitors or the Call Center.
+      //
+      // The server keys each conversation off its OWN `visitor_session_id`
+      // (the contact's newest session is only a legacy fallback), so a
+      // returning visitor no longer makes older threads show the newest
+      // visit's country.
+      try {
+        const netByConv = await fetchVisitorNetworkForConversations(workspaceId!, ids);
+        for (const c of convos) {
+          const p = netByConv[c.id] ?? null;
+          c.visitor_network = p;
+          c.visitor_os = p?.device.os ?? null;
+          c.visitor_device = p?.device.device ?? null;
+          c.visitor_country_code = p?.geo.country_code ?? null;
+          c.visitor_country_name = p?.geo.country ?? null;
         }
-      }
-
-      for (const c of convos) {
-        const info =
-          bySession[(c as any).visitor_session_id as string] ??
-          byContact[(c as any).contact_id as string];
-        c.visitor_os = info?.os ?? null;
-        c.visitor_device = info?.device ?? null;
-        c.visitor_country_code = info?.cc ?? null;
-        c.visitor_country_name = info?.cn ?? null;
+      } catch {
+        // Enrichment is decorative for the list — never block the inbox.
       }
 
       if (queue === 'main') {

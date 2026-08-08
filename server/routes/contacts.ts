@@ -28,6 +28,10 @@ import {
 } from '../services/billing/contactsLimit.js';
 import { clearEntitlementCache } from '../middleware/featureGating.js';
 import { checkEntitlementFromDB } from '../middleware/featureGating.js';
+import {
+  resolveIpVisibilityPolicy,
+  resolveContactNetworkProfile,
+} from '../services/visitors/networkProfile.js';
 
 export const contactsRouter = Router();
 
@@ -55,7 +59,7 @@ async function authorizeWorkspaceMember(
   res: any,
   config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; role: string | null } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing authorization' });
@@ -80,7 +84,14 @@ async function authorizeWorkspaceMember(
     res.status(403).json({ error: 'Not a workspace member' });
     return null;
   }
-  return { userId: user.id };
+  // Workspace role drives the raw-IP decision (see networkProfile.ts).
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  return { userId: user.id, role: ((member as any)?.role as string | null) ?? null };
 }
 
 function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: string) {
@@ -192,11 +203,17 @@ contactsRouter.post('/bulk', async (req, res) => {
 // The IP is never part of the regular contact payload (useContact() reads
 // `contacts` directly via Supabase RLS) — it's resolved on demand here so a
 // workspace without the `contact_ip_visibility` entitlement never has it
-// leave the server at all. There's also nothing on `contacts` itself to
-// read: raw IP only ever lives on `visitor_sessions.ip_raw`, and only when
-// the workspace opted in via widget_settings.store_raw_ip (see
-// server/routes/visitors.ts) — no opt-in means no raw IP was ever stored,
-// by design, regardless of plan.
+// leave the server at all.
+//
+// This route owns NO policy of its own: it delegates to the canonical
+// `resolveIpVisibilityPolicy` + `resolveContactNetworkProfile` in
+// services/visitors/networkProfile.ts, so the three states are identical to
+// Inbox / Visitors / Call Center:
+//   • no entitlement                  → 403, nothing (not even masked)
+//   • entitled, non-admin member      → masked value only
+//   • entitled, owner/admin           → raw (when store_raw_ip persisted one)
+// `store_raw_ip = false` means no raw IP was ever written, so even an owner
+// only receives the masked / hash placeholder form.
 // ═══════════════════════════════════════════════
 contactsRouter.get('/:id/ip', async (req, res) => {
   try {
@@ -215,27 +232,25 @@ contactsRouter.get('/:id/ip', async (req, res) => {
     const auth = await authorizeWorkspaceMember(req, res, config, contact.workspace_id);
     if (!auth) return;
 
-    const gate = await checkEntitlementFromDB(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      contact.workspace_id,
-      'contact_ip_visibility',
-    );
-    if (!gate.allowed) {
+    const policy = await resolveIpVisibilityPolicy(config, contact.workspace_id, auth.role);
+    if (!policy.entitled) {
       return res.status(403).json({ error: 'feature_not_entitled', feature: 'contact_ip_visibility' });
     }
 
-    const { data: session } = await sb
-      .from('visitor_sessions')
-      .select('ip_raw')
-      .eq('workspace_id', contact.workspace_id)
-      .eq('contact_id', contactId)
-      .not('ip_raw', 'is', null)
-      .order('last_seen_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    return res.json({ ip: (session as any)?.ip_raw || null });
+    const profile = await resolveContactNetworkProfile(
+      config,
+      contact.workspace_id,
+      contactId,
+      policy,
+    );
+    if (!profile) return res.json({ ip: null, ip_view: null });
+    return res.json({
+      // Back-compat scalar: raw for admins, masked/placeholder for everyone
+      // else — never the raw value for a non-admin member.
+      ip: profile.ip.display || null,
+      ip_view: profile.ip,
+      visitor_session_id: profile.visitor_session_id,
+    });
   } catch (err: any) {
     console.error('[contacts/ip] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

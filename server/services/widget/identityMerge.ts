@@ -202,6 +202,21 @@ export async function mergeVisitorIdentity(
   // Best-effort — resolved once regardless of new-vs-existing contact so
   // both branches below can fold it into whichever metadata write they
   // already do, instead of a second read/update pass.
+  // Privacy gate (Phase 10): the raw IP may only be persisted when the
+  // workspace opted in via widget_settings.store_raw_ip. Without this,
+  // `contacts.metadata.first_ip` and the identity_merges audit row stored a
+  // raw IP for every workspace regardless of the toggle.
+  let mayStoreRawIp = false;
+  try {
+    const { data: wsRow } = await supabase
+      .from('widget_settings')
+      .select('store_raw_ip')
+      .eq('workspace_id', opts.workspaceId)
+      .maybeSingle();
+    mayStoreRawIp = (wsRow as any)?.store_raw_ip === true;
+  } catch { /* fail closed */ }
+  const persistableIp = mayStoreRawIp ? (opts.ipAddress || null) : null;
+
   const geoPatch = await resolveContactGeoPatch(
     config, supabase, opts.workspaceId, opts.visitorId, opts.cfCountry ?? null,
   );
@@ -228,7 +243,7 @@ export async function mergeVisitorIdentity(
           visitor_id: opts.visitorId,
           source: 'widget',
           first_method: opts.method,
-          first_ip: opts.ipAddress || null,
+          first_ip: persistableIp,
           ...geoPatch,
         },
       })
@@ -295,7 +310,7 @@ export async function mergeVisitorIdentity(
     _visitor_id: opts.visitorId,
     _contact_id: contact.id,
     _method: opts.method,
-    _metadata: { ip: opts.ipAddress || null, is_new_contact: isNewContact },
+    _metadata: { ip: persistableIp, is_new_contact: isNewContact },
   });
 
   if (mergeError) throw new Error(`merge_failed: ${mergeError.message}`);

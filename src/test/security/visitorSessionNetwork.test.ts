@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase/provider test doubles are intentionally untyped. */
 /**
  * visitor_sessions network identity: privacy gate + no-null-IP session rows.
  *

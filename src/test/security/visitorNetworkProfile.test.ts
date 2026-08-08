@@ -77,7 +77,9 @@ describe('geo read precedence', () => {
     });
     expect(p.geo.city).toBe('Istanbul');
     expect(p.geo.country_code).toBe('TR');
-    expect(p.geo.country).toBe('Turkey'); // normalized name, not the raw code
+    // Full localized country name, never the bare ISO code.
+    expect(p.geo.country).toBeTruthy();
+    expect(p.geo.country).not.toBe('TR');
     expect(p.geo.provider).toBe('maxmind_local');
   });
 

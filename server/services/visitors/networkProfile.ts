@@ -293,9 +293,12 @@ export function buildNetworkProfile(
   policy: IpVisibilityPolicy,
   cacheRow?: Record<string, any> | null,
 ): VisitorNetworkProfile {
+  // An expired cache row is treated as absent here too, not only in the batch
+  // query — otherwise a caller passing a stale row would surface old geo.
+  const usableCache = cacheRow && notExpired(cacheRow.expires_at) ? cacheRow : null;
   const geo =
     geoFromPersistedSession(session) ??
-    (cacheRow ? geoFromIpCache(cacheRow) : null) ??
+    (usableCache ? geoFromIpCache(usableCache) : null) ??
     geoFromLegacySession(session) ??
     EMPTY_GEO;
   return {

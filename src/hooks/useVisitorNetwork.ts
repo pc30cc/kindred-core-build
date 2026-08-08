@@ -94,6 +94,40 @@ export async function fetchVisitorNetworkForConversations(
   return (body?.by_conversation as Record<string, VisitorNetworkProfile>) ?? {};
 }
 
+/**
+ * Batched profiles for LIST surfaces keyed by visitor_session_id
+ * (Call Center Live Queue / Calls list). ONE request per page of rows —
+ * never one per row. Same endpoint, same server-side privacy policy as the
+ * Inbox batch read.
+ */
+export function useVisitorNetworkBatchBySession(
+  workspaceId: string | undefined,
+  sessionIds: Array<string | null | undefined>,
+) {
+  const ids = Array.from(new Set(sessionIds.filter(Boolean) as string[])).sort();
+  return useQuery<Record<string, VisitorNetworkProfile>>({
+    queryKey: ['visitor-network', 'batch', workspaceId, ids.join(',')],
+    enabled: !!workspaceId && ids.length > 0,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, session_ids: ids.slice(0, 500) }),
+      });
+      if (!res.ok) return {};
+      const body = await res.json();
+      return (body?.by_session as Record<string, VisitorNetworkProfile>) ?? {};
+    },
+  });
+}
+
 /** 'TR' → '🇹🇷'. Presentation-only mirror of the server helper. */
 export function flagEmoji(code: string | null | undefined): string {
   if (!code || !/^[A-Za-z]{2}$/.test(code)) return '';

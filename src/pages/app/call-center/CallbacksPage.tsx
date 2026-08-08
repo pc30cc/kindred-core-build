@@ -419,6 +419,7 @@ export default function CallbacksPage() {
                   onComplete={(cb) => { setCompleteTarget(cb); setCompleteNote(''); }}
                   highlight={focusId === c.id}
                   rowRef={(el) => { rowRefs.current[c.id] = el; }}
+                  profile={networkBySession?.[(c as any).visitor_session_id ?? ''] ?? null}
                 />
               ))
             )}

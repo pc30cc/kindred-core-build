@@ -377,3 +377,18 @@ export async function resolveNetworkProfile(
   const map = await resolveNetworkProfiles(config, workspaceId, [sessionId], policy);
   return map.get(sessionId) ?? null;
 }
+
+/**
+ * Collapse the canonical geo onto the legacy `GeoResult.source` union that the
+ * Visitors page / map legend already speak. Kept in ONE place so the mapping
+ * can never drift between surfaces.
+ */
+export function legacyGeoSource(
+  geo: VisitorNetworkGeo,
+): 'cache' | 'provider' | 'centroid' | 'session' | 'none' {
+  if (geo.source === 'persisted') {
+    const cat = categorizeGeoSource(geo.provider, geo.is_fallback);
+    return cat === 'persisted' ? 'provider' : cat;
+  }
+  return geo.source === 'persisted' ? 'provider' : geo.source;
+}

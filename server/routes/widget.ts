@@ -69,7 +69,7 @@ import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
-import { getClientCountry } from '../utils/clientIp.js';
+import { getClientCountry, hashIp } from '../utils/clientIp.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { isActionActive } from '../services/observability/autoActionsCache.js';

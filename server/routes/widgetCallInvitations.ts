@@ -21,6 +21,7 @@ import { Router, Request, Response } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { routeParam } from '../lib/routeParams.js';
+import { resolveConversationSessionId } from '../services/visitors/networkProfile.js';
 import {
   enforceWidgetToken,
   enforceOrigin,

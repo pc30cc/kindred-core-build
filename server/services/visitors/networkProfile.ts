@@ -390,5 +390,5 @@ export function legacyGeoSource(
     const cat = categorizeGeoSource(geo.provider, geo.is_fallback);
     return cat === 'persisted' ? 'provider' : cat;
   }
-  return geo.source === 'persisted' ? 'provider' : geo.source;
+  return geo.source;
 }

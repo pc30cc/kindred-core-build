@@ -16,9 +16,10 @@ import type { ServerConfig } from '../config.js';
 import {
   getBootstrapOrigin,
   getWorkspaceOriginRules,
+  getRequestBaseUrl,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
-import { isOriginAllowed } from '../utils/domain.js';
+import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 
 const ALLOWED_HEADERS = 'Content-Type, Authorization, X-Widget-Token, x-widget-token';
 const ALLOWED_METHODS = 'GET, POST, PUT, OPTIONS';
@@ -39,6 +40,18 @@ function getWorkspaceId(req: Request): string | null {
     (req.body?.workspaceId as string) ||
     null
   );
+}
+
+/**
+ * Same-origin fallback: when we cannot positively authorize the origin
+ * (no workspace context, or the workspace has no allow-list configured yet)
+ * the ONLY origin we still echo is our own host. Everything else gets no
+ * CORS headers at all, so the browser blocks the cross-origin read.
+ */
+function isSameOrigin(req: Request, origin: string): boolean {
+  const originHost = extractHostname(origin);
+  const selfHost = extractHostname(getRequestBaseUrl(req));
+  return !!originHost && !!selfHost && originHost === selfHost;
 }
 
 export function widgetCorsMiddleware() {
@@ -77,16 +90,21 @@ export function widgetCorsMiddleware() {
     }
 
     if (!workspaceId) {
-      // No workspace context yet — echo origin so bootstrap can proceed; the
-      // bootstrap handler itself enforces the allow-list.
-      applyCorsHeaders(res, origin);
+      // Fail closed: we cannot tie this request to a workspace, so we cannot
+      // verify the origin. Only our own origin is echoed back; any third-party
+      // origin gets no CORS headers (the request still reaches the handler,
+      // the browser just refuses to expose the response).
+      if (isSameOrigin(req, origin)) applyCorsHeaders(res, origin);
       return next();
     }
 
     try {
       const { domains, allowSubdomains } = await getWorkspaceOriginRules(config, workspaceId);
 
-      if (!domains.length || isOriginAllowed(origin, domains, allowSubdomains)) {
+      if (domains.length) {
+        if (isOriginAllowed(origin, domains, allowSubdomains)) applyCorsHeaders(res, origin);
+      } else if (isSameOrigin(req, origin)) {
+        // Unconfigured allow-list is NOT "allow all" — same-origin only.
         applyCorsHeaders(res, origin);
       }
     } catch {

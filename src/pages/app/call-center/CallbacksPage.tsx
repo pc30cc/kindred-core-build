@@ -191,7 +191,7 @@ function CallbackRow({
               <span className="inline-flex items-center gap-1" title={new Date(requested).toLocaleString()}>
                 <Clock className="h-3 w-3" />{relativeTime(requested)}
               </span>
-              <VisitorNetworkInline profile={profile} t={(k: string) => t(k)} />
+              <VisitorNetworkInline profile={profile} t={(k: string) => t(k as Parameters<typeof t>[0])} />
               {c.scheduled_for && (
                 <span className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400">
                   <CalendarClock className="h-3 w-3" />{new Date(c.scheduled_for).toLocaleString()}

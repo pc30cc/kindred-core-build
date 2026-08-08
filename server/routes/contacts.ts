@@ -28,6 +28,10 @@ import {
 } from '../services/billing/contactsLimit.js';
 import { clearEntitlementCache } from '../middleware/featureGating.js';
 import { checkEntitlementFromDB } from '../middleware/featureGating.js';
+import {
+  resolveIpVisibilityPolicy,
+  resolveContactNetworkProfile,
+} from '../services/visitors/networkProfile.js';
 
 export const contactsRouter = Router();
 
@@ -55,7 +59,7 @@ async function authorizeWorkspaceMember(
   res: any,
   config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; role: string | null } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing authorization' });
@@ -80,7 +84,14 @@ async function authorizeWorkspaceMember(
     res.status(403).json({ error: 'Not a workspace member' });
     return null;
   }
-  return { userId: user.id };
+  // Workspace role drives the raw-IP decision (see networkProfile.ts).
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  return { userId: user.id, role: ((member as any)?.role as string | null) ?? null };
 }
 
 function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: string) {

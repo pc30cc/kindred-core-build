@@ -1700,6 +1700,22 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
     if (normalizedEvent === 'page_view' || normalizedEvent === 'heartbeat') {
       const clientIp = getClientIp(req);
       const ipHash = crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 16);
+      // Privacy gate: only persist raw IP when the workspace explicitly
+      // opts in — same setting + same rule as /api/visitors/track. This
+      // endpoint (the chat widget's own background tracker, loader.js) was
+      // never actually reading it, so a raw IP was never stored for ANY
+      // chat-widget visitor regardless of the toggle — contacts.ts's /ip
+      // lookup and identityMerge's location enrichment had nothing to read.
+      let storeRawIp = false;
+      try {
+        const { data: ws } = await supabase
+          .from('widget_settings')
+          .select('store_raw_ip')
+          .eq('workspace_id', workspaceId)
+          .maybeSingle();
+        storeRawIp = (ws as any)?.store_raw_ip === true;
+      } catch { /* default to not storing on lookup failure */ }
+      const ipRawForStorage = storeRawIp ? clientIp : null;
 
       // Check for existing recent session
       const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -1764,6 +1780,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             current_page: normalizedPageUrl,
             referrer: referrer || null,
             ip_hash: ipHash,
+            ip_raw: ipRawForStorage,
             browser: browser || null,
             device: device || null,
             os: os || null,

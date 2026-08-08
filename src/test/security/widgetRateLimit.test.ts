@@ -25,7 +25,7 @@ describe('ipBlockMiddleware is fail-closed', () => {
   beforeEach(() => rpc.mockReset());
 
   it('rejects with 503 when the block lookup throws', async () => {
-    rpc.mockImplementation(async () => { throw new Error('db down'); });
+    rpc.mockImplementation(() => { throw new Error('db down'); });
     const req: any = { ip: `1.2.3.${Math.floor(Math.random() * 250)}`, socket: {}, serverConfig: {} };
     const res = makeRes();
     const next = vi.fn();

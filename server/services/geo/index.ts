@@ -22,6 +22,7 @@ import { lookupCentroid } from './centroids.js';
 import { lookupMaxmindLocal } from './maxmindLocal.js';
 import { readIpCache, writeIpCache } from './ipCache.js';
 import { getMapGeoSettings } from './settings.js';
+import { countryNameFromCode, toCountryCode } from './countryNames.js';
 
 export interface GeoResult {
   country: string | null;
@@ -334,9 +335,12 @@ export async function resolveVisitorGeo(
   // 3. Country centroid fallback (only when allowed by admin policy).
   const centroid = allowCentroid ? lookupCentroid(session.country) : null;
   if (centroid) {
+    const cc = toCountryCode(session.country);
     return {
-      country: session.country ?? null,
-      country_code: session.country && session.country.length === 2 ? session.country.toUpperCase() : null,
+      // Never store a bare 'TR' as the display country — resolve the ISO code
+      // to a real name offline (see ./countryNames.ts).
+      country: countryNameFromCode(cc) ?? session.country ?? null,
+      country_code: cc,
       region: null,
       city: session.city ?? null,
       latitude: centroid.lat,
@@ -348,9 +352,10 @@ export async function resolveVisitorGeo(
   // 4. Whatever the session gave us (no coords).
   // When external enrichment is explicitly disabled and we still have no
   // coords, surface 'disabled' so the UI can label it correctly.
+  const tailCc = toCountryCode(session.country);
   return {
-    country: session.country ?? null,
-    country_code: null,
+    country: countryNameFromCode(tailCc) ?? session.country ?? null,
+    country_code: tailCc,
     region: null,
     city: session.city ?? null,
     latitude: null,

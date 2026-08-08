@@ -28,7 +28,9 @@ export function ipBlockMiddleware() {
 
     try {
       const sb = getServiceClient(config);
-      const { data } = await sb.rpc('is_ip_blocked', { _ip: ip });
+      const { data, error } = await sb.rpc('is_ip_blocked', { _ip: ip });
+      // PostgREST reports failures via `error` rather than throwing.
+      if (error) throw error;
       blockedIPCache.set(ip, { blocked: !!data, until: null, checkedAt: Date.now() });
       if (data) {
         return res.status(403).json({ error: 'IP blocked' });

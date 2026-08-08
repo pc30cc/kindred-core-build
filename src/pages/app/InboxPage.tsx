@@ -410,6 +410,8 @@ export default function InboxPage() {
   // conversation list when status/priority/assignee/tags change anywhere
   // in the workspace, without needing a per-conversation subscription.
   useInboxListRealtime(workspace?.id);
+  // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
+  useGeoEnrichmentRealtime(workspace?.id);
 
   // Phase 5b — chime on incoming visitor messages (anywhere in the
   // workspace). Honors per-device localStorage override + server

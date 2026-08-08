@@ -657,7 +657,56 @@ visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
  *
  * Returns ordered (most-recent first) page-view rows for a session.
  */
+/**
+ * POST /api/visitor-intel/network/batch
+ * body: { workspace_id, conversation_ids?: string[], session_ids?: string[] }
+ *
+ * Batched sibling of GET /network for LIST surfaces (Inbox). One call per
+ * page of conversations — never one per row — and the IP privacy/entitlement
+ * policy is applied here, server-side, exactly once for the viewer.
+ */
+visitorsAdminRouter.post('/network/batch', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = z
+    .object({
+      workspace_id: z.string().uuid(),
+      conversation_ids: z.array(z.string().uuid()).max(500).optional(),
+      session_ids: z.array(z.string().uuid()).max(500).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
 
+  const workspaceId = parsed.data.workspace_id;
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  try {
+    const policy = await resolveIpVisibilityPolicy(config, workspaceId, auth.role);
+    const byConversation: Record<string, unknown> = {};
+    const bySession: Record<string, unknown> = {};
+
+    const convIds = parsed.data.conversation_ids ?? [];
+    if (convIds.length) {
+      const map = await resolveConversationNetworkProfiles(config, workspaceId, convIds, policy);
+      for (const [id, profile] of map) byConversation[id] = profile;
+    }
+    const sessIds = parsed.data.session_ids ?? [];
+    if (sessIds.length) {
+      const map = await resolveNetworkProfiles(config, workspaceId, sessIds, policy);
+      for (const [id, profile] of map) bySession[id] = profile;
+    }
+    return res.json({ by_conversation: byConversation, by_session: bySession });
+  } catch (err) {
+    console.error('[visitors.network.batch] failed:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitor-intel/:id/page-history?workspace_id=...&limit=20
+ *
+ * Returns ordered (most-recent first) page-view rows for a session.
+ */
 visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req.query.workspace_id as string) || '';

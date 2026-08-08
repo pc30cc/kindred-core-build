@@ -38,6 +38,9 @@ export function useGeoEnrichmentRealtime(workspaceId: string | undefined) {
             if (!payload.patch?.geo_enriched) return;
             qc.invalidateQueries({ queryKey: ['visitor-network', workspaceId] });
             qc.invalidateQueries({ queryKey: ['visitor-network', 'batch', workspaceId] });
+            // Inbox embeds the batched profiles inside its conversations
+            // query, so that cache has to be refreshed too.
+            qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
           },
         });
         if (cancelled) { subscription.unsubscribe(); return; }

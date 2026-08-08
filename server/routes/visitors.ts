@@ -123,7 +123,10 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
 
     const { data: existing } = await supabase
       .from('visitor_sessions')
-      .select('id')
+      // ip_hash comes along so we can detect a mid-session network change
+      // (VPN / mobile handover) and re-resolve geo instead of keeping the
+      // country that belonged to the previous address.
+      .select('id, ip_hash')
       .eq('workspace_id', data.workspace_id)
       .eq('visitor_id', data.visitor_id)
       .gte('last_seen_at', thirtyMinAgo)
@@ -132,8 +135,10 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       .single();
 
     let sessionId: string;
+    let previousIpHash: string | null = null;
 
     if (existing) {
+      previousIpHash = ((existing as any).ip_hash as string | null) ?? null;
       // Update existing session
       await supabase
         .from('visitor_sessions')
@@ -207,6 +212,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
         ipHash: ipHash || null,
         rawIp: clientIp,
         country: cfCountry,
+        previousIpHash,
       });
     }
 

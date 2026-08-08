@@ -4,7 +4,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 
@@ -101,7 +101,8 @@ export function resolveRateLimitWorkspaceKey(req: Request): string {
     (req.body?.workspaceId as string) ||
     null;
   if (raw && typeof raw === 'string') return `ws:${raw}`;
-  return `ip:${req.ip || 'unknown'}`;
+  // IPv6-safe fallback (express-rate-limit normalizes /64 subnets).
+  return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
 }
 
 /**

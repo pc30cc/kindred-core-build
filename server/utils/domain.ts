@@ -66,6 +66,9 @@ export function extractHostname(origin: string): string | null {
  * - www and non-www are equivalent by default
  * - Subdomains (app.example.com) only allowed when allowSubdomains is true
  * - Wildcard entries (*.example.com) still supported for backwards compat
+ * - An EMPTY / unconfigured allow-list is fail-closed (returns false).
+ *   Callers that intentionally want the legacy "unconfigured = allow all"
+ *   behaviour must opt in explicitly via `allowWhenUnconfigured`.
  *
  * @param originUrl   - The full origin URL (e.g. "https://www.example.com")
  * @param allowedDomains - Array of stored domain strings (already normalized or raw)
@@ -75,8 +78,11 @@ export function isOriginAllowed(
   originUrl: string,
   allowedDomains: string[],
   allowSubdomains: boolean = false,
+  options: { allowWhenUnconfigured?: boolean } = {},
 ): boolean {
-  if (!allowedDomains || allowedDomains.length === 0) return true;
+  if (!allowedDomains || allowedDomains.length === 0) {
+    return options.allowWhenUnconfigured === true;
+  }
 
   const originHost = extractHostname(originUrl);
   if (!originHost) return false;

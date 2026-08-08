@@ -31,24 +31,33 @@ function fakeSb(): any {
       let inField: string | null = null;
       let inValues: string[] = [];
       let notNullField: string | null = null;
+      let orderCol: string | null = null;
+      let orderAsc = true;
       const rowsFor = () => {
         const src =
           table === 'conversations' ? state.conversations
             : table === 'visitor_sessions' ? state.sessions
               : [];
-        return src.filter((r) => {
+        const out = src.filter((r) => {
           for (const [k, v] of Object.entries(filters)) if (r[k] !== v) return false;
           if (inField && !inValues.includes(r[inField])) return false;
           if (notNullField && (r[notNullField] === null || r[notNullField] === undefined)) return false;
           return true;
         });
+        if (orderCol) {
+          const col = orderCol;
+          out.sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (orderAsc ? 1 : -1));
+        }
+        return out;
       };
       const chain: any = {
         select() { return chain; },
         eq(col: string, val: any) { filters[col] = val; return chain; },
         in(col: string, vals: string[]) { inField = col; inValues = vals; return chain; },
         not(col: string) { notNullField = col; return chain; },
-        order() { return chain; },
+        order(col: string, opts?: { ascending?: boolean }) {
+          orderCol = col; orderAsc = opts?.ascending !== false; return chain;
+        },
         limit() { return chain; },
         maybeSingle: async () => ({ data: rowsFor()[0] ?? null }),
         then: (resolve: any) => resolve({ data: rowsFor(), error: null }),

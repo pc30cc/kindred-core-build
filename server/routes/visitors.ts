@@ -1,6 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
+import {
+  resolveIpVisibilityPolicy,
+  resolveNetworkProfile,
+} from '../services/visitors/networkProfile.js';
 import type { ServerConfig } from '../config.js';
 import { routeParam } from '../lib/routeParams.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
@@ -569,7 +573,10 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
  */
 visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   // Sub-route guard: /:id/page-history is handled below.
-  if (req.params.id === 'live' || req.params.id === 'map' || req.params.id === 'map-config') {
+  if (
+    req.params.id === 'live' || req.params.id === 'map' ||
+    req.params.id === 'map-config' || req.params.id === 'network'
+  ) {
     return res.status(404).json({ error: 'Not found' });
   }
   const config = (req as any).serverConfig as ServerConfig;
@@ -590,6 +597,56 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[visitors.detail] failed:', err);
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitor-intel/network?workspace_id=...&session_id=…|conversation_id=…|call_session_id=…|callback_id=…
+ *
+ * THE single operator-facing read for a visitor's network identity (IP + geo +
+ * source + accuracy). Inbox, Call Center, Callbacks and the Visitors drawer all
+ * call this one endpoint, so they can never show different IPs or countries for
+ * the same visitor, and the raw-IP privacy/plan policy is enforced once,
+ * server-side (an unauthorized viewer never receives the raw value at all).
+ */
+visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+  try {
+    // Resolve whichever handle the caller has into the canonical session id.
+    let sessionId = (req.query.session_id as string) || '';
+    const lookup = async (table: string, id: string) => {
+      const { data } = await sb
+        .from(table)
+        .select('visitor_session_id')
+        .eq('workspace_id', workspaceId)
+        .eq('id', id)
+        .maybeSingle();
+      return ((data as any)?.visitor_session_id as string | null) ?? '';
+    };
+    if (!sessionId && req.query.conversation_id) {
+      sessionId = await lookup('conversations', String(req.query.conversation_id));
+    }
+    if (!sessionId && req.query.call_session_id) {
+      sessionId = await lookup('call_sessions', String(req.query.call_session_id));
+    }
+    if (!sessionId && req.query.callback_id) {
+      sessionId = await lookup('callback_requests', String(req.query.callback_id));
+    }
+    if (!sessionId) return res.json({ profile: null });
+
+    const policy = await resolveIpVisibilityPolicy(config, workspaceId, auth.role);
+    const profile = await resolveNetworkProfile(config, workspaceId, sessionId, policy);
+    return res.json({ profile });
+  } catch (err) {
+    console.error('[visitors.network] failed:', err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 

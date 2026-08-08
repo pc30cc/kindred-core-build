@@ -753,6 +753,8 @@ const tr: TranslationKeys = {
     contactChannels: 'İletişim kanalları',
   },
   visitors: {
+    networkUnknown: 'Bu çağrı için ağ konumu kullanılamıyor',
+    networkUnknownShort: 'Konum bilinmiyor',
     title: 'Çevrimiçi Ziyaretçiler',
     currentPage: 'Mevcut Sayfa',
     browser: 'Tarayıcı',

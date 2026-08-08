@@ -753,6 +753,8 @@ const fa: TranslationKeys = {
     contactChannels: 'راه‌های ارتباطی',
   },
   visitors: {
+    networkUnknown: 'موقعیت شبکه برای این تماس در دسترس نیست',
+    networkUnknownShort: 'موقعیت نامشخص',
     title: 'بازدیدکنندگان آنلاین',
     currentPage: 'صفحه فعلی',
     browser: 'مرورگر',

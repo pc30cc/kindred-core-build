@@ -753,6 +753,8 @@ const en = {
     contactChannels: 'Contact channels',
   },
   visitors: {
+    networkUnknown: 'Network location unavailable for this call',
+    networkUnknownShort: 'Location unknown',
     title: 'Online Visitors',
     currentPage: 'Current Page',
     browser: 'Browser',

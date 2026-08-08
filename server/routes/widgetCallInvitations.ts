@@ -260,6 +260,16 @@ widgetCallInvitationsRouter.post(
       );
 
       const sb = getServiceClient(config);
+      // Canonical visitor-session link for an operator-initiated call: the
+      // invitation already carries the conversation's session; fall back to
+      // the shared conversation→session resolver for legacy invitations.
+      const visitorSessionId =
+        invitation.visitor_session_id ??
+        (await resolveConversationSessionId(
+          config,
+          invitation.workspace_id,
+          invitation.conversation_id,
+        ));
       // Insert the active call_session. Provider remains the resolved one.
       const { data: inserted, error: insErr } = await sb
         .from('call_sessions')
@@ -269,6 +279,7 @@ widgetCallInvitationsRouter.post(
           call_type: invitation.channel,
           context_type: 'conversation',
           context_id: invitation.conversation_id,
+          visitor_session_id: visitorSessionId,
           state: 'connecting',
           initiated_by: invitation.created_by_user_id,
           initiated_by_type: 'operator',

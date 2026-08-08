@@ -190,8 +190,15 @@ async function ensureVisitorSessionRow(
   visitorId: string,
   origin: string | null,
   pageUrl: string | null,
+  req?: Request,
 ): Promise<void> {
   const sb = getServiceClient(config);
+  // Resolve the request's network identity so the row is never created with
+  // ip_hash = null (which used to depend on /api/widget/track winning a race).
+  const net = req ? await resolveSessionNetworkContext(sb, req, workspaceId) : null;
+  const netPatch: Record<string, unknown> = net
+    ? { ...(net.ipHash ? { ip_hash: net.ipHash } : {}), ip_raw: net.ipRaw }
+    : {};
   const { data: existing } = await sb
     .from('visitor_sessions')
     .select('id')
@@ -204,7 +211,7 @@ async function ensureVisitorSessionRow(
     // Touch last_seen_at so the visitor appears live during/after the call.
     await sb
       .from('visitor_sessions')
-      .update({ last_seen_at: new Date().toISOString() })
+      .update({ last_seen_at: new Date().toISOString(), ...netPatch })
       .eq('id', existing.id);
   } else {
     const { data: created } = await sb.from('visitor_sessions').insert({
@@ -212,6 +219,7 @@ async function ensureVisitorSessionRow(
       visitor_id: visitorId,
       current_page: pageUrl || origin || null,
       metadata: { source: 'call_widget' },
+      ...netPatch,
     }).select('id').maybeSingle();
     sessionId = created?.id ?? null;
   }
@@ -269,7 +277,7 @@ async function identifyVisitorForCall(
   contact: { id: string; name: string | null; email: string | null; phone: string | null } | null;
 }> {
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
-  await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null);
+  await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null, req as Request);
   const existing =
     await findLinkedContactForVisitor(config, workspaceId, visitorId) ||
     await restoreContactFromContinuityCookie(req, config, workspaceId, visitorId);
@@ -293,7 +301,8 @@ async function identifyVisitorForCall(
         phone: submitted.phone ?? existing?.phone ?? null,
       },
       method: 'prechat',
-      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null,
+      // Canonical resolver — no ad-hoc header parsing (spoofable).
+      ipAddress: getClientIp(req as Request),
       cfCountry: getClientCountry(req),
     });
     const { data: contact } = await sb
@@ -577,7 +586,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     resolvedVisitorId = visitorId;
     // Make the call-widget visitor show up in the Online Visitors list as
     // soon as the widget loads — with their real contact name if known.
-    await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin);
+    await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin, req);
     const contact =
       await findLinkedContactForVisitor(config, ws.workspace_id, visitorId) ||
       await restoreContactFromContinuityCookie(req, config, ws.workspace_id, visitorId);

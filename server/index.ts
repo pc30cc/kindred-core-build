@@ -81,12 +81,20 @@ const config = loadConfig();
 
 const app = express();
 
-// Trust upstream reverse proxies (nginx / Cloudflare / Coolify). Without this,
-// req.ip would always be the proxy's address and our IP-extraction utility
-// wouldn't be able to reach x-forwarded-for / cf-connecting-ip safely. We use
-// "loopback, linklocal, uniquelocal" so only proxies on private networks are
-// trusted — public IPs in the chain are still treated as untrusted hops.
-app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+// Trust upstream reverse proxies (nginx / Traefik / Coolify / Cloudflare).
+// Without this, req.ip would always be the proxy's address.
+//
+// Default: "loopback, linklocal, uniquelocal" — only proxies on private
+// networks are trusted, which is exactly the Coolify/Traefik/Docker topology
+// (the origin container is reached over the private bridge network). Public
+// IPs in the chain stay untrusted hops.
+//
+// Override with TRUST_PROXY when the origin is reached over a public address
+// by a known edge (e.g. a Cloudflare Tunnel-less setup): set it to that
+// proxy's IP / CIDR list. Never use `true` — it trusts every hop blindly.
+// Additionally, `TRUSTED_PROXY_IPS` (see server/utils/clientIp.ts) controls
+// which peers may set cf-connecting-ip / x-forwarded-for / cf-ipcountry.
+app.set('trust proxy', process.env.TRUST_PROXY || 'loopback, linklocal, uniquelocal');
 
 // Security headers
 app.use(helmet());

@@ -8,6 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../../config.js';
 import { resolveVisitorGeo } from '../geo/index.js';
+import { countryNameFromCode, flagEmojiFromCountryCode, precisionRank } from '../geo/countryNames.js';
 
 export interface PreChatIdentityInput {
   name?: string | null;
@@ -112,15 +113,6 @@ async function findContactByVisitorId(
   return contact || null;
 }
 
-function flagEmojiFromCountryCode(cc: string | null): string | null {
-  if (!cc || cc.length !== 2) return null;
-  const A = 0x1f1e6;
-  const base = 'A'.charCodeAt(0);
-  const upper = cc.toUpperCase();
-  return String.fromCodePoint(A + upper.charCodeAt(0) - base) +
-    String.fromCodePoint(A + upper.charCodeAt(1) - base);
-}
-
 /**
  * Best-effort location for `contacts.metadata` (city/country/country_flag —
  * the fields ContactDetailPage's getLocationFromMetadata() already reads).
@@ -166,9 +158,25 @@ async function resolveContactGeoPatch(
     });
     const patch: Record<string, unknown> = {};
     if (geo.city) patch.city = geo.city;
-    if (geo.country) patch.country = geo.country;
+    const countryName = geo.country && geo.country.length > 2
+      ? geo.country
+      : countryNameFromCode(geo.country_code) ?? geo.country ?? null;
+    if (countryName) patch.country = countryName;
+    if (geo.country_code) patch.country_code = geo.country_code;
     const flag = flagEmojiFromCountryCode(geo.country_code);
     if (flag) patch.country_flag = flag;
+    // Precision marker so a later coarse pass (country centroid) can never
+    // clobber a city-level result from MaxMind / a configured provider.
+    patch.location_precision = geo.source === 'centroid' || geo.source === 'session'
+      ? 'centroid'
+      : geo.city
+        ? 'city'
+        : geo.region
+          ? 'region'
+          : geo.country_code
+            ? 'country'
+            : 'centroid';
+    patch.location_source = geo.source;
     return patch;
   } catch {
     return {};
@@ -256,9 +264,21 @@ export async function mergeVisitorIdentity(
     // manually edited, or simply more precise than this pass's guess) —
     // only fill in whatever's still blank.
     const metaGeoFill: Record<string, unknown> = {};
-    if (!meta.city && geoPatch.city) metaGeoFill.city = geoPatch.city;
-    if (!meta.country && geoPatch.country) metaGeoFill.country = geoPatch.country;
-    if (!meta.country_flag && geoPatch.country_flag) metaGeoFill.country_flag = geoPatch.country_flag;
+    const hasLocation = !!(meta.city || meta.country);
+    const incomingRank = precisionRank(geoPatch.location_precision as string | undefined);
+    const storedRank = precisionRank(meta.location_precision as string | undefined);
+    // Fill blanks always; overwrite an existing location ONLY when this pass
+    // is strictly more precise (city > region > country > centroid).
+    const mayUpgrade = hasLocation && incomingRank > storedRank;
+    const take = (key: string) => !meta[key] || mayUpgrade;
+    if (geoPatch.city && take('city')) metaGeoFill.city = geoPatch.city;
+    if (geoPatch.country && take('country')) metaGeoFill.country = geoPatch.country;
+    if (geoPatch.country_code && take('country_code')) metaGeoFill.country_code = geoPatch.country_code;
+    if (geoPatch.country_flag && take('country_flag')) metaGeoFill.country_flag = geoPatch.country_flag;
+    if (Object.keys(metaGeoFill).length && geoPatch.location_precision) {
+      metaGeoFill.location_precision = geoPatch.location_precision;
+      metaGeoFill.location_source = geoPatch.location_source;
+    }
     if (!meta.visitor_id || Object.keys(metaGeoFill).length) {
       updates.metadata = { ...meta, visitor_id: opts.visitorId, ...metaGeoFill };
     }

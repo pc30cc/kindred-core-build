@@ -1700,7 +1700,11 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 
     if (normalizedEvent === 'page_view' || normalizedEvent === 'heartbeat') {
       const clientIp = getClientIp(req);
-      const ipHash = crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 16);
+      // Canonical, null-safe hashing (server/utils/clientIp.ts). The previous
+      // inline crypto.createHash(...).update(clientIp) threw whenever no
+      // public IP could be resolved, which silently aborted the whole
+      // tracking branch (the catch below swallows it and returns ok:true).
+      const ipHash = hashIp(clientIp);
       // Privacy gate: only persist raw IP when the workspace explicitly
       // opts in — same setting + same rule as /api/visitors/track. This
       // endpoint (the chat widget's own background tracker, loader.js) was
@@ -1739,6 +1743,14 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             device: device || undefined,
             os: os || undefined,
             last_seen_at: new Date().toISOString(),
+            // Sync network identity on every page_view / heartbeat. Sessions
+            // created by another surface (call widget / identity bootstrap)
+            // start with ip_hash = null, and the raw-IP privacy toggle must
+            // take effect on the very next request in both directions:
+            //   store_raw_ip = true  → persist the raw IP
+            //   store_raw_ip = false → clear any previously stored raw IP
+            ...(ipHash ? { ip_hash: ipHash } : {}),
+            ip_raw: ipRawForStorage,
           })
           .eq('id', existing.id);
 

@@ -9,6 +9,7 @@ import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { emitInvitationChanged } from '@/lib/call-invitations-events';
 import { emitCallEnded } from '@/lib/call-end-events';
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
+import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';

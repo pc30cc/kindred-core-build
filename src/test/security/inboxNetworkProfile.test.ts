@@ -114,7 +114,10 @@ describe('Test A — conversation resolves its exact session', () => {
 
   it('persisted geo wins over the legacy country column of the same row', async () => {
     const map = await np.resolveConversationNetworkProfiles(cfg, WS, ['conv-a'], adminPolicy);
-    expect(map.get('conv-a')!.geo.country).toBe('Turkey');
+    // Legacy country='Germany' on the SAME row must not win over persisted TR.
+    expect(map.get('conv-a')!.geo.country_code).toBe('TR');
+    expect(map.get('conv-a')!.geo.country).not.toBe('Germany');
+    expect(map.get('conv-a')!.geo.source).toBe('persisted');
   });
 
   it('falls back to the contact newest session ONLY for legacy rows with no link', async () => {
@@ -161,6 +164,7 @@ describe('contacts /:id/ip — shared three-state policy', () => {
     const profile = await np.resolveContactNetworkProfile(cfg, WS, 'c1', policy);
     expect(profile!.ip.raw).toBeNull();
     expect(profile!.ip.display).toMatch(/xxx/);
+    expect(profile!.ip.display).not.toContain('20.30');
   });
 
   it('entitled owner/admin → raw', async () => {
@@ -168,7 +172,8 @@ describe('contacts /:id/ip — shared three-state policy', () => {
       const policy = await np.resolveIpVisibilityPolicy(cfg, WS, role);
       expect(policy.canViewRaw).toBe(true);
       const profile = await np.resolveContactNetworkProfile(cfg, WS, 'c1', policy);
-      expect(profile!.ip.raw).toBe('185.23.44.55');
+      // Newest session of the contact (DE) — the canonical pick for a contact.
+      expect(profile!.ip.raw).toBe('91.10.20.30');
     }
   });
 

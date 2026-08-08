@@ -1304,29 +1304,12 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       if (dept && (dept as any).cc_callback_enabled) cbDepartmentId = defId;
     }
   }
-  const { data, error } = await sb.from('callback_requests').insert({
-    workspace_id: ws.workspace_id,
-    channel: parsed.data.channel === 'video' ? 'video' : 'audio',
-    status: 'requested',
-    contact_phone: parsed.data.phone || null,
-    contact_email: parsed.data.email || null,
-    notes: parsed.data.message || parsed.data.subject || null,
-    scheduled_for: parsed.data.scheduled_for || null,
-    metadata: {
-      source: 'call_widget',
-      name: parsed.data.name || null,
-      subject: parsed.data.subject || null,
-      message: parsed.data.message || null,
-      urgency: parsed.data.urgency || 'normal',
-      page_url: parsed.data.page_url || null,
-      department_id: cbDepartmentId,
-      visitor_id: null as string | null,
-      contact_id: null as string | null,
-      ip_hash: ipHash,
-    },
-  }).select('*').maybeSingle();
-  if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
-  // Identify visitor → contact (best-effort, never blocks the callback).
+  // Identify the visitor BEFORE inserting so the callback is born with its
+  // canonical relation (`visitor_session_id`) instead of only a metadata blob.
+  // Never blocks the callback: on failure we simply insert without the link.
+  let cbIdentity: {
+    visitorId: string; visitorSessionId: string | null; contactId: string | null;
+  } | null = null;
   try {
     const identity = await identifyVisitorForCall(
       req,
@@ -1341,15 +1324,39 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
         page_url: parsed.data.page_url,
       },
     );
-    if (identity.contactId && data?.id) {
-      const prevMeta = (data as any).metadata || {};
-      await sb.from('callback_requests').update({
-        metadata: { ...prevMeta, visitor_id: identity.visitorId, contact_id: identity.contactId },
-      }).eq('id', (data as any).id);
-    }
+    cbIdentity = {
+      visitorId: identity.visitorId,
+      visitorSessionId: identity.visitorSessionId,
+      contactId: identity.contactId,
+    };
   } catch (e: any) {
     console.warn('[call-widget/callbacks] identity merge failed:', e?.message || e);
   }
+
+  const { data, error } = await sb.from('callback_requests').insert({
+    workspace_id: ws.workspace_id,
+    channel: parsed.data.channel === 'video' ? 'video' : 'audio',
+    status: 'requested',
+    contact_id: cbIdentity?.contactId ?? null,
+    visitor_session_id: cbIdentity?.visitorSessionId ?? null,
+    contact_phone: parsed.data.phone || null,
+    contact_email: parsed.data.email || null,
+    notes: parsed.data.message || parsed.data.subject || null,
+    scheduled_for: parsed.data.scheduled_for || null,
+    metadata: {
+      source: 'call_widget',
+      name: parsed.data.name || null,
+      subject: parsed.data.subject || null,
+      message: parsed.data.message || null,
+      urgency: parsed.data.urgency || 'normal',
+      page_url: parsed.data.page_url || null,
+      department_id: cbDepartmentId,
+      visitor_id: cbIdentity?.visitorId ?? null,
+      contact_id: cbIdentity?.contactId ?? null,
+      ip_hash: ipHash,
+    },
+  }).select('*').maybeSingle();
+  if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });
   res.json({ ok: true, callback_id: data!.id });
 });

@@ -398,6 +398,8 @@ export default function CallsPage() {
     workspace?.id,
     useMemo(() => filtered.map((c) => (c as any).visitor_session_id ?? null), [filtered]),
   );
+  // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
+  useGeoEnrichmentRealtime(workspace?.id);
   const detailProfile = (detail as any)?.call?.visitor_session_id
     ? networkBySession?.[(detail as any).call.visitor_session_id] ?? null
     : null;

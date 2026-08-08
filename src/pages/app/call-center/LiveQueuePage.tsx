@@ -329,6 +329,8 @@ export default function LiveQueuePage() {
     [rawQueue],
   );
   const { data: networkBySession } = useVisitorNetworkBatchBySession(workspace?.id, queueSessionIds);
+  // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
+  useGeoEnrichmentRealtime(workspace?.id);
   const selectedSessionId =
     (detail as any)?.call?.visitor_session_id ||
     (rawQueue as any[]).find((q) => q.call_session_id === selectedCallId)?.call_session

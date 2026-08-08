@@ -4,6 +4,8 @@ import { getServiceClient } from '../supabase.js';
 import {
   resolveIpVisibilityPolicy,
   resolveNetworkProfile,
+  resolveConversationNetworkProfiles,
+  resolveNetworkProfiles,
 } from '../services/visitors/networkProfile.js';
 import type { ServerConfig } from '../config.js';
 import { routeParam } from '../lib/routeParams.js';

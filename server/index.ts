@@ -73,6 +73,7 @@ import {
   emailRateLimiter,
   widgetRateLimiter,
   visitorRateLimiter,
+  widgetWorkspaceRateLimiter,
   adminRateLimiter,
   abuseDetectionMiddleware,
   validateJsonBody,
@@ -250,17 +251,17 @@ app.use('/api/auth', authRateLimiter, authSecurityRouter);
 app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 
 // Widget — dynamic CORS + rate limit
-app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetRouter);
+app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetWorkspaceRateLimiter, widgetRouter);
 
 // KB widget JSON endpoints — same dynamic CORS + rate limit as widget.
-app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, widgetKbRouter);
+app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, widgetWorkspaceRateLimiter, widgetKbRouter);
 
 // Public KB SSR routes — server-rendered HTML for /help/:locale/...
 // No CORS / no rate limit; these are normal public web pages indexed by search engines.
 app.use(publicKbRouter);
 
 // Visitor tracking — dynamic CORS + rate limit
-app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, visitorRouter);
+app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, widgetWorkspaceRateLimiter, visitorRouter);
 
 // Visitor intelligence (operator-side, authenticated). Standard appCors,
 // auth+membership enforced per-route. Lower rate-limit footprint vs widget.

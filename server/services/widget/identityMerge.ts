@@ -6,6 +6,8 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ServerConfig } from '../../config.js';
+import { resolveVisitorGeo } from '../geo/index.js';
 
 export interface PreChatIdentityInput {
   name?: string | null;
@@ -105,21 +107,77 @@ async function findContactByVisitorId(
   return contact || null;
 }
 
+function flagEmojiFromCountryCode(cc: string | null): string | null {
+  if (!cc || cc.length !== 2) return null;
+  const A = 0x1f1e6;
+  const base = 'A'.charCodeAt(0);
+  const upper = cc.toUpperCase();
+  return String.fromCodePoint(A + upper.charCodeAt(0) - base) +
+    String.fromCodePoint(A + upper.charCodeAt(1) - base);
+}
+
+/**
+ * Best-effort location for `contacts.metadata` (city/country/country_flag —
+ * the fields ContactDetailPage's getLocationFromMetadata() already reads).
+ * Reuses the SAME cache-first resolution the Visitors page relies on
+ * (visitor_geo_cache, warmed by the widget's /visitors/track ingest
+ * endpoint) via the visitor's own session ip_hash — no raw IP is looked up
+ * or persisted here. Returns {} (nothing to merge) on any miss or failure;
+ * never throws, since a missing location must never block identification.
+ */
+async function resolveContactGeoPatch(
+  config: ServerConfig,
+  supabase: SupabaseClient,
+  workspaceId: string,
+  visitorId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const { data: session } = await supabase
+      .from('visitor_sessions')
+      .select('ip_hash')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_id', visitorId)
+      .not('ip_hash', 'is', null)
+      .order('last_seen_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const ipHash = (session as any)?.ip_hash as string | undefined;
+    if (!ipHash) return {};
+
+    const geo = await resolveVisitorGeo(config, workspaceId, {
+      country: null, city: null, ip_hash: ipHash, raw_ip: null,
+    });
+    const patch: Record<string, unknown> = {};
+    if (geo.city) patch.city = geo.city;
+    if (geo.country) patch.country = geo.country;
+    const flag = flagEmojiFromCountryCode(geo.country_code);
+    if (flag) patch.country_flag = flag;
+    return patch;
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Upsert contact and merge visitor sessions/conversations atomically.
- * 
+ *
  * Rules:
  * - NEVER overwrite existing verified email/phone
  * - Always preserve previously merged history
  * - All merges are audited via identity_merges
  */
 export async function mergeVisitorIdentity(
+  config: ServerConfig,
   supabase: SupabaseClient,
   opts: MergeOptions
 ): Promise<MergeResult> {
   const email = normalizeEmail(opts.identity.email);
   const phone = normalizePhone(opts.identity.phone);
   const name = opts.identity.name?.trim() || null;
+  // Best-effort — resolved once regardless of new-vs-existing contact so
+  // both branches below can fold it into whichever metadata write they
+  // already do, instead of a second read/update pass.
+  const geoPatch = await resolveContactGeoPatch(config, supabase, opts.workspaceId, opts.visitorId);
 
   // 1. Try to find existing contact by visitor history first (most accurate continuation)
   let contact = await findContactByVisitorId(supabase, opts.workspaceId, opts.visitorId);
@@ -144,6 +202,7 @@ export async function mergeVisitorIdentity(
           source: 'widget',
           first_method: opts.method,
           first_ip: opts.ipAddress || null,
+          ...geoPatch,
         },
       })
       .select('id')
@@ -174,8 +233,15 @@ export async function mergeVisitorIdentity(
     if (existing && !existing.phone && phone) updates.phone = phone;
 
     const meta = (existing?.metadata as Record<string, unknown>) || {};
-    if (!meta.visitor_id) {
-      updates.metadata = { ...meta, visitor_id: opts.visitorId };
+    // Never overwrite a location the contact already has (could be
+    // manually edited, or simply more precise than this pass's guess) —
+    // only fill in whatever's still blank.
+    const metaGeoFill: Record<string, unknown> = {};
+    if (!meta.city && geoPatch.city) metaGeoFill.city = geoPatch.city;
+    if (!meta.country && geoPatch.country) metaGeoFill.country = geoPatch.country;
+    if (!meta.country_flag && geoPatch.country_flag) metaGeoFill.country_flag = geoPatch.country_flag;
+    if (!meta.visitor_id || Object.keys(metaGeoFill).length) {
+      updates.metadata = { ...meta, visitor_id: opts.visitorId, ...metaGeoFill };
     }
 
     if (Object.keys(updates).length > 0) {

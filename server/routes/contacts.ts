@@ -185,3 +185,59 @@ contactsRouter.post('/bulk', async (req, res) => {
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
+
+// ═══════════════════════════════════════════════
+// GET /:id/ip — Plan-gated visitor IP lookup for the contact detail page.
+//
+// The IP is never part of the regular contact payload (useContact() reads
+// `contacts` directly via Supabase RLS) — it's resolved on demand here so a
+// workspace without the `contact_ip_visibility` entitlement never has it
+// leave the server at all. There's also nothing on `contacts` itself to
+// read: raw IP only ever lives on `visitor_sessions.ip_raw`, and only when
+// the workspace opted in via widget_settings.store_raw_ip (see
+// server/routes/visitors.ts) — no opt-in means no raw IP was ever stored,
+// by design, regardless of plan.
+// ═══════════════════════════════════════════════
+contactsRouter.get('/:id/ip', async (req, res) => {
+  try {
+    const contactId = req.params.id;
+    if (!contactId) return res.status(400).json({ error: 'missing_id' });
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const { data: contact } = await sb
+      .from('contacts')
+      .select('id, workspace_id')
+      .eq('id', contactId)
+      .maybeSingle();
+    if (!contact) return res.status(404).json({ error: 'not_found' });
+
+    const auth = await authorizeWorkspaceMember(req, res, config, contact.workspace_id);
+    if (!auth) return;
+
+    const gate = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      contact.workspace_id,
+      'contact_ip_visibility',
+    );
+    if (!gate.allowed) {
+      return res.status(403).json({ error: 'feature_not_entitled', feature: 'contact_ip_visibility' });
+    }
+
+    const { data: session } = await sb
+      .from('visitor_sessions')
+      .select('ip_raw')
+      .eq('workspace_id', contact.workspace_id)
+      .eq('contact_id', contactId)
+      .not('ip_raw', 'is', null)
+      .order('last_seen_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return res.json({ ip: (session as any)?.ip_raw || null });
+  } catch (err: any) {
+    console.error('[contacts/ip] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});

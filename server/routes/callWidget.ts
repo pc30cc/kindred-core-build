@@ -284,7 +284,7 @@ async function identifyVisitorForCall(
   // idempotent and re-pins on every call).
   const sb = getServiceClient(config);
   try {
-    const merge = await mergeVisitorIdentity(sb, {
+    const merge = await mergeVisitorIdentity(config, sb, {
       workspaceId,
       visitorId,
       identity: {

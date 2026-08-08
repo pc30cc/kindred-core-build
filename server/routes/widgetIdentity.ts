@@ -273,7 +273,7 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
   await ensureVisitorSessionRow(supabase, workspaceId, visitorId, null, 'chat_widget');
 
   try {
-    const merge = await mergeVisitorIdentity(supabase, {
+    const merge = await mergeVisitorIdentity(config, supabase, {
       workspaceId,
       visitorId,
       identity: {
@@ -454,7 +454,7 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
 
   // Auto-merge identity now that channel is verified
   try {
-    const merge = await mergeVisitorIdentity(supabase, {
+    const merge = await mergeVisitorIdentity(config, supabase, {
       workspaceId,
       visitorId: cookie.v,
       identity: parsed.data.channel === 'email'
@@ -539,7 +539,7 @@ widgetIdentityRouter.post('/continuity/use', widgetRateLimit('default'), async (
   // Ensure a visitor cookie exists then merge it onto this contact
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
   try {
-    const merge = await mergeVisitorIdentity(supabase, {
+    const merge = await mergeVisitorIdentity(config, supabase, {
       workspaceId,
       visitorId,
       identity: {}, // no overrides — just attach

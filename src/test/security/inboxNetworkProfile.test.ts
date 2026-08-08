@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase/provider test doubles are intentionally untyped. */
 /**
  * Phase 2 guards — Inbox and Contacts read through the ONE canonical resolver.
  *

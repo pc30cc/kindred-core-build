@@ -227,6 +227,8 @@ export interface CallbackRequest {
   workspace_id: string;
   status: string;
   channel: string;
+  /** Canonical visitor session behind this callback (Geo/IP unification). */
+  visitor_session_id?: string | null;
   contact_phone?: string | null;
   contact_email?: string | null;
   notes?: string | null;

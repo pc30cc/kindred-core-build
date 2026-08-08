@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase/provider test doubles are intentionally untyped. */
 /**
  * MaxMind auto-updater: atomicity, credential redaction and lease behaviour.
  *

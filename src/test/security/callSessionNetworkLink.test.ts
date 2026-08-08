@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase/provider test doubles are intentionally untyped. */
 /**
  * Phase 3 guards — Call Center reads the SAME canonical Geo/IP as the Inbox.
  *

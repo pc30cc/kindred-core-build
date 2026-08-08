@@ -20,6 +20,9 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
+import { useVisitorNetworkBatchBySession, type VisitorNetworkProfile } from '@/hooks/useVisitorNetwork';
+import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
+import { VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 
 type StatusKey = 'requested' | 'in_progress' | 'scheduled' | 'completed' | 'cancelled';
 
@@ -71,12 +74,15 @@ function CallbackRow({
   onComplete,
   highlight,
   rowRef,
+  profile,
 }: {
   c: CallbackRequest;
   onAction: (id: string, fn: 'assignCallback' | 'cancelCallback') => void;
   onComplete: (c: CallbackRequest) => void;
   highlight?: boolean;
   rowRef?: (el: HTMLDivElement | null) => void;
+  /** Pre-fetched by the page in ONE batched request — never fetched per row. */
+  profile?: VisitorNetworkProfile | null;
 }) {
   const { t } = useTranslation();
   const meta = (c.metadata || {}) as Record<string, any>;
@@ -185,6 +191,7 @@ function CallbackRow({
               <span className="inline-flex items-center gap-1" title={new Date(requested).toLocaleString()}>
                 <Clock className="h-3 w-3" />{relativeTime(requested)}
               </span>
+              <VisitorNetworkInline profile={profile} t={(k: string) => t(k)} />
               {c.scheduled_for && (
                 <span className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400">
                   <CalendarClock className="h-3 w-3" />{new Date(c.scheduled_for).toLocaleString()}
@@ -285,6 +292,18 @@ export default function CallbacksPage() {
   }
 
   const items: CallbackRequest[] = data?.callbacks || [];
+
+  // Canonical Geo/IP for the whole page in ONE request (phase-2 batch
+  // endpoint, reused as-is). Callbacks carry the visitor session that
+  // produced them, so they resolve the exact same profile the Inbox and the
+  // Call Center show for that visitor.
+  const callbackSessionIds = useMemo(
+    () => items.map((c) => c.visitor_session_id ?? null),
+    [items],
+  );
+  const { data: networkBySession } = useVisitorNetworkBatchBySession(workspace?.id, callbackSessionIds);
+  // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
+  useGeoEnrichmentRealtime(workspace?.id);
 
   const counts = useMemo(() => {
     const m: Record<string, number> = { all: items.length };
@@ -400,6 +419,7 @@ export default function CallbacksPage() {
                   onComplete={(cb) => { setCompleteTarget(cb); setCompleteNote(''); }}
                   highlight={focusId === c.id}
                   rowRef={(el) => { rowRefs.current[c.id] = el; }}
+                  profile={networkBySession?.[c.visitor_session_id ?? ''] ?? null}
                 />
               ))
             )}

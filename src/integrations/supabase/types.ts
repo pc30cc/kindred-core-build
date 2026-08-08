@@ -3566,6 +3566,7 @@ export type Database = {
           visitor_email: string | null
           visitor_name: string | null
           visitor_phone: string | null
+          visitor_session_id: string | null
           wait_seconds: number
           workspace_id: string
         }
@@ -3606,6 +3607,7 @@ export type Database = {
           visitor_email?: string | null
           visitor_name?: string | null
           visitor_phone?: string | null
+          visitor_session_id?: string | null
           wait_seconds?: number
           workspace_id: string
         }
@@ -3646,10 +3648,18 @@ export type Database = {
           visitor_email?: string | null
           visitor_name?: string | null
           visitor_phone?: string | null
+          visitor_session_id?: string | null
           wait_seconds?: number
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "call_sessions_visitor_session_id_fkey"
+            columns: ["visitor_session_id"]
+            isOneToOne: false
+            referencedRelation: "visitor_sessions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "call_sessions_workspace_id_fkey"
             columns: ["workspace_id"]

@@ -293,6 +293,18 @@ export default function CallbacksPage() {
 
   const items: CallbackRequest[] = data?.callbacks || [];
 
+  // Canonical Geo/IP for the whole page in ONE request (phase-2 batch
+  // endpoint, reused as-is). Callbacks carry the visitor session that
+  // produced them, so they resolve the exact same profile the Inbox and the
+  // Call Center show for that visitor.
+  const callbackSessionIds = useMemo(
+    () => items.map((c) => (c as any).visitor_session_id ?? null),
+    [items],
+  );
+  const { data: networkBySession } = useVisitorNetworkBatchBySession(workspace?.id, callbackSessionIds);
+  // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
+  useGeoEnrichmentRealtime(workspace?.id);
+
   const counts = useMemo(() => {
     const m: Record<string, number> = { all: items.length };
     for (const c of items) m[c.status] = (m[c.status] || 0) + 1;

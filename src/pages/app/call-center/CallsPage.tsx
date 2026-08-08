@@ -616,6 +616,14 @@ export default function CallsPage() {
               {detail.call.page_url && (
                 <div className="text-sm"><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div><a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detail.call.page_url}</a></div>
               )}
+              {/* Same canonical IP/geo panel as Inbox / Live Queue — fed from
+                  the page-level batch read, so opening the sheet costs nothing. */}
+              <VisitorNetworkCard
+                workspaceId={workspace?.id}
+                profile={detailProfile}
+                showUnknown
+                t={t as any}
+              />
               {(() => {
                 const rec = (detail.call as any)?.metadata?.recording || null;
                 const consent = rec?.consent_given;

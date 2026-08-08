@@ -392,6 +392,15 @@ export default function CallsPage() {
     return true;
   }), [allCalls, type, search]);
 
+  // ONE batched network read for the whole page (list rows + detail sheet).
+  const { data: networkBySession } = useVisitorNetworkBatchBySession(
+    workspace?.id,
+    useMemo(() => filtered.map((c) => (c as any).visitor_session_id ?? null), [filtered]),
+  );
+  const detailProfile = (detail as any)?.call?.visitor_session_id
+    ? networkBySession?.[(detail as any).call.visitor_session_id] ?? null
+    : null;
+
   const summary = useMemo(() => {
     let answered = 0, missed = 0, rejected = 0, totalDur = 0, durCount = 0;
     for (const c of filtered) {

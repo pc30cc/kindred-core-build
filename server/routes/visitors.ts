@@ -140,6 +140,11 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
         .update({
           current_page: data.current_page,
           last_seen_at: new Date().toISOString(),
+          // Keep network identity in sync on every track hit — the row may
+          // have been created by another surface without an IP, and the
+          // store_raw_ip toggle must take effect immediately (both ways).
+          ...(ipHash ? { ip_hash: ipHash } : {}),
+          ip_raw: ipRawForStorage,
         })
         .eq('id', existing.id);
       sessionId = existing.id;
@@ -191,10 +196,18 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
     // operator-side reads return precise coords without re-calling the
     // provider on every poll. Failures are silent — the resolver falls
     // back to centroid on the read path.
-    if (clientIp && ipHash) {
-      resolveVisitorGeo(config, data.workspace_id, {
-        country: getClientCountry(req), city: null, ip_hash: ipHash, raw_ip: clientIp,
-      }).catch(() => {});
+    const cfCountry = getClientCountry(req);
+    if (clientIp || ipHash || cfCountry) {
+      // Writes geo_* onto the session AND warms the ip_hash-keyed caches.
+      // Works with zero Cloudflare involvement: MaxMind local resolves from
+      // the raw IP; cfCountry is only a country-level last resort.
+      void enrichVisitorSessionGeo(config, {
+        sessionId,
+        workspaceId: data.workspace_id,
+        ipHash: ipHash || null,
+        rawIp: clientIp,
+        country: cfCountry,
+      });
     }
 
     // Append a page-view row (best-effort; failures must not block tracking).

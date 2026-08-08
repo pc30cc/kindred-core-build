@@ -22,6 +22,7 @@
  */
 import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getClientCountry, getClientIp, hashIp } from '../../utils/clientIp.js';
 import {
   createSignedContactContinuityToken,
   persistContinuityToken,
@@ -55,8 +56,67 @@ async function getContactById(
 }
 
 /**
+ * Network identity for the CURRENT request, resolved once and reused by every
+ * writer that touches `visitor_sessions`.
+ *
+ * `ipRaw` is already privacy-gated: it is non-null only when the workspace
+ * opted in via `widget_settings.store_raw_ip`. `rawIp` (in-memory only) is
+ * the un-gated address, used for geo lookup / hashing within this request and
+ * never persisted directly.
+ */
+export interface SessionNetworkContext {
+  /** sha256-derived, safe at rest. Empty string → unknown IP. */
+  ipHash: string | null;
+  /** Persistable raw IP (null unless store_raw_ip = true). */
+  ipRaw: string | null;
+  /** In-memory raw IP for geo resolution. Never persist this directly. */
+  rawIp: string | null;
+  /** Country code from CF-IPCountry, only when behind a trusted proxy. */
+  cfCountry: string | null;
+}
+
+export async function resolveSessionNetworkContext(
+  sb: SupabaseClient,
+  req: Request,
+  workspaceId: string,
+): Promise<SessionNetworkContext> {
+  const rawIp = getClientIp(req);
+  const ipHash = hashIp(rawIp) || null;
+  let storeRawIp = false;
+  try {
+    const { data } = await sb
+      .from('widget_settings')
+      .select('store_raw_ip')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    storeRawIp = (data as any)?.store_raw_ip === true;
+  } catch { /* fail closed: do not persist raw IP */ }
+  return {
+    ipHash,
+    ipRaw: storeRawIp ? rawIp : null,
+    rawIp,
+    cfCountry: getClientCountry(req),
+  };
+}
+
+/** Columns to apply on a visitor_sessions insert/update for this request. */
+function networkPatch(net?: SessionNetworkContext | null): Record<string, unknown> {
+  if (!net) return {};
+  return {
+    ...(net.ipHash ? { ip_hash: net.ipHash } : {}),
+    // Always written so turning store_raw_ip off clears stale raw IPs.
+    ip_raw: net.ipRaw,
+  };
+}
+
+/**
  * Ensure a `visitor_sessions` row exists for (workspace, visitor) so a later
  * merge — which UPDATEs the row — can pin `contact_id` on it. Best effort.
+ *
+ * Pass `net` (see resolveSessionNetworkContext) so the row is created WITH its
+ * network identity: previously this helper could win the race against
+ * /api/widget/track and leave a session with ip_hash = null / ip_raw = null,
+ * which broke geo enrichment and the contact IP lookup for that visitor.
  */
 export async function ensureVisitorSessionRow(
   sb: SupabaseClient,
@@ -64,6 +124,7 @@ export async function ensureVisitorSessionRow(
   visitorId: string,
   pageUrl: string | null,
   source: IdentitySource,
+  net?: SessionNetworkContext | null,
 ): Promise<string | null> {
   try {
     const { data: existing } = await sb
@@ -77,7 +138,11 @@ export async function ensureVisitorSessionRow(
     if (existing?.id) {
       await sb
         .from('visitor_sessions')
-        .update({ last_seen_at: new Date().toISOString(), ...(pageUrl ? { current_page: pageUrl } : {}) })
+        .update({
+          last_seen_at: new Date().toISOString(),
+          ...(pageUrl ? { current_page: pageUrl } : {}),
+          ...networkPatch(net),
+        })
         .eq('id', existing.id);
       return existing.id;
     }
@@ -88,6 +153,7 @@ export async function ensureVisitorSessionRow(
         visitor_id: visitorId,
         current_page: pageUrl,
         metadata: { source },
+        ...networkPatch(net),
       })
       .select('id')
       .maybeSingle();

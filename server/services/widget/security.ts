@@ -9,6 +9,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { getClientIp as resolveClientIp } from '../../utils/clientIp.js';
 import crypto from 'crypto';
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
@@ -163,10 +164,17 @@ function checkRateLimit(key: string, category: string = 'default'): boolean {
   return true;
 }
 
-export function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
-  return req.headers['cf-connecting-ip'] as string || req.ip || 'unknown';
+/**
+ * Canonical client IP resolver — re-exported so widget routes have a single
+ * implementation. Previously this file had its own extractor that trusted
+ * `x-forwarded-for` / `cf-connecting-ip` unconditionally, which let a direct
+ * caller rotate its rate-limit bucket by sending a forged header.
+ */
+export { getClientIp } from '../../utils/clientIp.js';
+
+/** Rate-limit bucket key: the real IP, or a shared 'unknown' bucket. */
+function rateLimitIpKey(req: Request): string {
+  return resolveClientIp(req) ?? 'unknown';
 }
 
 function getRequestOrigin(req: Request): string | null {
@@ -233,7 +241,7 @@ export function enforceOrigin(req: Request, res: Response, next: NextFunction) {
 // ─── Middleware: Rate limiting ───
 export function widgetRateLimit(category: string = 'default') {
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip = getClientIp(req);
+    const ip = rateLimitIpKey(req);
     const workspaceId = (req as any)._widgetWorkspaceId || req.body?.workspace_id || 'unknown';
     const key = `${category}:${ip}:${workspaceId}`;
 

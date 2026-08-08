@@ -40,6 +40,7 @@ import {
 } from '../services/widget/continuity.js';
 import {
   ensureVisitorSessionRow,
+  resolveSessionNetworkContext,
   issueContinuityCookieForContact,
   resolveKnownContact,
 } from '../services/widget/crossWidgetIdentity.js';
@@ -271,7 +272,8 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
   // Guarantee a session row exists so the merge can pin contact_id on it —
   // otherwise the call widget would not see this visitor as identified.
-  await ensureVisitorSessionRow(supabase, workspaceId, visitorId, null, 'chat_widget');
+  const netCtx = await resolveSessionNetworkContext(supabase, req, workspaceId);
+  await ensureVisitorSessionRow(supabase, workspaceId, visitorId, null, 'chat_widget', netCtx);
 
   try {
     const merge = await mergeVisitorIdentity(config, supabase, {

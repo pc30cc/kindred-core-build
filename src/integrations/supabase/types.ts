@@ -695,8 +695,10 @@ export type Database = {
           fallback_behavior: string
           fallback_message: string
           handoff_keywords: string[]
+          handoff_message_localized: Json
           handoff_on_human_request: boolean
           handoff_on_low_confidence: boolean
+          handoff_prechat_message_localized: Json
           handoff_when_no_kb_match: boolean
           id: string
           instructions: Json
@@ -737,8 +739,10 @@ export type Database = {
           fallback_behavior?: string
           fallback_message?: string
           handoff_keywords?: string[]
+          handoff_message_localized?: Json
           handoff_on_human_request?: boolean
           handoff_on_low_confidence?: boolean
+          handoff_prechat_message_localized?: Json
           handoff_when_no_kb_match?: boolean
           id?: string
           instructions?: Json
@@ -779,8 +783,10 @@ export type Database = {
           fallback_behavior?: string
           fallback_message?: string
           handoff_keywords?: string[]
+          handoff_message_localized?: Json
           handoff_on_human_request?: boolean
           handoff_on_low_confidence?: boolean
+          handoff_prechat_message_localized?: Json
           handoff_when_no_kb_match?: boolean
           id?: string
           instructions?: Json

@@ -39,6 +39,7 @@ import {
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
 import { findContactForVisitor, resolveSessionNetworkContext } from '../services/widget/crossWidgetIdentity.js';
+import type { Request as ExpressRequest } from 'express';
 import {
   createSignedContactContinuityToken,
   persistContinuityToken,
@@ -190,7 +191,7 @@ async function ensureVisitorSessionRow(
   visitorId: string,
   origin: string | null,
   pageUrl: string | null,
-  req?: Request,
+  req?: ExpressRequest,
 ): Promise<void> {
   const sb = getServiceClient(config);
   // Resolve the request's network identity so the row is never created with
@@ -277,7 +278,7 @@ async function identifyVisitorForCall(
   contact: { id: string; name: string | null; email: string | null; phone: string | null } | null;
 }> {
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
-  await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null, req as Request);
+  await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null, req as unknown as ExpressRequest);
   const existing =
     await findLinkedContactForVisitor(config, workspaceId, visitorId) ||
     await restoreContactFromContinuityCookie(req, config, workspaceId, visitorId);
@@ -302,7 +303,7 @@ async function identifyVisitorForCall(
       },
       method: 'prechat',
       // Canonical resolver — no ad-hoc header parsing (spoofable).
-      ipAddress: getClientIp(req as Request),
+      ipAddress: getClientIp(req as unknown as ExpressRequest),
       cfCountry: getClientCountry(req),
     });
     const { data: contact } = await sb
@@ -586,7 +587,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     resolvedVisitorId = visitorId;
     // Make the call-widget visitor show up in the Online Visitors list as
     // soon as the widget loads — with their real contact name if known.
-    await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin, req);
+    await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin, req as unknown as ExpressRequest);
     const contact =
       await findLinkedContactForVisitor(config, ws.workspace_id, visitorId) ||
       await restoreContactFromContinuityCookie(req, config, ws.workspace_id, visitorId);

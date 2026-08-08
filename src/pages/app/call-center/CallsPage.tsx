@@ -15,6 +15,7 @@ import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
 import { useTranslation } from '@/i18n';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
+import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];
 const TYPES = ['all', 'audio', 'video'];

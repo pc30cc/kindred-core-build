@@ -1531,25 +1531,11 @@ const geoEnrichmentVendors: ProviderVendor[] = [
     fields: [],
   },
   {
-    name: 'maxmind_local', label: 'MaxMind GeoIP2 (Local DB)',
-    description: 'Self-hosted GeoIP2/GeoLite2 .mmdb file. Recommended for production self-host. No external calls.',
+    name: 'maxmind_local', label: 'MaxMind GeoIP2 (Local DB) — managed in Map & Geo',
+    description: 'Self-hosted GeoLite2/GeoIP2 .mmdb lookups. This is platform infrastructure: the database path, auto-reload and auto-update are configured ONLY in Super Admin → Map & Geo, and values entered here are ignored by the runtime. Selecting it here has no effect — use Map & Geo.',
     docsUrl: 'https://dev.maxmind.com/geoip/geolite2-free-geolocation-data',
     deployment: 'selfhosted', recommendation: 'production-selfhost',
-    fields: [
-      { key: 'db_path', label: 'MMDB File Path', type: 'text', required: true,
-        placeholder: '/var/lib/geoip/GeoLite2-City.mmdb',
-        hint: 'Absolute path on the server filesystem. Mount as a volume in Docker.' },
-      { key: 'edition', label: 'Edition', type: 'select', options: [
-        { value: 'GeoLite2-City', label: 'GeoLite2 City (free)' },
-        { value: 'GeoIP2-City', label: 'GeoIP2 City (paid, more accurate)' },
-        { value: 'GeoLite2-Country', label: 'GeoLite2 Country (free, country only)' },
-        { value: 'GeoIP2-Country', label: 'GeoIP2 Country (paid, country only)' },
-      ], hint: 'Used only for display — actual edition is detected from the MMDB file.' },
-      { key: 'version', label: 'DB Version / Build Date', type: 'text',
-        placeholder: '2026-04-01', hint: 'Optional — for operator bookkeeping.' },
-      { key: 'auto_reload', label: 'Auto-reload on file change', type: 'toggle',
-        hint: 'Watch the file and reopen on update (requires restart-free updates).' },
-    ],
+    fields: [],
   },
   {
     name: 'ipapi', label: 'ipapi.co',

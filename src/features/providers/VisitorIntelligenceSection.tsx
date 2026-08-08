@@ -151,9 +151,11 @@ export function VisitorIntelligenceSection() {
     (geoVendorName === 'centroid' ? 'builtin' : 'unknown');
   const geoLabel = geoSchema?.label ?? geoVendorName;
   const geoFallback =
-    geoVendorName === 'centroid' || geoVendorName === 'none'
-      ? 'Using centroid fallback — country-level precision only. Configure MaxMind Local for city-level self-hosted accuracy.'
-      : undefined;
+    geoVendorName === 'maxmind_local'
+      ? 'MaxMind Local is platform infrastructure — its database path, reload and auto-update are owned by Super Admin → Map & Geo. Fields set here are ignored by the runtime.'
+      : geoVendorName === 'centroid' || geoVendorName === 'none'
+        ? 'Using centroid fallback — country-level precision only. Enable MaxMind Local in Super Admin → Map & Geo for city-level self-hosted accuracy.'
+        : 'External provider — only consulted when MaxMind Local (Map & Geo) returns no result.';
 
   // Map tiles: default when unset is osm_public.
   const mapVendorName = mapCfg?.provider_name ?? 'osm_public';

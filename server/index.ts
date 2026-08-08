@@ -64,6 +64,7 @@ import { startAutoActionsCache } from './services/observability/autoActionsCache
 import { startFailoverTicker } from './services/realtime/failoverTicker.js';
 import { startReliabilityRollup } from './services/observability/reliabilityRollupTicker.js';
 import { startEnforcementTicker } from './services/observability/enforcementTicker.js';
+import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -461,6 +462,11 @@ app.listen(config.port, () => {
 
   // Phase 8C — Call queue expiry sweeper (every 30s). Best-effort.
   startCallQueueTicker(config);
+
+  // MaxMind GeoLite2 auto-update ticker. No-ops unless Map & Geo has
+  // maxmind_local enabled + auto mode + credentials. Never blocks startup and
+  // never touches the widget request path.
+  startMaxmindUpdateTicker(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

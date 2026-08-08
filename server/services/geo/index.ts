@@ -35,6 +35,7 @@ import { lookupMaxmindLocal } from './maxmindLocal.js';
 import { readIpCache, writeIpCache } from './ipCache.js';
 import { getMapGeoSettings } from './settings.js';
 import { countryNameFromCode, toCountryCode } from './countryNames.js';
+import { publishVisitorEvent } from '../realtime/publish.js';
 
 export interface GeoResult {
   country: string | null;

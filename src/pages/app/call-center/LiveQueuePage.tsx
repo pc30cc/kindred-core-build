@@ -1,5 +1,6 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
+import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
 import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview, useCallCenterSettings } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

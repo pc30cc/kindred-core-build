@@ -35,6 +35,7 @@ import { lookupMaxmindLocal } from './maxmindLocal.js';
 import { readIpCache, writeIpCache } from './ipCache.js';
 import { getMapGeoSettings } from './settings.js';
 import { countryNameFromCode, toCountryCode } from './countryNames.js';
+import { publishVisitorEvent } from '../realtime/publish.js';
 
 export interface GeoResult {
   country: string | null;
@@ -543,6 +544,17 @@ export async function enrichVisitorSessionGeo(
       })
       .eq('id', params.sessionId)
       .eq('workspace_id', params.workspaceId);
+    // Enrichment happens asynchronously after ingestion, so operator surfaces
+    // already rendered this session without geo. Reuse the existing
+    // visitors channel + `visitor.upsert` envelope (no new realtime system)
+    // to tell them to re-read the canonical network profile.
+    void publishVisitorEvent(config, {
+      kind: 'visitor.upsert',
+      workspace_id: params.workspaceId,
+      session_id: params.sessionId,
+      patch: { geo_enriched: true },
+      occurred_at: new Date().toISOString(),
+    }).catch(() => {});
   } catch (err) {
     console.warn('[geo] enrichVisitorSessionGeo failed:', (err as Error).message);
   }

@@ -13,6 +13,9 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
 import { useTranslation } from '@/i18n';
+import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
+import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
+import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];
 const TYPES = ['all', 'audio', 'video'];
@@ -390,6 +393,17 @@ export default function CallsPage() {
     return true;
   }), [allCalls, type, search]);
 
+  // ONE batched network read for the whole page (list rows + detail sheet).
+  const { data: networkBySession } = useVisitorNetworkBatchBySession(
+    workspace?.id,
+    useMemo(() => filtered.map((c) => (c as any).visitor_session_id ?? null), [filtered]),
+  );
+  // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
+  useGeoEnrichmentRealtime(workspace?.id);
+  const detailProfile = (detail as any)?.call?.visitor_session_id
+    ? networkBySession?.[(detail as any).call.visitor_session_id] ?? null
+    : null;
+
   const summary = useMemo(() => {
     let answered = 0, missed = 0, rejected = 0, totalDur = 0, durCount = 0;
     for (const c of filtered) {
@@ -544,7 +558,17 @@ export default function CallsPage() {
                 <td className="py-2 px-3">
                   <div className="flex items-center gap-2">
                     <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">{initials}</div>
-                    <span className="font-medium">{display}</span>
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{display}</div>
+                      <VisitorNetworkInline
+                        profile={
+                          (c as any).visitor_session_id
+                            ? networkBySession?.[(c as any).visitor_session_id] ?? null
+                            : null
+                        }
+                        t={t as any}
+                      />
+                    </div>
                   </div>
                 </td>
                 <td className="py-2 px-3">
@@ -595,6 +619,14 @@ export default function CallsPage() {
               {detail.call.page_url && (
                 <div className="text-sm"><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div><a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detail.call.page_url}</a></div>
               )}
+              {/* Same canonical IP/geo panel as Inbox / Live Queue — fed from
+                  the page-level batch read, so opening the sheet costs nothing. */}
+              <VisitorNetworkCard
+                workspaceId={workspace?.id}
+                profile={detailProfile}
+                showUnknown
+                t={t as any}
+              />
               {(() => {
                 const rec = (detail.call as any)?.metadata?.recording || null;
                 const consent = rec?.consent_given;

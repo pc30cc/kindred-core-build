@@ -400,15 +400,25 @@ export async function resolveNetworkProfile(
  * Cost: at most three queries total, independent of the number of
  * conversations on the page.
  */
-export async function resolveConversationNetworkProfiles(
+/**
+ * Canonical conversation → visitor_session mapping.
+ *
+ * ONE implementation, shared by the Inbox batch profile resolver and by the
+ * call-creation routes that must stamp `call_sessions.visitor_session_id`.
+ * Precedence is the same everywhere: the conversation's own
+ * `visitor_session_id` first; the contact's newest session ONLY as a legacy
+ * compatibility fallback for rows written before that column existed.
+ *
+ * Cost: at most two queries, independent of the number of conversations.
+ */
+export async function resolveConversationSessionIds(
   config: ServerConfig,
   workspaceId: string,
   conversationIds: string[],
-  policy: IpVisibilityPolicy,
-): Promise<Map<string, VisitorNetworkProfile>> {
-  const out = new Map<string, VisitorNetworkProfile>();
+): Promise<Map<string, string>> {
+  const sessionByConversation = new Map<string, string>();
   const ids = Array.from(new Set(conversationIds.filter(Boolean)));
-  if (!ids.length) return out;
+  if (!ids.length) return sessionByConversation;
   const sb = getServiceClient(config);
 
   const { data: convos } = await sb
@@ -419,9 +429,8 @@ export async function resolveConversationNetworkProfiles(
   const rows = (convos ?? []) as Array<{
     id: string; visitor_session_id: string | null; contact_id: string | null;
   }>;
-  if (!rows.length) return out;
+  if (!rows.length) return sessionByConversation;
 
-  const sessionByConversation = new Map<string, string>();
   for (const c of rows) {
     if (c.visitor_session_id) sessionByConversation.set(c.id, c.visitor_session_id);
   }
@@ -453,6 +462,30 @@ export async function resolveConversationNetworkProfiles(
       if (sid) sessionByConversation.set(c.id, sid);
     }
   }
+  return sessionByConversation;
+}
+
+/** Single-conversation form of {@link resolveConversationSessionIds}. */
+export async function resolveConversationSessionId(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+): Promise<string | null> {
+  const map = await resolveConversationSessionIds(config, workspaceId, [conversationId]);
+  return map.get(conversationId) ?? null;
+}
+
+export async function resolveConversationNetworkProfiles(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationIds: string[],
+  policy: IpVisibilityPolicy,
+): Promise<Map<string, VisitorNetworkProfile>> {
+  const out = new Map<string, VisitorNetworkProfile>();
+  const ids = Array.from(new Set(conversationIds.filter(Boolean)));
+  if (!ids.length) return out;
+  const sessionByConversation = await resolveConversationSessionIds(config, workspaceId, ids);
+  if (!sessionByConversation.size) return out;
 
   const profiles = await resolveNetworkProfiles(
     config,

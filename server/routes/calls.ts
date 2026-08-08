@@ -38,6 +38,7 @@ import {
   checkPlanMonthlyMinutesCeiling,
   planMinutesDenialBody,
 } from '../services/calls/monthlyMinutesLimit.js';
+import { resolveConversationSessionId } from '../services/visitors/networkProfile.js';
 import {
   getCallNetworkBundle,
   normalizeClientWsUrl,
@@ -362,6 +363,14 @@ callsRouter.post('/create', async (req, res) => {
     );
 
     const sb = getServiceClient(config);
+    // Canonical visitor-session link. Operator-initiated calls always start
+    // from a conversation, so the exact session that produced that thread is
+    // the same one Inbox/Visitors resolve — reuse that helper instead of
+    // picking "the contact's newest session" here.
+    const visitorSessionId =
+      body.context_type === 'conversation' && body.context_id
+        ? await resolveConversationSessionId(config, body.workspace_id, body.context_id)
+        : null;
     const { data: inserted, error: insErr } = await sb
       .from('call_sessions')
       .insert({
@@ -370,6 +379,7 @@ callsRouter.post('/create', async (req, res) => {
         call_type: body.call_type,
         context_type: body.context_type,
         context_id: body.context_id ?? null,
+        visitor_session_id: visitorSessionId,
         state: 'pending',
         initiated_by: auth.userId,
         initiated_by_type: 'operator',

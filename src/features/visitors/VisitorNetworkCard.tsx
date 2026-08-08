@@ -3,13 +3,26 @@
  * Visitors drawer so all of them render the exact same values and the exact
  * same privacy states (locked / masked / raw).
  */
-import { Globe, MapPin, Network, Clock, Lock } from 'lucide-react';
+import { Globe, MapPin, Network, Clock, Lock, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useVisitorNetwork, flagEmoji, type VisitorNetworkRef } from '@/hooks/useVisitorNetwork';
+import {
+  useVisitorNetwork,
+  flagEmoji,
+  type VisitorNetworkRef,
+  type VisitorNetworkProfile,
+} from '@/hooks/useVisitorNetwork';
 
 interface Props {
   workspaceId: string | undefined;
-  reference: VisitorNetworkRef;
+  /** Omit when `profile` is supplied by a batched list read. */
+  reference?: VisitorNetworkRef;
+  /**
+   * Pre-fetched profile from the batch endpoint. When provided the card does
+   * NOT fetch — this is how list surfaces avoid one request per row.
+   */
+  profile?: VisitorNetworkProfile | null;
+  /** Render an explicit "unknown" state instead of nothing when there's no data. */
+  showUnknown?: boolean;
   t: (k: string) => string | undefined;
   dir?: 'rtl' | 'ltr';
   className?: string;
@@ -25,9 +38,41 @@ function Row({ icon, label, children }: { icon: React.ReactNode; label: string; 
   );
 }
 
-export function VisitorNetworkCard({ workspaceId, reference, t, dir = 'ltr', className }: Props) {
-  const { data, isLoading } = useVisitorNetwork(workspaceId, reference);
-  if (isLoading || !data) return null;
+export function VisitorNetworkCard({
+  workspaceId,
+  reference,
+  profile,
+  showUnknown,
+  t,
+  dir = 'ltr',
+  className,
+}: Props) {
+  const hasInjected = profile !== undefined;
+  const query = useVisitorNetwork(
+    hasInjected ? undefined : workspaceId,
+    reference ?? { sessionId: null },
+  );
+  const data = hasInjected ? profile : query.data;
+  const isLoading = hasInjected ? false : query.isLoading;
+
+  if (isLoading) return null;
+  if (!data) {
+    if (!showUnknown) return null;
+    return (
+      <div
+        className={cn(
+          'rounded-xl border border-border/50 bg-card/60 px-3 py-2.5 flex items-center gap-2.5',
+          className,
+        )}
+        dir={dir}
+      >
+        <HelpCircle className="w-4 h-4 text-muted-foreground shrink-0" />
+        <span className="text-[12px] text-muted-foreground">
+          {t('visitors.networkUnknown') || 'Network location unavailable for this call'}
+        </span>
+      </div>
+    );
+  }
 
   const { ip, geo } = data;
   const place = [geo.city, geo.region, geo.country].filter(Boolean).join('، ') || '—';
@@ -59,5 +104,38 @@ export function VisitorNetworkCard({ workspaceId, reference, t, dir = 'ltr', cla
         </Row>
       )}
     </div>
+  );
+}
+
+/**
+ * Compact one-line variant for dense list rows (Live Queue, Calls list).
+ * Always fed from a batched read — it never fetches on its own.
+ */
+export function VisitorNetworkInline({
+  profile,
+  t,
+  className,
+}: {
+  profile: VisitorNetworkProfile | null | undefined;
+  t: (k: string) => string | undefined;
+  className?: string;
+}) {
+  if (!profile) {
+    return (
+      <span className={cn('text-[11px] text-muted-foreground', className)}>
+        {t('visitors.networkUnknownShort') || 'Location unknown'}
+      </span>
+    );
+  }
+  const { ip, geo } = profile;
+  const place = [geo.city, geo.region].filter(Boolean).join('، ');
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-[11px] text-muted-foreground', className)}>
+      {geo.country_code && <span>{flagEmoji(geo.country_code)}</span>}
+      <span className="truncate">{place || geo.country || t('visitors.networkUnknownShort') || 'Location unknown'}</span>
+      {!ip.locked && ip.display && (
+        <bdi dir="ltr" className="tabular-nums opacity-80">· {ip.display}</bdi>
+      )}
+    </span>
   );
 }

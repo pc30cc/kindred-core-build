@@ -33,8 +33,12 @@ export function ipBlockMiddleware() {
       if (data) {
         return res.status(403).json({ error: 'IP blocked' });
       }
-    } catch {
-      // If check fails, allow through
+    } catch (err) {
+      // Fail closed: we cannot prove this IP is not blocked, so we refuse the
+      // request instead of letting a database outage disable IP blocking.
+      // 503 (not 403) so legitimate clients can retry once the DB recovers.
+      console.error('[security] IP block lookup failed:', err);
+      return res.status(503).json({ error: 'Security check unavailable', code: 'IP_CHECK_UNAVAILABLE' });
     }
     next();
   };
@@ -78,6 +82,44 @@ export const widgetRateLimiter = rateLimit({
   handler: async (req, res) => {
     await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: '/api/widget', limit: '300/min' });
     res.status(429).json({ error: 'Widget rate limit exceeded.' });
+  },
+});
+
+// ─── Per-workspace widget limiter (IP-rotation resistant) ────────
+
+/**
+ * Resolve the workspace a public widget/visitor request targets. Falls back to
+ * the IP so requests without workspace context still get a bucket instead of
+ * sharing one global key.
+ */
+export function resolveRateLimitWorkspaceKey(req: Request): string {
+  const raw =
+    (req.query?.workspace_id as string) ||
+    (req.body?.workspace_id as string) ||
+    (req.body?.workspaceId as string) ||
+    null;
+  if (raw && typeof raw === 'string') return `ws:${raw}`;
+  return `ip:${req.ip || 'unknown'}`;
+}
+
+/**
+ * Per-workspace ceiling applied IN ADDITION to the per-IP limiter above.
+ * Stops an attacker who rotates source IPs from flooding a single workspace,
+ * and stops one workspace from exhausting shared capacity.
+ */
+export const widgetWorkspaceRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 1200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: resolveRateLimitWorkspaceKey,
+  handler: async (req, res) => {
+    await logSecurityEvent(req, 'rate_limited', 'warn', {
+      endpoint: req.originalUrl,
+      limit: '1200/min/workspace',
+      workspaceId: (req.query?.workspace_id as string) || req.body?.workspace_id || null,
+    });
+    res.status(429).json({ error: 'Workspace rate limit exceeded.' });
   },
 });
 

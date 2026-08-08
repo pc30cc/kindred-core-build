@@ -16,7 +16,6 @@ function loadSanitizer(): (input: string) => string {
   expect(endStart).toBeGreaterThan(-1);
   const close = src.indexOf('\n    }', src.indexOf('return Util.escapeHtml(input);', endStart));
   const block = src.slice(start, close + 6);
-  // eslint-disable-next-line no-new-func
   const factory = new Function('Util', `${block}; return sanitizeHtml;`);
   return factory({ escapeHtml: (s: string) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`) });
 }

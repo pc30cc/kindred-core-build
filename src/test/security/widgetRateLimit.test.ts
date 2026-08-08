@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Express/Supabase test doubles are intentionally untyped. */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const rpc = vi.fn();

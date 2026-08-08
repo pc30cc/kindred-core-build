@@ -11,7 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, MapPin, AlertTriangle, CheckCircle2, RefreshCw, Trash2, PlayCircle, Save, Undo2 } from 'lucide-react';
 import { toast } from '@/lib/toast';
-import { mapGeoApi, type MapGeoSettings } from '@/lib/map-geo-api';
+import { mapGeoApi, type MapGeoSettings, type MaxmindRuntimeHealth } from '@/lib/map-geo-api';
 import { MapTilesPreview } from '@/components/admin/MapTilesPreview';
 
 /**
@@ -22,6 +22,64 @@ import { MapTilesPreview } from '@/components/admin/MapTilesPreview';
  * NOTE: Carto and Stadia ask for attribution — we surface the canonical
  * strings so the map UI stays compliant. OSM is the safe default.
  */
+
+/**
+ * MaxMind Local runtime diagnostics.
+ *
+ * The point of this panel is that geo degradation is NEVER silent: if the
+ * provider is enabled but the .mmdb file is missing, unreadable or corrupt,
+ * the admin sees exactly which of those it is — while visitors keep working
+ * on fallback sources.
+ */
+function MaxmindRuntimePanel({ health, t }: { health: MaxmindRuntimeHealth | null; t: (k: string) => string }) {
+  if (!health?.maxmind_local) return null;
+  const m = health.maxmind_local;
+  const u = health.maxmind_update;
+  const yn = (v: boolean) => (v ? t('admin.mapGeo.runtime.yes') : t('admin.mapGeo.runtime.no'));
+  const rows: Array<[string, string]> = [
+    [t('admin.mapGeo.runtime.enabled'), m.enabled ? t('admin.mapGeo.runtime.enabledLabel') : t('admin.mapGeo.runtime.disabledLabel')],
+    [t('admin.mapGeo.runtime.path'), m.db_path || '—'],
+    [t('admin.mapGeo.runtime.fileExists'), yn(m.file_exists)],
+    [t('admin.mapGeo.runtime.readable'), yn(m.readable)],
+    [t('admin.mapGeo.runtime.usable'), yn(m.usable)],
+    [t('admin.mapGeo.runtime.modified'), m.mtime ?? '—'],
+    [t('admin.mapGeo.runtime.buildEpoch'), m.build_epoch ?? '—'],
+    [t('admin.mapGeo.runtime.edition'), m.database_type ?? '—'],
+    [t('admin.mapGeo.runtime.autoUpdate'), u?.enabled ? t('admin.mapGeo.runtime.enabledLabel') : t('admin.mapGeo.runtime.disabledLabel')],
+    [t('admin.mapGeo.runtime.lastUpdate'), u?.last_status === 'success' && u?.last_run_at ? u.last_run_at : t('admin.mapGeo.runtime.never')],
+    [t('admin.mapGeo.runtime.lastError'), u?.last_error ?? '—'],
+  ];
+  return (
+    <div className="space-y-3">
+      {health.degraded && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>{t('admin.mapGeo.runtime.degradedTitle')}</AlertTitle>
+          <AlertDescription>{t('admin.mapGeo.runtime.degraded')}</AlertDescription>
+        </Alert>
+      )}
+      <div className="rounded-lg border border-border bg-muted/20 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          {m.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
+          <span className="text-sm font-semibold">{t('admin.mapGeo.runtime.title')}</span>
+          <Badge variant={m.ok ? 'default' : 'destructive'} className="ms-auto">
+            {m.ok ? t('admin.mapGeo.maxmind.statusOk') : t('admin.mapGeo.maxmind.statusFail')}
+          </Badge>
+        </div>
+        <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2 text-xs">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex items-start justify-between gap-3 border-b border-border/40 py-1">
+              <dt className="text-muted-foreground shrink-0">{k}</dt>
+              <dd className="font-mono text-[11px] text-foreground break-all text-end">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        {m.error && <p className="mt-2 text-xs text-destructive break-all">{m.error}</p>}
+      </div>
+    </div>
+  );
+}
+
 const TILE_PRESETS: Array<{
   id: string;
   label: string;
@@ -352,15 +410,8 @@ export default function MapGeoPage() {
                 <p className="text-xs text-muted-foreground">{t('admin.mapGeo.maxmind.dbPathHint')}</p></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.maxmind.autoReload')}</Label>
                 <Switch checked={draft.maxmind_local.auto_reload} onCheckedChange={(v) => setField('maxmind_local', { auto_reload: v })} /></div>
-              {health?.maxmind_local && (
-                <Alert variant={health.maxmind_local.ok ? 'default' : 'destructive'}>
-                  {health.maxmind_local.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-                  <AlertTitle>{health.maxmind_local.ok ? t('admin.mapGeo.maxmind.statusOk') : t('admin.mapGeo.maxmind.statusFail')}</AlertTitle>
-                  <AlertDescription>
-                    {health.maxmind_local.ok ? `${t('admin.mapGeo.maxmind.size')}: ${(health.maxmind_local.size_bytes / 1024 / 1024).toFixed(1)} MB · ${t('admin.mapGeo.maxmind.modified')}: ${health.maxmind_local.mtime}` : health.maxmind_local.error}
-                  </AlertDescription>
-                </Alert>
-              )}
+              <p className="text-xs text-muted-foreground">{t('admin.mapGeo.runtime.sourceOfTruth')}</p>
+              <MaxmindRuntimePanel health={health} t={t} />
               <SectionFooter sections={['maxmind_local']} />
             </CardContent>
           </Card>
@@ -390,7 +441,19 @@ export default function MapGeoPage() {
               <div className="space-y-2"><Label>{t('admin.mapGeo.updates.editionId')}</Label>
                 <Input value={draft.maxmind_update.edition_id}
                   onChange={(e) => setField('maxmind_update', { edition_id: e.target.value })} /></div>
-              <Button variant="outline" onClick={async () => { try { const r = await mapGeoApi.runUpdate(); toast.success(r.instructions); } catch (e: any) { toast.error(e.message); } }}>
+              <div className="space-y-2"><Label>{t('admin.mapGeo.updates.intervalHours')}</Label>
+                <Input type="number" min={24} value={draft.maxmind_update.interval_hours}
+                  onChange={(e) => setField('maxmind_update', { interval_hours: Math.max(24, Number(e.target.value) || 24) })} /></div>
+              <MaxmindRuntimePanel health={health} t={t} />
+              <Button variant="outline" onClick={async () => {
+                  try {
+                    const r = await mapGeoApi.runUpdate();
+                    if (r.status === 'updated') toast.success(t('admin.mapGeo.runtime.updated'));
+                    else if (r.status === 'skipped') toast.info(`${t('admin.mapGeo.runtime.skipped')}: ${r.reason ?? ''}`);
+                    else toast.error(r.reason ?? t('admin.mapGeo.maxmind.statusFail'));
+                    mapGeoApi.health().then(setHealth).catch(() => {});
+                  } catch (e: any) { toast.error(e.message); }
+                }}>
                 <PlayCircle className="h-4 w-4 me-2" />{t('admin.mapGeo.updates.runNow')}
               </Button>
               <SectionFooter sections={['maxmind_update']} />

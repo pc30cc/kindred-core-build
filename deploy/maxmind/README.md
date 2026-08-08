@@ -57,3 +57,44 @@ placeholder grid (no external network call). Suggested options:
 - `/api/admin/map-geo/test-resolve` (POST, body `{"ip":"8.8.8.8"}`) → returns city/lat/lng
 - Visitors page shows markers for active sessions
 - `geo_ip_cache` table fills up over time (purge expired via Diagnostics)
+
+---
+
+## 7. Coolify: persistent volume (required)
+
+The backend service must have a persistent volume mounted at `/app/data`:
+
+- Coolify → your backend service → **Storages** → *Add volume*
+  - Name: `geoip-data`
+  - Destination path: `/app/data`
+
+`docker-compose.yml` / `docker-compose.yaml` already declare the same mount for
+local runs (`geoip-data:/app/data`). Without the volume the database is lost on
+every redeploy and Map & Geo reports **degraded**.
+
+## 8. Built-in auto-update (alternative to the geoipupdate sidecar)
+
+Super Admin → **Map & Geo → Updates**:
+
+- **Mode**: `auto`
+- **Account ID** / **License key**: from your MaxMind account
+- **Edition**: `GeoLite2-City`
+- **Interval**: hours (minimum 24 — MaxMind publishes twice a week)
+
+The updater is safe by construction:
+
+- one replica at a time (DB-backed lease — the others skip),
+- download → extract → **validate** → `rename()` into place (atomic),
+- a failed or corrupt download never replaces a healthy database,
+- credentials are redacted from every log line and from `last_error`.
+
+Use **Run update now** for a manual run; the result and last status are shown in
+the diagnostics panel on the same page.
+
+## 9. Reading the diagnostics panel
+
+`Map & Geo → MaxMind Local` shows: path, file exists, readable, usable, size,
+last modified, database build date, edition, auto-update state, last run and
+last error. If `enabled = on` but the file is missing, the page shows a
+**degraded** banner — geo keeps working on the fallback chain
+(external provider → CF country → centroid) while you fix the mount.

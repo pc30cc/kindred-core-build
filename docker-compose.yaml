@@ -35,9 +35,18 @@ services:
       - SMTP_PORT=${SMTP_PORT:-}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
+      - TRUSTED_PROXY_IPS=${TRUSTED_PROXY_IPS:-}
+    volumes:
+      # Persistent GeoIP data volume. The backend reads the .mmdb file from
+      # /app/data (configured in Super Admin → Map & Geo) and the optional
+      # auto-updater writes into the same directory atomically.
+      - geoip-data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  geoip-data:

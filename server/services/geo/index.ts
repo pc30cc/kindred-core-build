@@ -6,11 +6,23 @@
  * is configured, we fall back to country centroid lookup (offline, free,
  * privacy-preserving).
  *
+ * ── Single source of truth ────────────────────────────────────────────────
+ * MaxMind **Local** is configured in exactly one place: Super Admin → Map & Geo
+ * (`app_runtime_config.map_geo_settings.maxmind_local`). `provider_configs` is
+ * reserved for *external* geo vendors (ipapi / ipinfo / ipgeolocation / MaxMind
+ * Web Service) and workspace-level overrides of those. A `maxmind_local` row in
+ * `provider_configs` is intentionally IGNORED so two UIs can never disagree.
+ *
  * Resolution order (per request):
- *   1. visitor_geo_cache (by ip_hash) if not expired           → 'cache'
- *   2. configured geo_enrichment provider (raw IP required)    → 'provider'
- *   3. centroid lookup against the visitor's stored country    → 'centroid'
- *   4. session-only metadata or none                            → 'session' | 'none'
+ *   1. geo_ip_cache / visitor_geo_cache (by ip_hash), if not expired → 'cache'
+ *   2. MaxMind Local MMDB (self-hosted, no network)                  → 'provider'
+ *   3. configured external / workspace geo provider                  → 'provider'
+ *   4. CF-IPCountry (optional signal, country-level only)            → 'centroid'/'session'
+ *   5. country centroid                                              → 'centroid'
+ *   6. nothing                                                       → 'session'|'disabled'|'none'
+ *
+ * Cloudflare is strictly optional: with MaxMind Local + a real visitor IP,
+ * city/region/country resolve with no Cloudflare involvement at all.
  *
  * The cache is keyed by ip_hash so we never store raw IPs at rest.
  * Raw IPs only travel in-process during a single request — they are NEVER
@@ -31,6 +43,8 @@ export interface GeoResult {
   city: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** IANA timezone when the source provides one (MaxMind does). */
+  timezone: string | null;
   /**
    * Resolution source:
    *   - cache    : from visitor_geo_cache (provider-warmed, valid TTL)
@@ -48,6 +62,44 @@ interface GeoProviderConfig {
   config: Record<string, unknown> | null;
 }
 
+/**
+ * The ONE place where a geo payload becomes canonical, whatever produced it
+ * (MaxMind local/web, ipapi, ipinfo, ipgeolocation, Cloudflare, centroid).
+ *
+ *   country_code = 'TR'      (uppercase ISO-3166-1 alpha-2, or null)
+ *   country      = 'Turkey'  (resolved offline from the code — never a bare code)
+ *
+ * Providers that only return a code (ipinfo, CF-IPCountry) are therefore
+ * indistinguishable downstream from providers that return a full name.
+ */
+export function normalizeGeoPayload(
+  input: Partial<Omit<GeoResult, 'source'>> & { country?: string | null },
+): Omit<GeoResult, 'source'> {
+  const cc = toCountryCode(input.country_code) ?? toCountryCode(input.country);
+  const name = countryNameFromCode(cc)
+    ?? (input.country && !toCountryCode(input.country) ? input.country : null);
+  const num = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null;
+  return {
+    country: name,
+    country_code: cc,
+    region: input.region ?? null,
+    city: input.city ?? null,
+    latitude: num(input.latitude),
+    longitude: num(input.longitude),
+    timezone: input.timezone ?? null,
+  };
+}
+
+/** 'city' | 'region' | 'country' | null, derived consistently everywhere. */
+export function accuracyLevelOf(r: { city: string | null; region: string | null; country_code: string | null }):
+  'city' | 'region' | 'country' | null {
+  if (r.city) return 'city';
+  if (r.region) return 'region';
+  if (r.country_code) return 'country';
+  return null;
+}
+
 /** Resolve which geo_enrichment provider is active for this workspace. */
 async function resolveProviderConfig(
   config: ServerConfig,
@@ -62,7 +114,10 @@ async function resolveProviderConfig(
       .eq('provider_type', 'geo_enrichment')
       .eq('is_active', true)
       .maybeSingle();
-    if (ws) return { provider_name: ws.provider_name, config: ws.config as any };
+    if (ws && !isPlatformManagedProvider(ws.provider_name)) {
+      return { provider_name: ws.provider_name, config: ws.config as any };
+    }
+    if (ws) warnManagedProviderRow('workspace', ws.provider_name);
   }
   const { data: platform } = await sb
     .from('provider_configs')
@@ -71,8 +126,30 @@ async function resolveProviderConfig(
     .eq('provider_type', 'geo_enrichment')
     .eq('is_active', true)
     .maybeSingle();
-  if (platform) return { provider_name: platform.provider_name, config: platform.config as any };
+  if (platform && !isPlatformManagedProvider(platform.provider_name)) {
+    return { provider_name: platform.provider_name, config: platform.config as any };
+  }
+  if (platform) warnManagedProviderRow('platform', platform.provider_name);
   return null;
+}
+
+/**
+ * `maxmind_local` is owned by Map & Geo. If an old `provider_configs` row still
+ * selects it we must not honour its `db_path` — that is the dual-source-of-truth
+ * bug this module exists to prevent.
+ */
+function isPlatformManagedProvider(name: string | null | undefined): boolean {
+  return name === 'maxmind_local';
+}
+
+const warnedManaged = new Set<string>();
+function warnManagedProviderRow(scope: string, name: string): void {
+  const key = `${scope}:${name}`;
+  if (warnedManaged.has(key)) return;
+  warnedManaged.add(key);
+  console.warn(
+    `[geo] ignoring ${scope} provider_configs row "${name}" — MaxMind Local is configured in Super Admin → Map & Geo only.`,
+  );
 }
 
 /** Read cached geo (by ip_hash) if still valid. */
@@ -93,6 +170,7 @@ async function readCache(config: ServerConfig, ipHash: string): Promise<GeoResul
     city: data.city,
     latitude: data.latitude,
     longitude: data.longitude,
+    timezone: null,
     source: 'cache',
   };
 }
@@ -138,14 +216,15 @@ const ipapiAdapter: Adapter = async (ip, cfg) => {
   if (!r.ok) return null;
   const j = await r.json() as any;
   if (j.error) return null;
-  return {
+  return normalizeGeoPayload({
     country: j.country_name ?? null,
     country_code: j.country_code ?? null,
     region: j.region ?? null,
     city: j.city ?? null,
     latitude: typeof j.latitude === 'number' ? j.latitude : null,
     longitude: typeof j.longitude === 'number' ? j.longitude : null,
-  };
+    timezone: j.timezone ?? null,
+  });
 };
 
 const ipinfoAdapter: Adapter = async (ip, cfg) => {
@@ -161,14 +240,14 @@ const ipinfoAdapter: Adapter = async (ip, cfg) => {
     lat = Number(a); lng = Number(b);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) { lat = null; lng = null; }
   }
-  return {
-    country: j.country ?? null,
+  return normalizeGeoPayload({
     country_code: j.country ?? null,
     region: j.region ?? null,
     city: j.city ?? null,
     latitude: lat,
     longitude: lng,
-  };
+    timezone: j.timezone ?? null,
+  });
 };
 
 const ipgeolocationAdapter: Adapter = async (ip, cfg) => {
@@ -178,14 +257,15 @@ const ipgeolocationAdapter: Adapter = async (ip, cfg) => {
   const r = await fetch(url);
   if (!r.ok) return null;
   const j = await r.json() as any;
-  return {
+  return normalizeGeoPayload({
     country: j.country_name ?? null,
     country_code: j.country_code2 ?? null,
     region: j.state_prov ?? null,
     city: j.city ?? null,
     latitude: j.latitude ? Number(j.latitude) : null,
     longitude: j.longitude ? Number(j.longitude) : null,
-  };
+    timezone: j.time_zone?.name ?? null,
+  });
 };
 
 const maxmindAdapter: Adapter = async (ip, cfg) => {
@@ -197,36 +277,30 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
   const r = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
   if (!r.ok) return null;
   const j = await r.json() as any;
-  return {
+  return normalizeGeoPayload({
     country: j.country?.names?.en ?? null,
     country_code: j.country?.iso_code ?? null,
     region: j.subdivisions?.[0]?.names?.en ?? null,
     city: j.city?.names?.en ?? null,
     latitude: j.location?.latitude ?? null,
     longitude: j.location?.longitude ?? null,
-  };
+    timezone: j.location?.time_zone ?? null,
+  });
 };
 
 /**
- * MaxMind local MMDB adapter — fully self-hosted, no external calls.
- * Reads from a GeoLite2/GeoIP2 .mmdb file mounted on the server filesystem.
- * Uses an in-process LRU of opened DB readers keyed by path so we don't
- * reopen the file on every request.
+ * NOTE — there is deliberately no `maxmind_local` adapter here.
+ * MaxMind Local is platform infrastructure, not a per-workspace vendor: it is
+ * configured once in Super Admin → Map & Geo and executed as step 2 of
+ * `resolveVisitorGeo` below. See `resolveProviderConfig`, which drops any
+ * legacy `maxmind_local` row found in `provider_configs`.
  */
-const maxmindLocalAdapter: Adapter = async (ip, cfg) => {
-  const dbPath = (cfg?.db_path as string) || '';
-  if (!dbPath) return null;
-  return lookupMaxmindLocal(dbPath, ip, {
-    autoReload: cfg?.auto_reload === true || cfg?.auto_reload === 'true',
-  });
-};
 
 const ADAPTERS: Record<string, Adapter> = {
   ipapi: ipapiAdapter,
   ipinfo: ipinfoAdapter,
   ipgeolocation: ipgeolocationAdapter,
   maxmind: maxmindAdapter,
-  maxmind_local: maxmindLocalAdapter,
 };
 
 /**
@@ -273,6 +347,7 @@ export async function resolveVisitorGeo(
         city: ipCached.city,
         latitude: ipCached.latitude,
         longitude: ipCached.longitude,
+        timezone: ipCached.timezone,
         source: 'cache',
       };
     }
@@ -285,22 +360,23 @@ export async function resolveVisitorGeo(
         autoReload: mapGeo.maxmind_local.auto_reload,
       });
       if (local) {
+        const norm = normalizeGeoPayload(local);
         if (ipHash) {
           await writeIpCache(config, ipHash, {
             source: 'maxmind_local',
-            country_code: local.country_code,
-            country_name: local.country,
-            region: local.region,
-            city: local.city,
-            latitude: local.latitude,
-            longitude: local.longitude,
-            timezone: null,
-            accuracy_level: local.city ? 'city' : local.region ? 'region' : 'country',
+            country_code: norm.country_code,
+            country_name: norm.country,
+            region: norm.region,
+            city: norm.city,
+            latitude: norm.latitude,
+            longitude: norm.longitude,
+            timezone: norm.timezone,
+            accuracy_level: accuracyLevelOf(norm),
             is_fallback: false,
           }, cacheTtl);
-          await writeCache(config, ipHash, local, 'maxmind_local');
+          await writeCache(config, ipHash, norm, 'maxmind_local');
         }
-        return { ...local, source: 'provider' };
+        return { ...norm, source: 'provider' };
       }
     } catch (err) {
       console.warn('[geo] maxmind_local failed:', (err as Error).message);
@@ -310,7 +386,8 @@ export async function resolveVisitorGeo(
   // 2b. Optional configured provider (legacy path).
   if (session.raw_ip && !externalDisabled && provider && ADAPTERS[provider.provider_name]) {
     try {
-      const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
+      const raw = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
+      const result = raw ? normalizeGeoPayload(raw) : null;
       if (result && ipHash) {
         await writeCache(config, ipHash, result, provider.provider_name);
         await writeIpCache(config, ipHash, {
@@ -321,8 +398,8 @@ export async function resolveVisitorGeo(
           city: result.city,
           latitude: result.latitude,
           longitude: result.longitude,
-          timezone: null,
-          accuracy_level: result.city ? 'city' : result.region ? 'region' : 'country',
+          timezone: result.timezone,
+          accuracy_level: accuracyLevelOf(result),
           is_fallback: false,
         }, cacheTtl);
       }
@@ -333,18 +410,21 @@ export async function resolveVisitorGeo(
   }
 
   // 3. Country centroid fallback (only when allowed by admin policy).
+  // `session.country` is the optional Cloudflare CF-IPCountry signal (or a
+  // country previously stored on the session). It is country-level ONLY and is
+  // never allowed to overwrite a city-level result — it is consulted here,
+  // after every precise source has already had its turn.
   const centroid = allowCentroid ? lookupCentroid(session.country) : null;
   if (centroid) {
-    const cc = toCountryCode(session.country);
     return {
-      // Never store a bare 'TR' as the display country — resolve the ISO code
+      // Never surface a bare 'TR' as the display country — resolve the ISO code
       // to a real name offline (see ./countryNames.ts).
-      country: countryNameFromCode(cc) ?? session.country ?? null,
-      country_code: cc,
-      region: null,
-      city: session.city ?? null,
-      latitude: centroid.lat,
-      longitude: centroid.lng,
+      ...normalizeGeoPayload({
+        country: session.country ?? null,
+        city: session.city ?? null,
+        latitude: centroid.lat,
+        longitude: centroid.lng,
+      }),
       source: 'centroid',
     };
   }
@@ -352,14 +432,8 @@ export async function resolveVisitorGeo(
   // 4. Whatever the session gave us (no coords).
   // When external enrichment is explicitly disabled and we still have no
   // coords, surface 'disabled' so the UI can label it correctly.
-  const tailCc = toCountryCode(session.country);
   return {
-    country: countryNameFromCode(tailCc) ?? session.country ?? null,
-    country_code: tailCc,
-    region: null,
-    city: session.city ?? null,
-    latitude: null,
-    longitude: null,
+    ...normalizeGeoPayload({ country: session.country ?? null, city: session.city ?? null }),
     source: session.country
       ? 'session'
       : externalDisabled
@@ -433,13 +507,10 @@ export async function enrichVisitorSessionGeo(
         geo_longitude: result.longitude,
         geo_source_provider: result.source,
         geo_is_fallback: result.source === 'centroid' || result.source === 'session',
-        geo_accuracy_level: result.city
-          ? 'city'
-          : result.region
-            ? 'region'
-            : result.country_code
-              ? 'country'
-              : null,
+        geo_accuracy_level: accuracyLevelOf(result),
+        // MMDB carries an IANA timezone; keep it end-to-end so operator UIs can
+        // show the visitor's local time without a second lookup.
+        geo_timezone: result.timezone ?? undefined,
         geo_resolved_at: new Date().toISOString(),
         // Mirror simple country/city onto legacy columns for older readers.
         country: result.country_code ?? result.country ?? undefined,

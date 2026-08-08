@@ -6,12 +6,15 @@
  *   PUT  /api/admin/map-geo/settings           — patch settings (deep-merge)
  *   GET  /api/admin/map-geo/health             — MaxMind DB + tile config status
  *   POST /api/admin/map-geo/test-resolve       — resolve a test IP locally
- *   POST /api/admin/map-geo/maxmind/run-update — manual trigger (returns guidance)
+ *   POST /api/admin/map-geo/maxmind/run-update — run a real update now
  *   POST /api/admin/map-geo/cache/purge        — purge expired ip_cache rows
  *
  * No external geo or tile vendor is contacted by default. The "Run update"
- * action only refreshes the local .mmdb file and is OPTIONAL — operators
- * may run `geoipupdate` on the host via cron instead.
+ * action contacts download.maxmind.com ONLY when the operator has entered
+ * their own MaxMind credentials; it downloads to a temp file, validates it and
+ * atomically replaces the live .mmdb. Operators who prefer host-side
+ * `geoipupdate` can simply leave auto-update off — the mounted file is
+ * hot-reloaded either way.
  */
 import { Router } from 'express';
 import { z } from 'zod';
@@ -22,6 +25,7 @@ import { getMapGeoSettings, patchMapGeoSettings } from '../services/geo/settings
 import { checkMaxmindLocalHealth, lookupMaxmindLocal } from '../services/geo/maxmindLocal.js';
 import { purgeExpiredIpCache } from '../services/geo/ipCache.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
+import { runMaxmindUpdateNow, MIN_INTERVAL_HOURS } from '../services/geo/maxmindUpdater.js';
 
 export const mapGeoRouter = Router();
 
@@ -144,16 +148,44 @@ mapGeoRouter.get('/health', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
     const settings = await getMapGeoSettings(config);
-    const dbHealth = settings.maxmind_local.enabled && settings.maxmind_local.db_path
-      ? await checkMaxmindLocalHealth(settings.maxmind_local.db_path)
-      : { ok: false, error: 'maxmind_local disabled or db_path empty' };
+    const enabled = settings.maxmind_local.enabled;
+    const dbPath = settings.maxmind_local.db_path;
+    const dbHealth = enabled && dbPath
+      ? await checkMaxmindLocalHealth(dbPath)
+      : {
+          ok: false,
+          file_exists: false,
+          readable: false,
+          usable: false,
+          error: enabled ? 'No database path configured' : 'MaxMind Local is disabled',
+        };
+    const upd = settings.maxmind_update;
+    const autoUpdateEnabled = upd.mode === 'auto' && !!upd.account_id && !!upd.license_key;
+    // Loud, explicit degradation signal — never let the admin believe geo is
+    // city-accurate while we are silently serving centroids.
+    const degraded = enabled && !dbHealth.ok;
     const tiles = await resolveMapTilesConfig(config, null);
     res.json({
       maxmind_local: {
-        enabled: settings.maxmind_local.enabled,
-        db_path: settings.maxmind_local.db_path,
+        enabled,
+        db_path: dbPath,
         ...dbHealth,
       },
+      maxmind_update: {
+        mode: upd.mode,
+        enabled: autoUpdateEnabled,
+        has_credentials: !!upd.account_id && !!upd.license_key,
+        edition_id: upd.edition_id,
+        interval_hours: Math.max(MIN_INTERVAL_HOURS, Number(upd.interval_hours) || MIN_INTERVAL_HOURS),
+        min_interval_hours: MIN_INTERVAL_HOURS,
+        last_run_at: upd.last_run_at,
+        last_status: upd.last_status,
+        last_error: upd.last_error,
+      },
+      degraded,
+      degraded_reason: degraded
+        ? 'MaxMind Local is enabled but the database file is unavailable. Geo resolution is currently using fallback sources.'
+        : null,
       tiles: {
         configured: !!tiles.tile_url,
         health_status: tiles.health_status,
@@ -196,9 +228,6 @@ mapGeoRouter.post('/test-resolve', async (req, res) => {
 mapGeoRouter.post('/maxmind/run-update', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const settings = await getMapGeoSettings(config);
-  // Mark intent in audit; we do NOT auto-download from inside Node by default —
-  // operators run `geoipupdate` on the host or in a sidecar. This endpoint
-  // only records the request and returns the canonical command to run.
   const sb = getServiceClient(config);
   await sb.from('audit_logs').insert({
     action: 'map_geo.maxmind.update_requested',
@@ -207,12 +236,17 @@ mapGeoRouter.post('/maxmind/run-update', async (req, res) => {
     workspace_id: '00000000-0000-0000-0000-000000000000',
     new_value: { edition_id: settings.maxmind_update.edition_id } as any,
   } as any).then(() => {}, () => {});
+
+  // Runs the same code path as the ticker: leased, atomic, validated.
+  // Credentials never appear in the response or the audit payload.
+  const outcome = await runMaxmindUpdateNow(config);
   res.json({
-    ok: true,
-    mode: 'host_cron',
-    instructions: 'Run `geoipupdate -f /etc/GeoIP.conf` on the host (or via Coolify cron). The mounted .mmdb file will hot-reload automatically.',
+    ok: outcome.ok,
+    status: outcome.status,
+    reason: outcome.reason ?? null,
     db_path: settings.maxmind_local.db_path,
     edition_id: settings.maxmind_update.edition_id,
+    size_bytes: outcome.size_bytes ?? null,
   });
 });
 

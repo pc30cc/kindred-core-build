@@ -41,11 +41,50 @@ async function call<T>(method: string, path: string, body?: any): Promise<T> {
   return res.json();
 }
 
+export interface MaxmindRuntimeHealth {
+  maxmind_local: {
+    enabled: boolean;
+    db_path: string;
+    ok: boolean;
+    file_exists: boolean;
+    readable: boolean;
+    usable: boolean;
+    size_bytes?: number;
+    mtime?: string;
+    database_type?: string;
+    build_epoch?: string;
+    error?: string;
+  };
+  maxmind_update: {
+    mode: 'manual' | 'auto';
+    enabled: boolean;
+    has_credentials: boolean;
+    edition_id: string;
+    interval_hours: number;
+    min_interval_hours: number;
+    last_run_at: string | null;
+    last_status: string | null;
+    last_error: string | null;
+  };
+  degraded: boolean;
+  degraded_reason: string | null;
+  tiles: any;
+}
+
+export interface MaxmindUpdateResult {
+  ok: boolean;
+  status: 'updated' | 'skipped' | 'failed';
+  reason: string | null;
+  db_path: string;
+  edition_id: string;
+  size_bytes: number | null;
+}
+
 export const mapGeoApi = {
   getSettings: () => call<{ settings: MapGeoSettings }>('GET', '/settings'),
   updateSettings: (patch: Partial<MapGeoSettings>) => call<{ settings: MapGeoSettings }>('PUT', '/settings', patch),
-  health: () => call<{ maxmind_local: any; tiles: any }>('GET', '/health'),
+  health: () => call<MaxmindRuntimeHealth>('GET', '/health'),
   testResolve: (ip: string) => call<any>('POST', '/test-resolve', { ip }),
-  runUpdate: () => call<any>('POST', '/maxmind/run-update'),
+  runUpdate: () => call<MaxmindUpdateResult>('POST', '/maxmind/run-update'),
   purgeCache: () => call<{ ok: boolean; purged: number }>('POST', '/cache/purge'),
 };

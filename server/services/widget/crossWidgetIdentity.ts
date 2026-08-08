@@ -22,6 +22,8 @@
  */
 import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ServerConfig } from '../../config.js';
+import { enrichVisitorSessionGeo } from '../geo/index.js';
 import { getClientCountry, getClientIp, hashIp } from '../../utils/clientIp.js';
 import {
   createSignedContactContinuityToken,
@@ -110,14 +112,23 @@ function networkPatch(net?: SessionNetworkContext | null): Record<string, unknow
 }
 
 /**
- * Ensure a `visitor_sessions` row exists for (workspace, visitor) so a later
- * merge — which UPDATEs the row — can pin `contact_id` on it. Best effort.
+ * THE single visitor-session writer shared by the chat widget, the call widget
+ * and the identity bootstrap. Every surface goes through here so session
+ * creation, IP hashing, raw-IP privacy and geo enrichment can never drift
+ * apart (they used to: the call widget had its own copy that wrote ip_hash but
+ * never enriched geo, so call-only visitors had no country/city at all).
  *
  * Pass `net` (see resolveSessionNetworkContext) so the row is created WITH its
- * network identity: previously this helper could win the race against
- * /api/widget/track and leave a session with ip_hash = null / ip_raw = null,
- * which broke geo enrichment and the contact IP lookup for that visitor.
+ * network identity, and `opts.config` so the same canonical geo pipeline that
+ * /api/widget/track uses runs for this visitor too.
  */
+export interface EnsureSessionOptions {
+  /** Required to run geo enrichment (fire-and-forget, never blocks). */
+  config?: ServerConfig;
+  /** Mark the visitor online so they appear in the Visitors list. */
+  touchPresence?: boolean;
+}
+
 export async function ensureVisitorSessionRow(
   sb: SupabaseClient,
   workspaceId: string,
@@ -125,17 +136,21 @@ export async function ensureVisitorSessionRow(
   pageUrl: string | null,
   source: IdentitySource,
   net?: SessionNetworkContext | null,
+  opts: EnsureSessionOptions = {},
 ): Promise<string | null> {
+  let sessionId: string | null = null;
+  let previousIpHash: string | null = null;
   try {
     const { data: existing } = await sb
       .from('visitor_sessions')
-      .select('id')
+      .select('id, ip_hash')
       .eq('workspace_id', workspaceId)
       .eq('visitor_id', visitorId)
       .order('last_seen_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     if (existing?.id) {
+      previousIpHash = ((existing as any).ip_hash as string | null) ?? null;
       await sb
         .from('visitor_sessions')
         .update({
@@ -144,23 +159,73 @@ export async function ensureVisitorSessionRow(
           ...networkPatch(net),
         })
         .eq('id', existing.id);
-      return existing.id;
+      sessionId = existing.id;
+    } else {
+      const { data: created } = await sb
+        .from('visitor_sessions')
+        .insert({
+          workspace_id: workspaceId,
+          visitor_id: visitorId,
+          current_page: pageUrl,
+          metadata: { source },
+          ...networkPatch(net),
+        })
+        .select('id')
+        .maybeSingle();
+      sessionId = created?.id ?? null;
     }
-    const { data: created } = await sb
-      .from('visitor_sessions')
-      .insert({
-        workspace_id: workspaceId,
-        visitor_id: visitorId,
-        current_page: pageUrl,
-        metadata: { source },
-        ...networkPatch(net),
-      })
-      .select('id')
-      .maybeSingle();
-    return created?.id ?? null;
   } catch {
     return null;
   }
+  if (!sessionId) return null;
+
+  if (opts.touchPresence) {
+    await upsertVisitorPresence(sb, workspaceId, sessionId, pageUrl);
+  }
+
+  // Same canonical geo pipeline as the chat widget's /track — shared code, not
+  // a second implementation. Fire-and-forget so no widget request waits on it.
+  if (opts.config && net) {
+    void enrichVisitorSessionGeo(opts.config, {
+      sessionId,
+      workspaceId,
+      ipHash: net.ipHash,
+      rawIp: net.rawIp,
+      country: net.cfCountry,
+      previousIpHash,
+    });
+  }
+  return sessionId;
+}
+
+/** Keep a widget visitor visible in the Online Visitors list. Best effort. */
+export async function upsertVisitorPresence(
+  sb: SupabaseClient,
+  workspaceId: string,
+  sessionId: string,
+  pageUrl: string | null,
+): Promise<void> {
+  try {
+    const { data: existingPresence } = await sb
+      .from('visitor_presence')
+      .select('id')
+      .eq('visitor_session_id', sessionId)
+      .maybeSingle();
+    if (existingPresence?.id) {
+      await sb.from('visitor_presence').update({
+        status: 'online',
+        current_page: pageUrl,
+        updated_at: new Date().toISOString(),
+      }).eq('id', existingPresence.id);
+    } else {
+      await sb.from('visitor_presence').insert({
+        workspace_id: workspaceId,
+        visitor_session_id: sessionId,
+        status: 'online',
+        current_page: pageUrl,
+      });
+    }
+  } catch { /* best effort */ }
 }
 
 /** Pin the contact on every session of this visitor that has none yet. */

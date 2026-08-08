@@ -16,6 +16,37 @@ import { getServiceClient } from '../supabase.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { enforceWidgetToken, enforceOrigin } from '../services/widget/security.js';
 import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
+import {
+  ensureVisitorSessionRow,
+  resolveSessionNetworkContext,
+} from '../services/widget/crossWidgetIdentity.js';
+
+/**
+ * `callback_requests.visitor_session_id` is a relation to `visitor_sessions.id`.
+ * This route used to store the widget COOKIE id there, which matches no session
+ * row — so callbacks were invisible to every visitor-network surface and the
+ * cooldown lookup never found the visitor's own open callback. Both paths now
+ * resolve the canonical session id through the shared writer.
+ */
+async function canonicalSessionIds(
+  config: ServerConfig,
+  workspaceId: string,
+  visitorId: string,
+): Promise<string[]> {
+  try {
+    const sb = getServiceClient(config);
+    const { data } = await sb
+      .from('visitor_sessions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_id', visitorId)
+      .order('last_seen_at', { ascending: false })
+      .limit(20);
+    return (data || []).map((r: any) => r.id as string);
+  } catch {
+    return [];
+  }
+}
 
 export const widgetCallbacksRouter = Router();
 
@@ -44,11 +75,13 @@ widgetCallbacksRouter.get('/status', async (req, res) => {
   try {
     const sb = getServiceClient(config);
     const sinceIso = new Date(Date.now() - CALLBACK_COOLDOWN_MS).toISOString();
+    const sessionIds = await canonicalSessionIds(config, workspaceId, visitorId);
+    if (!sessionIds.length) return res.json({ has_open_callback: false });
     const { data } = await sb
       .from('callback_requests')
       .select('id, status, channel, requested_at, created_at')
       .eq('workspace_id', workspaceId)
-      .eq('visitor_session_id', visitorId)
+      .in('visitor_session_id', sessionIds)
       .in('status', ['requested', 'scheduled', 'in_progress'])
       .gte('created_at', sinceIso)
       .order('created_at', { ascending: false })
@@ -113,12 +146,24 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
     }
     scheduledForIso = new Date(t).toISOString();
   }
+  // Canonical session id (created if the visitor has none yet) — same shared
+  // writer the chat and call widgets use, so geo/IP enrichment runs here too.
+  let visitorSessionId: string | null = null;
+  if (visitorId) {
+    try {
+      const sb = getServiceClient(config);
+      const net = await resolveSessionNetworkContext(sb, req as any, workspaceId);
+      visitorSessionId = await ensureVisitorSessionRow(
+        sb, workspaceId, visitorId, null, 'chat_widget', net, { config, touchPresence: true },
+      );
+    } catch { /* callback must still be creatable */ }
+  }
   try {
     const cb = await createCallbackRequest(config, {
       workspaceId,
       channel: parsed.data.channel,
       conversationId: parsed.data.conversation_id ?? null,
-      visitorSessionId: visitorId ?? null,
+      visitorSessionId,
       contactPhone: parsed.data.contact_phone ?? null,
       contactEmail: parsed.data.contact_email ?? null,
       notes: parsed.data.notes ?? null,

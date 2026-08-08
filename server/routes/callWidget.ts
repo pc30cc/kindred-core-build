@@ -38,7 +38,11 @@ import {
   isSecureRequest,
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
-import { findContactForVisitor, resolveSessionNetworkContext } from '../services/widget/crossWidgetIdentity.js';
+import {
+  findContactForVisitor,
+  resolveSessionNetworkContext,
+  ensureVisitorSessionRow as ensureSharedVisitorSessionRow,
+} from '../services/widget/crossWidgetIdentity.js';
 import type { Request as ExpressRequest } from 'express';
 import {
   createSignedContactContinuityToken,
@@ -181,9 +185,16 @@ async function restoreContactFromContinuityCookie(
 }
 
 /**
- * Ensure a visitor_sessions row exists for (workspace, visitor) so that
- * mergeVisitorIdentity (which UPDATEs the row) can pin contact_id.
- * Best-effort: failures are swallowed; the merge will still run.
+ * Thin adapter over the SHARED writer in services/widget/crossWidgetIdentity.
+ *
+ * The call widget used to carry its own copy of this logic; it wrote ip_hash /
+ * ip_raw but never ran geo enrichment, so a visitor who only ever opened the
+ * call widget had no country/city/timezone anywhere in the product. There is
+ * now exactly one implementation, and the call widget gets the identical
+ * network pipeline as the chat widget.
+ *
+ * Returns the canonical `visitor_sessions.id` so calls, queue entries and
+ * callbacks can be linked to the exact session.
  */
 async function ensureVisitorSessionRow(
   config: ServerConfig,
@@ -192,69 +203,18 @@ async function ensureVisitorSessionRow(
   origin: string | null,
   pageUrl: string | null,
   req?: ExpressRequest,
-): Promise<void> {
+): Promise<string | null> {
   const sb = getServiceClient(config);
-  // Resolve the request's network identity so the row is never created with
-  // ip_hash = null (which used to depend on /api/widget/track winning a race).
   const net = req ? await resolveSessionNetworkContext(sb, req, workspaceId) : null;
-  const netPatch: Record<string, unknown> = net
-    ? { ...(net.ipHash ? { ip_hash: net.ipHash } : {}), ip_raw: net.ipRaw }
-    : {};
-  const { data: existing } = await sb
-    .from('visitor_sessions')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .eq('visitor_id', visitorId)
-    .limit(1)
-    .maybeSingle();
-  let sessionId: string | null = existing?.id ?? null;
-  if (existing?.id) {
-    // Touch last_seen_at so the visitor appears live during/after the call.
-    await sb
-      .from('visitor_sessions')
-      .update({ last_seen_at: new Date().toISOString(), ...netPatch })
-      .eq('id', existing.id);
-  } else {
-    const { data: created } = await sb.from('visitor_sessions').insert({
-      workspace_id: workspaceId,
-      visitor_id: visitorId,
-      current_page: pageUrl || origin || null,
-      metadata: { source: 'call_widget' },
-      ...netPatch,
-    }).select('id').maybeSingle();
-    sessionId = created?.id ?? null;
-  }
-
-  // Ensure the call-widget visitor appears in the Online Visitors list with
-  // their real contact name. Without a presence row, the intelligence query
-  // (presence JOIN sessions) excludes them and they look "anonymous" via the
-  // chat-widget heartbeat row that belongs to a different visitor_id.
-  if (sessionId) {
-    try {
-      const { data: existingPresence } = await sb
-        .from('visitor_presence')
-        .select('id')
-        .eq('visitor_session_id', sessionId)
-        .maybeSingle();
-      const nowIso = new Date().toISOString();
-      if (existingPresence?.id) {
-        await sb.from('visitor_presence').update({
-          status: 'online',
-          current_page: pageUrl || origin || null,
-          updated_at: nowIso,
-        }).eq('id', existingPresence.id);
-      } else {
-        await sb.from('visitor_presence').insert({
-          workspace_id: workspaceId,
-          visitor_session_id: sessionId,
-          status: 'online',
-          current_page: pageUrl || origin || null,
-        });
-      }
-    } catch (e: any) {
-      console.warn('[call-widget] presence upsert failed:', e?.message || e);
-    }
-  }
+  return ensureSharedVisitorSessionRow(
+    sb,
+    workspaceId,
+    visitorId,
+    pageUrl || origin || null,
+    'call_widget',
+    net,
+    { config, touchPresence: true },
+  );
 }
 
 /**
@@ -274,18 +234,22 @@ async function identifyVisitorForCall(
   submitted: { name?: string | null; email?: string | null; phone?: string | null; page_url?: string | null },
 ): Promise<{
   visitorId: string;
+  /** Canonical visitor_sessions.id — the relation calls/callbacks must store. */
+  visitorSessionId: string | null;
   contactId: string | null;
   contact: { id: string; name: string | null; email: string | null; phone: string | null } | null;
 }> {
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
-  await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null, req as unknown as ExpressRequest);
+  const visitorSessionId = await ensureVisitorSessionRow(
+    config, workspaceId, visitorId, origin, submitted.page_url ?? null, req as unknown as ExpressRequest,
+  );
   const existing =
     await findLinkedContactForVisitor(config, workspaceId, visitorId) ||
     await restoreContactFromContinuityCookie(req, config, workspaceId, visitorId);
 
   const hasSubmittedIdentity = !!(submitted.name || submitted.email || submitted.phone);
   if (!hasSubmittedIdentity && !existing) {
-    return { visitorId, contactId: null, contact: null };
+    return { visitorId, visitorSessionId, contactId: null, contact: null };
   }
 
   // If only existing contact (no new submission), nothing new to merge — but
@@ -312,11 +276,12 @@ async function identifyVisitorForCall(
       .eq('id', merge.contactId)
       .maybeSingle();
     await issueContinuityCookieForContact(req, res, config, workspaceId, merge.contactId);
-    return { visitorId, contactId: merge.contactId, contact: contact || null };
+    return { visitorId, visitorSessionId, contactId: merge.contactId, contact: contact || null };
   } catch (e: any) {
     console.warn('[call-widget] identifyVisitorForCall merge failed:', e?.message || e);
     return {
       visitorId,
+      visitorSessionId,
       contactId: existing?.id || null,
       contact: existing ? { id: existing.id, name: existing.name, email: existing.email, phone: existing.phone } : null,
     };
@@ -912,6 +877,10 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   const insertPayload = {
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
+    // Canonical relation to the exact visitor session behind this call, so the
+    // Call Center resolves that visitor's IP/geo instead of guessing from the
+    // contact's newest session.
+    visitor_session_id: identity.visitorSessionId,
     direction: 'inbound',
     call_type: dbCallType,
     context_type: 'internal',
@@ -938,6 +907,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       recording: recordingMeta,
       visitor_id: identity.visitorId,
       contact_id: identity.contactId,
+      visitor_session_id: identity.visitorSessionId,
     },
   };
   let call: any = null;
@@ -983,6 +953,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     requested_by: 'visitor',
     priority: 100,
     department_id: chosenDepartmentId,
+    visitor_session_id: identity.visitorSessionId,
+    contact_id: identity.contactId,
   });
 
   await sb.from('call_events').insert({
@@ -1332,29 +1304,12 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       if (dept && (dept as any).cc_callback_enabled) cbDepartmentId = defId;
     }
   }
-  const { data, error } = await sb.from('callback_requests').insert({
-    workspace_id: ws.workspace_id,
-    channel: parsed.data.channel === 'video' ? 'video' : 'audio',
-    status: 'requested',
-    contact_phone: parsed.data.phone || null,
-    contact_email: parsed.data.email || null,
-    notes: parsed.data.message || parsed.data.subject || null,
-    scheduled_for: parsed.data.scheduled_for || null,
-    metadata: {
-      source: 'call_widget',
-      name: parsed.data.name || null,
-      subject: parsed.data.subject || null,
-      message: parsed.data.message || null,
-      urgency: parsed.data.urgency || 'normal',
-      page_url: parsed.data.page_url || null,
-      department_id: cbDepartmentId,
-      visitor_id: null as string | null,
-      contact_id: null as string | null,
-      ip_hash: ipHash,
-    },
-  }).select('*').maybeSingle();
-  if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
-  // Identify visitor → contact (best-effort, never blocks the callback).
+  // Identify the visitor BEFORE inserting so the callback is born with its
+  // canonical relation (`visitor_session_id`) instead of only a metadata blob.
+  // Never blocks the callback: on failure we simply insert without the link.
+  let cbIdentity: {
+    visitorId: string; visitorSessionId: string | null; contactId: string | null;
+  } | null = null;
   try {
     const identity = await identifyVisitorForCall(
       req,
@@ -1369,15 +1324,39 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
         page_url: parsed.data.page_url,
       },
     );
-    if (identity.contactId && data?.id) {
-      const prevMeta = (data as any).metadata || {};
-      await sb.from('callback_requests').update({
-        metadata: { ...prevMeta, visitor_id: identity.visitorId, contact_id: identity.contactId },
-      }).eq('id', (data as any).id);
-    }
+    cbIdentity = {
+      visitorId: identity.visitorId,
+      visitorSessionId: identity.visitorSessionId,
+      contactId: identity.contactId,
+    };
   } catch (e: any) {
     console.warn('[call-widget/callbacks] identity merge failed:', e?.message || e);
   }
+
+  const { data, error } = await sb.from('callback_requests').insert({
+    workspace_id: ws.workspace_id,
+    channel: parsed.data.channel === 'video' ? 'video' : 'audio',
+    status: 'requested',
+    contact_id: cbIdentity?.contactId ?? null,
+    visitor_session_id: cbIdentity?.visitorSessionId ?? null,
+    contact_phone: parsed.data.phone || null,
+    contact_email: parsed.data.email || null,
+    notes: parsed.data.message || parsed.data.subject || null,
+    scheduled_for: parsed.data.scheduled_for || null,
+    metadata: {
+      source: 'call_widget',
+      name: parsed.data.name || null,
+      subject: parsed.data.subject || null,
+      message: parsed.data.message || null,
+      urgency: parsed.data.urgency || 'normal',
+      page_url: parsed.data.page_url || null,
+      department_id: cbDepartmentId,
+      visitor_id: cbIdentity?.visitorId ?? null,
+      contact_id: cbIdentity?.contactId ?? null,
+      ip_hash: ipHash,
+    },
+  }).select('*').maybeSingle();
+  if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });
   res.json({ ok: true, callback_id: data!.id });
 });

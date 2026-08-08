@@ -18,26 +18,49 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { resolveVisitorGeo, type GeoResult } from '../geo/index.js';
-import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { type GeoResult } from '../geo/index.js';
+import {
+  resolveNetworkProfiles,
+  resolveIpVisibilityPolicy,
+  legacyGeoSource,
+  type VisitorNetworkProfile,
+  type IpVisibilityPolicy,
+} from './networkProfile.js';
 
 /**
- * Plan gate for IP exposure. The `contact_ip_visibility` capability governs
- * every IP surface in the product (contacts *and* visitors). When the plan
- * does not include it, no IP value — raw or masked — ever leaves the server.
+ * Geo + IP for this page now come from the canonical network-profile service
+ * (see ./networkProfile.ts). This module no longer resolves geo itself: the
+ * read path uses persisted `geo_*` first and never triggers a provider lookup,
+ * which removes the per-row N+1 that used to fire on every Visitors poll.
  */
-async function isIpVisibilityEntitled(config: ServerConfig, workspaceId: string): Promise<boolean> {
-  try {
-    const r = await checkEntitlementFromDB(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      'contact_ip_visibility',
-    );
-    return r.allowed === true;
-  } catch {
-    return false;
-  }
+
+function toGeoResult(p: VisitorNetworkProfile): GeoResult {
+  return {
+    country: p.geo.country,
+    country_code: p.geo.country_code,
+    region: p.geo.region,
+    city: p.geo.city,
+    latitude: p.geo.latitude,
+    longitude: p.geo.longitude,
+    timezone: p.geo.timezone,
+    source: legacyGeoSource(p.geo),
+    provider: p.geo.provider,
+  };
+}
+
+const EMPTY_GEO_RESULT: GeoResult = {
+  country: null, country_code: null, region: null, city: null,
+  latitude: null, longitude: null, timezone: null, source: 'none', provider: null,
+};
+
+function emptyProfileFallback(policy: IpVisibilityPolicy) {
+  return {
+    geo: EMPTY_GEO_RESULT,
+    ip_display: '',
+    ip_raw: null,
+    can_view_raw_ip: policy.canViewRaw,
+    ip_locked: !policy.entitled,
+  };
 }
 
 export interface VisitorIntelligenceItem {
@@ -92,25 +115,6 @@ function mergeStatus(
   return (presenceStatus as VisitorIntelligenceItem['status']) ?? 'unknown';
 }
 
-function isAdminRole(role: string | null | undefined): boolean {
-  return role === 'owner' || role === 'admin';
-}
-
-/**
- * Build the masked display string. We don't have the raw IP at read-time
- * (it's never persisted), so for non-admins we surface a hash-anchored
- * placeholder that's still stable per-visitor and useful for spotting
- * duplicates. Admins/owners see the same value today; once a future
- * "store raw IP" toggle lands, this function will return the real mask.
- */
-function buildIpDisplay(ipHash: string | null | undefined): string {
-  if (!ipHash) return '—';
-  // First 8 hex chars, grouped — e.g. "a1b2·c3d4". Stable per IP, no leak.
-  const a = ipHash.slice(0, 4);
-  const b = ipHash.slice(4, 8);
-  return `${a}·${b}`;
-}
-
 export async function listVisitorIntelligence(
   config: ServerConfig,
   workspaceId: string,
@@ -129,8 +133,7 @@ export async function listVisitorIntelligence(
     }
   } catch { /* keep default */ }
   const since = new Date(Date.now() - staleMs).toISOString();
-  const ipEntitled = await isIpVisibilityEntitled(config, workspaceId);
-  const canViewRaw = ipEntitled && isAdminRole(opts.viewerRole ?? null);
+  const policy = await resolveIpVisibilityPolicy(config, workspaceId, opts.viewerRole ?? null);
 
   const { data: rows, error } = await sb
     .from('visitor_presence')
@@ -193,13 +196,24 @@ export async function listVisitorIntelligence(
     }
   }
 
+  // ONE batched network-profile resolution for the whole page (no per-row
+  // provider lookup, no per-row cache query).
+  const profiles = await resolveNetworkProfiles(config, workspaceId, sessionIds, policy);
+
   const items: VisitorIntelligenceItem[] = [];
 
   for (const r of rows ?? []) {
     const session = r.visitor_sessions as any;
-    const geo = await resolveVisitorGeo(config, workspaceId, {
-      country: session.country, city: session.city, ip_hash: session.ip_hash,
-    });
+    const profile = profiles.get(session.id) ?? null;
+    const net = profile
+      ? {
+          geo: toGeoResult(profile),
+          ip_display: profile.ip.display,
+          ip_raw: profile.ip.raw,
+          can_view_raw_ip: profile.ip.can_view_raw,
+          ip_locked: profile.ip.locked,
+        }
+      : emptyProfileFallback(policy);
     const conv = convsBySession.get(session.id) ?? null;
     // Prefer the session-pinned contact (set the moment the visitor identified
     // via prechat or matched an existing contact). Fall back to the contact
@@ -222,13 +236,11 @@ export async function listVisitorIntelligence(
       started_at: session.started_at,
       browser: session.browser, device: session.device, os: session.os,
       referrer: session.referrer,
-      geo,
-      // Admin-only: surface real raw IP when the workspace toggle persisted it.
-      // Everyone else gets a stable hash-anchored placeholder.
-      ip_display: !ipEntitled ? '' : (canViewRaw && (session as any).ip_raw ? (session as any).ip_raw : buildIpDisplay(session.ip_hash)),
-      ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
-      can_view_raw_ip: canViewRaw,
-      ip_locked: !ipEntitled,
+      geo: net.geo,
+      ip_display: net.ip_display,
+      ip_raw: net.ip_raw,
+      can_view_raw_ip: net.can_view_raw_ip,
+      ip_locked: net.ip_locked,
       contact,
       conversation: conv ? { id: conv.id, status: conv.status, subject: conv.subject } : null,
     });
@@ -244,8 +256,20 @@ export async function getVisitorIntelligence(
   opts: { viewerRole?: string | null } = {},
 ): Promise<VisitorIntelligenceItem | null> {
   const sb = getServiceClient(config);
-  const ipEntitled = await isIpVisibilityEntitled(config, workspaceId);
-  const canViewRaw = ipEntitled && isAdminRole(opts.viewerRole ?? null);
+  const policy = await resolveIpVisibilityPolicy(config, workspaceId, opts.viewerRole ?? null);
+  const netFor = async (sessionId: string) => {
+    const p = await resolveNetworkProfiles(config, workspaceId, [sessionId], policy);
+    const hit = p.get(sessionId);
+    return hit
+      ? {
+          geo: toGeoResult(hit),
+          ip_display: hit.ip.display,
+          ip_raw: hit.ip.raw,
+          can_view_raw_ip: hit.ip.can_view_raw,
+          ip_locked: hit.ip.locked,
+        }
+      : emptyProfileFallback(policy);
+  };
 
   const { data: presence } = await sb
     .from('visitor_presence')
@@ -268,9 +292,7 @@ export async function getVisitorIntelligence(
       .eq('id', sessionId)
       .maybeSingle();
     if (!session) return null;
-    const geo = await resolveVisitorGeo(config, workspaceId, {
-      country: session.country, city: session.city, ip_hash: session.ip_hash,
-    });
+    const net = await netFor(session.id);
     // Resolve the session-pinned contact even when the visitor is offline
     // (no presence row) so the detail panel still shows their name.
     let offlineContact: VisitorIntelligenceItem['contact'] = null;
@@ -287,19 +309,17 @@ export async function getVisitorIntelligence(
       status: 'offline', current_page: session.current_page,
       last_activity_at: session.last_seen_at, started_at: session.started_at,
       browser: session.browser, device: session.device, os: session.os, referrer: session.referrer,
-      geo,
-      ip_display: !ipEntitled ? '' : (canViewRaw && (session as any).ip_raw ? (session as any).ip_raw : buildIpDisplay(session.ip_hash)),
-      ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
-      can_view_raw_ip: canViewRaw,
-      ip_locked: !ipEntitled,
+      geo: net.geo,
+      ip_display: net.ip_display,
+      ip_raw: net.ip_raw,
+      can_view_raw_ip: net.can_view_raw_ip,
+      ip_locked: net.ip_locked,
       contact: offlineContact, conversation: null,
     };
   }
 
   const session = presence.visitor_sessions as any;
-  const geo = await resolveVisitorGeo(config, workspaceId, {
-    country: session.country, city: session.city, ip_hash: session.ip_hash,
-  });
+  const net = await netFor(session.id);
   const { data: conv } = await sb
     .from('conversations')
     .select('id, status, subject, contact_id')
@@ -328,11 +348,11 @@ export async function getVisitorIntelligence(
     last_activity_at: presence.updated_at ?? session.last_seen_at,
     started_at: session.started_at,
     browser: session.browser, device: session.device, os: session.os, referrer: session.referrer,
-    geo,
-    ip_display: !ipEntitled ? '' : (canViewRaw && (session as any).ip_raw ? (session as any).ip_raw : buildIpDisplay(session.ip_hash)),
-    ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
-    can_view_raw_ip: canViewRaw,
-    ip_locked: !ipEntitled,
+    geo: net.geo,
+    ip_display: net.ip_display,
+    ip_raw: net.ip_raw,
+    can_view_raw_ip: net.can_view_raw_ip,
+    ip_locked: net.ip_locked,
     contact,
     conversation: conv ? { id: conv.id, status: conv.status, subject: conv.subject } : null,
   };

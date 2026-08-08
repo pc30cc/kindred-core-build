@@ -1,4 +1,5 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { VisitorNetworkCard } from '@/features/visitors/VisitorNetworkCard';
 import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview, useCallCenterSettings } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -875,6 +876,14 @@ export default function LiveQueuePage() {
                       </div>
                     )}
                   </div>
+                  {/* Same canonical IP/geo panel as the Inbox — resolved from
+                      the call's own visitor session, never from the contact's
+                      newest one. */}
+                  <VisitorNetworkCard
+                    workspaceId={workspace?.id}
+                    reference={{ callSessionId: selectedCallId }}
+                    t={t as any}
+                  />
                   {(detail.call.page_url || detail.call.subject) && (
                     <>
                       <Separator />

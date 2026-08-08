@@ -37,6 +37,7 @@ import {
   PhoneOff, Ban, ShieldOff, Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { VisitorNetworkCard } from '@/features/visitors/VisitorNetworkCard';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
@@ -2188,6 +2189,15 @@ export default function InboxPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Canonical visitor network identity (shared with Call Center
+                    and the Visitors drawer — one endpoint, one policy). */}
+                <VisitorNetworkCard
+                  workspaceId={workspace?.id}
+                  reference={{ conversationId: selectedId }}
+                  t={t as any}
+                  dir={dir as any}
+                />
 
                 {/* Stats */}
                 <div className="rounded-xl border border-border/50 bg-card/60 p-2.5">

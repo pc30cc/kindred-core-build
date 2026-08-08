@@ -651,6 +651,16 @@ export default function LiveQueuePage() {
                           <span className="truncate">{c.page_title}</span>
                         </div>
                       )}
+                      <div className="mt-0.5 truncate">
+                        <VisitorNetworkInline
+                          profile={
+                            c?.visitor_session_id
+                              ? networkBySession?.[c.visitor_session_id] ?? null
+                              : null
+                          }
+                          t={t as any}
+                        />
+                      </div>
                     </div>
                   </div>
                   {/* SLA bar */}

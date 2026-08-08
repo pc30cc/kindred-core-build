@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase/Response test doubles are intentionally untyped. */
 /**
  * Test I — an IP change mid-session must move the WHOLE network identity.
  *

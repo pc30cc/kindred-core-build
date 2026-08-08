@@ -191,7 +191,7 @@ function CallbackRow({
               <span className="inline-flex items-center gap-1" title={new Date(requested).toLocaleString()}>
                 <Clock className="h-3 w-3" />{relativeTime(requested)}
               </span>
-              <VisitorNetworkInline profile={profile} t={t as any} />
+              <VisitorNetworkInline profile={profile} t={(k: string) => t(k)} />
               {c.scheduled_for && (
                 <span className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400">
                   <CalendarClock className="h-3 w-3" />{new Date(c.scheduled_for).toLocaleString()}
@@ -298,7 +298,7 @@ export default function CallbacksPage() {
   // produced them, so they resolve the exact same profile the Inbox and the
   // Call Center show for that visitor.
   const callbackSessionIds = useMemo(
-    () => items.map((c) => (c as any).visitor_session_id ?? null),
+    () => items.map((c) => c.visitor_session_id ?? null),
     [items],
   );
   const { data: networkBySession } = useVisitorNetworkBatchBySession(workspace?.id, callbackSessionIds);
@@ -419,7 +419,7 @@ export default function CallbacksPage() {
                   onComplete={(cb) => { setCompleteTarget(cb); setCompleteNote(''); }}
                   highlight={focusId === c.id}
                   rowRef={(el) => { rowRefs.current[c.id] = el; }}
-                  profile={networkBySession?.[(c as any).visitor_session_id ?? ''] ?? null}
+                  profile={networkBySession?.[c.visitor_session_id ?? ''] ?? null}
                 />
               ))
             )}

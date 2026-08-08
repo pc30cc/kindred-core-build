@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase/Response test doubles are intentionally untyped. */
 /**
  * Phase 4 guards — Callbacks and cross-workspace isolation.
  *

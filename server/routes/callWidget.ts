@@ -46,7 +46,7 @@ import {
   resolveContinuityToken,
   setContinuityCookie,
 } from '../services/widget/continuity.js';
-import { getClientIp, hashIp } from '../utils/clientIp.js';
+import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import crypto from 'crypto';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
@@ -294,6 +294,7 @@ async function identifyVisitorForCall(
       },
       method: 'prechat',
       ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null,
+      cfCountry: getClientCountry(req),
     });
     const { data: contact } = await sb
       .from('contacts')

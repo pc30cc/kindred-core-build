@@ -89,6 +89,26 @@ export function hashIp(ip: string | null): string {
 }
 
 /**
+ * Cloudflare's edge stamps every request behind it with the visitor's
+ * country — a free, always-available, zero-latency signal that needs no
+ * provider config or self-hosted MMDB file. It's country-level only (no
+ * city), but it's enough to drive the centroid fallback in
+ * server/services/geo/index.ts, so location resolution works out of the
+ * box for any deployment sitting behind Cloudflare (this one included)
+ * even with zero geo_enrichment provider configured. Returns null off-CF
+ * (local dev, a non-Cloudflare proxy) — callers already treat "no country"
+ * as "nothing to resolve from", so this degrades safely.
+ */
+export function getClientCountry(req: Request): string | null {
+  const cc = firstHeaderValue(req.headers['cf-ipcountry']);
+  if (!cc) return null;
+  const upper = cc.trim().toUpperCase();
+  // Cloudflare uses 'XX' for "unknown" and 'T1' for Tor exit nodes.
+  if (upper.length !== 2 || upper === 'XX' || upper === 'T1') return null;
+  return upper;
+}
+
+/**
  * Mask an IP for display when the operator isn't authorized to see the raw
  * value. IPv4 → "185.23.xxx.xxx". IPv6 → "2a01:xxxx::xxxx".
  * Returns empty string when the IP is null/empty.

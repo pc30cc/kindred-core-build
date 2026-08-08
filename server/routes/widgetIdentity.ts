@@ -52,6 +52,7 @@ import {
 } from '../services/widget/security.js';
 import { enrichMessagesWithAttachments } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
+import { getClientCountry } from '../utils/clientIp.js';
 
 /**
  * markNeedsHuman() (server/services/ai-agent/handoffState.ts) defers actual
@@ -283,6 +284,7 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
       },
       method: 'prechat',
       ipAddress: getClientIp(req),
+      cfCountry: getClientCountry(req),
     });
 
     void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
@@ -462,6 +464,7 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
         : { phone: parsed.data.identifier },
       method: parsed.data.channel,
       ipAddress: getClientIp(req),
+      cfCountry: getClientCountry(req),
     });
     void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, parsed.data.channel, merge.isNewContact);
     return res.json({
@@ -545,6 +548,7 @@ widgetIdentityRouter.post('/continuity/use', widgetRateLimit('default'), async (
       identity: {}, // no overrides — just attach
       method: 'token',
       ipAddress: getClientIp(req),
+      cfCountry: getClientCountry(req),
     });
     // Override the merged contact_id with the continuity-resolved one if different
     if (merge.contactId !== result.contactId) {

@@ -21,6 +21,11 @@ export interface MergeOptions {
   identity: PreChatIdentityInput;
   method: 'cookie' | 'email' | 'phone' | 'token' | 'prechat' | 'manual';
   ipAddress?: string | null;
+  /** Country code from Cloudflare's CF-IPCountry header on THIS request
+   * (server/utils/clientIp.ts's getClientCountry) — lets location
+   * resolution fall back to a country-level centroid even when no
+   * geo_enrichment provider is configured and the cache is cold. */
+  cfCountry?: string | null;
 }
 
 export interface MergeResult {
@@ -119,17 +124,29 @@ function flagEmojiFromCountryCode(cc: string | null): string | null {
 /**
  * Best-effort location for `contacts.metadata` (city/country/country_flag —
  * the fields ContactDetailPage's getLocationFromMetadata() already reads).
- * Reuses the SAME cache-first resolution the Visitors page relies on
- * (visitor_geo_cache, warmed by the widget's /visitors/track ingest
- * endpoint) via the visitor's own session ip_hash — no raw IP is looked up
- * or persisted here. Returns {} (nothing to merge) on any miss or failure;
- * never throws, since a missing location must never block identification.
+ *
+ * Two independent signals, both optional, either can supply a result:
+ *   1. The visitor's own session ip_hash → resolveVisitorGeo's cache
+ *      (visitor_geo_cache / geo_ip_cache, warmed by the widget's own
+ *      /track ingest endpoint) — precise (city-level) when a real
+ *      geo_enrichment provider or maxmind_local is configured.
+ *   2. `cfCountry` — Cloudflare's CF-IPCountry header on THIS request —
+ *      drives resolveVisitorGeo's country-centroid fallback. This is the
+ *      one that actually matters on a deployment with NO geo provider
+ *      configured at all (this workspace, at time of writing): without
+ *      it, resolveVisitorGeo has no country to fall back to and silently
+ *      resolves to source:'none', and neither the cache nor
+ *      visitor_sessions.geo_* ever gets populated for anyone (centroid
+ *      results, unlike provider ones, are never cached — cheap to redo).
+ * Returns {} (nothing to merge) on any miss or failure; never throws,
+ * since a missing location must never block identification.
  */
 async function resolveContactGeoPatch(
   config: ServerConfig,
   supabase: SupabaseClient,
   workspaceId: string,
   visitorId: string,
+  cfCountry: string | null,
 ): Promise<Record<string, unknown>> {
   try {
     const { data: session } = await supabase
@@ -142,10 +159,10 @@ async function resolveContactGeoPatch(
       .limit(1)
       .maybeSingle();
     const ipHash = (session as any)?.ip_hash as string | undefined;
-    if (!ipHash) return {};
+    if (!ipHash && !cfCountry) return {};
 
     const geo = await resolveVisitorGeo(config, workspaceId, {
-      country: null, city: null, ip_hash: ipHash, raw_ip: null,
+      country: cfCountry, city: null, ip_hash: ipHash ?? null, raw_ip: null,
     });
     const patch: Record<string, unknown> = {};
     if (geo.city) patch.city = geo.city;
@@ -177,7 +194,9 @@ export async function mergeVisitorIdentity(
   // Best-effort — resolved once regardless of new-vs-existing contact so
   // both branches below can fold it into whichever metadata write they
   // already do, instead of a second read/update pass.
-  const geoPatch = await resolveContactGeoPatch(config, supabase, opts.workspaceId, opts.visitorId);
+  const geoPatch = await resolveContactGeoPatch(
+    config, supabase, opts.workspaceId, opts.visitorId, opts.cfCountry ?? null,
+  );
 
   // 1. Try to find existing contact by visitor history first (most accurate continuation)
   let contact = await findContactByVisitorId(supabase, opts.workspaceId, opts.visitorId);

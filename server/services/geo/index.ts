@@ -394,12 +394,18 @@ export async function enrichVisitorSessionGeo(
     workspaceId: string;
     ipHash?: string | null;
     rawIp?: string | null;
+    /** Country code from Cloudflare's CF-IPCountry header (see
+     * server/utils/clientIp.ts's getClientCountry) — lets the centroid
+     * fallback (step 3 in resolveVisitorGeo) produce a country-level
+     * result even when no geo_enrichment provider is configured. */
+    country?: string | null;
   },
 ): Promise<void> {
   try {
     const result = await resolveVisitorGeo(config, params.workspaceId, {
       ip_hash: params.ipHash ?? null,
       raw_ip: params.rawIp ?? null,
+      country: params.country ?? null,
     });
     if (!result || (result.source === 'none' || result.source === 'disabled')) return;
     if (

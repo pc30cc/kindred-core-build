@@ -7,7 +7,7 @@ import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { publishVisitorEvent } from '../services/realtime/publish.js';
-import { getClientIp, hashIp } from '../utils/clientIp.js';
+import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
@@ -193,7 +193,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
     // back to centroid on the read path.
     if (clientIp && ipHash) {
       resolveVisitorGeo(config, data.workspace_id, {
-        country: null, city: null, ip_hash: ipHash, raw_ip: clientIp,
+        country: getClientCountry(req), city: null, ip_hash: ipHash, raw_ip: clientIp,
       }).catch(() => {});
     }
 

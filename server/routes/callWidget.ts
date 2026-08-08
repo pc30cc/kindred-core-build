@@ -38,7 +38,7 @@ import {
   isSecureRequest,
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
-import { findContactForVisitor } from '../services/widget/crossWidgetIdentity.js';
+import { findContactForVisitor, resolveSessionNetworkContext } from '../services/widget/crossWidgetIdentity.js';
 import {
   createSignedContactContinuityToken,
   persistContinuityToken,

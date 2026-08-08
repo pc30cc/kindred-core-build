@@ -227,6 +227,12 @@ export interface VisitorEventPayload {
     current_page?: string | null;
     last_activity_at?: string;
     visitor_id?: string;
+    /**
+     * Set when the async geo enrichment finished AFTER ingestion. Operator
+     * surfaces use it to invalidate their cached network profiles instead of
+     * showing the pre-enrichment (empty/stale) geo until a manual refresh.
+     */
+    geo_enriched?: boolean;
   };
   occurred_at: string;
 }

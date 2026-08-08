@@ -22,7 +22,10 @@ function makeRes() {
 }
 
 describe('ipBlockMiddleware is fail-closed', () => {
-  beforeEach(() => rpc.mockReset());
+  beforeEach(() => {
+    rpc.mockReset();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
 
   it('rejects with 503 when the block lookup throws', async () => {
     rpc.mockImplementation(() => { throw new Error('db down'); });

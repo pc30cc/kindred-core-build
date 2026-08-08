@@ -555,7 +555,17 @@ export default function CallsPage() {
                 <td className="py-2 px-3">
                   <div className="flex items-center gap-2">
                     <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">{initials}</div>
-                    <span className="font-medium">{display}</span>
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{display}</div>
+                      <VisitorNetworkInline
+                        profile={
+                          (c as any).visitor_session_id
+                            ? networkBySession?.[(c as any).visitor_session_id] ?? null
+                            : null
+                        }
+                        t={t as any}
+                      />
+                    </div>
                   </div>
                 </td>
                 <td className="py-2 px-3">

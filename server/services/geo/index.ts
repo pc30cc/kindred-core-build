@@ -55,6 +55,13 @@ export interface GeoResult {
    *   - none     : nothing configured and no centroid available
    */
   source: 'cache' | 'provider' | 'centroid' | 'session' | 'disabled' | 'none';
+  /**
+   * Concrete producer of this result ('maxmind_local', 'ipapi', 'centroid', …).
+   * `source` stays the coarse category; `provider` is what actually resolved it,
+   * so the Visitors legend and the persisted `geo_source_provider` column agree
+   * instead of showing 'provider' in one place and 'maxmind_local' in another.
+   */
+  provider?: string | null;
 }
 
 interface GeoProviderConfig {
@@ -158,7 +165,7 @@ async function readCache(config: ServerConfig, ipHash: string): Promise<GeoResul
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('visitor_geo_cache')
-    .select('country, country_code, region, city, latitude, longitude, expires_at')
+    .select('country, country_code, region, city, latitude, longitude, source, expires_at')
     .eq('ip_hash', ipHash)
     .maybeSingle();
   if (!data) return null;
@@ -172,6 +179,7 @@ async function readCache(config: ServerConfig, ipHash: string): Promise<GeoResul
     longitude: data.longitude,
     timezone: null,
     source: 'cache',
+    provider: (data as any).source ?? 'cache',
   };
 }
 
@@ -349,6 +357,7 @@ export async function resolveVisitorGeo(
         longitude: ipCached.longitude,
         timezone: ipCached.timezone,
         source: 'cache',
+        provider: ipCached.source ?? 'cache',
       };
     }
   }
@@ -376,7 +385,7 @@ export async function resolveVisitorGeo(
           }, cacheTtl);
           await writeCache(config, ipHash, norm, 'maxmind_local');
         }
-        return { ...norm, source: 'provider' };
+        return { ...norm, source: 'provider', provider: 'maxmind_local' };
       }
     } catch (err) {
       console.warn('[geo] maxmind_local failed:', (err as Error).message);
@@ -403,7 +412,7 @@ export async function resolveVisitorGeo(
           is_fallback: false,
         }, cacheTtl);
       }
-      if (result) return { ...result, source: 'provider' };
+      if (result) return { ...result, source: 'provider', provider: provider.provider_name };
     } catch (err) {
       console.warn('[geo] provider failed, falling back:', (err as Error).message);
     }
@@ -426,6 +435,7 @@ export async function resolveVisitorGeo(
         longitude: centroid.lng,
       }),
       source: 'centroid',
+      provider: 'centroid',
     };
   }
 
@@ -439,6 +449,7 @@ export async function resolveVisitorGeo(
       : externalDisabled
         ? 'disabled'
         : 'none',
+    provider: session.country ? 'session' : null,
   };
 }
 
@@ -478,21 +489,34 @@ export async function enrichVisitorSessionGeo(
      * fallback (step 3 in resolveVisitorGeo) produce a country-level
      * result even when no geo_enrichment provider is configured. */
     country?: string | null;
+    /**
+     * The ip_hash the session carried BEFORE this request. When it differs
+     * from `ipHash` the visitor's network identity changed mid-session (VPN,
+     * mobile handover, proxy) and the persisted `geo_*` now describes the wrong
+     * address. In that case an unresolvable lookup must CLEAR the stale geo
+     * rather than leave "new IP + old country" on the row.
+     */
+    previousIpHash?: string | null;
   },
 ): Promise<void> {
+  const ipChanged =
+    !!params.previousIpHash && !!params.ipHash && params.previousIpHash !== params.ipHash;
   try {
     const result = await resolveVisitorGeo(config, params.workspaceId, {
       ip_hash: params.ipHash ?? null,
       raw_ip: params.rawIp ?? null,
       country: params.country ?? null,
     });
-    if (!result || (result.source === 'none' || result.source === 'disabled')) return;
-    if (
-      result.country_code == null &&
-      result.city == null &&
-      result.latitude == null &&
-      result.longitude == null
-    ) {
+    const unusable =
+      !result ||
+      result.source === 'none' ||
+      result.source === 'disabled' ||
+      (result.country_code == null &&
+        result.city == null &&
+        result.latitude == null &&
+        result.longitude == null);
+    if (unusable) {
+      if (ipChanged) await clearSessionGeo(config, params.sessionId, params.workspaceId);
       return;
     }
     const sb = getServiceClient(config);
@@ -505,7 +529,8 @@ export async function enrichVisitorSessionGeo(
         geo_city: result.city,
         geo_latitude: result.latitude,
         geo_longitude: result.longitude,
-        geo_source_provider: result.source,
+        // Concrete producer, not the coarse category — see GeoResult.provider.
+        geo_source_provider: result.provider ?? result.source,
         geo_is_fallback: result.source === 'centroid' || result.source === 'session',
         geo_accuracy_level: accuracyLevelOf(result),
         // MMDB carries an IANA timezone; keep it end-to-end so operator UIs can
@@ -521,4 +546,29 @@ export async function enrichVisitorSessionGeo(
   } catch (err) {
     console.warn('[geo] enrichVisitorSessionGeo failed:', (err as Error).message);
   }
+}
+
+/**
+ * Wipe the persisted geo of a session. Used only when the visitor's IP changed
+ * and the new address could not be resolved — stale geo is worse than none.
+ */
+async function clearSessionGeo(
+  config: ServerConfig,
+  sessionId: string,
+  workspaceId: string,
+): Promise<void> {
+  try {
+    const sb = getServiceClient(config);
+    await sb
+      .from('visitor_sessions')
+      .update({
+        geo_country_code: null, geo_country_name: null, geo_region: null,
+        geo_city: null, geo_latitude: null, geo_longitude: null,
+        geo_timezone: null, geo_source_provider: null, geo_accuracy_level: null,
+        geo_is_fallback: null, geo_resolved_at: null,
+        country: null, city: null,
+      })
+      .eq('id', sessionId)
+      .eq('workspace_id', workspaceId);
+  } catch { /* best effort */ }
 }

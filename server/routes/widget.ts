@@ -1725,13 +1725,17 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       // Check for existing recent session
       const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
       const { data: existing } = await supabase
-        .from('visitor_sessions').select('id')
+        // ip_hash is fetched so a mid-session network change (VPN / mobile
+        // handover) forces a geo re-resolve instead of keeping the old country.
+        .from('visitor_sessions').select('id, ip_hash')
         .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
         .gte('last_seen_at', thirtyMinAgo)
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
 
+      let previousIpHash: string | null = null;
       if (existing) {
         activeSessionId = existing.id;
+        previousIpHash = ((existing as any).ip_hash as string | null) ?? null;
         // Detect URL change BEFORE we overwrite current_page so we can log it.
         const { data: prevRow } = await supabase.from('visitor_sessions')
           .select('current_page').eq('id', existing.id).maybeSingle();
@@ -1842,13 +1846,15 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
               .select('geo_resolved_at')
               .eq('id', activeSessionId)
               .maybeSingle();
-            if (!row || !row.geo_resolved_at) {
+            const ipChanged = !!previousIpHash && !!ipHash && previousIpHash !== ipHash;
+            if (!row || !row.geo_resolved_at || ipChanged) {
               await enrichVisitorSessionGeo(config, {
                 sessionId: activeSessionId!,
                 workspaceId,
                 ipHash,
                 rawIp: clientIp,
                 country: getClientCountry(req),
+                previousIpHash,
               });
             }
           } catch {/* best-effort */}

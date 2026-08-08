@@ -909,7 +909,8 @@ export default function LiveQueuePage() {
                       newest one. */}
                   <VisitorNetworkCard
                     workspaceId={workspace?.id}
-                    reference={{ callSessionId: selectedCallId }}
+                    profile={selectedProfile}
+                    showUnknown
                     t={t as any}
                   />
                   {(detail.call.page_url || detail.call.subject) && (

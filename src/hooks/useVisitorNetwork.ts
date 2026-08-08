@@ -71,6 +71,30 @@ export function useVisitorNetwork(workspaceId: string | undefined, ref: VisitorN
 }
 
 /** 'TR' → '🇹🇷'. Presentation-only mirror of the server helper. */
+export async function fetchVisitorNetworkForConversations(
+  workspaceId: string,
+  conversationIds: string[],
+): Promise<Record<string, VisitorNetworkProfile>> {
+  const ids = Array.from(new Set(conversationIds.filter(Boolean)));
+  if (!workspaceId || ids.length === 0) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    // Batched on purpose: one request per page of conversations, never one
+    // per row. The server applies the IP privacy/entitlement policy.
+    body: JSON.stringify({ workspace_id: workspaceId, conversation_ids: ids.slice(0, 500) }),
+  });
+  if (!res.ok) return {};
+  const body = await res.json();
+  return (body?.by_conversation as Record<string, VisitorNetworkProfile>) ?? {};
+}
+
+/** 'TR' → '🇹🇷'. Presentation-only mirror of the server helper. */
 export function flagEmoji(code: string | null | undefined): string {
   if (!code || !/^[A-Za-z]{2}$/.test(code)) return '';
   const A = 0x1f1e6;

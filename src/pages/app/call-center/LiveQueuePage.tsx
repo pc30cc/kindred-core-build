@@ -317,6 +317,23 @@ export default function LiveQueuePage() {
     return q;
   }, [rawQueue, channelFilter, search, sortMode]);
 
+  // ONE batched network read for the whole page (queue rows + the selected
+  // call's detail panel) — never one request per row.
+  const queueSessionIds = useMemo(
+    () =>
+      (rawQueue as any[]).map(
+        (q) => q.call_session?.visitor_session_id || q.visitor_session_id || null,
+      ),
+    [rawQueue],
+  );
+  const { data: networkBySession } = useVisitorNetworkBatchBySession(workspace?.id, queueSessionIds);
+  const selectedSessionId =
+    (detail as any)?.call?.visitor_session_id ||
+    (rawQueue as any[]).find((q) => q.call_session_id === selectedCallId)?.call_session
+      ?.visitor_session_id ||
+    null;
+  const selectedProfile = selectedSessionId ? networkBySession?.[selectedSessionId] ?? null : null;
+
   // Queue analytics
   const queueStats = useMemo(() => {
     if (rawQueue.length === 0) return { count: 0, longest: 0, avg: 0, voice: 0, video: 0, breached: 0 };

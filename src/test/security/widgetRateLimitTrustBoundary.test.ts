@@ -63,8 +63,12 @@ describe('GAP 1 — untrusted workspace_id cannot select a victim bucket', () =>
     expect(key).toBe('ip:7.7.7.7');
   });
 
-  it('pre-auth bootstrap without any token may still use workspace_id', () => {
-    expect(resolveRateLimitWorkspaceKey(req({ body: { workspace_id: 'WS1' } }))).toBe('ws:WS1');
+  it('pre-auth bootstrap: raw workspace_id alone never selects a workspace bucket', () => {
+    expect(resolveRateLimitWorkspaceKey(req({ ip: '1.1.1.9', body: { workspace_id: 'WS1' } }))).toBe('ip:1.1.1.9');
+  });
+
+  it('pre-auth bootstrap: only a VALIDATED workspace context selects the bucket', () => {
+    expect(resolveRateLimitWorkspaceKey(req({ _rateLimitTrustedWorkspaceId: 'WS1' }))).toBe('ws:WS1');
   });
 
   it('valid token wins over an attacker-supplied workspace_id', () => {

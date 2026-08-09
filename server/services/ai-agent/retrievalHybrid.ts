@@ -111,6 +111,22 @@ export interface HybridRetrievalResult {
     inactive_web_page_excluded: number;
     /** E5-Final — chunks for learned_qna whose candidate isn't approved. */
     unapproved_learned_qna_excluded: number;
+    /**
+     * @deprecated Response-shape compatibility field only. Inactive chunks
+     * are filtered by status='active' at SQL query time, before ever
+     * reaching this JS-level eligibility re-check, so this can never be
+     * incremented here — always 0. Do not read it for observability; a
+     * genuinely inactive/stale chunk that reached the candidate set would
+     * instead be reflected in one of the other *_excluded counters above.
+     */
+    inactive_chunks_excluded: number;
+    /**
+     * @deprecated Response-shape compatibility field only. A pending (or
+     * rejected) learning candidate is fully and correctly represented by
+     * unapproved_learned_qna_excluded above — this field is never
+     * independently incremented and always 0.
+     */
+    pending_candidates_excluded: number;
   };
   /** E5 — fully-formed debug payload, safe to persist to ai_agent_runs.metadata. */
   retrievalDebug?: Record<string, unknown>;
@@ -526,6 +542,10 @@ export async function retrieveHybridSources(
     inactive_file_excluded: 0,
     inactive_web_page_excluded: 0,
     unapproved_learned_qna_excluded: 0,
+    // @deprecated compatibility fields — see HybridRetrievalResult['excludedSummary']
+    // doc comments. Never incremented; kept at 0 for response-shape stability.
+    inactive_chunks_excluded: 0,
+    pending_candidates_excluded: 0,
   };
   try {
     const all = Array.from(aggregated.values());

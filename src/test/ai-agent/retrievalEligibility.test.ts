@@ -274,27 +274,45 @@ describe('C12 — excludedSummary counter semantics (PHASE 2 FIX)', () => {
     expect(r.excludedSummary?.unapproved_learned_qna_excluded).toBe(0);
   });
 
-  it('inactive_chunks_excluded and pending_candidates_excluded are removed as dead/misleading fields', async () => {
-    // PHASE 2 FIX: both counters were initialized but structurally could
-    // never be incremented -- inactive_chunks_excluded because chunks are
-    // already filtered by status='active' at SQL query time, before ever
-    // reaching this JS-level eligibility re-check; pending_candidates_excluded
-    // because a pending (or rejected) learning candidate is fully and
-    // correctly counted under unapproved_learned_qna_excluded instead. No
-    // API/UI consumer reads either field by name (both TestRunDetailPage and
-    // RetrievalDebuggerPage iterate excluded_summary generically and already
-    // hide zero-value entries), so they are removed rather than kept as
-    // permanently-misleading zero counters.
+  it('inactive_chunks_excluded and pending_candidates_excluded are preserved as deprecated, always-0 compatibility fields', async () => {
+    // PHASE 2.1 FIX: an earlier pass removed these two fields entirely for
+    // being structurally unincrementable -- inactive_chunks_excluded
+    // because chunks are already filtered by status='active' at SQL query
+    // time, before ever reaching this JS-level eligibility re-check;
+    // pending_candidates_excluded because a pending (or rejected) learning
+    // candidate is fully and correctly counted under
+    // unapproved_learned_qna_excluded instead. Independent review flagged
+    // that excluded_summary is exposed through AI Agent debug/operator-assist
+    // response shapes, so removing keys is an unnecessary response-shape
+    // compatibility break even if no current frontend code reads them by
+    // name. Both fields are restored, explicitly documented as @deprecated
+    // in the HybridRetrievalResult type, and remain permanently 0 -- this is
+    // NOT a partial revert of the cross_workspace_excluded fix (see the two
+    // tests above, still passing unchanged) and does not double-count
+    // anything: a pending/rejected candidate is still counted exactly once,
+    // under unapproved_learned_qna_excluded only.
     fakeSb = makeFakeSupabase(makeRetrievalTables({
       ai_knowledge_chunks: [
         makeChunkRow({ id: 'chunk-stale-qna', workspace_id: WS_A, source_type: 'qna', source_id: 'qna-stale', status: 'active', title: 'reset password help', content: 'reset password help' }),
+        makeChunkRow({ id: 'c-pending', workspace_id: WS_A, source_type: 'learned_qna', source_id: 'cand-pending', title: 'refund timing', content: 'refund timing' }),
       ],
       ai_agent_qna: [makeQnaRow({ id: 'qna-stale', workspace_id: WS_A, enabled: false, question: 'reset password help' })],
+      ai_agent_learning_candidates: [makeLearningCandidateRow({ id: 'cand-pending', workspace_id: WS_A, status: 'pending' })],
     }));
-    const r = await retrieveHybridSources(CONFIG, q({ originalMessage: 'reset password help', retrievalQuery: 'reset password help' }));
+    const r = await retrieveHybridSources(CONFIG, q({
+      originalMessage: 'reset password help refund timing',
+      retrievalQuery: 'reset password help refund timing',
+    }));
 
-    expect(Object.keys(r.excludedSummary || {})).not.toContain('inactive_chunks_excluded');
-    expect(Object.keys(r.excludedSummary || {})).not.toContain('pending_candidates_excluded');
+    // Both compatibility keys still exist on the response...
+    expect(r.excludedSummary).toHaveProperty('inactive_chunks_excluded');
+    expect(r.excludedSummary).toHaveProperty('pending_candidates_excluded');
+    // ...and remain 0 under their documented (never-incremented) semantics.
+    expect(r.excludedSummary?.inactive_chunks_excluded).toBe(0);
+    expect(r.excludedSummary?.pending_candidates_excluded).toBe(0);
+    // The pending candidate is counted exactly once, under the real field.
+    expect(r.excludedSummary?.unapproved_learned_qna_excluded).toBe(1);
+    expect(r.sources.some((s) => s.source_id === 'cand-pending')).toBe(false);
   });
 });
 

@@ -201,7 +201,9 @@ describe('Central entitlement-change funnel', () => {
     // The platform AI toggle funnels through the paginated fan-out helper,
     // which is itself implemented on top of the bulk funnel.
     expect(src).toMatch(/handlePlatformAiEnabled/);
-    expect(read('server/routes/aiAgent.ts')).toMatch(/handlePlatformAiEnabled/);
+    // Phase 3 router split: PATCH /platform/settings now lives in the
+    // platform domain subrouter, not the aiAgent.ts compatibility re-export.
+    expect(read('server/routes/ai-agent/platform.ts')).toMatch(/handlePlatformAiEnabled/);
   });
 
   it('never throws into the billing path', () => {

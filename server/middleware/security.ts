@@ -92,19 +92,74 @@ export const widgetRateLimiter = rateLimit({
 // ─── Per-workspace widget limiter (IP-rotation resistant) ────────
 
 /**
- * Resolve the workspace a public widget/visitor request targets. Falls back to
- * the IP so requests without workspace context still get a bucket instead of
- * sharing one global key.
+ * Resolve the workspace a public widget/visitor request targets, using ONLY
+ * trusted sources. Order:
+ *
+ *   1. Workspace already resolved by an upstream verified middleware
+ *      (`_widgetWorkspaceId`, set by `enforceWidgetToken`).
+ *   2. Verified widget session token (`x-widget-token`) — HMAC verified with
+ *      the project's existing `verifySessionToken`. No DB round-trip.
+ *   3. Verified Call Widget session (`x-cc-session`) — HMAC verified with the
+ *      existing `verifyWidgetSession`. No DB round-trip.
+ *   4. Explicit `workspace_id` in query/body (only reachable on unauthenticated
+ *      routes such as bootstrap; a forged value cannot escape the per-IP
+ *      limiter that runs alongside this one).
+ *   5. Normalized IP fallback when no workspace context exists at all.
+ *
+ * A token that fails verification is ignored entirely — it can never be used
+ * to select another workspace's bucket.
  */
 export function resolveRateLimitWorkspaceKey(req: Request): string {
+  const trusted = resolveTrustedRateLimitWorkspaceId(req);
+  if (trusted) return `ws:${trusted}`;
+
   const raw =
     (req.query?.workspace_id as string) ||
     (req.body?.workspace_id as string) ||
     (req.body?.workspaceId as string) ||
     null;
-  if (raw && typeof raw === 'string') return `ws:${raw}`;
+  if (raw && typeof raw === 'string' && raw.trim()) return `ws:${raw.trim()}`;
   // IPv6-safe fallback (express-rate-limit normalizes /64 subnets).
   return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
+}
+
+/**
+ * Workspace id proven by an already-verified signature / upstream middleware.
+ * Returns null when nothing trustworthy is present.
+ */
+export function resolveTrustedRateLimitWorkspaceId(req: Request): string | null {
+  const cached = (req as any)._rateLimitWorkspaceId;
+  if (typeof cached === 'string') return cached || null;
+
+  const resolved = computeTrustedRateLimitWorkspaceId(req);
+  try { (req as any)._rateLimitWorkspaceId = resolved || ''; } catch { /* frozen req in tests */ }
+  return resolved;
+}
+
+function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
+  const already = (req as any)._widgetWorkspaceId;
+  if (typeof already === 'string' && already.trim()) return already.trim();
+
+  const widgetToken = req.headers?.['x-widget-token'];
+  const widgetTokenStr = Array.isArray(widgetToken) ? widgetToken[0] : widgetToken;
+  if (typeof widgetTokenStr === 'string' && widgetTokenStr) {
+    try {
+      const result = verifySessionToken(widgetTokenStr);
+      if (result.valid && result.workspaceId) return result.workspaceId;
+    } catch { /* never let token parsing break the limiter */ }
+  }
+
+  const ccToken = req.headers?.['x-cc-session'];
+  const ccTokenStr = Array.isArray(ccToken) ? ccToken[0] : ccToken;
+  const config = (req as any).serverConfig as ServerConfig | undefined;
+  if (typeof ccTokenStr === 'string' && ccTokenStr && config) {
+    try {
+      const payload = verifyWidgetSession(config, ccTokenStr);
+      if (payload?.workspace_id) return payload.workspace_id;
+    } catch { /* ignore */ }
+  }
+
+  return null;
 }
 
 /**
@@ -122,7 +177,9 @@ export const widgetWorkspaceRateLimiter = rateLimit({
     await logSecurityEvent(req, 'rate_limited', 'warn', {
       endpoint: req.originalUrl,
       limit: '1200/min/workspace',
-      workspaceId: (req.query?.workspace_id as string) || req.body?.workspace_id || null,
+      workspaceId: resolveRateLimitWorkspaceKey(req).startsWith('ws:')
+        ? resolveRateLimitWorkspaceKey(req).slice(3)
+        : null,
     });
     res.status(429).json({ error: 'Workspace rate limit exceeded.' });
   },

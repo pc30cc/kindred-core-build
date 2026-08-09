@@ -9,7 +9,17 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
-import { requestPath } from './preAuthWorkspaceContext.js';
+
+/** Request path without query string (mount prefix included). */
+function requestPath(req: Request): string {
+  const raw = (req as any).originalUrl || req.url || (req as any).path || '';
+  return String(raw).split('?')[0];
+}
+
+/** Normalized per-IP bucket suffix (IPv6-safe via express-rate-limit helper). */
+function ipBucket(req: Request): string {
+  return req.ip ? ipKeyGenerator(req.ip) : 'unknown';
+}
 
 // ─── IP Blocking Middleware ───────────────────────────────────────
 const blockedIPCache = new Map<string, { blocked: boolean; until: number | null; checkedAt: number }>();
@@ -98,18 +108,22 @@ const REFRESH_PATH = /^\/api\/widget\/session\/refresh\/?$/;
 /**
  * Resolve the rate-limit bucket for a public widget/visitor request.
  *
- * A `ws:<workspace>` bucket is produced ONLY from a proven workspace identity:
+ * TRUST BOUNDARY (non-negotiable): a `ws:<workspace>` bucket may be produced
+ * ONLY from a server-verifiable, unforgeable credential:
  *
- *   a) cryptographic proof — verified widget token, refresh-grace token,
- *      verified call-widget session, or an upstream verified middleware, or
- *   b) validated pre-auth targeting — `_rateLimitTrustedWorkspaceId`, attached
- *      by `preAuthWorkspaceContext()` only after the same server-side checks
- *      the handler performs (workspace exists + origin / public-key / visitor
- *      session authority).
+ *   - a verified HMAC widget session token (`x-widget-token`)
+ *   - the same token inside the refresh grace window, on /session/refresh
+ *   - a verified signed call-widget session (`x-cc-session`)
+ *   - `_widgetWorkspaceId`, set only by `enforceWidgetToken` AFTER verification
  *
- * A raw `workspace_id` from body/query is NEVER sufficient on its own, so an
- * anonymous caller (even one rotating IPs) cannot consume a victim workspace's
- * shared quota. Everything unproven falls back to the per-IP bucket.
+ * Spoofable/public client input — `workspace_id`, `workspaceId`, `publicKey`,
+ * `Origin`, `Referer`, `Host`, `X-Forwarded-*`, `visitor_id`, `contact_id`,
+ * domain allow-list matches — can NEVER select a workspace bucket. Those are
+ * authorization signals for the handlers (CORS/domain policy), not identity
+ * proof against a non-browser attacker who forges arbitrary headers.
+ *
+ * Everything unproven falls back to the per-IP bucket; pre-auth endpoints are
+ * additionally protected by the dedicated pre-auth limiters below.
  */
 export function resolveRateLimitWorkspaceKey(req: Request): string {
   const trusted = resolveTrustedRateLimitWorkspaceId(req);
@@ -174,10 +188,6 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
     return null;
   }
 
-  // Validated pre-auth targeting (see preAuthWorkspaceContext).
-  const preAuth = (req as any)._rateLimitTrustedWorkspaceId;
-  if (typeof preAuth === 'string' && preAuth.trim()) return preAuth.trim();
-
   return null;
 }
 
@@ -216,6 +226,67 @@ export const visitorRateLimiter = rateLimit({
     res.status(429).json({ error: 'Visitor tracking rate limit exceeded.' });
   },
 });
+
+// ─── Pre-auth (anonymous) limiters ───────────────────────────────
+//
+// These protect endpoints that run BEFORE any signed credential exists.
+// They must never key on an attacker-selectable workspace identifier, so an
+// attacker who knows a victim's workspace UUID / allowed domain / public
+// widget key cannot drain that victim's authenticated shared quota.
+//
+// Keys are per-IP + route scope. Because IPs can be rotated, each pre-auth
+// route also passes through a bounded process-global ceiling (below).
+
+/** Per-process global ceiling — deliberately generous vs. real traffic. */
+function globalCeiling(name: string, max: number, windowMs = 60_000) {
+  let count = 0;
+  let resetAt = Date.now() + windowMs;
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'OPTIONS') return next();
+    const now = Date.now();
+    if (now > resetAt) { count = 0; resetAt = now + windowMs; }
+    count++;
+    if (count > max) {
+      res.setHeader('Retry-After', Math.ceil((resetAt - now) / 1000));
+      return res.status(429).json({ error: 'Service is busy, please retry.', code: 'PREAUTH_GLOBAL_LIMIT', scope: name });
+    }
+    next();
+  };
+}
+
+function preAuthLimiter(scope: string, max: number) {
+  return rateLimit({
+    windowMs: 60_000,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Key is built from `ipKeyGenerator` (IPv6-safe) inside `ipBucket`; the
+    // library's static probe can't see through the helper.
+    validate: { keyGeneratorIpFallback: false },
+    // CORS preflights carry no payload and must not consume visitor quota.
+    skip: (req) => req.method === 'OPTIONS',
+    keyGenerator: (req) => `${scope}:${ipBucket(req)}`,
+    handler: async (req, res) => {
+      await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: req.originalUrl, limit: `${max}/min/ip`, scope });
+      res.status(429).json({ error: 'Too many requests. Please retry shortly.', code: 'PREAUTH_RATE_LIMITED' });
+    },
+  });
+}
+
+// Caps derived from existing project limits: the generic widget per-IP limiter
+// is 300/min and visitor tracking 200/min; a real browser performs ONE
+// bootstrap per page load, so a far tighter per-IP cap is safe here.
+export const widgetBootstrapRateLimiter = preAuthLimiter('widget-bootstrap', 60);
+export const callWidgetBootstrapRateLimiter = preAuthLimiter('call-widget-bootstrap', 60);
+export const publicKbRateLimiter = preAuthLimiter('public-kb', 120);
+export const visitorPreAuthRateLimiter = preAuthLimiter('visitor-preauth', 200);
+
+// Global ceilings: 20x the per-IP cap keeps normal multi-visitor traffic well
+// clear while bounding a rotating-IP flood on a single process.
+export const widgetBootstrapGlobalCeiling = globalCeiling('widget-bootstrap', 1200);
+export const callWidgetBootstrapGlobalCeiling = globalCeiling('call-widget-bootstrap', 1200);
+export const publicKbGlobalCeiling = globalCeiling('public-kb', 2400);
+export const visitorPreAuthGlobalCeiling = globalCeiling('visitor-preauth', 4000);
 
 // Admin: 30 per minute per IP
 export const adminRateLimiter = rateLimit({

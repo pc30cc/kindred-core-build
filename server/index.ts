@@ -67,7 +67,6 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
-import { preAuthWorkspaceContext } from './middleware/preAuthWorkspaceContext.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -76,6 +75,14 @@ import {
   visitorRateLimiter,
   widgetWorkspaceRateLimiter,
   adminRateLimiter,
+  widgetBootstrapRateLimiter,
+  widgetBootstrapGlobalCeiling,
+  callWidgetBootstrapRateLimiter,
+  callWidgetBootstrapGlobalCeiling,
+  publicKbRateLimiter,
+  publicKbGlobalCeiling,
+  visitorPreAuthRateLimiter,
+  visitorPreAuthGlobalCeiling,
   abuseDetectionMiddleware,
   validateJsonBody,
 } from './middleware/security.js';
@@ -251,18 +258,28 @@ app.use('/api/auth', authRateLimiter, authSecurityRouter);
 // Auth email — verification & reset via configured provider
 app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 
-// Widget — dynamic CORS + rate limit
-app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, widgetRouter);
+// Pre-auth widget bootstrap — no signed credential exists yet, so it is
+// protected by per-IP + global ceilings ONLY. It must never touch the
+// authenticated per-workspace bucket (a spoofed Origin / known workspace UUID
+// would otherwise let an attacker drain a victim's shared quota).
+app.use('/api/widget/bootstrap', widgetCorsMiddleware(), widgetBootstrapGlobalCeiling, widgetBootstrapRateLimiter);
 
-// KB widget JSON endpoints — same dynamic CORS + rate limit as widget.
-app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, widgetKbRouter);
+// Anonymous public KB JSON — no cryptographic credential exists on this path,
+// so there is deliberately NO workspace blocking bucket for it.
+app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, publicKbGlobalCeiling, publicKbRateLimiter, widgetKbRouter);
+
+// Widget — dynamic CORS + per-IP limit + authenticated per-workspace limit.
+// The workspace bucket is only selected when a verified token is present.
+app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetWorkspaceRateLimiter, widgetRouter);
 
 // Public KB SSR routes — server-rendered HTML for /help/:locale/...
 // No CORS / no rate limit; these are normal public web pages indexed by search engines.
 app.use(publicKbRouter);
 
-// Visitor tracking — dynamic CORS + rate limit
-app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, visitorRouter);
+// Visitor tracking — anonymous (no widget token in the runtime contract), so
+// pre-auth per-IP + global limits. The workspace limiter still runs and will
+// use a verified token when one is present, else the per-IP bucket.
+app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, visitorPreAuthGlobalCeiling, visitorPreAuthRateLimiter, widgetWorkspaceRateLimiter, visitorRouter);
 
 // Visitor intelligence (operator-side, authenticated). Standard appCors,
 // auth+membership enforced per-route. Lower rate-limit footprint vs widget.
@@ -396,7 +413,10 @@ app.use('/api/call-center', callCenterRouter);
 
 // Call Widget — public visitor-facing standalone widget endpoints.
 // Dynamic per-workspace CORS handled inside the router.
-app.use('/api/call-widget', widgetRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, callWidgetRouter);
+// Pre-auth call-widget bootstrap: `publicKey` is a PUBLIC identifier visible in
+// the embed, never a secret — it cannot select a workspace bucket.
+app.use('/api/call-widget/bootstrap', callWidgetBootstrapGlobalCeiling, callWidgetBootstrapRateLimiter);
+app.use('/api/call-widget', widgetRateLimiter, widgetWorkspaceRateLimiter, callWidgetRouter);
 
 // 404
 app.use((_req, res) => {

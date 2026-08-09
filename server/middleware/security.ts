@@ -242,6 +242,7 @@ function globalCeiling(name: string, max: number, windowMs = 60_000) {
   let count = 0;
   let resetAt = Date.now() + windowMs;
   return (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'OPTIONS') return next();
     const now = Date.now();
     if (now > resetAt) { count = 0; resetAt = now + windowMs; }
     count++;

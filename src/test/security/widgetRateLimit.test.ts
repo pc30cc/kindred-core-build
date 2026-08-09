@@ -69,13 +69,13 @@ describe('ipBlockMiddleware is fail-closed', () => {
 });
 
 describe('per-workspace widget rate limiting', () => {
-  it('keys on the workspace, not the IP, when a VALIDATED workspace context exists', () => {
+  it('keys on the workspace, not the IP, only for a cryptographically verified context', () => {
     const mk = (ip: string, extra: any = {}) =>
       ({ ip, query: {}, body: {}, headers: {}, originalUrl: '/api/widget/bootstrap', ...extra }) as any;
-    expect(resolveRateLimitWorkspaceKey(mk('1.1.1.1', { _rateLimitTrustedWorkspaceId: 'ws-a' }))).toBe('ws:ws-a');
+    expect(resolveRateLimitWorkspaceKey(mk('1.1.1.1', { _widgetWorkspaceId: 'ws-a' }))).toBe('ws:ws-a');
     // Same workspace from two different IPs → same bucket (IP rotation resistant)
-    const a = resolveRateLimitWorkspaceKey(mk('1.1.1.1', { _rateLimitTrustedWorkspaceId: 'ws-b' }));
-    const b = resolveRateLimitWorkspaceKey(mk('3.3.3.3', { _rateLimitTrustedWorkspaceId: 'ws-b' }));
+    const a = resolveRateLimitWorkspaceKey(mk('1.1.1.1', { _widgetWorkspaceId: 'ws-b' }));
+    const b = resolveRateLimitWorkspaceKey(mk('3.3.3.3', { _widgetWorkspaceId: 'ws-b' }));
     expect(a).toBe(b);
     // A raw, unvalidated workspace_id must NOT select a workspace bucket.
     expect(resolveRateLimitWorkspaceKey(mk('2.2.2.2', { body: { workspace_id: 'ws-a' } }))).toBe('ip:2.2.2.2');

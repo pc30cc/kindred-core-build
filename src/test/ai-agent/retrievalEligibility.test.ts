@@ -216,20 +216,18 @@ describe('C12 — business_profile: IMPLEMENTATION / DECLARED-INVARIANT NOTE', (
   });
 });
 
-describe('C12 — excludedSummary counter semantics (pinned exactly as implemented)', () => {
-  it('inactive_chunks_excluded, pending_candidates_excluded and cross_workspace_excluded stay at 0 despite matching drops — the counter names do NOT all reflect what actually increments them', async () => {
-    // retrievalHybrid.ts initializes these three counters but:
-    //  - inactive_chunks_excluded is explicitly commented "reserved (we
-    //    already filter at query time)" and is never incremented anywhere.
-    //  - pending_candidates_excluded is never incremented anywhere (a
-    //    pending learning candidate is instead counted under
-    //    unapproved_learned_qna_excluded, see the test above).
-    //  - cross_workspace_excluded is never incremented anywhere either —
-    //    cross-workspace rows are dropped via a plain `continue` inside the
-    //    eligibility re-check loop (`if (r.workspace_id !== input.workspaceId) continue;`)
-    //    with no counter increment. Cross-workspace isolation is real (see
-    //    the isolation tests below) but this specific counter never reports it.
-    // This is characterized here, not fixed.
+describe('C12 — excludedSummary counter semantics (PHASE 2 FIX)', () => {
+  it('a cross-workspace drop is counted under cross_workspace_excluded, not disabled_qna_excluded', async () => {
+    // PHASE 2 FIX: previously a stale chunk whose parent row belonged to a
+    // DIFFERENT workspace was dropped via a plain `continue` inside the
+    // eligibility re-check loop with no counter increment, so it silently
+    // fell through to the generic "not in the eligible set" branch and was
+    // misattributed to disabled_qna_excluded (a real but wrong reason — the
+    // row is not disabled, it belongs to another workspace entirely).
+    // Eligibility itself is unchanged: the row was dropped before the fix
+    // and is still dropped after it. Only which counter reports the drop
+    // changed, so this is a metadata-only fix (see also Fix 6's engine.ts
+    // change, same principle applied here at the retrieval layer).
     fakeSb = makeFakeSupabase(makeRetrievalTables({
       ai_knowledge_chunks: [
         makeChunkRow({ id: 'cw-1', workspace_id: WS_A, source_type: 'qna', source_id: 'qna-cross', title: 'reset password help', content: 'reset password help' }),
@@ -240,13 +238,63 @@ describe('C12 — excludedSummary counter semantics (pinned exactly as implement
 
     // The cross-workspace row is still correctly excluded from output...
     expect(r.sources.some((s) => s.source_id === 'qna-cross')).toBe(false);
-    // ...but via disabled_qna_excluded (since it's simply absent from the
-    // eligibleQna set built from a workspace-matched lookup), not via a
-    // dedicated cross_workspace_excluded increment.
-    expect(r.excludedSummary?.disabled_qna_excluded).toBe(1);
-    expect(r.excludedSummary?.cross_workspace_excluded).toBe(0);
-    expect(r.excludedSummary?.inactive_chunks_excluded).toBe(0);
-    expect(r.excludedSummary?.pending_candidates_excluded).toBe(0);
+    // ...and now via the dedicated cross_workspace_excluded counter.
+    expect(r.excludedSummary?.cross_workspace_excluded).toBe(1);
+    expect(r.excludedSummary?.disabled_qna_excluded).toBe(0);
+  });
+
+  it('the same cross-workspace attribution applies to kb_article, file, web_page and learned_qna parents', async () => {
+    fakeSb = makeFakeSupabase(makeRetrievalTables({
+      ai_knowledge_chunks: [
+        makeChunkRow({ id: 'cw-kb', workspace_id: WS_A, source_type: 'kb_article', source_id: 'kb-cross', title: 'reset password guide', content: 'reset password guide' }),
+        makeChunkRow({ id: 'cw-file', workspace_id: WS_A, source_type: 'file', source_id: 'file-cross', title: 'handbook vacation policy', content: 'handbook vacation policy' }),
+        makeChunkRow({ id: 'cw-web', workspace_id: WS_A, source_type: 'web_page', source_id: 'site-cross:h1', title: 'pricing plans', content: 'pricing plans', metadata: { parent_source_id: 'site-cross' } }),
+        makeChunkRow({ id: 'cw-learned', workspace_id: WS_A, source_type: 'learned_qna', source_id: 'cand-cross', title: 'refund timing', content: 'refund timing' }),
+      ],
+      knowledge_base_articles: [makeKbArticleRow({ id: 'kb-cross', workspace_id: WS_B, status: 'published', used_by_ai: true, title: 'reset password guide' })],
+      ai_data_sources: [
+        makeDataSourceRow({ id: 'file-cross', workspace_id: WS_B, source_type: 'file', status: 'active' }),
+        makeDataSourceRow({ id: 'site-cross', workspace_id: WS_B, source_type: 'website', status: 'active' }),
+      ],
+      ai_agent_learning_candidates: [makeLearningCandidateRow({ id: 'cand-cross', workspace_id: WS_B, status: 'approved' })],
+    }));
+    const r = await retrieveHybridSources(CONFIG, q({
+      originalMessage: 'reset password guide handbook vacation policy pricing plans refund timing',
+      retrievalQuery: 'reset password guide handbook vacation policy pricing plans refund timing',
+    }));
+
+    expect(r.sources.some((s) => s.source_id === 'kb-cross')).toBe(false);
+    expect(r.sources.some((s) => s.source_id === 'file-cross')).toBe(false);
+    expect(r.sources.some((s) => s.source_id === 'site-cross:h1')).toBe(false);
+    expect(r.sources.some((s) => s.source_id === 'cand-cross')).toBe(false);
+    expect(r.excludedSummary?.cross_workspace_excluded).toBe(4);
+    expect(r.excludedSummary?.draft_kb_excluded).toBe(0);
+    expect(r.excludedSummary?.inactive_file_excluded).toBe(0);
+    expect(r.excludedSummary?.inactive_web_page_excluded).toBe(0);
+    expect(r.excludedSummary?.unapproved_learned_qna_excluded).toBe(0);
+  });
+
+  it('inactive_chunks_excluded and pending_candidates_excluded are removed as dead/misleading fields', async () => {
+    // PHASE 2 FIX: both counters were initialized but structurally could
+    // never be incremented -- inactive_chunks_excluded because chunks are
+    // already filtered by status='active' at SQL query time, before ever
+    // reaching this JS-level eligibility re-check; pending_candidates_excluded
+    // because a pending (or rejected) learning candidate is fully and
+    // correctly counted under unapproved_learned_qna_excluded instead. No
+    // API/UI consumer reads either field by name (both TestRunDetailPage and
+    // RetrievalDebuggerPage iterate excluded_summary generically and already
+    // hide zero-value entries), so they are removed rather than kept as
+    // permanently-misleading zero counters.
+    fakeSb = makeFakeSupabase(makeRetrievalTables({
+      ai_knowledge_chunks: [
+        makeChunkRow({ id: 'chunk-stale-qna', workspace_id: WS_A, source_type: 'qna', source_id: 'qna-stale', status: 'active', title: 'reset password help', content: 'reset password help' }),
+      ],
+      ai_agent_qna: [makeQnaRow({ id: 'qna-stale', workspace_id: WS_A, enabled: false, question: 'reset password help' })],
+    }));
+    const r = await retrieveHybridSources(CONFIG, q({ originalMessage: 'reset password help', retrievalQuery: 'reset password help' }));
+
+    expect(Object.keys(r.excludedSummary || {})).not.toContain('inactive_chunks_excluded');
+    expect(Object.keys(r.excludedSummary || {})).not.toContain('pending_candidates_excluded');
   });
 });
 

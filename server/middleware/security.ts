@@ -7,7 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { verifySessionToken } from '../services/widget/security.js';
+import { verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 
 // ─── IP Blocking Middleware ───────────────────────────────────────
@@ -92,26 +92,63 @@ export const widgetRateLimiter = rateLimit({
 // ─── Per-workspace widget limiter (IP-rotation resistant) ────────
 
 /**
- * Resolve the workspace a public widget/visitor request targets, using ONLY
- * trusted sources. Order:
+ * Pre-auth (public) endpoints where `workspace_id` is legitimately part of the
+ * request protocol because no token exists yet. Verified against the real
+ * route table in server/index.ts + the routers themselves:
  *
- *   1. Workspace already resolved by an upstream verified middleware
- *      (`_widgetWorkspaceId`, set by `enforceWidgetToken`).
- *   2. Verified widget session token (`x-widget-token`) — HMAC verified with
- *      the project's existing `verifySessionToken`. No DB round-trip.
- *   3. Verified Call Widget session (`x-cc-session`) — HMAC verified with the
- *      existing `verifyWidgetSession`. No DB round-trip.
- *   4. Explicit `workspace_id` in query/body (only reachable on unauthenticated
- *      routes such as bootstrap; a forged value cannot escape the per-IP
- *      limiter that runs alongside this one).
- *   5. Normalized IP fallback when no workspace context exists at all.
+ *   POST /api/widget/bootstrap        — issues the widget session token
+ *   GET  /api/widget/kb/*             — public KB reads, keyed by workspace_id
+ *   POST /api/visitors/{track,heartbeat,disconnect} — pre-token visitor pings
+ *   GET  /api/call-widget/bootstrap   — issues the call-widget session
  *
- * A token that fails verification is ignored entirely — it can never be used
- * to select another workspace's bucket.
+ * Everything else under /api/widget and /api/call-widget sits behind
+ * `enforceWidgetToken` / `requireWidgetSession`, so a workspace identity there
+ * MUST come from a verified signature.
+ */
+const PREAUTH_WORKSPACE_HINT_PATHS: RegExp[] = [
+  /^\/api\/widget\/bootstrap\/?$/,
+  /^\/api\/widget\/kb(\/|$)/,
+  /^\/api\/visitors\/(track|heartbeat|disconnect)\/?$/,
+  /^\/api\/call-widget\/bootstrap\/?$/,
+];
+
+/** Refresh endpoint uses grace-period token semantics, not plain verification. */
+const REFRESH_PATH = /^\/api\/widget\/session\/refresh\/?$/;
+
+function requestPath(req: Request): string {
+  const raw = (req as any).originalUrl || req.url || (req as any).path || '';
+  return String(raw).split('?')[0];
+}
+
+function hasAnyWidgetTokenHeader(req: Request): boolean {
+  const a = req.headers?.['x-widget-token'];
+  const b = req.headers?.['x-cc-session'];
+  return Boolean((Array.isArray(a) ? a[0] : a) || (Array.isArray(b) ? b[0] : b));
+}
+
+/**
+ * Resolve the rate-limit bucket for a public widget/visitor request.
+ *
+ * Trust model:
+ *   1. Cryptographically proven workspace (see resolveTrustedRateLimitWorkspaceId).
+ *   2. Raw `workspace_id` from query/body — ONLY on pre-auth endpoints AND only
+ *      when the caller presented no widget/call token at all. A request that
+ *      carries a token which fails verification is treated as untrusted and
+ *      falls straight through to the IP bucket; it can never select another
+ *      workspace's bucket.
+ *   3. Normalized IP fallback.
  */
 export function resolveRateLimitWorkspaceKey(req: Request): string {
   const trusted = resolveTrustedRateLimitWorkspaceId(req);
   if (trusted) return `ws:${trusted}`;
+
+  const ipBucket = `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
+
+  // A presented-but-unverifiable token means "untrusted caller" — never honour
+  // an attacker-supplied workspace hint after a failed verification.
+  if (hasAnyWidgetTokenHeader(req)) return ipBucket;
+
+  if (!PREAUTH_WORKSPACE_HINT_PATHS.some((re) => re.test(requestPath(req)))) return ipBucket;
 
   const raw =
     (req.query?.workspace_id as string) ||
@@ -119,13 +156,19 @@ export function resolveRateLimitWorkspaceKey(req: Request): string {
     (req.body?.workspaceId as string) ||
     null;
   if (raw && typeof raw === 'string' && raw.trim()) return `ws:${raw.trim()}`;
-  // IPv6-safe fallback (express-rate-limit normalizes /64 subnets).
-  return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
+  return ipBucket;
 }
 
 /**
  * Workspace id proven by an already-verified signature / upstream middleware.
  * Returns null when nothing trustworthy is present.
+ *
+ * NOTE on ordering: this limiter is mounted in server/index.ts BEFORE the
+ * widget router, so `_widgetWorkspaceId` (set later by `enforceWidgetToken`)
+ * is normally absent here. In practice the primary trusted source at this
+ * layer is the verified `x-widget-token` / `x-cc-session` header; the
+ * `_widgetWorkspaceId` branch only applies when the limiter is reused
+ * downstream of the token gate.
  */
 export function resolveTrustedRateLimitWorkspaceId(req: Request): string | null {
   const cached = (req as any)._rateLimitWorkspaceId;
@@ -144,7 +187,14 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
   const widgetTokenStr = Array.isArray(widgetToken) ? widgetToken[0] : widgetToken;
   if (typeof widgetTokenStr === 'string' && widgetTokenStr) {
     try {
-      const result = verifySessionToken(widgetTokenStr);
+      // /session/refresh accepts recently-expired tokens (inside the refresh
+      // grace window), so the limiter must use the SAME verifier the route
+      // uses — otherwise refresh traffic silently degrades to an IP bucket.
+      // Grace semantics are scoped to that single path; every other route uses
+      // strict expiry checking.
+      const result = REFRESH_PATH.test(requestPath(req))
+        ? verifyTokenForRefresh(widgetTokenStr)
+        : verifySessionToken(widgetTokenStr);
       if (result.valid && result.workspaceId) return result.workspaceId;
     } catch { /* never let token parsing break the limiter */ }
   }

@@ -25,6 +25,7 @@ let settingsFixture = makeSettings();
 let conversationStateFixture = makeConversationState();
 let availabilityFixture = makeAvailability();
 let hybridImpl: () => Promise<any> = async () => makeHybridResult({ sources: [] });
+let builtQueryImpl: () => Promise<any> = async () => makeBuiltQuery();
 const logRunCalls: any[] = [];
 const insertAiMessageCalls: any[] = [];
 const markNeedsHumanCalls: any[] = [];
@@ -101,7 +102,7 @@ vi.mock('../../../server/services/ai-agent/spamGuard.js', () => ({
 }));
 
 vi.mock('../../../server/services/ai-agent/queryBuilder.js', () => ({
-  buildRetrievalQuery: async () => makeBuiltQuery(),
+  buildRetrievalQuery: (...args: any[]) => builtQueryImpl(),
 }));
 
 vi.mock('../../../server/services/ai-agent/runtimeConfig.js', () => ({
@@ -153,6 +154,7 @@ beforeEach(() => {
   conversationStateFixture = makeConversationState();
   availabilityFixture = makeAvailability();
   hybridImpl = async () => makeHybridResult({ sources: [] });
+  builtQueryImpl = async () => makeBuiltQuery();
   logRunCalls.length = 0;
   insertAiMessageCalls.length = 0;
   markNeedsHumanCalls.length = 0;
@@ -227,6 +229,58 @@ describe('C9 — answer_only_from_kb, no matching source', () => {
 
     expect(aiCallCount).toBe(0);
     expect(['handoff', 'no_answer']).toContain(result.action);
+  });
+});
+
+describe('C9 — answer_only_from_kb vs. safe_guidance (known topic)', () => {
+  // PR #1 review blocker: decideStrategy()'s safe_guidance branch (step 4)
+  // ran BEFORE the strict-KB guard, which was only ever applied to the
+  // clarification branch (step 5). A known topic (e.g. built.topics
+  // includes 'pricing') with zero/weak grounding under
+  // answer_only_from_kb=true therefore still resolved to 'safe_guidance',
+  // which generationStage.ts treats as a normal LLM-eligible strategy —
+  // violating the declared "no LLM call without a Q&A/KB match" invariant.
+  // These tests pin the fix: the SAME strictKbNoGrounding condition now
+  // gates both safe_guidance and ask_clarifying_question.
+  it('strict KB + zero sources + known topic: never calls the LLM and never resolves to safe_guidance or ask_clarifying_question', async () => {
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer']).toContain(result.action);
+    const log = logRunCalls.find((c) => c.status === 'handoff' || c.status === 'no_answer');
+    expect(log).toBeTruthy();
+    expect(log.metadata.answer_strategy.decision_type).not.toBe('safe_guidance');
+    expect(log.metadata.answer_strategy.decision_type).not.toBe('ask_clarifying_question');
+  });
+
+  it('strict KB + weak (non-qualifying) source + known topic: never calls the LLM', async () => {
+    hybridImpl = async () =>
+      makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    builtQueryImpl = async () => makeBuiltQuery({ topics: ['support'] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer']).toContain(result.action);
+    const log = logRunCalls.find((c) => c.status === 'handoff' || c.status === 'no_answer');
+    expect(log).toBeTruthy();
+    expect(log.metadata.answer_strategy.decision_type).not.toBe('safe_guidance');
+  });
+
+  it('non-strict mode + zero sources + known topic: safe_guidance is preserved (fix does not globally disable it)', async () => {
+    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(aiCallCount).toBe(1);
+    expect(result.action).toBe('replied');
+    const log = logRunCalls.find((c) => c.runType === 'auto_reply');
+    expect(log.metadata.answer_strategy.decision_type).toBe('safe_guidance');
   });
 });
 

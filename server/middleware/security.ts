@@ -9,6 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
+import { requestPath } from './preAuthWorkspaceContext.js';
 
 // ─── IP Blocking Middleware ───────────────────────────────────────
 const blockedIPCache = new Map<string, { blocked: boolean; until: number | null; checkedAt: number }>();
@@ -91,84 +92,42 @@ export const widgetRateLimiter = rateLimit({
 
 // ─── Per-workspace widget limiter (IP-rotation resistant) ────────
 
-/**
- * Pre-auth (public) endpoints where `workspace_id` is legitimately part of the
- * request protocol because no token exists yet. Verified against the real
- * route table in server/index.ts + the routers themselves:
- *
- *   POST /api/widget/bootstrap        — issues the widget session token
- *   GET  /api/widget/kb/*             — public KB reads, keyed by workspace_id
- *   POST /api/visitors/{track,heartbeat,disconnect} — pre-token visitor pings
- *   GET  /api/call-widget/bootstrap   — issues the call-widget session
- *
- * Everything else under /api/widget and /api/call-widget sits behind
- * `enforceWidgetToken` / `requireWidgetSession`, so a workspace identity there
- * MUST come from a verified signature.
- */
-const PREAUTH_WORKSPACE_HINT_PATHS: RegExp[] = [
-  /^\/api\/widget\/bootstrap\/?$/,
-  /^\/api\/widget\/kb(\/|$)/,
-  /^\/api\/visitors\/(track|heartbeat|disconnect)\/?$/,
-  /^\/api\/call-widget\/bootstrap\/?$/,
-];
-
 /** Refresh endpoint uses grace-period token semantics, not plain verification. */
 const REFRESH_PATH = /^\/api\/widget\/session\/refresh\/?$/;
-
-function requestPath(req: Request): string {
-  const raw = (req as any).originalUrl || req.url || (req as any).path || '';
-  return String(raw).split('?')[0];
-}
-
-function hasAnyWidgetTokenHeader(req: Request): boolean {
-  const a = req.headers?.['x-widget-token'];
-  const b = req.headers?.['x-cc-session'];
-  return Boolean((Array.isArray(a) ? a[0] : a) || (Array.isArray(b) ? b[0] : b));
-}
 
 /**
  * Resolve the rate-limit bucket for a public widget/visitor request.
  *
- * Trust model:
- *   1. Cryptographically proven workspace (see resolveTrustedRateLimitWorkspaceId).
- *   2. Raw `workspace_id` from query/body — ONLY on pre-auth endpoints AND only
- *      when the caller presented no widget/call token at all. A request that
- *      carries a token which fails verification is treated as untrusted and
- *      falls straight through to the IP bucket; it can never select another
- *      workspace's bucket.
- *   3. Normalized IP fallback.
+ * A `ws:<workspace>` bucket is produced ONLY from a proven workspace identity:
+ *
+ *   a) cryptographic proof — verified widget token, refresh-grace token,
+ *      verified call-widget session, or an upstream verified middleware, or
+ *   b) validated pre-auth targeting — `_rateLimitTrustedWorkspaceId`, attached
+ *      by `preAuthWorkspaceContext()` only after the same server-side checks
+ *      the handler performs (workspace exists + origin / public-key / visitor
+ *      session authority).
+ *
+ * A raw `workspace_id` from body/query is NEVER sufficient on its own, so an
+ * anonymous caller (even one rotating IPs) cannot consume a victim workspace's
+ * shared quota. Everything unproven falls back to the per-IP bucket.
  */
 export function resolveRateLimitWorkspaceKey(req: Request): string {
   const trusted = resolveTrustedRateLimitWorkspaceId(req);
   if (trusted) return `ws:${trusted}`;
-
-  const ipBucket = `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
-
-  // A presented-but-unverifiable token means "untrusted caller" — never honour
-  // an attacker-supplied workspace hint after a failed verification.
-  if (hasAnyWidgetTokenHeader(req)) return ipBucket;
-
-  if (!PREAUTH_WORKSPACE_HINT_PATHS.some((re) => re.test(requestPath(req)))) return ipBucket;
-
-  const raw =
-    (req.query?.workspace_id as string) ||
-    (req.body?.workspace_id as string) ||
-    (req.body?.workspaceId as string) ||
-    null;
-  if (raw && typeof raw === 'string' && raw.trim()) return `ws:${raw.trim()}`;
-  return ipBucket;
+  return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
 }
 
 /**
- * Workspace id proven by an already-verified signature / upstream middleware.
- * Returns null when nothing trustworthy is present.
+ * Workspace id proven by an already-verified signature, validated pre-auth
+ * context, or upstream middleware. Returns null when nothing trustworthy is
+ * present.
  *
  * NOTE on ordering: this limiter is mounted in server/index.ts BEFORE the
  * widget router, so `_widgetWorkspaceId` (set later by `enforceWidgetToken`)
- * is normally absent here. In practice the primary trusted source at this
- * layer is the verified `x-widget-token` / `x-cc-session` header; the
- * `_widgetWorkspaceId` branch only applies when the limiter is reused
- * downstream of the token gate.
+ * is normally absent here. At this layer the real trusted sources are the
+ * verified `x-widget-token` / `x-cc-session` headers and the validated
+ * pre-auth context; the `_widgetWorkspaceId` branch only applies when the
+ * limiter is reused downstream of the token gate.
  */
 export function resolveTrustedRateLimitWorkspaceId(req: Request): string | null {
   const cached = (req as any)._rateLimitWorkspaceId;
@@ -197,17 +156,27 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
         : verifySessionToken(widgetTokenStr);
       if (result.valid && result.workspaceId) return result.workspaceId;
     } catch { /* never let token parsing break the limiter */ }
+    // A presented-but-unverifiable token means "untrusted caller": stop here so
+    // no weaker source can be used behind a failed verification.
+    return null;
   }
 
   const ccToken = req.headers?.['x-cc-session'];
   const ccTokenStr = Array.isArray(ccToken) ? ccToken[0] : ccToken;
   const config = (req as any).serverConfig as ServerConfig | undefined;
-  if (typeof ccTokenStr === 'string' && ccTokenStr && config) {
-    try {
-      const payload = verifyWidgetSession(config, ccTokenStr);
-      if (payload?.workspace_id) return payload.workspace_id;
-    } catch { /* ignore */ }
+  if (typeof ccTokenStr === 'string' && ccTokenStr) {
+    if (config) {
+      try {
+        const payload = verifyWidgetSession(config, ccTokenStr);
+        if (payload?.workspace_id) return payload.workspace_id;
+      } catch { /* ignore */ }
+    }
+    return null;
   }
+
+  // Validated pre-auth targeting (see preAuthWorkspaceContext).
+  const preAuth = (req as any)._rateLimitTrustedWorkspaceId;
+  if (typeof preAuth === 'string' && preAuth.trim()) return preAuth.trim();
 
   return null;
 }

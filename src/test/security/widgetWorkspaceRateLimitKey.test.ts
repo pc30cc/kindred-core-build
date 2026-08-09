@@ -19,11 +19,15 @@ function req(overrides: any = {}) {
 }
 
 describe('rate-limit workspace key resolution', () => {
-  it('Test A — workspace_id in body/query shares one bucket across IPs', () => {
-    const a = resolveRateLimitWorkspaceKey(req({ ip: '1.1.1.1', body: { workspace_id: 'WS1' } }));
-    const b = resolveRateLimitWorkspaceKey(req({ ip: '2.2.2.2', query: { workspace_id: 'WS1' } }));
+  it('Test A — a VALIDATED pre-auth workspace shares one bucket across IPs', () => {
+    // `_rateLimitTrustedWorkspaceId` is attached by preAuthWorkspaceContext()
+    // only after server-side validation. A raw workspace_id alone never is.
+    const a = resolveRateLimitWorkspaceKey(req({ ip: '1.1.1.1', _rateLimitTrustedWorkspaceId: 'WS1' }));
+    const b = resolveRateLimitWorkspaceKey(req({ ip: '2.2.2.2', _rateLimitTrustedWorkspaceId: 'WS1' }));
     expect(a).toBe('ws:WS1');
     expect(b).toBe('ws:WS1');
+    // Unvalidated hints fall back to the IP bucket.
+    expect(resolveRateLimitWorkspaceKey(req({ ip: '3.3.3.3', body: { workspace_id: 'WS1' } }))).toBe('ip:3.3.3.3');
   });
 
   it('Test B — verified widget token yields the workspace bucket without workspace_id', () => {

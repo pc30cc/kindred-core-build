@@ -67,6 +67,7 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
+import { preAuthWorkspaceContext } from './middleware/preAuthWorkspaceContext.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -251,17 +252,17 @@ app.use('/api/auth', authRateLimiter, authSecurityRouter);
 app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 
 // Widget — dynamic CORS + rate limit
-app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetWorkspaceRateLimiter, widgetRouter);
+app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, widgetRouter);
 
 // KB widget JSON endpoints — same dynamic CORS + rate limit as widget.
-app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, widgetWorkspaceRateLimiter, widgetKbRouter);
+app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, widgetKbRouter);
 
 // Public KB SSR routes — server-rendered HTML for /help/:locale/...
 // No CORS / no rate limit; these are normal public web pages indexed by search engines.
 app.use(publicKbRouter);
 
 // Visitor tracking — dynamic CORS + rate limit
-app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, widgetWorkspaceRateLimiter, visitorRouter);
+app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, visitorRouter);
 
 // Visitor intelligence (operator-side, authenticated). Standard appCors,
 // auth+membership enforced per-route. Lower rate-limit footprint vs widget.
@@ -395,7 +396,7 @@ app.use('/api/call-center', callCenterRouter);
 
 // Call Widget — public visitor-facing standalone widget endpoints.
 // Dynamic per-workspace CORS handled inside the router.
-app.use('/api/call-widget', widgetRateLimiter, widgetWorkspaceRateLimiter, callWidgetRouter);
+app.use('/api/call-widget', widgetRateLimiter, preAuthWorkspaceContext(), widgetWorkspaceRateLimiter, callWidgetRouter);
 
 // 404
 app.use((_req, res) => {

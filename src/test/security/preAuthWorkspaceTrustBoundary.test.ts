@@ -14,7 +14,9 @@ import request from 'supertest';
 const { resolveRateLimitWorkspaceKey, widgetWorkspaceRateLimiter } =
   await import('../../../server/middleware/security.js');
 const { createSessionToken } = await import('../../../server/services/widget/security.js');
-const { signWidgetSession, signWidgetSessionWithTrust } = await import('../../../server/services/callCenter/widgetSession.js');
+const { signWidgetSession } = await import('../../../server/services/callCenter/widgetSession.js');
+const { makeWorkspaceTrustedWidgetTokenForTest, makeWorkspaceTrustedCallWidgetSessionForTest } =
+  await import('./helpers/widgetSessionTokens.js');
 
 const VICTIM = '11111111-1111-4111-8111-111111111111';
 const VICTIM_ORIGIN = 'https://victim.example';
@@ -129,7 +131,7 @@ describe('T1–T7 — spoofable input never yields a victim workspace bucket', (
 
 describe('T8/T9/T11 — a genuine rl:"workspace" credential yields the workspace bucket (mechanism still works)', () => {
   it('T8 — rl:"workspace" widget token → ws:REAL, IP-rotation resistant', () => {
-    const token = createSessionToken('REAL-WS', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('REAL-WS', 'https://shop.example');
     const a = resolveRateLimitWorkspaceKey(req({ ip: '8.0.0.1', originalUrl: '/api/widget/poll', headers: { 'x-widget-token': token } }));
     const b = resolveRateLimitWorkspaceKey(req({ ip: '8.0.0.2', originalUrl: '/api/widget/config', headers: { 'x-widget-token': token } }));
     expect(a).toBe('ws:REAL-WS');
@@ -145,7 +147,7 @@ describe('T8/T9/T11 — a genuine rl:"workspace" credential yields the workspace
 
   it('T9 — signed rl:"workspace" call-widget session → ws:REAL', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
-    const session = signWidgetSessionWithTrust(config, { workspace_id: 'REAL-CC', public_key: 'pk_public', rl: 'workspace' });
+    const session = makeWorkspaceTrustedCallWidgetSessionForTest(config, { workspace_id: 'REAL-CC', public_key: 'pk_public' });
     const key = resolveRateLimitWorkspaceKey(req({
       ip: '8.1.0.1',
       originalUrl: '/api/call-widget/state',
@@ -168,7 +170,7 @@ describe('T8/T9/T11 — a genuine rl:"workspace" credential yields the workspace
   });
 
   it('T11 — refresh grace preserved on /session/refresh for a genuine rl:"workspace" token', () => {
-    const token = createSessionToken('REAL-WS', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('REAL-WS', 'https://shop.example');
     const key = resolveRateLimitWorkspaceKey(req({
       ip: '8.2.0.1',
       originalUrl: '/api/widget/session/refresh',
@@ -215,7 +217,7 @@ describe('middleware ordering — real express chain', () => {
   });
 
   it('a hypothetical rl:"workspace" token (no issuer today) WOULD reach ws:REAL — proves the bucket mechanism itself is intact', async () => {
-    const strongToken = createSessionToken('REAL-WS', 'https://shop.example', 'workspace');
+    const strongToken = makeWorkspaceTrustedWidgetTokenForTest('REAL-WS', 'https://shop.example');
     const authed = await request(app())
       .get('/api/widget/poll')
       .set('x-widget-token', strongToken);

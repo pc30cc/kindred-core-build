@@ -67,38 +67,46 @@ export interface TokenResult {
 /**
  * Create a short-lived HMAC session token with unique nonce.
  *
- * `rateLimitTrust` defaults to 'public' and every current call site keeps
- * that default — see WidgetRateLimitTrust's doc comment. The signature
- * proves "server-issued", not "legitimate browser visitor"; `origin` is
- * whatever Origin/Referer the caller sent and is preserved for cross-origin
- * replay binding, not as identity proof.
+ * This is the ONLY chat-widget session signer, and it always signs
+ * `rl: 'public'` — hard-coded, not a parameter. There is deliberately no way
+ * for a production caller to request a stronger trust class: until a real
+ * stronger-proof flow exists (see WidgetRateLimitTrust's doc comment), no
+ * code path in this codebase may mint a 'workspace'-trusted token, and that
+ * must hold even if a future call site is written carelessly. If a genuine
+ * escalation path is ever built, give it its own explicitly-named signer
+ * rather than widening this one. The signature proves "server-issued", not
+ * "legitimate browser visitor"; `origin` is whatever Origin/Referer the
+ * caller sent and is preserved for cross-origin replay binding, not as
+ * identity proof.
  *
- * `sessionNonce` is INTERNAL — only /session/refresh (server/routes/widget.ts)
- * passes it, threading through the nonce it already extracted via
- * verifyTokenForRefresh() on the CALLER'S OWN current token. This makes
- * `n` a stable "session lineage" id across refreshes (one logical widget
- * session → one rate-limit identity, per widgetSessionRateLimiter in
- * server/middleware/security.ts) instead of a new, unrelated identity on
- * every refresh. Never source this value from request body/query/headers
- * directly — it must only ever be a value THIS module already verified.
- * Bootstrap never passes it, so every new logical session still starts
- * with a fresh random nonce.
+ * `options.sessionNonce` is INTERNAL — only /session/refresh
+ * (server/routes/widget.ts) passes it, threading through the nonce it
+ * already extracted via verifyTokenForRefresh() on the CALLER'S OWN current
+ * token. This makes `n` a stable "session lineage" id across refreshes (one
+ * logical widget session → one rate-limit identity, per
+ * widgetSessionRateLimiter in server/middleware/security.ts) instead of a
+ * new, unrelated identity on every refresh. Never source this value from
+ * request body/query/headers directly — it must only ever be a value THIS
+ * module already verified. Bootstrap never passes it, so every new logical
+ * session still starts with a fresh random nonce. (Wrapped in an options
+ * object, not a bare positional string, specifically so a stale call site
+ * from before this signature change fails to compile instead of silently
+ * being reinterpreted with different semantics.)
  */
 export function createSessionToken(
   workspaceId: string,
   origin: string,
-  rateLimitTrust: WidgetRateLimitTrust = 'public',
-  sessionNonce?: string,
+  options?: { sessionNonce?: string },
 ): string {
   const now = Math.floor(Date.now() / 1000);
-  const nonce = sessionNonce || crypto.randomBytes(8).toString('hex');
+  const nonce = options?.sessionNonce || crypto.randomBytes(8).toString('hex');
   const payload = {
     w: workspaceId,
     o: origin || '',
     n: nonce,
     iat: now,
     exp: now + SESSION_TOKEN_TTL_SECONDS,
-    rl: rateLimitTrust,
+    rl: 'public' as const,
   };
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', getSigningSecret()).update(payloadB64).digest('base64url');

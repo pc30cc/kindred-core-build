@@ -61,38 +61,28 @@ export interface WidgetSessionPayload {
 export type PublicWidgetSessionInput = Omit<WidgetSessionPayload, 'iat' | 'exp' | 'nonce' | 'rl'>;
 
 /**
- * The ONLY session signer production routes call. Always signs
- * `rl: 'public'` — see CallWidgetRateLimitTrust's doc comment. `rl` is
- * excluded from PublicWidgetSessionInput and re-asserted after the spread,
- * so even a caller that bypasses the type system (e.g. `as any`) cannot
- * make this function emit 'workspace'.
+ * The ONLY call-widget session signer this module exports. Always signs
+ * `rl: 'public'` — hard-coded, not a parameter — see
+ * CallWidgetRateLimitTrust's doc comment. `rl` is excluded from
+ * PublicWidgetSessionInput's type AND the object literal below places
+ * `rl: 'public'` after the spread, so even a caller that bypasses the type
+ * system (e.g. `as any`) cannot make this function emit 'workspace'. There
+ * is no production or exported path in this module capable of minting a
+ * 'workspace'-trusted session; tests that need one to prove
+ * resolveTrustedRateLimitWorkspaceId's workspace-trust branch is still
+ * reachable sign their own token directly (see
+ * src/test/security/helpers/widgetSessionTokens.ts) rather than through any
+ * capability exported here.
  */
 export function signWidgetSession(
   config: ServerConfig,
   payload: PublicWidgetSessionInput,
   ttlSec = TTL_SECONDS,
 ): string {
-  return signWidgetSessionWithTrust(config, { ...payload, rl: 'public' }, ttlSec);
-}
-
-/**
- * INTERNAL / TEST-ONLY. Not called by any production route — every real
- * issuer goes through signWidgetSession() above, which always forces
- * `rl: 'public'`. This exists solely so tests can construct a genuine
- * `rl: 'workspace'` session to prove resolveTrustedRateLimitWorkspaceId's
- * workspace-trust branch is still reachable, without opening that door on
- * the public signer. Do not call this from server/routes/callWidget.ts or
- * any other production route.
- */
-export function signWidgetSessionWithTrust(
-  config: ServerConfig,
-  payload: Omit<WidgetSessionPayload, 'iat' | 'exp' | 'nonce'>,
-  ttlSec = TTL_SECONDS,
-): string {
   const now = Math.floor(Date.now() / 1000);
   const full: WidgetSessionPayload = {
-    rl: 'public',
     ...payload,
+    rl: 'public',
     nonce: crypto.randomBytes(8).toString('hex'),
     iat: now,
     exp: now + ttlSec,

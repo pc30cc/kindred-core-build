@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs';
 
 const { resolveRateLimitWorkspaceKey } = await import('../../../server/middleware/security.js');
 const { createSessionToken } = await import('../../../server/services/widget/security.js');
-const { signWidgetSession, signWidgetSessionWithTrust } = await import('../../../server/services/callCenter/widgetSession.js');
+const { signWidgetSession } = await import('../../../server/services/callCenter/widgetSession.js');
 const { toStrictOrigin } = await import('../../../server/utils/domain.js');
+const { makeWorkspaceTrustedWidgetTokenForTest, makeWorkspaceTrustedCallWidgetSessionForTest } =
+  await import('./helpers/widgetSessionTokens.js');
 
 function req(overrides: any = {}) {
   return {
@@ -41,7 +43,7 @@ describe('rate-limit workspace key resolution', () => {
   });
 
   it('Test B1 — a genuine rl:"workspace" widget token yields the workspace bucket without workspace_id', () => {
-    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('WS1', 'https://shop.example');
     const key = resolveRateLimitWorkspaceKey(req({ headers: { 'x-widget-token': token } }));
     expect(key).toBe('ws:WS1');
   });
@@ -57,7 +59,7 @@ describe('rate-limit workspace key resolution', () => {
 
   it('Test B3 — a genuine rl:"workspace" call-widget session yields the workspace bucket', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
-    const token = signWidgetSessionWithTrust(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' });
+    const token = makeWorkspaceTrustedCallWidgetSessionForTest(config, { workspace_id: 'WS-CC', public_key: null });
     const key = resolveRateLimitWorkspaceKey(
       req({ headers: { 'x-cc-session': token }, serverConfig: config }),
     );
@@ -65,7 +67,7 @@ describe('rate-limit workspace key resolution', () => {
   });
 
   it('Test C — IP rotation with the same rl:"workspace" token stays in one bucket', () => {
-    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('WS1', 'https://shop.example');
     const keys = ['9.9.9.1', '9.9.9.2', '9.9.9.3'].map((ip) =>
       resolveRateLimitWorkspaceKey(req({ ip, headers: { 'x-widget-token': token } })),
     );
@@ -90,7 +92,7 @@ describe('rate-limit workspace key resolution', () => {
   });
 
   it('Test D2 — a genuine rl:"workspace" token wins over an attacker-supplied workspace_id', () => {
-    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('WS1', 'https://shop.example');
     const key = resolveRateLimitWorkspaceKey(
       req({ headers: { 'x-widget-token': token }, body: { workspace_id: 'victimWorkspace' } }),
     );

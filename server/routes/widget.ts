@@ -413,21 +413,20 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
       return res.status(403).json({ error: 'Origin mismatch', code: 'ORIGIN_MISMATCH' });
     }
 
-    // Trust class carries forward unchanged — refresh must never be a path
-    // to escalate a 'public' token into something more trusted than the
-    // proof it originally had. tokenData.rateLimitTrust already defaults to
-    // 'public' for pre-claim tokens (see verifySessionToken), so this
-    // explicitly preserves whatever the original bootstrap actually earned
-    // rather than silently re-deriving a value from the current request.
+    // createSessionToken() always signs rl:'public' now — there is no
+    // trust-class argument to pass through, so refresh cannot escalate a
+    // token's trust even in principle (see createSessionToken's doc
+    // comment). tokenData.rateLimitTrust is not read here; nothing this
+    // codebase issues is ever anything but 'public' today.
     //
-    // The nonce ALSO carries forward unchanged — it's the stable "session
+    // The nonce DOES carry forward unchanged — it's the stable "session
     // lineage" id widgetSessionRateLimiter keys on. Without this, every
     // refresh would mint an unrelated new rate-limit identity, letting a
     // caller reset its own session quota just by refreshing (see
     // createSessionToken's doc comment for why this is safe: the nonce is
     // never taken from anything the caller supplies directly, only from
     // this request's own already-verified token).
-    const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin, tokenData.rateLimitTrust, tokenData.nonce);
+    const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin, { sessionNonce: tokenData.nonce });
     const newResult = verifySessionToken(newToken);
 
     if (requestOrigin) {

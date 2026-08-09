@@ -17,9 +17,22 @@
  *            made to emit rl:'workspace', even if a caller tries.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
 import http from 'node:http';
 import express from 'express';
+
+/** Recursively lists .ts files under a server/ subdirectory (no deps on git). */
+function listTsFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) out.push(...listTsFiles(full));
+    else if (entry.endsWith('.ts')) out.push(full);
+  }
+  return out;
+}
 
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key-widget-security';
 
@@ -296,5 +309,105 @@ describe('C1-C3 — call-widget public signer cannot be made to issue rl:"worksp
     }
     // The escape hatch used only by tests must not be imported here.
     expect(src).not.toContain('signWidgetSessionWithTrust');
+  });
+
+  it('T5: no exported trusted call signer exists in the production module at all', async () => {
+    const mod = await import('../../../server/services/callCenter/widgetSession.js');
+    expect((mod as any).signWidgetSessionWithTrust).toBeUndefined();
+    expect(Object.keys(mod).some((k) => /workspaceTrust|withTrust|trustedSign/i.test(k))).toBe(false);
+  });
+});
+
+describe('T1-T3 — chat-widget public signer cannot be made to issue rl:"workspace"', () => {
+  it('T1: createSessionToken always produces rl "public" — the function takes no trust argument at all', async () => {
+    const { createSessionToken, verifySessionToken } = await import('../../../server/services/widget/security.js');
+    const token = createSessionToken('WS1', 'https://shop.example');
+    expect(verifySessionToken(token).rateLimitTrust).toBe('public');
+  });
+
+  it('T2: a stale 3-arg trust-class call would be a compile error, not silently reinterpreted — verified by source shape', () => {
+    const src = readFileSync('server/services/widget/security.ts', 'utf8');
+    const sigMatch = src.match(/export function createSessionToken\(([\s\S]*?)\): string \{/);
+    expect(sigMatch).toBeTruthy();
+    const sig = sigMatch![1];
+    expect(sig).toContain('options?: { sessionNonce?: string }');
+    expect(sig).not.toMatch(/rateLimitTrust/);
+  });
+
+  it('T3: bootstrap -> refresh keeps rl "public" and the same session lineage (nonce)', async () => {
+    const boot = await bootstrap();
+    const tokenA = boot.body.session_token as string;
+    const nonceA = verifySessionToken(tokenA).nonce;
+    expect(verifySessionToken(tokenA).rateLimitTrust).toBe('public');
+
+    const r = await refresh(tokenA);
+    const tokenB = r.body.session_token as string;
+    expect(verifySessionToken(tokenB).rateLimitTrust).toBe('public');
+    expect(verifySessionToken(tokenB).nonce).toBe(nonceA);
+  });
+});
+
+describe('T6 — resolver still supports a future rl:"workspace" issuer (capability not removed)', () => {
+  it('T6: a synthetic rl:"workspace" chat token still resolves to ws:REAL', async () => {
+    const { resolveRateLimitWorkspaceKey } = await import('../../../server/middleware/security.js');
+    const { makeWorkspaceTrustedWidgetTokenForTest } = await import('./helpers/widgetSessionTokens.js');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('REAL-WS', 'https://shop.example');
+    const key = resolveRateLimitWorkspaceKey({
+      ip: '198.51.100.50',
+      headers: { 'x-widget-token': token },
+      body: {},
+      query: {},
+      originalUrl: '/api/widget/poll',
+    } as any);
+    expect(key).toBe('ws:REAL-WS');
+  });
+
+  it('T6: a synthetic rl:"workspace" call-widget session still resolves to ws:REAL-CC', async () => {
+    const { resolveRateLimitWorkspaceKey } = await import('../../../server/middleware/security.js');
+    const { makeWorkspaceTrustedCallWidgetSessionForTest } = await import('./helpers/widgetSessionTokens.js');
+    const config: any = { widgetTokenSecret: 'cc-secret' };
+    const session = makeWorkspaceTrustedCallWidgetSessionForTest(config, { workspace_id: 'REAL-CC', public_key: 'pk_1' });
+    const key = resolveRateLimitWorkspaceKey({
+      ip: '198.51.100.51',
+      serverConfig: config,
+      headers: { 'x-cc-session': session },
+      body: {},
+      query: {},
+      originalUrl: '/api/call-widget/state',
+    } as any);
+    expect(key).toBe('ws:REAL-CC');
+  });
+});
+
+describe('T7 — production grep guard: zero rl:"workspace" issuance capability under server/', () => {
+  it('no server/ file (excluding comments) contains a signing call literally passing rl: "workspace"', () => {
+    const RL_WORKSPACE = /rl:\s*['"]workspace['"]/;
+    const offenders: string[] = [];
+    for (const file of listTsFiles('server')) {
+      const lines = readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, i) => {
+        if (!RL_WORKSPACE.test(line)) return;
+        // Every hit must be a comment/doc-string, never a live object
+        // literal passed to a signing function.
+        const trimmed = line.trim();
+        const isCommentOnly = trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*');
+        if (!isCommentOnly) offenders.push(`${file}:${i + 1}: ${line}`);
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('no production module exports a function whose name suggests a trust-override signer', () => {
+    const files = [
+      'server/services/widget/security.ts',
+      'server/services/callCenter/widgetSession.ts',
+    ];
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      const exportedFns = [...src.matchAll(/export function (\w+)/g)].map((m) => m[1]);
+      for (const name of exportedFns) {
+        expect(/workspaceTrust|withTrust|trustedSign|createWorkspaceTrusted/i.test(name)).toBe(false);
+      }
+    }
   });
 });

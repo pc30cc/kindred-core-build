@@ -4,7 +4,9 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 const { resolveRateLimitWorkspaceKey, resolveTrustedRateLimitWorkspaceId } =
   await import('../../../server/middleware/security.js');
 const { createSessionToken } = await import('../../../server/services/widget/security.js');
-const { signWidgetSession, signWidgetSessionWithTrust } = await import('../../../server/services/callCenter/widgetSession.js');
+const { signWidgetSession } = await import('../../../server/services/callCenter/widgetSession.js');
+const { makeWorkspaceTrustedWidgetTokenForTest, makeWorkspaceTrustedCallWidgetSessionForTest } =
+  await import('./helpers/widgetSessionTokens.js');
 
 const REFRESH = '/api/widget/session/refresh';
 const BOOTSTRAP = '/api/widget/bootstrap';
@@ -91,7 +93,7 @@ describe('GAP 1 — untrusted workspace_id cannot select a victim bucket', () =>
   });
 
   it('a genuine rl:"workspace" token wins over an attacker-supplied workspace_id — proves the mechanism still works', () => {
-    const token = createSessionToken('WS-A', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('WS-A', 'https://shop.example');
     const key = resolveRateLimitWorkspaceKey(
       req({ headers: { 'x-widget-token': token }, body: { workspace_id: 'WS-B' } }),
     );
@@ -110,7 +112,7 @@ describe('GAP 1 — untrusted workspace_id cannot select a victim bucket', () =>
 
   it('a genuine rl:"workspace" cc session wins over an attacker-supplied workspace_id', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
-    const token = signWidgetSessionWithTrust(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' });
+    const token = makeWorkspaceTrustedCallWidgetSessionForTest(config, { workspace_id: 'WS-CC', public_key: null });
     const key = resolveRateLimitWorkspaceKey(
       req({ originalUrl: '/api/call-widget/bootstrap', serverConfig: config, headers: { 'x-cc-session': token }, body: { workspace_id: 'VICTIM' } }),
     );
@@ -124,7 +126,7 @@ describe('GAP 2 — /session/refresh uses refresh-grace semantics', () => {
   // class itself is covered separately above and in the "public token never
   // wins" tests below.
   it('R1 — valid rl:"workspace" token → ws:WS1', () => {
-    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('WS1', 'https://shop.example');
     expect(resolveRateLimitWorkspaceKey(req({ originalUrl: REFRESH, headers: { 'x-widget-token': token } }))).toBe('ws:WS1');
   });
 
@@ -134,14 +136,14 @@ describe('GAP 2 — /session/refresh uses refresh-grace semantics', () => {
   });
 
   it('R2 — recently expired but inside grace → ws:WS1 (rl:"workspace")', () => {
-    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('WS1', 'https://shop.example');
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 17 * 60_000); // TTL 15m, grace 5m
     expect(resolveRateLimitWorkspaceKey(req({ ip: '2.2.2.2', originalUrl: REFRESH, headers: { 'x-widget-token': token } }))).toBe('ws:WS1');
   });
 
   it('R3 — IP rotation during refresh stays in one bucket (rl:"workspace")', () => {
-    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
+    const token = makeWorkspaceTrustedWidgetTokenForTest('WS1', 'https://shop.example');
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 17 * 60_000);
     const keys = ['9.9.9.1', '9.9.9.2', '9.9.9.3'].map((ip) =>

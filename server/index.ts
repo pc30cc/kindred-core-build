@@ -395,7 +395,7 @@ app.use('/api/call-center', callCenterRouter);
 
 // Call Widget — public visitor-facing standalone widget endpoints.
 // Dynamic per-workspace CORS handled inside the router.
-app.use('/api/call-widget', callWidgetRouter);
+app.use('/api/call-widget', widgetRateLimiter, widgetWorkspaceRateLimiter, callWidgetRouter);
 
 // 404
 app.use((_req, res) => {

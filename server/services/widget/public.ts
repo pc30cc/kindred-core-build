@@ -44,12 +44,34 @@ export function getLoaderAssetBase(req: Request): string | null {
   return null;
 }
 
-export function getRequestBaseUrl(req: Request): string {
-  const forwardedProto = req.headers['x-forwarded-proto'];
-  const forwardedHost = req.headers['x-forwarded-host'];
+/**
+ * Is the immediate peer a proxy Express is configured to trust?
+ * Mirrors Express' own `trust proxy fn` so we never honour
+ * `X-Forwarded-Proto` / `X-Forwarded-Host` sent by a direct client.
+ */
+function isTrustedProxyHop(req: Request): boolean {
+  try {
+    const trust = req.app?.get('trust proxy fn');
+    if (typeof trust !== 'function') return false;
+    return !!trust(req.socket?.remoteAddress, 0);
+  } catch {
+    return false;
+  }
+}
 
-  const proto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.split(',')[0]) || req.protocol;
-  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost?.split(',')[0]) || req.get('host') || 'localhost';
+export function getRequestBaseUrl(req: Request): string {
+  const trusted = isTrustedProxyHop(req);
+
+  const forwardedProto = trusted ? req.headers['x-forwarded-proto'] : undefined;
+  const forwardedHost = trusted ? req.headers['x-forwarded-host'] : undefined;
+
+  const proto =
+    (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.split(',')[0])?.trim() ||
+    req.protocol;
+  const host =
+    (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost?.split(',')[0])?.trim() ||
+    req.get('host') ||
+    'localhost';
 
   return `${proto}://${host}`.replace(/\/$/, '');
 }

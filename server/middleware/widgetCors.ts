@@ -19,7 +19,7 @@ import {
   getRequestBaseUrl,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
-import { extractHostname, isOriginAllowed } from '../utils/domain.js';
+import { isOriginAllowed, toStrictOrigin } from '../utils/domain.js';
 
 const ALLOWED_HEADERS = 'Content-Type, Authorization, X-Widget-Token, x-widget-token';
 const ALLOWED_METHODS = 'GET, POST, PUT, OPTIONS';
@@ -49,9 +49,10 @@ function getWorkspaceId(req: Request): string | null {
  * CORS headers at all, so the browser blocks the cross-origin read.
  */
 function isSameOrigin(req: Request, origin: string): boolean {
-  const originHost = extractHostname(origin);
-  const selfHost = extractHostname(getRequestBaseUrl(req));
-  return !!originHost && !!selfHost && originHost === selfHost;
+  // Browser origin semantics: scheme + host + effective port must all match.
+  const requestOrigin = toStrictOrigin(origin);
+  const selfOrigin = toStrictOrigin(getRequestBaseUrl(req));
+  return !!requestOrigin && !!selfOrigin && requestOrigin === selfOrigin;
 }
 
 export function widgetCorsMiddleware() {

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const { resolveRateLimitWorkspaceKey } = await import('../../../server/middleware/security.js');
 const { createSessionToken } = await import('../../../server/services/widget/security.js');
-const { signWidgetSession } = await import('../../../server/services/callCenter/widgetSession.js');
+const { signWidgetSession, signWidgetSessionWithTrust } = await import('../../../server/services/callCenter/widgetSession.js');
 const { toStrictOrigin } = await import('../../../server/utils/domain.js');
 
 function req(overrides: any = {}) {
@@ -57,7 +57,7 @@ describe('rate-limit workspace key resolution', () => {
 
   it('Test B3 — a genuine rl:"workspace" call-widget session yields the workspace bucket', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
-    const token = signWidgetSession(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' } as any);
+    const token = signWidgetSessionWithTrust(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' });
     const key = resolveRateLimitWorkspaceKey(
       req({ headers: { 'x-cc-session': token }, serverConfig: config }),
     );

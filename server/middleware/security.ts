@@ -242,6 +242,58 @@ export const widgetWorkspaceRateLimiter = rateLimit({
 });
 
 /**
+ * Canonical per-chat-widget-session ceiling — structural, single source of
+ * truth for "does this credential get bounded session-scoped protection".
+ * Mounted on the whole /api/widget prefix in server/index.ts (same layer as
+ * widgetWorkspaceRateLimiter, BEFORE widgetRouter and every sub-router run),
+ * so it covers /config, /poll, /message, /session/refresh, and every
+ * early-mounted sub-router (/identity, /attachments, /callback,
+ * /departments, /call-invitations) without depending on each route author
+ * remembering to opt in. Route-category limiters (widgetRateLimit() in
+ * server/services/widget/security.ts) still apply their own per-(IP,
+ * category, workspace) caps — this is the ONE session-scoped layer; it must
+ * not be duplicated inside individual routes (see widgetRateLimit's doc
+ * comment).
+ *
+ * Keyed by the token's nonce, which is now a STABLE session-lineage id
+ * across /session/refresh (see createSessionToken's doc comment in
+ * services/widget/security.ts) — so an attacker cannot reset this quota by
+ * refreshing. /session/refresh itself is verified via verifyTokenForRefresh
+ * (grace-period semantics) so the refresh flow isn't penalized for using an
+ * about-to-expire token; every other path uses strict verifySessionToken.
+ * Skipped entirely when no verifiable token is present (bootstrap, forged
+ * tokens, /kb) — that traffic is covered by the pre-auth/per-IP limiters.
+ */
+function resolveWidgetSessionNonceKey(req: Request): string | null {
+  const widgetToken = req.headers?.['x-widget-token'];
+  const tokenStr = Array.isArray(widgetToken) ? widgetToken[0] : widgetToken;
+  if (typeof tokenStr !== 'string' || !tokenStr) return null;
+  try {
+    const result = REFRESH_PATH.test(requestPath(req))
+      ? verifyTokenForRefresh(tokenStr)
+      : verifySessionToken(tokenStr);
+    if (result.valid && result.nonce) return result.nonce;
+  } catch { /* never let token parsing break the limiter */ }
+  return null;
+}
+
+export const widgetSessionRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 300, // generous flat cap spanning every category combined — see doc comment above
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS' || resolveWidgetSessionNonceKey(req) === null,
+  keyGenerator: (req) => `widget-session:${resolveWidgetSessionNonceKey(req)}`,
+  handler: async (req, res) => {
+    await logSecurityEvent(req, 'rate_limited', 'info', {
+      endpoint: req.originalUrl,
+      limit: '300/min/session',
+    });
+    res.status(429).json({ error: 'Too many requests for this session — please slow down.', code: 'SESSION_RATE_LIMITED' });
+  },
+});
+
+/**
  * Per-call-widget-session ceiling — additive to the per-IP `widgetRateLimiter`
  * and the `ws:<workspace>` bucket above (which, per the trust-boundary
  * comment on resolveRateLimitWorkspaceKey, is unreachable by any credential

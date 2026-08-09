@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 const { resolveRateLimitWorkspaceKey, resolveTrustedRateLimitWorkspaceId } =
   await import('../../../server/middleware/security.js');
 const { createSessionToken } = await import('../../../server/services/widget/security.js');
-const { signWidgetSession } = await import('../../../server/services/callCenter/widgetSession.js');
+const { signWidgetSession, signWidgetSessionWithTrust } = await import('../../../server/services/callCenter/widgetSession.js');
 
 const REFRESH = '/api/widget/session/refresh';
 const BOOTSTRAP = '/api/widget/bootstrap';
@@ -110,7 +110,7 @@ describe('GAP 1 — untrusted workspace_id cannot select a victim bucket', () =>
 
   it('a genuine rl:"workspace" cc session wins over an attacker-supplied workspace_id', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
-    const token = signWidgetSession(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' } as any);
+    const token = signWidgetSessionWithTrust(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' });
     const key = resolveRateLimitWorkspaceKey(
       req({ originalUrl: '/api/call-widget/bootstrap', serverConfig: config, headers: { 'x-cc-session': token }, body: { workspace_id: 'VICTIM' } }),
     );

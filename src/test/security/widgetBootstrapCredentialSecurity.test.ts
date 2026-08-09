@@ -62,7 +62,7 @@ vi.mock('../../../server/services/email/index.js', () => ({ sendEmail: vi.fn() }
 vi.mock('../../../server/services/geo/index.js', () => ({ enrichVisitorSessionGeo: vi.fn() }));
 
 const { widgetRouter } = await import('../../../server/routes/widget.js');
-const { resolveRateLimitWorkspaceKey } = await import('../../../server/middleware/security.js');
+const { resolveRateLimitWorkspaceKey, widgetSessionRateLimiter } = await import('../../../server/middleware/security.js');
 
 const app = express();
 app.use((req, _res, next) => {
@@ -74,7 +74,10 @@ app.use((req, _res, next) => {
   next();
 });
 app.use(express.json());
-app.use('/api/widget', widgetRouter);
+// Mirrors server/index.ts's real mount chain for /api/widget so the
+// canonical per-session limiter is actually exercised, not just the
+// router alone.
+app.use('/api/widget', widgetSessionRateLimiter, widgetRouter);
 
 const server = http.createServer(app).listen(0);
 const port = () => (server.address() as any).port;
@@ -238,10 +241,12 @@ describe('chat widget bootstrap — real route, credential trust boundary', () =
     const tokenB = bootB.body.session_token as string;
     expect(tokenA).not.toBe(tokenB);
 
+    // Canonical widgetSessionRateLimiter caps a session at 300/min across
+    // ALL categories combined (server/middleware/security.ts) — go past it.
     let limitedForA = 0;
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 320; i++) {
       const res = await call('GET', `/api/widget/poll?workspace_id=${VICTIM_WS}`, {
-        headers: { origin: VICTIM_ORIGIN, 'x-widget-token': tokenA, 'x-forwarded-for': `45.1.${i}.1` },
+        headers: { origin: VICTIM_ORIGIN, 'x-widget-token': tokenA, 'x-forwarded-for': `45.${1 + Math.floor(i / 250)}.${i % 250}.1` },
       });
       if (res.status === 429) limitedForA++;
     }

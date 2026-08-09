@@ -72,14 +72,26 @@ export interface TokenResult {
  * proves "server-issued", not "legitimate browser visitor"; `origin` is
  * whatever Origin/Referer the caller sent and is preserved for cross-origin
  * replay binding, not as identity proof.
+ *
+ * `sessionNonce` is INTERNAL — only /session/refresh (server/routes/widget.ts)
+ * passes it, threading through the nonce it already extracted via
+ * verifyTokenForRefresh() on the CALLER'S OWN current token. This makes
+ * `n` a stable "session lineage" id across refreshes (one logical widget
+ * session → one rate-limit identity, per widgetSessionRateLimiter in
+ * server/middleware/security.ts) instead of a new, unrelated identity on
+ * every refresh. Never source this value from request body/query/headers
+ * directly — it must only ever be a value THIS module already verified.
+ * Bootstrap never passes it, so every new logical session still starts
+ * with a fresh random nonce.
  */
 export function createSessionToken(
   workspaceId: string,
   origin: string,
   rateLimitTrust: WidgetRateLimitTrust = 'public',
+  sessionNonce?: string,
 ): string {
   const now = Math.floor(Date.now() / 1000);
-  const nonce = crypto.randomBytes(8).toString('hex');
+  const nonce = sessionNonce || crypto.randomBytes(8).toString('hex');
   const payload = {
     w: workspaceId,
     o: origin || '',
@@ -215,43 +227,6 @@ function checkRateLimit(key: string, category: string = 'default'): boolean {
   return true;
 }
 
-// ─── Per-session rate limiting (additive layer, not a replacement) ───
-//
-// The bucket above is keyed by (category, IP, workspace). An attacker who
-// rotates source IPs gets a fresh IP+workspace bucket on every rotation, so
-// that bucket alone bounds each individual (IP, workspace) pair but not the
-// aggregate volume ONE credential can drive while hopping IPs. This second
-// bucket is keyed by the token's own HMAC-verified nonce instead of IP, so a
-// single session's usage is capped regardless of how many source IPs it's
-// replayed from. It does not stop an attacker from minting many DIFFERENT
-// sessions (each gets its own nonce bucket) — that's what the pre-auth
-// bootstrap limiters in server/middleware/security.ts are for. No-op for
-// bootstrap/refresh (no verified session yet at that point).
-const sessionRateLimitStore = new Map<string, { count: number; resetAt: number }>();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of sessionRateLimitStore) {
-    if (now > val.resetAt) sessionRateLimitStore.delete(key);
-  }
-}, 30_000);
-
-function checkSessionRateLimit(nonce: string, category: string): boolean {
-  const limit = RATE_LIMITS[category] || RATE_LIMITS.default;
-  const now = Date.now();
-  const key = `${category}:session:${nonce}`;
-  const entry = sessionRateLimitStore.get(key);
-
-  if (!entry || now > entry.resetAt) {
-    sessionRateLimitStore.set(key, { count: 1, resetAt: now + limit.window * 1000 });
-    return true;
-  }
-
-  if (entry.count >= limit.max) return false;
-  entry.count++;
-  return true;
-}
-
 /**
  * Canonical client IP resolver — re-exported so widget routes have a single
  * implementation. Previously this file had its own extractor that trusted
@@ -343,18 +318,12 @@ export function widgetRateLimit(category: string = 'default') {
       });
     }
 
-    // Additional session-scoped cap — see checkSessionRateLimit's doc
-    // comment. Only present once enforceWidgetToken has verified a token;
-    // bootstrap/refresh run before that middleware, so this is a no-op there.
-    const nonce = (req as any)._widgetNonce as string | undefined;
-    if (nonce && !checkSessionRateLimit(nonce, category)) {
-      return res.status(429).json({
-        error: 'Too many requests for this session — please slow down',
-        code: 'SESSION_RATE_LIMITED',
-        retry_after: RATE_LIMITS[category]?.window || 60,
-      });
-    }
-
+    // Per-session protection lives in ONE canonical place —
+    // widgetSessionRateLimiter in server/middleware/security.ts, mounted
+    // structurally on the whole /api/widget prefix so it covers every
+    // token-secured sub-router without depending on each route remembering
+    // to opt in here. Do not re-add a per-category session check in this
+    // function — that would double-count the same logical quota.
     next();
   };
 }

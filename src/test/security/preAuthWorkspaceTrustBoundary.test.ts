@@ -14,7 +14,7 @@ import request from 'supertest';
 const { resolveRateLimitWorkspaceKey, widgetWorkspaceRateLimiter } =
   await import('../../../server/middleware/security.js');
 const { createSessionToken } = await import('../../../server/services/widget/security.js');
-const { signWidgetSession } = await import('../../../server/services/callCenter/widgetSession.js');
+const { signWidgetSession, signWidgetSessionWithTrust } = await import('../../../server/services/callCenter/widgetSession.js');
 
 const VICTIM = '11111111-1111-4111-8111-111111111111';
 const VICTIM_ORIGIN = 'https://victim.example';
@@ -145,7 +145,7 @@ describe('T8/T9/T11 — a genuine rl:"workspace" credential yields the workspace
 
   it('T9 — signed rl:"workspace" call-widget session → ws:REAL', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
-    const session = signWidgetSession(config, { workspace_id: 'REAL-CC', public_key: 'pk_public', rl: 'workspace' } as any);
+    const session = signWidgetSessionWithTrust(config, { workspace_id: 'REAL-CC', public_key: 'pk_public', rl: 'workspace' });
     const key = resolveRateLimitWorkspaceKey(req({
       ip: '8.1.0.1',
       originalUrl: '/api/call-widget/state',

@@ -50,7 +50,41 @@ export interface WidgetSessionPayload {
   exp: number;
 }
 
+/**
+ * Every real bootstrap path's input shape — never includes `rl`. This is
+ * enforced at the type level (not just by convention) so a production call
+ * site cannot accidentally, or a future caller cannot deliberately, opt a
+ * session into a stronger rate-limit trust class than its own proof
+ * justifies. If a genuinely stronger-proof escalation path is ever built,
+ * give it its own explicitly-named signer rather than widening this one.
+ */
+export type PublicWidgetSessionInput = Omit<WidgetSessionPayload, 'iat' | 'exp' | 'nonce' | 'rl'>;
+
+/**
+ * The ONLY session signer production routes call. Always signs
+ * `rl: 'public'` — see CallWidgetRateLimitTrust's doc comment. `rl` is
+ * excluded from PublicWidgetSessionInput and re-asserted after the spread,
+ * so even a caller that bypasses the type system (e.g. `as any`) cannot
+ * make this function emit 'workspace'.
+ */
 export function signWidgetSession(
+  config: ServerConfig,
+  payload: PublicWidgetSessionInput,
+  ttlSec = TTL_SECONDS,
+): string {
+  return signWidgetSessionWithTrust(config, { ...payload, rl: 'public' }, ttlSec);
+}
+
+/**
+ * INTERNAL / TEST-ONLY. Not called by any production route — every real
+ * issuer goes through signWidgetSession() above, which always forces
+ * `rl: 'public'`. This exists solely so tests can construct a genuine
+ * `rl: 'workspace'` session to prove resolveTrustedRateLimitWorkspaceId's
+ * workspace-trust branch is still reachable, without opening that door on
+ * the public signer. Do not call this from server/routes/callWidget.ts or
+ * any other production route.
+ */
+export function signWidgetSessionWithTrust(
   config: ServerConfig,
   payload: Omit<WidgetSessionPayload, 'iat' | 'exp' | 'nonce'>,
   ttlSec = TTL_SECONDS,

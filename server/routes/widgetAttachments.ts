@@ -29,6 +29,8 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
   enforceWidgetToken,
+  enforceOrigin,
+  widgetRateLimit,
   resolveWorkspaceId,
   verifyConversationOwnership,
 } from '../services/widget/security.js';
@@ -37,6 +39,15 @@ import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 
 export const widgetAttachmentsRouter = Router();
+
+// Mounted BEFORE the parent widgetRouter's own enforceWidgetToken/
+// enforceOrigin (see server/routes/widget.ts), so — like /identity,
+// /callback, /departments, /call-invitations — this sub-router must enforce
+// both itself. This was previously missing: each route below called
+// enforceWidgetToken individually but none enforced Origin, so a stolen
+// token could be replayed cross-origin against attachment upload/download.
+widgetAttachmentsRouter.use(enforceWidgetToken);
+widgetAttachmentsRouter.use(enforceOrigin);
 
 // ─── Hard global bounds (regardless of workspace settings) ──────────
 const HARD_MAX_BYTES = 25 * 1024 * 1024; // 25MB absolute ceiling for v1
@@ -128,7 +139,7 @@ const initSchema = z.object({
   session_id: z.string().uuid().nullable().optional(),
 });
 
-widgetAttachmentsRouter.post('/init', enforceWidgetToken, async (req: Request, res: Response) => {
+widgetAttachmentsRouter.post('/init', widgetRateLimit('upload'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = initSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -239,7 +250,7 @@ const uploadSchema = z.object({
   data: z.string().min(1), // base64
 });
 
-widgetAttachmentsRouter.post('/:id/upload', enforceWidgetToken, async (req: Request, res: Response) => {
+widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res);
   if (res.headersSent) return;
@@ -326,7 +337,7 @@ widgetAttachmentsRouter.post('/:id/upload', enforceWidgetToken, async (req: Requ
 //   then streams bytes from the active Storage Provider.
 //   Provider URLs are NEVER returned to the client.
 // ═══════════════════════════════════════════════════════════════════
-widgetAttachmentsRouter.get('/:id', enforceWidgetToken, async (req: Request, res: Response) => {
+widgetAttachmentsRouter.get('/:id', widgetRateLimit('default'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res);
   if (res.headersSent) return;

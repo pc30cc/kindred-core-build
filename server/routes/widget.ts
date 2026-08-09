@@ -419,7 +419,15 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
     // 'public' for pre-claim tokens (see verifySessionToken), so this
     // explicitly preserves whatever the original bootstrap actually earned
     // rather than silently re-deriving a value from the current request.
-    const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin, tokenData.rateLimitTrust);
+    //
+    // The nonce ALSO carries forward unchanged — it's the stable "session
+    // lineage" id widgetSessionRateLimiter keys on. Without this, every
+    // refresh would mint an unrelated new rate-limit identity, letting a
+    // caller reset its own session quota just by refreshing (see
+    // createSessionToken's doc comment for why this is safe: the nonce is
+    // never taken from anything the caller supplies directly, only from
+    // this request's own already-verified token).
+    const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin, tokenData.rateLimitTrust, tokenData.nonce);
     const newResult = verifySessionToken(newToken);
 
     if (requestOrigin) {

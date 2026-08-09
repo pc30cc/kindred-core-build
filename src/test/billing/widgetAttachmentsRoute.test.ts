@@ -58,6 +58,8 @@ vi.mock("../../../server/services/storage/index.js", () => ({
 
 vi.mock("../../../server/services/widget/security.js", () => ({
   enforceWidgetToken: (_req: any, _res: any, next: any) => next(),
+  enforceOrigin: (_req: any, _res: any, next: any) => next(),
+  widgetRateLimit: () => (_req: any, _res: any, next: any) => next(),
   resolveWorkspaceId: () =>
     "22222222-2222-2222-2222-222222222222",
   verifyConversationOwnership: async () => true,

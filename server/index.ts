@@ -74,6 +74,7 @@ import {
   widgetRateLimiter,
   visitorRateLimiter,
   widgetWorkspaceRateLimiter,
+  widgetSessionRateLimiter,
   adminRateLimiter,
   widgetBootstrapRateLimiter,
   widgetBootstrapGlobalCeiling,
@@ -269,9 +270,13 @@ app.use('/api/widget/bootstrap', widgetCorsMiddleware(), widgetBootstrapGlobalCe
 // so there is deliberately NO workspace blocking bucket for it.
 app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, publicKbGlobalCeiling, publicKbRateLimiter, widgetKbRouter);
 
-// Widget — dynamic CORS + per-IP limit + authenticated per-workspace limit.
-// The workspace bucket is only selected when a verified token is present.
-app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetWorkspaceRateLimiter, widgetRouter);
+// Widget — dynamic CORS + per-IP limit + authenticated per-workspace limit +
+// per-session limit. The workspace bucket is only selected when a verified
+// token carries rl:'workspace'; the session limiter applies to every
+// verified token regardless of trust class, and structurally covers every
+// sub-router mounted inside widgetRouter (identity/attachments/callback/
+// departments/call-invitations) without each needing its own opt-in.
+app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetWorkspaceRateLimiter, widgetSessionRateLimiter, widgetRouter);
 
 // Public KB SSR routes — server-rendered HTML for /help/:locale/...
 // No CORS / no rate limit; these are normal public web pages indexed by search engines.

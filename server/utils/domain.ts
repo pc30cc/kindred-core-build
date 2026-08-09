@@ -60,6 +60,24 @@ export function extractHostname(origin: string): string | null {
 }
 
 /**
+ * Canonical browser origin ("scheme://host[:port]") with default ports removed.
+ * Unlike `extractHostname`, this preserves scheme and port so callers can do a
+ * standards-correct same-origin comparison. Returns null when the input has no
+ * explicit http/https scheme or cannot be parsed — we never guess a scheme,
+ * because guessing would make `http://x` and `https://x` compare equal.
+ */
+export function toStrictOrigin(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const raw = input.trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+  try {
+    return new URL(raw).origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check if an incoming origin is allowed by the workspace's domain list.
  *
  * Rules:

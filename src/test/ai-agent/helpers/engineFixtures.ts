@@ -215,6 +215,12 @@ export function makeFakeSupabase(seed: Record<string, any[]> = {}) {
         filters.push((r) => vals.includes(r?.[col]));
         return builder;
       },
+      not: (col: string, op: string, val: any) => {
+        if (op === 'is' && val === null) {
+          filters.push((r) => r?.[col] !== null && r?.[col] !== undefined);
+        }
+        return builder;
+      },
       insert: (payload: any) => {
         mode = 'insert';
         const row = { id: `${table}-${(store[table]?.length || 0) + 1}`, ...payload };

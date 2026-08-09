@@ -260,6 +260,9 @@ function preAuthLimiter(scope: string, max: number) {
     max,
     standardHeaders: true,
     legacyHeaders: false,
+    // Key is built from `ipKeyGenerator` (IPv6-safe) inside `ipBucket`; the
+    // library's static probe can't see through the helper.
+    validate: { keyGeneratorIpFallback: false },
     // CORS preflights carry no payload and must not consume visitor quota.
     skip: (req) => req.method === 'OPTIONS',
     keyGenerator: (req) => `${scope}:${ipBucket(req)}`,

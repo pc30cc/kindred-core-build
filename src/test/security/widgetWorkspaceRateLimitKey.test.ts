@@ -1,10 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Express test doubles are intentionally untyped. */
 import { describe, it, expect } from 'vitest';
-
-vi_mock_placeholder: {
-  // no mocks needed — everything below is pure HMAC / URL logic
-  break vi_mock_placeholder;
-}
+import { readFileSync } from 'node:fs';
 
 const { resolveRateLimitWorkspaceKey } = await import('../../../server/middleware/security.js');
 const { createSessionToken } = await import('../../../server/services/widget/security.js');
@@ -89,5 +85,41 @@ describe('strict same-origin comparison (scheme + host + port)', () => {
   it('default ports normalize away, scheme-less input is rejected', () => {
     expect(toStrictOrigin('https://app.example.com:443')).toBe('https://app.example.com');
     expect(toStrictOrigin('app.example.com')).toBeNull();
+  });
+});
+
+describe('Test J — state-changing widget routes have a server-side gate, not just CORS', () => {
+  const widgetSrc = readFileSync('server/routes/widget.ts', 'utf8');
+  const gateIdx = widgetSrc.indexOf('widgetRouter.use(enforceWidgetToken)');
+  const originIdx = widgetSrc.indexOf('widgetRouter.use(enforceOrigin)');
+
+  it('token + origin enforcement is mounted on the parent router', () => {
+    expect(gateIdx).toBeGreaterThan(-1);
+    expect(originIdx).toBeGreaterThan(gateIdx);
+  });
+
+  for (const route of ["post('/message'", "put('/action'", "post('/track'", "post('/escalate'", "post('/offline-messages'", "post('/smart/event'"]) {
+    it(`${route} is registered after the token gate`, () => {
+      const idx = widgetSrc.indexOf(`widgetRouter.${route}`);
+      expect(idx).toBeGreaterThan(gateIdx);
+    });
+  }
+
+  it('sub-routers (identity, attachments, callback, departments, call-invitations) enforce the token themselves', () => {
+    for (const f of [
+      'server/routes/widgetIdentity.ts',
+      'server/routes/widgetAttachments.ts',
+      'server/routes/widgetCallbacks.ts',
+      'server/routes/widgetDepartments.ts',
+      'server/routes/widgetCallInvitations.ts',
+    ]) {
+      expect(readFileSync(f, 'utf8')).toContain('enforceWidgetToken');
+    }
+  });
+
+  it('call-widget state-changing routes require a verified HMAC session', () => {
+    const src = readFileSync('server/routes/callWidget.ts', 'utf8');
+    expect(src).toContain('requireWidgetSession');
+    expect(src).toContain('verifyWidgetSession');
   });
 });

@@ -185,6 +185,16 @@ export async function updateWorkspaceSettings(
   return data as WorkspaceCallCenterSettings;
 }
 
+/**
+ * Look up a workspace by its call-widget `public_key`.
+ *
+ * SECURITY: `public_key` is a PUBLIC IDENTIFIER, not a secret credential — it
+ * is embedded in the widget snippet and visible to anyone who views the
+ * customer's page source. It may be used for routing/authorization lookups,
+ * but it must NEVER authenticate a caller and must never select an
+ * authenticated per-workspace rate-limit bucket. Only a signed, server-issued
+ * call-widget session (`x-cc-session`) proves workspace identity.
+ */
 export async function findWorkspaceByPublicKey(
   config: ServerConfig,
   publicKey: string,

@@ -770,6 +770,12 @@ async function runInternal(
     console.warn('[ai-agent.engine] hybrid retrieval failed, falling back to keyword:', err?.message);
     fallbackReason = `hybrid_throw:${err?.message || 'unknown'}`;
     sources = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
+    // PHASE 2 FIX: the legacy retriever IS a keyword search, and it just
+    // executed -- keywordUsed must reflect that so top-level queryMeta and
+    // the nested retrieval_debug.execution block (hardcoded below) agree on
+    // what actually ran for this request, instead of the top-level flag
+    // staying at its unrelated `false` initial value.
+    keywordUsed = true;
     selectedSourcesMeta = sources.map((s) => ({
       id: s.id, source_type: s.kind, kind: s.kind,
       title: s.title, slug: s.slug ?? null, source_url: null,

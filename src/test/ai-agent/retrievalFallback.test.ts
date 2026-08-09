@@ -355,18 +355,19 @@ describe('C11-B — hybrid throws -> legacy fallback', () => {
     expect(replyLog).toBeTruthy();
     const retrieval = replyLog.metadata.retrieval;
     expect(retrieval.fallback_reason).toMatch(/^hybrid_throw:/);
-    // KNOWN INCONSISTENCY (pinned as-is, not fixed in Phase 1): on the
-    // hybrid-throws path, engine.ts's catch block never reassigns the outer
-    // hybridUsed/vectorUsed/keywordUsed locals (they stay at their `false`
-    // initial values), while the nested retrieval_debug.execution block is
-    // hardcoded to { hybrid_used: false, vector_used: false,
-    // keyword_used: true }. Top-level queryMeta.keyword_used and
-    // retrieval_debug.execution.keyword_used therefore DISAGREE on the same
-    // hybrid-throw run. See "KNOWN BUGS DISCOVERED" in the Phase 1 report.
+    // PHASE 2 FIX: on the hybrid-throws path, the engine falls back to the
+    // legacy keyword retriever unconditionally, and that legacy retriever
+    // DID execute and produce the sources actually used for this run. The
+    // top-level queryMeta.keyword_used must therefore also be true, matching
+    // the nested retrieval_debug.execution.keyword_used (which was already
+    // correctly hardcoded true) -- both describe the same actual execution.
+    // Previously the top-level flag stayed at its `false` initial value
+    // because engine.ts's catch block never reassigned it; see git history
+    // for the prior version of this test, which pinned that disagreement.
     expect(retrieval.hybrid_used).toBe(false);
     expect(retrieval.vector_used).toBe(false);
-    expect(retrieval.keyword_used).toBe(false); // top-level: stays false
-    expect(retrieval.retrieval_debug.execution.keyword_used).toBe(true); // nested: hardcoded true
+    expect(retrieval.keyword_used).toBe(true);
+    expect(retrieval.retrieval_debug.execution.keyword_used).toBe(true);
     expect(retrieval.retrieval_debug.execution.fallback_reason).toBe('legacy_retriever_used');
   });
 });

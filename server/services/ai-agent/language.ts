@@ -73,15 +73,33 @@ export function detectInputLanguageDetailed(text: string): {
   if (!s) return empty;
 
   let fa = 0, ar = 0, tr = 0, en = 0, total = 0;
+  // Persian and Arabic share the vast majority of their alphabet (both are
+  // Perso-Arabic script), so per-character scoring MUST NOT weight shared
+  // letters as strongly as script-specific ones -- doing so previously made
+  // ordinary Persian sentences classify as 'ar', since most Persian letters
+  // are also valid Arabic letters. Three buckets instead of two:
+  //   - persianOnly: letters that exist ONLY in Persian orthography, never
+  //     standard Arabic (\u067E \u0686 \u0698 \u06A9 \u06AF \u06CC).
+  //   - arabicOnly: letters/marks that exist in standard Arabic orthography
+  //     but that correctly-typed Persian never uses -- the Arabic forms of
+  //     kaf/yeh (\u0643/\u064A, as opposed to Persian's \u06A9/\u06CC) and
+  //     taa marbuta (\u0629), plus Arabic diacritics (harakat,
+  //     \u064B-\u0652) common in formal/vocalized Arabic and essentially
+  //     never used in Persian.
+  //   - the remaining shared Perso-Arabic-script range: still a real signal
+  //     that the text is Persian-or-Arabic rather than Latin/other, but
+  //     weighted low so it can't drown out the two script-specific buckets.
   const persianOnly = /[\u067E\u0686\u0698\u06A9\u06AF\u06CC]/;
+  const arabicOnly = /[\u0643\u064A\u0629\u064B-\u0652]/;
   const arabicRange = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
   const turkishOnly = /[ğĞşŞıİçÇöÖüÜ]/;
   const asciiLetter = /[A-Za-z]/;
   for (const ch of s) {
     if (/\s/.test(ch)) continue;
     total += 1;
-    if (persianOnly.test(ch)) { fa += 2; continue; }
-    if (arabicRange.test(ch)) { ar += 1; continue; }
+    if (persianOnly.test(ch)) { fa += 3; continue; }
+    if (arabicOnly.test(ch)) { ar += 3; continue; }
+    if (arabicRange.test(ch)) { ar += 0.1; continue; }
     if (turkishOnly.test(ch)) { tr += 2; continue; }
     if (asciiLetter.test(ch)) { en += 1; continue; }
   }
@@ -91,6 +109,16 @@ export function detectInputLanguageDetailed(text: string): {
   // English word bonus — common interrogatives & support words.
   const enWords = (s.match(/\b(hi|hello|help|price|pricing|plan|plans|support|how|what|when|where|why|the|and|please|thanks)\b/gi) || []).length;
   en += enWords * 2;
+  // Persian function-word bonus — same pattern as the Turkish/English word
+  // bonuses above, needed for Persian sentences that use few or no
+  // Persian-only letters (e.g. "\u0645\u0646 \u0633\u0648\u0627\u0644 \u062f\u0627\u0631\u0645 \u062f\u0631\u0628\u0627\u0631\u0647 \u0634\u0645\u0627"),
+  // where the per-character script buckets alone are too close to call.
+  const faWords = (s.match(/(\u0645\u06CC[\u200c ]?|\u0627\u0633\u062A|\u0647\u0633\u062A\u0645|\u0647\u0633\u062A\u06CC\u062F|\u062F\u0627\u0631\u0645|\u062F\u0627\u0631\u06CC|\u062F\u0627\u0631\u062F|\u062F\u0627\u0631\u06CC\u0645|\u062F\u0627\u0631\u0646\u062F|\u0686\u06CC\u0633\u062A|\u0686\u0637\u0648\u0631|\u0686\u06AF\u0648\u0646\u0647|\u062F\u0631\u0628\u0627\u0631\u0647|\b\u0631\u0627\b|\b\u0627\u06CC\u0646\b|\b\u0634\u0645\u0627\b)/g) || []).length;
+  fa += faWords * 3;
+  // Arabic function-word bonus — common Arabic-only grammatical markers
+  // (relative pronouns, prepositions) that never occur in Persian.
+  const arWords = (s.match(/(\u0647\u0630\u0627|\u0647\u0630\u0647|\u0627\u0644\u062A\u064A|\u0627\u0644\u0630\u064A|\b\u0641\u064A\b|\b\u0639\u0644\u0649\b|\u0625\u0644\u0649|\u0643\u064A\u0641|\u0645\u0627\u0630\u0627|\b\u0623\u0646\u062A\b|\b\u0623\u0646\u0627\b)/g) || []).length;
+  ar += arWords * 3;
 
   const scores: Record<SupportedLanguage, number> = { en, fa, tr, ar, unknown: 0 };
   const entries = (Object.entries(scores) as Array<[SupportedLanguage, number]>).filter(([k]) => k !== 'unknown');
@@ -127,9 +155,7 @@ function normalizeLocale(loc: string | null | undefined): string {
  *   3. Else fall back to workspace locale.
  *   4. Else 'en'.
  *
- * If a locale allow-list is configured, the chosen language must be allowed
- * (with a special case: Persian visitor input maps to 'fa' even when the
- * allow-list contains fa but not ar).
+ * If a locale allow-list is configured, the chosen language must be allowed.
  */
 export function decideResponseLanguage(args: {
   visitorText: string;
@@ -138,13 +164,17 @@ export function decideResponseLanguage(args: {
   allowedLocales?: string[];
 }): LanguageDecision {
   const detail = detectInputLanguageDetailed(args.visitorText);
-  let inputLanguage = detail.language;
-  // Bias Persian when ar detected but Persian is allowed and ar is not.
-  // Common case: short Persian word that doesn't include گ/پ/چ/ژ/ک/ی.
+  const inputLanguage = detail.language;
+  // PHASE 2 FIX: detectInputLanguageDetailed() now distinguishes Persian
+  // from Arabic on script/lexical signals alone (see its own comment for
+  // the persianOnly/arabicOnly/shared-range weighting), so it no longer
+  // needs an allow-list-dependent correction here. The previous version of
+  // this function unconditionally relabeled ANY 'ar' detection as 'fa'
+  // whenever the allow-list contained fa but not ar — which incorrectly
+  // relabeled genuine Arabic input too, not just misclassified Persian.
+  // That branch has been removed; Arabic input is no longer biased toward
+  // Persian regardless of the allow-list.
   const allowedNorm = (args.allowedLocales || []).map((l) => normalizeLocale(l)).filter(Boolean);
-  if (inputLanguage === 'ar' && allowedNorm.includes('fa') && !allowedNorm.includes('ar')) {
-    inputLanguage = 'fa';
-  }
   const widgetRaw = (args.widgetLocale || '').toString();
   const widgetNorm = normalizeLocale(widgetRaw);
   const wsNorm = normalizeLocale(args.workspaceLocale);

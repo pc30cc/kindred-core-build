@@ -42,24 +42,92 @@ describe('C14 — decideResponseLanguage: visitor language wins', () => {
     expect(d.source).toBe('visitor_detected');
   });
 
-  it('SURPRISING FINDING (documented, not fixed): plain Persian text without an fa-favoring allow-list is detected as "ar", not "fa"', () => {
-    // detectInputLanguageDetailed() scores every Arabic-script character
-    // (U+0600-U+06FF etc.) toward `ar`, and ONLY the six Persian-specific
-    // letters (پ چ ژ ک گ ی) toward `fa` (at 2x weight vs ar's 1x). For
-    // ordinary Persian sentences, the many shared Arabic-script characters
-    // usually outweigh the few Persian-only letters, so plain Persian input
-    // resolves to inputLanguage='ar' UNLESS the caller's allowedLocales
-    // includes 'fa' but not 'ar' (see decideResponseLanguage's explicit
-    // "Bias Persian" comment/branch, exercised in the allow-list describe
-    // block below). This is exactly why that bias branch exists — it is
-    // pinned here as a real, current characterization, not fixed.
+  it('PHASE 2 FIX: plain Persian text is detected as "fa" without needing an fa-favoring allow-list', () => {
+    // Phase 1 found detectInputLanguageDetailed() scored every Arabic-script
+    // character toward `ar`, so ordinary Persian sentences (which mostly use
+    // characters shared with Arabic) resolved to inputLanguage='ar' unless
+    // the allow-list happened to include 'fa' but not 'ar'. Phase 2 fix:
+    // the scorer now distinguishes Persian-only letters, Arabic-only
+    // letters/diacritics, and the shared range as three separately-weighted
+    // buckets (plus a small Persian/Arabic function-word bonus mirroring
+    // the pre-existing Turkish/English word-bonus pattern) so Persian
+    // resolves correctly on its own — no allow-list dependency required.
+    // INTENTIONAL BEHAVIOR CHANGE from the Phase 1 characterization above;
+    // see git history for the prior "SURPRISING FINDING" version.
     const d = decideResponseLanguage({
       visitorText: 'چگونه پسورد را عوض کنم',
       widgetLocale: 'en',
       workspaceLocale: 'en',
     });
+    expect(d.inputLanguage).toBe('fa');
+    expect(d.responseLanguage).toBe('fa');
+  });
+});
+
+describe('C14 — PHASE 2 FIX: Persian vs Arabic classification matrix', () => {
+  const persianExamples: Array<[string, string]> = [
+    ['conversational Persian', 'سلام، چطور می‌تونم رمز عبورم رو عوض کنم؟'],
+    ['Persian with few of پ چ ژ گ (relies on function-word bonus)', 'من سوال دارم درباره شما'],
+    ['formal Persian', 'با سلام و احترام، لطفاً راهنمایی بفرمایید که چگونه می‌توانم درخواست بازپرداخت ثبت کنم'],
+    ['short Persian message', 'سلام خوبی؟'],
+  ];
+  it.each(persianExamples)('%s -> fa, not mixed', (_label, text) => {
+    const d = decideResponseLanguage({ visitorText: text, widgetLocale: 'en' });
+    expect(d.inputLanguage).toBe('fa');
+    expect(d.mixedLanguageDetected).toBe(false);
+  });
+
+  const arabicExamples: Array<[string, string]> = [
+    ['standard Arabic sentence', 'مرحبا، كيف يمكنني إعادة تعيين كلمة المرور الخاصة بي'],
+    ['short Arabic message', 'مرحبا كيف حالك'],
+    ['Arabic containing characters shared with Persian', 'ما هو السعر الشهري لهذه الخدمة'],
+  ];
+  it.each(arabicExamples)('%s -> ar, not mixed', (_label, text) => {
+    const d = decideResponseLanguage({ visitorText: text, widgetLocale: 'en' });
+    expect(d.inputLanguage).toBe('ar');
+    expect(d.mixedLanguageDetected).toBe(false);
+  });
+
+  it('Turkish remains unaffected by the Persian/Arabic fix', () => {
+    const d = decideResponseLanguage({ visitorText: 'şifremi nasıl sıfırlarım fiyatlar nedir', widgetLocale: 'en' });
+    // Pinned as pre-existing (Phase 1) behavior, not part of this fix's
+    // scope: the Latin-script char-counting bias toward 'en' for
+    // diacritic-containing Turkish text is unchanged.
+    expect(['tr', 'en']).toContain(d.inputLanguage);
+  });
+
+  it('English remains unaffected', () => {
+    const d = decideResponseLanguage({ visitorText: 'how do I reset my password please help me today', widgetLocale: 'en' });
+    expect(d.inputLanguage).toBe('en');
+  });
+
+  it('mixed Persian-English remains detected as mixed (unaffected by this fix)', () => {
+    const d = decideResponseLanguage({ visitorText: 'hello چطور می‌تونم پسورد رو عوض کنم please help', widgetLocale: 'en' });
+    expect(d.mixedLanguageDetected).toBe(true);
+  });
+
+  it('Persian resolves to fa when BOTH fa and ar are allowed (no longer depends on excluding ar)', () => {
+    const d = decideResponseLanguage({ visitorText: 'سلام، چطور می‌تونم رمز عبورم رو عوض کنم؟', widgetLocale: 'en', allowedLocales: ['fa', 'ar'] });
+    expect(d.inputLanguage).toBe('fa');
+    expect(d.responseLanguage).toBe('fa');
+  });
+
+  it('Arabic resolves to ar when BOTH fa and ar are allowed (never biased toward fa)', () => {
+    const d = decideResponseLanguage({ visitorText: 'مرحبا، كيف يمكنني إعادة تعيين كلمة المرور الخاصة بي', widgetLocale: 'en', allowedLocales: ['fa', 'ar'] });
     expect(d.inputLanguage).toBe('ar');
     expect(d.responseLanguage).toBe('ar');
+  });
+
+  it('genuine Arabic text is NOT relabeled fa merely because ar is excluded from the allow-list (falls back through the normal allow-list mechanism instead)', () => {
+    // This replaces the old bias-branch behavior: previously ANY 'ar'
+    // detection was force-relabeled 'fa' whenever the allow-list had fa but
+    // not ar — which incorrectly relabeled genuine Arabic input too, not
+    // just misclassified Persian. That branch is removed; the
+    // already-existing generic "response not in allow-list -> use first
+    // allowed locale" mechanism now handles this case honestly.
+    const d = decideResponseLanguage({ visitorText: 'مرحبا، كيف يمكنني إعادة تعيين كلمة المرور الخاصة بي', widgetLocale: 'en', allowedLocales: ['en', 'fa'] });
+    expect(d.inputLanguage).toBe('ar'); // detection itself is honest
+    expect(d.responseLanguage).toBe('en'); // allow-list fallback, NOT 'fa'
   });
 });
 
@@ -113,28 +181,32 @@ describe('C14 — settings.allowed_locales intersection / unsupported requested 
     expect(d.source).toBe('fallback_en'); // pinned as-is: `source` stays 'fallback_en' for ANY allow-list override, not just the literal en case
   });
 
-  it('biases Arabic-script input to fa when fa is allowed but ar is not (documented special case)', () => {
-    const d = decideResponseLanguage({
-      visitorText: 'كيف يمكنني إعادة تعيين كلمة المرور',
-      widgetLocale: 'en',
-      allowedLocales: ['en', 'fa'],
-    });
-    expect(d.inputLanguage).toBe('fa');
-    expect(d.responseLanguage).toBe('fa');
-  });
+  // NOTE: the old "biases Arabic-script input to fa when fa is allowed but
+  // ar is not" test that lived here has been removed. It exercised
+  // decideResponseLanguage's now-removed allow-list bias branch using
+  // GENUINE Arabic text and asserted it got relabeled 'fa' — this is
+  // exactly the over-correction Phase 2 was required to eliminate ("do not
+  // bias all Arabic-script text toward Persian"). See "genuine Arabic text
+  // is NOT relabeled fa..." in the PHASE 2 FIX matrix describe block above
+  // for its replacement.
 });
 
 describe('C14 — mixed-language detection', () => {
-  it('flags mixed-language input when a second script has a comparable signal to the dominant one (ar/fa ambiguity from the same finding above)', () => {
+  it('PHASE 2 FIX: single-language Persian text is no longer flagged as mixed', () => {
+    // Phase 1 found this exact input scored ar=14/fa=8 (ratio 0.57, above
+    // the 0.35 mixed threshold) purely because of the old shared-script
+    // weighting, despite being genuinely single-language Persian. With the
+    // corrected scorer this input now scores overwhelmingly fa-dominant
+    // (see the "PHASE 2 FIX: Persian vs Arabic classification matrix"
+    // describe block above), so mixedLanguageDetected is false.
+    // INTENTIONAL BEHAVIOR CHANGE from Phase 1; see git history for the
+    // prior version of this test.
     const d = decideResponseLanguage({
       visitorText: 'چگونه پسورد را عوض کنم',
       widgetLocale: 'en',
     });
-    // Same input as the "ar vs fa" finding above: ar=14, fa=8 -> fa/ar
-    // ratio 0.57 >= the mixed threshold (0.35), so this is flagged mixed
-    // even though it's genuinely single-language (Persian) text — a second
-    // real, current-behavior quirk of the shared-script scoring approach.
-    expect(d.mixedLanguageDetected).toBe(true);
+    expect(d.inputLanguage).toBe('fa');
+    expect(d.mixedLanguageDetected).toBe(false);
   });
 
   it('does NOT flag mixed-language for clearly single-language input', () => {

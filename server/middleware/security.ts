@@ -7,6 +7,8 @@ import { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { verifySessionToken } from '../services/widget/security.js';
+import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 
 // ─── IP Blocking Middleware ───────────────────────────────────────
 const blockedIPCache = new Map<string, { blocked: boolean; until: number | null; checkedAt: number }>();

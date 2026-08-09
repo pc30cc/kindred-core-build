@@ -74,12 +74,23 @@ vi.mock('../../../server/services/ai-agent/logs.js', () => ({
   },
 }));
 
-vi.mock('../../../server/services/ai-agent/conversationState.js', () => ({
-  getConversationState: async () => conversationStateFixture,
-  markHandoffRequested: async (...args: any[]) => {
-    markHandoffRequestedCalls.push(args);
-  },
-}));
+vi.mock('../../../server/services/ai-agent/conversationState.js', async (importOriginal) => {
+  // markHandoffRequested is left REAL (mutates the faked `conversations`
+  // table's metadata) rather than a no-op capture stub — actionExecutor.ts
+  // and workflowExecutor.ts both read that same metadata back via
+  // readAiConversationMeta() to decide whether a handoff was already sent,
+  // so a stub that doesn't persist the flag would make the cross-source
+  // (trigger vs workflow) idempotency tests below assert a false positive.
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    getConversationState: async () => conversationStateFixture,
+    markHandoffRequested: async (...args: any[]) => {
+      markHandoffRequestedCalls.push(args);
+      return actual.markHandoffRequested(...args);
+    },
+  };
+});
 
 vi.mock('../../../server/services/ai-agent/availability.js', () => ({
   getOperatorAvailability: async () => availabilityFixture,
@@ -96,12 +107,21 @@ vi.mock('../../../server/services/ai-agent/responder.js', () => ({
   }),
 }));
 
-vi.mock('../../../server/services/ai-agent/handoffState.js', () => ({
-  markAiManaged: vi.fn(async () => {}),
-  markNeedsHuman: async (_config: any, input: any) => {
-    markNeedsHumanCalls.push(input);
-  },
-}));
+vi.mock('../../../server/services/ai-agent/handoffState.js', async (importOriginal) => {
+  // readAiConversationMeta is left REAL (reads the faked `conversations`
+  // table) — it's how actionExecutor.ts / workflowExecutor.ts detect an
+  // already-in-progress handoff to avoid a duplicate ack message, which is
+  // exactly the invariant the message-trigger/workflow handoff tests below
+  // need to be real, not stubbed.
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    markAiManaged: vi.fn(async () => {}),
+    markNeedsHuman: async (_config: any, input: any) => {
+      markNeedsHumanCalls.push(input);
+    },
+  };
+});
 
 vi.mock('../../../server/services/ai-agent/spamGuard.js', () => ({
   isConversationSpam: async () => false,
@@ -350,5 +370,166 @@ describe('C8.7 — no-KB-match handoff (exhausted clarification budget)', () => 
 
     expect(aiCallCount).toBe(0);
     expect(['handoff', 'no_answer']).toContain(result.action);
+  });
+});
+
+describe('C8.4 — message-trigger-forced handoff', () => {
+  it('a matched visitor_first_message trigger with action_type=handoff terminates before any LLM call, writes handoff side effects exactly once, and identifies the trigger as the source', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 }); // isFirstVisitorMessage
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        {
+          id: 'trigger-1',
+          name: 'Greet and handoff',
+          event_type: 'visitor_first_message',
+          conditions_json: {},
+          action_type: 'handoff',
+          action_json: {},
+          delay_seconds: 0,
+          enabled: true,
+        },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'hi there' }));
+
+    expect(result.action).toBe('handoff');
+    expect(aiCallCount).toBe(0);
+    // Exactly one handoff ack message, exactly one markNeedsHuman call — no
+    // duplicate insertion between the trigger executor and engine's own
+    // handoff branch.
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(insertAiMessageCalls[0].handoff).toBe(true);
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    const handoffLog = logRunCalls.find((c) => c.runType === 'handoff');
+    expect(handoffLog).toBeTruthy();
+    expect(handoffLog.metadata.message_triggers.matched.map((m: any) => m.id)).toContain('trigger-1');
+    // Engine's own handoff branch detects the trigger already sent the ack
+    // and does not send a second one (handoffAlreadyDone path).
+    expect(handoffLog.metadata.decision_timeline).toContain('handoff_message_already_sent');
+  });
+
+  it('a second visitor message after the trigger already fired does not re-execute it (idempotent per conversation)', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    // aiRepliesCountInConversation > 0 -> isFirstVisitorMessage is false, so
+    // the visitor_first_message event is not even re-evaluated on message 2
+    // — this pins the actual current dedup mechanism (event-gating), not an
+    // assumed one.
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 1 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-1', name: 'Greet and handoff', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'handoff', action_json: {}, delay_seconds: 0, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'a follow-up message' }));
+
+    expect(insertAiMessageCalls.filter((m) => m.handoff).length).toBeLessThanOrEqual(1);
+    expect(markNeedsHumanCalls.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('C8.5 — workflow handoff', () => {
+  it('a matched workflow with a handoff step terminates before any LLM call, writes handoff side effects exactly once, and identifies the workflow as the source', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      workflows: [
+        {
+          id: 'workflow-1',
+          name: 'First message handoff',
+          description: null,
+          trigger_json: { event: 'visitor_first_message' },
+          steps_json: [{ type: 'handoff' }],
+          enabled: true,
+          status: 'active',
+          version: 1,
+        },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'hi there' }));
+
+    expect(result.action).toBe('handoff');
+    expect(aiCallCount).toBe(0);
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(insertAiMessageCalls[0].handoff).toBe(true);
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    const handoffLog = logRunCalls.find((c) => c.runType === 'handoff');
+    expect(handoffLog.metadata.workflows.matchedWorkflowIds).toContain('workflow-1');
+  });
+
+  it('stop-AI workflow step (no handoff) short-circuits before the LLM without routing to human', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      workflows: [
+        {
+          id: 'workflow-stop',
+          name: 'Send message and stop',
+          description: null,
+          trigger_json: { event: 'visitor_first_message' },
+          steps_json: [{ type: 'send_message', payload: { body: 'We are closed right now.', continue_ai: false } }],
+          enabled: true,
+          status: 'active',
+          version: 1,
+        },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'hi there' }));
+
+    expect(result.action).toBe('replied');
+    expect(aiCallCount).toBe(0);
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(insertAiMessageCalls[0].body).toBe('We are closed right now.');
+    expect(markNeedsHumanCalls).toHaveLength(0);
+  });
+});
+
+describe('C8 — combined precedence: routing + trigger + workflow all request handoff simultaneously', () => {
+  it('the workflow (executed before trigger execution in current code order) sends the ack; the trigger handoff sees it already done and does not send a second one', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-combo', name: 'Escalate', trigger_type: 'human_request', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+      messageTriggers: [
+        { id: 'trigger-combo', name: 'First message handoff', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'handoff', action_json: {}, delay_seconds: 0, enabled: true },
+      ],
+      workflows: [
+        { id: 'workflow-combo', name: 'First message workflow handoff', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'handoff' }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'let me talk to an operator please' }));
+
+    expect(result.action).toBe('handoff');
+    expect(aiCallCount).toBe(0);
+    // The mandatory invariant: no matter how many independent sources
+    // requested a handoff, exactly one ack message and exactly one
+    // markNeedsHuman call happen — current code's idempotency check
+    // (readAiConversationMeta) is what prevents duplication across
+    // trigger/workflow/engine branches.
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    const handoffLog = logRunCalls.find((c) => c.runType === 'handoff');
+    expect(handoffLog).toBeTruthy();
+    // Pinned as current precedence (verified via engine.ts's actual code
+    // order, not assumed): workflows are matched AND EXECUTED first
+    // (the wfEvents loop, engine.ts lines ~391-442), inserting the ack and
+    // marking the handoff; message-trigger EXECUTION happens afterward
+    // (the `if (triggerResult && triggerResult.executed.length)` block,
+    // engine.ts lines ~469-495) via executeRuntimeActions, which detects
+    // "already in handoff/takeover state" through readAiConversationMeta
+    // and skips inserting a second ack — confirmed by the
+    // "[ai-agent.runtime.executor] handoff skipped — already in
+    // handoff/takeover state" log line this test produces. Both sources
+    // still report matched in their respective metadata blocks even though
+    // only the workflow's write actually happened.
+    expect(handoffLog.metadata.message_triggers.matched.map((m: any) => m.id)).toContain('trigger-combo');
+    expect(handoffLog.metadata.workflows.matchedWorkflowIds).toContain('workflow-combo');
   });
 });

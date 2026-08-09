@@ -165,19 +165,41 @@ beforeEach(() => {
 });
 
 describe('C9 — answer_only_from_kb, no matching source', () => {
-  it('SURPRISING FINDING (documented, not fixed): decideStrategy asks a clarifying question rather than going silent/handoff, so the LLM IS still called once', async () => {
-    // With zero retrieval matches and answer_only_from_kb=true,
-    // decideStrategy's real (unmocked) logic currently returns
-    // decisionType='ask_clarifying_question' rather than 'no_answer_silent'
-    // or 'handoff' for a fresh conversation (clarificationAttemptCount=0).
-    // engine.ts only special-cases no_answer_silent/handoff/greeting as
-    // "no LLM call" branches — ask_clarifying_question falls through to the
-    // normal LLM call to word the clarifying question. So
-    // answer_only_from_kb=true does NOT, on its own, guarantee "no LLM
-    // execution without a KB match" — it guarantees no *answer* is invented,
-    // but a clarifying-question LLM call can still happen. Pinned exactly
-    // as current behavior; see KNOWN BUGS in the Phase 1 report — this is
-    // flagged, not changed.
+  it('PHASE 2 FIX: strict KB-only mode never calls the LLM, even on the first clarification attempt, when there is zero source grounding', async () => {
+    // Phase 1 found decideStrategy resolved to 'ask_clarifying_question'
+    // here (which DOES call the LLM), violating engine.ts's own declared
+    // invariant ("answer_only_from_kb -> no LLM call without a Q&A/KB
+    // match"). Phase 2 fix: decideStrategy now skips the
+    // ask_clarifying_question branch when answer_only_from_kb=true and
+    // retrieval strength is weak/none, falling through to the existing
+    // handoff/no_answer_silent logic (step 6) instead — no new response
+    // state was invented. This is an INTENTIONAL behavior change from the
+    // Phase 1 characterization above; see git history for the prior
+    // "SURPRISING FINDING" version of this test.
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer']).toContain(result.action);
+    const log = logRunCalls.find((c) => c.status === 'handoff' || c.status === 'no_answer');
+    expect(log).toBeTruthy();
+    expect(log.metadata.answer_strategy.decision_type).not.toBe('ask_clarifying_question');
+  });
+
+  it('PHASE 2 FIX: strict KB-only mode never calls the LLM for a weak (non-qualifying) source match either', async () => {
+    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always' });
+    hybridImpl = async () =>
+      makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer']).toContain(result.action);
+  });
+
+  it('non-strict mode (answer_only_from_kb=false) preserves the existing clarification behavior — LLM IS called on the first attempt', async () => {
+    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always' });
     hybridImpl = async () => makeHybridResult({ sources: [] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());

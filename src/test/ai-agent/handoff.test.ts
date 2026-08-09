@@ -317,12 +317,12 @@ describe('C8 — precedence when multiple handoff sources are simultaneously tru
 });
 
 describe('C8.6 — low-confidence handoff', () => {
-  it('SURPRISING FINDING (documented, not fixed): on the FIRST weak-match message, decideStrategy asks a clarifying question (LLM IS called), not an immediate handoff', async () => {
-    // Consistent with the same finding in knowledgeOnly.test.ts (C9): a
-    // weak/low-scoring match with clarificationAttemptCount=0 resolves to
-    // decisionType='ask_clarifying_question' today, which is NOT one of
-    // engine.ts's no-LLM branches (no_answer_silent/handoff/greeting only).
-    // handoff_on_low_confidence does not prevent this first LLM call.
+  it('non-strict mode (answer_only_from_kb=false): on the FIRST weak-match message, decideStrategy asks a clarifying question and the LLM IS called — unaffected by the Phase 2 strict-KB fix', async () => {
+    // This is the answer_only_from_kb=false counterpart of the Phase 2 fix
+    // in knowledgeOnly.test.ts — handoff_on_low_confidence alone does not
+    // (and per the fix, should not) prevent this first LLM call; the
+    // strict-mode case (answer_only_from_kb=true) is covered there and in
+    // this file's C8.7 block, both now asserting LLM=0.
     settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_low_confidence: true, answer_only_from_kb: false });
     hybridImpl = async () =>
       makeHybridResult({

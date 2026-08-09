@@ -203,7 +203,14 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   }
 
   // 5. Vague / ambiguous (and NOT a known topic) → ask ONE clarifying question.
-  if (canAskClar && (isVague(question) || strength === 'weak' || strength === 'none')) {
+  //    answer_only_from_kb=true means the LLM must never run without at
+  //    least a qualifying source match — including just to ask a
+  //    clarifying question — so when retrieval strength is weak/none under
+  //    that setting, this branch is skipped and falls through to the
+  //    existing handoff/no_answer_silent logic in step 6 below instead.
+  const noQualifyingSource = strength === 'weak' || strength === 'none';
+  const strictKbBlocksClarify = settings.answer_only_from_kb === true && noQualifyingSource;
+  if (canAskClar && !strictKbBlocksClarify && (isVague(question) || noQualifyingSource)) {
     return {
       decisionType: 'ask_clarifying_question',
       reason: strength === 'none' ? 'no_kb_match_clarify' : 'vague_or_weak',

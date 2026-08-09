@@ -127,18 +127,25 @@ describe('T1–T7 — spoofable input never yields a victim workspace bucket', (
   });
 });
 
-describe('T8/T9/T11 — verified credentials DO yield the workspace bucket', () => {
-  it('T8 — post-bootstrap widget token → ws:REAL, IP-rotation resistant', () => {
-    const token = createSessionToken('REAL-WS', 'https://shop.example');
+describe('T8/T9/T11 — a genuine rl:"workspace" credential yields the workspace bucket (mechanism still works)', () => {
+  it('T8 — rl:"workspace" widget token → ws:REAL, IP-rotation resistant', () => {
+    const token = createSessionToken('REAL-WS', 'https://shop.example', 'workspace');
     const a = resolveRateLimitWorkspaceKey(req({ ip: '8.0.0.1', originalUrl: '/api/widget/poll', headers: { 'x-widget-token': token } }));
     const b = resolveRateLimitWorkspaceKey(req({ ip: '8.0.0.2', originalUrl: '/api/widget/config', headers: { 'x-widget-token': token } }));
     expect(a).toBe('ws:REAL-WS');
     expect(b).toBe('ws:REAL-WS');
   });
 
-  it('T9 — signed call-widget session → ws:REAL', () => {
+  it('T8b — the SAME token shape bootstrap actually issues today ("public" trust) never yields ws:REAL', () => {
+    const token = createSessionToken('REAL-WS', 'https://shop.example'); // default: 'public'
+    const key = resolveRateLimitWorkspaceKey(req({ ip: '8.0.0.3', originalUrl: '/api/widget/poll', headers: { 'x-widget-token': token } }));
+    expect(key).not.toBe('ws:REAL-WS');
+    expect(key).toBe('ip:8.0.0.3');
+  });
+
+  it('T9 — signed rl:"workspace" call-widget session → ws:REAL', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
-    const session = signWidgetSession(config, { workspace_id: 'REAL-CC', public_key: 'pk_public' });
+    const session = signWidgetSession(config, { workspace_id: 'REAL-CC', public_key: 'pk_public', rl: 'workspace' } as any);
     const key = resolveRateLimitWorkspaceKey(req({
       ip: '8.1.0.1',
       originalUrl: '/api/call-widget/state',
@@ -148,8 +155,20 @@ describe('T8/T9/T11 — verified credentials DO yield the workspace bucket', () 
     expect(key).toBe('ws:REAL-CC');
   });
 
-  it('T11 — refresh grace preserved on /session/refresh', () => {
-    const token = createSessionToken('REAL-WS', 'https://shop.example');
+  it('T9b — the SAME session shape bootstrap actually issues today ("public" trust) never yields ws:REAL', () => {
+    const config: any = { widgetTokenSecret: 'cc-secret' };
+    const session = signWidgetSession(config, { workspace_id: 'REAL-CC', public_key: 'pk_public' }); // default: 'public'
+    const key = resolveRateLimitWorkspaceKey(req({
+      ip: '8.1.0.2',
+      originalUrl: '/api/call-widget/state',
+      serverConfig: config,
+      headers: { 'x-cc-session': session },
+    }));
+    expect(key).not.toBe('ws:REAL-CC');
+  });
+
+  it('T11 — refresh grace preserved on /session/refresh for a genuine rl:"workspace" token', () => {
+    const token = createSessionToken('REAL-WS', 'https://shop.example', 'workspace');
     const key = resolveRateLimitWorkspaceKey(req({
       ip: '8.2.0.1',
       originalUrl: '/api/widget/session/refresh',
@@ -165,6 +184,8 @@ describe('middleware ordering — real express chain', () => {
     a.use(express.json());
     a.set('trust proxy', false);
     // Mirrors server/index.ts: pre-auth bootstrap has NO workspace limiter.
+    // The bootstrap handler here mints the SAME trust class the real
+    // widgetRouter bootstrap issues today: 'public' (the default third arg).
     a.post('/api/widget/bootstrap', (req, res) => {
       res.json({ bucket: resolveRateLimitWorkspaceKey(req as any), token: createSessionToken('REAL-WS', 'https://shop.example') });
     });
@@ -174,7 +195,7 @@ describe('middleware ordering — real express chain', () => {
     return a;
   }
 
-  it('bootstrap (spoofed victim identity) → IP bucket; then token → ws:REAL', async () => {
+  it('bootstrap (spoofed victim identity) → IP bucket; a real "public"-trust token STILL never reaches ws:REAL', async () => {
     const boot = await request(app())
       .post('/api/widget/bootstrap')
       .set('Origin', VICTIM_ORIGIN)
@@ -183,9 +204,21 @@ describe('middleware ordering — real express chain', () => {
     expect(boot.body.bucket.startsWith('ws:')).toBe(false);
     expect(typeof boot.body.token).toBe('string');
 
+    // This is the credential a real attacker (or a real visitor) actually
+    // gets from bootstrap. It authenticates the caller for functional widget
+    // routes, but per the trust boundary it must NOT select the shared
+    // workspace hard-blocking bucket — only IP/session buckets apply to it.
     const authed = await request(app())
       .get('/api/widget/poll')
       .set('x-widget-token', boot.body.token);
+    expect(authed.body.bucket.startsWith('ws:')).toBe(false);
+  });
+
+  it('a hypothetical rl:"workspace" token (no issuer today) WOULD reach ws:REAL — proves the bucket mechanism itself is intact', async () => {
+    const strongToken = createSessionToken('REAL-WS', 'https://shop.example', 'workspace');
+    const authed = await request(app())
+      .get('/api/widget/poll')
+      .set('x-widget-token', strongToken);
     expect(authed.body.bucket).toBe('ws:REAL-WS');
   });
 

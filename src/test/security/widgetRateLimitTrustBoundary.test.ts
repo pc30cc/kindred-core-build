@@ -67,21 +67,50 @@ describe('GAP 1 — untrusted workspace_id cannot select a victim bucket', () =>
     expect(resolveRateLimitWorkspaceKey(req({ ip: '1.1.1.9', body: { workspace_id: 'WS1' } }))).toBe('ip:1.1.1.9');
   });
 
-  it('pre-auth bootstrap: only a cryptographically verified context selects the bucket', () => {
-    expect(resolveRateLimitWorkspaceKey(req({ _widgetWorkspaceId: 'WS1' }))).toBe('ws:WS1');
+  it('pre-auth bootstrap: a verified context WITHOUT rl:"workspace" still falls back to the IP bucket', () => {
+    // `_widgetWorkspaceId` alone (as enforceWidgetToken sets it for every
+    // verified 'public'-trust token) is not sufficient — only pairs with
+    // `_widgetRateLimitTrust === 'workspace'` select the bucket.
+    expect(resolveRateLimitWorkspaceKey(req({ _widgetWorkspaceId: 'WS1' }))).toBe('ip:1.1.1.1');
   });
 
-  it('valid token wins over an attacker-supplied workspace_id', () => {
+  it('pre-auth bootstrap: only a cryptographically verified rl:"workspace" context selects the bucket', () => {
+    expect(
+      resolveRateLimitWorkspaceKey(req({ _widgetWorkspaceId: 'WS1', _widgetRateLimitTrust: 'workspace' })),
+    ).toBe('ws:WS1');
+  });
+
+  it('a "public"-trust token (the only kind any bootstrap issues today) never wins the workspace bucket, even over an attacker-supplied workspace_id', () => {
     const token = createSessionToken('WS-A', 'https://shop.example');
+    const key = resolveRateLimitWorkspaceKey(
+      req({ headers: { 'x-widget-token': token }, body: { workspace_id: 'WS-B' } }),
+    );
+    expect(key).not.toBe('ws:WS-A');
+    expect(key).not.toBe('ws:WS-B');
+    expect(key).toBe('ip:1.1.1.1');
+  });
+
+  it('a genuine rl:"workspace" token wins over an attacker-supplied workspace_id — proves the mechanism still works', () => {
+    const token = createSessionToken('WS-A', 'https://shop.example', 'workspace');
     const key = resolveRateLimitWorkspaceKey(
       req({ headers: { 'x-widget-token': token }, body: { workspace_id: 'WS-B' } }),
     );
     expect(key).toBe('ws:WS-A');
   });
 
-  it('valid cc session wins over an attacker-supplied workspace_id', () => {
+  it('a "public"-trust cc session never wins the workspace bucket, even over an attacker-supplied workspace_id', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
     const token = signWidgetSession(config, { workspace_id: 'WS-CC', public_key: null });
+    const key = resolveRateLimitWorkspaceKey(
+      req({ originalUrl: '/api/call-widget/bootstrap', serverConfig: config, headers: { 'x-cc-session': token }, body: { workspace_id: 'VICTIM' } }),
+    );
+    expect(key).not.toBe('ws:WS-CC');
+    expect(key).toBe('ip:1.1.1.1');
+  });
+
+  it('a genuine rl:"workspace" cc session wins over an attacker-supplied workspace_id', () => {
+    const config: any = { widgetTokenSecret: 'cc-secret' };
+    const token = signWidgetSession(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' } as any);
     const key = resolveRateLimitWorkspaceKey(
       req({ originalUrl: '/api/call-widget/bootstrap', serverConfig: config, headers: { 'x-cc-session': token }, body: { workspace_id: 'VICTIM' } }),
     );
@@ -90,20 +119,29 @@ describe('GAP 1 — untrusted workspace_id cannot select a victim bucket', () =>
 });
 
 describe('GAP 2 — /session/refresh uses refresh-grace semantics', () => {
-  it('R1 — valid normal token → ws:WS1', () => {
-    const token = createSessionToken('WS1', 'https://shop.example');
+  // R1-R3 use a genuine rl:'workspace' token so the grace/IP-rotation
+  // mechanics are exercised against a real ws:<workspace> outcome — trust
+  // class itself is covered separately above and in the "public token never
+  // wins" tests below.
+  it('R1 — valid rl:"workspace" token → ws:WS1', () => {
+    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
     expect(resolveRateLimitWorkspaceKey(req({ originalUrl: REFRESH, headers: { 'x-widget-token': token } }))).toBe('ws:WS1');
   });
 
-  it('R2 — recently expired but inside grace → ws:WS1', () => {
+  it('R1b — a "public"-trust token on refresh never yields ws:WS1', () => {
     const token = createSessionToken('WS1', 'https://shop.example');
+    expect(resolveRateLimitWorkspaceKey(req({ originalUrl: REFRESH, headers: { 'x-widget-token': token } }))).toBe('ip:1.1.1.1');
+  });
+
+  it('R2 — recently expired but inside grace → ws:WS1 (rl:"workspace")', () => {
+    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 17 * 60_000); // TTL 15m, grace 5m
     expect(resolveRateLimitWorkspaceKey(req({ ip: '2.2.2.2', originalUrl: REFRESH, headers: { 'x-widget-token': token } }))).toBe('ws:WS1');
   });
 
-  it('R3 — IP rotation during refresh stays in one bucket', () => {
-    const token = createSessionToken('WS1', 'https://shop.example');
+  it('R3 — IP rotation during refresh stays in one bucket (rl:"workspace")', () => {
+    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 17 * 60_000);
     const keys = ['9.9.9.1', '9.9.9.2', '9.9.9.3'].map((ip) =>

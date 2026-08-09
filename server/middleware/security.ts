@@ -109,12 +109,21 @@ const REFRESH_PATH = /^\/api\/widget\/session\/refresh\/?$/;
  * Resolve the rate-limit bucket for a public widget/visitor request.
  *
  * TRUST BOUNDARY (non-negotiable): a `ws:<workspace>` bucket may be produced
- * ONLY from a server-verifiable, unforgeable credential:
+ * ONLY from a credential that is BOTH:
  *
- *   - a verified HMAC widget session token (`x-widget-token`)
- *   - the same token inside the refresh grace window, on /session/refresh
- *   - a verified signed call-widget session (`x-cc-session`)
- *   - `_widgetWorkspaceId`, set only by `enforceWidgetToken` AFTER verification
+ *   1. cryptographically valid (HMAC verifies), AND
+ *   2. carries the `rl:'workspace'` rate-limit trust claim.
+ *
+ * A valid HMAC alone is NOT enough. It only proves "our server issued this
+ * token at some point for workspace X" — it does not prove the caller who
+ * obtained it was a legitimate browser visitor, because bootstrap's own
+ * inputs (workspace_id/publicKey, Origin/Referer) are ordinary request data
+ * a non-browser attacker can set to any value, including a real victim's
+ * own domain. Every bootstrap path in this codebase signs `rl:'public'`
+ * today — see WidgetRateLimitTrust in server/services/widget/security.ts —
+ * so as things stand NOTHING can select a `ws:<workspace>` bucket; that is
+ * intentional, not a bug, until a genuinely unforgeable proof exists to
+ * justify issuing `rl:'workspace'`.
  *
  * Spoofable/public client input — `workspace_id`, `workspaceId`, `publicKey`,
  * `Origin`, `Referer`, `Host`, `X-Forwarded-*`, `visitor_id`, `contact_id`,
@@ -123,7 +132,10 @@ const REFRESH_PATH = /^\/api\/widget\/session\/refresh\/?$/;
  * proof against a non-browser attacker who forges arbitrary headers.
  *
  * Everything unproven falls back to the per-IP bucket; pre-auth endpoints are
- * additionally protected by the dedicated pre-auth limiters below.
+ * additionally protected by the dedicated pre-auth limiters below, and a
+ * verified-but-`public`-trust credential still gets its own per-session
+ * nonce cap (widgetRateLimit in services/widget/security.ts;
+ * callWidgetSessionRateLimiter below) so it isn't left unbounded either.
  */
 export function resolveRateLimitWorkspaceKey(req: Request): string {
   const trusted = resolveTrustedRateLimitWorkspaceId(req);
@@ -132,16 +144,22 @@ export function resolveRateLimitWorkspaceKey(req: Request): string {
 }
 
 /**
- * Workspace id proven by an already-verified signature, validated pre-auth
- * context, or upstream middleware. Returns null when nothing trustworthy is
- * present.
+ * Workspace id proven by an already-verified signature carrying the
+ * `rl:'workspace'` trust claim, validated pre-auth context, or upstream
+ * middleware. Returns null when nothing sufficiently trustworthy is present
+ * — which today means it returns null for every credential in this
+ * codebase, since nothing issues `rl:'workspace'` yet (see the doc comment
+ * on resolveRateLimitWorkspaceKey above). That is the intended, safe state.
  *
  * NOTE on ordering: this limiter is mounted in server/index.ts BEFORE the
  * widget router, so `_widgetWorkspaceId` (set later by `enforceWidgetToken`)
  * is normally absent here. At this layer the real trusted sources are the
  * verified `x-widget-token` / `x-cc-session` headers and the validated
  * pre-auth context; the `_widgetWorkspaceId` branch only applies when the
- * limiter is reused downstream of the token gate.
+ * limiter is reused downstream of the token gate — even there it requires
+ * the matching `_widgetRateLimitTrust === 'workspace'` flag that
+ * `enforceWidgetToken` sets alongside it, so a downstream reuse can't
+ * silently regain trust that the token never earned.
  */
 export function resolveTrustedRateLimitWorkspaceId(req: Request): string | null {
   const cached = (req as any)._rateLimitWorkspaceId;
@@ -154,7 +172,10 @@ export function resolveTrustedRateLimitWorkspaceId(req: Request): string | null 
 
 function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
   const already = (req as any)._widgetWorkspaceId;
-  if (typeof already === 'string' && already.trim()) return already.trim();
+  const alreadyTrust = (req as any)._widgetRateLimitTrust;
+  if (typeof already === 'string' && already.trim() && alreadyTrust === 'workspace') {
+    return already.trim();
+  }
 
   const widgetToken = req.headers?.['x-widget-token'];
   const widgetTokenStr = Array.isArray(widgetToken) ? widgetToken[0] : widgetToken;
@@ -168,10 +189,16 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
       const result = REFRESH_PATH.test(requestPath(req))
         ? verifyTokenForRefresh(widgetTokenStr)
         : verifySessionToken(widgetTokenStr);
-      if (result.valid && result.workspaceId) return result.workspaceId;
+      // Valid HMAC is necessary but not sufficient — see the trust-boundary
+      // doc comment above. Only a token that was itself signed with
+      // rl:'workspace' may select the shared workspace bucket.
+      if (result.valid && result.workspaceId && result.rateLimitTrust === 'workspace') {
+        return result.workspaceId;
+      }
     } catch { /* never let token parsing break the limiter */ }
-    // A presented-but-unverifiable token means "untrusted caller": stop here so
-    // no weaker source can be used behind a failed verification.
+    // A presented token — verified-but-public-trust, or unverifiable —
+    // means "no workspace-bucket entitlement": stop here so no weaker
+    // source can be used behind it.
     return null;
   }
 
@@ -182,7 +209,7 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
     if (config) {
       try {
         const payload = verifyWidgetSession(config, ccTokenStr);
-        if (payload?.workspace_id) return payload.workspace_id;
+        if (payload?.workspace_id && (payload as any).rl === 'workspace') return payload.workspace_id;
       } catch { /* ignore */ }
     }
     return null;
@@ -211,6 +238,45 @@ export const widgetWorkspaceRateLimiter = rateLimit({
         : null,
     });
     res.status(429).json({ error: 'Workspace rate limit exceeded.' });
+  },
+});
+
+/**
+ * Per-call-widget-session ceiling — additive to the per-IP `widgetRateLimiter`
+ * and the `ws:<workspace>` bucket above (which, per the trust-boundary
+ * comment on resolveRateLimitWorkspaceKey, is unreachable by any credential
+ * this codebase issues today). Keyed by the session's own HMAC-verified
+ * nonce (server/services/callCenter/widgetSession.ts) so ONE credential's
+ * usage is capped even when replayed from rotating source IPs — no DB
+ * lookup required. Skipped entirely when no verifiable session is present
+ * (bootstrap, forged tokens); that traffic is already covered by the
+ * pre-auth / per-IP limiters.
+ */
+function resolveCcSessionNonceKey(req: Request): string | null {
+  const ccToken = req.headers?.['x-cc-session'];
+  const ccTokenStr = Array.isArray(ccToken) ? ccToken[0] : ccToken;
+  const config = (req as any).serverConfig as ServerConfig | undefined;
+  if (typeof ccTokenStr !== 'string' || !ccTokenStr || !config) return null;
+  try {
+    const payload = verifyWidgetSession(config, ccTokenStr);
+    if (payload?.nonce) return payload.nonce;
+  } catch { /* ignore */ }
+  return null;
+}
+
+export const callWidgetSessionRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS' || resolveCcSessionNonceKey(req) === null,
+  keyGenerator: (req) => `cc-session:${resolveCcSessionNonceKey(req)}`,
+  handler: async (req, res) => {
+    await logSecurityEvent(req, 'rate_limited', 'info', {
+      endpoint: req.originalUrl,
+      limit: '120/min/session',
+    });
+    res.status(429).json({ error: 'Too many requests for this session — please slow down.' });
   },
 });
 

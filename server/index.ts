@@ -79,6 +79,7 @@ import {
   widgetBootstrapGlobalCeiling,
   callWidgetBootstrapRateLimiter,
   callWidgetBootstrapGlobalCeiling,
+  callWidgetSessionRateLimiter,
   publicKbRateLimiter,
   publicKbGlobalCeiling,
   visitorPreAuthRateLimiter,
@@ -416,7 +417,11 @@ app.use('/api/call-center', callCenterRouter);
 // Pre-auth call-widget bootstrap: `publicKey` is a PUBLIC identifier visible in
 // the embed, never a secret — it cannot select a workspace bucket.
 app.use('/api/call-widget/bootstrap', callWidgetBootstrapGlobalCeiling, callWidgetBootstrapRateLimiter);
-app.use('/api/call-widget', widgetRateLimiter, widgetWorkspaceRateLimiter, callWidgetRouter);
+// Post-bootstrap call-widget traffic: per-IP + workspace bucket (unreachable
+// today, see resolveRateLimitWorkspaceKey's doc comment) + a per-session
+// ceiling keyed on the verified x-cc-session nonce, so one credential can't
+// be hammered past a sane cap purely by rotating source IPs.
+app.use('/api/call-widget', widgetRateLimiter, widgetWorkspaceRateLimiter, callWidgetSessionRateLimiter, callWidgetRouter);
 
 // 404
 app.use((_req, res) => {

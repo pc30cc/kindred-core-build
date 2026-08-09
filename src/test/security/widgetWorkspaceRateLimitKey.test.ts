@@ -19,34 +19,53 @@ function req(overrides: any = {}) {
 }
 
 describe('rate-limit workspace key resolution', () => {
-  it('Test A — a VERIFIED workspace shares one bucket across IPs', () => {
-    // `_widgetWorkspaceId` is set only by enforceWidgetToken after HMAC
-    // verification. A raw workspace_id alone never selects a bucket.
-    const a = resolveRateLimitWorkspaceKey(req({ ip: '1.1.1.1', _widgetWorkspaceId: 'WS1' }));
-    const b = resolveRateLimitWorkspaceKey(req({ ip: '2.2.2.2', _widgetWorkspaceId: 'WS1' }));
+  it('Test A — a VERIFIED workspace shares one bucket across IPs, but only with rl:"workspace" trust', () => {
+    // `_widgetWorkspaceId` is set by enforceWidgetToken for EVERY verified
+    // token (any trust class); `_widgetRateLimitTrust` is what actually
+    // gates the bucket. A raw workspace_id alone never selects a bucket.
+    const a = resolveRateLimitWorkspaceKey(req({ ip: '1.1.1.1', _widgetWorkspaceId: 'WS1', _widgetRateLimitTrust: 'workspace' }));
+    const b = resolveRateLimitWorkspaceKey(req({ ip: '2.2.2.2', _widgetWorkspaceId: 'WS1', _widgetRateLimitTrust: 'workspace' }));
     expect(a).toBe('ws:WS1');
     expect(b).toBe('ws:WS1');
+    // Verified-but-'public'-trust context falls back to the IP bucket.
+    expect(resolveRateLimitWorkspaceKey(req({ ip: '9.9.9.9', _widgetWorkspaceId: 'WS1' }))).toBe('ip:9.9.9.9');
     // Unvalidated hints fall back to the IP bucket.
     expect(resolveRateLimitWorkspaceKey(req({ ip: '3.3.3.3', body: { workspace_id: 'WS1' } }))).toBe('ip:3.3.3.3');
   });
 
-  it('Test B — verified widget token yields the workspace bucket without workspace_id', () => {
+  it('Test B — a "public"-trust widget token (what bootstrap issues today) never yields the workspace bucket', () => {
     const token = createSessionToken('WS1', 'https://shop.example');
+    const key = resolveRateLimitWorkspaceKey(req({ headers: { 'x-widget-token': token } }));
+    expect(key).not.toBe('ws:WS1');
+    expect(key).toBe('ip:1.1.1.1');
+  });
+
+  it('Test B1 — a genuine rl:"workspace" widget token yields the workspace bucket without workspace_id', () => {
+    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
     const key = resolveRateLimitWorkspaceKey(req({ headers: { 'x-widget-token': token } }));
     expect(key).toBe('ws:WS1');
   });
 
-  it('Test B2 — verified call-widget session token yields the workspace bucket', () => {
+  it('Test B2 — a "public"-trust call-widget session (what bootstrap issues today) never yields the workspace bucket', () => {
     const config: any = { widgetTokenSecret: 'cc-secret' };
     const token = signWidgetSession(config, { workspace_id: 'WS-CC', public_key: null });
+    const key = resolveRateLimitWorkspaceKey(
+      req({ headers: { 'x-cc-session': token }, serverConfig: config }),
+    );
+    expect(key).not.toBe('ws:WS-CC');
+  });
+
+  it('Test B3 — a genuine rl:"workspace" call-widget session yields the workspace bucket', () => {
+    const config: any = { widgetTokenSecret: 'cc-secret' };
+    const token = signWidgetSession(config, { workspace_id: 'WS-CC', public_key: null, rl: 'workspace' } as any);
     const key = resolveRateLimitWorkspaceKey(
       req({ headers: { 'x-cc-session': token }, serverConfig: config }),
     );
     expect(key).toBe('ws:WS-CC');
   });
 
-  it('Test C — IP rotation with the same token stays in one bucket', () => {
-    const token = createSessionToken('WS1', 'https://shop.example');
+  it('Test C — IP rotation with the same rl:"workspace" token stays in one bucket', () => {
+    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
     const keys = ['9.9.9.1', '9.9.9.2', '9.9.9.3'].map((ip) =>
       resolveRateLimitWorkspaceKey(req({ ip, headers: { 'x-widget-token': token } })),
     );
@@ -54,15 +73,24 @@ describe('rate-limit workspace key resolution', () => {
     expect(keys[0]).toBe('ws:WS1');
   });
 
+  it('Test C1 — IP rotation with the same "public"-trust token never converges on a workspace bucket', () => {
+    const token = createSessionToken('WS1', 'https://shop.example');
+    const keys = ['9.9.9.1', '9.9.9.2', '9.9.9.3'].map((ip) =>
+      resolveRateLimitWorkspaceKey(req({ ip, headers: { 'x-widget-token': token } })),
+    );
+    expect(keys.every((k) => !k.startsWith('ws:'))).toBe(true);
+    expect(new Set(keys).size).toBe(3); // each IP pays its own quota
+  });
+
   it('Test D — forged/unverified token cannot select a victim workspace bucket', () => {
-    const forged = 'wss_' + Buffer.from(JSON.stringify({ w: 'victimWorkspace', o: '', n: 'x', iat: 1, exp: 9e9 })).toString('base64url') + '.deadbeef';
+    const forged = 'wss_' + Buffer.from(JSON.stringify({ w: 'victimWorkspace', o: '', n: 'x', iat: 1, exp: 9e9, rl: 'workspace' })).toString('base64url') + '.deadbeef';
     const key = resolveRateLimitWorkspaceKey(req({ ip: '5.5.5.5', headers: { 'x-widget-token': forged } }));
     expect(key).not.toBe('ws:victimWorkspace');
     expect(key).toBe('ip:5.5.5.5');
   });
 
-  it('Test D2 — a verified token wins over an attacker-supplied workspace_id', () => {
-    const token = createSessionToken('WS1', 'https://shop.example');
+  it('Test D2 — a genuine rl:"workspace" token wins over an attacker-supplied workspace_id', () => {
+    const token = createSessionToken('WS1', 'https://shop.example', 'workspace');
     const key = resolveRateLimitWorkspaceKey(
       req({ headers: { 'x-widget-token': token }, body: { workspace_id: 'victimWorkspace' } }),
     );

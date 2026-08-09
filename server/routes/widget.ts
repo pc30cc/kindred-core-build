@@ -281,6 +281,21 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       return res.json({ disabled: true, fallback: true });
     }
 
+    // Credential-issuance integrity — a bootstrap request with NEITHER
+    // Origin NOR Referer cannot be bound to anything. Without this check,
+    // createSessionToken() below would mint a real, validly-signed token
+    // with origin="". A real browser embedding this widget always sends
+    // Origin (fetch POST with credentials:'include' — see
+    // public/widget/loader.js) regardless of same-origin/cross-origin, dev
+    // or prod, so this is required unconditionally rather than gated behind
+    // an environment flag: Dockerfile.server never sets NODE_ENV=production,
+    // so a NODE_ENV-gated bypass would silently stay ACTIVE in production,
+    // and no real browser traffic needs the bypass anyway.
+    if (!requestOrigin) {
+      console.warn(`[widget-bootstrap] Rejected — no Origin/Referer for workspace ${resolvedWorkspaceId}`);
+      return res.status(403).json({ error: 'Origin or Referer required', code: 'ORIGIN_REQUIRED' });
+    }
+
     // Origin validation
     if (requestOrigin && widgetSettings) {
       const originRules = await getWorkspaceOriginRules(config, resolvedWorkspaceId);
@@ -398,7 +413,13 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
       return res.status(403).json({ error: 'Origin mismatch', code: 'ORIGIN_MISMATCH' });
     }
 
-    const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin);
+    // Trust class carries forward unchanged — refresh must never be a path
+    // to escalate a 'public' token into something more trusted than the
+    // proof it originally had. tokenData.rateLimitTrust already defaults to
+    // 'public' for pre-claim tokens (see verifySessionToken), so this
+    // explicitly preserves whatever the original bootstrap actually earned
+    // rather than silently re-deriving a value from the current request.
+    const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin, tokenData.rateLimitTrust);
     const newResult = verifySessionToken(newToken);
 
     if (requestOrigin) {

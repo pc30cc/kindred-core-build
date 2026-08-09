@@ -25,6 +25,33 @@ function getSigningSecret(): Buffer {
   return crypto.createHash('sha256').update('widget-session:' + base).digest();
 }
 
+/**
+ * Rate-limit trust class — orthogonal to cryptographic validity.
+ *
+ * A valid HMAC on a session token proves only "our server issued this token
+ * at some point for workspace X". It does NOT prove the caller who obtained
+ * it was a legitimate browser visitor, because bootstrap's own inputs
+ * (workspace_id, Origin/Referer) are ordinary request data a non-browser
+ * attacker can set to any value, including a real victim's own domain. See
+ * createSessionToken()'s doc comment.
+ *
+ *   'public'    — issued from bootstrap's own (spoofable) proof. Good enough
+ *                 for normal per-IP / per-session functional rate limits,
+ *                 but must NEVER be treated as sufficient to select the
+ *                 shared per-workspace hard-blocking bucket
+ *                 (`resolveTrustedRateLimitWorkspaceId` in
+ *                 server/middleware/security.ts) — a workspace UUID is
+ *                 public/guessable, so that bucket must only be reachable by
+ *                 proof an attacker cannot fabricate.
+ *   'workspace' — reserved for a future stronger-proof escalation path
+ *                 (e.g. a challenge). Nothing in this codebase issues
+ *                 'workspace' today — bootstrap always signs 'public'. The
+ *                 claim exists now so escalation has an explicit,
+ *                 server-signed home instead of being inferred from "HMAC
+ *                 verified" alone.
+ */
+export type WidgetRateLimitTrust = 'public' | 'workspace';
+
 export interface TokenResult {
   valid: boolean;
   reason?: string;
@@ -34,12 +61,23 @@ export interface TokenResult {
   issuedAt?: number;
   expiresAt?: number;
   wasExpired?: boolean;
+  rateLimitTrust?: WidgetRateLimitTrust;
 }
 
 /**
  * Create a short-lived HMAC session token with unique nonce.
+ *
+ * `rateLimitTrust` defaults to 'public' and every current call site keeps
+ * that default — see WidgetRateLimitTrust's doc comment. The signature
+ * proves "server-issued", not "legitimate browser visitor"; `origin` is
+ * whatever Origin/Referer the caller sent and is preserved for cross-origin
+ * replay binding, not as identity proof.
  */
-export function createSessionToken(workspaceId: string, origin: string): string {
+export function createSessionToken(
+  workspaceId: string,
+  origin: string,
+  rateLimitTrust: WidgetRateLimitTrust = 'public',
+): string {
   const now = Math.floor(Date.now() / 1000);
   const nonce = crypto.randomBytes(8).toString('hex');
   const payload = {
@@ -48,6 +86,7 @@ export function createSessionToken(workspaceId: string, origin: string): string 
     n: nonce,
     iat: now,
     exp: now + SESSION_TOKEN_TTL_SECONDS,
+    rl: rateLimitTrust,
   };
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', getSigningSecret()).update(payloadB64).digest('base64url');
@@ -84,6 +123,16 @@ export function verifySessionToken(token: string, options?: { skipExpiry?: boole
     return { valid: false, reason: 'invalid_payload' };
   }
 
+  // Backward-compat: a token signed before the `rl` claim existed (or any
+  // value other than the one trust class bootstrap can ever actually issue
+  // today) parses as 'public' — the safe floor. This can only ever fail to
+  // LOWER trust, never escalate it: nothing downstream grants more than
+  // 'public' gets, so an old/missing/malformed claim silently downgrading
+  // to 'public' is a no-op today and stays that way even once a 'workspace'
+  // path exists — that path must still require the claim to literally
+  // equal 'workspace'.
+  const rateLimitTrust: WidgetRateLimitTrust = payload.rl === 'workspace' ? 'workspace' : 'public';
+
   const now = Math.floor(Date.now() / 1000);
   if (!skipExpiry && (!payload.exp || payload.exp < now)) {
     return {
@@ -94,6 +143,7 @@ export function verifySessionToken(token: string, options?: { skipExpiry?: boole
       nonce: payload.n,
       issuedAt: payload.iat,
       expiresAt: payload.exp,
+      rateLimitTrust,
     };
   }
 
@@ -104,6 +154,7 @@ export function verifySessionToken(token: string, options?: { skipExpiry?: boole
     nonce: payload.n,
     issuedAt: payload.iat,
     expiresAt: payload.exp,
+    rateLimitTrust,
   };
 }
 
@@ -164,6 +215,43 @@ function checkRateLimit(key: string, category: string = 'default'): boolean {
   return true;
 }
 
+// ─── Per-session rate limiting (additive layer, not a replacement) ───
+//
+// The bucket above is keyed by (category, IP, workspace). An attacker who
+// rotates source IPs gets a fresh IP+workspace bucket on every rotation, so
+// that bucket alone bounds each individual (IP, workspace) pair but not the
+// aggregate volume ONE credential can drive while hopping IPs. This second
+// bucket is keyed by the token's own HMAC-verified nonce instead of IP, so a
+// single session's usage is capped regardless of how many source IPs it's
+// replayed from. It does not stop an attacker from minting many DIFFERENT
+// sessions (each gets its own nonce bucket) — that's what the pre-auth
+// bootstrap limiters in server/middleware/security.ts are for. No-op for
+// bootstrap/refresh (no verified session yet at that point).
+const sessionRateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of sessionRateLimitStore) {
+    if (now > val.resetAt) sessionRateLimitStore.delete(key);
+  }
+}, 30_000);
+
+function checkSessionRateLimit(nonce: string, category: string): boolean {
+  const limit = RATE_LIMITS[category] || RATE_LIMITS.default;
+  const now = Date.now();
+  const key = `${category}:session:${nonce}`;
+  const entry = sessionRateLimitStore.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    sessionRateLimitStore.set(key, { count: 1, resetAt: now + limit.window * 1000 });
+    return true;
+  }
+
+  if (entry.count >= limit.max) return false;
+  entry.count++;
+  return true;
+}
+
 /**
  * Canonical client IP resolver — re-exported so widget routes have a single
  * implementation. Previously this file had its own extractor that trusted
@@ -205,6 +293,8 @@ export function enforceWidgetToken(req: Request, res: Response, next: NextFuncti
   (req as any)._widgetWorkspaceId = result.workspaceId;
   (req as any)._widgetSessionOrigin = result.origin;
   (req as any)._widgetToken = token;
+  (req as any)._widgetNonce = result.nonce;
+  (req as any)._widgetRateLimitTrust = result.rateLimitTrust;
   next();
 }
 
@@ -252,6 +342,19 @@ export function widgetRateLimit(category: string = 'default') {
         retry_after: RATE_LIMITS[category]?.window || 60,
       });
     }
+
+    // Additional session-scoped cap — see checkSessionRateLimit's doc
+    // comment. Only present once enforceWidgetToken has verified a token;
+    // bootstrap/refresh run before that middleware, so this is a no-op there.
+    const nonce = (req as any)._widgetNonce as string | undefined;
+    if (nonce && !checkSessionRateLimit(nonce, category)) {
+      return res.status(429).json({
+        error: 'Too many requests for this session — please slow down',
+        code: 'SESSION_RATE_LIMITED',
+        retry_after: RATE_LIMITS[category]?.window || 60,
+      });
+    }
+
     next();
   };
 }

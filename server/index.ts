@@ -67,7 +67,6 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
-import { preAuthWorkspaceContext } from './middleware/preAuthWorkspaceContext.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,

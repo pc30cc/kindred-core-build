@@ -13,6 +13,7 @@ function req(overrides: any = {}) {
     query: {},
     body: {},
     headers: {},
+    originalUrl: '/api/widget/bootstrap',
     ...overrides,
   } as any;
 }

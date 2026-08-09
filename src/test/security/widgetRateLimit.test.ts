@@ -70,16 +70,16 @@ describe('ipBlockMiddleware is fail-closed', () => {
 
 describe('per-workspace widget rate limiting', () => {
   it('keys on the workspace, not the IP, when workspace context exists', () => {
-    expect(resolveRateLimitWorkspaceKey({ ip: '1.1.1.1', query: { workspace_id: 'ws-a' }, body: {} } as any)).toBe('ws:ws-a');
-    expect(resolveRateLimitWorkspaceKey({ ip: '2.2.2.2', query: {}, body: { workspace_id: 'ws-a' } } as any)).toBe('ws:ws-a');
+    expect(resolveRateLimitWorkspaceKey({ ip: '1.1.1.1', query: { workspace_id: 'ws-a' }, body: {}, headers: {}, originalUrl: '/api/widget/bootstrap' } as any)).toBe('ws:ws-a');
+    expect(resolveRateLimitWorkspaceKey({ ip: '2.2.2.2', query: {}, body: { workspace_id: 'ws-a' }, headers: {}, originalUrl: '/api/widget/bootstrap' } as any)).toBe('ws:ws-a');
     // Same workspace from two different IPs → same bucket (IP rotation resistant)
-    const a = resolveRateLimitWorkspaceKey({ ip: '1.1.1.1', query: {}, body: { workspaceId: 'ws-b' } } as any);
-    const b = resolveRateLimitWorkspaceKey({ ip: '3.3.3.3', query: {}, body: { workspaceId: 'ws-b' } } as any);
+    const a = resolveRateLimitWorkspaceKey({ ip: '1.1.1.1', query: {}, body: { workspaceId: 'ws-b' }, headers: {}, originalUrl: '/api/widget/bootstrap' } as any);
+    const b = resolveRateLimitWorkspaceKey({ ip: '3.3.3.3', query: {}, body: { workspaceId: 'ws-b' }, headers: {}, originalUrl: '/api/widget/bootstrap' } as any);
     expect(a).toBe(b);
   });
 
   it('falls back to an IP bucket when no workspace is present', () => {
-    expect(resolveRateLimitWorkspaceKey({ ip: '4.4.4.4', query: {}, body: {} } as any)).toBe('ip:4.4.4.4');
+    expect(resolveRateLimitWorkspaceKey({ ip: '4.4.4.4', query: {}, body: {}, headers: {}, originalUrl: '/api/widget/bootstrap' } as any)).toBe('ip:4.4.4.4');
   });
 
   it('is mounted as a real express-rate-limit middleware', () => {

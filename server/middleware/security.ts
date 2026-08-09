@@ -259,6 +259,8 @@ function preAuthLimiter(scope: string, max: number) {
     max,
     standardHeaders: true,
     legacyHeaders: false,
+    // CORS preflights carry no payload and must not consume visitor quota.
+    skip: (req) => req.method === 'OPTIONS',
     keyGenerator: (req) => `${scope}:${ipBucket(req)}`,
     handler: async (req, res) => {
       await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: req.originalUrl, limit: `${max}/min/ip`, scope });

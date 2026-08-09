@@ -262,7 +262,7 @@ app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 // protected by per-IP + global ceilings ONLY. It must never touch the
 // authenticated per-workspace bucket (a spoofed Origin / known workspace UUID
 // would otherwise let an attacker drain a victim's shared quota).
-app.use('/api/widget/bootstrap', widgetBootstrapGlobalCeiling, widgetBootstrapRateLimiter);
+app.use('/api/widget/bootstrap', widgetCorsMiddleware(), widgetBootstrapGlobalCeiling, widgetBootstrapRateLimiter);
 
 // Anonymous public KB JSON — no cryptographic credential exists on this path,
 // so there is deliberately NO workspace blocking bucket for it.

@@ -7,6 +7,7 @@ const VICTIM = '22222222-2222-4222-8222-222222222222';
 const GHOST = '33333333-3333-4333-8333-333333333333';
 const SESSION_A = '44444444-4444-4444-8444-444444444444';
 const WS_A = '55555555-5555-4555-8555-555555555555';
+const DB_ERROR_WS = '66666666-6666-4666-8666-666666666666';
 
 const workspaces = new Set([REAL, VICTIM, WS_A]);
 const trackingEnabled = new Set([REAL, VICTIM]);
@@ -25,6 +26,7 @@ vi.mock('../../../server/supabase.js', () => ({
       select: () => ({
         eq: (_c: string, v: string) => ({
           maybeSingle: async () => {
+            if (v === DB_ERROR_WS) return { data: null, error: { message: 'db down' } };
             if (table === 'workspaces') return { data: workspaces.has(v) ? { id: v } : null, error: null };
             if (table === 'widget_settings') {
               return { data: workspaces.has(v) ? { visitor_tracking_enabled: trackingEnabled.has(v) } : null, error: null };
@@ -114,8 +116,8 @@ describe('P1–P5 — widget bootstrap pre-auth targeting', () => {
     const keys = await Promise.all(ips.map((ip) => bucketFor({
       ip, body: { workspace_id: VICTIM }, headers: { origin: 'https://evil.example' },
     })));
-    expect(keys.every((k) => k === `ip:${keys.indexOf(k) >= 0 ? k.slice(3) : ''}`)).toBe(true);
-    expect(keys.some((k) => k === `ws:${VICTIM}`)).toBe(false);
+    expect(keys.every((k) => k.startsWith('ip:'))).toBe(true);
+    expect(keys).not.toContain(`ws:${VICTIM}`);
     expect(new Set(keys).size).toBe(10); // one bucket per attacker IP
   });
 
@@ -270,14 +272,14 @@ describe('P14 — token-secured behavior is unchanged', () => {
 });
 
 describe('fail-safe behavior', () => {
-  it('a validation error resolves to the IP bucket, never the raw workspace hint', async () => {
-    const req = makeReq({ ip: '1.9.9.9', body: { workspace_id: VICTIM } });
-    Object.defineProperty(req, 'headers', {
-      get() { throw new Error('boom'); },
-    });
-    const next = vi.fn();
-    await middleware(req, {} as any, next);
-    expect(next).toHaveBeenCalled();
-    expect(resolveRateLimitWorkspaceKey(req)).toBe('ip:1.9.9.9');
+  it('a DB failure during validation resolves to the IP bucket, never the raw hint', async () => {
+    expect(await bucketFor({
+      ip: '1.9.9.9', body: { workspace_id: DB_ERROR_WS }, headers: { origin: 'https://shop.example' },
+    })).toBe('ip:1.9.9.9');
+  });
+
+  it('a request with no server config is not trusted', async () => {
+    expect(await bucketFor({ ip: '1.9.9.8', serverConfig: undefined, body: { workspace_id: REAL } }))
+      .toBe('ip:1.9.9.8');
   });
 });

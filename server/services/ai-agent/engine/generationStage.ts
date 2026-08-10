@@ -53,10 +53,14 @@ export async function runGenerationStage(
     sb, locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
     guidanceMeta, availability,
   } = ctxStage;
-  const { routingMeta } = auto;
   const { decision } = decisionStage;
   const { sources, queryMeta } = retrieval;
-  const { strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef } = answer;
+  const {
+    strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef,
+    // Merged pre+post routing metadata (Follow-up 9E.2) — supersedes
+    // auto.routingMeta, which only ever reflected the pre-strategy phase.
+    routingMeta,
+  } = answer;
 
   const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,

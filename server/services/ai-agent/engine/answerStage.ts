@@ -200,6 +200,7 @@ export async function runAnswerStage(
       triggerMetaRef: { get: () => triggerMeta, set: (v) => { triggerMeta = v; } },
       workflowMetaRef: { get: () => workflowMeta, set: (v) => { workflowMeta = v; } },
       toolMetaRef: { get: () => toolMeta, set: (v) => { toolMeta = v; } },
+      messageRegistry: auto.messageRegistry,
     });
     const runId = await logRun(config, {
       workspaceId,
@@ -233,6 +234,7 @@ export async function runAnswerStage(
       triggerMetaRef: { get: () => triggerMeta, set: (v) => { triggerMeta = v; } },
       workflowMetaRef: { get: () => workflowMeta, set: (v) => { workflowMeta = v; } },
       toolMetaRef: { get: () => toolMeta, set: (v) => { toolMeta = v; } },
+      messageRegistry: auto.messageRegistry,
     });
     const runId = await logRun(config, {
       workspaceId,

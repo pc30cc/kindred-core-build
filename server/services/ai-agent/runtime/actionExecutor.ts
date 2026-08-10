@@ -19,6 +19,7 @@ import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from './conversationState.js';
 import { pickHandoffAckMessage } from './templates.js';
 import type { AgentSettings } from '../settings.js';
+import type { AutomationMessageRegistry } from './messageDedup.js';
 
 export interface ExecutorContext {
   config: ServerConfig;
@@ -27,6 +28,11 @@ export interface ExecutorContext {
   responseLanguage: string;
   settings: AgentSettings;
   runId?: string | null;
+  /** Cross-system (Message Trigger vs. Workflow) dedup for identical
+   * visitor-facing bodies within one engine run. Optional so existing
+   * direct callers of executeRuntimeActions (e.g. tests) keep working
+   * unchanged when omitted. */
+  messageRegistry?: AutomationMessageRegistry;
 }
 
 export interface ExecutionResult {
@@ -53,6 +59,23 @@ export async function executeRuntimeActions(
     if (a.type === 'reply_template') {
       const body = (a.payload as any)?.body as string | undefined;
       if (!body) continue;
+      // Cross-system dedup: a Workflow send_message step (executed before
+      // this, per the unchanged pre-retrieval order) may already have
+      // inserted the identical body this run. Suppress only the physical
+      // insert -- the action stays in `executed` so continue_ai/stopAi
+      // control-flow (computed from this same list, below and in
+      // automationStage.ts) is never weakened by a suppressed write.
+      const claimed = ctx.messageRegistry ? ctx.messageRegistry.claim(body) : true;
+      if (!claimed) {
+        console.log('[ai-agent.runtime.executor] reply_template deduped — identical body already sent this turn', { sourceId: a.sourceId });
+        if (a.source === 'message_trigger' && a.sourceId) {
+          await updateRuntimeFlags(ctx.config, ctx.conversationId, {
+            appendTriggerId: a.sourceId,
+          }).catch(() => {});
+          result.triggerExecutedIds.push(a.sourceId);
+        }
+        continue;
+      }
       const display = deriveAgentDisplay(ctx.settings);
       try {
         const ins = await insertAiMessage(ctx.config, {

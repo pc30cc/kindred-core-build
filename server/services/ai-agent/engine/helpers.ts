@@ -16,6 +16,7 @@ import { evaluateWorkflows, buildWorkflowMetadata } from '../runtime/workflowRun
 import { evaluateInternalTools } from '../runtime/toolRuntime.js';
 import { executeRuntimeActions } from '../runtime/actionExecutor.js';
 import { executeMatchedWorkflows, buildExecutedWorkflowMetadata } from '../runtime/workflowExecutor.js';
+import type { AutomationMessageRegistry } from '../runtime/messageDedup.js';
 
 /**
  * AI-online / human-offline is a valid, common state (the AI keeps
@@ -145,6 +146,11 @@ export async function evaluateNoAnswerHooks(args: {
   triggerMetaRef: { get: () => any; set: (v: any) => void };
   workflowMetaRef: { get: () => any; set: (v: any) => void };
   toolMetaRef: { get: () => any; set: (v: any) => void };
+  /** Same per-run cross-system dedup registry the pre-retrieval automation
+   * stage used -- keeps this post-answer (ai_no_answer) path protected
+   * against the same identical body firing twice, without introducing a
+   * second, independent registry. */
+  messageRegistry?: AutomationMessageRegistry;
 }): Promise<{ handoffExecuted: boolean; lastMessageId: string | null }> {
   const summary = { handoffExecuted: false, lastMessageId: null as string | null };
   if (!args.runtimeCfg) return summary;
@@ -157,6 +163,7 @@ export async function evaluateNoAnswerHooks(args: {
       const exec = await executeRuntimeActions({
         config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
         responseLanguage: args.locale, settings: args.settings, runId: null,
+        messageRegistry: args.messageRegistry,
       }, trig.executed);
       if (exec.handoffExecuted) summary.handoffExecuted = true;
       if (exec.insertedMessageIds.length) summary.lastMessageId = exec.insertedMessageIds[exec.insertedMessageIds.length - 1];
@@ -180,6 +187,7 @@ export async function evaluateNoAnswerHooks(args: {
         {
           config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
           responseLanguage: args.locale, settings: args.settings, runId: null,
+          messageRegistry: args.messageRegistry,
         },
         wf,
         ctx,

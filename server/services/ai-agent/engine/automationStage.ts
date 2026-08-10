@@ -21,6 +21,7 @@ import { evaluateMessageTriggers, type TriggerEvaluationResult } from '../runtim
 import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from '../runtime/workflowRuntime.js';
 import { executeRuntimeActions } from '../runtime/actionExecutor.js';
 import { executeMatchedWorkflows, buildExecutedWorkflowMetadata } from '../runtime/workflowExecutor.js';
+import { createAutomationMessageRegistry, type AutomationMessageRegistry } from '../runtime/messageDedup.js';
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -37,6 +38,11 @@ export interface AutomationStageResult {
   stoppedByTrigger: boolean;
   triggerMessageId: string | null;
   triggerForcesHandoff: boolean;
+  /** Single per-run cross-system dedup registry (Message Trigger vs.
+   * Workflow send_message/ask_question), shared with the post-answer
+   * ai_no_answer hooks so both places automation messages can be inserted
+   * are protected against the same identical body firing twice. */
+  messageRegistry: AutomationMessageRegistry;
 }
 
 export async function runAutomationStage(
@@ -50,6 +56,7 @@ export async function runAutomationStage(
   const { settings, runtimeCfg, decisionTimeline } = pre;
   const { locale, inputLanguage, detectedTopicsMeta, humanRequestFromTopics, state } = ctxStage;
   let { routingMeta, triggerMeta, workflowMeta } = ctxStage;
+  const messageRegistry = createAutomationMessageRegistry();
 
   // ─── C2A — evaluate routing rules ────────────────────────────────────
   // Pure evaluation. Side-effects (handoff, mark_priority) executed below.
@@ -143,7 +150,7 @@ export async function runAutomationStage(
           {
             config, workspaceId, conversationId,
             responseLanguage: locale, inputLanguage,
-            settings, runId: null,
+            settings, runId: null, messageRegistry,
           },
           w,
           buildEvalCtx(),
@@ -208,7 +215,7 @@ export async function runAutomationStage(
   if (triggerResult && triggerResult.executed.length) {
     const exec = await executeRuntimeActions({
       config, workspaceId, conversationId,
-      responseLanguage: locale, settings, runId: null,
+      responseLanguage: locale, settings, runId: null, messageRegistry,
     }, triggerResult.executed);
     if (exec.insertedMessageIds.length) {
       triggerMessageId = exec.insertedMessageIds[0];
@@ -237,5 +244,6 @@ export async function runAutomationStage(
     routingResult, routingMeta, triggerMeta, workflowMeta, buildEvalCtx,
     workflowStopAi, workflowHandoffExecuted, workflowMessageId,
     stoppedByTrigger, triggerMessageId, triggerForcesHandoff,
+    messageRegistry,
   };
 }

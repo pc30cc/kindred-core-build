@@ -31,6 +31,7 @@ import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markNeedsHuman, readAiConversationMeta } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { pickHandoffAckMessage } from './templates.js';
+import type { AutomationMessageRegistry } from './messageDedup.js';
 
 export interface WorkflowExecutorContext {
   config: ServerConfig;
@@ -41,6 +42,11 @@ export interface WorkflowExecutorContext {
   settings: AgentSettings;
   runId?: string | null;
   capabilities?: WorkflowHostCapabilities;
+  /** Cross-system (Message Trigger vs. Workflow) dedup for identical
+   * visitor-facing bodies within one engine run. Optional so existing
+   * direct callers of executeMatchedWorkflows (e.g. tests) keep working
+   * unchanged when omitted. */
+  messageRegistry?: AutomationMessageRegistry;
 }
 
 export interface ExecutedStepRecord {
@@ -97,14 +103,26 @@ async function executeSendMessage(
   workflow: { id: string; name: string },
   step: NormalizedWorkflowStep,
   isQuestion: boolean,
-): Promise<{ messageId: string | null; stopAi: boolean; reason: string }> {
+): Promise<{ messageId: string | null; stopAi: boolean; reason: string; deduped?: boolean }> {
   const body = pickStepMessage(step.payload, ctx.responseLanguage, ctx.inputLanguage || undefined);
   if (!body) return { messageId: null, stopAi: false, reason: 'empty_message' };
-  const display = deriveAgentDisplay(ctx.settings);
   // ask_question defaults stopAi=true; send_message defaults stopAi=false.
   const continueAi = step.payload.continue_ai === true ? true
     : step.payload.continue_ai === false ? false
     : !isQuestion;
+  const stopAi = !continueAi;
+  // Cross-system dedup: a Message Trigger send_message action may already
+  // have claimed this identical body earlier this run (post-answer path,
+  // where triggers execute before workflows). Suppress only the physical
+  // insert -- stopAi is computed above from this step's OWN continue_ai and
+  // is returned regardless, so a suppressed write can never silently weaken
+  // this step's stop-AI intent.
+  const claimed = ctx.messageRegistry ? ctx.messageRegistry.claim(body) : true;
+  if (!claimed) {
+    console.log('[ai-agent.runtime.workflowExecutor] send_message deduped — identical body already sent this turn', { workflow: workflow.id });
+    return { messageId: null, stopAi, reason: isQuestion ? 'ask_question' : 'send_message', deduped: true };
+  }
+  const display = deriveAgentDisplay(ctx.settings);
   try {
     const inserted = await insertAiMessage(ctx.config, {
       workspaceId: ctx.workspaceId,
@@ -297,6 +315,7 @@ export async function executeMatchedWorkflows(
             out.skippedActions.push(base);
             continue;
           }
+          if (r.deduped) base.metadata = { ...(base.metadata || {}), deduped: true };
           out.executedActions.push(base);
           executedAny = true;
           if (r.stopAi) out.stopAi = true;

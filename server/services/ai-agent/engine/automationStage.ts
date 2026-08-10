@@ -220,12 +220,20 @@ export async function runAutomationStage(
     if (exec.insertedMessageIds.length) {
       triggerMessageId = exec.insertedMessageIds[0];
       decisionTimeline.push('trigger_message_sent');
-      // Refresh trigger executed messageIds in metadata.
-      triggerMeta = {
-        ...triggerMeta,
-        executed: triggerMeta.executed.map((e, i) => ({ ...e, messageId: exec.insertedMessageIds[i] || e.messageId })),
-      };
     }
+    // Refresh trigger executed metadata from the action objects themselves
+    // (actionExecutor.ts mutates a.payload.messageId in place on success) --
+    // NOT from exec.insertedMessageIds[i] by position, which is a compact
+    // list that omits deduped/failed writes and would misattribute IDs
+    // across actions once any entry is skipped.
+    triggerMeta = {
+      ...triggerMeta,
+      executed: triggerResult.executed.map((a) => ({
+        id: a.sourceId, name: a.sourceName,
+        action_type: a.type === 'reply_template' ? 'send_message' : a.type,
+        messageId: (a.payload as any)?.messageId || null,
+      })),
+    };
     if (exec.handoffExecuted) {
       triggerForcesHandoff = true;
       decisionTimeline.push('trigger_handoff_executed');

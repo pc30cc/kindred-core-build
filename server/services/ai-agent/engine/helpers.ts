@@ -170,10 +170,14 @@ export async function evaluateNoAnswerHooks(args: {
       const cur = args.triggerMetaRef.get();
       args.triggerMetaRef.set({
         matched: [...cur.matched, ...trig.matchedTriggerIds.map((id, i) => ({ id, name: trig.matchedTriggerNames[i] || id }))],
-        executed: [...cur.executed, ...trig.executed.map((a, i) => ({
+        // Attributed from each action's own mutated payload.messageId, not
+        // exec.insertedMessageIds[i] by position -- see automationStage.ts
+        // for why the compact-list index misattributes once any entry is
+        // deduped or fails.
+        executed: [...cur.executed, ...trig.executed.map((a) => ({
           id: a.sourceId, name: a.sourceName,
           action_type: a.type === 'reply_template' ? 'send_message' : a.type,
-          messageId: exec.insertedMessageIds[i] || null,
+          messageId: (a.payload as any)?.messageId || null,
         }))],
         planned: [...cur.planned, ...trig.planned.map((a) => ({ id: a.sourceId, name: a.sourceName, action_type: a.type, reason: a.skippedReason || a.reason || null }))],
         skipped: [...cur.skipped, ...trig.skipped.map((a) => ({ id: a.sourceId, name: a.sourceName, reason: a.skippedReason || a.reason || null }))],

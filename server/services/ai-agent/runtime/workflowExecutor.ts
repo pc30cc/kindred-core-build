@@ -112,14 +112,18 @@ async function executeSendMessage(
     : !isQuestion;
   const stopAi = !continueAi;
   // Cross-system dedup: a Message Trigger send_message action may already
-  // have claimed this identical body earlier this run (post-answer path,
-  // where triggers execute before workflows). Suppress only the physical
-  // insert -- stopAi is computed above from this step's OWN continue_ai and
-  // is returned regardless, so a suppressed write can never silently weaken
-  // this step's stop-AI intent.
-  const claimed = ctx.messageRegistry ? ctx.messageRegistry.claim(body) : true;
-  if (!claimed) {
-    console.log('[ai-agent.runtime.workflowExecutor] send_message deduped — identical body already sent this turn', { workflow: workflow.id });
+  // have successfully inserted this identical body earlier this run
+  // (post-answer path, where triggers execute before workflows). Only
+  // suppress when it was the OTHER source (Message Trigger) -- a second
+  // Workflow, or a second step in this SAME workflow, with the same body is
+  // same-system behavior this registry never touches. stopAi is computed
+  // above from this step's OWN continue_ai and is returned regardless, so a
+  // suppressed write can never silently weaken this step's stop-AI intent.
+  const dedupedByOther = ctx.messageRegistry
+    ? ctx.messageRegistry.wasInsertedByOtherSource(body, 'workflow')
+    : false;
+  if (dedupedByOther) {
+    console.log('[ai-agent.runtime.workflowExecutor] send_message deduped — identical body already sent by another automation source this turn', { workflow: workflow.id });
     return { messageId: null, stopAi, reason: isQuestion ? 'ask_question' : 'send_message', deduped: true };
   }
   const display = deriveAgentDisplay(ctx.settings);
@@ -135,6 +139,9 @@ async function executeSendMessage(
       agentName: display.agentName,
       agentLogoUrl: display.agentLogoUrl,
     });
+    // Only record after the physical insert actually succeeded -- a failed
+    // attempt must never block the other source's own try.
+    ctx.messageRegistry?.recordSuccessfulInsert(body, 'workflow');
     return { messageId: inserted.id || null, stopAi: !continueAi, reason: isQuestion ? 'ask_question' : 'send_message' };
   } catch (err: any) {
     console.warn('[ai-agent.runtime.workflowExecutor] send_message failed:', err?.message || err);

@@ -61,13 +61,19 @@ export async function executeRuntimeActions(
       if (!body) continue;
       // Cross-system dedup: a Workflow send_message step (executed before
       // this, per the unchanged pre-retrieval order) may already have
-      // inserted the identical body this run. Suppress only the physical
-      // insert -- the action stays in `executed` so continue_ai/stopAi
-      // control-flow (computed from this same list, below and in
-      // automationStage.ts) is never weakened by a suppressed write.
-      const claimed = ctx.messageRegistry ? ctx.messageRegistry.claim(body) : true;
-      if (!claimed) {
-        console.log('[ai-agent.runtime.executor] reply_template deduped — identical body already sent this turn', { sourceId: a.sourceId });
+      // successfully inserted the identical body this run. Only suppress
+      // when it was the OTHER source (Workflow) -- a second Message Trigger
+      // with the same body is same-system behavior this registry never
+      // touches. The action stays in `executed` either way, so
+      // continue_ai/stopAi control-flow (computed from this same list,
+      // below and in automationStage.ts) is never weakened by a suppressed
+      // write.
+      const dedupedByOther = ctx.messageRegistry
+        ? ctx.messageRegistry.wasInsertedByOtherSource(body, 'message_trigger')
+        : false;
+      if (dedupedByOther) {
+        console.log('[ai-agent.runtime.executor] reply_template deduped — identical body already sent by another automation source this turn', { sourceId: a.sourceId });
+        (a.payload as any).deduped = true;
         if (a.source === 'message_trigger' && a.sourceId) {
           await updateRuntimeFlags(ctx.config, ctx.conversationId, {
             appendTriggerId: a.sourceId,
@@ -92,6 +98,9 @@ export async function executeRuntimeActions(
         if (ins.id) {
           result.insertedMessageIds.push(ins.id);
           (a.payload as any).messageId = ins.id;
+          // Only record after the physical insert actually succeeded -- a
+          // failed attempt must never block the other source's own try.
+          ctx.messageRegistry?.recordSuccessfulInsert(body, 'message_trigger');
         }
         if (a.source === 'message_trigger' && a.sourceId) {
           await updateRuntimeFlags(ctx.config, ctx.conversationId, {

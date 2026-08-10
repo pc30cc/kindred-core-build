@@ -490,6 +490,169 @@ describe('RoutingPage — legacy round-trip contract (Follow-up 9E.3)', () => {
   });
 });
 
+function topicRule(conditions_json: Record<string, unknown>, overrides: Record<string, any> = {}) {
+  return {
+    id: 'r-topic', workspace_id: 'ws-1', name: 'Topic rule', description: null,
+    trigger_type: 'topic_detected', conditions_json,
+    action_type: 'handoff', action_json: { target: 'main_inbox' },
+    priority: 100, enabled: true, created_at: '', updated_at: '',
+    ...overrides,
+  };
+}
+
+describe('RoutingPage — topic_detected condition contract (Follow-up 9F.1)', () => {
+  it('UI-TOPIC1 — new topic_detected + blank Topic blocks createRouting', async () => {
+    const dialog = await openNewRuleDialog();
+    fireEvent.change(within(dialog).getByLabelText(/^Name$/i), { target: { value: 'Billing rule' } });
+    await selectTriggerOption(dialog, 'A specific topic is detected');
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(createRouting).not.toHaveBeenCalled();
+  });
+
+  it('UI-TOPIC2 — whitespace-only Topic blocks createRouting', async () => {
+    const dialog = await openNewRuleDialog();
+    fireEvent.change(within(dialog).getByLabelText(/^Name$/i), { target: { value: 'Billing rule' } });
+    await selectTriggerOption(dialog, 'A specific topic is detected');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(createRouting).not.toHaveBeenCalled();
+  });
+
+  it('UI-TOPIC3 — new topic_detected + " billing " persists canonical trimmed {topic:"billing"}', async () => {
+    const dialog = await openNewRuleDialog();
+    fireEvent.change(within(dialog).getByLabelText(/^Name$/i), { target: { value: 'Billing rule' } });
+    await selectTriggerOption(dialog, 'A specific topic is detected');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: ' billing ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(createRouting).toHaveBeenCalledTimes(1));
+    expect(createRouting.mock.calls[0][0].conditions_json).toEqual({ topic: 'billing' });
+  });
+
+  it('UI-TOPIC4 — existing canonical {topic:"billing"} displays billing, no legacy note, and round-trips on unrelated save', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic: 'billing' })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    expect(input.value).toBe('billing');
+    expect(within(dialog).queryByText(/legacy topic filter/i)).toBeNull();
+    expect(within(dialog).queryByText(/unsupported or ambiguous/i)).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ topic: 'billing' });
+  });
+
+  it('UI-TOPIC5 — legacy {topic_slug:"billing"} displays billing, unrelated save preserves the original JSON', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic_slug: 'billing' })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    expect(input.value).toBe('billing');
+    expect(within(dialog).getByText(/legacy topic filter/i)).toBeTruthy();
+    const nameInput = within(dialog).getByDisplayValue('Topic rule') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Renamed topic rule' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ topic_slug: 'billing' });
+  });
+
+  it('UI-TOPIC6 — legacy {topic_slugs:["billing"]} displays billing, unrelated save preserves the original JSON', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic_slugs: ['billing'] })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    expect(input.value).toBe('billing');
+    expect(within(dialog).getByText(/legacy topic filter/i)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ topic_slugs: ['billing'] });
+  });
+
+  it('UI-TOPIC7 — editing a topic_slug legacy row from billing to sales persists exactly {topic:"sales"}', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic_slug: 'billing' })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'sales' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    // The historical no-op-save bug: the runtime used to keep matching
+    // 'billing' via topic_slug's precedence over the new topic value even
+    // after a successful-looking save. Must now persist ONLY {topic:'sales'}.
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ topic: 'sales' });
+  });
+
+  it('UI-TOPIC8 — editing a topic_slugs legacy row from billing to sales persists exactly {topic:"sales"}', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic_slugs: ['billing'] })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'sales' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ topic: 'sales' });
+  });
+
+  it('UI-TOPIC9 — a mixed {topic, topic_slug} row is shown as dormant/ambiguous and unrelated save preserves it', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic: 'billing', topic_slug: 'sales' })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    // No unambiguous single value -> blank, with a dormant/ambiguous warning.
+    expect(input.value).toBe('');
+    expect(within(dialog).getByText(/unsupported or ambiguous/i)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ topic: 'billing', topic_slug: 'sales' });
+  });
+
+  it('UI-TOPIC10 — an explicit edit of the mixed row converts it to canonical-only {topic:"..."}', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic: 'billing', topic_slug: 'sales' })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'support' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ topic: 'support' });
+  });
+
+  it('UI-TOPIC11 — a multi-element topic_slugs row is shown as unsupported/dormant', async () => {
+    listRouting.mockResolvedValue({ items: [topicRule({ topic_slugs: ['billing', 'sales'] })] });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    expect(input.value).toBe('');
+    expect(within(dialog).getByText(/unsupported or ambiguous/i)).toBeTruthy();
+  });
+
+  it('UI-TOPIC12 — no edit path can produce a mixed topic/topic_slug/topic_slugs JSON', async () => {
+    // Starting from a clean canonical row, an explicit edit must persist
+    // canonical-only JSON, never layering onto the old key.
+    listRouting.mockResolvedValue({ items: [topicRule({ topic: 'billing' })] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Topic rule');
+    const input = within(dialog).getByLabelText(/Topic name/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'sales' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    const persisted = updateRouting.mock.calls[0][1].conditions_json;
+    expect(persisted).toEqual({ topic: 'sales' });
+    expect(Object.keys(persisted)).toEqual(['topic']);
+  });
+});
+
 describe('RoutingPage — legacy persisted assign_team action rendering (Follow-up 9C.1)', () => {
   it('a persisted assign_team rule still renders a readable label in the rule list', async () => {
     listRouting.mockResolvedValue({

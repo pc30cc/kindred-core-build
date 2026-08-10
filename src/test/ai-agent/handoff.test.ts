@@ -1167,3 +1167,74 @@ describe('C8.13 — Follow-up 9E.3.1 hard-handoff/keep_ai metadata truthfulness'
     expect(log.metadata.routing.executedActions.some((a: any) => a.sourceId === 'route-hh3-post')).toBe(true);
   });
 });
+
+describe('C8.14 — Follow-up 9F.1 topic_detected condition contract (engine-level)', () => {
+  function billingTopic() {
+    return {
+      id: 'topic-billing', workspace_id: DEFAULT_WORKSPACE_ID, name: 'Billing', description: null,
+      slug: 'billing', keywords: ['invoice', 'refund', 'billing'], examples: [], language: null,
+      confidence_threshold: 0.3, action: 'label_only', action_json: {}, enabled: true, system: false,
+      created_at: '', updated_at: '',
+    };
+  }
+
+  function pricingTopic() {
+    return {
+      id: 'topic-pricing', workspace_id: DEFAULT_WORKSPACE_ID, name: 'Pricing', description: null,
+      slug: 'pricing', keywords: ['price', 'pricing', 'plan'], examples: [], language: null,
+      confidence_threshold: 0.3, action: 'label_only', action_json: {}, enabled: true, system: false,
+      created_at: '', updated_at: '',
+    };
+  }
+
+  // The literal historical seed shape from
+  // supabase/migrations/20260504091511_..._.sql's 'Billing topic → handoff'
+  // rule (untouched by this follow-up — no data/migration change).
+  function billingSeedRule() {
+    return {
+      id: 'seed-billing', name: 'Billing topic → handoff', description: 'Refund / invoice / billing dispute.',
+      trigger_type: 'topic_detected', conditions_json: { topic_slugs: ['billing'] },
+      action_type: 'handoff', action_json: { reason: 'billing_topic', department: 'billing' },
+      priority: 20, enabled: true,
+    };
+  }
+
+  it('billing detected -> the historical topic_slugs:["billing"] seed rule fires a real handoff', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      topics: [billingTopic()],
+      routingRules: [billingSeedRule()],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'I have a question about my invoice and refund' }),
+    );
+
+    expect(result.action).toBe('handoff');
+    expect(aiCallCount).toBe(0);
+    const handoffLog = logRunCalls.find((c) => c.runType === 'handoff');
+    expect(handoffLog?.metadata.routing.matchedRuleIds).toContain('seed-billing');
+  });
+
+  it('a non-billing detected topic (pricing) does NOT trigger the historical topic_slugs:["billing"] handoff rule', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      topics: [billingTopic(), pricingTopic()],
+      routingRules: [billingSeedRule()],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'what is your pricing plan' }),
+    );
+
+    expect(result.action).not.toBe('handoff');
+    const finalLog = logRunCalls[logRunCalls.length - 1];
+    expect(finalLog.metadata.routing.matchedRuleIds).not.toContain('seed-billing');
+    // Truthfully dormant, not silently absent — matches the pure-evaluator
+    // contract proven in topicRoutingCondition.test.ts.
+    const skip = finalLog.metadata.routing.skippedActions.find((a: any) => a.sourceId === 'seed-billing');
+    expect(skip).toBeUndefined(); // a validly-shaped, non-matching condition is a plain non-match
+  });
+});

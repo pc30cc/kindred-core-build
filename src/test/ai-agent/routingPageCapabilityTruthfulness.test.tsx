@@ -55,6 +55,15 @@ function legacyRule(overrides: Record<string, any> = {}) {
   };
 }
 
+// Locates the row card for a rule by its name, then returns [pencil, trash]
+// buttons (the Switch has role="switch", not "button", so index 0 is pencil).
+function rowButtons(cardText: string) {
+  return screen.findByText(cardText).then((el) => {
+    const card = el.closest('div.p-4') as HTMLElement;
+    return within(card).getAllByRole('button');
+  });
+}
+
 beforeEach(() => {
   listRouting.mockReset(); createRouting.mockReset(); updateRouting.mockReset(); deleteRouting.mockReset();
   listRouting.mockResolvedValue({ items: [] });
@@ -77,16 +86,29 @@ describe('RoutingPage — NEW rule trigger picker (Follow-up 9C)', () => {
     expect(within(listbox).queryByText(/VIP customer/i)).toBeNull();
   });
 
-  it('keeps no_answer, low_confidence and business_hours selectable but labels them truthfully as not live yet', async () => {
+  it('keeps no_answer and low_confidence selectable but labels them truthfully as not live yet', async () => {
     const dialog = await openNewRuleDialog();
     const triggerSelects = within(dialog).getAllByRole('combobox');
     fireEvent.click(triggerSelects[0]);
     const listbox = await screen.findByRole('listbox');
     const noAnswer = within(listbox).getByText(/AI cannot answer.*not live yet/i);
     const lowConfidence = within(listbox).getByText(/AI confidence is low.*not live yet/i);
-    const businessHours = within(listbox).getByText(/Outside business hours.*not live yet/i);
     expect(noAnswer.closest('[role="option"]')).not.toHaveAttribute('data-disabled');
     expect(lowConfidence.closest('[role="option"]')).not.toHaveAttribute('data-disabled');
+  });
+
+  // TEST BHT1 (Follow-up 9C.1) — business_hours was wired into the real
+  // runtime by Follow-up 9C (availability.reason === 'outside_hours' or
+  // 'override_closed'), so the "not live yet" label is now false and must
+  // not appear. This must FAIL against the 9C HEAD, which still marks
+  // business_hours `unavailable: true`.
+  it('shows business_hours as a plain, enabled, truthful option — no "not live yet" label, since it is now wired', async () => {
+    const dialog = await openNewRuleDialog();
+    const triggerSelects = within(dialog).getAllByRole('combobox');
+    fireEvent.click(triggerSelects[0]);
+    const listbox = await screen.findByRole('listbox');
+    // Exact match — fails if the label carries any "— not live yet" suffix.
+    const businessHours = within(listbox).getByText('Outside business hours');
     expect(businessHours.closest('[role="option"]')).not.toHaveAttribute('data-disabled');
   });
 
@@ -129,13 +151,93 @@ describe('RoutingPage — legacy persisted rule rendering (Follow-up 9C)', () =>
   });
 });
 
-describe('RoutingPage — default rule seed (Follow-up 9C)', () => {
-  it('no longer suggests the dead no_answer trigger; seeds exactly the remaining defaults', async () => {
+describe('RoutingPage — default rule seed (Follow-up 9C.1)', () => {
+  // TEST DEF1 — a starter/default rule must never use an action the picker
+  // itself marks "coming soon" (planned-only), nor a trigger type hidden
+  // from new-rule creation as conclusively dead. Must FAIL against the 9C
+  // HEAD, which still seeds two topic_detected -> assign_team defaults.
+  it('creates no defaults using planned-only actions or dead trigger types', async () => {
     render(<RoutingPage />);
     fireEvent.click(await screen.findByRole('button', { name: /add default rules/i }));
-    await waitFor(() => expect(createRouting).toHaveBeenCalledTimes(3));
+    // seed() awaits every createRouting call sequentially, then calls
+    // refresh() (a second listRouting call) — waiting on that is the
+    // reliable "all creates have settled" signal; waiting on createRouting
+    // alone races with the in-flight loop and can observe a partial result.
+    await waitFor(() => expect(listRouting).toHaveBeenCalledTimes(2));
+    const actionTypes = createRouting.mock.calls.map((c) => c[0].action_type);
     const triggerTypes = createRouting.mock.calls.map((c) => c[0].trigger_type);
+    expect(actionTypes).not.toContain('assign_team');
+    expect(actionTypes).not.toContain('assign_operator');
+    expect(actionTypes).not.toContain('create_ticket');
+    expect(triggerTypes).not.toContain('plan_limit');
+    expect(triggerTypes).not.toContain('vip_customer');
     expect(triggerTypes).not.toContain('no_answer');
-    expect(triggerTypes).toEqual(['human_request', 'topic_detected', 'topic_detected']);
+    expect(triggerTypes).not.toContain('low_confidence');
+  });
+
+  // TEST DEF2 — pin the exact expected surviving default. The two
+  // topic_detected -> assign_team rules are removed outright (not
+  // replaced with a different live action, per the narrow-fix
+  // instruction), leaving only the genuinely executable
+  // human_request -> handoff default.
+  it('seeds exactly one default: human_request -> handoff', async () => {
+    render(<RoutingPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /add default rules/i }));
+    // Same reliable completion signal as DEF1 — waiting on createRouting's
+    // call count directly races the in-flight sequential loop.
+    await waitFor(() => expect(listRouting).toHaveBeenCalledTimes(2));
+    expect(createRouting).toHaveBeenCalledTimes(1);
+    expect(createRouting.mock.calls[0][0].trigger_type).toBe('human_request');
+    expect(createRouting.mock.calls[0][0].action_type).toBe('handoff');
+  });
+});
+
+describe('RoutingPage — legacy persisted vip_customer rule rendering (Follow-up 9C.1)', () => {
+  it('a persisted vip_customer rule still renders a readable label in the rule list', async () => {
+    listRouting.mockResolvedValue({ items: [legacyRule({ id: 'r-vip', name: 'Old VIP rule', trigger_type: 'vip_customer' })] });
+    render(<RoutingPage />);
+    expect(await screen.findByText(/When: VIP customer/i)).toBeTruthy();
+  });
+
+  it('editing a persisted vip_customer rule keeps it selected/renderable in the trigger picker without corrupting it', async () => {
+    listRouting.mockResolvedValue({ items: [legacyRule({ id: 'r-vip', name: 'Old VIP rule', trigger_type: 'vip_customer' })] });
+    render(<RoutingPage />);
+    const buttons = await rowButtons('Old VIP rule');
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/VIP customer/i)).toBeTruthy();
+  });
+});
+
+describe('RoutingPage — legacy persisted assign_team action rendering (Follow-up 9C.1)', () => {
+  it('a persisted assign_team rule still renders a readable label in the rule list', async () => {
+    listRouting.mockResolvedValue({
+      items: [legacyRule({ id: 'r-team', name: 'Old team-assign rule', trigger_type: 'topic_detected', action_type: 'assign_team' })],
+    });
+    render(<RoutingPage />);
+    expect(await screen.findByText(/Do: Assign to a team/i)).toBeTruthy();
+  });
+
+  it('editing a persisted assign_team rule keeps the action visibly selected/renderable, and saving unrelated fields does not silently change action_type', async () => {
+    listRouting.mockResolvedValue({
+      items: [legacyRule({ id: 'r-team', name: 'Old team-assign rule', trigger_type: 'topic_detected', action_type: 'assign_team', conditions_json: { topic: 'pricing' } })],
+    });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const buttons = await rowButtons('Old team-assign rule');
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog');
+    // Current action remains visibly selected/renderable, even though the
+    // option is disabled for NEW selection.
+    expect(within(dialog).getByText(/Assign to a team/i)).toBeTruthy();
+
+    // Editing an unrelated field (name) and saving must not silently
+    // change action_type away from the persisted 'assign_team' value.
+    const nameInput = within(dialog).getByDisplayValue('Old team-assign rule') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Renamed team-assign rule' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].action_type).toBe('assign_team');
+    expect(updateRouting.mock.calls[0][1].name).toBe('Renamed team-assign rule');
   });
 });

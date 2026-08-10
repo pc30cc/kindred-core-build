@@ -63,8 +63,20 @@ export default function AiAgentSettingsPage() {
   const [newKeyword, setNewKeyword] = useState('');
   const [keywordError, setKeywordError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Fields deferred behind the main "Save changes" button (identity, business
+  // description, answer behavior, transparency) are only included in the
+  // onSave PATCH when the operator actually touched their control this
+  // session -- same dirty-tracking discipline as BehaviorPage. allowed_locales
+  // and welcome_message have NO editable control on this page at all, so they
+  // are never in `dirty` and are never resent (previously they were resent
+  // unconditionally from whatever stale value was loaded, silently
+  // overwriting e.g. a language choice made on the Behavior page).
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
 
-  useEffect(() => { if (data?.settings) setForm(data.settings); }, [data]);
+  useEffect(() => {
+    if (data?.settings) setForm(data.settings);
+    setDirty(new Set());
+  }, [data]);
   useEffect(() => {
     const localized = (data?.settings?.intro_message_localized || {}) as Record<string, string>;
     setIntroDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
@@ -83,6 +95,19 @@ export default function AiAgentSettingsPage() {
   }
 
   const set = (patch: any) => setForm({ ...form, ...patch });
+  // Used by the controls gated behind the deferred "Save changes" button:
+  // updates local form state AND marks each touched key dirty so onSave
+  // knows to include it. Controls that save immediately (avatar, enabled
+  // toggle, intro/handoff drafts, handoff keywords) keep using plain `set`
+  // since they never go through the onSave PATCH.
+  const setDirtyField = (patch: Record<string, any>) => {
+    set(patch);
+    setDirty((prev) => {
+      const next = new Set(prev);
+      for (const key of Object.keys(patch)) next.add(key);
+      return next;
+    });
+  };
 
   const toggleEnabled = async (v: boolean) => {
     setEnabling(true);
@@ -177,18 +202,22 @@ export default function AiAgentSettingsPage() {
   };
 
   const onSave = async () => {
+    // Minimal PATCH: only fields the operator actually touched this session.
+    // agent_logo_url is intentionally excluded -- it is already persisted
+    // immediately by onAvatarSelected/onRemoveAvatar, so resending it here
+    // would only ever be redundant, never necessary. allowed_locales and
+    // welcome_message have no control on this page and are therefore never
+    // dirty and never sent.
+    const patch: Record<string, unknown> = {};
+    if (dirty.has('agent_name')) patch.agent_name = form.agent_name;
+    if (dirty.has('business_description')) patch.business_description = form.business_description;
+    if (dirty.has('answer_guidance')) patch.answer_guidance = form.answer_guidance;
+    if (dirty.has('fallback_message')) patch.fallback_message = form.fallback_message;
+    if (dirty.has('answer_only_from_kb')) patch.answer_only_from_kb = form.answer_only_from_kb;
+    if (dirty.has('show_sources_to_operator')) patch.show_sources_to_operator = form.show_sources_to_operator;
     try {
-      await update.mutateAsync({
-        agent_name: form.agent_name,
-        agent_logo_url: form.agent_logo_url,
-        business_description: form.business_description,
-        answer_guidance: form.answer_guidance,
-        welcome_message: form.welcome_message,
-        fallback_message: form.fallback_message,
-        answer_only_from_kb: form.answer_only_from_kb,
-        allowed_locales: form.allowed_locales,
-        show_sources_to_operator: form.show_sources_to_operator,
-      });
+      await update.mutateAsync(patch);
+      setDirty(new Set());
       toast.success(tr('saved', 'Settings saved'));
     } catch (e: any) {
       toast.error(e?.message || tr('saveFailed', 'Save failed'));
@@ -200,7 +229,7 @@ export default function AiAgentSettingsPage() {
     setGenerating(true);
     try {
       const r = await aiAgentApi.generateBusinessDescription(workspace.id);
-      set({ business_description: r.description });
+      setDirtyField({ business_description: r.description });
       toast.success(r.source === 'ai' ? tr('generated', 'Generated') : tr('generatedOffline', 'Generated (offline stub)'));
     } catch (e: any) {
       toast.error(e?.message || tr('generationFailed', 'Generation failed'));
@@ -315,7 +344,7 @@ export default function AiAgentSettingsPage() {
               </div>
               <div>
                 <Label>{tr('agentName', 'Agent name')}</Label>
-                <Input value={form.agent_name} onChange={(e) => set({ agent_name: e.target.value })} />
+                <Input value={form.agent_name} onChange={(e) => setDirtyField({ agent_name: e.target.value })} />
               </div>
             </CardContent>
           </Card>
@@ -341,7 +370,7 @@ export default function AiAgentSettingsPage() {
                 maxLength={2000}
                 placeholder={tr('bizPlaceholder', 'Describe what your business does and how it helps customers.')}
                 value={form.business_description || ''}
-                onChange={(e) => set({ business_description: e.target.value })}
+                onChange={(e) => setDirtyField({ business_description: e.target.value })}
               />
               <p className="text-xs text-muted-foreground mt-2">{(form.business_description?.length || 0)}/2000</p>
             </CardContent>
@@ -359,7 +388,7 @@ export default function AiAgentSettingsPage() {
             <CardContent className="space-y-4">
               <div>
                 <Label>{tr('guidance', 'Answer guidance')}</Label>
-                <Select value={form.answer_guidance} onValueChange={(v) => set({ answer_guidance: v })}>
+                <Select value={form.answer_guidance} onValueChange={(v) => setDirtyField({ answer_guidance: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="conservative">{tr('guidanceOpt.conservative', 'Conservative — only when sources are clear')}</SelectItem>
@@ -373,11 +402,11 @@ export default function AiAgentSettingsPage() {
                   <p className="text-sm font-medium">{tr('onlyKbTitle', 'Answer only from Knowledge Base')}</p>
                   <p className="text-xs text-muted-foreground">{tr('onlyKbDesc', 'Recommended. Hands off when no match is found.')}</p>
                 </div>
-                <Switch checked={form.answer_only_from_kb} onCheckedChange={(v) => set({ answer_only_from_kb: v })} />
+                <Switch checked={form.answer_only_from_kb} onCheckedChange={(v) => setDirtyField({ answer_only_from_kb: v })} />
               </div>
               <div>
                 <Label>{tr('fallback', 'Fallback message')}</Label>
-                <Input value={form.fallback_message} onChange={(e) => set({ fallback_message: e.target.value })} />
+                <Input value={form.fallback_message} onChange={(e) => setDirtyField({ fallback_message: e.target.value })} />
               </div>
             </CardContent>
           </Card>
@@ -554,7 +583,7 @@ export default function AiAgentSettingsPage() {
                   <p className="text-sm font-medium">{tr('sourcesTitle', 'Show sources to operators')}</p>
                   <p className="text-xs text-muted-foreground">{tr('sourcesDesc', 'Operators can see which knowledge source helped create a suggestion.')}</p>
                 </div>
-                <Switch checked={!!form.show_sources_to_operator} onCheckedChange={(v) => set({ show_sources_to_operator: v })} />
+                <Switch checked={!!form.show_sources_to_operator} onCheckedChange={(v) => setDirtyField({ show_sources_to_operator: v })} />
               </div>
             </CardContent>
           </Card>

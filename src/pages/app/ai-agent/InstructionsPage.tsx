@@ -42,7 +42,12 @@ export default function InstructionsPage() {
     if (!data?.settings) return;
     setForm({
       brand_voice: i.brand_voice || '',
-      business_description: i.business_description || data.settings.business_description || '',
+      // Canonical field is the top-level ai_agent_settings.business_description
+      // (also owned/written by SettingsPage and the AI generator, and the only
+      // one the runtime prompt reads). instructions.business_description is a
+      // legacy persisted key, shown ONLY as a display fallback when the
+      // canonical field is empty -- never given write precedence here.
+      business_description: data.settings.business_description || i.business_description || '',
       tone: i.tone || 'friendly',
       do_list: (i.do_list || []).join('\n'),
       dont_list: (i.dont_list || []).join('\n'),
@@ -56,24 +61,47 @@ export default function InstructionsPage() {
   }, [data?.settings?.id]);
 
   async function save() {
-    // Merge base: the FRESHEST instructions object available at save time
-    // (not a snapshot captured at mount), so keys this page doesn't own
-    // (e.g. a concurrent BehaviorPage edit to tone/max_answer_length) are
-    // preserved as-is. Only the keys the operator actually touched this
-    // session are overlaid on top.
-    const fresh = (data?.settings?.instructions || {}) as any;
-    const instructions: Record<string, unknown> = { ...fresh };
-    if (dirty.has('brand_voice')) instructions.brand_voice = form.brand_voice.trim() || undefined;
-    if (dirty.has('business_description')) instructions.business_description = form.business_description.trim() || undefined;
-    if (dirty.has('tone')) instructions.tone = form.tone.trim() || undefined;
-    if (dirty.has('do_list')) instructions.do_list = form.do_list.split('\n').map((s) => s.trim()).filter(Boolean);
-    if (dirty.has('dont_list')) instructions.dont_list = form.dont_list.split('\n').map((s) => s.trim()).filter(Boolean);
-    if (dirty.has('pricing_instructions')) instructions.pricing_instructions = form.pricing_instructions.trim() || undefined;
-    if (dirty.has('handoff_instructions')) instructions.handoff_instructions = form.handoff_instructions.trim() || undefined;
-    if (dirty.has('support_instructions')) instructions.support_instructions = form.support_instructions.trim() || undefined;
-    if (dirty.has('custom_system_instruction')) instructions.custom_system_instruction = form.custom_system_instruction.trim() || undefined;
+    const patch: Record<string, unknown> = {};
+
+    // Canonical field: business_description is a top-level ai_agent_settings
+    // column (same one SettingsPage and the AI generator write, and the only
+    // one the runtime prompt reads). An explicit edit here writes it there --
+    // never into the legacy nested instructions.business_description key, so
+    // this page can no longer recreate the dual-write ownership conflict.
+    const businessDescriptionDirty = dirty.has('business_description');
+    if (businessDescriptionDirty) {
+      patch.business_description = form.business_description;
+    }
+
+    // Skip resending `instructions` only when Business Description is the
+    // ONLY dirty field -- there is no reason to rewrite the whole nested JSON
+    // object (the backend replaces it wholesale on write) for a change that
+    // is fully captured by the top-level business_description patch above.
+    const nestedDirty = ['brand_voice', 'tone', 'do_list', 'dont_list',
+      'pricing_instructions', 'handoff_instructions', 'support_instructions',
+      'custom_system_instruction'].some((k) => dirty.has(k));
+    if (!(businessDescriptionDirty && !nestedDirty)) {
+      // Merge base: the FRESHEST instructions object available at save time
+      // (not a snapshot captured at mount), so keys this page doesn't own
+      // (e.g. a concurrent BehaviorPage edit to tone/max_answer_length) are
+      // preserved as-is. Only the keys the operator actually touched this
+      // session are overlaid on top. The legacy business_description key, if
+      // present, is carried over unchanged -- it is never written here.
+      const fresh = (data?.settings?.instructions || {}) as any;
+      const instructions: Record<string, unknown> = { ...fresh };
+      if (dirty.has('brand_voice')) instructions.brand_voice = form.brand_voice.trim() || undefined;
+      if (dirty.has('tone')) instructions.tone = form.tone.trim() || undefined;
+      if (dirty.has('do_list')) instructions.do_list = form.do_list.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (dirty.has('dont_list')) instructions.dont_list = form.dont_list.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (dirty.has('pricing_instructions')) instructions.pricing_instructions = form.pricing_instructions.trim() || undefined;
+      if (dirty.has('handoff_instructions')) instructions.handoff_instructions = form.handoff_instructions.trim() || undefined;
+      if (dirty.has('support_instructions')) instructions.support_instructions = form.support_instructions.trim() || undefined;
+      if (dirty.has('custom_system_instruction')) instructions.custom_system_instruction = form.custom_system_instruction.trim() || undefined;
+      patch.instructions = instructions;
+    }
+
     try {
-      await update.mutateAsync({ instructions } as any);
+      await update.mutateAsync(patch as any);
       setDirty(new Set());
       toast({ title: 'Instructions saved' });
     } catch (e: any) {

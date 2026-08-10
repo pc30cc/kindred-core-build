@@ -57,6 +57,57 @@ function validateConfidenceBelow(cond: Record<string, unknown>): ConfidenceBelow
   return { status: 'invalid' };
 }
 
+const TOPIC_FILTER_KEYS = ['topic', 'topic_slug', 'topic_slugs'] as const;
+
+// Flat (non-union) shape — see the MatchResult comment below for why: this
+// repo compiles with strictNullChecks:false, under which TS does not
+// reliably narrow a discriminated union's other-branch-only field after an
+// `if (!x.valid)` guard.
+interface TopicFilterClassification { valid: boolean; slug?: string; reason?: string; }
+
+/**
+ * Follow-up 9F.1 — strict, fail-closed topic_detected condition classifier.
+ * Closed contract: exactly ONE of {topic, topic_slug, topic_slugs} must be
+ * present, with no other condition keys, and it must resolve to a single
+ * non-blank topic slug. `topic_slugs` is accepted ONLY as narrow historical
+ * single-element-array compatibility for the real repository seed shape
+ * (Follow-up 9F audit) — it is NOT a general multi-topic capability, and a
+ * multi-element array is unsupported/dormant, not "match either". Anything
+ * else — missing conditions, an invalid/blank value, multiple recognized
+ * keys present simultaneously (ambiguous, even if their values agree), or
+ * any unrecognized extra key alongside a valid one — must never silently
+ * broaden into "match any detected topic"; it must go dormant with a
+ * specific truthful reason instead.
+ */
+function classifyTopicFilter(cond: Record<string, unknown>): TopicFilterClassification {
+  const keys = Object.keys(cond);
+  if (keys.length === 0) return { valid: false, reason: 'missing_condition:topic' };
+
+  const recognized = keys.filter((k) => (TOPIC_FILTER_KEYS as readonly string[]).includes(k));
+  const unrecognized = keys.filter((k) => !(TOPIC_FILTER_KEYS as readonly string[]).includes(k));
+
+  if (recognized.length > 1) return { valid: false, reason: 'ambiguous_condition:topic_filter_keys' };
+  if (recognized.length === 0) return { valid: false, reason: `unsupported_condition:${unrecognized.join(',')}` };
+  // A valid rule must contain exactly one recognized key and nothing else —
+  // an unsupported extra key alongside a valid filter must not be silently
+  // ignored (that could broaden the rule beyond what was actually persisted).
+  if (unrecognized.length > 0) return { valid: false, reason: `unsupported_condition:${unrecognized.join(',')}` };
+
+  const key = recognized[0] as typeof TOPIC_FILTER_KEYS[number];
+  if (key === 'topic' || key === 'topic_slug') {
+    const v = cond[key];
+    if (typeof v === 'string' && v.trim().length > 0) return { valid: true, slug: v.trim() };
+    return { valid: false, reason: `invalid_condition:${key}` };
+  }
+  // key === 'topic_slugs' — narrow single-element-array compatibility only.
+  const v = cond.topic_slugs;
+  if (!Array.isArray(v) || v.length === 0) return { valid: false, reason: 'invalid_condition:topic_slugs' };
+  if (v.length > 1) return { valid: false, reason: 'unsupported_condition:topic_slugs_multi' };
+  const only = v[0];
+  if (typeof only === 'string' && only.trim().length > 0) return { valid: true, slug: only.trim() };
+  return { valid: false, reason: 'invalid_condition:topic_slugs' };
+}
+
 // A flat (non-union) shape rather than a discriminated union — this repo
 // compiles with strictNullChecks:false, under which TS does not reliably
 // narrow `result.dormantReason` after an `if (!result.matched)` guard on a
@@ -82,9 +133,12 @@ function ruleMatches(rule: RoutingRule, ctx: RuntimeEvaluationContext): MatchRes
       return match(HUMAN_REQUEST_RE.test(ctx.visitorText || ''));
     }
     case 'topic_detected': {
-      const slug = cond.topic_slug || cond.topic;
-      if (!slug) return match(ctx.detectedTopics.length > 0);
-      return match(ctx.detectedTopics.some((t) => t.slug === slug));
+      // Follow-up 9F.1 — fail-closed: a missing/invalid/ambiguous/
+      // unrecognized topic filter must NEVER fall through to "match any
+      // detected topic" (see classifyTopicFilter's doc comment).
+      const classified = classifyTopicFilter(cond);
+      if (!classified.valid) return dormant(classified.reason);
+      return match(ctx.detectedTopics.some((t) => t.slug === classified.slug));
     }
     case 'language': {
       const target = cond.language;

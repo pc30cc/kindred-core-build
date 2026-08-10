@@ -109,7 +109,7 @@ export default function MessageTriggersPage() {
             <div>
               <h2 className="text-lg font-medium">No triggers yet</h2>
               <p className="text-sm text-muted-foreground max-w-md mx-auto mt-1">
-                Add a trigger like “after pre-chat → send welcome” or “no operator online → handoff”.
+                Add a trigger like “first visitor message → send welcome” or “human requested → handoff”.
               </p>
             </div>
             <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>

@@ -5,12 +5,15 @@
  * function server/routes/ai-agent/automation.ts's `/message-triggers/:id/
  * test` route now calls (previously that route hard-coded
  * runtimeExecutionEnabled:false and a false "next automation runtime pass"
- * claim for every trigger, live or not). It has zero DB I/O and zero side
- * effects by construction — it does not import insertAiMessage,
- * executeRuntimeActions, or any executor — so testing it directly is a
- * complete, honest proof that the dry-run route can never execute a side
- * effect, without needing an HTTP/Supabase test harness that doesn't exist
- * yet for this router.
+ * claim for every trigger, live or not). These tests pin the classifier's
+ * capability booleans and note text for every event/action combination —
+ * they are a unit-level proof of classifier behavior, not of the HTTP
+ * route's wiring or of end-to-end side-effect absence. The route currently
+ * calls this classifier and does nothing else (a single Supabase `select`,
+ * then this pure function, then `res.json`); that the route itself never
+ * invokes an executor is verified by reading its source, not by this test
+ * file — there is no HTTP/Supabase test harness for this router yet, and
+ * this file does not attempt to substitute for one.
  */
 import { describe, it, expect } from 'vitest';
 import { classifyMessageTriggerRuntimeCapability } from '../../../server/routes/ai-agent/automation.js';

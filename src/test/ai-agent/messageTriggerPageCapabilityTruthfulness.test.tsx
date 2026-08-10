@@ -179,6 +179,23 @@ describe('TriggersPage — page/dialog copy truthfulness (Follow-up 9G.1)', () =
     expect(screen.queryByText(/new triggers are saved disabled/i)).toBeNull();
   });
 
+  it('UITRUTH8B — the empty state no longer recommends not-live event examples and recommends only a live event + live action combination', async () => {
+    // listMessageTriggers resolves to { items: [] } by default (beforeEach),
+    // which renders the "No triggers yet" empty state.
+    render(<TriggersPage />);
+    await screen.findByText(/no triggers yet/i);
+    // Both stale, not-live examples must be gone from the rendered copy.
+    expect(screen.queryByText(/after pre-chat/i)).toBeNull();
+    expect(screen.queryByText(/no operator online/i)).toBeNull();
+    // At least one live event + live action example must be recommended —
+    // inspect the actual rendered empty-state paragraph, not a constant.
+    const emptyStateCopy = (await screen.findByText(/add a trigger like/i)).textContent || '';
+    const mentionsLiveEvent = /first visitor message|visitor first message|topic detected|human requested|ai could not answer/i.test(emptyStateCopy);
+    const mentionsLiveAction = /send welcome|send.*message|handoff/i.test(emptyStateCopy);
+    expect(mentionsLiveEvent).toBe(true);
+    expect(mentionsLiveAction).toBe(true);
+  });
+
   it('UITRUTH9 — the delay field explicitly says it is not enforced, and is not editable', async () => {
     const dialog = await openNewDialog();
     expect(within(dialog).getByText(/delay is not currently enforced/i)).toBeTruthy();

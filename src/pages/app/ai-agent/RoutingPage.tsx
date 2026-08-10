@@ -21,14 +21,17 @@ import { Route as RouteIcon, Plus, Pencil, Trash2, Loader2, ArrowRight } from 'l
 // rule's trigger_type needs a human-readable label, including legacy rows
 // that use a trigger type no longer offered for new rules (see
 // UNSUPPORTED_NEW_TRIGGERS below). `unavailable` triggers are real,
-// intended concepts that do not yet fire in the live engine (Follow-up 9B);
-// they stay selectable for new rules but are labeled truthfully.
+// intended concepts that do not yet fire in the live engine. business_hours
+// was wired into the real runtime by Follow-up 9C (availability.reason ===
+// 'outside_hours' / 'override_closed') and is therefore a plain, truthful,
+// live option — only no_answer/low_confidence remain unavailable pending
+// the not-yet-built post-strategy routing hook (Follow-up 9C.1).
 const TRIGGERS: { value: RoutingTrigger; label: string; unavailable?: boolean }[] = [
   { value: 'human_request', label: 'Visitor asks for a human' },
   { value: 'no_answer', label: 'AI cannot answer', unavailable: true },
   { value: 'low_confidence', label: 'AI confidence is low', unavailable: true },
   { value: 'topic_detected', label: 'A specific topic is detected' },
-  { value: 'business_hours', label: 'Outside business hours', unavailable: true },
+  { value: 'business_hours', label: 'Outside business hours' },
   { value: 'language', label: 'Visitor language matches' },
   { value: 'vip_customer', label: 'VIP customer' },
   { value: 'plan_limit', label: 'AI plan limit reached' },
@@ -49,13 +52,15 @@ const ACTIONS: { value: RoutingAction; label: string; plannedOnly?: boolean }[] 
   { value: 'mark_priority', label: 'Mark as priority' },
 ];
 
+// A starter/default rule must never use an action or trigger type the
+// picker itself marks unavailable/coming-soon (Follow-up 9C.1) — the
+// previous 'Pricing topic → sales' / 'Technical issue → support' defaults
+// both used action_type=assign_team, which is planned-only and never
+// executes. Removed outright rather than swapped to a different live
+// action, to avoid silently changing their product semantics.
 const DEFAULTS: Array<Omit<RoutingRule, 'id' | 'workspace_id' | 'created_at' | 'updated_at'>> = [
   { name: 'Visitor asks for a human → handoff', description: 'Always escalate when a visitor asks for a person',
     trigger_type: 'human_request', conditions_json: {}, action_type: 'handoff', action_json: { target: 'main_inbox' }, priority: 10, enabled: true },
-  { name: 'Pricing topic → sales', description: 'Route exact-quote requests to Sales if a team exists',
-    trigger_type: 'topic_detected', conditions_json: { topic: 'pricing' }, action_type: 'assign_team', action_json: { team_slug: 'sales', fallback: 'main_inbox' }, priority: 20, enabled: true },
-  { name: 'Technical issue → support', description: 'Route bug/error reports to Support if a team exists',
-    trigger_type: 'topic_detected', conditions_json: { topic: 'technical_issue' }, action_type: 'assign_team', action_json: { team_slug: 'support', fallback: 'main_inbox' }, priority: 30, enabled: true },
 ];
 
 export default function RoutingPage() {

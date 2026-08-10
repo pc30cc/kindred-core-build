@@ -116,6 +116,25 @@ function thresholdsForStyle(style: EscalationStyle): {
   return { answerMin: 0.6, caveatMin: 0.4 }; // balanced
 }
 
+/**
+ * Canonical strict-KB-no-grounding predicate (Follow-up 9D.1/9D.2). True
+ * when answer_only_from_kb is on AND retrieval didn't qualify (weak/none).
+ * This is the ONE definition of "no LLM call without a Q&A/KB match" —
+ * decideStrategy() uses it below, and it is the same predicate the
+ * generation boundary and the routingKeepAi override re-check downstream,
+ * so the definition cannot drift between call sites. Deliberately keyed off
+ * the already-computed retrievalStrength classification, not off raw
+ * `sources.length` — a weak source can exist while still being
+ * non-qualifying.
+ */
+export function isStrictKbNoGrounding(
+  settings: Pick<AgentSettings, 'answer_only_from_kb'>,
+  retrievalStrength: StrategyDecision['retrievalStrength'],
+): boolean {
+  const noQualifyingSource = retrievalStrength === 'weak' || retrievalStrength === 'none';
+  return settings.answer_only_from_kb === true && noQualifyingSource;
+}
+
 export function decideStrategy(input: StrategyInput): StrategyDecision {
   const { settings, question, sources, clarificationAttemptCount } = input;
   const sourceTypesUsed = Array.from(new Set(sources.map((s) => s.kind)));
@@ -190,7 +209,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   // retrieval strength is weak/none under that setting, falling through to
   // the existing handoff/no_answer_silent logic in step 6 below instead.
   const noQualifyingSource = strength === 'weak' || strength === 'none';
-  const strictKbNoGrounding = settings.answer_only_from_kb === true && noQualifyingSource;
+  const strictKbNoGrounding = isStrictKbNoGrounding(settings, strength);
 
   // 4. Known commercial / support topic → SAFE GUIDANCE first.
   //    This is the key change: for topics like pricing/features/support we

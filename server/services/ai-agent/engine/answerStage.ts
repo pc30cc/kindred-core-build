@@ -17,7 +17,7 @@
  * toolMeta via the same get/set ref pattern as the original.
  */
 import type { ServerConfig } from '../../../config.js';
-import { decideStrategy, countClarificationAttempts } from '../answerStrategy.js';
+import { decideStrategy, countClarificationAttempts, isStrictKbNoGrounding } from '../answerStrategy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged, markNeedsHuman } from '../handoffState.js';
@@ -219,7 +219,11 @@ export async function runAnswerStage(
 
   if (strategy.decisionType === 'handoff') {
     // C2A — keep_ai routing rule prevents weak-confidence handoff escalation.
-    if (routingKeepAi) {
+    // Follow-up 9D.1 — never let it override a strict-KB/no-grounding
+    // handoff; that would force an ungrounded provider call, defeating the
+    // answer_only_from_kb invariant. Preserve the existing handoff/no-answer
+    // path unchanged in that case.
+    if (routingKeepAi && !isStrictKbNoGrounding(settings, strategy.retrievalStrength)) {
       decisionTimeline.push('routing_keep_ai_overrides_handoff');
       console.log('[ai-agent.runtime.routing] keep_ai overrides handoff', { conversationId });
       // Fall through to LLM by treating strategy as substantive answer.

@@ -251,6 +251,22 @@ export function evaluateRoutingRules(ctx: RuntimeEvaluationContext): RoutingEval
     }
   }
 
+  // Follow-up 9E.3.1 — observability normalization: within this SAME phase,
+  // a hard handoff always wins over an earlier-matched keep_ai action (the
+  // runtime outcome already ignores keep_ai once hardHandoff is true — see
+  // the `break` above). Metadata must say so truthfully rather than still
+  // reporting that keep_ai action as executed/effective. The rule stays in
+  // matchedRuleIds (its CONDITION did match); only its effect is corrected.
+  if (hardHandoff && keepAi) {
+    for (let i = 0; i < actions.length; i++) {
+      const a = actions[i];
+      if (a.type === 'keep_ai' && a.executed) {
+        actions[i] = { ...a, type: 'skip', executed: false, skippedReason: 'overridden_by_hard_handoff' };
+      }
+    }
+    keepAi = false;
+  }
+
   return { actions, matchedRuleIds, matchedRuleNames, hardHandoff, keepAi };
 }
 
@@ -277,6 +293,29 @@ export function evaluateRoutingRulesForTriggerTypes(
 }
 
 /**
+ * Rewrites any executed keep_ai action in `result` to a truthful non-
+ * effective skip, and clears `keepAi`. Shared by strict-KB applicability
+ * normalization and the cross-phase hard-handoff override (Follow-up
+ * 9E.1/9E.2/9E.3.1) — used whenever something OUTSIDE the rule's own
+ * condition means its keep_ai effect never actually applies. The rule stays
+ * in matchedRuleIds (its condition genuinely matched); only the reported
+ * effect changes.
+ */
+export function rewriteKeepAiToSkip(
+  result: RoutingEvaluationResult,
+  skippedReason: string,
+): RoutingEvaluationResult {
+  if (!result.keepAi) return result;
+  const actions = result.actions.map((a) => {
+    if (a.type === 'keep_ai' && a.executed) {
+      return { ...a, type: 'skip' as const, executed: false, skippedReason };
+    }
+    return a;
+  });
+  return { ...result, actions, keepAi: false };
+}
+
+/**
  * Strict-KB applicability normalization (Follow-up 9E.1/9E.2 Blocker 5).
  * evaluateRoutingRules() stays pure and unaware of the strict-KB invariant —
  * it always reports keep_ai as matched+executed when the rule's own
@@ -289,14 +328,8 @@ export function applyStrictKbApplicability(
   result: RoutingEvaluationResult,
   strictBlocked: boolean,
 ): RoutingEvaluationResult {
-  if (!strictBlocked || !result.keepAi) return result;
-  const actions = result.actions.map((a) => {
-    if (a.type === 'keep_ai' && a.executed) {
-      return { ...a, type: 'skip' as const, executed: false, skippedReason: 'strict_kb_safety_block' };
-    }
-    return a;
-  });
-  return { ...result, actions, keepAi: false };
+  if (!strictBlocked) return result;
+  return rewriteKeepAiToSkip(result, 'strict_kb_safety_block');
 }
 
 export function buildRoutingMetadata(result: RoutingEvaluationResult, phase?: 'pre_strategy' | 'post_strategy') {

@@ -185,17 +185,20 @@ export default function RoutingPage() {
 }
 
 // Legacy low_confidence rows persisted before Follow-up 9E.3 used
-// {threshold, consecutive} instead of the canonical {confidence_below}. The
-// runtime keeps such rows dormant rather than reinterpreting them — see
-// routingRuntime.ts's LOW_CONFIDENCE_UNSUPPORTED_KEYS.
+// {threshold, consecutive} instead of (or alongside) the canonical
+// {confidence_below}. The runtime keeps ANY row carrying one of these keys
+// dormant rather than reinterpreting or partially evaluating it — see
+// routingRuntime.ts's LOW_CONFIDENCE_UNSUPPORTED_KEYS — so a mixed row like
+// {confidence_below: 0.5, consecutive: 2} is still dormant, and the UI must
+// not present it as a clean, active canonical rule (Follow-up 9E.3.1).
 function isLegacyLowConfidenceConditions(cond: Record<string, unknown>): boolean {
   const has = (k: string) => Object.prototype.hasOwnProperty.call(cond, k);
-  return !has('confidence_below') && (has('threshold') || has('consecutive'));
+  return has('threshold') || has('consecutive');
 }
 
-function initialConditionsFor(triggerType: RoutingTrigger, topic: string, confidenceBelow: string): Record<string, unknown> {
+function initialConditionsFor(triggerType: RoutingTrigger, topic: string, confidenceBelow: number): Record<string, unknown> {
   if (triggerType === 'topic_detected') return topic ? { topic } : {};
-  if (triggerType === 'low_confidence') return { confidence_below: parseConfidenceBelow(confidenceBelow) };
+  if (triggerType === 'low_confidence') return { confidence_below: confidenceBelow };
   return {};
 }
 
@@ -205,9 +208,16 @@ function initialActionPayloadFor(actionType: RoutingAction, teamSlug: string): R
   return {};
 }
 
-function parseConfidenceBelow(raw: string): number {
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.5;
+// Follow-up 9E.3.1 — strict validation for explicit Save. 0.5 is a
+// canonical DEFAULT (new rule / freshly-switched trigger / genuine runtime
+// absence) but is NEVER an error-recovery value for malformed user input —
+// returns null (rather than silently coercing to 0.5) for blank, non-finite,
+// or out-of-[0,1]-range values, so the caller can block the API call.
+function parseConfidenceBelowStrict(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : null;
 }
 
 function RoutingDialog({
@@ -264,11 +274,29 @@ function RoutingDialog({
 
   async function save() {
     if (!form.name.trim()) { toast({ title: 'Name is required', variant: 'destructive' }); return; }
+
+    const triggerChanged = editing ? form.trigger_type !== editing.trigger_type : false;
+    const actionChanged = editing ? form.action_type !== editing.action_type : false;
+
+    // Follow-up 9E.3.1 — validate confidence_below strictly BEFORE any API
+    // call, whenever THIS save is the one responsible for persisting it
+    // (new rule, trigger freshly switched to low_confidence, or an explicit
+    // edit of the field on an unchanged low_confidence rule). The
+    // Input's type/min/max/required attributes do not block save() since
+    // this dialog is not a native HTML form.
+    const persistingCanonicalConfidence =
+      form.trigger_type === 'low_confidence' && (!editing || triggerChanged || confidenceBelowEdited);
+    let validatedConfidenceBelow: number | null = null;
+    if (persistingCanonicalConfidence) {
+      validatedConfidenceBelow = parseConfidenceBelowStrict(form.confidenceBelow);
+      if (validatedConfidenceBelow === null) {
+        toast({ title: 'Invalid confidence threshold', description: 'Enter a number between 0 and 1 (e.g. 0.5).', variant: 'destructive' });
+        return;
+      }
+    }
+
     setSaving(true);
     try {
-      const triggerChanged = editing ? form.trigger_type !== editing.trigger_type : false;
-      const actionChanged = editing ? form.action_type !== editing.action_type : false;
-
       // conditions_json — round-trip contract (Follow-up 9E.2/9E.3):
       //  - new rule, or trigger_type explicitly changed: drop any old
       //    trigger-specific payload, initialize ONLY the new trigger's
@@ -281,9 +309,9 @@ function RoutingDialog({
       //    exposes for the current trigger (topic).
       let conditions_json: Record<string, unknown>;
       if (!editing || triggerChanged) {
-        conditions_json = initialConditionsFor(form.trigger_type, form.topic, form.confidenceBelow);
+        conditions_json = initialConditionsFor(form.trigger_type, form.topic, validatedConfidenceBelow ?? 0.5);
       } else if (form.trigger_type === 'low_confidence' && confidenceBelowEdited) {
-        conditions_json = { confidence_below: parseConfidenceBelow(form.confidenceBelow) };
+        conditions_json = { confidence_below: validatedConfidenceBelow as number };
       } else {
         conditions_json = { ...editingConditions };
         if (form.trigger_type === 'topic_detected' && form.topic !== (editingConditions.topic || '')) {
@@ -325,8 +353,8 @@ function RoutingDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Name</Label>
-            <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <Label htmlFor="routing-rule-name">Name</Label>
+            <Input id="routing-rule-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </div>
           <div className="space-y-1.5">
             <Label>Description</Label>
@@ -406,7 +434,9 @@ function RoutingDialog({
               </p>
               {showLegacyConversionNote && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  This rule uses an older condition format that never took effect. Saving will replace it with the confidence value above.
+                  {confidenceBelowEdited
+                    ? 'Saving will replace the legacy condition with the confidence value above.'
+                    : 'This rule uses an older, unsupported condition and is currently inactive. Change the confidence threshold above to convert it to the supported format — other edits will preserve the legacy condition as-is.'}
                 </p>
               )}
             </div>

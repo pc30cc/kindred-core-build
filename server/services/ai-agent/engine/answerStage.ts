@@ -25,7 +25,7 @@ import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickTemplate } from '../runtime/templates.js';
 import {
-  evaluateRoutingRulesForTriggerTypes, applyStrictKbApplicability,
+  evaluateRoutingRulesForTriggerTypes, applyStrictKbApplicability, rewriteKeepAiToSkip,
   buildRoutingMetadata, mergeRoutingMetadata, POST_STRATEGY_ROUTING_TRIGGER_TYPES,
   type RoutingEvaluationResult,
 } from '../runtime/routingRuntime.js';
@@ -221,9 +221,10 @@ export async function runAnswerStage(
 
   // Normalize the PRE-strategy result now that retrievalStrength is finally
   // known, so a PRE keep_ai action that strict-KB blocks is never reported
-  // as "executed" in metadata (Follow-up 9E.1/9E.2 Blocker 5).
-  const normalizedPreRouting = applyStrictKbApplicability(auto.routingResult || EMPTY_ROUTING_RESULT, strictBlocked);
-  const effectiveRoutingKeepAi = normalizedPreRouting.keepAi;
+  // as "executed" in metadata (Follow-up 9E.1/9E.2 Blocker 5). Reassigned
+  // below once postHardHandoff is known (Follow-up 9E.3.1 cross-phase
+  // observability normalization).
+  let normalizedPreRouting = applyStrictKbApplicability(auto.routingResult || EMPTY_ROUTING_RESULT, strictBlocked);
 
   let postRoutingResult: RoutingEvaluationResult = EMPTY_ROUTING_RESULT;
   if (runtimeCfg?.routingRules?.length) {
@@ -257,7 +258,18 @@ export async function runAnswerStage(
   if (postHardHandoff) {
     (strategy as any).decisionType = 'handoff';
     decisionTimeline.push('post_routing_handoff_forced');
+    // Follow-up 9E.3.1 — cross-phase observability: a POST hard handoff
+    // also outranks an already-applicable PRE keep_ai. The PRE rule's
+    // condition still matched (stays in matchedRuleIds), but its keep_ai
+    // effect never actually applies — metadata must not report it as
+    // executed/effective. (POST's own same-phase keep_ai-vs-hard-handoff
+    // conflict, if any, is already normalized inside evaluateRoutingRules
+    // itself, so postRoutingResult.keepAi is already false here.)
+    if (normalizedPreRouting.keepAi) {
+      normalizedPreRouting = rewriteKeepAiToSkip(normalizedPreRouting, 'overridden_by_post_hard_handoff');
+    }
   }
+  const effectiveRoutingKeepAi = normalizedPreRouting.keepAi;
 
   // Merge PRE + POST routing metadata, phase-tagged, for every log/metadata
   // call from this point on (never overwrite either phase's observability).
@@ -328,22 +340,43 @@ export async function runAnswerStage(
       metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
 
-    if (decision.canAutoReply) {
-      const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
-      // Follow-up 9E.2 — an explicit POST no_answer/low_confidence -> handoff
-      // Routing rule is allowed to override the coarse fallback_behavior=
-      // 'silent' default, matching the already-live explicit ai_no_answer
-      // Message Trigger handoff automation semantics (which already sends a
-      // full visible ack regardless of fallback_behavior — see
-      // evaluateNoAnswerHooks/actionExecutor.ts, unaffected by this setting).
-      if (fallbackBehavior === 'handoff' || postHardHandoff) {
-        // C2 — if no_answer hooks already executed a handoff (trigger/tool),
-        // skip a second markNeedsHuman + duplicate fallback message.
-        if (noAnsResult?.handoffExecuted) {
-          decisionTimeline.push('handoff_message_already_sent');
-          return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null } };
-        }
-        await markHandoffRequested(config, conversationId).catch(() => {});
+    const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
+    // Follow-up 9E.2 — an explicit POST no_answer/low_confidence -> handoff
+    // Routing rule is allowed to override the coarse fallback_behavior=
+    // 'silent' default, matching the already-live explicit ai_no_answer
+    // Message Trigger handoff automation semantics (which already sends a
+    // full visible ack regardless of fallback_behavior — see
+    // evaluateNoAnswerHooks/actionExecutor.ts, unaffected by this setting).
+    //
+    // Follow-up 9E.3.1 — an explicit POST hard handoff is a Routing DECISION
+    // (transition the conversation to needs_human), independent from
+    // decision.canAutoReply (which only governs whether an AI-generated
+    // reply/ack may be sent). Gating the entire handoff execution behind
+    // canAutoReply meant a postHardHandoff could be classified executed in
+    // metadata while the conversation never actually transitioned to
+    // needs_human whenever canAutoReply was false (suggest_only,
+    // auto_reply_when_offline with operators online, etc). The ordinary
+    // strategy-driven fallback handoff (postHardHandoff=false) keeps its
+    // pre-existing canAutoReply gate untouched.
+    const shouldExecuteHandoff = postHardHandoff || (decision.canAutoReply && fallbackBehavior === 'handoff');
+    if (shouldExecuteHandoff) {
+      // C2 — if no_answer hooks already executed a handoff (trigger/tool),
+      // skip a second markNeedsHuman + duplicate fallback message. Checked
+      // regardless of canAutoReply so a suggest_only conversation whose
+      // Trigger/Workflow already handed off is reported truthfully too.
+      if (noAnsResult?.handoffExecuted) {
+        decisionTimeline.push('handoff_message_already_sent');
+        return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null } };
+      }
+      await markHandoffRequested(config, conversationId).catch(() => {});
+      // Visitor-facing ack mirrors the EXISTING PRE hard-handoff mode
+      // semantics (runtimeDecisionStage.ts's HANDOFF branch): suppressed in
+      // suggest_only mode unless canAutoReply is true; sent in every other
+      // mode regardless of canAutoReply (e.g. auto_reply_when_offline with
+      // operators currently online). The handoff state transition itself
+      // always happens, independent of this.
+      let messageId: string | null = null;
+      if (decision.canAutoReply || settings.mode !== 'suggest_only') {
         // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
         // ordering note on the human-request handoff branch above.
         const display = deriveAgentDisplay(settings);
@@ -364,14 +397,15 @@ export async function runAnswerStage(
           agentName: display.agentName,
           agentLogoUrl: display.agentLogoUrl,
         });
-        await markNeedsHuman(config, {
-          workspaceId,
-          conversationId,
-          reason: strategy.reason as any,
-        }).catch(() => {});
-        await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
-        return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: inserted.id } };
+        messageId = inserted.id;
       }
+      await markNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: strategy.reason as any,
+      }).catch(() => {});
+      await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+      return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId } };
     }
     return { terminal: { ran: true, action: 'no_answer', reason: strategy.reason, runId } };
     }

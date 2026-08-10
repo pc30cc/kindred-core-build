@@ -140,8 +140,13 @@ async function executeSendMessage(
       agentLogoUrl: display.agentLogoUrl,
     });
     // Only record after the physical insert actually succeeded -- a failed
-    // attempt must never block the other source's own try.
-    ctx.messageRegistry?.recordSuccessfulInsert(body, 'workflow');
+    // attempt must never block the other source's own try. The real
+    // responder.ts contract for a DB error is NOT a throw; it resolves
+    // { id: null } after logging a warning, so success must be judged by
+    // inserted.id, not merely by the call resolving without throwing.
+    if (inserted.id) {
+      ctx.messageRegistry?.recordSuccessfulInsert(body, 'workflow');
+    }
     return { messageId: inserted.id || null, stopAi: !continueAi, reason: isQuestion ? 'ask_question' : 'send_message' };
   } catch (err: any) {
     console.warn('[ai-agent.runtime.workflowExecutor] send_message failed:', err?.message || err);

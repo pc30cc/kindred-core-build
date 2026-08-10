@@ -99,14 +99,22 @@ vi.mock('../../../server/services/ai-agent/availability.js', () => ({
 // throws instead of succeeding, then resets to null -- simulates "the first
 // system to attempt the insert fails" without needing to know in advance
 // which source (Trigger or Workflow) the engine's own execution order will
-// try first (E4/E5).
+// try first (E4/E5). This is a synthetic failure mode (mocks, unexpected
+// runtime errors) -- kept alongside failNextInsertWithNullIdForBody, which
+// models the REAL production responder.ts contract (see F1-F3): a genuine
+// DB insert error does NOT throw, it resolves { id: null }.
 let failNextInsertForBody: string | null = null;
+let failNextInsertWithNullIdForBody: string | null = null;
 
 vi.mock('../../../server/services/ai-agent/responder.js', () => ({
   insertAiMessage: async (_config: any, input: any) => {
     if (failNextInsertForBody !== null && input.body === failNextInsertForBody) {
       failNextInsertForBody = null;
       throw new Error('simulated insert failure');
+    }
+    if (failNextInsertWithNullIdForBody !== null && input.body === failNextInsertWithNullIdForBody) {
+      failNextInsertWithNullIdForBody = null;
+      return { id: null };
     }
     const id = `msg-${insertAiMessageCalls.length + 1}`;
     insertAiMessageCalls.push({ ...input, id });
@@ -229,6 +237,7 @@ beforeEach(() => {
   markNeedsHumanCalls.length = 0;
   aiCallCount = 0;
   failNextInsertForBody = null;
+  failNextInsertWithNullIdForBody = null;
   fakeSb = makeFakeSupabase({
     workspaces: [{ id: DEFAULT_WORKSPACE_ID, locale: 'en', widget_language: 'en' }],
     conversations: [{ id: DEFAULT_CONVERSATION_ID, metadata: {} }],
@@ -630,5 +639,83 @@ describe('E7 — post-answer messageId attribution does not shift after a dedup'
     const entryB = executed.find((e) => e.id === 'trigger-noans-b');
     expect(entryA.messageId).toBe(bodyBMessageId);
     expect(entryB.messageId).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Follow-up 9A.2 — the REAL responder.ts contract for a DB insert failure
+// is NOT a thrown exception: insertAiMessage() resolves { id: null } (see
+// server/services/ai-agent/responder.ts). E4/E5's throw-based simulation
+// exercises the try/catch failure path, but never exercises "the call
+// resolved successfully and returned no id" -- a distinct branch that
+// must ALSO not consume the cross-system dedup slot.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('F1 — pre-retrieval: Workflow insert resolves {id:null}, Trigger fallback still succeeds', () => {
+  it('a null-id resolution (the real DB-failure contract, not a throw) must not block the second source', async () => {
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-f1', name: 'Fallback', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'send_message', action_json: { message: DUP_BODY, continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+      workflows: [
+        { id: 'workflow-f1', name: 'Resolves null id', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'send_message', payload: { body: DUP_BODY, continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+    // Workflow executes first in the pre-retrieval path (unchanged order),
+    // so this is the attempt that resolves with no id.
+    failNextInsertWithNullIdForBody = DUP_BODY;
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies(DUP_BODY)).toHaveLength(1);
+  });
+});
+
+describe('F2 — post-answer: Message Trigger insert resolves {id:null}, Workflow fallback still succeeds', () => {
+  it('pins both executors to the identical success definition (a real message id, not just a non-throwing call)', async () => {
+    settingsFixture = makeSettings({
+      mode: 'auto_reply_always',
+      answer_only_from_kb: true,
+      allow_clarifying_questions: false,
+      handoff_when_no_kb_match: true,
+    });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-f2', name: 'Resolves null id', event_type: 'ai_no_answer', conditions_json: {}, action_type: 'send_message', action_json: { message: DUP_BODY, continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+      workflows: [
+        { id: 'workflow-f2', name: 'Fallback', description: null, trigger_json: { event: 'ai_no_answer' }, steps_json: [{ type: 'send_message', payload: { body: DUP_BODY, continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+    // The post-answer path executes Message Trigger actions BEFORE Workflow
+    // actions, so this is the attempt that resolves with no id. The
+    // Trigger side already guards with `if (ins.id)` before recording, so
+    // this direction is expected to already be correct pre-patch — it pins
+    // that both executors share the same success definition going forward.
+    failNextInsertWithNullIdForBody = DUP_BODY;
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies(DUP_BODY)).toHaveLength(1);
+  });
+});
+
+describe('F3 — normal successful insert still dedupes the cross-system duplicate', () => {
+  it('rerun of the core D1 invariant with a real (non-null) message id on both sides', async () => {
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-f3', name: 'Duplicate', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'send_message', action_json: { message: DUP_BODY, continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+      workflows: [
+        { id: 'workflow-f3', name: 'Duplicate', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'send_message', payload: { body: DUP_BODY, continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies(DUP_BODY)).toHaveLength(1);
   });
 });

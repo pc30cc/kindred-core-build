@@ -110,12 +110,15 @@ describe('C15 — Routing: evaluateRoutingRules()', () => {
     expect(r.hardHandoff).toBe(false);
   });
 
-  it('low_confidence trigger_type matches only when answerStrategy.confidence is below the configured threshold', () => {
+  it('low_confidence trigger_type matches only when answerStrategy.reason="low_confidence" AND confidence is below the configured threshold (Follow-up 9E.3 — reason is the required discriminant, not confidence alone)', () => {
     const rule = { id: 'r3', name: 'Low conf', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.5 }, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true };
-    const noMatch = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, answerStrategy: { confidence: 0.9 } }));
-    const match = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, answerStrategy: { confidence: 0.2 } }));
+    const noMatch = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, answerStrategy: { reason: 'low_confidence', confidence: 0.9 } }));
+    const match = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, answerStrategy: { reason: 'low_confidence', confidence: 0.2 } }));
+    // A qualifying confidence alone, without reason='low_confidence', must NOT match.
+    const wrongReason = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, answerStrategy: { reason: 'no_kb_match', confidence: 0.2 } }));
     expect(noMatch.matchedRuleIds).toHaveLength(0);
     expect(match.matchedRuleIds).toContain('r3');
+    expect(wrongReason.matchedRuleIds).toHaveLength(0);
   });
 
   it('business_hours matches on availabilityReason="outside_hours" (weekly schedule closed)', () => {

@@ -206,7 +206,7 @@ beforeEach(() => {
   aiCallCount = 0;
   fakeSb = makeFakeSupabase({
     workspaces: [{ id: DEFAULT_WORKSPACE_ID, locale: 'en', widget_language: 'en' }],
-    conversations: [{ id: DEFAULT_CONVERSATION_ID, metadata: {} }],
+    conversations: [{ id: DEFAULT_CONVERSATION_ID, workspace_id: DEFAULT_WORKSPACE_ID, metadata: {} }],
   });
   vi.clearAllMocks();
 });
@@ -718,5 +718,294 @@ describe('C8.10 — strict-KB provider boundary (Follow-up 9D.1/9D.2)', () => {
     expect(result.action).toBe('handoff');
     expect(result.reason).toBe('human_request');
     expect(aiCallCount).toBe(0);
+  });
+});
+
+describe('C8.11 — Follow-up 9E.3 post-strategy Routing (engine-level)', () => {
+  it('PAGE1 — a page-context-upgraded strategy (decisionType forced to answer/page_context_match) is never seen by POST low_confidence Routing, even with a rule that would otherwise trivially match', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () =>
+      makeHybridResult({
+        sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })],
+        pageContextDebug: {
+          current_page_url: 'https://example.com/pricing', current_page_title: 'Pricing',
+          exact_page_match: true, same_path_match: false, same_host_match: true,
+          page_matched_source_ids: ['kb-1'], page_url_boost_applied: true,
+        },
+      });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-page1', name: 'Low conf handoff', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.99 }, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'what is this page about', pageContext: { currentPageUrl: 'https://example.com/pricing' } }),
+    );
+
+    // The page-context override forces decisionType='answer' BEFORE POST
+    // Routing evaluates, so the rule (which would match almost any
+    // confidence otherwise) must never fire.
+    expect(result.action).toBe('replied');
+    expect(aiCallCount).toBe(1);
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).not.toContain('route-page1');
+  });
+
+  it('PAGE2 — the E2C no_url terminal reply returns before POST Routing ever evaluates, with zero unrelated side effects', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-page2', name: 'No-answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    // No pageContext supplied -> pageIntentOverride = 'no_url' -> the short
+    // honest E2C reply fires and returns before POST Routing ever runs.
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'what page am I on' }),
+    );
+
+    expect(result.action).toBe('replied');
+    expect(aiCallCount).toBe(0);
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).not.toContain('route-page2');
+    expect((log.metadata.routing.executedActions || []).every((a: any) => a.phase !== 'post_strategy')).toBe(true);
+    expect(markNeedsHumanCalls).toHaveLength(0);
+  });
+
+  it('MIXB1 — an explicit POST no_answer -> handoff rule wins over a simultaneously-applicable PRE keep_ai rule', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-mixb1-keepai', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-mixb1-handoff', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(0);
+    expect(result.action).toBe('handoff');
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-mixb1-keepai');
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-mixb1-handoff');
+  });
+
+  it('MIXB2 — an explicit POST low_confidence -> handoff rule wins over a simultaneously-applicable PRE keep_ai rule', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-mixb2-keepai', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-mixb2-handoff', name: 'Low conf handoff', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(0);
+    expect(result.action).toBe('handoff');
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-mixb2-handoff');
+  });
+
+  it('MIXC — PRE and POST keep_ai combine via OR when no hard handoff is applicable, under non-strict KB: one non-handoff outcome', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-mixc-pre', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-mixc-post', name: 'Low conf keep AI', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(1);
+    expect(result.action).toBe('replied');
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.decision_timeline).toContain('routing_keep_ai_overrides_handoff');
+    expect(log.metadata.routing.matchedRuleIds).toEqual(expect.arrayContaining(['route-mixc-pre', 'route-mixc-post']));
+  });
+
+  it('strict-KB blocks a POST low_confidence -> keep_ai rule exactly as it blocks a PRE rule: no bypass, reported truthfully as strict_kb_safety_block', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-skpost-1', name: 'Low conf keep AI', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer', 'skipped']).toContain(result.action);
+    const log = logRunCalls.find((c) => c.metadata?.routing?.skippedActions?.some((a: any) => a.sourceId === 'route-skpost-1'))
+      || logRunCalls[logRunCalls.length - 1];
+    const skip = log.metadata.routing.skippedActions.find((a: any) => a.sourceId === 'route-skpost-1');
+    expect(skip?.skippedReason).toBe('strict_kb_safety_block');
+    expect(log.metadata.routing.executedActions.some((a: any) => a.sourceId === 'route-skpost-1')).toBe(false);
+  });
+
+  it('PRE mark_priority persists unconditionally on a normal (non-handoff) answer path', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-mp-pre', name: 'EN priority', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('replied');
+    expect(aiCallCount).toBe(1);
+    const conv = fakeSb.__store.conversations.find((c: any) => c.id === DEFAULT_CONVERSATION_ID);
+    expect(conv.priority).toBe('high');
+  });
+
+  it('MIXD — a PRE mark_priority match and an explicit POST no_answer -> handoff rule both take effect on the same message', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-mixd-pre', name: 'EN priority', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-mixd-post', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    const conv = fakeSb.__store.conversations.find((c: any) => c.id === DEFAULT_CONVERSATION_ID);
+    expect(conv.priority).toBe('high');
+  });
+
+  it('POST mark_priority persists unconditionally even on a keep_ai-converted-to-answer path', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-postmp-keepai', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-postmp-priority', name: 'Low conf priority', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('replied');
+    expect(aiCallCount).toBe(1);
+    const conv = fakeSb.__store.conversations.find((c: any) => c.id === DEFAULT_CONVERSATION_ID);
+    expect(conv.priority).toBe('high');
+  });
+
+  it('a matched mark_priority action executes exactly once even when the legacy keyword handoff path also fires on the same message', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_human_request: true, handoff_keywords: ['operator'] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-nodup', name: 'EN priority', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log');
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'let me talk to an operator' }));
+
+    expect(result.action).toBe('handoff');
+    const priorityLogs = logSpy.mock.calls.filter((args) => args[0] === '[ai-agent.runtime.routing] executed mark_priority');
+    expect(priorityLogs).toHaveLength(1);
+    logSpy.mockRestore();
+  });
+
+  it('SILENT1 — an explicit POST no_answer -> handoff rule overrides fallback_behavior=silent: one real handoff, one visitor-facing ack, needs_human set', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'silent' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-silent1', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    expect(aiCallCount).toBe(0);
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(insertAiMessageCalls[0].handoff).toBe(true);
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-silent1');
+  });
+
+  it('SILENT2 — when a Message Trigger ai_no_answer handoff already executed, the POST Routing handoff does not send a duplicate ack', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'silent' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-silent2', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+      messageTriggers: [
+        { id: 'trig-silent2', name: 'AI no-answer handoff', event_type: 'ai_no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, delay_seconds: 0, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    expect(aiCallCount).toBe(0);
+    // Exactly one physical ack total, no duplicate between the trigger's
+    // execution and the POST Routing handoff branch.
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(insertAiMessageCalls[0].handoff).toBe(true);
+    // The trigger's own executeRuntimeActions handoff branch calls
+    // markNeedsHuman exactly once; answerStage's handoff branch detects
+    // noAnsResult.handoffExecuted and returns early WITHOUT a second call.
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.decision_timeline).toContain('handoff_message_already_sent');
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-silent2');
+  });
+
+  it('no_answer -> keep_ai persisted directly via runtimeConfig (bypassing the UI) does not apply at the engine level either', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-illegal-keepai', name: 'Illegal keep AI', trigger_type: 'no_answer', conditions_json: {}, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    expect(aiCallCount).toBe(0);
+    const log = logRunCalls[logRunCalls.length - 1];
+    const skip = log.metadata.routing.skippedActions.find((a: any) => a.sourceId === 'route-illegal-keepai');
+    expect(skip?.skippedReason).toBe('unsupported_action_for_trigger:keep_ai');
+  });
+
+  it('METADATA — a dormant POST low_confidence rule (legacy threshold key) is never in matchedRuleIds but is truthfully observable as skipped', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false });
+    // Strong match -> decisionType='answer' regardless of Routing, isolating
+    // this test to the metadata truthfulness question alone. The dormancy
+    // check runs before the reason comparison, so it still fires here.
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource()] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-meta-dormant', name: 'Legacy low conf', trigger_type: 'low_confidence', conditions_json: { threshold: 0.5 }, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(1);
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).not.toContain('route-meta-dormant');
+    const skip = log.metadata.routing.skippedActions.find((a: any) => a.sourceId === 'route-meta-dormant');
+    expect(skip?.skippedReason).toBe('unsupported_condition:threshold');
   });
 });

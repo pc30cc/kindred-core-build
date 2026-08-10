@@ -86,13 +86,16 @@ describe('RoutingPage — NEW rule trigger picker (Follow-up 9C)', () => {
     expect(within(listbox).queryByText(/VIP customer/i)).toBeNull();
   });
 
-  it('keeps no_answer and low_confidence selectable but labels them truthfully as not live yet', async () => {
+  // Follow-up 9E.3 — no_answer/low_confidence are now genuinely wired
+  // (post-strategy Routing), so the "not live yet" label must be gone and
+  // both must render as plain, enabled options, same as business_hours.
+  it('shows no_answer and low_confidence as plain, enabled, truthful options — no "not live yet" label, since both are now wired', async () => {
     const dialog = await openNewRuleDialog();
     const triggerSelects = within(dialog).getAllByRole('combobox');
     fireEvent.click(triggerSelects[0]);
     const listbox = await screen.findByRole('listbox');
-    const noAnswer = within(listbox).getByText(/AI cannot answer.*not live yet/i);
-    const lowConfidence = within(listbox).getByText(/AI confidence is low.*not live yet/i);
+    const noAnswer = within(listbox).getByText('AI cannot answer');
+    const lowConfidence = within(listbox).getByText('AI confidence is low');
     expect(noAnswer.closest('[role="option"]')).not.toHaveAttribute('data-disabled');
     expect(lowConfidence.closest('[role="option"]')).not.toHaveAttribute('data-disabled');
   });
@@ -206,6 +209,160 @@ describe('RoutingPage — legacy persisted vip_customer rule rendering (Follow-u
     fireEvent.click(buttons[0]);
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/VIP customer/i)).toBeTruthy();
+  });
+});
+
+function legacyLowConfidenceRule(overrides: Record<string, any> = {}) {
+  return {
+    id: 'r-lc', workspace_id: 'ws-1', name: 'Old low-confidence rule', description: null,
+    trigger_type: 'low_confidence', conditions_json: { threshold: 0.55, consecutive: 2 },
+    action_type: 'handoff', action_json: { target: 'main_inbox' },
+    priority: 100, enabled: true, created_at: '', updated_at: '',
+    ...overrides,
+  };
+}
+
+async function openEditDialog(ruleName: string) {
+  const buttons = await rowButtons(ruleName);
+  fireEvent.click(buttons[0]);
+  return screen.findByRole('dialog');
+}
+
+async function selectTriggerOption(dialog: HTMLElement, label: string | RegExp) {
+  const triggerSelects = within(dialog).getAllByRole('combobox');
+  fireEvent.click(triggerSelects[0]);
+  const listbox = await screen.findByRole('listbox');
+  fireEvent.click(within(listbox).getByText(label));
+}
+
+async function selectActionOption(dialog: HTMLElement, label: string | RegExp) {
+  const selects = within(dialog).getAllByRole('combobox');
+  fireEvent.click(selects[1]);
+  const listbox = await screen.findByRole('listbox');
+  fireEvent.click(within(listbox).getByText(label));
+}
+
+describe('RoutingPage — low_confidence/no_answer live UI (Follow-up 9E.3)', () => {
+  it('low_confidence shows a required numeric confidence_below input defaulting to 0.5 for a new rule', async () => {
+    const dialog = await openNewRuleDialog();
+    await selectTriggerOption(dialog, 'AI confidence is low');
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    expect(input.value).toBe('0.5');
+    expect(input).toHaveAttribute('type', 'number');
+    expect(input).toBeRequired();
+  });
+
+  it('no_answer disables keep_ai as not applicable, while handoff and mark_priority stay enabled', async () => {
+    const dialog = await openNewRuleDialog();
+    await selectTriggerOption(dialog, 'AI cannot answer');
+    const selects = within(dialog).getAllByRole('combobox');
+    fireEvent.click(selects[1]);
+    const listbox = await screen.findByRole('listbox');
+    const keepAi = within(listbox).getByText(/Keep the AI handling it.*not applicable/i);
+    expect(keepAi.closest('[role="option"]')).toHaveAttribute('data-disabled');
+    const handoff = within(listbox).getByText(/Hand off to a human/i);
+    expect(handoff.closest('[role="option"]')).not.toHaveAttribute('data-disabled');
+    const markPriority = within(listbox).getByText(/Mark as priority/i);
+    expect(markPriority.closest('[role="option"]')).not.toHaveAttribute('data-disabled');
+  });
+
+  it('switching the trigger to no_answer while keep_ai is selected resets the action back to handoff', async () => {
+    const dialog = await openNewRuleDialog();
+    await selectActionOption(dialog, 'Keep the AI handling it');
+    await selectTriggerOption(dialog, 'AI cannot answer');
+    expect(within(dialog).getByText(/Hand off to a human/i)).toBeTruthy();
+  });
+
+  it('shows the keep_ai strict-KB caveat note when keep_ai is selected', async () => {
+    const dialog = await openNewRuleDialog();
+    await selectActionOption(dialog, 'Keep the AI handling it');
+    expect(within(dialog).getByText(/no effect when "Answer only from knowledge base"/i)).toBeTruthy();
+  });
+});
+
+describe('RoutingPage — legacy round-trip contract (Follow-up 9E.3)', () => {
+  it('LEG4 — legacy no_answer{max_attempts:2} rule changed to low_confidence saves ONLY the canonical {confidence_below:0.5}, not the old field', async () => {
+    listRouting.mockResolvedValue({
+      items: [{
+        id: 'r-na', workspace_id: 'ws-1', name: 'Old no-answer rule', description: null,
+        trigger_type: 'no_answer', conditions_json: { max_attempts: 2 },
+        action_type: 'handoff', action_json: { target: 'main_inbox' },
+        priority: 100, enabled: true, created_at: '', updated_at: '',
+      }],
+    });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Old no-answer rule');
+    await selectTriggerOption(dialog, 'AI confidence is low');
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ confidence_below: 0.5 });
+  });
+
+  it('LEG5 — legacy low_confidence{threshold,consecutive} rule changed to no_answer saves an empty conditions_json', async () => {
+    listRouting.mockResolvedValue({ items: [legacyLowConfidenceRule()] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Old low-confidence rule');
+    await selectTriggerOption(dialog, 'AI cannot answer');
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({});
+  });
+
+  it('an unrelated edit (name only) on a legacy low_confidence{threshold,consecutive} row preserves conditions_json byte-for-byte, including the dormant legacy keys', async () => {
+    listRouting.mockResolvedValue({ items: [legacyLowConfidenceRule()] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Old low-confidence rule');
+    const nameInput = within(dialog).getByDisplayValue('Old low-confidence rule') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Renamed low-confidence rule' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ threshold: 0.55, consecutive: 2 });
+    expect(updateRouting.mock.calls[0][1].name).toBe('Renamed low-confidence rule');
+  });
+
+  it('shows an inline legacy-conversion acknowledgment for a legacy low_confidence row, and does NOT convert unless the confidence field is explicitly edited', async () => {
+    listRouting.mockResolvedValue({ items: [legacyLowConfidenceRule()] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Old low-confidence rule');
+    expect(within(dialog).getByText(/older condition format that never took effect/i)).toBeTruthy();
+    // Saving without touching the confidence field must NOT convert.
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ threshold: 0.55, consecutive: 2 });
+  });
+
+  it('an explicit edit of the confidence_below field on a legacy low_confidence row converts it, dropping the legacy keys', async () => {
+    listRouting.mockResolvedValue({ items: [legacyLowConfidenceRule()] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Old low-confidence rule');
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '0.3' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ confidence_below: 0.3 });
+  });
+
+  it('changing action_type from mark_priority to handoff drops the old payload and initializes only the canonical handoff payload', async () => {
+    listRouting.mockResolvedValue({
+      items: [{
+        id: 'r-mp', workspace_id: 'ws-1', name: 'Old mark-priority rule', description: null,
+        trigger_type: 'human_request', conditions_json: {},
+        action_type: 'mark_priority', action_json: { level: 'high' },
+        priority: 100, enabled: true, created_at: '', updated_at: '',
+      }],
+    });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Old mark-priority rule');
+    await selectActionOption(dialog, /Hand off to a human/i);
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].action_json).toEqual({ target: 'main_inbox' });
   });
 });
 

@@ -23,6 +23,20 @@ export default function InstructionsPage() {
     pricing_instructions: '', handoff_instructions: '', support_instructions: '',
     custom_system_instruction: '',
   });
+  // Every nested `instructions` key on this page is only written when the
+  // operator actually edited its control this session -- the backend
+  // replaces the ENTIRE `instructions` JSON column on write (no server-side
+  // per-key merge), so unconditionally resending all 9 keys on every save
+  // (as before) could silently revert a key changed elsewhere (e.g.
+  // `tone`/`max_answer_length`, both owned by BehaviorPage) back to whatever
+  // this page had loaded, even when the operator only touched an unrelated
+  // field here. Same dirty-tracking discipline as BehaviorPage.
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const markDirty = (key: string) => setDirty((prev) => {
+    const next = new Set(prev);
+    next.add(key);
+    return next;
+  });
 
   useEffect(() => {
     if (!data?.settings) return;
@@ -37,25 +51,30 @@ export default function InstructionsPage() {
       support_instructions: i.support_instructions || '',
       custom_system_instruction: i.custom_system_instruction || i.custom_instructions || '',
     });
+    setDirty(new Set());
     // eslint-disable-next-line
   }, [data?.settings?.id]);
 
   async function save() {
+    // Merge base: the FRESHEST instructions object available at save time
+    // (not a snapshot captured at mount), so keys this page doesn't own
+    // (e.g. a concurrent BehaviorPage edit to tone/max_answer_length) are
+    // preserved as-is. Only the keys the operator actually touched this
+    // session are overlaid on top.
+    const fresh = (data?.settings?.instructions || {}) as any;
+    const instructions: Record<string, unknown> = { ...fresh };
+    if (dirty.has('brand_voice')) instructions.brand_voice = form.brand_voice.trim() || undefined;
+    if (dirty.has('business_description')) instructions.business_description = form.business_description.trim() || undefined;
+    if (dirty.has('tone')) instructions.tone = form.tone.trim() || undefined;
+    if (dirty.has('do_list')) instructions.do_list = form.do_list.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (dirty.has('dont_list')) instructions.dont_list = form.dont_list.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (dirty.has('pricing_instructions')) instructions.pricing_instructions = form.pricing_instructions.trim() || undefined;
+    if (dirty.has('handoff_instructions')) instructions.handoff_instructions = form.handoff_instructions.trim() || undefined;
+    if (dirty.has('support_instructions')) instructions.support_instructions = form.support_instructions.trim() || undefined;
+    if (dirty.has('custom_system_instruction')) instructions.custom_system_instruction = form.custom_system_instruction.trim() || undefined;
     try {
-      await update.mutateAsync({
-        instructions: {
-          ...(data?.settings?.instructions || {}),
-          brand_voice: form.brand_voice.trim() || undefined,
-          business_description: form.business_description.trim() || undefined,
-          tone: form.tone.trim() || undefined,
-          do_list: form.do_list.split('\n').map((s) => s.trim()).filter(Boolean),
-          dont_list: form.dont_list.split('\n').map((s) => s.trim()).filter(Boolean),
-          pricing_instructions: form.pricing_instructions.trim() || undefined,
-          handoff_instructions: form.handoff_instructions.trim() || undefined,
-          support_instructions: form.support_instructions.trim() || undefined,
-          custom_system_instruction: form.custom_system_instruction.trim() || undefined,
-        },
-      } as any);
+      await update.mutateAsync({ instructions } as any);
+      setDirty(new Set());
       toast({ title: 'Instructions saved' });
     } catch (e: any) {
       toast({ title: 'Save failed', description: e?.message, variant: 'destructive' });
@@ -85,19 +104,19 @@ export default function InstructionsPage() {
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
                 <Label>Tone</Label>
-                <Input value={form.tone} onChange={(e) => setForm((f) => ({ ...f, tone: e.target.value }))}
+                <Input value={form.tone} onChange={(e) => { setForm((f) => ({ ...f, tone: e.target.value })); markDirty('tone'); }}
                   placeholder="friendly, professional, concise…" />
               </div>
               <div className="space-y-1.5">
                 <Label>Brand voice description</Label>
                 <Textarea rows={3} value={form.brand_voice}
-                  onChange={(e) => setForm((f) => ({ ...f, brand_voice: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, brand_voice: e.target.value })); markDirty('brand_voice'); }}
                   placeholder="How should the assistant sound? (e.g. warm, modern, plainspoken)" />
               </div>
               <div className="space-y-1.5">
                 <Label>Business description</Label>
                 <Textarea rows={3} value={form.business_description}
-                  onChange={(e) => setForm((f) => ({ ...f, business_description: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, business_description: e.target.value })); markDirty('business_description'); }}
                   placeholder="What does the company do?" />
               </div>
             </CardContent>
@@ -109,13 +128,13 @@ export default function InstructionsPage() {
               <div className="space-y-1.5">
                 <Label>Always do (one per line)</Label>
                 <Textarea rows={5} value={form.do_list}
-                  onChange={(e) => setForm((f) => ({ ...f, do_list: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, do_list: e.target.value })); markDirty('do_list'); }}
                   placeholder={'Be concise\nOffer to connect with a human when stuck\nLink to relevant help articles'} />
               </div>
               <div className="space-y-1.5">
                 <Label>Never do (one per line)</Label>
                 <Textarea rows={5} value={form.dont_list}
-                  onChange={(e) => setForm((f) => ({ ...f, dont_list: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, dont_list: e.target.value })); markDirty('dont_list'); }}
                   placeholder={'Do not invent prices\nDo not promise refunds\nDo not claim to be human'} />
               </div>
             </CardContent>
@@ -127,19 +146,19 @@ export default function InstructionsPage() {
               <div className="space-y-1.5">
                 <Label>Pricing instructions</Label>
                 <Textarea rows={3} value={form.pricing_instructions}
-                  onChange={(e) => setForm((f) => ({ ...f, pricing_instructions: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, pricing_instructions: e.target.value })); markDirty('pricing_instructions'); }}
                   placeholder="How should the AI talk about pricing?" />
               </div>
               <div className="space-y-1.5">
                 <Label>Handoff instructions</Label>
                 <Textarea rows={3} value={form.handoff_instructions}
-                  onChange={(e) => setForm((f) => ({ ...f, handoff_instructions: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, handoff_instructions: e.target.value })); markDirty('handoff_instructions'); }}
                   placeholder="When and how should the AI hand off to a human?" />
               </div>
               <div className="space-y-1.5">
                 <Label>Support instructions</Label>
                 <Textarea rows={3} value={form.support_instructions}
-                  onChange={(e) => setForm((f) => ({ ...f, support_instructions: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, support_instructions: e.target.value })); markDirty('support_instructions'); }}
                   placeholder="How should the AI handle technical support?" />
               </div>
             </CardContent>
@@ -156,7 +175,7 @@ export default function InstructionsPage() {
             </CardHeader>
             <CardContent>
               <Textarea rows={6} value={form.custom_system_instruction}
-                onChange={(e) => setForm((f) => ({ ...f, custom_system_instruction: e.target.value }))}
+                onChange={(e) => { setForm((f) => ({ ...f, custom_system_instruction: e.target.value })); markDirty('custom_system_instruction'); }}
                 placeholder="Free-form additional system instruction (use sparingly)" />
               <p className="text-[11px] text-muted-foreground mt-2">
                 Do not put API keys or secrets here. Custom instructions are appended to every prompt and are visible to the model provider.

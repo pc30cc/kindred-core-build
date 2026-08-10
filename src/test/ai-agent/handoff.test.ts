@@ -590,3 +590,133 @@ describe('C8 — combined precedence: routing + trigger + workflow all request h
     expect(handoffLog.metadata.workflows.matchedWorkflowIds).toContain('workflow-combo');
   });
 });
+
+describe('C8.10 — strict-KB provider boundary (Follow-up 9D.1/9D.2)', () => {
+  it('SK0 — strict KB + zero sources + no Routing: existing invariant, unaffected by this fix', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer']).toContain(result.action);
+  });
+
+  it('SK1 — strict KB + weak source + no Routing: existing invariant, unaffected by this fix', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer']).toContain(result.action);
+  });
+
+  it('SKR1 — strict KB + weak source + LIVE topic_detected -> keep_ai: must NOT bypass the strict-KB invariant', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      topics: [
+        {
+          id: 'topic-pricing', workspace_id: DEFAULT_WORKSPACE_ID, name: 'Pricing', description: null,
+          slug: 'pricing', keywords: ['price', 'pricing', 'plan'], examples: [], language: null,
+          confidence_threshold: 0.5, action: 'label_only', action_json: {}, enabled: true, system: false,
+          created_at: '', updated_at: '',
+        },
+      ],
+      routingRules: [
+        { id: 'route-skr1', name: 'Pricing keep AI', trigger_type: 'topic_detected', conditions_json: { topic: 'pricing' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'what is your pricing plan' }));
+
+    // Confirm the routing rule genuinely matched and set keepAi — otherwise
+    // this test would pass for the wrong reason (no override attempted).
+    const log = logRunCalls.find((c) => c.metadata?.routing?.matchedRuleIds?.includes('route-skr1'))
+      || logRunCalls[logRunCalls.length - 1];
+    expect(log?.metadata?.routing?.matchedRuleIds).toContain('route-skr1');
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer', 'skipped']).toContain(result.action);
+  });
+
+  it('SKR2 — strict KB + zero sources + LIVE language -> keep_ai: proves the fix is a general invariant, not topic-specific', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-skr2', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    const log = logRunCalls.find((c) => c.metadata?.routing?.matchedRuleIds?.includes('route-skr2'))
+      || logRunCalls[logRunCalls.length - 1];
+    expect(log?.metadata?.routing?.matchedRuleIds).toContain('route-skr2');
+    expect(aiCallCount).toBe(0);
+    expect(['handoff', 'no_answer', 'skipped']).toContain(result.action);
+  });
+
+  it('SKR3 — non-strict KB + weak source + keep_ai: the fix must NOT globally disable keep_ai outside strict-KB mode', async () => {
+    settingsFixture = makeSettings({
+      mode: 'auto_reply_always', answer_only_from_kb: false, fallback_behavior: 'handoff',
+      allow_clarifying_questions: false,
+    });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-skr3', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    // Weak match + clarification disabled -> decideStrategy falls through to
+    // handoff(reason:'low_confidence'); non-strict keep_ai is still allowed
+    // to override it, since the strict-KB invariant does not apply here.
+    expect(aiCallCount).toBe(1);
+    expect(result.action).toBe('replied');
+  });
+
+  it('SKG1 — strict KB + zero sources + duplicate greeting: the greeting-dedup mutation must not bypass the strict-KB invariant either', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
+    conversationStateFixture = makeConversationState({ _metadata: { ai_greeting_sent: true } });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'hi' }));
+
+    expect(aiCallCount).toBe(0);
+    expect(result.action).not.toBe('replied');
+  });
+
+  it('HR1 — explicit human-request keyword + an unrelated live keep_ai match: decideRuntime already terminates before retrieval, so no bypass exists here (confirms, does not change, production precedence)', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_human_request: true, handoff_keywords: ['operator'] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-hr1', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'let me talk to an operator' }));
+
+    expect(result.action).toBe('handoff');
+    expect(result.reason).toBe('human_request');
+    expect(aiCallCount).toBe(0);
+  });
+
+  it('HR2 — human_request -> keep_ai routing rule cannot reach AnswerStage either, for the same reason as HR1', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_human_request: true, handoff_keywords: ['operator'] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-hr2', name: 'Human keep AI', trigger_type: 'human_request', conditions_json: {}, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'let me talk to an operator' }));
+
+    expect(result.action).toBe('handoff');
+    expect(result.reason).toBe('human_request');
+    expect(aiCallCount).toBe(0);
+  });
+});

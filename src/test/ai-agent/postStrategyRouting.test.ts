@@ -14,6 +14,7 @@ import {
   evaluateRoutingRules,
   evaluateRoutingRulesForTriggerTypes,
   applyStrictKbApplicability,
+  rewriteKeepAiToSkip,
   buildRoutingMetadata,
   mergeRoutingMetadata,
   PRE_STRATEGY_ROUTING_TRIGGER_TYPES,
@@ -433,5 +434,89 @@ describe('9E.3 — buildRoutingMetadata / mergeRoutingMetadata', () => {
     const meta = buildRoutingMetadata(postResult, 'post_strategy');
     expect(meta.matchedRuleIds).not.toContain('lc-dormant');
     expect(meta.skippedActions.some((a: any) => a.sourceId === 'lc-dormant')).toBe(true);
+  });
+});
+
+// ─── SAME-PHASE hard-handoff-overrides-keep_ai truthfulness (9E.3.1) ───────
+describe('9E.3.1 — evaluateRoutingRules same-phase hard-handoff/keep_ai truthfulness', () => {
+  it('a higher-priority keep_ai match followed by a lower-priority hard handoff: keepAi=false, keep_ai rule stays matched but is rewritten to a truthful non-effective skip', () => {
+    const ctx = baseCtx({
+      answerStrategy: { reason: 'low_confidence', confidence: 0.1 },
+      runtimeConfig: runtimeConfigWith([
+        rule({ id: 'lc-keepai', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'keep_ai', priority: 1 }),
+        rule({ id: 'lc-handoff', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'handoff', priority: 2 }),
+      ]),
+    });
+    const result = evaluateRoutingRules(ctx);
+    expect(result.hardHandoff).toBe(true);
+    expect(result.keepAi).toBe(false);
+    expect(result.matchedRuleIds).toEqual(expect.arrayContaining(['lc-keepai', 'lc-handoff']));
+    const keepAiAction = result.actions.find((a) => a.sourceId === 'lc-keepai');
+    expect(keepAiAction?.type).toBe('skip');
+    expect(keepAiAction?.executed).toBe(false);
+    expect(keepAiAction?.skippedReason).toBe('overridden_by_hard_handoff');
+    const handoffAction = result.actions.find((a) => a.sourceId === 'lc-handoff');
+    expect(handoffAction?.type).toBe('handoff');
+    expect(handoffAction?.executed).toBe(true);
+  });
+
+  it('a hard handoff matched FIRST short-circuits before a lower-priority keep_ai rule is even reached — no misleading metadata to rewrite', () => {
+    const ctx = baseCtx({
+      answerStrategy: { reason: 'low_confidence', confidence: 0.1 },
+      runtimeConfig: runtimeConfigWith([
+        rule({ id: 'lc-handoff-first', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'handoff', priority: 1 }),
+        rule({ id: 'lc-keepai-second', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'keep_ai', priority: 2 }),
+      ]),
+    });
+    const result = evaluateRoutingRules(ctx);
+    expect(result.hardHandoff).toBe(true);
+    expect(result.keepAi).toBe(false);
+    expect(result.matchedRuleIds).toEqual(['lc-handoff-first']);
+    expect(result.actions.find((a) => a.sourceId === 'lc-keepai-second')).toBeUndefined();
+  });
+
+  it('a matched keep_ai with no hard handoff in the same phase is left genuinely executed', () => {
+    const ctx = baseCtx({
+      answerStrategy: { reason: 'low_confidence', confidence: 0.1 },
+      runtimeConfig: runtimeConfigWith([
+        rule({ id: 'lc-keepai-only', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'keep_ai' }),
+      ]),
+    });
+    const result = evaluateRoutingRules(ctx);
+    expect(result.keepAi).toBe(true);
+    const action = result.actions.find((a) => a.sourceId === 'lc-keepai-only');
+    expect(action?.type).toBe('keep_ai');
+    expect(action?.executed).toBe(true);
+  });
+});
+
+// ─── CROSS-PHASE rewriteKeepAiToSkip (used by answerStage for the POST
+// hard-handoff-overrides-PRE-keep_ai case) ──────────────────────────────────
+describe('9E.3.1 — rewriteKeepAiToSkip', () => {
+  it('rewrites an executed keep_ai action to a truthful skip with the given reason and clears keepAi', () => {
+    const ctx = baseCtx({
+      answerStrategy: { reason: 'low_confidence', confidence: 0.1 },
+      runtimeConfig: runtimeConfigWith([rule({ id: 'lc-1', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.5 }, action_type: 'keep_ai' })]),
+    });
+    const raw = evaluateRoutingRules(ctx);
+    expect(raw.keepAi).toBe(true);
+    const rewritten = rewriteKeepAiToSkip(raw, 'overridden_by_post_hard_handoff');
+    expect(rewritten.keepAi).toBe(false);
+    const action = rewritten.actions.find((a) => a.sourceId === 'lc-1');
+    expect(action?.type).toBe('skip');
+    expect(action?.executed).toBe(false);
+    expect(action?.skippedReason).toBe('overridden_by_post_hard_handoff');
+    // matchedRuleIds is untouched — the condition still matched.
+    expect(rewritten.matchedRuleIds).toContain('lc-1');
+  });
+
+  it('is a no-op when keepAi is already false', () => {
+    const ctx = baseCtx({
+      answerStrategy: { reason: 'no_kb_match', confidence: 0 },
+      runtimeConfig: runtimeConfigWith([rule({ id: 'na-1', trigger_type: 'no_answer', action_type: 'handoff' })]),
+    });
+    const raw = evaluateRoutingRules(ctx);
+    const rewritten = rewriteKeepAiToSkip(raw, 'overridden_by_post_hard_handoff');
+    expect(rewritten).toEqual(raw);
   });
 });

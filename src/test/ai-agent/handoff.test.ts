@@ -1009,3 +1009,161 @@ describe('C8.11 — Follow-up 9E.3 post-strategy Routing (engine-level)', () => 
     expect(skip?.skippedReason).toBe('unsupported_condition:threshold');
   });
 });
+
+describe('C8.12 — Follow-up 9E.3.1 POST hard handoff independent of canAutoReply', () => {
+  it('POSTMODE1 — suggest_only + reason=no_kb_match + POST no_answer->handoff: real handoff state transition, no visitor ack', async () => {
+    settingsFixture = makeSettings({ mode: 'suggest_only', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-postmode1', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    expect(markHandoffRequestedCalls.length).toBeGreaterThanOrEqual(1);
+    // suggest_only suppresses the Routing-generated visitor ack.
+    expect(insertAiMessageCalls).toHaveLength(0);
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-postmode1');
+    expect(log.metadata.routing.executedActions.some((a: any) => a.sourceId === 'route-postmode1')).toBe(true);
+  });
+
+  it('POSTMODE2 — suggest_only + reason=low_confidence + POST low_confidence->handoff: same real handoff state semantics', async () => {
+    settingsFixture = makeSettings({ mode: 'suggest_only', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-postmode2', name: 'Low conf handoff', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    expect(insertAiMessageCalls).toHaveLength(0);
+  });
+
+  it('POSTMODE3 — auto_reply_when_offline with operators online (canAutoReply=false) + POST no_answer->handoff: real handoff, preserves the existing non-suggest_only acknowledgement', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_when_offline', answer_only_from_kb: false, allow_clarifying_questions: false });
+    availabilityFixture = makeAvailability({ state: 'online', reason: 'operators_online' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-postmode3', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    // Non-suggest_only mode preserves the existing ack, even though
+    // canAutoReply is false here (operators are online).
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(insertAiMessageCalls[0].handoff).toBe(true);
+  });
+
+  it('POSTMODE4 — suggest_only + Trigger/Workflow ai_no_answer handoff already executed: one physical handoff only, no duplicate', async () => {
+    settingsFixture = makeSettings({ mode: 'suggest_only', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-postmode4', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+      messageTriggers: [
+        { id: 'trig-postmode4', name: 'AI no-answer handoff', event_type: 'ai_no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, delay_seconds: 0, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    // The trigger's own executeRuntimeActions handoff branch sends an ack
+    // unconditionally (existing, unrelated semantics) and calls
+    // markNeedsHuman once; the corrective POST hard-handoff code detects
+    // noAnsResult.handoffExecuted and does not send a second of either.
+    expect(insertAiMessageCalls).toHaveLength(1);
+    expect(markNeedsHumanCalls).toHaveLength(1);
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.decision_timeline).toContain('handoff_message_already_sent');
+  });
+
+  it('REGRESSION — suggest_only + low/no-answer strategy with NO POST handoff rule preserves pre-9E.3 behavior (no automatic human handoff)', async () => {
+    settingsFixture = makeSettings({ mode: 'suggest_only', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({ routingRules: [] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).not.toBe('handoff');
+    expect(markNeedsHumanCalls).toHaveLength(0);
+  });
+});
+
+describe('C8.13 — Follow-up 9E.3.1 hard-handoff/keep_ai metadata truthfulness', () => {
+  it('META-HH1 — within the SAME POST phase, a lower-priority hard handoff overrides an already-matched higher-priority keep_ai: keepAi=false, keep_ai rule stays matched but is NOT reported executed', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-hh1-keepai', name: 'Low conf keep AI', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-hh1-handoff', name: 'Low conf handoff', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'handoff', action_json: {}, priority: 2, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(0);
+    expect(result.action).toBe('handoff');
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-hh1-keepai');
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-hh1-handoff');
+    expect(log.metadata.routing.executedActions.some((a: any) => a.sourceId === 'route-hh1-keepai')).toBe(false);
+    const skip = log.metadata.routing.skippedActions.find((a: any) => a.sourceId === 'route-hh1-keepai');
+    expect(skip?.skippedReason).toBe('overridden_by_hard_handoff');
+  });
+
+  it('META-HH2 — a PRE keep_ai remains condition-matched but is NOT reported executed once a POST hard handoff wins cross-phase', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-hh2-pre', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-hh2-post', name: 'No answer handoff', trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(result.action).toBe('handoff');
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.matchedRuleIds).toContain('route-hh2-pre');
+    expect(log.metadata.routing.executedActions.some((a: any) => a.sourceId === 'route-hh2-pre')).toBe(false);
+    const skip = log.metadata.routing.skippedActions.find((a: any) => a.sourceId === 'route-hh2-pre');
+    expect(skip?.skippedReason).toBe('overridden_by_post_hard_handoff');
+  });
+
+  it('META-HH3 — PRE keep_ai + POST keep_ai with no hard handoff: both remain genuinely executed, effective keepAi=true', async () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false });
+    hybridImpl = async () => makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-hh3-pre', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+        { id: 'route-hh3-post', name: 'Low conf keep AI', trigger_type: 'low_confidence', conditions_json: { confidence_below: 0.9 }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
+
+    expect(aiCallCount).toBe(1);
+    expect(result.action).toBe('replied');
+    const log = logRunCalls[logRunCalls.length - 1];
+    expect(log.metadata.routing.executedActions.some((a: any) => a.sourceId === 'route-hh3-pre')).toBe(true);
+    expect(log.metadata.routing.executedActions.some((a: any) => a.sourceId === 'route-hh3-post')).toBe(true);
+  });
+});

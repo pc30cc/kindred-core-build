@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { toast } from '@/hooks/use-toast';
 
 vi.mock('@/hooks/useWorkspace', () => ({
   useCurrentWorkspace: () => ({ id: 'ws-1' }),
@@ -280,6 +281,79 @@ describe('RoutingPage — low_confidence/no_answer live UI (Follow-up 9E.3)', ()
   });
 });
 
+describe('RoutingPage — confidence_below strict validation (Follow-up 9E.3.1)', () => {
+  beforeEach(() => { (toast as any).mockClear?.(); });
+
+  async function newLowConfidenceDialog() {
+    const dialog = await openNewRuleDialog();
+    fireEvent.change(within(dialog).getByLabelText(/^Name$/i), { target: { value: 'Low confidence rule' } });
+    await selectTriggerOption(dialog, 'AI confidence is low');
+    return dialog;
+  }
+
+  it('UIVAL1 — a new low_confidence rule defaults to 0.5 and saves 0.5 normally', async () => {
+    const dialog = await newLowConfidenceDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(createRouting).toHaveBeenCalledTimes(1));
+    expect(createRouting.mock.calls[0][0].conditions_json).toEqual({ confidence_below: 0.5 });
+  });
+
+  it('UIVAL2 — an explicit value of 2 (out of range) blocks the API call and shows a validation error', async () => {
+    const dialog = await newLowConfidenceDialog();
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '2' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(createRouting).not.toHaveBeenCalled();
+    expect(input.value).toBe('2');
+  });
+
+  it('UIVAL3 — an explicit value of -0.1 (out of range) blocks the API call', async () => {
+    const dialog = await newLowConfidenceDialog();
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '-0.1' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(createRouting).not.toHaveBeenCalled();
+  });
+
+  it('UIVAL4 — an explicit blank value blocks the API call', async () => {
+    const dialog = await newLowConfidenceDialog();
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(createRouting).not.toHaveBeenCalled();
+  });
+
+  it('UIVAL5 — a valid value of 0 persists 0 (not silently defaulted to 0.5)', async () => {
+    const dialog = await newLowConfidenceDialog();
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(createRouting).toHaveBeenCalledTimes(1));
+    expect(createRouting.mock.calls[0][0].conditions_json).toEqual({ confidence_below: 0 });
+  });
+
+  it('UIVAL6 — a valid value of 1 persists 1', async () => {
+    const dialog = await newLowConfidenceDialog();
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '1' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(createRouting).toHaveBeenCalledTimes(1));
+    expect(createRouting.mock.calls[0][0].conditions_json).toEqual({ confidence_below: 1 });
+  });
+
+  it('UIVAL7 — a valid value of 0.35 persists 0.35', async () => {
+    const dialog = await newLowConfidenceDialog();
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '0.35' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /create rule/i }));
+    await waitFor(() => expect(createRouting).toHaveBeenCalledTimes(1));
+    expect(createRouting.mock.calls[0][0].conditions_json).toEqual({ confidence_below: 0.35 });
+  });
+});
+
 describe('RoutingPage — legacy round-trip contract (Follow-up 9E.3)', () => {
   it('LEG4 — legacy no_answer{max_attempts:2} rule changed to low_confidence saves ONLY the canonical {confidence_below:0.5}, not the old field', async () => {
     listRouting.mockResolvedValue({
@@ -323,16 +397,66 @@ describe('RoutingPage — legacy round-trip contract (Follow-up 9E.3)', () => {
     expect(updateRouting.mock.calls[0][1].name).toBe('Renamed low-confidence rule');
   });
 
-  it('shows an inline legacy-conversion acknowledgment for a legacy low_confidence row, and does NOT convert unless the confidence field is explicitly edited', async () => {
+  // LEGNOTE1 (Follow-up 9E.3.1) — the legacy/dormant note shown BEFORE the
+  // confidence field is explicitly edited must be truthful: it must NOT
+  // claim that a plain Save will convert the row, since it won't.
+  it('LEGNOTE1 — before the confidence field is touched, the note says the rule is legacy/inactive and does NOT claim a plain Save will convert it; a plain Save preserves the legacy JSON', async () => {
     listRouting.mockResolvedValue({ items: [legacyLowConfidenceRule()] });
     updateRouting.mockResolvedValue({ item: {} });
     render(<RoutingPage />);
     const dialog = await openEditDialog('Old low-confidence rule');
-    expect(within(dialog).getByText(/older condition format that never took effect/i)).toBeTruthy();
+    expect(within(dialog).getByText(/unsupported condition and is currently inactive/i)).toBeTruthy();
+    expect(within(dialog).queryByText(/saving will replace/i)).toBeNull();
     // Saving without touching the confidence field must NOT convert.
     fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
     await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
     expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ threshold: 0.55, consecutive: 2 });
+  });
+
+  // LEGNOTE2 — after the confidence field IS explicitly edited, the note
+  // must flip to truthfully describe the pending conversion.
+  it('LEGNOTE2 — once the confidence field is explicitly edited, the note reflects the pending conversion and Save persists only canonical confidence_below', async () => {
+    listRouting.mockResolvedValue({ items: [legacyLowConfidenceRule()] });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Old low-confidence rule');
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '0.4' } });
+    expect(within(dialog).getByText(/saving will replace the legacy condition/i)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ confidence_below: 0.4 });
+  });
+
+  // LEGNOTE3 — a mixed row (canonical confidence_below present ALONGSIDE a
+  // legacy unsupported key) must still be shown as legacy/dormant — presence
+  // of threshold/consecutive is the indicator, not absence of
+  // confidence_below (the runtime keeps such rows dormant regardless).
+  it('LEGNOTE3 — a mixed {confidence_below, consecutive} row is still shown as legacy/dormant; unrelated Save preserves both, explicit edit converts to canonical-only', async () => {
+    listRouting.mockResolvedValue({
+      items: [legacyLowConfidenceRule({ id: 'r-mixed', name: 'Mixed legacy rule', conditions_json: { confidence_below: 0.5, consecutive: 2 } })],
+    });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Mixed legacy rule');
+    expect(within(dialog).getByText(/unsupported condition and is currently inactive/i)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ confidence_below: 0.5, consecutive: 2 });
+  });
+
+  it('LEGNOTE3b — explicitly editing confidence_below on the mixed row drops the legacy key and persists only the canonical payload', async () => {
+    listRouting.mockResolvedValue({
+      items: [legacyLowConfidenceRule({ id: 'r-mixed2', name: 'Mixed legacy rule 2', conditions_json: { confidence_below: 0.5, consecutive: 2 } })],
+    });
+    updateRouting.mockResolvedValue({ item: {} });
+    render(<RoutingPage />);
+    const dialog = await openEditDialog('Mixed legacy rule 2');
+    const input = within(dialog).getByLabelText(/Confidence threshold/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '0.6' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateRouting).toHaveBeenCalledTimes(1));
+    expect(updateRouting.mock.calls[0][1].conditions_json).toEqual({ confidence_below: 0.6 });
   });
 
   it('an explicit edit of the confidence_below field on a legacy low_confidence row converts it, dropping the legacy keys', async () => {

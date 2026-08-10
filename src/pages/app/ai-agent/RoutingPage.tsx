@@ -197,9 +197,44 @@ function isLegacyLowConfidenceConditions(cond: Record<string, unknown>): boolean
 }
 
 function initialConditionsFor(triggerType: RoutingTrigger, topic: string, confidenceBelow: number): Record<string, unknown> {
-  if (triggerType === 'topic_detected') return topic ? { topic } : {};
+  // topic is validated non-blank by save() before this is ever called for
+  // topic_detected (Follow-up 9F.1) — a topic_detected rule can no longer
+  // be saved with an empty {} filter.
+  if (triggerType === 'topic_detected') return { topic };
   if (triggerType === 'low_confidence') return { confidence_below: confidenceBelow };
   return {};
+}
+
+const TOPIC_FILTER_KEYS = ['topic', 'topic_slug', 'topic_slugs'] as const;
+
+// Mirrors server/services/ai-agent/runtime/routingRuntime.ts's
+// classifyTopicFilter (Follow-up 9F.1) — kept as a small, self-contained
+// client-side classifier (that file is server-only, not importable here) so
+// the dialog can truthfully display and convert legacy/dormant rows instead
+// of always reading only conditions_json.topic (which silently rendered
+// blank for every legacy/malformed shape before this follow-up).
+function classifyTopicCondition(cond: Record<string, unknown>):
+  | { kind: 'canonical' | 'legacy_scalar' | 'legacy_plural'; value: string }
+  | { kind: 'dormant' } {
+  const keys = Object.keys(cond);
+  const recognized = keys.filter((k) => (TOPIC_FILTER_KEYS as readonly string[]).includes(k));
+  const unrecognized = keys.filter((k) => !(TOPIC_FILTER_KEYS as readonly string[]).includes(k));
+  if (keys.length === 0 || recognized.length !== 1 || unrecognized.length > 0) return { kind: 'dormant' };
+
+  const key = recognized[0] as typeof TOPIC_FILTER_KEYS[number];
+  if (key === 'topic' || key === 'topic_slug') {
+    const v = cond[key];
+    if (typeof v === 'string' && v.trim().length > 0) {
+      return { kind: key === 'topic' ? 'canonical' : 'legacy_scalar', value: v.trim() };
+    }
+    return { kind: 'dormant' };
+  }
+  // key === 'topic_slugs' — narrow single-element-array compatibility only.
+  const v = cond.topic_slugs;
+  if (Array.isArray(v) && v.length === 1 && typeof v[0] === 'string' && (v[0] as string).trim().length > 0) {
+    return { kind: 'legacy_plural', value: (v[0] as string).trim() };
+  }
+  return { kind: 'dormant' };
 }
 
 function initialActionPayloadFor(actionType: RoutingAction, teamSlug: string): Record<string, unknown> {
@@ -239,6 +274,10 @@ function RoutingDialog({
   // threshold/consecutive row; only an explicit edit of THIS field does
   // (Follow-up 9E.2/9E.3 canonical legacy conversion contract).
   const [confidenceBelowEdited, setConfidenceBelowEdited] = useState(false);
+  // Same dirty-tracking pattern for the Topic name field (Follow-up 9F.1) —
+  // a plain unrelated save must never convert a legacy topic_slug/
+  // topic_slugs/dormant row; only an explicit edit of THIS field does.
+  const [topicEdited, setTopicEdited] = useState(false);
 
   // New rules can't use a conclusively-dead trigger type — but if we're
   // editing an existing rule that already persisted one, keep that single
@@ -254,15 +293,31 @@ function RoutingDialog({
     && editing?.trigger_type === 'low_confidence'
     && isLegacyLowConfidenceConditions(editingConditions);
 
+  const topicClassification =
+    editing?.trigger_type === 'topic_detected' ? classifyTopicCondition(editingConditions) : null;
+  // Shown for legacy_scalar/legacy_plural (still works, compatibility note)
+  // AND dormant (unsupported/ambiguous, currently inactive) — never for a
+  // clean canonical row.
+  const showTopicLegacyNote =
+    form.trigger_type === 'topic_detected'
+    && editing?.trigger_type === 'topic_detected'
+    && !!topicClassification
+    && topicClassification.kind !== 'canonical';
+
   useEffect(() => {
     if (editing) {
       const c = (editing.conditions_json || {}) as any;
       const a = (editing.action_json || {}) as any;
+      const topicClass = editing.trigger_type === 'topic_detected' ? classifyTopicCondition(c) : null;
       setForm({
         name: editing.name, description: editing.description || '',
         trigger_type: editing.trigger_type, action_type: editing.action_type,
         priority: editing.priority, enabled: editing.enabled,
-        topic: c.topic || '', team_slug: a.team_slug || '',
+        // A legacy/dormant persisted filter is surfaced truthfully (not
+        // always read from c.topic — Follow-up 9F.1); a genuinely dormant
+        // row (no unambiguous single value) leaves the field blank.
+        topic: topicClass && topicClass.kind !== 'dormant' ? topicClass.value : '',
+        team_slug: a.team_slug || '',
         confidenceBelow: typeof c.confidence_below === 'number' ? String(c.confidence_below) : '',
       });
     } else {
@@ -270,6 +325,7 @@ function RoutingDialog({
         priority: 100, enabled: true, topic: '', team_slug: '', confidenceBelow: '0.5' });
     }
     setConfidenceBelowEdited(false);
+    setTopicEdited(false);
   }, [editing, open]);
 
   async function save() {
@@ -295,28 +351,39 @@ function RoutingDialog({
       }
     }
 
+    // Follow-up 9F.1 — same strict-validation-before-any-API-call pattern
+    // for the Topic name field, whenever THIS save is the one responsible
+    // for persisting it. conditions_json:{} for topic_detected is invalid/
+    // incomplete configuration, not "match any detected topic" — it must
+    // never be silently saved.
+    const persistingCanonicalTopic =
+      form.trigger_type === 'topic_detected' && (!editing || triggerChanged || topicEdited);
+    const trimmedTopic = form.topic.trim();
+    if (persistingCanonicalTopic && trimmedTopic === '') {
+      toast({ title: 'Topic name is required', description: 'Enter the topic slug this rule should match (e.g. billing).', variant: 'destructive' });
+      return;
+    }
+
     setSaving(true);
     try {
-      // conditions_json — round-trip contract (Follow-up 9E.2/9E.3):
+      // conditions_json — round-trip contract (Follow-up 9E.2/9E.3/9F.1):
       //  - new rule, or trigger_type explicitly changed: drop any old
       //    trigger-specific payload, initialize ONLY the new trigger's
       //    canonical state.
       //  - trigger_type unchanged + explicit canonical-field edit: convert
-      //    (drop legacy keys, persist the canonical value).
+      //    (drop legacy/unsupported keys, persist ONLY the canonical value).
       //  - otherwise (a genuinely unrelated edit): preserve the persisted
-      //    conditions_json exactly, including unknown/legacy keys — only
-      //    reflecting a direct edit of the one field this dialog already
-      //    exposes for the current trigger (topic).
+      //    conditions_json exactly, including unknown/legacy/dormant keys —
+      //    no edit path may layer a canonical key onto stale legacy keys.
       let conditions_json: Record<string, unknown>;
       if (!editing || triggerChanged) {
-        conditions_json = initialConditionsFor(form.trigger_type, form.topic, validatedConfidenceBelow ?? 0.5);
+        conditions_json = initialConditionsFor(form.trigger_type, trimmedTopic, validatedConfidenceBelow ?? 0.5);
       } else if (form.trigger_type === 'low_confidence' && confidenceBelowEdited) {
         conditions_json = { confidence_below: validatedConfidenceBelow as number };
+      } else if (form.trigger_type === 'topic_detected' && topicEdited) {
+        conditions_json = { topic: trimmedTopic };
       } else {
         conditions_json = { ...editingConditions };
-        if (form.trigger_type === 'topic_detected' && form.topic !== (editingConditions.topic || '')) {
-          conditions_json = { ...conditions_json, topic: form.topic };
-        }
       }
 
       // action_json — same round-trip contract, keyed on action_type change.
@@ -378,6 +445,7 @@ function RoutingDialog({
                   action_type: isActionIllegalForTrigger(f.action_type, nextType) ? 'handoff' : f.action_type,
                 }));
                 setConfidenceBelowEdited(false);
+                setTopicEdited(false);
               }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -414,9 +482,25 @@ function RoutingDialog({
           </div>
           {form.trigger_type === 'topic_detected' && (
             <div className="space-y-1.5">
-              <Label>Topic name</Label>
-              <Input value={form.topic} onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value }))}
+              <Label htmlFor="routing-topic-name">Topic name</Label>
+              <Input id="routing-topic-name" required value={form.topic}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, topic: e.target.value }));
+                  setTopicEdited(true);
+                }}
                 placeholder="e.g. pricing, technical_issue" />
+              <p className="text-xs text-muted-foreground">
+                Match only when the AI detects this exact topic slug.
+              </p>
+              {showTopicLegacyNote && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  {topicEdited
+                    ? 'Saving will replace the legacy/unsupported filter with the topic value above.'
+                    : topicClassification?.kind === 'dormant'
+                      ? "This rule's topic filter is unsupported or ambiguous and is currently inactive. Enter a topic name above to convert it to the supported format — other edits will preserve the persisted filter as-is."
+                      : 'This rule uses a legacy topic filter. It still works for compatibility. Changing the Topic name will convert it to the current format.'}
+                </p>
+              )}
             </div>
           )}
           {form.trigger_type === 'low_confidence' && (

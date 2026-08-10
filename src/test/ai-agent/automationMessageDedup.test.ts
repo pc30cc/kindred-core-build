@@ -95,10 +95,22 @@ vi.mock('../../../server/services/ai-agent/availability.js', () => ({
   getOperatorAvailability: async () => availabilityFixture,
 }));
 
+// When set, the NEXT insertAiMessage() call whose body matches this string
+// throws instead of succeeding, then resets to null -- simulates "the first
+// system to attempt the insert fails" without needing to know in advance
+// which source (Trigger or Workflow) the engine's own execution order will
+// try first (E4/E5).
+let failNextInsertForBody: string | null = null;
+
 vi.mock('../../../server/services/ai-agent/responder.js', () => ({
   insertAiMessage: async (_config: any, input: any) => {
-    insertAiMessageCalls.push(input);
-    return { id: `msg-${insertAiMessageCalls.length}` };
+    if (failNextInsertForBody !== null && input.body === failNextInsertForBody) {
+      failNextInsertForBody = null;
+      throw new Error('simulated insert failure');
+    }
+    const id = `msg-${insertAiMessageCalls.length + 1}`;
+    insertAiMessageCalls.push({ ...input, id });
+    return { id };
   },
   deriveAgentDisplay: (settings: any) => ({
     agentName: settings.agent_name || 'AI Assistant',
@@ -216,6 +228,7 @@ beforeEach(() => {
   insertAiMessageCalls.length = 0;
   markNeedsHumanCalls.length = 0;
   aiCallCount = 0;
+  failNextInsertForBody = null;
   fakeSb = makeFakeSupabase({
     workspaces: [{ id: DEFAULT_WORKSPACE_ID, locale: 'en', widget_language: 'en' }],
     conversations: [{ id: DEFAULT_CONVERSATION_ID, metadata: {} }],
@@ -422,5 +435,200 @@ describe('D7 — continue_ai conflict: dedup must not weaken a stop-AI instructi
     // stoppedByTrigger check) is untouched by the executor-level dedup.
     expect(aiCallCount).toBe(0);
     expect(result.action).toBe('replied');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Follow-up 9A.1 — hardening: the registry must be SOURCE-AWARE (never
+// suppress two same-system sources with the same body) and must record a
+// SUCCESSFUL physical insert only (never a mere attempt), and per-action
+// messageId attribution must never shift once any action in the batch is
+// deduped or fails.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('E1 — two Message Triggers, same body: same-system behavior unchanged', () => {
+  it('both triggers physically insert the identical body — this registry never dedupes within one source', async () => {
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-e1a', name: 'A', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'send_message', action_json: { message: 'Same text', continue_ai: true }, delay_seconds: 0, enabled: true },
+        { id: 'trigger-e1b', name: 'B', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'send_message', action_json: { message: 'Same text', continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+    });
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies('Same text')).toHaveLength(2);
+  });
+});
+
+describe('E2 — two Workflows, same body: same-system behavior unchanged', () => {
+  it('both workflows physically insert the identical body — this registry never dedupes within one source', async () => {
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      workflows: [
+        { id: 'workflow-e2a', name: 'A', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'send_message', payload: { body: 'Same text', continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+        { id: 'workflow-e2b', name: 'B', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'send_message', payload: { body: 'Same text', continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies('Same text')).toHaveLength(2);
+  });
+});
+
+describe('E3 — one Workflow, two same-body steps: same-system behavior unchanged', () => {
+  it('both steps physically insert the identical body — this registry is not a generic same-body deduper', async () => {
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      workflows: [
+        {
+          id: 'workflow-e3', name: 'Two same steps', description: null,
+          trigger_json: { event: 'visitor_first_message' },
+          steps_json: [
+            { type: 'send_message', payload: { body: 'Same text', continue_ai: true } },
+            { type: 'send_message', payload: { body: 'Same text', continue_ai: true } },
+          ],
+          enabled: true, status: 'active', version: 1,
+        },
+      ],
+    });
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies('Same text')).toHaveLength(2);
+  });
+});
+
+describe('E4 — pre-retrieval: Workflow insert fails, Message Trigger fallback still succeeds', () => {
+  it('a failed first physical insert must not block the second source; final count = 1, not 0', async () => {
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-e4', name: 'Fallback', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'send_message', action_json: { message: DUP_BODY, continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+      workflows: [
+        { id: 'workflow-e4', name: 'Fails first', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'send_message', payload: { body: DUP_BODY, continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+    // Workflow executes first in the pre-retrieval path (unchanged order),
+    // so this is the attempt that fails.
+    failNextInsertForBody = DUP_BODY;
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies(DUP_BODY)).toHaveLength(1);
+  });
+});
+
+describe('E5 — post-answer: Message Trigger insert fails, Workflow fallback still succeeds', () => {
+  it('a failed first physical insert must not block the second source in the reverse-order post-answer path', async () => {
+    settingsFixture = makeSettings({
+      mode: 'auto_reply_always',
+      answer_only_from_kb: true,
+      allow_clarifying_questions: false,
+      handoff_when_no_kb_match: true,
+    });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-e5', name: 'Fails first', event_type: 'ai_no_answer', conditions_json: {}, action_type: 'send_message', action_json: { message: DUP_BODY, continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+      workflows: [
+        { id: 'workflow-e5', name: 'Fallback', description: null, trigger_json: { event: 'ai_no_answer' }, steps_json: [{ type: 'send_message', payload: { body: DUP_BODY, continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+    // The post-answer path executes Message Trigger actions BEFORE Workflow
+    // actions (opposite order from pre-retrieval), so this is the attempt
+    // that fails.
+    failNextInsertForBody = DUP_BODY;
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies(DUP_BODY)).toHaveLength(1);
+  });
+});
+
+describe('E6 — pre-retrieval messageId attribution does not shift after a dedup', () => {
+  it('the deduped trigger reports messageId=null; the distinct trigger reports its OWN real id, never the workflow\'s', async () => {
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    const BODY_B = 'A distinct second body';
+    runtimeCfgFixture = makeRuntimeConfig({
+      messageTriggers: [
+        { id: 'trigger-a', name: 'Cross-dup', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'send_message', action_json: { message: DUP_BODY, continue_ai: true }, delay_seconds: 0, enabled: true },
+        { id: 'trigger-b', name: 'Distinct', event_type: 'visitor_first_message', conditions_json: {}, action_type: 'send_message', action_json: { message: BODY_B, continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+      workflows: [
+        { id: 'workflow-a', name: 'Claims the body first', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'send_message', payload: { body: DUP_BODY, continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+    });
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(dupBodies(DUP_BODY)).toHaveLength(1); // workflow wins, trigger-a suppressed
+    expect(dupBodies('A distinct second body')).toHaveLength(1);
+    const bodyBMessageId = insertAiMessageCalls.find((m) => m.body === BODY_B)?.id;
+    expect(bodyBMessageId).toBeTruthy();
+
+    const log = logRunCalls.find((c) => c.metadata?.message_triggers?.executed?.length);
+    expect(log).toBeTruthy();
+    const executed: any[] = log.metadata.message_triggers.executed;
+    const entryA = executed.find((e) => e.id === 'trigger-a');
+    const entryB = executed.find((e) => e.id === 'trigger-b');
+    expect(entryA.messageId).toBeNull();
+    expect(entryB.messageId).toBe(bodyBMessageId);
+    expect(entryB.messageId).not.toBe(entryA.messageId);
+  });
+});
+
+describe('E7 — post-answer messageId attribution does not shift after a dedup', () => {
+  it('a trigger deduped against an EARLIER pre-retrieval workflow write reports messageId=null; a distinct sibling trigger in the same batch reports its OWN real id', async () => {
+    // Post-answer order is Trigger-then-Workflow, so within the ai_no_answer
+    // batch itself nothing has claimed a body yet when triggers run --  the
+    // in-batch shift can only be reproduced here by having something claim
+    // DUP_BODY EARLIER in the SAME run (the pre-retrieval automation stage),
+    // then colliding with it once the post-answer trigger batch processes
+    // two actions together (one distinct, one colliding).
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    settingsFixture = makeSettings({
+      mode: 'auto_reply_always',
+      answer_only_from_kb: true,
+      allow_clarifying_questions: false,
+      handoff_when_no_kb_match: true,
+    });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    const BODY_B = 'A distinct post-answer body';
+    runtimeCfgFixture = makeRuntimeConfig({
+      workflows: [
+        // Pre-retrieval: claims DUP_BODY first, before any post-answer code runs.
+        { id: 'workflow-early', name: 'Claims early', description: null, trigger_json: { event: 'visitor_first_message' }, steps_json: [{ type: 'send_message', payload: { body: DUP_BODY, continue_ai: true } }], enabled: true, status: 'active', version: 1 },
+      ],
+      messageTriggers: [
+        // Deliberately ordered with the colliding (soon-to-be-suppressed)
+        // trigger FIRST: a naive compact-insertedMessageIds[index] mapping
+        // only misattributes when the suppressed entry is NOT last, since a
+        // trailing suppressed entry's out-of-bounds index coincidentally
+        // still resolves to undefined/null either way.
+        { id: 'trigger-noans-b', name: 'Cross-dup', event_type: 'ai_no_answer', conditions_json: {}, action_type: 'send_message', action_json: { message: DUP_BODY, continue_ai: true }, delay_seconds: 0, enabled: true },
+        { id: 'trigger-noans-a', name: 'Distinct', event_type: 'ai_no_answer', conditions_json: {}, action_type: 'send_message', action_json: { message: BODY_B, continue_ai: true }, delay_seconds: 0, enabled: true },
+      ],
+    });
+
+    await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    // The pre-retrieval workflow wins DUP_BODY; trigger-noans-b (same body,
+    // later in the run) is the one suppressed.
+    expect(dupBodies(DUP_BODY)).toHaveLength(1);
+    const bodyBMessageId = insertAiMessageCalls.find((m) => m.body === BODY_B)?.id;
+    expect(bodyBMessageId).toBeTruthy();
+
+    const log = logRunCalls.find((c) => (c.metadata?.message_triggers?.executed || []).some((e: any) => e.id === 'trigger-noans-b'));
+    expect(log).toBeTruthy();
+    const executed: any[] = log.metadata.message_triggers.executed;
+    const entryA = executed.find((e) => e.id === 'trigger-noans-a');
+    const entryB = executed.find((e) => e.id === 'trigger-noans-b');
+    expect(entryA.messageId).toBe(bodyBMessageId);
+    expect(entryB.messageId).toBeNull();
   });
 });

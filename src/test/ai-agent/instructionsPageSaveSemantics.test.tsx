@@ -65,6 +65,12 @@ async function clickSave() {
   return mutateAsync.mock.calls[0][0].instructions;
 }
 
+async function clickSaveFullPatch() {
+  fireEvent.click(screen.getByRole('button', { name: /save instructions/i }));
+  await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+  return mutateAsync.mock.calls[0][0];
+}
+
 describe('InstructionsPage I1 — editing one field does not rewrite unrelated nested keys', () => {
   it('editing only custom_system_instruction preserves a concurrently-changed tone (fresh, not the stale value this page loaded)', async () => {
     // This is the actual stale-write scenario: `tone` is also owned by
@@ -147,5 +153,108 @@ describe('InstructionsPage I3 — an explicit do_list edit changes only that nes
     const instructions = await clickSave();
 
     expect(instructions).toEqual(baseInstructions());
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Follow-up 3 — business-description ownership consolidation.
+// Canonical field: ai_agent_settings.business_description (top-level).
+// Legacy field: ai_agent_settings.instructions.business_description
+// (display-fallback only, never a write target from this page anymore).
+// ─────────────────────────────────────────────────────────────
+
+function businessDescriptionField() {
+  return screen.getByPlaceholderText(/what does the company do\?/i) as HTMLTextAreaElement;
+}
+
+describe('BD1 — conflicting values: canonical top-level display wins', () => {
+  it('shows the top-level business_description, not the conflicting nested legacy value', async () => {
+    dataHolder.data = {
+      settings: baseSettings({ business_description: 'Legacy conflicting description' }),
+    };
+    dataHolder.data.settings.business_description = 'Canonical company description';
+    render(<InstructionsPage />);
+
+    expect(businessDescriptionField().value).toBe('Canonical company description');
+  });
+});
+
+describe('BD2 — an explicit InstructionsPage edit writes the canonical top-level field', () => {
+  it('editing Business Description writes top-level business_description, not instructions.business_description', async () => {
+    dataHolder.data = { settings: baseSettings() };
+    render(<InstructionsPage />);
+
+    fireEvent.change(businessDescriptionField(), { target: { value: 'New description' } });
+    const patch = await clickSaveFullPatch();
+
+    expect(patch.business_description).toBe('New description');
+    expect(patch.instructions?.business_description).not.toBe('New description');
+  });
+});
+
+describe('BD3 — a Business-Description-only save does not rewrite the nested instructions object', () => {
+  it('editing only Business Description omits `instructions` from the PATCH entirely', async () => {
+    dataHolder.data = { settings: baseSettings() };
+    render(<InstructionsPage />);
+
+    fireEvent.change(businessDescriptionField(), { target: { value: 'Only this changed' } });
+    const patch = await clickSaveFullPatch();
+
+    expect(patch).toHaveProperty('business_description', 'Only this changed');
+    expect(patch).not.toHaveProperty('instructions');
+  });
+});
+
+describe('BD4 — simultaneous Business Description + nested instruction edit', () => {
+  it('writes top-level business_description AND a freshest instructions object with brand_voice updated, preserving the untouched nested legacy value', async () => {
+    dataHolder.data = { settings: baseSettings({ brand_voice: 'Playful but precise.' }) };
+    render(<InstructionsPage />);
+
+    fireEvent.change(businessDescriptionField(), { target: { value: 'New canonical text' } });
+    fireEvent.change(
+      screen.getByPlaceholderText(/how should the assistant sound/i),
+      { target: { value: 'Bold and confident.' } },
+    );
+    const patch = await clickSaveFullPatch();
+
+    expect(patch.business_description).toBe('New canonical text');
+    expect(patch.instructions.brand_voice).toBe('Bold and confident.');
+    // The nested legacy key is preserved as-is (whatever was already
+    // persisted) -- it must NOT be overwritten with the new canonical text.
+    expect(patch.instructions.business_description).toBe('A quirky widget shop.');
+  });
+});
+
+describe('BD5 — concurrent top-level change + unrelated InstructionsPage edit', () => {
+  it('business_description is absent from the PATCH when only brand_voice was edited, even if fresh top-level data changed underneath', async () => {
+    dataHolder.data = { settings: baseSettings({ brand_voice: 'Playful but precise.' }) };
+    dataHolder.data.settings.business_description = 'Business Description A';
+    const { rerender } = render(<InstructionsPage />);
+
+    dataHolder.data = { settings: baseSettings({ brand_voice: 'Playful but precise.' }) };
+    dataHolder.data.settings.business_description = 'Business Description B';
+    rerender(<InstructionsPage />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText(/how should the assistant sound/i),
+      { target: { value: 'Deadpan and dry.' } },
+    );
+    const patch = await clickSaveFullPatch();
+
+    expect(patch).not.toHaveProperty('business_description');
+    expect(patch.instructions.brand_voice).toBe('Deadpan and dry.');
+  });
+});
+
+describe('BD6 — legacy nested-only workspace: display fallback without automatic mutation', () => {
+  it('displays the nested legacy value when top-level is null, but opening the page alone triggers no save', async () => {
+    dataHolder.data = {
+      settings: baseSettings({ business_description: 'Legacy only' }),
+    };
+    dataHolder.data.settings.business_description = null;
+    render(<InstructionsPage />);
+
+    expect(businessDescriptionField().value).toBe('Legacy only');
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 });

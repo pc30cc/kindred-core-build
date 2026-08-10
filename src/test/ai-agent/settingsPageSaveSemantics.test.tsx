@@ -149,3 +149,32 @@ describe('SettingsPage S3 — an explicitly edited field IS included with the in
     expect(patch).toEqual({});
   });
 });
+
+describe('BD7 — SettingsPage canonical ownership: manual edit always writes top-level, never nested', () => {
+  it('a manual Business Description edit + save contains top-level business_description and no instructions key', async () => {
+    dataHolder.data = { settings: baseSettings({ business_description: 'old description' }) };
+    render(<SettingsPage />);
+
+    fireEvent.change(screen.getByPlaceholderText(/describe what your business does/i), { target: { value: 'manually edited description' } });
+    const patch = await clickSave();
+
+    expect(patch.business_description).toBe('manually edited description');
+    expect(patch).not.toHaveProperty('instructions');
+  });
+});
+
+describe('BD8 — SettingsPage canonical ownership: "Generate with AI" also writes top-level only', () => {
+  it('generate -> dirty top-level business_description -> save -> top-level write, no instructions key', async () => {
+    dataHolder.data = { settings: baseSettings({ business_description: 'old description' }) };
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /generate with ai/i }));
+    await waitFor(() => expect(screen.getByDisplayValue('generated')).toBeInTheDocument());
+
+    const patch = await clickSave();
+
+    expect(patch.business_description).toBe('generated');
+    expect(patch).not.toHaveProperty('instructions');
+    expect(Object.keys(patch)).toEqual(['business_description']);
+  });
+});

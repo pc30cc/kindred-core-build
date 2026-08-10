@@ -17,34 +17,45 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { Route as RouteIcon, Plus, Pencil, Trash2, Loader2, ArrowRight } from 'lucide-react';
 
-const TRIGGERS: { value: RoutingTrigger; label: string }[] = [
+// Master label lookup for ALL 8 trigger types — used everywhere a persisted
+// rule's trigger_type needs a human-readable label, including legacy rows
+// that use a trigger type no longer offered for new rules (see
+// UNSUPPORTED_NEW_TRIGGERS below). `unavailable` triggers are real,
+// intended concepts that do not yet fire in the live engine (Follow-up 9B);
+// they stay selectable for new rules but are labeled truthfully.
+const TRIGGERS: { value: RoutingTrigger; label: string; unavailable?: boolean }[] = [
   { value: 'human_request', label: 'Visitor asks for a human' },
-  { value: 'no_answer', label: 'AI cannot answer' },
-  { value: 'low_confidence', label: 'AI confidence is low' },
+  { value: 'no_answer', label: 'AI cannot answer', unavailable: true },
+  { value: 'low_confidence', label: 'AI confidence is low', unavailable: true },
   { value: 'topic_detected', label: 'A specific topic is detected' },
-  { value: 'business_hours', label: 'Outside business hours' },
+  { value: 'business_hours', label: 'Outside business hours', unavailable: true },
   { value: 'language', label: 'Visitor language matches' },
   { value: 'vip_customer', label: 'VIP customer' },
   { value: 'plan_limit', label: 'AI plan limit reached' },
 ];
-const ACTIONS: { value: RoutingAction; label: string }[] = [
+// Trigger types conclusively dead in the live engine with no data model to
+// ever back them (plan_limit reads a field the answer strategy never
+// populates; vip_customer has no canonical source of truth anywhere in the
+// codebase — Follow-up 9B). Removed from the NEW-rule picker only; DB CHECK
+// constraint, API zod enum, and existing persisted rows are untouched.
+const UNSUPPORTED_NEW_TRIGGERS: RoutingTrigger[] = ['plan_limit', 'vip_customer'];
+
+const ACTIONS: { value: RoutingAction; label: string; plannedOnly?: boolean }[] = [
   { value: 'handoff', label: 'Hand off to a human (Main Inbox)' },
-  { value: 'assign_team', label: 'Assign to a team' },
-  { value: 'assign_operator', label: 'Assign to a specific operator' },
+  { value: 'assign_team', label: 'Assign to a team', plannedOnly: true },
+  { value: 'assign_operator', label: 'Assign to a specific operator', plannedOnly: true },
   { value: 'keep_ai', label: 'Keep the AI handling it' },
-  { value: 'create_ticket', label: 'Create a ticket' },
+  { value: 'create_ticket', label: 'Create a ticket', plannedOnly: true },
   { value: 'mark_priority', label: 'Mark as priority' },
 ];
 
 const DEFAULTS: Array<Omit<RoutingRule, 'id' | 'workspace_id' | 'created_at' | 'updated_at'>> = [
   { name: 'Visitor asks for a human → handoff', description: 'Always escalate when a visitor asks for a person',
     trigger_type: 'human_request', conditions_json: {}, action_type: 'handoff', action_json: { target: 'main_inbox' }, priority: 10, enabled: true },
-  { name: 'AI cannot answer → handoff', description: 'Fallback when no KB match',
-    trigger_type: 'no_answer', conditions_json: {}, action_type: 'handoff', action_json: { target: 'main_inbox' }, priority: 20, enabled: true },
   { name: 'Pricing topic → sales', description: 'Route exact-quote requests to Sales if a team exists',
-    trigger_type: 'topic_detected', conditions_json: { topic: 'pricing' }, action_type: 'assign_team', action_json: { team_slug: 'sales', fallback: 'main_inbox' }, priority: 30, enabled: true },
+    trigger_type: 'topic_detected', conditions_json: { topic: 'pricing' }, action_type: 'assign_team', action_json: { team_slug: 'sales', fallback: 'main_inbox' }, priority: 20, enabled: true },
   { name: 'Technical issue → support', description: 'Route bug/error reports to Support if a team exists',
-    trigger_type: 'topic_detected', conditions_json: { topic: 'technical_issue' }, action_type: 'assign_team', action_json: { team_slug: 'support', fallback: 'main_inbox' }, priority: 40, enabled: true },
+    trigger_type: 'topic_detected', conditions_json: { topic: 'technical_issue' }, action_type: 'assign_team', action_json: { team_slug: 'support', fallback: 'main_inbox' }, priority: 30, enabled: true },
 ];
 
 export default function RoutingPage() {
@@ -179,6 +190,14 @@ function RoutingDialog({
   });
   const [saving, setSaving] = useState(false);
 
+  // New rules can't use a conclusively-dead trigger type — but if we're
+  // editing an existing rule that already persisted one, keep that single
+  // option renderable so the Select can display the current value without
+  // silently corrupting it (see Follow-up 9C).
+  const triggerOptions = TRIGGERS.filter(
+    (t) => !UNSUPPORTED_NEW_TRIGGERS.includes(t.value) || t.value === editing?.trigger_type,
+  );
+
   useEffect(() => {
     if (editing) {
       const c = editing.conditions_json || {};
@@ -240,7 +259,11 @@ function RoutingDialog({
               <Select value={form.trigger_type} onValueChange={(v) => setForm((f) => ({ ...f, trigger_type: v as RoutingTrigger }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {TRIGGERS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  {triggerOptions.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}{t.unavailable ? ' — not live yet' : ''}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -249,7 +272,11 @@ function RoutingDialog({
               <Select value={form.action_type} onValueChange={(v) => setForm((f) => ({ ...f, action_type: v as RoutingAction }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ACTIONS.map((a) => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+                  {ACTIONS.map((a) => (
+                    <SelectItem key={a.value} value={a.value} disabled={a.plannedOnly}>
+                      {a.label}{a.plannedOnly ? ' — coming soon' : ''}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

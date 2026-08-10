@@ -45,9 +45,16 @@ function ruleMatches(rule: RoutingRule, ctx: RuntimeEvaluationContext): boolean 
       const r = ctx.answerStrategy?.reason || '';
       return /limit|rate|max_replies|credit/i.test(r);
     }
-    case 'business_hours':
+    case 'business_hours': {
+      // Only 'outside_hours' (weekly schedule) and 'override_closed' (a
+      // specific-date closure) mean "outside the configured business-hours
+      // window". 'no_operators_online' is a distinct operator-presence
+      // state and must not be conflated with this trigger (Follow-up 9C).
+      const r = ctx.availabilityReason || '';
+      return r === 'outside_hours' || r === 'override_closed';
+    }
     case 'vip_customer':
-      // Not yet wired — never match in C2A.
+      // Not yet wired — no canonical VIP/tier source of truth exists.
       return false;
     default:
       return false;

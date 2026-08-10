@@ -48,7 +48,7 @@ export async function runAutomationStage(
   const { workspaceId, conversationId, visitorMessageId } = input;
   const question = (input.question || '').trim();
   const { settings, runtimeCfg, decisionTimeline } = pre;
-  const { locale, inputLanguage, detectedTopicsMeta, humanRequestFromTopics, state } = ctxStage;
+  const { locale, inputLanguage, detectedTopicsMeta, humanRequestFromTopics, state, availability } = ctxStage;
   let { routingMeta, triggerMeta, workflowMeta } = ctxStage;
 
   // ─── C2A — evaluate routing rules ────────────────────────────────────
@@ -71,6 +71,8 @@ export async function runAutomationStage(
         settings,
         runtimeConfig: runtimeCfg,
         conversationState: state,
+        // Already computed in contextStage — zero new DB IO (Follow-up 9C).
+        availabilityReason: availability?.reason ?? null,
         now: Date.now(),
       });
       routingMeta = buildRoutingMetadata(routingResult);

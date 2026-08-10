@@ -1,13 +1,14 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { useNavigate } from 'react-router-dom';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Activity, ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, X } from 'lucide-react';
+import { Activity, BarChart3, ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, X } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { formatDateTime } from '@/lib/date';
@@ -43,6 +44,8 @@ const RunRow = memo(function RunRow({ run, label }: { run: any; label: string })
 
 export default function ActivityPage() {
   const { workspace } = useActiveWorkspace();
+  const navigate = useNavigate();
+  const wsPath = useWorkspacePath();
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(() => {
@@ -107,9 +110,14 @@ export default function ActivityPage() {
               <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Recent AI Agent activity in this workspace.')}</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => runs.refetch()} disabled={runs.isFetching} className="self-start sm:self-auto">
-            <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', runs.isFetching && 'animate-spin')} />{tr('refresh', 'Refresh')}
-          </Button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/analytics'))}>
+              <BarChart3 className="h-3.5 w-3.5 me-1.5" />{tr('viewAnalytics', 'View analytics')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => runs.refetch()} disabled={runs.isFetching}>
+              <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', runs.isFetching && 'animate-spin')} />{tr('refresh', 'Refresh')}
+            </Button>
+          </div>
         </div>
         <Select
           value={String(pageSize)}

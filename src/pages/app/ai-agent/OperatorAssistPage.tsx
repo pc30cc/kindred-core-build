@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { useNavigate } from 'react-router-dom';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Loader2, Sparkles, TrendingUp, ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react';
+import { Loader2, Sparkles, TrendingUp, ThumbsUp, ThumbsDown, MessageSquare, ArrowUpRight } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 
 export default function OperatorAssistPage() {
   const { workspace } = useActiveWorkspace();
+  const navigate = useNavigate();
+  const wsPath = useWorkspacePath();
   const wsId = workspace?.id;
   const { data, isLoading } = useAiAgentSettings(wsId);
   const update = useUpdateAiAgentSettings(wsId);
@@ -100,14 +103,20 @@ export default function OperatorAssistPage() {
       </Card>
 
       <Card className="overflow-hidden border-border/60">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2.5">
-            <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-emerald-500/10 text-emerald-600 ring-emerald-500/20">
-              <TrendingUp className="h-4 w-4" />
-            </span>
-            {tr('usageTitle', 'Recent usage (7 days)')}
-          </CardTitle>
-          <CardDescription>{tr('usageDesc', 'How operators are using AI suggestions.')}</CardDescription>
+        <CardHeader className="pb-3 flex flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2.5">
+              <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-emerald-500/10 text-emerald-600 ring-emerald-500/20">
+                <TrendingUp className="h-4 w-4" />
+              </span>
+              {tr('usageTitle', 'Recent usage (7 days)')}
+            </CardTitle>
+            <CardDescription>{tr('usageDesc', 'How operators are using AI suggestions.')}</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/operator-assist-analytics'))} className="shrink-0">
+            {tr('viewFullAnalytics', 'View full analytics')}
+            <ArrowUpRight className="h-3.5 w-3.5 ms-1.5" />
+          </Button>
         </CardHeader>
         <CardContent>
           {analytics.isLoading ? (

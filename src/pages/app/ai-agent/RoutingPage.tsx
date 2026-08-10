@@ -20,16 +20,13 @@ import { Route as RouteIcon, Plus, Pencil, Trash2, Loader2, ArrowRight } from 'l
 // Master label lookup for ALL 8 trigger types — used everywhere a persisted
 // rule's trigger_type needs a human-readable label, including legacy rows
 // that use a trigger type no longer offered for new rules (see
-// UNSUPPORTED_NEW_TRIGGERS below). `unavailable` triggers are real,
-// intended concepts that do not yet fire in the live engine. business_hours
-// was wired into the real runtime by Follow-up 9C (availability.reason ===
-// 'outside_hours' / 'override_closed') and is therefore a plain, truthful,
-// live option — only no_answer/low_confidence remain unavailable pending
-// the not-yet-built post-strategy routing hook (Follow-up 9C.1).
+// UNSUPPORTED_NEW_TRIGGERS below). business_hours was wired by Follow-up 9C;
+// low_confidence/no_answer were wired by Follow-up 9E.3 (post-strategy
+// Routing) — none of the 6 live/wired triggers carry `unavailable` anymore.
 const TRIGGERS: { value: RoutingTrigger; label: string; unavailable?: boolean }[] = [
   { value: 'human_request', label: 'Visitor asks for a human' },
-  { value: 'no_answer', label: 'AI cannot answer', unavailable: true },
-  { value: 'low_confidence', label: 'AI confidence is low', unavailable: true },
+  { value: 'no_answer', label: 'AI cannot answer' },
+  { value: 'low_confidence', label: 'AI confidence is low' },
   { value: 'topic_detected', label: 'A specific topic is detected' },
   { value: 'business_hours', label: 'Outside business hours' },
   { value: 'language', label: 'Visitor language matches' },
@@ -51,6 +48,13 @@ const ACTIONS: { value: RoutingAction; label: string; plannedOnly?: boolean }[] 
   { value: 'create_ticket', label: 'Create a ticket', plannedOnly: true },
   { value: 'mark_priority', label: 'Mark as priority' },
 ];
+// no_answer -> keep_ai is not a valid runtime combination (there is no
+// usable grounding to "keep the AI handling" with — Follow-up 9D.1/9E.2).
+// UI disabling alone is not a full guarantee (the API/DB can still contain
+// such a row), but it stops NEW creation of the combination.
+function isActionIllegalForTrigger(action: RoutingAction, trigger: RoutingTrigger): boolean {
+  return action === 'keep_ai' && trigger === 'no_answer';
+}
 
 // A starter/default rule must never use an action or trigger type the
 // picker itself marks unavailable/coming-soon (Follow-up 9C.1) — the
@@ -180,6 +184,32 @@ export default function RoutingPage() {
   );
 }
 
+// Legacy low_confidence rows persisted before Follow-up 9E.3 used
+// {threshold, consecutive} instead of the canonical {confidence_below}. The
+// runtime keeps such rows dormant rather than reinterpreting them — see
+// routingRuntime.ts's LOW_CONFIDENCE_UNSUPPORTED_KEYS.
+function isLegacyLowConfidenceConditions(cond: Record<string, unknown>): boolean {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(cond, k);
+  return !has('confidence_below') && (has('threshold') || has('consecutive'));
+}
+
+function initialConditionsFor(triggerType: RoutingTrigger, topic: string, confidenceBelow: string): Record<string, unknown> {
+  if (triggerType === 'topic_detected') return topic ? { topic } : {};
+  if (triggerType === 'low_confidence') return { confidence_below: parseConfidenceBelow(confidenceBelow) };
+  return {};
+}
+
+function initialActionPayloadFor(actionType: RoutingAction, teamSlug: string): Record<string, unknown> {
+  if (actionType === 'handoff') return { target: 'main_inbox' };
+  if (actionType === 'assign_team') return teamSlug ? { team_slug: teamSlug } : {};
+  return {};
+}
+
+function parseConfidenceBelow(raw: string): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.5;
+}
+
 function RoutingDialog({
   open, onOpenChange, editing, workspaceId, onSaved,
 }: {
@@ -191,9 +221,14 @@ function RoutingDialog({
     trigger_type: 'human_request' as RoutingTrigger,
     action_type: 'handoff' as RoutingAction,
     priority: 100, enabled: true,
-    topic: '', team_slug: '',
+    topic: '', team_slug: '', confidenceBelow: '',
   });
   const [saving, setSaving] = useState(false);
+  // Dirty-tracks only the confidence_below field — a plain unrelated save
+  // (name/description/priority/enabled) must never convert a legacy
+  // threshold/consecutive row; only an explicit edit of THIS field does
+  // (Follow-up 9E.2/9E.3 canonical legacy conversion contract).
+  const [confidenceBelowEdited, setConfidenceBelowEdited] = useState(false);
 
   // New rules can't use a conclusively-dead trigger type — but if we're
   // editing an existing rule that already persisted one, keep that single
@@ -203,31 +238,71 @@ function RoutingDialog({
     (t) => !UNSUPPORTED_NEW_TRIGGERS.includes(t.value) || t.value === editing?.trigger_type,
   );
 
+  const editingConditions = (editing?.conditions_json || {}) as Record<string, unknown>;
+  const showLegacyConversionNote =
+    form.trigger_type === 'low_confidence'
+    && editing?.trigger_type === 'low_confidence'
+    && isLegacyLowConfidenceConditions(editingConditions);
+
   useEffect(() => {
     if (editing) {
-      const c = editing.conditions_json || {};
-      const a = editing.action_json || {};
+      const c = (editing.conditions_json || {}) as any;
+      const a = (editing.action_json || {}) as any;
       setForm({
         name: editing.name, description: editing.description || '',
         trigger_type: editing.trigger_type, action_type: editing.action_type,
         priority: editing.priority, enabled: editing.enabled,
-        topic: (c as any).topic || '', team_slug: (a as any).team_slug || '',
+        topic: c.topic || '', team_slug: a.team_slug || '',
+        confidenceBelow: typeof c.confidence_below === 'number' ? String(c.confidence_below) : '',
       });
     } else {
       setForm({ name: '', description: '', trigger_type: 'human_request', action_type: 'handoff',
-        priority: 100, enabled: true, topic: '', team_slug: '' });
+        priority: 100, enabled: true, topic: '', team_slug: '', confidenceBelow: '0.5' });
     }
+    setConfidenceBelowEdited(false);
   }, [editing, open]);
 
   async function save() {
     if (!form.name.trim()) { toast({ title: 'Name is required', variant: 'destructive' }); return; }
     setSaving(true);
     try {
-      const conditions_json: Record<string, unknown> = {};
-      if (form.trigger_type === 'topic_detected' && form.topic) conditions_json.topic = form.topic;
-      const action_json: Record<string, unknown> = {};
-      if (form.action_type === 'assign_team' && form.team_slug) action_json.team_slug = form.team_slug;
-      if (form.action_type === 'handoff') action_json.target = 'main_inbox';
+      const triggerChanged = editing ? form.trigger_type !== editing.trigger_type : false;
+      const actionChanged = editing ? form.action_type !== editing.action_type : false;
+
+      // conditions_json — round-trip contract (Follow-up 9E.2/9E.3):
+      //  - new rule, or trigger_type explicitly changed: drop any old
+      //    trigger-specific payload, initialize ONLY the new trigger's
+      //    canonical state.
+      //  - trigger_type unchanged + explicit canonical-field edit: convert
+      //    (drop legacy keys, persist the canonical value).
+      //  - otherwise (a genuinely unrelated edit): preserve the persisted
+      //    conditions_json exactly, including unknown/legacy keys — only
+      //    reflecting a direct edit of the one field this dialog already
+      //    exposes for the current trigger (topic).
+      let conditions_json: Record<string, unknown>;
+      if (!editing || triggerChanged) {
+        conditions_json = initialConditionsFor(form.trigger_type, form.topic, form.confidenceBelow);
+      } else if (form.trigger_type === 'low_confidence' && confidenceBelowEdited) {
+        conditions_json = { confidence_below: parseConfidenceBelow(form.confidenceBelow) };
+      } else {
+        conditions_json = { ...editingConditions };
+        if (form.trigger_type === 'topic_detected' && form.topic !== (editingConditions.topic || '')) {
+          conditions_json = { ...conditions_json, topic: form.topic };
+        }
+      }
+
+      // action_json — same round-trip contract, keyed on action_type change.
+      let action_json: Record<string, unknown>;
+      const editingAction = (editing?.action_json || {}) as Record<string, unknown>;
+      if (!editing || actionChanged) {
+        action_json = initialActionPayloadFor(form.action_type, form.team_slug);
+      } else {
+        action_json = { ...editingAction };
+        if (form.action_type === 'assign_team' && form.team_slug !== (editingAction.team_slug || '')) {
+          action_json = { ...action_json, team_slug: form.team_slug };
+        }
+      }
+
       const payload = {
         name: form.name, description: form.description,
         trigger_type: form.trigger_type, action_type: form.action_type,
@@ -261,7 +336,21 @@ function RoutingDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>When (trigger)</Label>
-              <Select value={form.trigger_type} onValueChange={(v) => setForm((f) => ({ ...f, trigger_type: v as RoutingTrigger }))}>
+              <Select value={form.trigger_type} onValueChange={(v) => {
+                const nextType = v as RoutingTrigger;
+                setForm((f) => ({
+                  ...f,
+                  trigger_type: nextType,
+                  // Switching to low_confidence always starts from the
+                  // canonical default — never carries a stale value over
+                  // from a different trigger (Follow-up 9E.3 LEG4).
+                  confidenceBelow: nextType === 'low_confidence' ? '0.5' : f.confidenceBelow,
+                  // no_answer + keep_ai is not a valid combination — clear
+                  // the action back to a safe default when it would land there.
+                  action_type: isActionIllegalForTrigger(f.action_type, nextType) ? 'handoff' : f.action_type,
+                }));
+                setConfidenceBelowEdited(false);
+              }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {triggerOptions.map((t) => (
@@ -277,13 +366,22 @@ function RoutingDialog({
               <Select value={form.action_type} onValueChange={(v) => setForm((f) => ({ ...f, action_type: v as RoutingAction }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ACTIONS.map((a) => (
-                    <SelectItem key={a.value} value={a.value} disabled={a.plannedOnly}>
-                      {a.label}{a.plannedOnly ? ' — coming soon' : ''}
-                    </SelectItem>
-                  ))}
+                  {ACTIONS.map((a) => {
+                    const illegalForTrigger = isActionIllegalForTrigger(a.value, form.trigger_type);
+                    const disabled = a.plannedOnly || illegalForTrigger;
+                    return (
+                      <SelectItem key={a.value} value={a.value} disabled={disabled}>
+                        {a.label}{a.plannedOnly ? ' — coming soon' : illegalForTrigger ? ' — not applicable' : ''}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
+              {form.action_type === 'keep_ai' && (
+                <p className="text-xs text-muted-foreground">
+                  Has no effect when "Answer only from knowledge base" blocks an ungrounded reply.
+                </p>
+              )}
             </div>
           </div>
           {form.trigger_type === 'topic_detected' && (
@@ -291,6 +389,26 @@ function RoutingDialog({
               <Label>Topic name</Label>
               <Input value={form.topic} onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value }))}
                 placeholder="e.g. pricing, technical_issue" />
+            </div>
+          )}
+          {form.trigger_type === 'low_confidence' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="routing-confidence-below">Confidence threshold</Label>
+              <Input id="routing-confidence-below" type="number" min={0} max={1} step={0.05} required
+                value={form.confidenceBelow}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, confidenceBelow: e.target.value }));
+                  setConfidenceBelowEdited(true);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Match when the AI's confidence score falls below this value (0 = no confidence, 1 = fully confident).
+              </p>
+              {showLegacyConversionNote && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  This rule uses an older condition format that never took effect. Saving will replace it with the confidence value above.
+                </p>
+              )}
             </div>
           )}
           {form.action_type === 'assign_team' && (

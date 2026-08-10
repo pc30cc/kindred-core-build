@@ -118,6 +118,46 @@ describe('C15 — Routing: evaluateRoutingRules()', () => {
     expect(match.matchedRuleIds).toContain('r3');
   });
 
+  it('business_hours matches on availabilityReason="outside_hours" (weekly schedule closed)', () => {
+    const rule = { id: 'r5', name: 'Outside hours', trigger_type: 'business_hours', conditions_json: {}, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true };
+    const r = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, availabilityReason: 'outside_hours' }));
+    expect(r.matchedRuleIds).toContain('r5');
+  });
+
+  it('business_hours matches on availabilityReason="override_closed" (specific-date override)', () => {
+    const rule = { id: 'r6', name: 'Override closed', trigger_type: 'business_hours', conditions_json: {}, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true };
+    const r = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, availabilityReason: 'override_closed' }));
+    expect(r.matchedRuleIds).toContain('r6');
+  });
+
+  it('business_hours does NOT match on availabilityReason="no_operators_online" — operator presence is a distinct availability state, not a business-hours closure', () => {
+    const rule = { id: 'r7', name: 'No ops', trigger_type: 'business_hours', conditions_json: {}, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true };
+    const r = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, availabilityReason: 'no_operators_online' }));
+    expect(r.matchedRuleIds).toHaveLength(0);
+  });
+
+  it('business_hours does NOT match on availabilityReason="always_offline" or "disabled" — configuration states, not a live schedule closure', () => {
+    const rule = { id: 'r8', name: 'Always offline', trigger_type: 'business_hours', conditions_json: {}, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true };
+    const always = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, availabilityReason: 'always_offline' }));
+    const disabled = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, availabilityReason: 'disabled' }));
+    expect(always.matchedRuleIds).toHaveLength(0);
+    expect(disabled.matchedRuleIds).toHaveLength(0);
+  });
+
+  it('business_hours does NOT match when within business hours or when availabilityReason is absent', () => {
+    const rule = { id: 'r9', name: 'Within hours', trigger_type: 'business_hours', conditions_json: {}, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true };
+    const within = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, availabilityReason: 'within_hours' }));
+    const absent = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] } }));
+    expect(within.matchedRuleIds).toHaveLength(0);
+    expect(absent.matchedRuleIds).toHaveLength(0);
+  });
+
+  it('vip_customer still never matches — no canonical data source exists, unaffected by business_hours wiring', () => {
+    const rule = { id: 'r10', name: 'VIP', trigger_type: 'vip_customer', conditions_json: {}, action_type: 'mark_priority', action_json: {}, priority: 1, enabled: true };
+    const r = evaluateRoutingRules(evalCtx({ runtimeConfig: { routingRules: [rule] }, availabilityReason: 'outside_hours' }));
+    expect(r.matchedRuleIds).toHaveLength(0);
+  });
+
   it('a disabled routing rule never matches', () => {
     const ctx = evalCtx({
       visitorText: 'can I speak to an operator',

@@ -283,6 +283,63 @@ describe('C8.3 — routing hard-handoff rule', () => {
   });
 });
 
+describe('C8.9 — business_hours routing trigger (wired in Follow-up 9C via availability.reason)', () => {
+  it('outside configured business hours (availability.reason="outside_hours") — the rule matches and forces handoff', async () => {
+    availabilityFixture = makeAvailability({ state: 'offline', reason: 'outside_hours' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-bh-1', name: 'Outside hours escalation', trigger_type: 'business_hours', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'what are your pricing plans' }),
+    );
+
+    expect(result.action).toBe('handoff');
+    const handoffLog = logRunCalls.find((c) => c.runType === 'handoff');
+    expect(handoffLog.metadata.routing.matchedRuleIds).toContain('route-bh-1');
+  });
+
+  it('inside configured business hours (availability.reason="within_hours") — the rule does NOT match', async () => {
+    availabilityFixture = makeAvailability({ state: 'online', reason: 'within_hours' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-bh-2', name: 'Outside hours escalation', trigger_type: 'business_hours', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'what are your pricing plans' }),
+    );
+
+    expect(result.action).not.toBe('handoff');
+    expect(aiCallCount).toBe(1);
+    const finalLog = logRunCalls[logRunCalls.length - 1];
+    expect(finalLog.metadata.routing.matchedRuleIds).not.toContain('route-bh-2');
+  });
+
+  it('inside business hours but no operator online (availability.reason="no_operators_online", state="offline") — the rule still does NOT match, proving operator presence is not conflated with business-hours closure', async () => {
+    availabilityFixture = makeAvailability({ state: 'offline', reason: 'no_operators_online' });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-bh-3', name: 'Outside hours escalation', trigger_type: 'business_hours', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'what are your pricing plans' }),
+    );
+
+    expect(result.action).not.toBe('handoff');
+    const finalLog = logRunCalls[logRunCalls.length - 1];
+    expect(finalLog.metadata.routing.matchedRuleIds).not.toContain('route-bh-3');
+  });
+});
+
 describe('C8 — precedence when multiple handoff sources are simultaneously true', () => {
   it('keyword/decideRuntime human_request reason wins over a simultaneously-matched routing hard-handoff rule', async () => {
     settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_human_request: true, handoff_keywords: ['operator'] });

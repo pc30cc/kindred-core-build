@@ -85,7 +85,7 @@ export default function ActivationPage() {
             </div>
             <div>
               <p className="font-semibold">{settings.enabled ? t('aiAgent.activation.active') : t('aiAgent.activation.disabled')}</p>
-              <p className="text-xs text-muted-foreground">{t('aiAgent.activation.modeLabel')}: <Badge variant="outline" className="text-[10px]">{settings.mode}</Badge></p>
+              <p className="text-xs text-muted-foreground">{t('aiAgent.activation.modeLabel')}: <Badge variant="outline" className="text-[10px]">{t(`aiAgent.activation.${MODE_KEYS[settings.mode]}` as any)}</Badge></p>
             </div>
           </div>
           <Switch checked={settings.enabled} onCheckedChange={onToggle} disabled={update.isPending} />

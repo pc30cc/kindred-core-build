@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Check, X, Loader2, AlertTriangle, Info } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { useTranslation } from '@/i18n';
 import type { AgentMode, AgentSettings, EscalationStyle } from '@/lib/ai-agent-api';
 
 function CheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
@@ -25,15 +26,16 @@ function CheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: stri
   );
 }
 
-const MODE_LABELS: Record<AgentMode, string> = {
-  off: 'Off',
-  suggest_only: 'Suggest only — operators see suggestions, no visitor replies',
-  auto_reply_when_offline: 'Auto-reply when offline',
-  auto_reply_until_human_joins: 'Auto-reply until a human joins',
-  auto_reply_always: 'Auto-reply always',
+const MODE_KEYS: Record<AgentMode, string> = {
+  off: 'modeOff',
+  suggest_only: 'modeSuggestOnly',
+  auto_reply_when_offline: 'modeAutoOffline',
+  auto_reply_until_human_joins: 'modeAutoUntilHuman',
+  auto_reply_always: 'modeAutoAlways',
 };
 
 export default function ActivationPage() {
+  const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { data: diag, isLoading } = useAiAgentDiagnostics(workspace?.id);
   const { data: settingsData } = useAiAgentSettings(workspace?.id);
@@ -47,21 +49,21 @@ export default function ActivationPage() {
   const canEnable = diag.checks.ai_provider_configured && diag.checks.module_enabled && (!settings.answer_only_from_kb || diag.checks.has_knowledge);
   const isAutoMode = settings.mode.startsWith('auto_reply_');
 
-  const patch = async (p: Partial<AgentSettings>, successMsg = 'Settings updated') => {
+  const patch = async (p: Partial<AgentSettings>, successMsg = t('aiAgent.activation.settingsUpdated')) => {
     try {
       await update.mutateAsync(p);
       toast.success(successMsg);
     } catch (e: any) {
-      toast.error(e?.message || 'Update failed');
+      toast.error(e?.message || t('aiAgent.activation.updateFailed'));
     }
   };
 
   const onToggle = (v: boolean) => {
     if (v && !canEnable) {
-      toast.error('Resolve the checklist below before enabling.');
+      toast.error(t('aiAgent.activation.resolveChecklist'));
       return;
     }
-    patch({ enabled: v }, v ? 'AI Agent enabled' : 'AI Agent disabled');
+    patch({ enabled: v }, v ? t('aiAgent.activation.enabled') : t('aiAgent.activation.disabledToast'));
   };
 
   const availability = diag.operator_availability;
@@ -70,8 +72,8 @@ export default function ActivationPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Activation</h1>
-        <p className="text-sm text-muted-foreground mt-1">Control whether the AI Agent is active and how it replies.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('aiAgent.activation.title')}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t('aiAgent.activation.subtitle')}</p>
       </div>
 
       {/* Master toggle */}
@@ -82,8 +84,8 @@ export default function ActivationPage() {
               <div className={`h-2.5 w-2.5 rounded-full ${settings.enabled ? 'bg-success' : 'bg-muted-foreground/40'}`} />
             </div>
             <div>
-              <p className="font-semibold">{settings.enabled ? 'AI Agent is active' : 'AI Agent is disabled'}</p>
-              <p className="text-xs text-muted-foreground">Mode: <Badge variant="outline" className="text-[10px]">{settings.mode}</Badge></p>
+              <p className="font-semibold">{settings.enabled ? t('aiAgent.activation.active') : t('aiAgent.activation.disabled')}</p>
+              <p className="text-xs text-muted-foreground">{t('aiAgent.activation.modeLabel')}: <Badge variant="outline" className="text-[10px]">{settings.mode}</Badge></p>
             </div>
           </div>
           <Switch checked={settings.enabled} onCheckedChange={onToggle} disabled={update.isPending} />
@@ -92,23 +94,23 @@ export default function ActivationPage() {
 
       {/* Mode */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Reply mode</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.replyMode')}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Label>Mode</Label>
-          <Select value={settings.mode} onValueChange={(m) => patch({ mode: m as AgentMode }, 'Mode updated')}>
+          <Label>{t('aiAgent.activation.modeLabel')}</Label>
+          <Select value={settings.mode} onValueChange={(m) => patch({ mode: m as AgentMode }, t('aiAgent.activation.modeUpdated'))}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {(Object.keys(MODE_LABELS) as AgentMode[]).map((m) => (
-                <SelectItem key={m} value={m}>{MODE_LABELS[m]}</SelectItem>
+              {(Object.keys(MODE_KEYS) as AgentMode[]).map((m) => (
+                <SelectItem key={m} value={m}>{t(`aiAgent.activation.${MODE_KEYS[m]}` as any)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground">Auto-reply will only answer from published Knowledge Base / Q&amp;A. If unsure, it hands off to a human.</p>
+          <p className="text-xs text-muted-foreground">{t('aiAgent.activation.modeHint')}</p>
 
           {settings.mode === 'auto_reply_always' && (
             <div className="flex items-start gap-2.5 rounded-md bg-warning/10 border border-warning/30 px-4 py-3 text-sm">
               <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-              <p><strong>Advanced:</strong> AI may reply while humans are online. It will still obey limits and handoff rules.</p>
+              <p><strong>{t('aiAgent.activation.advancedLabel')}</strong> {t('aiAgent.activation.advancedWarning')}</p>
             </div>
           )}
         </CardContent>
@@ -118,35 +120,35 @@ export default function ActivationPage() {
           text. Kept as a pointer here to avoid two conflicting editors for
           the same setting. */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Pre-chat introduction</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.introTitle')}</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Manage the intro message (per language) and handoff keywords from the <strong>Settings</strong> tab.
+            {t('aiAgent.activation.introPointerPrefix')} <strong>{t('aiAgent.activation.introPointerTab')}</strong> {t('aiAgent.activation.introPointerSuffix')}
           </p>
         </CardContent>
       </Card>
 
       {/* Fallback & handoff */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Fallback &amp; handoff</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.fallbackTitle')}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label>Fallback behavior when AI cannot answer</Label>
+            <Label>{t('aiAgent.activation.fallbackLabel')}</Label>
             <Select
               value={settings.fallback_behavior || 'handoff'}
               onValueChange={(v) => patch({ fallback_behavior: v as 'handoff' | 'silent' })}
             >
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="handoff">Hand off to a human (recommended)</SelectItem>
-                <SelectItem value="silent">Stay silent — operator picks it up</SelectItem>
+                <SelectItem value="handoff">{t('aiAgent.activation.fallbackHandoff')}</SelectItem>
+                <SelectItem value="silent">{t('aiAgent.activation.fallbackSilent')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <Label>Stop AI after a handoff</Label>
-              <p className="text-xs text-muted-foreground mt-1">Once a human takes over, AI stops auto-replying for the rest of the conversation.</p>
+              <Label>{t('aiAgent.activation.stopOnHandoff')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.stopOnHandoffHint')}</p>
             </div>
             <Switch
               checked={settings.stop_on_handoff !== false}
@@ -159,12 +161,12 @@ export default function ActivationPage() {
 
       {/* Automated inbox & takeover safety */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Automated inbox &amp; takeover safety</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.safetyTitle')}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label>Keep AI conversations in Automated inbox until handoff</Label>
-              <p className="text-xs text-muted-foreground mt-1">AI-handled conversations show in the Automated inbox until a human takes over or AI hands off.</p>
+              <Label>{t('aiAgent.activation.keepAutomated')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.keepAutomatedHint')}</p>
             </div>
             <Switch
               checked={(settings as any).keep_in_automated_until_handoff !== false}
@@ -174,8 +176,8 @@ export default function ActivationPage() {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <Label>Stop AI after a human reply</Label>
-              <p className="text-xs text-muted-foreground mt-1">Recommended. Even in <em>Auto-reply always</em>, AI pauses once an operator replies.</p>
+              <Label>{t('aiAgent.activation.stopAfterHuman')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.stopAfterHumanHint')}</p>
             </div>
             <Switch
               checked={(settings as any).pause_auto_reply_after_human_reply !== false}
@@ -185,8 +187,8 @@ export default function ActivationPage() {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <Label>Allow AI suggestions after human takeover</Label>
-              <p className="text-xs text-muted-foreground mt-1">After a human takes over, AI never replies to the visitor — but may still suggest replies for the operator.</p>
+              <Label>{t('aiAgent.activation.allowSuggestions')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.allowSuggestionsHint')}</p>
             </div>
             <Switch
               checked={(settings as any).allow_suggestions_after_takeover !== false}
@@ -200,18 +202,18 @@ export default function ActivationPage() {
       {/* Automated inbox snapshot */}
       {(diag as any).automated_inbox && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Automated inbox snapshot</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.snapshotTitle')}</CardTitle></CardHeader>
           <CardContent className="text-sm grid grid-cols-3 gap-3">
             <div className="rounded-md border p-3">
-              <div className="text-xs text-muted-foreground">AI-managed</div>
+              <div className="text-xs text-muted-foreground">{t('aiAgent.activation.aiManaged')}</div>
               <div className="text-xl font-semibold">{(diag as any).automated_inbox.ai_managed}</div>
             </div>
             <div className="rounded-md border p-3">
-              <div className="text-xs text-muted-foreground">Needs human</div>
+              <div className="text-xs text-muted-foreground">{t('aiAgent.activation.needsHuman')}</div>
               <div className="text-xl font-semibold">{(diag as any).automated_inbox.needs_human}</div>
             </div>
             <div className="rounded-md border p-3">
-              <div className="text-xs text-muted-foreground">Human active</div>
+              <div className="text-xs text-muted-foreground">{t('aiAgent.activation.humanActive')}</div>
               <div className="text-xl font-semibold">{(diag as any).automated_inbox.human_active}</div>
             </div>
           </CardContent>
@@ -220,10 +222,10 @@ export default function ActivationPage() {
 
       {/* Limits */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Reply limits</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.limitsTitle')}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="max_conv">Max auto replies per conversation</Label>
+            <Label htmlFor="max_conv">{t('aiAgent.activation.maxPerConversation')}</Label>
             <Input
               id="max_conv"
               type="number"
@@ -240,7 +242,7 @@ export default function ActivationPage() {
             />
           </div>
           <div>
-            <Label htmlFor="max_hour">Max replies per hour (workspace)</Label>
+            <Label htmlFor="max_hour">{t('aiAgent.activation.maxPerHour')}</Label>
             <Input
               id="max_hour"
               type="number"
@@ -262,37 +264,31 @@ export default function ActivationPage() {
       {/* Answer behavior — Phase 4 */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Answer behavior</CardTitle>
+          <CardTitle className="text-base">{t('aiAgent.activation.answerBehavior')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label>Escalation style</Label>
+            <Label>{t('aiAgent.activation.escalationStyle')}</Label>
             <Select
               value={(settings.escalation_style as EscalationStyle) || 'balanced'}
               onValueChange={(v) => patch({ escalation_style: v as EscalationStyle })}
             >
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="conservative">
-                  Conservative — only answer when very confident, escalate sooner
-                </SelectItem>
-                <SelectItem value="balanced">
-                  Balanced (recommended) — answer when grounded, ask one clarifying question if vague
-                </SelectItem>
-                <SelectItem value="helpful_first">
-                  Helpful first — try harder before escalating, prefer answering with a hedge over handoff
-                </SelectItem>
+                <SelectItem value="conservative">{t('aiAgent.activation.escConservative')}</SelectItem>
+                <SelectItem value="balanced">{t('aiAgent.activation.escBalanced')}</SelectItem>
+                <SelectItem value="helpful_first">{t('aiAgent.activation.escHelpful')}</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground mt-2">
-              Controls how quickly the AI escalates to a human. The AI never invents facts — even Helpful first stays grounded in your knowledge base.
+              {t('aiAgent.activation.escalationHint')}
             </p>
           </div>
 
           <div className="flex items-center justify-between">
             <div>
-              <Label>Allow clarifying questions</Label>
-              <p className="text-xs text-muted-foreground mt-1">When the visitor's question is vague, AI may ask one short clarifying question instead of immediately handing off.</p>
+              <Label>{t('aiAgent.activation.allowClarifying')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.allowClarifyingHint')}</p>
             </div>
             <Switch
               checked={settings.allow_clarifying_questions !== false}
@@ -302,7 +298,7 @@ export default function ActivationPage() {
           </div>
 
           <div>
-            <Label htmlFor="max_clar">Max clarifying questions per conversation</Label>
+            <Label htmlFor="max_clar">{t('aiAgent.activation.maxClarifying')}</Label>
             <Input
               id="max_clar"
               type="number"
@@ -317,13 +313,13 @@ export default function ActivationPage() {
                 }
               }}
             />
-            <p className="text-xs text-muted-foreground mt-1">After this, AI hands off instead of asking again.</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.maxClarifyingHint')}</p>
           </div>
 
           <div className="flex items-center justify-between">
             <div>
-              <Label>Allow answers with caveat</Label>
-              <p className="text-xs text-muted-foreground mt-1">When the knowledge match is partial, AI may answer with a hedge such as "Based on the information I have…" instead of escalating.</p>
+              <Label>{t('aiAgent.activation.allowCaveat')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.allowCaveatHint')}</p>
             </div>
             <Switch
               checked={settings.allow_answer_with_caveat !== false}
@@ -338,18 +334,18 @@ export default function ActivationPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Learning from operator replies</CardTitle>
-            <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
+            <CardTitle className="text-base">{t('aiAgent.activation.learningTitle')}</CardTitle>
+            <Badge variant="outline" className="text-[10px]">{t('aiAgent.activation.comingSoon')}</Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            When AI cannot answer and an operator replies with the correct answer, the system will create a pending Q&amp;A suggestion for an admin to review. Workspace-isolated and never auto-published. The pipeline is not active yet — these toggles save your preference for when it ships.
+            {t('aiAgent.activation.learningIntro')}
           </p>
           <div className="flex items-center justify-between opacity-70">
             <div>
-              <Label>Enable learning</Label>
-              <p className="text-xs text-muted-foreground mt-1">Allow this workspace to collect learning candidates from real conversations.</p>
+              <Label>{t('aiAgent.activation.enableLearning')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.enableLearningHint')}</p>
             </div>
             <Switch
               checked={settings.learning_enabled !== false}
@@ -359,8 +355,8 @@ export default function ActivationPage() {
           </div>
           <div className="flex items-center justify-between opacity-70">
             <div>
-              <Label>Auto-create learning candidates</Label>
-              <p className="text-xs text-muted-foreground mt-1">Automatically pair a visitor's unanswered question with the operator's reply and queue it for review.</p>
+              <Label>{t('aiAgent.activation.autoCandidates')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.autoCandidatesHint')}</p>
             </div>
             <Switch
               checked={settings.auto_create_learning_candidates !== false}
@@ -370,8 +366,8 @@ export default function ActivationPage() {
           </div>
           <div className="flex items-center justify-between opacity-70">
             <div>
-              <Label>Require approval before AI uses new knowledge</Label>
-              <p className="text-xs text-muted-foreground mt-1">Strongly recommended. AI never uses a candidate until an admin approves it.</p>
+              <Label>{t('aiAgent.activation.requireApproval')}</Label>
+              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.requireApprovalHint')}</p>
             </div>
             <Switch
               checked={settings.require_approval_for_learning !== false}
@@ -384,30 +380,30 @@ export default function ActivationPage() {
 
       {/* Checklist */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Readiness checklist</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.checklistTitle')}</CardTitle></CardHeader>
         <CardContent>
-          <CheckRow ok={diag.checks.ai_provider_configured} label="AI provider configured" hint={diag.provider ? `${diag.provider.name} • ${diag.provider.model}` : 'Set up an AI provider in admin or workspace providers'} />
-          <CheckRow ok={diag.checks.has_knowledge} label="Published knowledge available" hint={`${diag.knowledge.published} published articles, ${diag.knowledge.qna_count} Q&A pairs`} />
-          <CheckRow ok={diag.checks.module_enabled} label="Module enabled" hint="Plan grants the ai_assistant module" />
-          <CheckRow ok={diag.auto_modes_supported !== false} label="Auto-reply runtime supported" hint="Server runtime can deliver auto, suggest, intro and handoff modes" />
-          <CheckRow ok={diag.intro_enabled !== false} label="Pre-chat intro enabled" hint={diag.intro_enabled === false ? 'Disabled — visitors will not get an AI greeting' : 'Visitors get a single AI greeting after pre-chat'} />
+          <CheckRow ok={diag.checks.ai_provider_configured} label={t('aiAgent.activation.checkProvider')} hint={diag.provider ? `${diag.provider.name} • ${diag.provider.model}` : t('aiAgent.activation.checkProviderHint')} />
+          <CheckRow ok={diag.checks.has_knowledge} label={t('aiAgent.activation.checkKnowledge')} hint={t('aiAgent.activation.checkKnowledgeHint', { published: String(diag.knowledge.published), qna: String(diag.knowledge.qna_count) })} />
+          <CheckRow ok={diag.checks.module_enabled} label={t('aiAgent.activation.checkModule')} hint={t('aiAgent.activation.checkModuleHint')} />
+          <CheckRow ok={diag.auto_modes_supported !== false} label={t('aiAgent.activation.checkRuntime')} hint={t('aiAgent.activation.checkRuntimeHint')} />
+          <CheckRow ok={diag.intro_enabled !== false} label={t('aiAgent.activation.checkIntro')} hint={diag.intro_enabled === false ? t('aiAgent.activation.checkIntroOff') : t('aiAgent.activation.checkIntroOn')} />
         </CardContent>
       </Card>
 
       {/* Operator availability snapshot */}
       {availability && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Operator availability</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.availabilityTitle')}</CardTitle></CardHeader>
           <CardContent className="flex items-center gap-3 text-sm">
             <div className={`h-2.5 w-2.5 rounded-full ${availability.status === 'online' ? 'bg-success' : 'bg-muted-foreground/40'}`} />
-            <span className="font-medium capitalize">{availability.status || 'unknown'}</span>
+            <span className="font-medium">{availability.status === 'online' ? t('aiAgent.activation.statusOnline') : availability.status === 'offline' ? t('aiAgent.activation.statusOffline') : t('aiAgent.activation.statusUnknown')}</span>
             {typeof availability.online_count === 'number' && (
               <span className="text-xs text-muted-foreground">
-                {availability.online_count} online / {availability.total_count ?? '?'} total
+                {t('aiAgent.activation.onlineCount', { online: String(availability.online_count), total: String(availability.total_count ?? '?') })}
               </span>
             )}
             {isAutoMode && availability.status !== 'online' && settings.mode === 'auto_reply_when_offline' && (
-              <Badge variant="secondary" className="ml-auto">AI will answer now</Badge>
+              <Badge variant="secondary" className="ml-auto">{t('aiAgent.activation.aiWillAnswer')}</Badge>
             )}
           </CardContent>
         </Card>
@@ -416,12 +412,12 @@ export default function ActivationPage() {
       {/* Reply limits snapshot */}
       {limits && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Active limits</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.activeLimits')}</CardTitle></CardHeader>
           <CardContent className="text-sm grid grid-cols-2 gap-2">
-            <div className="flex justify-between"><span className="text-muted-foreground">Per conversation</span><span>{limits.per_conversation}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Per hour</span><span>{limits.per_hour}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Fallback</span><span className="capitalize">{limits.fallback_behavior}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Stop on handoff</span><span>{limits.stop_on_handoff ? 'Yes' : 'No'}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.perConversation')}</span><span>{limits.per_conversation}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.perHour')}</span><span>{limits.per_hour}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.fallbackShort')}</span><span>{limits.fallback_behavior === 'silent' ? t('aiAgent.activation.fallbackSilent') : t('aiAgent.activation.fallbackHandoff')}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.stopOnHandoffShort')}</span><span>{limits.stop_on_handoff ? t('aiAgent.activation.yes') : t('aiAgent.activation.no')}</span></div>
           </CardContent>
         </Card>
       )}
@@ -429,7 +425,7 @@ export default function ActivationPage() {
       {/* Recent runs */}
       {diag.recent_runs && diag.recent_runs.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Recent runs</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.recentRuns')}</CardTitle></CardHeader>
           <CardContent className="space-y-1.5 text-sm">
             {diag.recent_runs.slice(0, 5).map((r) => (
               <div key={r.id} className="flex items-center justify-between py-1 border-b last:border-0">
@@ -447,13 +443,13 @@ export default function ActivationPage() {
       {!canEnable && (
         <div className="flex items-start gap-2.5 rounded-md bg-warning/10 border border-warning/30 px-4 py-3 text-sm">
           <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-          <p>Resolve the checklist items above before enabling the AI Agent.</p>
+          <p>{t('aiAgent.activation.resolveChecklistAbove')}</p>
         </div>
       )}
 
       <p className="text-xs text-muted-foreground flex items-start gap-2">
         <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-        AI Agent never replies in <strong>off</strong> mode and only sends suggestions to operators in <strong>suggest only</strong> mode. Visitor-facing replies require an auto mode.
+        {t('aiAgent.activation.footerNote')}
       </p>
     </div>
   );

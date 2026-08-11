@@ -12,6 +12,7 @@ import { Activity, BarChart3, ChevronLeft, ChevronRight, Loader2, RefreshCw, Sea
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { formatDateTime } from '@/lib/date';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 type Filter = 'all' | 'answered' | 'suggested' | 'handoff' | 'no_answer' | 'needs_review';
 

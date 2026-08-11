@@ -9,7 +9,8 @@
  *   mark_priority        → runtime/actionExecutor.ts (conversations.priority)
  *   search_kb            → retrieval pipeline (marker only, read-only)
  *   add_tag              → runtime/workflowExecutor.ts executeAddTag()
- *   add_internal_note    → runtime/workflowExecutor.ts executeInternalNote()
+ *   (add_internal_note is NOT executable: conversation_notes.author_id is
+ *    NOT NULL and no AI/system author identity exists → planned_only)
  *   get_business_hours   → services/widget/availability.ts (read-only)
  *
  * assign_team / assign_operator / create_ticket have NO safe existing

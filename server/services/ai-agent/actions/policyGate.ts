@@ -55,6 +55,12 @@ export interface GateContext {
   currentTags?: string[];
   /** Idempotency keys already executed for this conversation. */
   executedKeys?: string[];
+  /**
+   * Deterministic authorization for model-planned side effects. Populated ONLY
+   * from runtime/workspace configuration (workflows, routing rules, message
+   * triggers) — never from model output and never from retrieved source text.
+   */
+  deterministicAuthorizedActions?: string[];
 }
 
 const DEFAULT_HANDOFF_KEYWORDS = [
@@ -131,6 +137,12 @@ export function evaluateActionPlan(
 
     if (!visitorIntentSatisfied(def, ctx)) {
       decisions.push(block(name, 'no_visitor_intent', args, def)); return;
+    }
+
+    // Model output alone never authorizes a side effect (3.11).
+    if (def.sideEffect && def.requiresDeterministicAuthorization
+      && !(ctx.deterministicAuthorizedActions || []).includes(def.name)) {
+      decisions.push(block(name, 'no_deterministic_authorization', args, def)); return;
     }
 
     // State-specific guards.

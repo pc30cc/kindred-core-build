@@ -3,6 +3,7 @@ import { useTranslation } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
+import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import {
   User, CreditCard, Settings, MessageSquare, Inbox, Mail,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
@@ -13,12 +14,13 @@ import {
 interface SettingsGroup {
   key: string;
   icon: React.ElementType;
+  accent: AiAccent;
   items: { key: string; labelKey: string; subPath: string }[];
 }
 
 const settingsGroupsDef: SettingsGroup[] = [
   {
-    key: 'account', icon: User,
+    key: 'account', icon: User, accent: 'indigo',
     items: [
       { key: 'profile', labelKey: 'profile', subPath: '/settings/profile' },
       { key: 'notifications', labelKey: 'notifications', subPath: '/settings/notifications' },
@@ -29,11 +31,11 @@ const settingsGroupsDef: SettingsGroup[] = [
     ],
   },
   {
-    key: 'billing', icon: CreditCard,
+    key: 'billing', icon: CreditCard, accent: 'emerald',
     items: [{ key: 'billing', labelKey: 'billing', subPath: '/billing' }],
   },
   {
-    key: 'workspace', icon: Settings,
+    key: 'workspace', icon: Settings, accent: 'violet',
     items: [
       { key: 'general', labelKey: 'general', subPath: '/settings/general' },
       { key: 'integrations', labelKey: 'integrations', subPath: '/settings/integrations' },
@@ -42,7 +44,7 @@ const settingsGroupsDef: SettingsGroup[] = [
     ],
   },
   {
-    key: 'people', icon: Users,
+    key: 'people', icon: Users, accent: 'sky',
     items: [
       { key: 'teamDepartments', labelKey: 'teamDepartments', subPath: '/settings/team-departments' },
       { key: 'staffAccess', labelKey: 'staffAccess', subPath: '/settings/staff-access' },
@@ -50,25 +52,25 @@ const settingsGroupsDef: SettingsGroup[] = [
     ],
   },
   {
-    key: 'chatbox', icon: MessageSquare,
+    key: 'chatbox', icon: MessageSquare, accent: 'cyan',
     items: [{ key: 'widget', labelKey: 'widget', subPath: '/widget' }],
   },
   {
-    key: 'inbox', icon: Inbox,
+    key: 'inbox', icon: Inbox, accent: 'amber',
     items: [
       { key: 'canned-responses', labelKey: 'cannedResponses', subPath: '/settings/canned-responses' },
     ],
   },
   {
-    key: 'integrations', icon: Plug,
+    key: 'integrations', icon: Plug, accent: 'rose',
     items: [{ key: 'providers', labelKey: 'providers', subPath: '/settings/providers' }],
   },
   {
-    key: 'email', icon: Mail,
+    key: 'email', icon: Mail, accent: 'sky',
     items: [{ key: 'email', labelKey: 'email', subPath: '/email' }],
   },
   {
-    key: 'knowledgeBase', icon: BookOpen,
+    key: 'knowledgeBase', icon: BookOpen, accent: 'cyan',
     items: [
       { key: 'translations', labelKey: 'translations', subPath: '/settings/translations' },
     ],

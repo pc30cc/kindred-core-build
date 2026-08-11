@@ -378,8 +378,8 @@ export function AppSidebar() {
             collapsed && 'justify-center px-0'
           )}
         >
-          <div className="flex items-center gap-2">
-            <LayoutDashboard className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+          <div className="group flex items-center gap-2.5">
+            <NavChip icon={LayoutDashboard} accent="indigo" active={isActive('')} collapsed={collapsed} />
             {!collapsed && <span>{t('nav.dashboard')}</span>}
           </div>
         </Link>
@@ -393,14 +393,14 @@ export function AppSidebar() {
           to={wsPath('/inbox')}
           title={collapsed ? undefined : t('nav.inbox')}
           className={cn(
-            'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+            'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
               ? 'bg-sidebar-accent text-sidebar-accent-foreground'
               : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
             collapsed && 'justify-center px-0'
           )}
         >
-          <Inbox className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+          <NavChip icon={Inbox} accent="emerald" active={isActive('/inbox')} collapsed={collapsed} />
           {!collapsed && <span>{t('nav.inbox')}</span>}
         </Link>
         </NavTip>

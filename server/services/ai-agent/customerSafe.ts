@@ -54,6 +54,7 @@ export interface CustomerSafeAgentSettings {
     escalation_instructions?: string;
     max_answer_length?: 'short' | 'medium' | 'long';
     brand_voice?: string;
+    /** @deprecated legacy persisted key; canonical field is AgentSettings.business_description. */
     business_description?: string;
     do_list?: string[];
     dont_list?: string[];

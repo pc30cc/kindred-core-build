@@ -280,26 +280,18 @@ export default function AiAgentSettingsPage() {
 
   return (
     <div className="space-y-8 animate-fade-in" dir={dir}>
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-              <SettingsIcon className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Agent Settings')}</h1>
-              <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Configure how the AI agent presents itself and answers visitors.')}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 self-start sm:self-auto rounded-xl border border-border/60 bg-background/60 px-4 py-2.5">
-            <span className={`h-2 w-2 rounded-full ${form.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/40'}`} />
-            <span className="text-sm font-medium">{form.enabled ? 'دستیار هوشمند فعال است' : 'دستیار هوشمند غیرفعال است'}</span>
-            <Switch checked={!!form.enabled} onCheckedChange={toggleEnabled} disabled={enabling} />
-          </div>
-        </div>
-      </div>
+      <AiPageHeader
+        icon={SettingsIcon}
+        accent="rose"
+        title={tr('title', 'Agent Settings')}
+        subtitle={tr('subtitle', 'Configure how the AI agent presents itself and answers visitors.')}
+        meta={
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${form.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-muted text-muted-foreground'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${form.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/50'}`} />
+            {form.enabled ? t('aiAgent.activation.active') : t('aiAgent.activation.disabled')}
+          </span>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">

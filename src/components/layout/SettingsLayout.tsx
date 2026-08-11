@@ -111,36 +111,47 @@ export function SettingsLayout() {
   return (
     <div className="flex h-full min-h-0">
       {/* Settings secondary sidebar */}
-      <div className="w-[240px] shrink-0 border-e border-border/60 bg-card/50 overflow-y-auto">
+      <div className="w-[252px] shrink-0 border-e border-border/60 bg-gradient-to-b from-primary/[0.06] via-violet-500/[0.03] to-transparent overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-card/80 backdrop-blur-sm border-b border-border/40 px-3 py-2.5 flex items-center gap-2">
+        <div className="sticky top-0 z-10 bg-background/70 backdrop-blur-xl border-b border-border/40 px-3 py-3 flex items-center gap-2.5">
           <button
             onClick={() => navigate(wsPath(''))}
-            className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground transition-colors"
+            className="p-1 rounded-lg hover:bg-accent/50 text-muted-foreground transition-colors"
           >
             <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
           </button>
-          <h2 className="text-sm font-semibold text-foreground">{t('settings.title')}</h2>
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-indigo-500 to-violet-500 text-white shadow-lg shadow-primary/25">
+            <Settings className="h-4 w-4" />
+          </div>
+          <h2 className="text-[15px] font-semibold text-foreground">{t('settings.title')}</h2>
         </div>
 
         {/* Navigation groups */}
-        <nav className="p-2 space-y-0.5">
+        <nav className="p-3 space-y-1">
           {settingsGroups.map(group => {
             const isExpanded = expandedGroups[group.key] ?? false;
             const hasActiveItem = group.items.some(i => isActive(i.path));
+            const a = AI_ACCENT[group.accent];
 
             return (
               <div key={group.key}>
                 <button
                   onClick={() => toggleGroup(group.key)}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all',
+                    'group w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-[13px] font-medium transition-all duration-200',
                     hasActiveItem
-                      ? 'text-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                      ? 'bg-background shadow-sm ring-1 ring-border/70 font-semibold text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
                   )}
                 >
-                  <group.icon className="h-[18px] w-[18px] shrink-0 opacity-70" />
+                  <span className={cn(
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200',
+                    hasActiveItem
+                      ? cn('bg-gradient-to-br text-white shadow-md', a.grad)
+                      : cn('ring-1 group-hover:scale-105', a.chip)
+                  )}>
+                    <group.icon className="h-4 w-4" />
+                  </span>
                   <span className="flex-1 text-start">{t(`settingsNav.groups.${group.key}` as Parameters<typeof t>[0])}</span>
                   <ChevronDown
                     className={cn(
@@ -151,16 +162,16 @@ export function SettingsLayout() {
                 </button>
 
                 {isExpanded && (
-                  <div className="ms-[34px] space-y-0.5 mt-0.5 mb-1">
+                  <div className="ms-[34px] space-y-0.5 mt-1 mb-1.5 border-s border-border/50 ps-2">
                     {group.items.map(item => (
                       <Link
                         key={item.key}
                         to={item.path}
                         className={cn(
-                          'block px-3 py-1.5 rounded-md text-[13px] transition-all',
+                          'block px-3 py-1.5 rounded-lg text-[13px] transition-all',
                           isActive(item.path)
-                            ? 'text-primary font-medium bg-primary/5'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+                            ? cn('font-semibold ring-1', a.chip)
+                            : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
                         )}
                       >
                         {t(`settingsNav.items.${item.labelKey}` as Parameters<typeof t>[0])}

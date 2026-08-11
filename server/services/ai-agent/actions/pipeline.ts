@@ -74,11 +74,15 @@ export async function runActionPipeline(input: ActionPipelineInput): Promise<Act
 
   for (const d of decisions) {
     if (d.status !== 'allowed') continue;
-    // Late idempotency re-check (retries / engine re-entry).
-    if (d.idempotencyKey && (await input.idempotency.has(d.idempotencyKey))) {
-      d.status = 'blocked';
-      d.reason = 'duplicate_action';
-      continue;
+    // Atomic claim-before-execute: only the claim winner may run the side
+    // effect, so concurrent engine runs cannot duplicate it.
+    if (d.idempotencyKey) {
+      const claim = await input.idempotency.claim(d.idempotencyKey, { actionName: d.name });
+      if (claim !== 'claimed') {
+        d.status = 'blocked';
+        d.reason = 'duplicate_action';
+        continue;
+      }
     }
     const started = Date.now();
     const res = await input.runner.run(d.name, d.arguments).catch(() => ({ ok: false, reason: 'execution_error' }));
@@ -92,10 +96,11 @@ export async function runActionPipeline(input: ActionPipelineInput): Promise<Act
     };
     executions.push(rec);
     if (res.ok) {
-      if (d.idempotencyKey) await input.idempotency.add(d.idempotencyKey);
+      if (d.idempotencyKey) await input.idempotency.complete(d.idempotencyKey);
       if (d.sideEffect) anySideEffectExecuted = true;
       if (d.name === 'handoff_to_operator') handoffExecuted = true;
     } else {
+      if (d.idempotencyKey) await input.idempotency.fail(d.idempotencyKey);
       anyFailure = true;
       d.reason = `execution_failed:${rec.reason}`;
     }

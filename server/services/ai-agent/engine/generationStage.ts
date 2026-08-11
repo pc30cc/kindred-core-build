@@ -276,7 +276,7 @@ export async function runGenerationStage(
         canSuggest: !!decision.canSuggest,
         humanTakeover: !!state?.humanTakeoverAt || !!state?.hasHumanAgentReplied,
         aiManaged: state ? state.managedByAi !== false : true,
-        strictKb: settings.answer_mode === 'answer_only_from_kb',
+        strictKb: !!settings.answer_only_from_kb,
         handoffKeywords: (settings as any).handoff_keywords || [],
         strategyHandoffRequired: strategy.decisionType === 'handoff',
         currentPriority: (convRow as any)?.priority ?? null,
@@ -300,7 +300,7 @@ export async function runGenerationStage(
       aiResult = { ...aiResult, text: pipeline.text };
       actionHandoffExecuted = pipeline.handoffExecuted;
       actionsMeta = {
-        catalog_size: ACTION_CATALOG.length,
+        catalog_size: Object.keys(ACTION_CATALOG).length,
         enabled: enabledActionNames,
         read_only_results: readOnlyToolResults,
         ...pipeline.metadata,

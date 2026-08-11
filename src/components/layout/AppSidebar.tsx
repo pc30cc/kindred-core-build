@@ -223,21 +223,21 @@ export function AppSidebar() {
 
   const mainNav = [
     ...(aiAgentVisible
-      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, locked: !aiAssistantPlanEnabled } as const]
+      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, accent: 'violet', locked: !aiAssistantPlanEnabled } as const]
       : []),
     ...(callCenterVisible
-      ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall, locked: false } as const]
+      ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall, accent: 'emerald', locked: false } as const]
       : []),
-    { key: 'visitors', path: '/visitors', icon: Eye, locked: false },
-    { key: 'contacts', path: '/contacts', icon: Users, locked: false },
-    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, locked: false },
-    { key: 'team', path: '/team', icon: UserCog, locked: false },
+    { key: 'visitors', path: '/visitors', icon: Eye, accent: 'sky', locked: false },
+    { key: 'contacts', path: '/contacts', icon: Users, accent: 'amber', locked: false },
+    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, accent: 'cyan', locked: false },
+    { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
 
   const bottomNav = [
-    { key: 'search', path: '#', icon: Search },
-    { key: 'widget', path: '/widget', icon: Package },
-    { key: 'settings', path: '/settings/general', icon: Settings },
+    { key: 'search', path: '#', icon: Search, accent: 'sky' },
+    { key: 'widget', path: '/widget', icon: Package, accent: 'violet' },
+    { key: 'settings', path: '/settings/general', icon: Settings, accent: 'indigo' },
   ] as const;
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';

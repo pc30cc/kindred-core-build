@@ -135,20 +135,13 @@ export default function OverviewPage() {
   const contactLimit = Number(limits.max_contacts ?? 0);
   const contactUsed = (contacts ?? []).length;
 
-  const stats = [
-    { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, tone: 'primary', path: '/inbox' },
-    { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, tone: 'success', path: '/visitors' },
-    { label: tr('dashboard.statVisitsToday'), value: visitsToday, icon: Eye, tone: 'info', path: '/visitors' },
-    { label: tr('dashboard.statContacts'), value: contactUsed, icon: Users, tone: 'info', path: '/contacts' },
-    { label: tr('dashboard.statTeamOnline'), value: teamOnline, icon: ShieldCheck, tone: 'warning', path: '/settings/team' },
+  const stats: { label: string; value: number; icon: React.ElementType; accent: AiAccent; path: string }[] = [
+    { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, accent: 'indigo', path: '/inbox' },
+    { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, accent: 'emerald', path: '/visitors' },
+    { label: tr('dashboard.statVisitsToday'), value: visitsToday, icon: Eye, accent: 'sky', path: '/visitors' },
+    { label: tr('dashboard.statContacts'), value: contactUsed, icon: Users, accent: 'amber', path: '/contacts' },
+    { label: tr('dashboard.statTeamOnline'), value: teamOnline, icon: ShieldCheck, accent: 'rose', path: '/settings/team' },
   ];
-
-  const toneCls: Record<string, { bg: string; fg: string; ring: string }> = {
-    primary: { bg: 'bg-primary/10', fg: 'text-primary', ring: 'ring-primary/20' },
-    success: { bg: 'bg-success/10', fg: 'text-success', ring: 'ring-success/20' },
-    info: { bg: 'bg-info/10', fg: 'text-info', ring: 'ring-info/20' },
-    warning: { bg: 'bg-warning/10', fg: 'text-warning', ring: 'ring-warning/20' },
-  };
 
   const recent = list.slice(0, 6);
 

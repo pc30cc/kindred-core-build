@@ -122,7 +122,8 @@ async function e7PersistAssistRun(
       safety_notes: e7_redactDeep(payload.safetyNotes) || [],
       provider: payload.provider,
       model: payload.model,
-      error: payload.error,
+      // Provider/network failures can embed credentials — redact before persisting.
+      error: redactSecrets(payload.error),
     }).select('id').maybeSingle();
     if (error) {
       console.error('[ai-agent.e7] persist assist run error:', error.message);

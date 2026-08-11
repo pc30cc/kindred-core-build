@@ -244,30 +244,42 @@ export default function OverviewPage() {
       {/* ── Main grid ────────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Chart */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm xl:col-span-2">
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm xl:col-span-2">
+          <div className="pointer-events-none absolute -top-16 -start-10 h-40 w-40 rounded-full bg-indigo-500/15 blur-3xl" />
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.activityTitle')}</h2>
-              <p className="text-xs text-muted-foreground">{tr('dashboard.activitySubtitle')}</p>
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
+                <MessageSquare className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.activityTitle')}</h2>
+                <p className="text-xs text-muted-foreground">{tr('dashboard.activitySubtitle')}</p>
+              </div>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+                <CheckCircle2 className="h-3.5 w-3.5" />
                 {tr('dashboard.resolvedConversations')}: <b className="text-foreground">{fmt(resolved)}</b>
               </span>
-              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                <Clock className="h-3.5 w-3.5 text-warning" />
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-300">
+                <Clock className="h-3.5 w-3.5" />
                 {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(openConvos)}</b>
               </span>
             </div>
           </div>
-          <div className="h-[240px] w-full" dir="ltr">
+          <div className="relative h-[240px] w-full" dir="ltr">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
                 <defs>
                   <linearGradient id="convGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.45} />
+                    <stop offset="60%" stopColor="#6366f1" stopOpacity={0.15} />
+                    <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="convStroke" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#6366f1" />
+                    <stop offset="50%" stopColor="#8b5cf6" />
+                    <stop offset="100%" stopColor="#06b6d4" />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -283,7 +295,7 @@ export default function OverviewPage() {
                   }}
                   labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
                 />
-                <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#convGrad)" />
+                <Area type="monotone" dataKey="value" stroke="url(#convStroke)" strokeWidth={2.5} fill="url(#convGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

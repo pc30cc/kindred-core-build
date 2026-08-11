@@ -97,6 +97,13 @@ export async function runDeliveryStage(
         retrieval: queryMeta,
       },
     });
+    // The provisional run row is part of the delivery/accounting contract:
+    // without it a delivered message would exist with no durable run record
+    // and no way to bill or reconcile it. Fail closed BEFORE delivering.
+    if (!runId) {
+      console.error('[ai-agent] provisional run creation failed, auto reply suppressed', { conversationId });
+      return { ran: true, action: 'failed', reason: 'run_log_create_failed' };
+    }
     const display = deriveAgentDisplay(settings);
     const inserted = await insertAiMessage(config, {
       workspaceId,
@@ -180,6 +187,12 @@ export async function runDeliveryStage(
       retrieval: queryMeta,
     },
   });
+  // Same invariant as the auto-reply path: never create a suggestion that has
+  // no durable provisional run behind it (created_by_run_id must be real).
+  if (!runId) {
+    console.error('[ai-agent] provisional run creation failed, suggestion suppressed', { conversationId });
+    return { ran: true, action: 'failed', reason: 'run_log_create_failed' };
+  }
 
   const { data: suggestion, error: sErr } = await sb
     .from('ai_agent_suggestions')

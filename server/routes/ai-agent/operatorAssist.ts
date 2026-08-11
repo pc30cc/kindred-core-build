@@ -9,6 +9,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { redactSecrets } from '../../lib/redactSecrets.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
 import { retrieveHybridSources } from '../../services/ai-agent/retrievalHybrid.js';
 import {
@@ -122,7 +123,8 @@ async function e7PersistAssistRun(
       safety_notes: e7_redactDeep(payload.safetyNotes) || [],
       provider: payload.provider,
       model: payload.model,
-      error: payload.error,
+      // Provider/network failures can embed credentials — redact before persisting.
+      error: redactSecrets(payload.error),
     }).select('id').maybeSingle();
     if (error) {
       console.error('[ai-agent.e7] persist assist run error:', error.message);

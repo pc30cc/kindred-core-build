@@ -62,7 +62,7 @@ beforeEach(() => {
 
 describe('auto reply delivery accounting', () => {
   it('normal reply succeeds and bills exactly one credit', async () => {
-    const r = await runDeliveryStage(...(args(true) as any));
+    const r = await (runDeliveryStage as any)(...args(true));
     expect(r.action).toBe('replied');
     expect(r.finalizationPending).toBeUndefined();
     expect(finalizeCalls).toEqual([{ runId: 'run_1', status: 'replied', creditsUsed: 1 }]);
@@ -70,7 +70,7 @@ describe('auto reply delivery accounting', () => {
 
   it('AI message insert failure → no replied status, no credit', async () => {
     insertResult = { id: null, error: 'db down' };
-    const r = await runDeliveryStage(...(args(true) as any));
+    const r = await (runDeliveryStage as any)(...args(true));
     expect(r.action).toBe('failed');
     expect(r.reason).toBe('ai_message_insert_failed');
     expect(finalizeCalls[0].status).toBe('failed');
@@ -80,7 +80,7 @@ describe('auto reply delivery accounting', () => {
 
   it('message persists but finalization fails → reported as pending, not silent', async () => {
     finalizeResult = { ok: false, error: 'update failed', attempts: 2 };
-    const r = await runDeliveryStage(...(args(true) as any));
+    const r = await (runDeliveryStage as any)(...args(true));
     expect(r.action).toBe('replied');
     expect(r.messageId).toBe('msg_1');
     expect(r.reason).toBe('run_finalization_failed');
@@ -90,7 +90,7 @@ describe('auto reply delivery accounting', () => {
 
 describe('suggestion delivery accounting', () => {
   it('normal suggestion succeeds and bills exactly one credit', async () => {
-    const r = await runDeliveryStage(...(args(false) as any));
+    const r = await (runDeliveryStage as any)(...args(false));
     expect(r.action).toBe('suggested');
     expect(r.suggestionId).toBe('sug_1');
     expect(r.finalizationPending).toBeUndefined();
@@ -99,7 +99,7 @@ describe('suggestion delivery accounting', () => {
 
   it('suggestion insert failure → no suggested status, no credit', async () => {
     suggestionInsert = { data: null, error: { message: 'insert blocked' } };
-    const r = await runDeliveryStage(...(args(false) as any));
+    const r = await (runDeliveryStage as any)(...args(false));
     expect(r.action).toBe('failed');
     expect(r.reason).toBe('suggestion_insert_failed');
     expect(finalizeCalls[0].status).toBe('failed');
@@ -109,7 +109,7 @@ describe('suggestion delivery accounting', () => {
 
   it('suggestion persists but finalization fails → reported as pending', async () => {
     finalizeResult = { ok: false, error: 'update failed', attempts: 2 };
-    const r = await runDeliveryStage(...(args(false) as any));
+    const r = await (runDeliveryStage as any)(...args(false));
     expect(r.action).toBe('suggested');
     expect(r.reason).toBe('run_finalization_failed');
     expect(r.finalizationPending).toBe(true);

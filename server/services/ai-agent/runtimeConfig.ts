@@ -65,6 +65,12 @@ export interface InternalToolRecord {
 }
 
 export interface ExtendedInstructions {
+  /**
+   * @deprecated legacy persisted key (ai_agent_settings.instructions.business_description).
+   * Canonical field is AgentSettings.business_description (top-level column);
+   * buildSystemPrompt() never reads this nested key. Not a write target for
+   * any current UI -- kept only because historical rows may still contain it.
+   */
   business_description?: string;
   brand_voice?: string;
   tone?: string;

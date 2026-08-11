@@ -15,6 +15,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { executeAICompletion, resolveAIConfig } from '../../ai/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompt.js';
+import { isStrictKbNoGrounding } from '../answerStrategy.js';
 import { postValidateAnswer } from '../policy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
@@ -52,10 +53,14 @@ export async function runGenerationStage(
     sb, locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
     guidanceMeta, availability,
   } = ctxStage;
-  const { routingMeta } = auto;
   const { decision } = decisionStage;
   const { sources, queryMeta } = retrieval;
-  const { strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef } = answer;
+  const {
+    strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef,
+    // Merged pre+post routing metadata (Follow-up 9E.2) — supersedes
+    // auto.routingMeta, which only ever reflected the pre-strategy phase.
+    routingMeta,
+  } = answer;
 
   const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
@@ -68,6 +73,32 @@ export async function runGenerationStage(
     runtime_warnings: runtimeCfg?.warnings || [],
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
+
+  // ─── Follow-up 9D.1/9D.2 — load-bearing strict-KB provider guard ──────
+  // The single, unconditional choke point every path must cross before a
+  // provider call happens. AnswerStage's routingKeepAi check is the
+  // "normal path" fix (preserves full handoff/no-answer messaging); this is
+  // the last-resort backstop for any other upstream decisionType mutation
+  // (present or future — e.g. the greeting-dedup fallthrough) that reaches
+  // here despite strict-KB having no qualifying grounding. Never fabricate
+  // an answer here — fail closed with a plain, observable skip.
+  if (isStrictKbNoGrounding(settings, strategy.retrievalStrength)) {
+    decisionTimeline.push('strict_kb_safety_block');
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
+      mode: settings.mode,
+      status: 'skipped',
+      inputText: question,
+      skipReason: 'strict_kb_safety_block',
+      kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
+      confidence: strategy.confidence,
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+    });
+    return { terminal: { ran: false, action: 'skipped', reason: 'strict_kb_safety_block', runId } };
+  }
 
   // ─── LLM call ─────────────────────────────────────────────────────────
   const aiConfig = await resolveAIConfig(config, workspaceId);

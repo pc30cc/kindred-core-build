@@ -16,11 +16,15 @@
  * keeping it as a function, never precomputed.
  */
 import type { ServerConfig } from '../../../config.js';
-import { evaluateRoutingRules, buildRoutingMetadata } from '../runtime/routingRuntime.js';
+import {
+  evaluateRoutingRules, evaluateRoutingRulesForTriggerTypes, buildRoutingMetadata,
+  PRE_STRATEGY_ROUTING_TRIGGER_TYPES,
+} from '../runtime/routingRuntime.js';
 import { evaluateMessageTriggers, type TriggerEvaluationResult } from '../runtime/triggerRuntime.js';
 import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from '../runtime/workflowRuntime.js';
 import { executeRuntimeActions } from '../runtime/actionExecutor.js';
 import { executeMatchedWorkflows, buildExecutedWorkflowMetadata } from '../runtime/workflowExecutor.js';
+import { applySafeRoutingSideEffects } from './helpers.js';
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -48,7 +52,7 @@ export async function runAutomationStage(
   const { workspaceId, conversationId, visitorMessageId } = input;
   const question = (input.question || '').trim();
   const { settings, runtimeCfg, decisionTimeline } = pre;
-  const { locale, inputLanguage, detectedTopicsMeta, humanRequestFromTopics, state } = ctxStage;
+  const { locale, inputLanguage, detectedTopicsMeta, humanRequestFromTopics, state, availability } = ctxStage;
   let { routingMeta, triggerMeta, workflowMeta } = ctxStage;
 
   // ─── C2A — evaluate routing rules ────────────────────────────────────
@@ -59,7 +63,7 @@ export async function runAutomationStage(
       const topTopic = (detectedTopicsMeta as any)?.topTopic
         ? { slug: (detectedTopicsMeta as any).topTopic.slug, name: (detectedTopicsMeta as any).topTopic.name } as any
         : null;
-      routingResult = evaluateRoutingRules({
+      routingResult = evaluateRoutingRulesForTriggerTypes({
         workspaceId,
         conversationId,
         visitorMessageId,
@@ -71,10 +75,20 @@ export async function runAutomationStage(
         settings,
         runtimeConfig: runtimeCfg,
         conversationState: state,
+        // Already computed in contextStage — zero new DB IO (Follow-up 9C).
+        availabilityReason: availability?.reason ?? null,
         now: Date.now(),
-      });
-      routingMeta = buildRoutingMetadata(routingResult);
+      }, PRE_STRATEGY_ROUTING_TRIGGER_TYPES);
+      routingMeta = buildRoutingMetadata(routingResult, 'pre_strategy');
       decisionTimeline.push('routing_evaluated');
+      // Follow-up 9E.2 — mark_priority must execute whenever PRE routing
+      // evaluation matches it, independent of whether the message later
+      // answers, retrieves, or hands off. Previously this only ran inside
+      // runtimeDecisionStage's HANDOFF branch, so a matched-but-classified-
+      // executed mark_priority action silently never wrote to the DB on the
+      // normal (non-handoff) path — see runtimeDecisionStage.ts for the
+      // corresponding removal.
+      await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
     } catch (err: any) {
       console.warn('[ai-agent.runtime.routing] evaluation failed:', err?.message || err);
     }

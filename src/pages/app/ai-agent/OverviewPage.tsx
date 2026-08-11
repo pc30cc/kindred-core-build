@@ -15,7 +15,7 @@ import {
   LayoutDashboard, AlertTriangle, CheckCircle2, AlertCircle, Loader2,
   RefreshCw, Plus, Globe, Beaker, GraduationCap, Tags, Workflow,
   Sparkles, Database, MessageSquare, BookOpen, Wrench, ArrowUpRight,
-  Activity as ActivityIcon, Bot, Zap, Languages, UserCog,
+  Activity as ActivityIcon, Bot, Zap, Languages, UserCog, ListChecks,
 } from 'lucide-react';
 import TestAiPanel from './TestAiPanel';
 
@@ -193,6 +193,10 @@ export default function OverviewPage() {
               <span className="text-sm font-medium">{data.settings.enabled ? 'دستیار هوشمند فعال است' : 'دستیار هوشمند غیرفعال است'}</span>
               <Switch checked={!!data.settings.enabled} onCheckedChange={toggleEnabled} disabled={enabling} />
             </div>
+            <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/activation'))}>
+              <ListChecks className="h-3.5 w-3.5 me-1.5" />
+              {tr('setupAction', 'Setup & readiness')}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => overview.refetch()} disabled={overview.isFetching}>
               <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', overview.isFetching && 'animate-spin')} />
               {tr('refresh', 'Refresh')}
@@ -259,7 +263,7 @@ export default function OverviewPage() {
           <QuickAction tone="emerald" icon={Plus} label={tr('action.addQna', 'Add Q&A')} onClick={() => navigate(wsPath('/ai-agent/qna'))} isRtl={isRtl} />
           <QuickAction tone="sky" icon={Globe} label={tr('action.addWeb', 'Add web page source')} onClick={() => navigate(wsPath('/ai-agent/web-pages'))} isRtl={isRtl} />
           <QuickAction tone="violet" icon={Beaker} label={tr('action.test', 'Test AI Agent')} onClick={() => navigate(wsPath('/ai-agent/playground'))} isRtl={isRtl} />
-          <QuickAction tone="amber" icon={GraduationCap} label={tr('action.review', 'Review learning candidates')} onClick={() => navigate(wsPath('/ai-agent/qna'))} isRtl={isRtl} />
+          <QuickAction tone="amber" icon={GraduationCap} label={tr('action.review', 'Review learning candidates')} onClick={() => navigate(wsPath('/ai-agent/learning-candidates'))} isRtl={isRtl} />
           <QuickAction tone="rose" icon={Tags} label={tr('action.topics', 'Add default topics')} onClick={() => navigate(wsPath('/ai-agent/topics'))} isRtl={isRtl} />
           <QuickAction tone="indigo" icon={Workflow} label={tr('action.workflow', 'Create workflow')} onClick={() => navigate(wsPath('/ai-agent/workflow'))} isRtl={isRtl} />
         </CardContent>

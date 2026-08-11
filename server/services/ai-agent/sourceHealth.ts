@@ -5,8 +5,14 @@
  * Workspace-scoped. NEVER exposes storage_path/storage_url/signed_url/credentials.
  * For files, source_url is always null.
  *
- * NOTE: Runtime retrieval (retrievalHybrid.ts) and Source Health must stay aligned.
- * If eligibility rules change in one file, update the other.
+ * NOTE: the underlying per-source-type allow/deny policy (workspace +
+ * enabled/status/used_by_ai/approved) is shared with runtime retrieval via
+ * ./sourcePolicy.ts — see that file for the single source of truth. The
+ * chunk/embedding health layer below (active_chunks_count,
+ * embedded_chunks_count) is Source-Health-specific and intentionally NOT
+ * part of runtime retrieval's actual eligibility (see the module doc
+ * there): a source can be status-allowed but still reported not-eligible
+ * here if it isn't indexed/embedded yet.
  * Eligibility reasons here mirror retrievalHybrid excluded counters:
  *   disabled_qna ↔ disabled_qna_excluded
  *   draft_kb ↔ draft_kb_excluded
@@ -16,6 +22,13 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import {
+  deriveWebPageParentSourceId,
+  isQnaSourceAllowed,
+  isLearnedQnaSourceAllowed,
+  isFileSourceAllowed,
+  isWebsiteSourceAllowed,
+} from './sourcePolicy.js';
 
 export type HealthSourceType = 'qna' | 'learned_qna' | 'kb_article' | 'file' | 'website' | 'web_page';
 
@@ -164,15 +177,7 @@ export async function getSourceHealth(
   };
   const chunkMap = new Map<string, ChunkAgg>();
   const key = (t: string, id: string) => `${t}:${id}`;
-  // web_page parent derivation must stay identical in Source Health and Runtime Retrieval.
-  // Mirrors deriveWebPageParentSourceId() in server/services/ai-agent/retrievalHybrid.ts.
-  const deriveWebPageParent = (sourceId: string, meta: any): string => {
-    const m = (meta && typeof meta === 'object') ? meta : {};
-    const fromMeta = (m.parent_source_id as string) || (m.source_id as string);
-    if (typeof fromMeta === 'string' && fromMeta.trim()) return fromMeta.trim();
-    if (sourceId && sourceId.includes(':')) return sourceId.split(':', 2)[0];
-    return sourceId;
-  };
+  const deriveWebPageParent = deriveWebPageParentSourceId;
   // Pull chunks page-by-page (Supabase 1000-row default)
   let from = 0;
   const PAGE = 1000;
@@ -244,14 +249,14 @@ export async function getSourceHealth(
     for (const r of (data || []) as any[]) {
       if (!matchesQuery(r.question, q)) continue;
       const agg = chunkMap.get(key('qna', r.id)) || { active: 0, stale: 0, deleted: 0, embedded: 0, lastIndexedAt: null };
-      const enabled = r.enabled !== false;
+      const allowed = isQnaSourceAllowed({ workspace_id: workspaceId, enabled: r.enabled }, workspaceId);
       let reason: HealthReason = 'eligible';
-      if (!enabled) reason = 'disabled_qna';
+      if (!allowed) reason = 'disabled_qna';
       else if (agg.active === 0) reason = 'no_active_chunks';
       else if (agg.embedded === 0) reason = 'embedding_missing';
       items.push({
         source_type: 'qna', source_id: r.id, title: r.question || '(untitled Q&A)',
-        status: enabled ? 'enabled' : 'disabled',
+        status: allowed ? 'enabled' : 'disabled',
         eligible: reason === 'eligible',
         reason,
         active_chunks_count: agg.active, embedded_chunks_count: agg.embedded,
@@ -273,7 +278,7 @@ export async function getSourceHealth(
       const title = r.suggested_title || r.question_text || r.normalized_question || '(learned answer)';
       if (!matchesQuery(title, q)) continue;
       const agg = chunkMap.get(key('learned_qna', r.id)) || { active: 0, stale: 0, deleted: 0, embedded: 0, lastIndexedAt: null };
-      const approved = String(r.status || '').toLowerCase() === 'approved';
+      const approved = isLearnedQnaSourceAllowed({ workspace_id: workspaceId, status: r.status }, workspaceId);
       let reason: HealthReason = 'eligible';
       if (!approved) reason = 'candidate_not_approved';
       else if (agg.active === 0) reason = 'no_active_chunks';
@@ -346,7 +351,9 @@ export async function getSourceHealth(
       if (filters.sourceType === 'web_page') continue; // surfaced individually below
 
       const safeMeta = isFile ? sanitizeFileMeta(r.metadata) : sanitizeMeta(r.metadata);
-      const active = String(r.status || '') === 'active';
+      const active = isFile
+        ? isFileSourceAllowed({ workspace_id: workspaceId, status: r.status, source_type: r.source_type }, workspaceId)
+        : isWebsiteSourceAllowed({ workspace_id: workspaceId, status: r.status, source_type: r.source_type }, workspaceId);
 
       let agg: ChunkAgg;
       if (isFile) {
@@ -385,7 +392,9 @@ export async function getSourceHealth(
         const parent = websiteParents.get(parentId);
         const pageTitle = agg.title || agg.pageUrl || '(web page)';
         if (!matchesQuery(pageTitle, q)) continue;
-        const parentActive = parent ? String(parent.status || '') === 'active' : false;
+        const parentActive = parent
+          ? isWebsiteSourceAllowed({ workspace_id: workspaceId, status: parent.status, source_type: parent.source_type }, workspaceId)
+          : false;
         let reason: HealthReason = 'eligible';
         if (!parent) reason = 'source_missing';
         else if (!parentActive) reason = 'website_not_active';

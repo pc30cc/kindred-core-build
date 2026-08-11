@@ -24,7 +24,7 @@ import { markNeedsHuman } from '../handoffState.js';
 import { runLimitHandoff, type LimitReason } from '../limitHandoff.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickHandoffAckMessage } from '../runtime/templates.js';
-import { resolveHandoffAckMessage, applySafeRoutingSideEffects } from './helpers.js';
+import { resolveHandoffAckMessage } from './helpers.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -234,8 +234,9 @@ export async function runRuntimeDecisionStage(
         reason: 'human_request',
       }).catch(() => {});
     }
-    // C2A — execute safe non-handoff routing actions (mark_priority).
-    await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
+    // mark_priority now executes unconditionally right after PRE routing
+    // evaluation in automationStage.ts (Follow-up 9E.2) — calling it again
+    // here would execute it twice, so this branch no longer does so.
     await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
     // Persist routing rule executed ids for dedup.
     if (routingResult) {

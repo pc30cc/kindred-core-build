@@ -2818,6 +2818,7 @@ const tr: TranslationKeys = {
       title: 'Genel Bakış',
       subtitle: 'AI Asistanınızın durumu, bilgi hazırlığı, son etkinlikler ve uyarılar.',
       refresh: 'Yenile',
+      setupAction: 'Kurulum ve Hazırlık',
       statusReady: 'Hazır',
       statusNotReady: 'Hazır değil',
       statusReadyHint: 'AI Asistanı yayında ve yanıt veriyor.',
@@ -3178,6 +3179,7 @@ const tr: TranslationKeys = {
       saveFailed: 'Kaydetme başarısız',
       usageTitle: 'Son kullanım (7 gün)',
       usageDesc: 'Operatörler AI önerilerini nasıl kullanıyor.',
+      viewFullAnalytics: 'Tüm analitiği görüntüle',
       stat: { suggestions: 'Öneriler', acceptance: 'Kabul oranı', positive: 'Olumlu', negative: 'Olumsuz' },
       empty: 'Henüz kullanım verisi yok.',
     },
@@ -3194,6 +3196,7 @@ const tr: TranslationKeys = {
       title: 'Etkinlik',
       subtitle: 'Bu çalışma alanındaki son AI Asistanı etkinlikleri.',
       refresh: 'Yenile',
+      viewAnalytics: 'Analitikleri görüntüle',
       empty: 'Henüz etkinlik yok.',
       filter: { all: 'Tümü', answered: 'Yanıtlanan', suggested: 'Önerilen', handoff: 'Devir', no_answer: 'Yanıtsız', needs_review: 'İnceleme gerekli' },
       describe: {

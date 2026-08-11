@@ -2831,6 +2831,7 @@ const en = {
       title: 'Overview',
       subtitle: 'Status, knowledge readiness, recent activity, and notices for your AI Agent.',
       refresh: 'Refresh',
+      setupAction: 'Setup & readiness',
       statusReady: 'Ready',
       statusNotReady: 'Not ready',
       statusReadyHint: 'Your AI Agent is live and answering.',
@@ -3191,6 +3192,7 @@ const en = {
       saveFailed: 'Save failed',
       usageTitle: 'Recent usage (7 days)',
       usageDesc: 'How operators are using AI suggestions.',
+      viewFullAnalytics: 'View full analytics',
       stat: { suggestions: 'Suggestions', acceptance: 'Acceptance', positive: 'Positive', negative: 'Negative' },
       empty: 'No usage data yet.',
     },
@@ -3207,6 +3209,7 @@ const en = {
       title: 'Activity',
       subtitle: 'Recent AI Agent activity in this workspace.',
       refresh: 'Refresh',
+      viewAnalytics: 'View analytics',
       empty: 'No activity yet.',
       filter: { all: 'All', answered: 'Answered', suggested: 'Suggested', handoff: 'Handoff', no_answer: 'No answer', needs_review: 'Needs review' },
       describe: {

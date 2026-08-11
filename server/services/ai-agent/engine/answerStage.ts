@@ -17,7 +17,7 @@
  * toolMeta via the same get/set ref pattern as the original.
  */
 import type { ServerConfig } from '../../../config.js';
-import { decideStrategy, countClarificationAttempts } from '../answerStrategy.js';
+import { decideStrategy, countClarificationAttempts, isStrictKbNoGrounding } from '../answerStrategy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged, markNeedsHuman } from '../handoffState.js';
@@ -25,8 +25,14 @@ import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickTemplate } from '../runtime/templates.js';
 import {
+  evaluateRoutingRulesForTriggerTypes, applyStrictKbApplicability, rewriteKeepAiToSkip,
+  buildRoutingMetadata, mergeRoutingMetadata, POST_STRATEGY_ROUTING_TRIGGER_TYPES,
+  type RoutingEvaluationResult,
+} from '../runtime/routingRuntime.js';
+import {
   evaluateNoAnswerHooks,
   resolveHandoffAckMessage,
+  applySafeRoutingSideEffects,
   pickPageNoUrl,
   pickPageNotIndexed,
   pickGreeting,
@@ -48,7 +54,13 @@ export interface AnswerStageResult {
   toolMeta: ContextStageResult['toolMeta'];
   pageContextMetaRef: any;
   sources: RetrievalStageResult['sources'];
+  /** Merged pre-strategy + post-strategy routing metadata (Follow-up 9E.2). */
+  routingMeta: ReturnType<typeof buildRoutingMetadata>;
 }
+
+const EMPTY_ROUTING_RESULT: RoutingEvaluationResult = {
+  actions: [], matchedRuleIds: [], matchedRuleNames: [], hardHandoff: false, keepAi: false,
+};
 
 export async function runAnswerStage(
   config: ServerConfig,
@@ -73,13 +85,20 @@ export async function runAnswerStage(
   let { triggerMeta, workflowMeta } = auto;
   let { toolMeta, pageContextMetaRef } = ctxStage;
   const { buildEvalCtx } = auto;
-  const { decision, routingKeepAi } = decisionStage;
+  // routingKeepAi (raw, pre-strict-KB-normalization) is superseded below by
+  // effectiveRoutingKeepAi, computed once retrievalStrength is known.
+  const { decision } = decisionStage;
   const { built, sources, hybridUsed, pageContextDebug, queryMeta } = retrieval;
 
+  // Reassigned once POST routing evaluation runs (after E2C finalization) so
+  // that metadata built BEFORE that point (the E2C page-intent terminal
+  // reply) truthfully reflects pre-strategy-only routing, and metadata built
+  // AFTER it reflects the full merged pre+post picture (Follow-up 9E.2).
+  let currentRoutingMeta = auto.routingMeta;
   const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
     guidance: guidanceMeta,
-    routing: auto.routingMeta,
+    routing: currentRoutingMeta,
     message_triggers: triggerMeta,
     workflows: workflowMeta,
     tools: toolMeta,
@@ -190,6 +209,75 @@ export async function runAnswerStage(
     return { terminal: { ran: true, action: 'replied', runId, messageId: inserted.id } };
   }
 
+  // ─── Follow-up 9E.2 — POST-strategy Routing (low_confidence / no_answer) ──
+  // Proven safe insertion point: strictly AFTER decideStrategy() AND the
+  // entire E2C page-context finalization/terminal-reply block above — a raw
+  // low_confidence/no_kb_match decision can still be superseded by an
+  // exact/path page-context match (forced to 'answer'/'page_context_match')
+  // or short-circuited by the no_url/no_indexed_page terminal reply just
+  // above. Evaluating any earlier would risk matching a stale reason that
+  // no longer reflects the final outcome (Follow-up 9E.2 Blocker 1).
+  const strictBlocked = isStrictKbNoGrounding(settings, strategy.retrievalStrength);
+
+  // Normalize the PRE-strategy result now that retrievalStrength is finally
+  // known, so a PRE keep_ai action that strict-KB blocks is never reported
+  // as "executed" in metadata (Follow-up 9E.1/9E.2 Blocker 5). Reassigned
+  // below once postHardHandoff is known (Follow-up 9E.3.1 cross-phase
+  // observability normalization).
+  let normalizedPreRouting = applyStrictKbApplicability(auto.routingResult || EMPTY_ROUTING_RESULT, strictBlocked);
+
+  let postRoutingResult: RoutingEvaluationResult = EMPTY_ROUTING_RESULT;
+  if (runtimeCfg?.routingRules?.length) {
+    try {
+      const postCtx = buildEvalCtx({ answerStrategy: { reason: strategy.reason, confidence: strategy.confidence } });
+      postRoutingResult = applyStrictKbApplicability(
+        evaluateRoutingRulesForTriggerTypes(postCtx, POST_STRATEGY_ROUTING_TRIGGER_TYPES),
+        strictBlocked,
+      );
+      decisionTimeline.push('post_routing_evaluated');
+      // POST mark_priority is an orthogonal side effect — it executes here,
+      // unconditionally, independent of whether the final outcome becomes
+      // answer, keep_ai-overridden-answer, or handoff.
+      await applySafeRoutingSideEffects(config, workspaceId, conversationId, postRoutingResult).catch(() => {});
+    } catch (err) {
+      console.warn('[ai-agent.runtime.routing] post-strategy evaluation failed:', err?.message || err);
+    }
+  }
+  const postKeepAi = postRoutingResult.keepAi;
+  const postHardHandoff = postRoutingResult.hardHandoff;
+
+  // Cross-phase precedence (Follow-up 9E.2, product-decision-closed):
+  // 1. PRE hard handoff (already terminal upstream, before this stage runs)
+  // 2. POST hard handoff  — wins over ANY PRE/POST keep_ai preference
+  // 3. applicable keep_ai — PRE and POST combine via OR
+  // 4. normal strategy outcome
+  // A POST no_answer/low_confidence -> handoff rule is an explicit,
+  // outcome-specific escalation evaluated after the strategy is finalized;
+  // it must not become unreachable merely because an earlier, coarser PRE
+  // keep_ai preference happened to also be true.
+  if (postHardHandoff) {
+    strategy.decisionType = 'handoff';
+    decisionTimeline.push('post_routing_handoff_forced');
+    // Follow-up 9E.3.1 — cross-phase observability: a POST hard handoff
+    // also outranks an already-applicable PRE keep_ai. The PRE rule's
+    // condition still matched (stays in matchedRuleIds), but its keep_ai
+    // effect never actually applies — metadata must not report it as
+    // executed/effective. (POST's own same-phase keep_ai-vs-hard-handoff
+    // conflict, if any, is already normalized inside evaluateRoutingRules
+    // itself, so postRoutingResult.keepAi is already false here.)
+    if (normalizedPreRouting.keepAi) {
+      normalizedPreRouting = rewriteKeepAiToSkip(normalizedPreRouting, 'overridden_by_post_hard_handoff');
+    }
+  }
+  const effectiveRoutingKeepAi = normalizedPreRouting.keepAi;
+
+  // Merge PRE + POST routing metadata, phase-tagged, for every log/metadata
+  // call from this point on (never overwrite either phase's observability).
+  currentRoutingMeta = mergeRoutingMetadata(
+    buildRoutingMetadata(normalizedPreRouting, 'pre_strategy'),
+    buildRoutingMetadata(postRoutingResult, 'post_strategy'),
+  );
+
   // ─── Decisions that don't require an LLM call ─────────────────────────
   if (strategy.decisionType === 'no_answer_silent') {
     // C2B — evaluate ai_no_answer triggers/workflows/tools.
@@ -219,7 +307,11 @@ export async function runAnswerStage(
 
   if (strategy.decisionType === 'handoff') {
     // C2A — keep_ai routing rule prevents weak-confidence handoff escalation.
-    if (routingKeepAi) {
+    // Follow-up 9D.1/9D.2 — never let it override a strict-KB/no-grounding
+    // handoff (already guaranteed here since effectiveRoutingKeepAi/postKeepAi
+    // are normalized to false when strictBlocked). Follow-up 9E.2 — a POST
+    // hard handoff outranks ANY keep_ai preference, PRE or POST.
+    if (!postHardHandoff && (effectiveRoutingKeepAi || postKeepAi)) {
       decisionTimeline.push('routing_keep_ai_overrides_handoff');
       console.log('[ai-agent.runtime.routing] keep_ai overrides handoff', { conversationId });
       // Fall through to LLM by treating strategy as substantive answer.
@@ -248,16 +340,43 @@ export async function runAnswerStage(
       metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
 
-    if (decision.canAutoReply) {
-      const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
-      if (fallbackBehavior === 'handoff') {
-        // C2 — if no_answer hooks already executed a handoff (trigger/tool),
-        // skip a second markNeedsHuman + duplicate fallback message.
-        if (noAnsResult?.handoffExecuted) {
-          decisionTimeline.push('handoff_message_already_sent');
-          return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null } };
-        }
-        await markHandoffRequested(config, conversationId).catch(() => {});
+    const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
+    // Follow-up 9E.2 — an explicit POST no_answer/low_confidence -> handoff
+    // Routing rule is allowed to override the coarse fallback_behavior=
+    // 'silent' default, matching the already-live explicit ai_no_answer
+    // Message Trigger handoff automation semantics (which already sends a
+    // full visible ack regardless of fallback_behavior — see
+    // evaluateNoAnswerHooks/actionExecutor.ts, unaffected by this setting).
+    //
+    // Follow-up 9E.3.1 — an explicit POST hard handoff is a Routing DECISION
+    // (transition the conversation to needs_human), independent from
+    // decision.canAutoReply (which only governs whether an AI-generated
+    // reply/ack may be sent). Gating the entire handoff execution behind
+    // canAutoReply meant a postHardHandoff could be classified executed in
+    // metadata while the conversation never actually transitioned to
+    // needs_human whenever canAutoReply was false (suggest_only,
+    // auto_reply_when_offline with operators online, etc). The ordinary
+    // strategy-driven fallback handoff (postHardHandoff=false) keeps its
+    // pre-existing canAutoReply gate untouched.
+    const shouldExecuteHandoff = postHardHandoff || (decision.canAutoReply && fallbackBehavior === 'handoff');
+    if (shouldExecuteHandoff) {
+      // C2 — if no_answer hooks already executed a handoff (trigger/tool),
+      // skip a second markNeedsHuman + duplicate fallback message. Checked
+      // regardless of canAutoReply so a suggest_only conversation whose
+      // Trigger/Workflow already handed off is reported truthfully too.
+      if (noAnsResult?.handoffExecuted) {
+        decisionTimeline.push('handoff_message_already_sent');
+        return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null } };
+      }
+      await markHandoffRequested(config, conversationId).catch(() => {});
+      // Visitor-facing ack mirrors the EXISTING PRE hard-handoff mode
+      // semantics (runtimeDecisionStage.ts's HANDOFF branch): suppressed in
+      // suggest_only mode unless canAutoReply is true; sent in every other
+      // mode regardless of canAutoReply (e.g. auto_reply_when_offline with
+      // operators currently online). The handoff state transition itself
+      // always happens, independent of this.
+      let messageId: string | null = null;
+      if (decision.canAutoReply || settings.mode !== 'suggest_only') {
         // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
         // ordering note on the human-request handoff branch above.
         const display = deriveAgentDisplay(settings);
@@ -278,14 +397,15 @@ export async function runAnswerStage(
           agentName: display.agentName,
           agentLogoUrl: display.agentLogoUrl,
         });
-        await markNeedsHuman(config, {
-          workspaceId,
-          conversationId,
-          reason: strategy.reason as any,
-        }).catch(() => {});
-        await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
-        return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: inserted.id } };
+        messageId = inserted.id;
       }
+      await markNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: strategy.reason as any,
+      }).catch(() => {});
+      await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+      return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId } };
     }
     return { terminal: { ran: true, action: 'no_answer', reason: strategy.reason, runId } };
     }
@@ -342,5 +462,8 @@ export async function runAnswerStage(
     }
   }
 
-  return { strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef, sources };
+  return {
+    strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta,
+    pageContextMetaRef, sources, routingMeta: currentRoutingMeta,
+  };
 }

@@ -13,7 +13,8 @@
  * retry semantics are all untouched.
  */
 import type { ServerConfig } from '../../../config.js';
-import { executeAICompletion, resolveAIConfig } from '../../ai/index.js';
+import { executeAICompletion, executeAICompletionWithConfig, resolveAIConfig } from '../../ai/index.js';
+// `executeAICompletion` is still referenced by the GenerationStageResult type.
 import { buildSystemPrompt, buildUserPrompt } from '../prompt.js';
 import { isStrictKbNoGrounding } from '../answerStrategy.js';
 import { postValidateAnswer } from '../policy.js';
@@ -156,7 +157,9 @@ export async function runGenerationStage(
 
   let aiResult;
   try {
-    aiResult = await executeAICompletion(config, {
+    // P2: aiConfig was already resolved above — reuse it instead of paying for
+    // a second provider-config lookup inside executeAICompletion().
+    aiResult = await executeAICompletionWithConfig(config, aiConfig, {
       workspaceId,
       prompt: userPrompt,
       systemPrompt,

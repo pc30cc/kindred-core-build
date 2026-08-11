@@ -3,6 +3,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { redactSecrets } from '../../lib/redactSecrets.js';
 
 export interface LogRunInput {
   workspaceId: string;
@@ -64,11 +65,7 @@ export async function logRun(config: ServerConfig, input: LogRunInput): Promise<
  */
 export function redactErrorMessage(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  return String(raw)
-    .replace(/(sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, '[redacted]')
-    .replace(/\b(api[_-]?key|authorization|bearer|token|x-api-key)\b\s*[:=]?\s*[^\s,;]+/gi, '$1 [redacted]')
-    .replace(/([?&](?:key|access_token|api_key)=)[^&\s]+/gi, '$1[redacted]')
-    .slice(0, 1000);
+  return redactSecrets(raw);
 }
 
 /**
@@ -76,6 +73,14 @@ export function redactErrorMessage(raw: string | null | undefined): string | nul
  * stage so a run is only ever marked `replied`/`suggested` (and billed) AFTER
  * the visitor-facing message actually persisted.
  */
+export interface FinalizeRunResult {
+  ok: boolean;
+  /** Redacted failure detail when the accounting transition did not persist. */
+  error?: string;
+  /** Number of update attempts made (1 = succeeded first try). */
+  attempts: number;
+}
+
 export async function finalizeRun(
   config: ServerConfig,
   runId: string | null,
@@ -85,15 +90,26 @@ export async function finalizeRun(
     errorMessage?: string | null;
     metadata?: Record<string, unknown>;
   },
-): Promise<void> {
-  if (!runId) return;
+  opts: { attempts?: number } = {},
+): Promise<FinalizeRunResult> {
+  // A null runId means the run row itself never persisted — the caller must
+  // not claim the accounting transition succeeded.
+  if (!runId) return { ok: false, error: 'missing_run_id', attempts: 0 };
   const sb = getServiceClient(config);
   const update: Record<string, unknown> = { status: patch.status };
   if (typeof patch.creditsUsed === 'number') update.credits_used = patch.creditsUsed;
   if (patch.errorMessage !== undefined) update.error_message = redactErrorMessage(patch.errorMessage);
   if (patch.metadata) update.metadata = patch.metadata;
-  const { error } = await sb.from('ai_agent_runs').update(update).eq('id', runId);
-  if (error) console.warn('[ai-agent] finalizeRun failed:', error.message);
+
+  const maxAttempts = Math.max(1, Math.min(opts.attempts ?? 2, 5));
+  let lastError = 'unknown_error';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const { error } = await sb.from('ai_agent_runs').update(update).eq('id', runId);
+    if (!error) return { ok: true, attempts: attempt };
+    lastError = redactErrorMessage(error.message) || 'unknown_error';
+    console.warn('[ai-agent] finalizeRun failed:', { runId, attempt, error: lastError });
+  }
+  return { ok: false, error: lastError, attempts: maxAttempts };
 }
 
 export async function listRuns(

@@ -30,6 +30,12 @@ export interface MaybeRunResult {
   suggestionId?: string | null;
   runId?: string | null;
   messageId?: string | null;
+  /**
+   * True when the visitor-facing artifact persisted but the run row could NOT
+   * be promoted to its final accounting state (status/credits). The caller
+   * must treat the run as pending reconciliation, not as billed.
+   */
+  finalizationPending?: boolean;
 }
 
 export type { RetrievedSource };

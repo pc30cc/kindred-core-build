@@ -246,22 +246,21 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
   }
 
   // Network resilience: retry transient fetch failures (DNS flake, TLS reset,
-  // ECONNRESET) up to 2 extra times with exponential backoff. Real API errors
-  // (4xx/5xx) are returned immediately and surfaced to the caller.
-  const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
+  // ECONNRESET) with exponential backoff. Real API errors (non-retryable
+  // 4xx/5xx) are returned immediately and surfaced to the caller. Body
+  // download + JSON parse happen INSIDE the shared wall-clock deadline.
+  const res = await requestJsonWithRetry(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
   }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS, fetchImpl);
 
   if (!res.ok) {
-    const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(`OpenAI error: ${readProviderErrorMessage(err) || res.statusText}`);
+    throw new Error(`OpenAI error: ${readProviderErrorMessage(res.data) || res.statusText}`);
   }
 
-  const data: unknown = await res.json();
   const latencyMs = Date.now() - start;
-  const parsed = parseOpenAIChatCompletion(data);
+  const parsed = parseOpenAIChatCompletion(res.data);
 
   return {
     text: parsed.text,
@@ -275,15 +274,30 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
 }
 
 // ─── Network retry helper ────────────────────────────────────────
-// Retries only on TypeError / fetch failed / common transient codes.
-// Never retries on HTTP error responses — those are returned to the caller.
-async function fetchWithRetry(
+/**
+ * Single shared wall-clock deadline (AI_TOTAL_BUDGET_MS) covering connect,
+ * TLS, upload, response headers, retry backoff, response BODY download and
+ * JSON parsing. The AbortController stays armed until the body has been fully
+ * consumed, so a provider that drips a slow body cannot outlive the budget.
+ * Error bodies (429/500/…) are read under the same deadline.
+ *
+ * Exported as a narrow test seam for behavioural retry/timeout regression
+ * tests; production callers go through the provider handlers.
+ */
+export interface JsonResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  data: unknown;
+}
+
+export async function requestJsonWithRetry(
   url: string,
   init: RequestInit,
   maxAttempts = 3,
   timeoutMs = AI_HTTP_TIMEOUT_MS,
   fetchImpl?: HttpFetch,
-): Promise<Response> {
+): Promise<JsonResponse> {
   const doFetch: HttpFetch = fetchImpl ?? ((input, requestInit) => fetch(input, requestInit));
   let lastErr: any;
   const deadline = Date.now() + AI_TOTAL_BUDGET_MS;
@@ -299,10 +313,17 @@ async function fetchWithRetry(
       // HTTP-level retry policy (see isRetryableStatus). Non-retryable
       // responses — including every 4xx that is not 408/429 — go straight
       // back to the caller.
-      if (res.ok || !isRetryableStatus(res.status) || attempt === maxAttempts) return res;
+      if (res.ok || !isRetryableStatus(res.status) || attempt === maxAttempts) {
+        // Body consumption stays inside the still-armed deadline.
+        const data: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        return { ok: res.ok, status: res.status, statusText: res.statusText, data };
+      }
       const retryAfter = res.status === 429 ? parseRetryAfterMs(res.headers.get('retry-after')) : null;
       const backoff = retryAfter ?? 750 * Math.pow(2, attempt - 1);
-      if (deadline - Date.now() - backoff <= 0) return res;
+      if (deadline - Date.now() - backoff <= 0) {
+        const data: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        return { ok: res.ok, status: res.status, statusText: res.statusText, data };
+      }
       try { await res.body?.cancel(); } catch { /* ignore */ }
       console.warn('[ai] retryable provider status, retrying', { attempt, status: res.status, backoff });
       await new Promise((r) => setTimeout(r, backoff));
@@ -349,7 +370,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
   };
   if (req.systemPrompt) body.system = req.systemPrompt;
 
-  const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
+  const res = await requestJsonWithRetry('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': config.apiKey,
@@ -360,13 +381,11 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
   }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS, fetchImpl);
 
   if (!res.ok) {
-    const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(`Anthropic error: ${readProviderErrorMessage(err) || res.statusText}`);
+    throw new Error(`Anthropic error: ${readProviderErrorMessage(res.data) || res.statusText}`);
   }
 
-  const data: unknown = await res.json();
   const latencyMs = Date.now() - start;
-  const parsed = parseAnthropicMessage(data);
+  const parsed = parseAnthropicMessage(res.data);
 
   return {
     text: parsed.text,
@@ -397,7 +416,7 @@ async function callGemini(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
     body.systemInstruction = { parts: [{ text: req.systemPrompt }] };
   }
 
-  const res = await fetchWithRetry(
+  const res = await requestJsonWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`,
     {
       method: 'POST',
@@ -410,13 +429,11 @@ async function callGemini(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
   );
 
   if (!res.ok) {
-    const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(`Gemini error: ${readProviderErrorMessage(err) || res.statusText}`);
+    throw new Error(`Gemini error: ${readProviderErrorMessage(res.data) || res.statusText}`);
   }
 
-  const data: unknown = await res.json();
   const latencyMs = Date.now() - start;
-  const parsed = parseGeminiGenerateContent(data);
+  const parsed = parseGeminiGenerateContent(res.data);
 
   return {
     text: parsed.text,

@@ -47,6 +47,12 @@ export interface BuildSystemPromptOptions {
   guidanceRules?: GuidanceRule[];
   /** Detected topic slug (e.g. "pricing") to nudge tone-relevant guidance. */
   topicSlug?: string | null;
+  /**
+   * Phase 3 — internal actions the workspace has enabled for this turn.
+   * The model may only PROPOSE these; a deterministic server-side gate
+   * decides whether any of them actually execute.
+   */
+  enabledActions?: string[];
 }
 
 export function buildSystemPrompt(

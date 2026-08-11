@@ -9,9 +9,12 @@ const finalizeCalls: any[] = [];
 let finalizeResult: any = { ok: true, attempts: 1 };
 let insertResult: any = { id: 'msg_1' };
 let suggestionInsert: any = { data: { id: 'sug_1' }, error: null };
+let logRunResult: any = 'run_1';
+const insertMessageCalls: any[] = [];
+const suggestionInsertCalls: any[] = [];
 
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({
-  logRun: async () => 'run_1',
+  logRun: async () => logRunResult,
   finalizeRun: async (_c: any, runId: any, patch: any) => {
     finalizeCalls.push({ runId, ...patch });
     return finalizeResult;
@@ -19,7 +22,10 @@ vi.mock('../../../server/services/ai-agent/logs.js', () => ({
 }));
 
 vi.mock('../../../server/services/ai-agent/responder.js', () => ({
-  insertAiMessage: async () => insertResult,
+  insertAiMessage: async (_c: any, payload: any) => {
+    insertMessageCalls.push(payload);
+    return insertResult;
+  },
   deriveAgentDisplay: () => ({ agentName: 'AI', agentLogoUrl: null }),
 }));
 
@@ -34,8 +40,11 @@ vi.mock('../../../server/services/realtime/publish.js', () => ({
 const { runDeliveryStage } = await import('../../../server/services/ai-agent/engine/deliveryStage.js');
 
 const sb = {
-  from: () => ({
-    insert: () => ({ select: () => ({ single: async () => suggestionInsert }) }),
+  from: (table: string) => ({
+    insert: (row: any) => {
+      suggestionInsertCalls.push({ table, row });
+      return { select: () => ({ single: async () => suggestionInsert }) };
+    },
   }),
 };
 
@@ -55,6 +64,9 @@ function args(canAutoReply: boolean) {
 
 beforeEach(() => {
   finalizeCalls.length = 0;
+  insertMessageCalls.length = 0;
+  suggestionInsertCalls.length = 0;
+  logRunResult = 'run_1';
   finalizeResult = { ok: true, attempts: 1 };
   insertResult = { id: 'msg_1' };
   suggestionInsert = { data: { id: 'sug_1' }, error: null };

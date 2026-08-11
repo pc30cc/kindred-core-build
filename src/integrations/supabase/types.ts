@@ -103,6 +103,36 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_agent_action_claims: {
+        Row: {
+          action_name: string
+          conversation_id: string
+          created_at: string
+          idempotency_key: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          action_name: string
+          conversation_id: string
+          created_at?: string
+          idempotency_key: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          action_name?: string
+          conversation_id?: string
+          created_at?: string
+          idempotency_key?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       ai_agent_debug_events: {
         Row: {
           actor_user_id: string | null

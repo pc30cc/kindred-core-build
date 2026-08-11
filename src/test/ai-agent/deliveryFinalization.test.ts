@@ -98,6 +98,16 @@ describe('auto reply delivery accounting', () => {
     expect(r.reason).toBe('run_finalization_failed');
     expect(r.finalizationPending).toBe(true);
   });
+
+  it('provisional run creation fails → nothing is delivered', async () => {
+    logRunResult = null;
+    const r = await (runDeliveryStage as any)(...args(true));
+    expect(r.action).toBe('failed');
+    expect(r.reason).toBe('run_log_create_failed');
+    expect(insertMessageCalls).toHaveLength(0);
+    expect(finalizeCalls).toHaveLength(0);
+    expect(r.messageId).toBeUndefined();
+  });
 });
 
 describe('suggestion delivery accounting', () => {
@@ -125,5 +135,15 @@ describe('suggestion delivery accounting', () => {
     expect(r.action).toBe('suggested');
     expect(r.reason).toBe('run_finalization_failed');
     expect(r.finalizationPending).toBe(true);
+  });
+
+  it('provisional run creation fails → no suggestion row is created', async () => {
+    logRunResult = null;
+    const r = await (runDeliveryStage as any)(...args(false));
+    expect(r.action).toBe('failed');
+    expect(r.reason).toBe('run_log_create_failed');
+    expect(suggestionInsertCalls.filter((c) => c.table === 'ai_agent_suggestions')).toHaveLength(0);
+    expect(finalizeCalls).toHaveLength(0);
+    expect(r.suggestionId).toBeUndefined();
   });
 });

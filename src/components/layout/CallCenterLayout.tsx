@@ -13,6 +13,7 @@ import { callCenterApi } from '@/lib/call-center-api';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 
 type TabDef = {
   to: string;
@@ -21,16 +22,17 @@ type TabDef = {
   end?: boolean;
   requiresCallback?: boolean;
   requiresRecording?: boolean;
+  accent: AiAccent;
 };
 
 const ALL_TABS: TabDef[] = [
-  { to: '', icon: LayoutDashboard, i18nKey: 'overview', end: true },
-  { to: 'queue', icon: Headphones, i18nKey: 'queue' },
-  { to: 'calls', icon: Phone, i18nKey: 'calls' },
-  { to: 'callbacks', icon: PhoneCall, i18nKey: 'callbacks', requiresCallback: true },
-  { to: 'recordings', icon: Mic, i18nKey: 'recordings', requiresRecording: true },
-  { to: 'install', icon: Code2, i18nKey: 'install' },
-  { to: 'settings', icon: SettingsIcon, i18nKey: 'settings' },
+  { to: '', icon: LayoutDashboard, i18nKey: 'overview', end: true, accent: 'indigo' },
+  { to: 'queue', icon: Headphones, i18nKey: 'queue', accent: 'emerald' },
+  { to: 'calls', icon: Phone, i18nKey: 'calls', accent: 'sky' },
+  { to: 'callbacks', icon: PhoneCall, i18nKey: 'callbacks', requiresCallback: true, accent: 'amber' },
+  { to: 'recordings', icon: Mic, i18nKey: 'recordings', requiresRecording: true, accent: 'rose' },
+  { to: 'install', icon: Code2, i18nKey: 'install', accent: 'cyan' },
+  { to: 'settings', icon: SettingsIcon, i18nKey: 'settings', accent: 'violet' },
 ];
 
 function StatusPill({ tone, children }: { tone: 'ok' | 'warn' | 'danger' | 'muted'; children: React.ReactNode }) {

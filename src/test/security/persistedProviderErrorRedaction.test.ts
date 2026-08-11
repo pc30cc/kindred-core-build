@@ -176,6 +176,23 @@ describe('operator-assist run persistence', () => {
     assertRedacted(run.row.error);
   });
 
+  it('HTTP response details never expose raw credentials', async () => {
+    aiError = new Error(DIRTY_ERROR);
+    const res = await callAssist();
+    expect(res.status).toBe(502);
+    const run = assistInserts.find((i) => i.table === 'ai_operator_assist_runs');
+    assertRedacted(run.row.error);
+    assertRedacted(res.body.details);
+    expect(res.body.error).toBe('llm_failed');
+  });
+
+  it('response details fall back to unknown_error when message is empty', async () => {
+    aiError = new Error('');
+    const res = await callAssist();
+    expect(res.status).toBe(502);
+    expect(res.body.details).toBe('unknown_error');
+  });
+
   it('safety notes and error stay readable for ordinary diagnostics', async () => {
     aiError = new Error('AI network error: ECONNRESET, model not found, rate limit reached');
     const res = await callAssist();

@@ -21,6 +21,15 @@ export interface RuntimeEvaluationContext {
   currentPageUrl?: string | null;
   prechat?: Record<string, unknown> | null;
   answerStrategy?: { action?: string; confidence?: number; reason?: string | null } | null;
+  /**
+   * Precise reason behind the widget's online/offline availability state
+   * (see server/services/widget/availability.ts's AvailabilityReason), NOT
+   * the reduced online/offline boolean. Only 'outside_hours'/'override_closed'
+   * mean "outside the configured business-hours schedule" — 'no_operators_online'
+   * and 'always_offline'/'disabled' are distinct availability states that must
+   * not be conflated with a business-hours match (Follow-up 9C).
+   */
+  availabilityReason?: string | null;
   now: number;
 }
 

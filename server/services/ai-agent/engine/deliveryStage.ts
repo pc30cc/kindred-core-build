@@ -40,10 +40,13 @@ export async function runDeliveryStage(
   const question = (input.question || '').trim();
   const { settings, runtimeCfg, decisionTimeline } = pre;
   const { sb, locale, languageMeta, detectedTopicsMeta, guidanceMeta } = ctxStage;
-  const { routingMeta } = auto;
   const { decision } = decisionStage;
   const { sources, queryMeta } = retrieval;
-  const { strategy, strategyMeta, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef } = answer;
+  const {
+    strategy, strategyMeta, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef,
+    // Merged pre+post routing metadata (Follow-up 9E.2).
+    routingMeta,
+  } = answer;
   const { aiResult } = generation;
 
   const baseRuntimeMeta = () => ({

@@ -24,6 +24,7 @@ import { markNeedsHuman } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { runLimitHandoff, detectLimitErrorReason } from '../limitHandoff.js';
 import { loadWorkspaceContext } from '../workspaceContext.js';
+import { redactSecrets } from '../../../lib/redactSecrets.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -187,7 +188,8 @@ export async function runGenerationStage(
           retrieval: queryMeta,
           provider: aiConfig.provider,
           model: aiConfig.model,
-          original_error: String(err?.message || ''),
+          // Provider/network errors can embed credentials — never persist raw.
+          original_error: redactSecrets(err?.message) || 'unknown_error',
         },
       });
       return {

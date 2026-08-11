@@ -97,28 +97,24 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-8" dir={dir}>
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-              <Activity className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Activity')}</h1>
-              <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Recent AI Agent activity in this workspace.')}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+      <AiPageHeader
+        icon={Activity}
+        accent="sky"
+        title={tr('title', 'Activity')}
+        subtitle={tr('subtitle', 'Recent AI Agent activity in this workspace.')}
+        actions={
+          <>
             <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/analytics'))}>
               <BarChart3 className="h-3.5 w-3.5 me-1.5" />{tr('viewAnalytics', 'View analytics')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => runs.refetch()} disabled={runs.isFetching}>
               <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', runs.isFetching && 'animate-spin')} />{tr('refresh', 'Refresh')}
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      />
+
+      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
         <Select
           value={String(pageSize)}
           onValueChange={(v) => {
@@ -137,9 +133,6 @@ export default function ActivityPage() {
             ))}
           </SelectContent>
         </Select>
-      </div>
-
-      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
         <div className="flex flex-wrap gap-2 flex-1">
           {FILTERS.map((f) => (
             <button

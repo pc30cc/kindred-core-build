@@ -56,7 +56,7 @@ export async function runGenerationStage(
     guidanceMeta, availability,
   } = ctxStage;
   const { decision } = decisionStage;
-  const { sources, queryMeta } = retrieval;
+  const { sources, queryMeta, built } = retrieval;
   const {
     strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta, pageContextMetaRef,
     // Merged pre+post routing metadata (Follow-up 9E.2) — supersedes
@@ -154,6 +154,10 @@ export async function runGenerationStage(
   const userPrompt = buildUserPrompt(question, sources, strategy, {
     pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
     pageMatched: pageExact || pagePath,
+    // Phase 2.1 — bounded multi-turn context, already tenant-scoped.
+    conversationContext: built?.conversationContext || null,
+    // Phase 2.7 — warn the model when sources materially disagree.
+    conflictDetected: strategy.conflictDetected,
   });
 
   let aiResult;

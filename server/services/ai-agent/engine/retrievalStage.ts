@@ -83,6 +83,16 @@ export async function runRetrievalStage(
     added_terms_count: built.addedTerms.length,
     follow_up_detected: built.followUpDetected,
     previous_ai_asked_clarification: built.previousAiAskedClarification,
+    // ── Phase 2 observability ──────────────────────────────────────────
+    conversation_context_used: !!built.conversationContextUsed,
+    conversation_turns_used: built.conversationTurnsUsed ?? 0,
+    query_rewrite_reason: built.rewriteReason || 'none',
+    clarification_context: {
+      asked: !!built.clarification?.asked,
+      question: built.clarification?.question ?? null,
+      original_intent: built.clarification?.originalIntent ?? null,
+      follow_up_response: built.clarification?.followUpResponse ?? null,
+    },
     retrieval_results_count: sources.length,
     hybrid_used: hybridUsed,
     vector_used: vectorUsed,

@@ -115,6 +115,8 @@ export async function runAnswerStage(
     clarificationAttemptCount,
     topics: built.topics,
     hybridUsed,
+    // Phase 2.2 — the visitor is answering the clarification we just asked.
+    justAnsweredClarification: built.previousAiAskedClarification,
   });
   console.log('[ai-agent] strategy decision', {
     conversationId,
@@ -137,6 +139,13 @@ export async function runAnswerStage(
     handoff_required: strategy.handoffRequired,
     escalation_style: settings.escalation_style || 'balanced',
     safe_guidance_topic: strategy.safeGuidanceTopic || null,
+    // ── Phase 2 observability ──────────────────────────────────────────
+    confidence: strategy.confidence,
+    confidence_band: strategy.confidenceBand,
+    confidence_inputs: strategy.confidenceInputs,
+    conflict_detected: strategy.conflictDetected,
+    conflicts: strategy.conflicts,
+    just_answered_clarification: !!built.previousAiAskedClarification,
   };
 
   // ─── E2C — page-aware overrides ────────────────────────────────────────

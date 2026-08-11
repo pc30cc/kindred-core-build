@@ -38,17 +38,19 @@ export async function getRobotsRules(
 
   const robotsUrl = `${u.origin}/robots.txt`;
   const origin = u.origin;
+  const rootUrlObj = u;
   let body = '';
   try {
     const res = await safeCrawlFetch(robotsUrl, {
       userAgent,
       timeoutMs: ROBOTS_TIMEOUT_MS,
       maxBytes: ROBOTS_MAX_BYTES,
-      // robots.txt is only ever valid on the SAME origin as the crawl root:
-      // any cross-origin (or cross-scheme/port) redirect is refused.
-      isUrlAllowed: (candidate) => {
-        try { return new URL(candidate).origin === origin; } catch { return false; }
-      },
+      // robots.txt is only ever valid on the SAME origin as the crawl root.
+      // The single tolerated exception is the ubiquitous HTTP→HTTPS upgrade on
+      // the exact same host with default ports; every cross-host, cross-domain
+      // or HTTPS→HTTP downgrade redirect stays refused (private/internal
+      // targets are additionally blocked by the transport itself).
+      isUrlAllowed: (candidate) => isRobotsRedirectAllowed(candidate, rootUrlObj, origin),
       accept: 'text/plain, text/*;q=0.9, */*;q=0.1',
       // Plain text expected; never HTML-gate robots.txt.
       isContentTypeAllowed: () => true,

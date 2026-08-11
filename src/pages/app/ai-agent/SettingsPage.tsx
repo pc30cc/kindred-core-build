@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Sparkles, Bot, Loader2, Upload, Trash2, Settings as SettingsIcon, User, FileText, Eye, MessageCircle, Languages, Tags, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 const FALLBACK_INTRO_TEMPLATES: Record<string, (name: string) => string> = {
   en: (name) =>

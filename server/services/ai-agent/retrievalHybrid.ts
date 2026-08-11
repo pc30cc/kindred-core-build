@@ -36,6 +36,7 @@ import {
   isFileSourceAllowed,
   isWebsiteSourceAllowed,
 } from './sourcePolicy.js';
+import { diversifySources } from './sourceDiversity.js';
 
 export type HybridSourceKind = 'qna' | 'kb_article' | 'learned_qna' | 'business_profile' | 'web_page' | 'file';
 
@@ -708,7 +709,24 @@ export async function retrieveHybridSources(
   }
   merged.sort((a: any, b: any) => b.finalScore - a.finalScore);
 
-  const top = merged.slice(0, limit).map((m: any) => {
+  // ── 3.5) Phase 2.4 — dedupe + bounded per-source diversity ────────────
+  const diversified = diversifySources(
+    merged as any[],
+    (m: any) => ({
+      key: `${m.source_type}:${m.source_id}:${m.id}`,
+      parentKey: `${m.source_type}:${
+        (m.source_type === 'web_page'
+          ? deriveWebPageParentSourceId(m.source_id, (m.metadata as any) || {})
+          : null) || m.source_id
+      }`,
+      score: m.finalScore || 0,
+      text: `${m.title || ''} ${(m.content || m.excerpt || '').slice(0, 600)}`,
+    }),
+    { limit },
+  );
+  const diversityDebug = diversified.debug;
+
+  const top = diversified.selected.map((m: any) => {
     const isFile = m.source_type === 'file';
     return {
       id: m.id,
@@ -757,6 +775,7 @@ export async function retrieveHybridSources(
       fallback_reason: result.fallbackReason || null,
       retrieval_results_count: result.retrievalResultsCount,
     },
+    diversity: diversityDebug,
     page_context: {
       current_page_url: pageDebug.current_page_url,
       current_page_path: input.pageContext?.currentPagePath || null,

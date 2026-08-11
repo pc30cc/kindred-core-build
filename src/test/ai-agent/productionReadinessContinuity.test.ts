@@ -82,7 +82,7 @@ describe('E3 — clarification continuity', () => {
       {
         id: 'm2', conversation_id: 'conv-a', sender_type: 'ai',
         body: 'Is the problem payment or account access?',
-        metadata: { ai_agent: { decision_type: 'ask_clarifying_question' } },
+        metadata: { answer_strategy: { decision_type: 'ask_clarifying_question' } },
       },
     ]);
     const built = await buildRetrievalQuery({

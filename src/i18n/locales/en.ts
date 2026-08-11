@@ -2912,9 +2912,11 @@ const en = {
     notVisibleToVisitor: 'Not visible to visitor until you send',
     suggestionInserted: 'Inserted into composer',
     title: 'AI Agent',
+    subtitle: 'Automate your conversations',
     section: { main: 'AI Agent' },
     nav: {
       overview: 'Overview',
+      activation: 'Activation',
       articles: 'Articles',
       knowledge: 'Knowledge Sources',
       behavior: 'Behavior',

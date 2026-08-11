@@ -57,16 +57,10 @@ export function createRealActionRunner(ctx: ExecutorContext & { locale?: string 
           return error ? { ok: false, reason: 'add_tag_failed' } : { ok: true, reason: 'tag_added' };
         }
         if (name === 'add_internal_note') {
-          const sb = getServiceClient(ctx.config);
-          const { error } = await sb.from('conversation_notes').insert({
-            conversation_id: ctx.conversationId,
-            workspace_id: ctx.workspaceId,
-            body: String(args.body),
-            author_id: null,
-            author_type: 'ai_agent',
-            metadata: { runtime_source: 'ai_action' },
-          });
-          return error ? { ok: false, reason: 'add_internal_note_failed' } : { ok: true, reason: 'note_added' };
+          // Repository evidence: conversation_notes.author_id is NOT NULL and
+          // no AI/system author identity exists (DEFAULT_HOST_CAPABILITIES
+          // .supportsInternalNotes === false). Never attempt execution.
+          return { ok: false, reason: 'capability_unsupported' };
         }
         if (name === 'get_business_hours') {
           const av = await getOperatorAvailability(ctx.config, ctx.workspaceId, ctx.locale || 'en');

@@ -282,6 +282,11 @@ export async function runGenerationStage(
         currentPriority: (convRow as any)?.priority ?? null,
         currentTags: Array.isArray((convRow as any)?.tags) ? (convRow as any).tags : [],
         executedKeys: readExecutedActionKeys((convRow as any)?.metadata),
+        // Model output is never authorization: deterministic side effects such
+        // as add_tag require an explicit runtime/workspace-configured basis.
+        // Workspace-configured workflows/routing keep tagging via their own
+        // deterministic executor path, untouched by this list.
+        deterministicAuthorizedActions: [],
       };
       const pipeline = await runActionPipeline({
         rawText: aiResult.text || '',
@@ -294,7 +299,7 @@ export async function runGenerationStage(
           settings,
           locale,
         }),
-        idempotency: createConversationIdempotencyStore(config, conversationId, gate.executedKeys || []),
+        idempotency: createConversationIdempotencyStore(config, conversationId, gate.executedKeys || [], { workspaceId }),
         fallbackText: aiResult.text || '',
       });
       aiResult = { ...aiResult, text: pipeline.text };

@@ -43,6 +43,10 @@ vi.mock('../../../server/services/ai/index.js', () => ({
     aiCallCount++;
     return makeAIResponse();
   },
+  executeAICompletionWithConfig: async () => {
+    aiCallCount++;
+    return makeAIResponse();
+  },
   resolveAIConfig: async () => ({ provider: 'openai', model: 'gpt-4o-mini' }),
 }));
 

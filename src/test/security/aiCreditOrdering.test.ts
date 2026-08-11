@@ -76,6 +76,7 @@ const executeAICompletion = vi.fn(async () => {
 });
 vi.mock('../../../server/services/ai/index.js', () => ({
   executeAICompletion: (...a: any[]) => (executeAICompletion as any)(...a),
+  executeAICompletionWithConfig: (_c: any, _cfg: any, req: any) => (executeAICompletion as any)(_c, req),
   testAIConnection: async () => ({ success: true, latencyMs: 1, model: 'm' }),
   resolveAIConfig: async () => null,
 }));

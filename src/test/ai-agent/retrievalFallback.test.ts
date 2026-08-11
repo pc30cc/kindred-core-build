@@ -64,6 +64,7 @@ vi.mock('../../../server/supabase.js', () => ({
 
 vi.mock('../../../server/services/ai/index.js', () => ({
   executeAICompletion: (...args: any[]) => aiResponseImpl(),
+  executeAICompletionWithConfig: (..._args: any[]) => aiResponseImpl(),
   resolveAIConfig: async () => ({ provider: 'openai', model: 'gpt-4o-mini' }),
 }));
 

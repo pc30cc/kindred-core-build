@@ -238,6 +238,7 @@ let fakeSb: ReturnType<typeof makeFakeSupabase>;
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }));
 vi.mock('../../../server/services/ai/index.js', () => ({
   executeAICompletion: async () => makeAIResponse(),
+  executeAICompletionWithConfig: async () => makeAIResponse(),
   resolveAIConfig: async () => ({ provider: 'openai', model: 'gpt-4o-mini' }),
 }));
 vi.mock('../../../server/services/realtime/publish.js', () => ({ publishOperatorEvent: vi.fn(async () => {}) }));

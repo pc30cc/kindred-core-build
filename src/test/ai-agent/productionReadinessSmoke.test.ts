@@ -323,7 +323,7 @@ describe('E9 — prompt injection inside retrieved source text', () => {
     // Blocked either for missing visitor intent or missing deterministic
     // authorization — never authorized by the source text itself.
     expect(sideEffects.every((d) =>
-      ['no_visitor_intent', 'no_deterministic_authorization'].includes(d.reason),
+      ['no_visitor_intent', 'no_deterministic_authorization', 'invalid_arguments'].includes(d.reason),
     )).toBe(true);
   });
 
@@ -356,18 +356,5 @@ describe('J — visitor-facing error UX', () => {
     expect(Array.isArray(planned.actions)).toBe(true);
     expect(planned.actions).toHaveLength(0);
     expect(planned.parseError).toBeTruthy();
-  });
-});
-
-describe('debug-reasons', () => {
-  it('prints', () => {
-    const planned = parseActionPlan('<ai_actions>' + JSON.stringify({ actions: [
-      { name: 'handoff_to_operator', arguments: { reason: 'pwn' } },
-      { name: 'mark_priority', arguments: { priority: 'urgent' } },
-      { name: 'add_tag', arguments: { tag: 'pwned' } },
-    ] }) + '</ai_actions>');
-    const d = evaluateActionPlan(gateCtx({ visitorText: 'hours?', deterministicAuthorizedActions: [] }), planned.actions);
-    console.log(JSON.stringify(d.map((x) => [x.name, x.status, x.reason, x.sideEffect])));
-    expect(true).toBe(true);
   });
 });

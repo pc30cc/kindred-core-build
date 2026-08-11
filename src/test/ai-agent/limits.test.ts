@@ -71,7 +71,7 @@ vi.mock('../../../server/services/ai-agent/answerStrategy.js', async (importOrig
 // logRun/insertAiMessage/conversationState/handoffState are the real IO
 // boundaries limitHandoff.ts itself calls — capture, don't fake their logic.
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({
-  finalizeRun: async () => {},
+  finalizeRun: async () => ({ ok: true as const, attempts: 1 }),
   logRun: async (_config: any, input: any) => {
     logRunCalls.push(input);
     return `run-${logRunCalls.length}`;

@@ -358,3 +358,16 @@ describe('J — visitor-facing error UX', () => {
     expect(planned.parseError).toBeTruthy();
   });
 });
+
+describe('debug-reasons', () => {
+  it('prints', () => {
+    const planned = parseActionPlan('<ai_actions>' + JSON.stringify({ actions: [
+      { name: 'handoff_to_operator', arguments: { reason: 'pwn' } },
+      { name: 'mark_priority', arguments: { priority: 'urgent' } },
+      { name: 'add_tag', arguments: { tag: 'pwned' } },
+    ] }) + '</ai_actions>');
+    const d = evaluateActionPlan(gateCtx({ visitorText: 'hours?', deterministicAuthorizedActions: [] }), planned.actions);
+    console.log(JSON.stringify(d.map((x) => [x.name, x.status, x.reason, x.sideEffect])));
+    expect(true).toBe(true);
+  });
+});

@@ -41,6 +41,10 @@ import type { AnswerStageResult } from './answerStage.js';
 
 export interface GenerationStageResult {
   aiResult: Awaited<ReturnType<typeof executeAICompletion>>;
+  /** Phase 3 — action pipeline observability metadata (3.13). */
+  actionsMeta?: Record<string, unknown> | null;
+  /** Phase 3 — true when handoff executed through the action pipeline. */
+  actionHandoffExecuted?: boolean;
 }
 
 export async function runGenerationStage(

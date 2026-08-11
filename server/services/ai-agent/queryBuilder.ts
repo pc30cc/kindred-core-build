@@ -52,22 +52,52 @@ export interface BuiltRetrievalQuery {
 const RECENT_LOOKBACK = 6;
 
 /**
- * Deterministic referential / continuation detector. True when the current
- * message cannot stand on its own for retrieval.
+ * Deterministic referential / continuation detector.
+ *
+ * A message is referential ONLY when it carries explicit evidence that it
+ * depends on the previous turn. Shortness alone is NOT evidence: a short but
+ * self-contained topic switch ("What is API access?") must keep its own topic.
  */
-const REFERENTIAL_PATTERNS: RegExp[] = [
-  /\b(that|this|it|those|these|them|there)\b/i,
-  /^\s*(and|also|what about|how about|but)\b/i,
-  /^\s*(peki|ya|onu|bunu|şu)\b/i,
-  /(اون|آن|این|همون|همان|چطور در مورد|و بعد)/,
+
+/** Anaphora — pronouns / demonstratives pointing at an earlier topic. */
+const PRONOUN_PATTERNS: RegExp[] = [
+  /\b(that|this|those|these|them|they|it|its|there)\b/i,
+  /\b(onu|bunu|şunu|onlar|bunlar|orada)\b/i,
+  /(اون|آن\b|این|همون|همان|آنها|اونها)/,
 ];
+
+/** Continuation prefixes — the message extends the previous question. */
+const CONTINUATION_PREFIXES: RegExp[] = [
+  /^\s*(and|also|but|plus|then|what about|how about|and what about|what if|ok(?:ay)?,? and)\b/i,
+  /^\s*(peki|ya|ayrıca|ve|peki ya)\b/i,
+  /^\s*(و |پس |خب |چطور در مورد|و بعد|پس از اون)/,
+];
+
+/** Ellipsis-like fragments: no subject/verb, just a constraint continuation. */
+const ELLIPSIS_PATTERNS: RegExp[] = [
+  // starts with a preposition: "after 30 days?", "for 10 agents?"
+  /^\s*(after|before|for|with|without|under|over|during|per|in case of)\b/i,
+  /^\s*(sonra|önce|için|ile)\b/i,
+  /^\s*(بعد از|قبل از|برای|با )/,
+];
+
+/** Bare numeric constraint continuation: "10 agents?", "30 days?", "۳۰ روز؟" */
+const NUMERIC_FRAGMENT = /^\s*[\d۰-۹٠-٩]+\s*[\p{L}]+[\s?؟.!]*$/u;
 
 export function isReferentialFollowUp(message: string): boolean {
   const m = (message || '').trim();
   if (!m) return false;
-  const words = m.split(/\s+/).filter(Boolean);
-  if (words.length <= 6) return true;
-  return REFERENTIAL_PATTERNS.some((p) => p.test(m));
+
+  if (PRONOUN_PATTERNS.some((p) => p.test(m))) return true;
+  if (CONTINUATION_PREFIXES.some((p) => p.test(m))) return true;
+  if (ELLIPSIS_PATTERNS.some((p) => p.test(m))) return true;
+  if (NUMERIC_FRAGMENT.test(m)) return true;
+
+  // Standalone interrogative "how about"-style forms in fa/tr that don't sit
+  // at the start of the sentence (e.g. "اون چطور؟" already matched above).
+  if (/^\s*(چطور|چی|نه\?)\s*[؟?]?\s*$/.test(m)) return true;
+
+  return false;
 }
 
 /**

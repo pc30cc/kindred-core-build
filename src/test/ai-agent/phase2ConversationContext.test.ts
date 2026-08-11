@@ -176,6 +176,38 @@ describe('2.3 — contextual retrieval query rewriting', () => {
   });
 });
 
+describe('2.3 — short self-contained topic switch', () => {
+  it('does not inherit the previous refund topic for "What is API access?"', async () => {
+    seed([
+      { id: 'm1', conversation_id: 'conv-a', sender_type: 'visitor', body: 'How do refunds work?' },
+      { id: 'm2', conversation_id: 'conv-a', sender_type: 'ai', body: 'Refund overview.' },
+      { id: 'm3', conversation_id: 'conv-a', sender_type: 'visitor', body: 'What is API access?' },
+    ]);
+    const built = await buildRetrievalQuery({
+      config: CONFIG, workspaceId: 'ws-1', conversationId: 'conv-a',
+      currentMessage: 'What is API access?',
+    });
+    expect(built.rewriteReason).toBe('none');
+    expect(built.followUpDetected).toBe(false);
+    expect(built.retrievalQuery.toLowerCase()).not.toContain('refunds work');
+  });
+
+  it('still folds context into "What about 10 agents?" after a pricing turn', async () => {
+    seed([
+      { id: 'm1', conversation_id: 'conv-a', sender_type: 'visitor', body: 'How much is the Pro plan?' },
+      { id: 'm2', conversation_id: 'conv-a', sender_type: 'ai', body: 'Pricing overview.' },
+      { id: 'm3', conversation_id: 'conv-a', sender_type: 'visitor', body: 'What about 10 agents?' },
+    ]);
+    const built = await buildRetrievalQuery({
+      config: CONFIG, workspaceId: 'ws-1', conversationId: 'conv-a',
+      currentMessage: 'What about 10 agents?',
+    });
+    expect(built.rewriteReason).toBe('referential_followup');
+    expect(built.followUpDetected).toBe(true);
+    expect(built.retrievalQuery.toLowerCase()).toContain('pro plan');
+  });
+});
+
 describe('2.2 — clarification follow-up continuity', () => {
   it('combines original intent and clarification answer for retrieval', async () => {
     seed([

@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { diversifySources } from '../../../server/services/ai-agent/sourceDiversity.js';
 import { detectSourceConflicts } from '../../../server/services/ai-agent/conflictDetection.js';
+import { isReferentialFollowUp } from '../../../server/services/ai-agent/queryBuilder.js';
 import { decideStrategy, computeConfidence } from '../../../server/services/ai-agent/answerStrategy.js';
 import { buildSystemPrompt, buildUserPrompt } from '../../../server/services/ai-agent/prompt.js';
 
@@ -83,6 +84,46 @@ describe('2.7 — conflicting source detection', () => {
     ], 'refund policy');
     expect(res.conflictDetected).toBe(true);
     expect(res.conflicts.some((c) => c.field === 'policy_days')).toBe(true);
+  });
+
+  it('does not flag prices for different plans', () => {
+    expect(detectSourceConflicts([
+      { id: 's1', content: 'The Starter plan costs $19 per month.' },
+      { id: 's2', content: 'The Pro plan costs $49 per month.' },
+    ], 'pricing').conflictDetected).toBe(false);
+  });
+
+  it('does not flag a refund window against a trial window', () => {
+    expect(detectSourceConflicts([
+      { id: 's1', content: 'Refunds are allowed within 14 days of purchase.' },
+      { id: 's2', content: 'The free trial lasts 30 days.' },
+    ], 'refund policy').conflictDetected).toBe(false);
+  });
+
+  it('scopes a detected price conflict to the plan entity', () => {
+    const res = detectSourceConflicts([
+      { id: 's1', content: 'Pro plan pricing: $49 per month.' },
+      { id: 's2', content: 'Pro plan pricing: $59 per month.' },
+    ], 'pro plan price');
+    expect(res.conflictDetected).toBe(true);
+    expect(res.conflicts[0].entity).toBe('pro');
+  });
+});
+
+describe('2.3 — referential follow-up detection is evidence-based', () => {
+  it('treats short but self-contained questions as new topics', () => {
+    expect(isReferentialFollowUp('What is API access?')).toBe(false);
+    expect(isReferentialFollowUp('How do refunds work?')).toBe(false);
+    expect(isReferentialFollowUp('Pricing plans?')).toBe(false);
+  });
+
+  it('detects genuine contextual follow-ups', () => {
+    expect(isReferentialFollowUp('Does that include API access?')).toBe(true);
+    expect(isReferentialFollowUp('What about 10 agents?')).toBe(true);
+    expect(isReferentialFollowUp('And after 30 days?')).toBe(true);
+    expect(isReferentialFollowUp('اون چطور؟')).toBe(true);
+    expect(isReferentialFollowUp('Peki ya kurumsal?')).toBe(true);
+    expect(isReferentialFollowUp('30 days?')).toBe(true);
   });
 });
 

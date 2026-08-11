@@ -25,6 +25,11 @@ import { markHandoffRequested } from '../conversationState.js';
 import { runLimitHandoff, detectLimitErrorReason } from '../limitHandoff.js';
 import { loadWorkspaceContext } from '../workspaceContext.js';
 import { redactSecrets } from '../../../lib/redactSecrets.js';
+import {
+  ACTION_CATALOG, getActionDefinition, parseActionPlan, runActionPipeline,
+  createRealActionRunner, createConversationIdempotencyStore, readExecutedActionKeys,
+  wantsBusinessHours, renderToolResults, type GateContext,
+} from '../actions/index.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -53,7 +58,7 @@ export async function runGenerationStage(
   const { settings, runtimeCfg, decisionTimeline, pageContext } = pre;
   const {
     sb, locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
-    guidanceMeta, availability,
+    guidanceMeta, availability, state,
   } = ctxStage;
   const { decision } = decisionStage;
   const { sources, queryMeta, built } = retrieval;
@@ -138,6 +143,24 @@ export async function runGenerationStage(
 
   // Workspace navigation context — best-effort.
   const wsContext = await loadWorkspaceContext(config, workspaceId).catch(() => null);
+  // ─── Phase 3 — enabled internal actions (canonical catalog ∩ workspace) ──
+  const enabledActionNames = (runtimeCfg?.internalTools || [])
+    .filter((t: any) => t && t.enabled !== false && t.tool_type === 'internal')
+    .map((t: any) => String(t.name))
+    .filter((n: string) => {
+      const def = getActionDefinition(n);
+      return !!def && def.executable;
+    });
+  // ─── Phase 3.7 — read-only tool result fed back into generation ─────────
+  let toolResultsBlock: string | null = null;
+  const readOnlyToolResults: Record<string, unknown>[] = [];
+  if (enabledActionNames.includes('get_business_hours') && wantsBusinessHours(question)) {
+    toolResultsBlock = renderToolResults([{
+      name: 'get_business_hours',
+      data: { operators_online: availability.state === 'online', availability_reason: availability.reason },
+    }]);
+    readOnlyToolResults.push({ name: 'get_business_hours', ok: true });
+  }
   const systemPrompt = buildSystemPrompt(settings, locale, {
     responseLanguage: locale,
     inputLanguage,
@@ -150,6 +173,7 @@ export async function runGenerationStage(
     extendedInstructions: runtimeCfg?.instructions,
     guidanceRules: runtimeCfg?.guidanceRules,
     topicSlug: topTopicSlug,
+    enabledActions: enabledActionNames,
   });
   const userPrompt = buildUserPrompt(question, sources, strategy, {
     pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
@@ -158,6 +182,7 @@ export async function runGenerationStage(
     conversationContext: built?.conversationContext || null,
     // Phase 2.7 — warn the model when sources materially disagree.
     conflictDetected: strategy.conflictDetected,
+    toolResults: toolResultsBlock,
   });
 
   let aiResult;

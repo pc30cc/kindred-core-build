@@ -21,6 +21,8 @@ import {
   MessageSquare, Users, BookOpen, Eye, Inbox, Bot, ArrowUpRight, ArrowRight,
   Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio,
 } from 'lucide-react';
+import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
+import { cn } from '@/lib/utils';
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();

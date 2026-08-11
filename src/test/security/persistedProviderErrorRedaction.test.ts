@@ -121,7 +121,7 @@ vi.mock('../../../server/supabase.js', () => ({
         order: () => chain,
         limit: async () => ({ data: [{ id: 'm1', sender_type: 'visitor', body: 'how do refunds work?', created_at: '2026-01-01' }], error: null }),
         maybeSingle: async () => {
-          if (table === 'conversations') return { data: { id: 'c1', workspace_id: 'ws' }, error: null };
+          if (table === 'conversations') return { data: { id: '22222222-2222-4222-8222-222222222222', workspace_id: '11111111-1111-4111-8111-111111111111' }, error: null };
           return { data: { id: 'assist_1' }, error: null };
         },
         insert: (row: any) => { assistInserts.push({ table, row }); return chain; },
@@ -162,7 +162,7 @@ async function callAssist() {
   return request(assistApp())
     .post('/api/ai-agent/operator/suggest-reply')
     .set('authorization', 'Bearer t')
-    .send({ workspaceId: 'ws', conversationId: 'c1', callLLM: true });
+    .send({ workspaceId: '11111111-1111-4111-8111-111111111111', conversationId: '22222222-2222-4222-8222-222222222222', callLLM: true });
 }
 
 describe('operator-assist run persistence', () => {

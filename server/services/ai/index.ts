@@ -291,6 +291,21 @@ export interface JsonResponse {
   data: unknown;
 }
 
+/**
+ * Reads the JSON body while the request deadline is still armed. An abort
+ * (total-budget/per-attempt timeout) must surface as a failure — never as a
+ * silently "successful" empty payload. Malformed bodies on ERROR responses
+ * degrade to the status text, matching the previous provider behaviour.
+ */
+async function readJsonUnderDeadline(res: Response, signal: AbortSignal): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch (err: any) {
+    if (res.ok || signal.aborted || err?.name === 'AbortError') throw err;
+    return { error: { message: res.statusText } };
+  }
+}
+
 export async function requestJsonWithRetry(
   url: string,
   init: RequestInit,
@@ -315,13 +330,13 @@ export async function requestJsonWithRetry(
       // back to the caller.
       if (res.ok || !isRetryableStatus(res.status) || attempt === maxAttempts) {
         // Body consumption stays inside the still-armed deadline.
-        const data: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        const data: unknown = await readJsonUnderDeadline(res, ctrl.signal);
         return { ok: res.ok, status: res.status, statusText: res.statusText, data };
       }
       const retryAfter = res.status === 429 ? parseRetryAfterMs(res.headers.get('retry-after')) : null;
       const backoff = retryAfter ?? 750 * Math.pow(2, attempt - 1);
       if (deadline - Date.now() - backoff <= 0) {
-        const data: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        const data: unknown = await readJsonUnderDeadline(res, ctrl.signal);
         return { ok: res.ok, status: res.status, statusText: res.statusText, data };
       }
       try { await res.body?.cancel(); } catch { /* ignore */ }

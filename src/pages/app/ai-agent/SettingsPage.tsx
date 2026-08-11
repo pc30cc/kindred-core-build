@@ -110,19 +110,8 @@ export default function AiAgentSettingsPage() {
     });
   };
 
-  const toggleEnabled = async (v: boolean) => {
-    setEnabling(true);
-    try {
-      await update.mutateAsync({ enabled: v });
-      set({ enabled: v });
-      toast.success(v ? 'دستیار هوشمند فعال شد' : 'دستیار هوشمند غیرفعال شد');
-    } catch (e: any) {
-      toast.error(ENABLE_ERROR_MESSAGES[e?.code] || e?.message || 'ذخیره‌سازی ناموفق بود');
-    } finally {
-      setEnabling(false);
-    }
-  };
-
+  // Enable/disable is owned by the Activation page — Settings only shows
+  // the resulting status so the owner never has two conflicting switches.
   const toggleIntro = async (v: boolean) => {
     try {
       await update.mutateAsync({ ai_intro_enabled: v });

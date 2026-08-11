@@ -314,7 +314,7 @@ describe('E9 — prompt injection inside retrieved source text', () => {
     // Even if identical text were emitted by the model, the gate below is
     // what decides. Here we assert the gate rejects it without visitor intent.
     const decisions = evaluateActionPlan(
-      gateCtx({ visitorText: 'What are your opening hours?' }),
+      gateCtx({ visitorText: 'What are your opening hours?', deterministicAuthorizedActions: [] }),
       planned.actions,
     );
     const sideEffects = decisions.filter((d) => d.sideEffect);

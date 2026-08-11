@@ -8287,6 +8287,23 @@ export type Database = {
         Args: { _token: string; _user_id: string }
         Returns: Json
       }
+      account_list_auth_sessions: {
+        Args: { _user_id: string }
+        Returns: {
+          created_at: string
+          id: string
+          ip: string
+          not_after: string
+          refreshed_at: string
+          updated_at: string
+          user_agent: string
+          user_id: string
+        }[]
+      }
+      account_revoke_auth_sessions: {
+        Args: { _all_except?: string; _session_id?: string; _user_id: string }
+        Returns: number
+      }
       activate_auto_actions: { Args: never; Returns: Json }
       admin_count_profiles:
         | { Args: never; Returns: number }

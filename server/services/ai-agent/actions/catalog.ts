@@ -55,6 +55,12 @@ export interface ActionDefinition {
   idempotent: boolean;
   /** Requires deterministic evidence of visitor intent in the visitor text. */
   requiresVisitorIntent: boolean;
+  /**
+   * Model-planned side effects that need an explicit deterministic runtime /
+   * workspace-configuration authorization (never model output, never text
+   * coming from retrieved sources).
+   */
+  requiresDeterministicAuthorization?: boolean;
   /** Human takeover blocks it entirely. */
   blockedByHumanTakeover: boolean;
   /** May execute automatically in suggest-only mode. */
@@ -121,16 +127,17 @@ export const ACTION_CATALOG: Record<ActionName, ActionDefinition> = {
     executable: true,
     idempotent: true,
     requiresVisitorIntent: false,
+    requiresDeterministicAuthorization: true,
     blockedByHumanTakeover: true,
     allowedInSuggestOnly: false,
   },
   add_internal_note: {
     name: 'add_internal_note',
-    description: 'Add an operator-only note to the conversation.',
+    description: 'Add an operator-only note to the conversation (planned only — conversation_notes.author_id is NOT NULL and no AI/system author identity exists).',
     schema: z.object({ body: z.string().min(1).max(2000) }).strict(),
     readOnly: false,
     sideEffect: true,
-    executable: true,
+    executable: false,
     idempotent: true,
     requiresVisitorIntent: false,
     blockedByHumanTakeover: true,

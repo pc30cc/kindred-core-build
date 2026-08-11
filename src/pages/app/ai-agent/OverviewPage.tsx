@@ -7,7 +7,6 @@ import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';

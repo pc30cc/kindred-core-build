@@ -9,6 +9,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { redactSecrets } from '../../lib/redactSecrets.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
 import { retrieveHybridSources } from '../../services/ai-agent/retrievalHybrid.js';
 import {

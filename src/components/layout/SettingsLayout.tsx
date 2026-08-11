@@ -108,6 +108,12 @@ export function SettingsLayout() {
 
   const isActive = (path: string) => location.pathname === path;
 
+  // Active group/item drives the colorful hero band above the page content.
+  const activeGroup = settingsGroups.find(g => g.items.some(i => isActive(i.path)));
+  const activeItem = activeGroup?.items.find(i => isActive(i.path));
+  const heroAccent = AI_ACCENT[activeGroup?.accent ?? 'indigo'];
+  const HeroIcon = activeGroup?.icon ?? Settings;
+
   return (
     <div className="flex h-full min-h-0">
       {/* Settings secondary sidebar */}
@@ -187,7 +193,31 @@ export function SettingsLayout() {
 
       {/* Settings content area */}
       <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-6 py-5">
+        <div className="max-w-4xl mx-auto px-6 py-5 space-y-5">
+          {activeItem && (
+            <div className={cn(
+              'relative overflow-hidden rounded-2xl border border-border/60 p-5 bg-gradient-to-br to-transparent',
+              heroAccent.soft,
+            )}>
+              <div className={cn('pointer-events-none absolute -top-16 -end-12 h-44 w-44 rounded-full blur-3xl', heroAccent.glow)} />
+              <div className="relative flex items-center gap-3.5">
+                <div className={cn(
+                  'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg',
+                  heroAccent.grad,
+                )}>
+                  <HeroIcon className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-xl font-bold tracking-tight leading-tight truncate">
+                    {t(`settingsNav.items.${activeItem.labelKey}` as Parameters<typeof t>[0])}
+                  </h1>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {t(`settingsNav.groups.${activeGroup!.key}` as Parameters<typeof t>[0])}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           <Outlet />
         </div>
       </div>

@@ -36,6 +36,30 @@ import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
+
+/** Colorful icon chip shared by every sidebar entry. */
+function NavChip({
+  icon: Icon,
+  accent,
+  active,
+  collapsed,
+}: { icon: React.ElementType; accent: AiAccent; active: boolean; collapsed: boolean }) {
+  const a = AI_ACCENT[accent];
+  return (
+    <span
+      className={cn(
+        'flex shrink-0 items-center justify-center rounded-lg transition-all duration-200',
+        collapsed ? 'h-9 w-9' : 'h-7 w-7',
+        active
+          ? cn('bg-gradient-to-br text-white shadow-md', a.grad)
+          : cn('ring-1 group-hover:scale-105', a.chip),
+      )}
+    >
+      <Icon className={collapsed ? 'h-[18px] w-[18px]' : 'h-4 w-4'} />
+    </span>
+  );
+}
 
 function NavTip({ label, enabled, children }: { label: string; enabled: boolean; children: React.ReactElement }) {
   if (!enabled) return children;

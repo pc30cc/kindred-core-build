@@ -66,6 +66,26 @@ export async function getRobotsRules(
 }
 
 function parseRobots(body: string, userAgent: string): { allow: string[]; disallow: string[] } {
+  return parseRobotsInternal(body, userAgent);
+}
+
+/**
+ * Same-origin, plus the safe HTTP→HTTPS upgrade only.
+ * Exported for regression tests.
+ */
+export function isRobotsRedirectAllowed(candidate: string, root: URL, origin: string): boolean {
+  let c: URL;
+  try { c = new URL(candidate); } catch { return false; }
+  if (c.origin === origin) return true;
+  // Protocol upgrade only: http → https, identical hostname, default ports.
+  if (root.protocol !== 'http:' || c.protocol !== 'https:') return false;
+  if (c.hostname.toLowerCase() !== root.hostname.toLowerCase()) return false;
+  const rootPortDefault = root.port === '' || root.port === '80';
+  const candPortDefault = c.port === '' || c.port === '443';
+  return rootPortDefault && candPortDefault;
+}
+
+function parseRobotsInternal(body: string, userAgent: string): { allow: string[]; disallow: string[] } {
   if (!body) return { allow: [], disallow: [] };
   const ua = userAgent.toLowerCase();
   const lines = body.split(/\r?\n/);

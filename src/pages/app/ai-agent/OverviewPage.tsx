@@ -122,24 +122,8 @@ export default function OverviewPage() {
     staleTime: 15_000,
   });
 
-  const updateSettings = useUpdateAiAgentSettings(wsId);
-  const [enabling, setEnabling] = useState(false);
-  const toggleEnabled = async (v: boolean) => {
-    setEnabling(true);
-    try {
-      await updateSettings.mutateAsync({ enabled: v });
-      toast({ title: v ? 'دستیار هوشمند فعال شد' : 'دستیار هوشمند غیرفعال شد' });
-      overview.refetch();
-    } catch (e: any) {
-      toast({
-        title: ENABLE_ERROR_MESSAGES[e?.code] || e?.message || 'ذخیره‌سازی ناموفق بود',
-        variant: 'destructive',
-      });
-    } finally {
-      setEnabling(false);
-    }
-  };
-
+  // Enabling/disabling the agent lives ONLY on the Activation page so the
+  // owner has a single, unambiguous place to control the agent.
   const rebuild = useMutation({
     mutationFn: () => aiAgentApi.rebuildKnowledgeIndex(wsId!),
     onSuccess: () => { toast({ title: tr('toast.rebuilt', 'Knowledge index rebuilt') }); qc.invalidateQueries({ queryKey: ['ai-overview', wsId] }); },

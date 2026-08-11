@@ -512,13 +512,9 @@ accountRouter.get('/security/sessions', async (req, res) => {
     const user = (req as any).authUser;
     const sb = getServiceClient(config);
 
-    const { data, error } = await sb
-      .schema('auth' as any)
-      .from('sessions' as any)
-      .select('id, user_id, created_at, updated_at, refreshed_at, not_after, user_agent, ip')
-      .eq('user_id', user.id)
-      .order('updated_at', { ascending: false })
-      .limit(50);
+    const { data, error } = await sb.rpc('account_list_auth_sessions' as any, {
+      _user_id: user.id,
+    });
 
     if (error) {
       console.error('[account/security] list sessions error:', error.message);
@@ -599,14 +595,11 @@ accountRouter.delete('/security/sessions/:id', async (req, res) => {
       }
     } catch { /* ignore */ }
 
-    const table = sb.schema('auth' as any).from('sessions' as any);
-    let query = table.delete().eq('user_id', user.id);
-    if (all) {
-      if (currentSessionId) query = query.neq('id', currentSessionId);
-    } else {
-      query = query.eq('id', sessionId);
-    }
-    const { error } = await query;
+    const { error } = await sb.rpc('account_revoke_auth_sessions' as any, {
+      _user_id: user.id,
+      _session_id: all ? null : sessionId,
+      _all_except: all ? currentSessionId : null,
+    });
     if (error) {
       console.error('[account/security] revoke session error:', error.message);
       return res.status(500).json({ error: 'Failed to revoke session' });

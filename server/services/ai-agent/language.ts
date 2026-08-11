@@ -90,7 +90,13 @@ export function detectInputLanguageDetailed(text: string): {
   //     that the text is Persian-or-Arabic rather than Latin/other, but
   //     weighted low so it can't drown out the two script-specific buckets.
   const persianOnly = /[\u067E\u0686\u0698\u06A9\u06AF\u06CC]/;
-  const arabicOnly = /[\u0643\u064A\u0629\u064B-\u0652]/;
+  // Base Arabic-only letters and the Arabic diacritic range are kept in
+  // separate classes (joined by alternation) rather than one combined
+  // class: eslint's no-misleading-character-class rule flags a class that
+  // mixes standalone letters with combining marks, since combining marks
+  // can visually merge with an adjacent character. Splitting into two
+  // classes matches the exact same set of single characters.
+  const arabicOnly = /(?:[\u0643\u064A\u0629]|[\u064B-\u0652])/;
   const arabicRange = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
   const turkishOnly = /[ğĞşŞıİçÇöÖüÜ]/;
   const asciiLetter = /[A-Za-z]/;

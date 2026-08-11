@@ -482,14 +482,14 @@ export function AppSidebar() {
             to={wsPath(item.path)}
             title={collapsed ? undefined : t(`nav.${item.key}` as any)}
             className={cn(
-              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                 : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
               collapsed && 'justify-center px-0'
             )}
           >
-            <item.icon className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+            <NavChip icon={item.icon} accent={item.accent} active={isActive(item.path)} collapsed={collapsed} />
             {!collapsed && <span className="flex-1">{t(`nav.${item.key}` as any)}</span>}
             {item.locked && !collapsed && (
               <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
@@ -511,14 +511,14 @@ export function AppSidebar() {
               document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
             } : undefined}
             className={cn(
-              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                 : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
               collapsed && 'justify-center px-0'
             )}
           >
-            <item.icon className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+            <NavChip icon={item.icon} accent={item.accent} active={isActive(item.path)} collapsed={collapsed} />
             {!collapsed && <span>{t(`nav.${item.key}` as any)}</span>}
           </Link>
           </NavTip>
@@ -530,11 +530,11 @@ export function AppSidebar() {
             to="/admin"
             title={collapsed ? undefined : 'Super Admin'}
             className={cn(
-              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
+              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
               collapsed && 'justify-center px-0'
             )}
           >
-            <Shield className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+            <NavChip icon={Shield} accent="rose" active={false} collapsed={collapsed} />
             {!collapsed && <span>Super Admin</span>}
           </Link>
           </NavTip>

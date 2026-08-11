@@ -18,6 +18,7 @@ import {
   Activity as ActivityIcon, Bot, Zap, Languages, UserCog, ListChecks,
 } from 'lucide-react';
 import TestAiPanel from './TestAiPanel';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 const SEVERITY_STYLES: Record<string, string> = {
   info: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',

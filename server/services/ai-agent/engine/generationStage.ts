@@ -25,6 +25,11 @@ import { markHandoffRequested } from '../conversationState.js';
 import { runLimitHandoff, detectLimitErrorReason } from '../limitHandoff.js';
 import { loadWorkspaceContext } from '../workspaceContext.js';
 import { redactSecrets } from '../../../lib/redactSecrets.js';
+import {
+  ACTION_CATALOG, getActionDefinition, parseActionPlan, runActionPipeline,
+  createRealActionRunner, createConversationIdempotencyStore, readExecutedActionKeys,
+  wantsBusinessHours, renderToolResults, type GateContext,
+} from '../actions/index.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -53,7 +58,7 @@ export async function runGenerationStage(
   const { settings, runtimeCfg, decisionTimeline, pageContext } = pre;
   const {
     sb, locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
-    guidanceMeta, availability,
+    guidanceMeta, availability, state,
   } = ctxStage;
   const { decision } = decisionStage;
   const { sources, queryMeta, built } = retrieval;

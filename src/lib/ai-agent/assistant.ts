@@ -100,6 +100,7 @@ export interface AgentSettings {
     max_answer_length?: 'short' | 'medium' | 'long';
     // Pass A
     brand_voice?: string;
+    /** @deprecated legacy persisted key; canonical field is AgentSettings.business_description. */
     business_description?: string;
     do_list?: string[];
     dont_list?: string[];

@@ -302,25 +302,31 @@ export default function OverviewPage() {
         </div>
 
         {/* Plan & usage */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.planUsage')}</h2>
-            <Link to={wsPath('/billing')} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+          <div className="pointer-events-none absolute -top-16 -end-10 h-40 w-40 rounded-full bg-emerald-500/15 blur-3xl" />
+          <div className="relative mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/25">
+                <CreditCard className="h-4 w-4" />
+              </span>
+              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.planUsage')}</h2>
+            </div>
+            <Link to={wsPath('/billing')} className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-300">
               <CreditCard className="h-3.5 w-3.5" />
               {tr('dashboard.manageBilling')}
             </Link>
           </div>
 
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+          <div className="relative rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 p-3.5">
             <p className="text-[11px] text-muted-foreground">{tr('dashboard.currentPlan')}</p>
             <p className="text-lg font-bold text-foreground">{planName}</p>
           </div>
 
-          <div className="mt-4 space-y-4">
+          <div className="relative mt-4 space-y-4">
             {[
-              { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit },
-              { label: tr('dashboard.statTeamOnline'), used: seatUsed, limit: seatLimit },
-              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: Number(limits.max_kb_articles ?? 0) },
+              { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' },
+              { label: tr('dashboard.statTeamOnline'), used: seatUsed, limit: seatLimit, grad: 'from-rose-500 to-pink-500' },
+              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: Number(limits.max_kb_articles ?? 0), grad: 'from-cyan-500 to-sky-500' },
             ].map((row) => {
               const unlimited = !row.limit || row.limit <= 0;
               const pct = unlimited ? 0 : Math.min(100, Math.round((row.used / row.limit) * 100));
@@ -332,7 +338,12 @@ export default function OverviewPage() {
                       {fmt(row.used)}{unlimited ? ' / ∞' : ` / ${fmt(row.limit)}`}
                     </span>
                   </div>
-                  <Progress value={unlimited ? 4 : pct} className="h-1.5" />
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn('h-full rounded-full bg-gradient-to-r transition-all duration-500', row.grad)}
+                      style={{ width: `${unlimited ? 6 : Math.max(pct, 3)}%` }}
+                    />
+                  </div>
                 </div>
               );
             })}

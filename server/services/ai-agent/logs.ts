@@ -39,7 +39,7 @@ export async function logRun(config: ServerConfig, input: LogRunInput): Promise<
       input_text: input.inputText ?? null,
       output_text: input.outputText ?? null,
       skip_reason: input.skipReason ?? null,
-      error_message: input.errorMessage ?? null,
+      error_message: redactErrorMessage(input.errorMessage),
       provider: input.provider ?? null,
       model: input.model ?? null,
       prompt_tokens: input.promptTokens ?? null,
@@ -56,6 +56,44 @@ export async function logRun(config: ServerConfig, input: LogRunInput): Promise<
     return null;
   }
   return data?.id || null;
+}
+
+/**
+ * Strips credential-looking material out of provider error strings before they
+ * are persisted (run logs are visible to workspace operators).
+ */
+export function redactErrorMessage(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return String(raw)
+    .replace(/(sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, '[redacted]')
+    .replace(/\b(api[_-]?key|authorization|bearer|token|x-api-key)\b\s*[:=]?\s*[^\s,;]+/gi, '$1 [redacted]')
+    .replace(/([?&](?:key|access_token|api_key)=)[^&\s]+/gi, '$1[redacted]')
+    .slice(0, 1000);
+}
+
+/**
+ * Promotes a provisional run row to its final state. Used by the delivery
+ * stage so a run is only ever marked `replied`/`suggested` (and billed) AFTER
+ * the visitor-facing message actually persisted.
+ */
+export async function finalizeRun(
+  config: ServerConfig,
+  runId: string | null,
+  patch: {
+    status: LogRunInput['status'];
+    creditsUsed?: number;
+    errorMessage?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (!runId) return;
+  const sb = getServiceClient(config);
+  const update: Record<string, unknown> = { status: patch.status };
+  if (typeof patch.creditsUsed === 'number') update.credits_used = patch.creditsUsed;
+  if (patch.errorMessage !== undefined) update.error_message = redactErrorMessage(patch.errorMessage);
+  if (patch.metadata) update.metadata = patch.metadata;
+  const { error } = await sb.from('ai_agent_runs').update(update).eq('id', runId);
+  if (error) console.warn('[ai-agent] finalizeRun failed:', error.message);
 }
 
 export async function listRuns(

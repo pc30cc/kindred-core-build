@@ -23,15 +23,25 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length >= 3);
 }
 
+/**
+ * Coverage score in [0,1]: the share of DISTINCT query terms present in the
+ * text. Counting every occurrence (the previous behaviour) let a document
+ * inflate its score — and even exceed 1.0 — by repeating one keyword, which
+ * pushed keyword-stuffed pages above genuinely relevant ones and corrupted the
+ * confidence value derived from the top score.
+ */
 function scoreText(query: string, text: string): number {
   if (!text) return 0;
   const qTokens = new Set(tokenize(query));
   if (qTokens.size === 0) return 0;
-  const tTokens = tokenize(text);
-  let hits = 0;
-  for (const t of tTokens) if (qTokens.has(t)) hits++;
-  return hits / Math.max(qTokens.size, 1);
+  const tTokens = new Set(tokenize(text));
+  let matched = 0;
+  for (const t of qTokens) if (tTokens.has(t)) matched++;
+  return matched / qTokens.size;
 }
+
+/** Internal seams exposed for regression tests only. */
+export const __testables = { tokenize, scoreText };
 
 export async function retrieveSources(
   config: ServerConfig,

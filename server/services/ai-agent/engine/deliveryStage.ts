@@ -12,7 +12,7 @@
  * untouched.
  */
 import type { ServerConfig } from '../../../config.js';
-import { logRun } from '../logs.js';
+import { logRun, finalizeRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged } from '../handoffState.js';
 import { publishOperatorEvent } from '../../realtime/publish.js';
@@ -67,21 +67,24 @@ export async function runDeliveryStage(
   // ─── AUTO REPLY → insert visitor-facing message ────────────────────────
   if (decision.canAutoReply) {
     decisionTimeline.push('answer_strategy_selected');
-    decisionTimeline.push('reply_sent');
+    // The run row is created in a provisional `failed` state with zero credits.
+    // It is promoted to `replied` (and billed) ONLY after the visitor-facing
+    // message is confirmed persisted, so a failed insert can never leave a
+    // "replied" run behind with no message.
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
       visitorMessageId,
       runType: 'auto_reply',
       mode: settings.mode,
-      status: 'replied',
+      status: 'failed',
       inputText: question,
       outputText: aiResult.text,
       provider: aiResult.provider,
       model: aiResult.model,
       promptTokens: aiResult.promptTokens,
       completionTokens: aiResult.completionTokens,
-      creditsUsed: 1,
+      creditsUsed: 0,
       kbArticleIds: kbIds,
       confidence: strategy.confidence,
       metadata: {
@@ -110,7 +113,19 @@ export async function runDeliveryStage(
       handoff: false,
       agentName: display.agentName,
       agentLogoUrl: display.agentLogoUrl,
+      decisionType: strategy.decisionType,
     });
+    if (!inserted.id) {
+      await finalizeRun(config, runId, {
+        status: 'failed',
+        creditsUsed: 0,
+        errorMessage: inserted.error || 'ai_message_insert_failed',
+      });
+      console.warn('[ai-agent] auto reply persistence failed', { conversationId, runId });
+      return { ran: true, action: 'failed', reason: 'ai_message_insert_failed', runId };
+    }
+    decisionTimeline.push('reply_sent');
+    await finalizeRun(config, runId, { status: 'replied', creditsUsed: 1 });
     console.log('[ai-agent] auto reply sent', { conversationId, runId, messageId: inserted.id });
     // Keep conversation in the Automated inbox while AI is handling it.
     await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
@@ -119,21 +134,20 @@ export async function runDeliveryStage(
 
   // ─── SUGGEST → operator-facing card (Phase 2 behaviour) ────────────────
   decisionTimeline.push('answer_strategy_selected');
-  decisionTimeline.push('suggestion_sent');
   const runId = await logRun(config, {
     workspaceId,
     conversationId,
     visitorMessageId,
     runType: 'suggestion',
     mode: settings.mode,
-    status: 'suggested',
+    status: 'failed',
     inputText: question,
     outputText: aiResult.text,
     provider: aiResult.provider,
     model: aiResult.model,
     promptTokens: aiResult.promptTokens,
     completionTokens: aiResult.completionTokens,
-    creditsUsed: 1,
+    creditsUsed: 0,
     kbArticleIds: kbIds,
     confidence: strategy.confidence,
     metadata: {
@@ -163,8 +177,15 @@ export async function runDeliveryStage(
     .single();
   if (sErr) {
     console.warn('[ai-agent] suggestion insert failed:', sErr.message);
+    await finalizeRun(config, runId, {
+      status: 'failed',
+      creditsUsed: 0,
+      errorMessage: sErr.message,
+    });
     return { ran: true, action: 'failed', reason: 'suggestion_insert_failed', runId };
   }
+  decisionTimeline.push('suggestion_sent');
+  await finalizeRun(config, runId, { status: 'suggested', creditsUsed: 1 });
 
   try {
     await publishOperatorEvent(config, {

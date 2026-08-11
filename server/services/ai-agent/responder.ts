@@ -28,12 +28,14 @@ export interface InsertAiMessageInput {
   handoff?: boolean;
   agentName?: string | null;
   agentLogoUrl?: string | null;
+  /** Answer-strategy decision type — read back by the retrieval query builder. */
+  decisionType?: string | null;
 }
 
 export async function insertAiMessage(
   config: ServerConfig,
   input: InsertAiMessageInput,
-): Promise<{ id: string | null }> {
+): Promise<{ id: string | null; error?: string }> {
   const sb = getServiceClient(config);
   const metadata: Record<string, unknown> = {
     source: input.source,
@@ -47,6 +49,8 @@ export async function insertAiMessage(
     handoff: !!input.handoff,
     agent_name: input.agentName ?? null,
     agent_logo_url: input.agentLogoUrl ?? null,
+    decision_type: input.decisionType ?? null,
+    answer_strategy: { decision_type: input.decisionType ?? null },
   };
 
   const { data: row, error } = await sb
@@ -62,7 +66,7 @@ export async function insertAiMessage(
 
   if (error) {
     console.warn('[ai-agent] insertAiMessage failed:', error.message);
-    return { id: null };
+    return { id: null, error: error.message };
   }
 
   // Bump conversation updated_at so inbox ordering reflects the AI reply.

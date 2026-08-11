@@ -12,8 +12,14 @@ import { getServiceClient } from '../../supabase.js';
  */
 export type HttpFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
-const AI_HTTP_TIMEOUT_MS = parseInt(process.env.AI_HTTP_TIMEOUT_MS || '45000', 10);
+/** Per-attempt socket timeout. */
+const AI_HTTP_TIMEOUT_MS = parseInt(process.env.AI_HTTP_TIMEOUT_MS || '20000', 10);
 const AI_RETRY_ATTEMPTS = parseInt(process.env.AI_RETRY_ATTEMPTS || '3', 10);
+/**
+ * Hard wall-clock budget across ALL attempts. Without it, three 45s attempts
+ * plus backoff could hold a visitor's chat turn open for well over two minutes.
+ */
+const AI_TOTAL_BUDGET_MS = parseInt(process.env.AI_TOTAL_BUDGET_MS || '45000', 10);
 
 export interface AIConfig {
   provider: string;
@@ -230,9 +236,14 @@ async function fetchWithRetry(
 ): Promise<Response> {
   const doFetch: HttpFetch = fetchImpl ?? ((input, requestInit) => fetch(input, requestInit));
   let lastErr: any;
+  const deadline = Date.now() + AI_TOTAL_BUDGET_MS;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error(`AI request exceeded the ${AI_TOTAL_BUDGET_MS}ms total budget`);
+    }
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), Math.min(timeoutMs, remaining));
     try {
       return await doFetch(url, { ...init, signal: ctrl.signal });
     } catch (err: any) {
@@ -244,10 +255,11 @@ async function fetchWithRetry(
         err?.name === 'AbortError' ||
         err?.name === 'TypeError' ||
         /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|socket hang up/i.test(detail);
-      if (!transient || attempt === maxAttempts) {
+      const delay = 750 * Math.pow(2, attempt - 1); // 750ms, 1.5s
+      const budgetLeft = deadline - Date.now() - delay;
+      if (!transient || attempt === maxAttempts || budgetLeft <= 0) {
         throw new Error(`AI network error after ${attempt} attempt(s): ${detail || err?.name || 'unknown'}`);
       }
-      const delay = 750 * Math.pow(2, attempt - 1); // 750ms, 1.5s
       console.warn(`[ai] transient fetch failure, retrying in ${delay}ms`, {
         attempt,
         error: err?.message,
@@ -386,6 +398,22 @@ const providerBaseUrls: Record<string, string> = {
 };
 
 /**
+ * Providers with no public default endpoint. Without an explicit base URL the
+ * OpenAI-compatible caller silently fell back to api.openai.com and sent the
+ * provider's key there — fail fast instead.
+ */
+const providersRequiringBaseUrl = new Set(['azure_openai', 'ollama', 'cohere']);
+
+function assertProviderConfig(cfg: AIConfig): void {
+  if (!cfg.apiKey && cfg.provider !== 'ollama') {
+    throw new Error(`AI provider "${cfg.provider}" is missing an API key.`);
+  }
+  if (providersRequiringBaseUrl.has(cfg.provider) && !cfg.baseUrl) {
+    throw new Error(`AI provider "${cfg.provider}" requires an explicit base URL (endpoint).`);
+  }
+}
+
+/**
  * Resolve AI provider config from DB for a workspace.
  * Resolution: workspace provider_configs → global app_runtime_config → null
  */
@@ -476,6 +504,7 @@ export async function executeAICompletion(
   if (!handler) {
     throw new Error(`Unsupported AI provider: ${aiConfig.provider}`);
   }
+  assertProviderConfig(aiConfig);
 
   const sb = getServiceClient(serverConfig);
   let response: AIResponse;
@@ -534,6 +563,7 @@ export async function testAIConnection(
   }
 
   try {
+    assertProviderConfig(config);
     const result = await handler(
       config,
       {

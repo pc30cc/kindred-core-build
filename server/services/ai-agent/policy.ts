@@ -45,10 +45,38 @@ export function decide({ settings, question, sources }: DecisionInput): Decision
   return { action: 'answer', confidence, topScore };
 }
 
+/**
+ * Multilingual "the model gave up" detector. The English-only version let
+ * Persian and Turkish non-answers ("نمی‌دانم", "bilmiyorum") through as valid
+ * replies, so those conversations were never escalated.
+ */
+const UNSURE_PATTERNS: RegExp[] = [
+  // English
+  /^\s*i\s+(do not|don'?t|don´t)\s+know/i,
+  /\bi'?m\s+not\s+sure\b/i,
+  /\bi\s+am\s+not\s+sure\b/i,
+  /\bi\s+(do not|don'?t)\s+have\s+(that|this|enough)\s+information\b/i,
+  // Persian / Farsi
+  /نمی[\s\u200c]?دانم/,
+  /نمی[\s\u200c]?دونم/,
+  /مطمئن\s*نیستم/,
+  /اطلاعات\s*(کافی|کاملی)?\s*ندارم/,
+  /پاسخ\s*(این|آن)?\s*(سوال|پرسش)?\s*را\s*نمی[\s\u200c]?دانم/,
+  // Turkish
+  /\bbilmiyorum\b/i,
+  /\bemin\s+değilim\b/i,
+  /\bbu\s+konuda\s+bilgim\s+yok\b/i,
+  /\byeterli\s+bilgi(m|ye)?\s+(yok|sahip\s+değilim)\b/i,
+  // Arabic (shares script with Persian; common phrasing)
+  /لا\s*أعرف/,
+  /لست\s*متأكد/,
+];
+
 export function postValidateAnswer(answer: string): { ok: boolean; reason?: string } {
   if (!answer || answer.trim().length < 2) return { ok: false, reason: 'empty' };
-  const lower = answer.toLowerCase();
-  if (/^i (do not|don't|don´t) know/.test(lower)) return { ok: false, reason: 'model_unsure' };
-  if (/i'?m not sure/.test(lower)) return { ok: false, reason: 'model_unsure' };
+  const text = answer.trim();
+  for (const re of UNSURE_PATTERNS) {
+    if (re.test(text)) return { ok: false, reason: 'model_unsure' };
+  }
   return { ok: true };
 }

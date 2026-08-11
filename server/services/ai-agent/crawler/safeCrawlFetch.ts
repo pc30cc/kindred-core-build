@@ -1,0 +1,192 @@
+/**
+ * SSRF-hardened page fetch for the Data Hub website crawler.
+ *
+ * The previous implementation used `redirect: 'follow'`, so a same-domain page
+ * could redirect the crawler to `http://169.254.169.254/…` (cloud metadata) or
+ * any internal host, and the body was buffered with only a post-hoc size check.
+ * This module closes both holes:
+ *
+ *   - Redirects are handled MANUALLY, one hop at a time (max 3).
+ *   - Every hop (initial URL included) is re-validated: scheme, blocked
+ *     hostname, DNS answers (all resolved addresses must be public) and the
+ *     caller's same-domain policy.
+ *   - The body is read as a stream and aborted the moment it exceeds the byte
+ *     cap, so a hostile endpoint cannot exhaust memory.
+ */
+import { lookup as dnsLookup } from 'node:dns/promises';
+import type { LookupAddress } from 'node:dns';
+import { isBlockedHostname, isBlockedIpAddress, normalizeHostname } from '../../../lib/workspaceAuth.js';
+
+export type CrawlFetchFailure =
+  | 'invalid_url'
+  | 'unsupported_protocol'
+  | 'blocked_host'
+  | 'dns_failure'
+  | 'redirect_blocked'
+  | 'too_many_redirects'
+  | 'unsupported_content_type'
+  | 'page_too_large'
+  | 'timeout'
+  | 'fetch_error';
+
+export interface SafeCrawlFetchResult {
+  ok: boolean;
+  html?: string;
+  status?: number;
+  error?: CrawlFetchFailure | string;
+  finalUrl?: string;
+}
+
+export interface SafeCrawlFetchOptions {
+  userAgent: string;
+  timeoutMs: number;
+  maxBytes: number;
+  /** Same-domain (or otherwise policy) gate applied to EVERY hop. */
+  isUrlAllowed: (url: string) => boolean;
+  maxRedirects?: number;
+  /** Test seams. */
+  lookupImpl?: (hostname: string) => Promise<LookupAddress[]>;
+  fetchImpl?: typeof fetch;
+}
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const DEFAULT_MAX_REDIRECTS = 3;
+
+function allowLocal(): boolean {
+  return process.env.NODE_ENV === 'development' && process.env.AI_KB_ALLOW_LOCAL === '1';
+}
+
+/** Validates one hop: scheme, hostname, DNS answers, caller policy. */
+export async function assertHopAllowed(
+  rawUrl: string,
+  opts: Pick<SafeCrawlFetchOptions, 'isUrlAllowed' | 'lookupImpl'>,
+): Promise<CrawlFetchFailure | null> {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { return 'invalid_url'; }
+  const proto = u.protocol.toLowerCase();
+  if (proto !== 'http:' && proto !== 'https:') return 'unsupported_protocol';
+  if (u.username || u.password) return 'blocked_host';
+
+  const host = normalizeHostname(u.hostname);
+  if (!host) return 'blocked_host';
+  if (!opts.isUrlAllowed(u.toString())) return 'blocked_host';
+  if (allowLocal()) return null;
+  if (isBlockedHostname(host)) return 'blocked_host';
+
+  const isIpv6Literal = host.includes(':');
+  const isIpv4Literal = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+  if (isIpv4Literal || isIpv6Literal) {
+    return isBlockedIpAddress(host, isIpv6Literal ? 6 : 4) ? 'blocked_host' : null;
+  }
+
+  const lookupAll = opts.lookupImpl || ((h: string) => dnsLookup(h, { all: true }));
+  let answers: LookupAddress[];
+  try { answers = await lookupAll(host); } catch { return 'dns_failure'; }
+  if (!answers?.length) return 'dns_failure';
+  for (const a of answers) {
+    if (isBlockedIpAddress(a.address, a.family)) return 'blocked_host';
+  }
+  return null;
+}
+
+/** Reads a response body with a hard streaming byte cap. */
+async function readCapped(res: Response, maxBytes: number): Promise<string | null> {
+  const body = res.body as any;
+  if (!body || typeof body.getReader !== 'function') {
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) return null;
+    return new TextDecoder('utf-8', { fatal: false }).decode(buf);
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try { await reader.cancel(); } catch { /* ignore */ }
+      return null;
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { merged.set(c, offset); offset += c.byteLength; }
+  return new TextDecoder('utf-8', { fatal: false }).decode(merged);
+}
+
+export async function safeCrawlFetch(
+  startUrl: string,
+  opts: SafeCrawlFetchOptions,
+): Promise<SafeCrawlFetchResult> {
+  const doFetch = opts.fetchImpl || fetch;
+  const maxRedirects = opts.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+  const deadline = Date.now() + opts.timeoutMs;
+  let url = startUrl;
+
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const violation = await assertHopAllowed(url, opts);
+    if (violation) {
+      return { ok: false, error: hop === 0 ? violation : 'redirect_blocked', finalUrl: url };
+    }
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return { ok: false, error: 'timeout', finalUrl: url };
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), remaining);
+    let res: Response;
+    try {
+      res = await doFetch(url, {
+        signal: ctrl.signal,
+        redirect: 'manual',
+        headers: { 'user-agent': opts.userAgent, accept: 'text/html,application/xhtml+xml' },
+      });
+    } catch (err: any) {
+      clearTimeout(timer);
+      return {
+        ok: false,
+        finalUrl: url,
+        error: err?.name === 'AbortError' ? 'timeout' : (err?.message?.slice(0, 120) || 'fetch_error'),
+      };
+    }
+    clearTimeout(timer);
+
+    if (REDIRECT_STATUSES.has(res.status)) {
+      const location = res.headers.get('location');
+      if (!location) return { ok: false, status: res.status, error: 'redirect_blocked', finalUrl: url };
+      try { url = new URL(location, url).toString(); }
+      catch { return { ok: false, error: 'redirect_blocked', finalUrl: url }; }
+      continue;
+    }
+
+    if (!res.ok) return { ok: false, status: res.status, error: `http_${res.status}`, finalUrl: url };
+
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('text/html') && !ct.includes('application/xhtml')) {
+      return { ok: false, status: res.status, error: 'unsupported_content_type', finalUrl: url };
+    }
+    const declared = parseInt(res.headers.get('content-length') || '', 10);
+    if (Number.isFinite(declared) && declared > opts.maxBytes) {
+      return { ok: false, status: res.status, error: 'page_too_large', finalUrl: url };
+    }
+
+    let html: string | null;
+    try {
+      html = await readCapped(res, opts.maxBytes);
+    } catch (err: any) {
+      return {
+        ok: false,
+        status: res.status,
+        finalUrl: url,
+        error: err?.name === 'AbortError' ? 'timeout' : 'fetch_error',
+      };
+    }
+    if (html === null) return { ok: false, status: res.status, error: 'page_too_large', finalUrl: url };
+    return { ok: true, html, status: res.status, finalUrl: url };
+  }
+
+  return { ok: false, error: 'too_many_redirects', finalUrl: url };
+}

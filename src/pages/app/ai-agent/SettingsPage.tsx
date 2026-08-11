@@ -100,7 +100,7 @@ export default function AiAgentSettingsPage() {
   // knows to include it. Controls that save immediately (avatar, enabled
   // toggle, intro/handoff drafts, handoff keywords) keep using plain `set`
   // since they never go through the onSave PATCH.
-  const setDirtyField = (patch: Record<string, any>) => {
+  const setDirtyField = (patch: Record<string, unknown>) => {
     set(patch);
     setDirty((prev) => {
       const next = new Set(prev);

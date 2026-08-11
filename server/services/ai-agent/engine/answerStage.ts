@@ -239,7 +239,7 @@ export async function runAnswerStage(
       // unconditionally, independent of whether the final outcome becomes
       // answer, keep_ai-overridden-answer, or handoff.
       await applySafeRoutingSideEffects(config, workspaceId, conversationId, postRoutingResult).catch(() => {});
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[ai-agent.runtime.routing] post-strategy evaluation failed:', err?.message || err);
     }
   }
@@ -256,7 +256,7 @@ export async function runAnswerStage(
   // it must not become unreachable merely because an earlier, coarser PRE
   // keep_ai preference happened to also be true.
   if (postHardHandoff) {
-    (strategy as any).decisionType = 'handoff';
+    strategy.decisionType = 'handoff';
     decisionTimeline.push('post_routing_handoff_forced');
     // Follow-up 9E.3.1 — cross-phase observability: a POST hard handoff
     // also outranks an already-applicable PRE keep_ai. The PRE rule's

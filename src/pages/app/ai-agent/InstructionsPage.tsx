@@ -87,7 +87,7 @@ export default function InstructionsPage() {
       // preserved as-is. Only the keys the operator actually touched this
       // session are overlaid on top. The legacy business_description key, if
       // present, is carried over unchanged -- it is never written here.
-      const fresh = (data?.settings?.instructions || {}) as any;
+      const fresh = (data?.settings?.instructions || {}) as Record<string, unknown>;
       const instructions: Record<string, unknown> = { ...fresh };
       if (dirty.has('brand_voice')) instructions.brand_voice = form.brand_voice.trim() || undefined;
       if (dirty.has('tone')) instructions.tone = form.tone.trim() || undefined;

@@ -332,54 +332,6 @@ export default function ActivationPage() {
         </CardContent>
       </Card>
 
-      {/* Learning — placeholder, feature ships in Phase 2 */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">{t('aiAgent.activation.learningTitle')}</CardTitle>
-            <Badge variant="outline" className="text-[10px]">{t('aiAgent.activation.comingSoon')}</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            {t('aiAgent.activation.learningIntro')}
-          </p>
-          <div className="flex items-center justify-between opacity-70">
-            <div>
-              <Label>{t('aiAgent.activation.enableLearning')}</Label>
-              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.enableLearningHint')}</p>
-            </div>
-            <Switch
-              checked={settings.learning_enabled !== false}
-              onCheckedChange={(v) => patch({ learning_enabled: v })}
-              disabled={update.isPending}
-            />
-          </div>
-          <div className="flex items-center justify-between opacity-70">
-            <div>
-              <Label>{t('aiAgent.activation.autoCandidates')}</Label>
-              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.autoCandidatesHint')}</p>
-            </div>
-            <Switch
-              checked={settings.auto_create_learning_candidates !== false}
-              onCheckedChange={(v) => patch({ auto_create_learning_candidates: v })}
-              disabled={update.isPending}
-            />
-          </div>
-          <div className="flex items-center justify-between opacity-70">
-            <div>
-              <Label>{t('aiAgent.activation.requireApproval')}</Label>
-              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.requireApprovalHint')}</p>
-            </div>
-            <Switch
-              checked={settings.require_approval_for_learning !== false}
-              onCheckedChange={(v) => patch({ require_approval_for_learning: v })}
-              disabled={update.isPending}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Checklist */}
       <Card>
         <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.checklistTitle')}</CardTitle></CardHeader>
@@ -420,24 +372,6 @@ export default function ActivationPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.perHour')}</span><span>{limits.per_hour}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.fallbackShort')}</span><span>{limits.fallback_behavior === 'silent' ? t('aiAgent.activation.fallbackSilent') : t('aiAgent.activation.fallbackHandoff')}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.stopOnHandoffShort')}</span><span>{limits.stop_on_handoff ? t('aiAgent.activation.yes') : t('aiAgent.activation.no')}</span></div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Recent runs */}
-      {diag.recent_runs && diag.recent_runs.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.recentRuns')}</CardTitle></CardHeader>
-          <CardContent className="space-y-1.5 text-sm">
-            {diag.recent_runs.slice(0, 5).map((r) => (
-              <div key={r.id} className="flex items-center justify-between py-1 border-b last:border-0">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px]">{r.run_type || '?'}</Badge>
-                  <span className="text-xs text-muted-foreground">{r.mode || ''}</span>
-                </div>
-                <Badge variant={r.status === 'replied' || r.status === 'suggested' ? 'default' : 'secondary'} className="text-[10px]">{r.status || '?'}</Badge>
-              </div>
-            ))}
           </CardContent>
         </Card>
       )}

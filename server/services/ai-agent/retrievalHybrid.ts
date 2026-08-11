@@ -100,15 +100,33 @@ export interface HybridRetrievalResult {
   };
   /** E5 — counts of items dropped by defense-in-depth eligibility filters. */
   excludedSummary?: {
-    inactive_chunks_excluded: number;
     disabled_qna_excluded: number;
     draft_kb_excluded: number;
-    pending_candidates_excluded: number;
+    /** PHASE 2 FIX — a stale chunk whose parent row exists but belongs to a
+     *  different workspace (drift/defense-in-depth catch, not a normal
+     *  runtime path since the initial retrieval queries are already
+     *  workspace-scoped). Previously dropped silently with no counter. */
     cross_workspace_excluded: number;
     inactive_file_excluded: number;
     inactive_web_page_excluded: number;
-    /** E5-Final — chunks for learned_qna whose candidate isn't approved (or missing/cross-workspace). */
+    /** E5-Final — chunks for learned_qna whose candidate isn't approved. */
     unapproved_learned_qna_excluded: number;
+    /**
+     * @deprecated Response-shape compatibility field only. Inactive chunks
+     * are filtered by status='active' at SQL query time, before ever
+     * reaching this JS-level eligibility re-check, so this can never be
+     * incremented here — always 0. Do not read it for observability; a
+     * genuinely inactive/stale chunk that reached the candidate set would
+     * instead be reflected in one of the other *_excluded counters above.
+     */
+    inactive_chunks_excluded: number;
+    /**
+     * @deprecated Response-shape compatibility field only. A pending (or
+     * rejected) learning candidate is fully and correctly represented by
+     * unapproved_learned_qna_excluded above — this field is never
+     * independently incremented and always 0.
+     */
+    pending_candidates_excluded: number;
   };
   /** E5 — fully-formed debug payload, safe to persist to ai_agent_runs.metadata. */
   retrievalDebug?: Record<string, unknown>;
@@ -518,14 +536,16 @@ export async function retrieveHybridSources(
   // eligible. Protects against drift between ai_knowledge_chunks and
   // ai_data_sources / ai_agent_qna / knowledge_base_articles.
   const excludedSummary = {
-    inactive_chunks_excluded: 0, // reserved (we already filter at query time)
     disabled_qna_excluded: 0,
     draft_kb_excluded: 0,
-    pending_candidates_excluded: 0,
     cross_workspace_excluded: 0,
     inactive_file_excluded: 0,
     inactive_web_page_excluded: 0,
     unapproved_learned_qna_excluded: 0,
+    // @deprecated compatibility fields — see HybridRetrievalResult['excludedSummary']
+    // doc comments. Never incremented; kept at 0 for response-shape stability.
+    inactive_chunks_excluded: 0,
+    pending_candidates_excluded: 0,
   };
   try {
     const all = Array.from(aggregated.values());
@@ -539,6 +559,16 @@ export async function retrieveHybridSources(
     const eligibleFiles = new Set<string>();
     const eligibleWebPages = new Set<string>();
     const eligibleLearnedQna = new Set<string>();
+    // PHASE 2 FIX — track rows found under a DIFFERENT workspace separately
+    // from rows found under the right workspace but genuinely ineligible, so
+    // the final loop below can attribute the drop to cross_workspace_excluded
+    // instead of misreporting it as disabled/draft/inactive/unapproved.
+    const crossWorkspaceQna = new Set<string>();
+    const crossWorkspaceKb = new Set<string>();
+    const crossWorkspaceLearnedQna = new Set<string>();
+    // ai_data_sources ids (shared by file + web_page parent lookups) found
+    // under a different workspace.
+    const crossWorkspaceParents = new Set<string>();
     // Map web_page chunk source_id -> derived parent ai_data_sources.id.
     // web_page chunks use compound source_id like "${parentId}:${urlHash}" or
     // store parent_source_id in metadata. They are NOT directly rows in
@@ -558,7 +588,7 @@ export async function retrieveHybridSources(
         .select('id, workspace_id, enabled')
         .in('id', Array.from(idsByKind['qna']));
       for (const r of data || []) {
-        if (r.workspace_id !== input.workspaceId) continue;
+        if (r.workspace_id !== input.workspaceId) { crossWorkspaceQna.add(r.id as string); continue; }
         if (r.enabled === true) eligibleQna.add(r.id as string);
       }
     }
@@ -568,7 +598,7 @@ export async function retrieveHybridSources(
         .select('id, workspace_id, status, used_by_ai')
         .in('id', Array.from(idsByKind['kb_article']));
       for (const r of data || []) {
-        if (r.workspace_id !== input.workspaceId) continue;
+        if (r.workspace_id !== input.workspaceId) { crossWorkspaceKb.add(r.id as string); continue; }
         if (r.status === 'published' && (r as any).used_by_ai !== false) eligibleKb.add(r.id as string);
       }
     }
@@ -578,7 +608,7 @@ export async function retrieveHybridSources(
         .select('id, workspace_id, status')
         .in('id', Array.from(idsByKind['learned_qna']));
       for (const r of data || []) {
-        if (r.workspace_id !== input.workspaceId) continue;
+        if (r.workspace_id !== input.workspaceId) { crossWorkspaceLearnedQna.add(r.id as string); continue; }
         if ((r.status as string) === 'approved') eligibleLearnedQna.add(r.id as string);
       }
     }
@@ -594,7 +624,7 @@ export async function retrieveHybridSources(
         .select('id, workspace_id, source_type, status')
         .in('id', lookupIds);
       for (const r of data || []) {
-        if (r.workspace_id !== input.workspaceId) continue;
+        if (r.workspace_id !== input.workspaceId) { crossWorkspaceParents.add(r.id as string); continue; }
         if (r.status !== 'active') continue;
         if (r.source_type === 'file') {
           eligibleFiles.add(r.id as string);
@@ -610,16 +640,37 @@ export async function retrieveHybridSources(
     }
     for (const [key, a] of Array.from(aggregated.entries())) {
       let drop = false;
-      if (a.source_type === 'qna' && !eligibleQna.has(a.source_id)) {
-        excludedSummary.disabled_qna_excluded += 1; drop = true;
-      } else if (a.source_type === 'kb_article' && !eligibleKb.has(a.source_id)) {
-        excludedSummary.draft_kb_excluded += 1; drop = true;
-      } else if (a.source_type === 'file' && !eligibleFiles.has(a.source_id)) {
-        excludedSummary.inactive_file_excluded += 1; drop = true;
-      } else if (a.source_type === 'web_page' && !eligibleWebPages.has(a.source_id)) {
-        excludedSummary.inactive_web_page_excluded += 1; drop = true;
-      } else if (a.source_type === 'learned_qna' && !eligibleLearnedQna.has(a.source_id)) {
-        excludedSummary.unapproved_learned_qna_excluded += 1; drop = true;
+      if (a.source_type === 'qna') {
+        if (crossWorkspaceQna.has(a.source_id)) {
+          excludedSummary.cross_workspace_excluded += 1; drop = true;
+        } else if (!eligibleQna.has(a.source_id)) {
+          excludedSummary.disabled_qna_excluded += 1; drop = true;
+        }
+      } else if (a.source_type === 'kb_article') {
+        if (crossWorkspaceKb.has(a.source_id)) {
+          excludedSummary.cross_workspace_excluded += 1; drop = true;
+        } else if (!eligibleKb.has(a.source_id)) {
+          excludedSummary.draft_kb_excluded += 1; drop = true;
+        }
+      } else if (a.source_type === 'file') {
+        if (crossWorkspaceParents.has(a.source_id)) {
+          excludedSummary.cross_workspace_excluded += 1; drop = true;
+        } else if (!eligibleFiles.has(a.source_id)) {
+          excludedSummary.inactive_file_excluded += 1; drop = true;
+        }
+      } else if (a.source_type === 'web_page') {
+        const parent = webPageChunkParent.get(a.source_id);
+        if (parent && crossWorkspaceParents.has(parent)) {
+          excludedSummary.cross_workspace_excluded += 1; drop = true;
+        } else if (!eligibleWebPages.has(a.source_id)) {
+          excludedSummary.inactive_web_page_excluded += 1; drop = true;
+        }
+      } else if (a.source_type === 'learned_qna') {
+        if (crossWorkspaceLearnedQna.has(a.source_id)) {
+          excludedSummary.cross_workspace_excluded += 1; drop = true;
+        } else if (!eligibleLearnedQna.has(a.source_id)) {
+          excludedSummary.unapproved_learned_qna_excluded += 1; drop = true;
+        }
       }
       if (drop) aggregated.delete(key);
     }

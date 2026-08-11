@@ -75,26 +75,39 @@ describe("AI Agent — selective module gating (phase rollout)", () => {
 });
 
 describe("AI Agent — source-level gate placement invariants", () => {
-  const src = readFileSync(
-    resolve(__dirname, "../../../server/routes/aiAgent.ts"),
-    "utf8",
-  );
+  // Phase 3 mechanical router split: the monolithic aiAgent.ts (which this
+  // suite originally read directly) is now a compatibility re-export; the
+  // actual route declarations live in per-domain subrouters under
+  // server/routes/ai-agent/, each using its own `<domain>Router` variable
+  // instead of the old shared `aiAgentRouter` name. Concatenate all domain
+  // router source files so these invariants still hold across the split,
+  // and match any `<word>Router.` call rather than the one old name.
+  const domainFiles = [
+    "platform", "assistant", "activity", "operatorAssist",
+    "knowledge", "automation", "internalQa",
+  ];
+  const src = domainFiles
+    .map((f) => readFileSync(
+      resolve(__dirname, `../../../server/routes/ai-agent/${f}.ts`),
+      "utf8",
+    ))
+    .join("\n");
 
   it("gates POST /generate-business-description with requireModule('ai_assistant')", () => {
     expect(src).toMatch(
-      /aiAgentRouter\.post\(\s*'\/generate-business-description'\s*,\s*requireModule\('ai_assistant'\)/,
+      /\w+Router\.post\(\s*'\/generate-business-description'\s*,\s*requireModule\('ai_assistant'\)/,
     );
   });
 
   it("gates POST /learning-candidates/generate with requireModule('ai_assistant')", () => {
     expect(src).toMatch(
-      /aiAgentRouter\.post\(\s*'\/learning-candidates\/generate'\s*,\s*requireModule\('ai_assistant'\)/,
+      /\w+Router\.post\(\s*'\/learning-candidates\/generate'\s*,\s*requireModule\('ai_assistant'\)/,
     );
   });
 
   it("preserves the existing POST /playground/test gate", () => {
     expect(src).toMatch(
-      /aiAgentRouter\.post\(\s*'\/playground\/test'\s*,\s*requireModule\('ai_assistant'\)/,
+      /\w+Router\.post\(\s*'\/playground\/test'\s*,\s*requireModule\('ai_assistant'\)/,
     );
   });
 
@@ -127,7 +140,7 @@ describe("AI Agent — source-level gate placement invariants", () => {
       const lower = method.toLowerCase();
       const escaped = path.replace(/\//g, "\\/").replace(/:/g, ":");
       const re = new RegExp(
-        `aiAgentRouter\\.${lower}\\(\\s*'${escaped}'\\s*,\\s*async`,
+        `\\w+Router\\.${lower}\\(\\s*'${escaped}'\\s*,\\s*async`,
       );
       expect(src, `${method} ${path} should remain ungated`).toMatch(re);
     }

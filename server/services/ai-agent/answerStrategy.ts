@@ -184,12 +184,20 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     };
   }
 
+  // answer_only_from_kb=true means the LLM must never run without at least a
+  // qualifying source match — not for safe_guidance, and not just to ask a
+  // clarifying question — so both of those branches are skipped when
+  // retrieval strength is weak/none under that setting, falling through to
+  // the existing handoff/no_answer_silent logic in step 6 below instead.
+  const noQualifyingSource = strength === 'weak' || strength === 'none';
+  const strictKbNoGrounding = settings.answer_only_from_kb === true && noQualifyingSource;
+
   // 4. Known commercial / support topic → SAFE GUIDANCE first.
   //    This is the key change: for topics like pricing/features/support we
   //    NEVER fall through to a generic "could you clarify?" — we always
   //    say something useful, even when the source grounding is weak.
   const knownTopics = (input.topics || []).filter(Boolean);
-  if (knownTopics.length > 0 && style !== 'conservative') {
+  if (knownTopics.length > 0 && style !== 'conservative' && !strictKbNoGrounding) {
     return {
       decisionType: 'safe_guidance',
       reason: 'safe_guidance_known_topic',
@@ -203,7 +211,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   }
 
   // 5. Vague / ambiguous (and NOT a known topic) → ask ONE clarifying question.
-  if (canAskClar && (isVague(question) || strength === 'weak' || strength === 'none')) {
+  if (canAskClar && !strictKbNoGrounding && (isVague(question) || noQualifyingSource)) {
     return {
       decisionType: 'ask_clarifying_question',
       reason: strength === 'none' ? 'no_kb_match_clarify' : 'vague_or_weak',

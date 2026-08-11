@@ -51,19 +51,55 @@ export default function BehaviorPage() {
   };
 
   const [aiMode, setAiMode] = useState<AiMode>('off');
+  // PHASE 2 FIX: deriveAiMode() collapses 5 real runtime modes
+  // (off/suggest_only/auto_reply_when_offline/auto_reply_until_human_joins/
+  // auto_reply_always) into 3 UI states, so re-sending a value DERIVED from
+  // the loaded settings on every save silently downgraded e.g.
+  // auto_reply_always to auto_reply_until_human_joins even when the
+  // operator only changed an unrelated field (answer style, tone, etc.).
+  // modeDirty tracks whether the operator actually touched this control in
+  // THIS editing session — mode/enabled are only included in the save
+  // payload when true.
+  const [modeDirty, setModeDirty] = useState(false);
   const [unsure, setUnsure] = useState<Unsure>('clarify');
+  // PHASE 2.1 FIX: deriveUnsure() collapses 3 independent backend fields
+  // (allow_clarifying_questions/handoff_on_low_confidence/fallback_behavior)
+  // into a single UI radio state, so resending a value derived from that
+  // collapse on every save could silently rewrite all three even when the
+  // operator only changed an unrelated field. Same dirty-tracking pattern
+  // as modeDirty/toneDirty below.
+  const [unsureDirty, setUnsureDirty] = useState(false);
   const [style, setStyle] = useState<Style>('medium');
+  // PHASE 2.1 FIX: style shares the `instructions` object with tone, so it
+  // needs its own dirty flag to avoid resending max_answer_length (or
+  // clobbering the tone-preservation spread) on unrelated saves.
+  const [styleDirty, setStyleDirty] = useState(false);
   const [tone, setTone] = useState<Tone>('friendly');
+  // PHASE 2 FIX: deriveTone() collapses any custom free-text tone (set via
+  // the Instructions page) into one of 3 presets for display here. Without
+  // dirty tracking, saving Behavior for an unrelated reason would silently
+  // overwrite that custom value with whichever preset it was collapsed to.
+  const [toneDirty, setToneDirty] = useState(false);
   const [lang, setLang] = useState<Lang>('visitor');
+  // PHASE 2.1 FIX: deriveLang() collapses ANY non-empty allowed_locales
+  // array to the single UI state 'workspace', so resending a value derived
+  // from that collapse silently replaced e.g. ['fa', 'ar'] with just
+  // [workspace.default_locale] on unrelated saves.
+  const [languageDirty, setLanguageDirty] = useState(false);
 
   useEffect(() => {
     const s = data?.settings;
     if (!s) return;
     setAiMode(deriveAiMode(s));
+    setModeDirty(false);
     setUnsure(deriveUnsure(s));
+    setUnsureDirty(false);
     setStyle(deriveStyle(s));
+    setStyleDirty(false);
     setTone(deriveTone(s));
+    setToneDirty(false);
     setLang(deriveLang(s));
+    setLanguageDirty(false);
   }, [data]);
 
   if (isLoading || !data?.settings) {
@@ -72,26 +108,48 @@ export default function BehaviorPage() {
 
   const onSave = async () => {
     const s = data.settings;
-    const mode: AgentMode =
-      aiMode === 'off' ? 'off' :
-      aiMode === 'suggest' ? 'suggest_only' :
-      'auto_reply_until_human_joins';
+    // PHASE 2.1 FIX: BehaviorPage is a minimal PATCH producer — every field
+    // is only included when the operator intentionally touched the UI
+    // control it derives from during this editing session. Nothing is
+    // resent "just because Save was clicked."
+    const patch: Record<string, unknown> = {};
+    // Only include enabled/mode when the operator intentionally changed the
+    // AI mode control this session — see modeDirty comment above.
+    if (modeDirty) {
+      const mode: AgentMode =
+        aiMode === 'off' ? 'off' :
+        aiMode === 'suggest' ? 'suggest_only' :
+        'auto_reply_until_human_joins';
+      patch.enabled = aiMode !== 'off';
+      patch.mode = mode;
+    }
+    // Only include the 3 backend fields the "when AI is unsure" radio
+    // derives from when that control was intentionally changed — see
+    // unsureDirty comment above.
+    if (unsureDirty) {
+      patch.allow_clarifying_questions = unsure === 'clarify';
+      patch.handoff_on_low_confidence = unsure === 'transfer';
+      patch.fallback_behavior = unsure === 'silent' ? 'silent' : 'handoff';
+    }
+    // Only include allowed_locales when the language control was
+    // intentionally changed — see languageDirty comment above.
+    if (languageDirty) {
+      patch.allowed_locales = lang === 'workspace' && (workspace as any)?.default_locale
+        ? [(workspace as any).default_locale]
+        : [];
+    }
+    // instructions.max_answer_length and instructions.tone are independently
+    // dirty-tracked but share one backend object, so instructions is only
+    // sent (and only the touched key(s) changed) when at least one of them
+    // was intentionally changed this session.
+    if (styleDirty || toneDirty) {
+      const instructions: Record<string, unknown> = { ...(s.instructions || {}) };
+      if (styleDirty) instructions.max_answer_length = style;
+      if (toneDirty) instructions.tone = tone;
+      patch.instructions = instructions;
+    }
     try {
-      await update.mutateAsync({
-        enabled: aiMode !== 'off',
-        mode,
-        allow_clarifying_questions: unsure === 'clarify',
-        handoff_on_low_confidence: unsure === 'transfer',
-        fallback_behavior: unsure === 'silent' ? 'silent' : 'handoff',
-        instructions: {
-          ...(s.instructions || {}),
-          max_answer_length: style,
-          tone,
-        } as any,
-        allowed_locales: lang === 'workspace' && (workspace as any)?.default_locale
-          ? [(workspace as any).default_locale]
-          : [],
-      } as any);
+      await update.mutateAsync(patch as any);
       toast.success(tr('saved', 'Behavior saved'));
     } catch (e: any) {
       toast.error(e?.message || tr('saveFailed', 'Save failed'));
@@ -115,7 +173,7 @@ export default function BehaviorPage() {
       </div>
 
       <SectionCard icon={MessageSquare} tone="bg-violet-500/10 text-violet-600 ring-violet-500/20" title={tr('aiMode.title', 'AI mode')} desc={tr('aiMode.desc', 'How the AI participates in conversations.')}>
-        <RadioGroup dir={dir} value={aiMode} onValueChange={(v) => setAiMode(v as AiMode)} className="space-y-2">
+        <RadioGroup dir={dir} value={aiMode} onValueChange={(v) => { setAiMode(v as AiMode); setModeDirty(true); }} className="space-y-2">
           <Opt value="auto" label={tr('aiMode.auto', 'Answer visitors automatically')} />
           <Opt value="suggest" label={tr('aiMode.suggest', 'Suggest replies to operators only')} />
           <Opt value="off" label={tr('aiMode.off', 'Off')} />
@@ -123,7 +181,7 @@ export default function BehaviorPage() {
       </SectionCard>
 
       <SectionCard icon={HelpCircle} tone="bg-amber-500/10 text-amber-600 ring-amber-500/20" title={tr('unsure.title', 'When AI is unsure')}>
-        <RadioGroup dir={dir} value={unsure} onValueChange={(v) => setUnsure(v as Unsure)} className="space-y-2">
+        <RadioGroup dir={dir} value={unsure} onValueChange={(v) => { setUnsure(v as Unsure); setUnsureDirty(true); }} className="space-y-2">
           <Opt value="clarify" label={tr('unsure.clarify', 'Ask a clarification question')} />
           <Opt value="transfer" label={tr('unsure.transfer', 'Transfer to operator')} />
           <Opt value="silent" label={tr('unsure.silent', 'Do not answer')} />
@@ -132,21 +190,21 @@ export default function BehaviorPage() {
 
       <div className="grid md:grid-cols-3 gap-4">
         <SectionCard icon={FileText} tone="bg-sky-500/10 text-sky-600 ring-sky-500/20" title={tr('style.title', 'Answer style')}>
-          <RadioGroup dir={dir} value={style} onValueChange={(v) => setStyle(v as Style)} className="space-y-2">
+          <RadioGroup dir={dir} value={style} onValueChange={(v) => { setStyle(v as Style); setStyleDirty(true); }} className="space-y-2">
             <Opt value="short" label={tr('style.short', 'Short')} />
             <Opt value="medium" label={tr('style.medium', 'Balanced')} />
             <Opt value="long" label={tr('style.long', 'Detailed')} />
           </RadioGroup>
         </SectionCard>
         <SectionCard icon={Heart} tone="bg-rose-500/10 text-rose-600 ring-rose-500/20" title={tr('tone.title', 'Tone')}>
-          <RadioGroup dir={dir} value={tone} onValueChange={(v) => setTone(v as Tone)} className="space-y-2">
+          <RadioGroup dir={dir} value={tone} onValueChange={(v) => { setTone(v as Tone); setToneDirty(true); }} className="space-y-2">
             <Opt value="friendly" label={tr('tone.friendly', 'Friendly')} />
             <Opt value="formal" label={tr('tone.formal', 'Formal')} />
             <Opt value="professional" label={tr('tone.professional', 'Professional')} />
           </RadioGroup>
         </SectionCard>
         <SectionCard icon={Languages} tone="bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" title={tr('lang.title', 'Language')}>
-          <RadioGroup dir={dir} value={lang} onValueChange={(v) => setLang(v as Lang)} className="space-y-2">
+          <RadioGroup dir={dir} value={lang} onValueChange={(v) => { setLang(v as Lang); setLanguageDirty(true); }} className="space-y-2">
             <Opt value="visitor" label={tr('lang.visitor', 'Reply in visitor language')} />
             <Opt value="workspace" label={tr('lang.workspace', 'Always use workspace default language')} />
           </RadioGroup>

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Sparkles, TrendingUp, ThumbsUp, ThumbsDown, MessageSquare, ArrowUpRight } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 export default function OperatorAssistPage() {
   const { workspace } = useActiveWorkspace();
@@ -66,19 +67,7 @@ export default function OperatorAssistPage() {
 
   return (
     <div className="space-y-8" dir={dir}>
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex items-start gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-            <Sparkles className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Operator Assist')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl">{tr('subtitle', 'Help your operators reply faster with AI suggestions.')}</p>
-          </div>
-        </div>
-      </div>
+      <AiPageHeader icon={Sparkles} accent="amber" title={tr('title', 'Operator Assist')} subtitle={tr('subtitle', 'Help your operators reply faster with AI suggestions.')} />
 
       <Card className="overflow-hidden border-border/60">
         <CardHeader className="pb-3">

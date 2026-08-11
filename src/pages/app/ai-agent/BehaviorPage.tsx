@@ -9,6 +9,7 @@ import { Loader2, Sliders, MessageSquare, HelpCircle, FileText, Heart, Languages
 import { toast } from '@/lib/toast';
 import type { AgentMode, AnswerGuidance } from '@/lib/ai-agent-api';
 import { useTranslation } from '@/i18n';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 type AiMode = 'auto' | 'suggest' | 'off';
 type Unsure = 'clarify' | 'transfer' | 'silent';
@@ -158,19 +159,7 @@ export default function BehaviorPage() {
 
   return (
     <div className="space-y-8" dir={dir}>
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex items-start gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-            <Sliders className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Behavior')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Choose how your AI Agent talks to visitors.')}</p>
-          </div>
-        </div>
-      </div>
+      <AiPageHeader icon={Sliders} accent="violet" title={tr('title', 'Behavior')} subtitle={tr('subtitle', 'Choose how your AI Agent talks to visitors.')} />
 
       <SectionCard icon={MessageSquare} tone="bg-violet-500/10 text-violet-600 ring-violet-500/20" title={tr('aiMode.title', 'AI mode')} desc={tr('aiMode.desc', 'How the AI participates in conversations.')}>
         <RadioGroup dir={dir} value={aiMode} onValueChange={(v) => { setAiMode(v as AiMode); setModeDirty(true); }} className="space-y-2">

@@ -36,13 +36,6 @@ const FALLBACK_HANDOFF_PRECHAT_TEMPLATES: Record<string, string> = {
 const LOCALE_LABELS: Record<string, string> = { fa: 'فارسی', en: 'English', tr: 'Türkçe' };
 const LOCALE_DIR: Record<string, 'rtl' | 'ltr'> = { fa: 'rtl', en: 'ltr', tr: 'ltr' };
 
-const ENABLE_ERROR_MESSAGES: Record<string, string> = {
-  ai_provider_not_configured: 'یک سرویس‌دهنده هوش مصنوعی برای این ورک‌اسپیس تنظیم نشده است.',
-  no_published_knowledge: 'برای پاسخ‌دهی فقط از پایگاه دانش، باید حداقل یک مقاله منتشر شده داشته باشید.',
-  module_ai_assistant_not_enabled: 'ماژول دستیار هوشمند در پلن فعلی این ورک‌اسپیس فعال نیست.',
-  owner_or_admin_required: 'فقط مالک یا ادمین ورک‌اسپیس می‌تواند این تنظیم را تغییر دهد.',
-};
-
 export default function AiAgentSettingsPage() {
   const { workspace } = useActiveWorkspace();
   const { data, isLoading } = useAiAgentSettings(workspace?.id);
@@ -57,7 +50,6 @@ export default function AiAgentSettingsPage() {
   const [form, setForm] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [enabling, setEnabling] = useState(false);
   const [introDrafts, setIntroDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [handoffDrafts, setHandoffDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [handoffPrechatDrafts, setHandoffPrechatDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });

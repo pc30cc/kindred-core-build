@@ -2,6 +2,22 @@ import { supabase } from '@/lib/supabase';
 import type { AuthProvider, AuthUser, AuthSession, SignUpParams, SignInParams } from '@/types/providers';
 import { authSignUp } from '@/lib/api';
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+/** Best-effort: persist the login outcome so Settings → Security can show history. */
+async function recordLoginResult(email: string, success: boolean) {
+  if (!API_BASE) return;
+  try {
+    await fetch(`${API_BASE}/api/auth/record-result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, success }),
+    });
+  } catch {
+    // never block sign-in on telemetry
+  }
+}
+
 function mapUser(u: any): AuthUser | null {
   if (!u) return null;
   return {
@@ -47,6 +63,7 @@ export const supabaseAuthProvider: AuthProvider = {
 
   async signIn({ email, password }: SignInParams) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    void recordLoginResult(email, !error && !!data?.session);
     return { session: mapSession(data?.session), error: error ? new Error(error.message) : null };
   },
 

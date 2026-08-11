@@ -1,8 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -23,13 +21,6 @@ const SEVERITY_STYLES: Record<string, string> = {
   info: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
   warn: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
   error: 'border-destructive/40 bg-destructive/10 text-destructive',
-};
-
-const ENABLE_ERROR_MESSAGES: Record<string, string> = {
-  ai_provider_not_configured: 'یک سرویس‌دهنده هوش مصنوعی برای این ورک‌اسپیس تنظیم نشده است.',
-  no_published_knowledge: 'برای پاسخ‌دهی فقط از پایگاه دانش، باید حداقل یک مقاله منتشر شده داشته باشید.',
-  module_ai_assistant_not_enabled: 'ماژول دستیار هوشمند در پلن فعلی این ورک‌اسپیس فعال نیست.',
-  owner_or_admin_required: 'فقط مالک یا ادمین ورک‌اسپیس می‌تواند این تنظیم را تغییر دهد.',
 };
 
 export default function OverviewPage() {

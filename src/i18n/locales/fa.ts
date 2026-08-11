@@ -2818,6 +2818,7 @@ const fa: TranslationKeys = {
       title: 'نمای کلی',
       subtitle: 'وضعیت، آمادگی دانش، فعالیت‌های اخیر و هشدارهای دستیار هوشمند شما.',
       refresh: 'بروزرسانی',
+      setupAction: 'راه‌اندازی و آمادگی',
       statusReady: 'آماده',
       statusNotReady: 'آماده نیست',
       statusReadyHint: 'دستیار هوشمند فعال است و به کاربران پاسخ می‌دهد.',
@@ -3178,6 +3179,7 @@ const fa: TranslationKeys = {
       saveFailed: 'ذخیره ناموفق بود',
       usageTitle: 'استفاده اخیر (۷ روز)',
       usageDesc: 'اپراتورها چگونه از پیشنهادهای هوش مصنوعی استفاده می‌کنند.',
+      viewFullAnalytics: 'مشاهده تحلیل کامل',
       stat: { suggestions: 'پیشنهادها', acceptance: 'نرخ پذیرش', positive: 'مثبت', negative: 'منفی' },
       empty: 'هنوز داده‌ای ثبت نشده است.',
     },
@@ -3194,6 +3196,7 @@ const fa: TranslationKeys = {
       title: 'فعالیت',
       subtitle: 'فعالیت‌های اخیر دستیار هوشمند در این فضای کاری.',
       refresh: 'بروزرسانی',
+      viewAnalytics: 'مشاهده تحلیل‌ها',
       empty: 'هنوز فعالیتی ثبت نشده است.',
       filter: { all: 'همه', answered: 'پاسخ داده‌شده', suggested: 'پیشنهاد شده', handoff: 'انتقال یافته', no_answer: 'بدون پاسخ', needs_review: 'نیازمند بررسی' },
       describe: {

@@ -354,10 +354,15 @@ export default function OverviewPage() {
       {/* ── Recent + team ────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Recent conversations */}
-        <div className="rounded-2xl border border-border/60 bg-card shadow-sm xl:col-span-2">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.recentConversations')}</h2>
-            <Link to={wsPath('/inbox')} className="text-xs font-medium text-primary hover:underline">
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm xl:col-span-2">
+          <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-sky-500/[0.10] to-transparent px-5 py-3.5">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/25">
+                <MessageSquare className="h-4 w-4" />
+              </span>
+              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.recentConversations')}</h2>
+            </div>
+            <Link to={wsPath('/inbox')} className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-300">
               {tr('dashboard.viewAll')}
             </Link>
           </div>
@@ -376,9 +381,9 @@ export default function OverviewPage() {
                       to={wsPath(`/inbox?c=${c.id}`)}
                       className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                     >
-                      <Avatar className="h-8 w-8">
+                      <Avatar className="h-9 w-9 ring-2 ring-sky-500/15">
                         {c.contacts?.avatar_url ? <AvatarImage src={c.contacts.avatar_url} alt={name} /> : null}
-                        <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
+                        <AvatarFallback className="bg-gradient-to-br from-sky-500 to-blue-500 text-[11px] font-semibold text-white">
                           {String(name).charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -389,12 +394,12 @@ export default function OverviewPage() {
                         </p>
                       </div>
                       <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
                           c.status === 'open'
-                            ? 'bg-primary/10 text-primary'
+                            ? 'bg-indigo-500/10 text-indigo-600 ring-indigo-500/20 dark:text-indigo-300'
                             : c.status === 'pending'
-                            ? 'bg-warning/10 text-warning'
-                            : 'bg-success/10 text-success'
+                            ? 'bg-amber-500/10 text-amber-600 ring-amber-500/20 dark:text-amber-300'
+                            : 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-300'
                         }`}
                       >
                         {tr(`inbox.${c.status || 'open'}`)}
@@ -413,10 +418,16 @@ export default function OverviewPage() {
         </div>
 
         {/* Team presence */}
-        <div className="rounded-2xl border border-border/60 bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.teamStatus')}</h2>
-            <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+          <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-rose-500/[0.10] to-transparent px-5 py-3.5">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/25">
+                <ShieldCheck className="h-4 w-4" />
+              </span>
+              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.teamStatus')}</h2>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>
           </div>

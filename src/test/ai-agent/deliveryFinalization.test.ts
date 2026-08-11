@@ -9,9 +9,12 @@ const finalizeCalls: any[] = [];
 let finalizeResult: any = { ok: true, attempts: 1 };
 let insertResult: any = { id: 'msg_1' };
 let suggestionInsert: any = { data: { id: 'sug_1' }, error: null };
+let logRunResult: any = 'run_1';
+const insertMessageCalls: any[] = [];
+const suggestionInsertCalls: any[] = [];
 
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({
-  logRun: async () => 'run_1',
+  logRun: async () => logRunResult,
   finalizeRun: async (_c: any, runId: any, patch: any) => {
     finalizeCalls.push({ runId, ...patch });
     return finalizeResult;
@@ -19,7 +22,10 @@ vi.mock('../../../server/services/ai-agent/logs.js', () => ({
 }));
 
 vi.mock('../../../server/services/ai-agent/responder.js', () => ({
-  insertAiMessage: async () => insertResult,
+  insertAiMessage: async (_c: any, payload: any) => {
+    insertMessageCalls.push(payload);
+    return insertResult;
+  },
   deriveAgentDisplay: () => ({ agentName: 'AI', agentLogoUrl: null }),
 }));
 
@@ -34,8 +40,11 @@ vi.mock('../../../server/services/realtime/publish.js', () => ({
 const { runDeliveryStage } = await import('../../../server/services/ai-agent/engine/deliveryStage.js');
 
 const sb = {
-  from: () => ({
-    insert: () => ({ select: () => ({ single: async () => suggestionInsert }) }),
+  from: (table: string) => ({
+    insert: (row: any) => {
+      suggestionInsertCalls.push({ table, row });
+      return { select: () => ({ single: async () => suggestionInsert }) };
+    },
   }),
 };
 
@@ -55,6 +64,9 @@ function args(canAutoReply: boolean) {
 
 beforeEach(() => {
   finalizeCalls.length = 0;
+  insertMessageCalls.length = 0;
+  suggestionInsertCalls.length = 0;
+  logRunResult = 'run_1';
   finalizeResult = { ok: true, attempts: 1 };
   insertResult = { id: 'msg_1' };
   suggestionInsert = { data: { id: 'sug_1' }, error: null };
@@ -86,6 +98,16 @@ describe('auto reply delivery accounting', () => {
     expect(r.reason).toBe('run_finalization_failed');
     expect(r.finalizationPending).toBe(true);
   });
+
+  it('provisional run creation fails → nothing is delivered', async () => {
+    logRunResult = null;
+    const r = await (runDeliveryStage as any)(...args(true));
+    expect(r.action).toBe('failed');
+    expect(r.reason).toBe('run_log_create_failed');
+    expect(insertMessageCalls).toHaveLength(0);
+    expect(finalizeCalls).toHaveLength(0);
+    expect(r.messageId).toBeUndefined();
+  });
 });
 
 describe('suggestion delivery accounting', () => {
@@ -113,5 +135,15 @@ describe('suggestion delivery accounting', () => {
     expect(r.action).toBe('suggested');
     expect(r.reason).toBe('run_finalization_failed');
     expect(r.finalizationPending).toBe(true);
+  });
+
+  it('provisional run creation fails → no suggestion row is created', async () => {
+    logRunResult = null;
+    const r = await (runDeliveryStage as any)(...args(false));
+    expect(r.action).toBe('failed');
+    expect(r.reason).toBe('run_log_create_failed');
+    expect(suggestionInsertCalls.filter((c) => c.table === 'ai_agent_suggestions')).toHaveLength(0);
+    expect(finalizeCalls).toHaveLength(0);
+    expect(r.suggestionId).toBeUndefined();
   });
 });

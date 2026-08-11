@@ -590,7 +590,7 @@ export async function retrieveHybridSources(
         .in('id', Array.from(idsByKind['qna']));
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceQna.add(r.id as string); continue; }
-        if (isQnaSourceAllowed(r as any, input.workspaceId)) eligibleQna.add(r.id as string);
+        if (isQnaSourceAllowed(r, input.workspaceId)) eligibleQna.add(r.id as string);
       }
     }
     if (idsByKind['kb_article']?.size) {
@@ -610,7 +610,7 @@ export async function retrieveHybridSources(
         .in('id', Array.from(idsByKind['learned_qna']));
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceLearnedQna.add(r.id as string); continue; }
-        if (isLearnedQnaSourceAllowed(r as any, input.workspaceId)) eligibleLearnedQna.add(r.id as string);
+        if (isLearnedQnaSourceAllowed(r, input.workspaceId)) eligibleLearnedQna.add(r.id as string);
       }
     }
     // File chunks: source_id IS ai_data_sources.id directly.
@@ -626,10 +626,10 @@ export async function retrieveHybridSources(
         .in('id', lookupIds);
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceParents.add(r.id as string); continue; }
-        if (isFileSourceAllowed(r as any, input.workspaceId)) {
+        if (isFileSourceAllowed(r, input.workspaceId)) {
           eligibleFiles.add(r.id as string);
           activeParentBySrc.set(r.id as string, 'file');
-        } else if (isWebsiteSourceAllowed(r as any, input.workspaceId)) {
+        } else if (isWebsiteSourceAllowed(r, input.workspaceId)) {
           activeParentBySrc.set(r.id as string, 'website');
         }
       }

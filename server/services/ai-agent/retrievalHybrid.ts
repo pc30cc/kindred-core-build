@@ -11,8 +11,11 @@
  * or fails. Never throws to the caller — engine treats failures as "use the
  * legacy retriever".
  *
- * NOTE: Runtime retrieval and Source Health (sourceHealth.ts) must stay aligned.
- * If eligibility rules change here, update sourceHealth.ts too.
+ * NOTE: the underlying per-source-type allow/deny policy (workspace +
+ * enabled/status/used_by_ai/approved) is shared with Source Health via
+ * ./sourcePolicy.ts — see that file for the single source of truth. Chunk/
+ * embedding health, excluded-summary counters, and cross-workspace
+ * attribution below remain owned by this file only.
  * Excluded counters here mirror Source Health reasons:
  *   disabled_qna_excluded ↔ disabled_qna
  *   draft_kb_excluded ↔ draft_kb
@@ -25,18 +28,16 @@ import { getServiceClient } from '../../supabase.js';
 import { resolveEmbeddingProvider, isUsableEmbeddingProvider } from './embeddings/index.js';
 import { vectorToSql } from './knowledgeIndex/indexer.js';
 import { detectTopics, type TopicKey } from './queryExpansion.js';
+import {
+  deriveWebPageParentSourceId,
+  isQnaSourceAllowed,
+  isKbArticleSourceAllowed,
+  isLearnedQnaSourceAllowed,
+  isFileSourceAllowed,
+  isWebsiteSourceAllowed,
+} from './sourcePolicy.js';
 
 export type HybridSourceKind = 'qna' | 'kb_article' | 'learned_qna' | 'business_profile' | 'web_page' | 'file';
-
-// web_page parent derivation must stay identical in Source Health and Runtime Retrieval.
-// Mirrors deriveWebPageParent() in server/services/ai-agent/sourceHealth.ts.
-function deriveWebPageParentSourceId(sourceId: string, metadata: any): string {
-  const m = metadata && typeof metadata === 'object' ? metadata : {};
-  const fromMeta = (m.parent_source_id as string) || (m.source_id as string);
-  if (typeof fromMeta === 'string' && fromMeta.trim()) return fromMeta.trim();
-  if (sourceId && sourceId.includes(':')) return sourceId.split(':', 2)[0];
-  return sourceId;
-}
 
 export interface HybridSource {
   /** id of the chunk row when vector hit, otherwise of the source row. */
@@ -589,7 +590,7 @@ export async function retrieveHybridSources(
         .in('id', Array.from(idsByKind['qna']));
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceQna.add(r.id as string); continue; }
-        if (r.enabled === true) eligibleQna.add(r.id as string);
+        if (isQnaSourceAllowed(r as any, input.workspaceId)) eligibleQna.add(r.id as string);
       }
     }
     if (idsByKind['kb_article']?.size) {
@@ -599,7 +600,7 @@ export async function retrieveHybridSources(
         .in('id', Array.from(idsByKind['kb_article']));
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceKb.add(r.id as string); continue; }
-        if (r.status === 'published' && (r as any).used_by_ai !== false) eligibleKb.add(r.id as string);
+        if (isKbArticleSourceAllowed(r as any, input.workspaceId)) eligibleKb.add(r.id as string);
       }
     }
     if (idsByKind['learned_qna']?.size) {
@@ -609,7 +610,7 @@ export async function retrieveHybridSources(
         .in('id', Array.from(idsByKind['learned_qna']));
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceLearnedQna.add(r.id as string); continue; }
-        if ((r.status as string) === 'approved') eligibleLearnedQna.add(r.id as string);
+        if (isLearnedQnaSourceAllowed(r as any, input.workspaceId)) eligibleLearnedQna.add(r.id as string);
       }
     }
     // File chunks: source_id IS ai_data_sources.id directly.
@@ -625,11 +626,10 @@ export async function retrieveHybridSources(
         .in('id', lookupIds);
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceParents.add(r.id as string); continue; }
-        if (r.status !== 'active') continue;
-        if (r.source_type === 'file') {
+        if (isFileSourceAllowed(r as any, input.workspaceId)) {
           eligibleFiles.add(r.id as string);
           activeParentBySrc.set(r.id as string, 'file');
-        } else if (r.source_type === 'website') {
+        } else if (isWebsiteSourceAllowed(r as any, input.workspaceId)) {
           activeParentBySrc.set(r.id as string, 'website');
         }
       }

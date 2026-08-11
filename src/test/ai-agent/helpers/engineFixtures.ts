@@ -211,6 +211,12 @@ export function makeFakeSupabase(seed: Record<string, any[]> = {}) {
       },
       order: () => builder,
       limit: () => builder,
+      // No-op passthrough, same as limit()/order() above -- this fake does
+      // not paginate, it always returns the full filtered set. Callers that
+      // loop on `.range(from, from + PAGE - 1)` until a short page is seen
+      // (e.g. sourceHealth.ts) terminate correctly after one iteration
+      // against small test fixtures, since the "full set" IS the short page.
+      range: () => builder,
       in: (col: string, vals: any[]) => {
         filters.push((r) => vals.includes(r?.[col]));
         return builder;

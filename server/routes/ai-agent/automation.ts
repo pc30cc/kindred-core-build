@@ -488,6 +488,50 @@ automationRouter.get('/workflows/_meta', async (_req: Request, res: Response) =>
 });
 
 // ─── Message triggers ───
+// Follow-up 9G.1 — narrow capability classification for truthful dry-run
+// reporting only. This does NOT change runtime behavior: it mirrors (does
+// not import, to avoid coupling a route file to the runtime evaluator's
+// internals) the actual event/action sets currently wired into the live
+// engine — see server/services/ai-agent/engine/automationStage.ts (PRE
+// events) and server/services/ai-agent/engine/helpers.ts (ai_no_answer) for
+// the authoritative call sites this list is kept in sync with.
+const LIVE_MESSAGE_TRIGGER_EVENTS = new Set([
+  'visitor_first_message', 'topic_detected', 'human_requested', 'ai_no_answer',
+]);
+const LIVE_MESSAGE_TRIGGER_ACTIONS = new Set(['send_message', 'handoff']);
+
+/**
+ * Pure classification — no DB I/O, no side effects. Exported so tests can
+ * pin the exact capability booleans and note text for every event/action
+ * combination without needing to exercise the HTTP route (Follow-up 9G.1).
+ */
+export function classifyMessageTriggerRuntimeCapability(
+  eventType: string,
+  actionType: string,
+): {
+  eventRuntimeEnabled: boolean;
+  actionRuntimeEnabled: boolean;
+  runtimeExecutionEnabled: boolean;
+  note: string;
+} {
+  const eventRuntimeEnabled = LIVE_MESSAGE_TRIGGER_EVENTS.has(eventType);
+  const actionRuntimeEnabled = LIVE_MESSAGE_TRIGGER_ACTIONS.has(actionType);
+  const runtimeExecutionEnabled = eventRuntimeEnabled && actionRuntimeEnabled;
+
+  let note: string;
+  if (runtimeExecutionEnabled) {
+    note = 'Dry run evaluated this trigger. Its event and action are live in runtime. This test does not execute side effects.';
+  } else if (!eventRuntimeEnabled && !actionRuntimeEnabled) {
+    note = `This rule can be evaluated as configuration, but the "${eventType}" event is not currently emitted by the runtime and the "${actionType}" action is not currently executed by the runtime.`;
+  } else if (!eventRuntimeEnabled) {
+    note = `This rule can be evaluated as configuration, but the "${eventType}" event is not currently emitted by the runtime.`;
+  } else {
+    note = `This event may be live, but the "${actionType}" action is not currently executed by the runtime.`;
+  }
+
+  return { eventRuntimeEnabled, actionRuntimeEnabled, runtimeExecutionEnabled, note };
+}
+
 automationRouter.get('/message-triggers', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = requireWorkspace(req);
@@ -565,7 +609,12 @@ automationRouter.delete('/message-triggers/:id', async (req: Request, res: Respo
   return res.json({ ok: true });
 });
 
-// Test (dry-run) — returns the planned action without executing anything.
+// Test (dry-run) — reports what the runtime would actually do for this
+// trigger's persisted event/action, without executing anything (no
+// insertAiMessage, no handoff, no Workflow evaluation — pure read + report).
+// Follow-up 9G.1 — the response now reflects real capability instead of the
+// previous hard-coded runtimeExecutionEnabled:false / "next pass" claim,
+// which was false for any live event+action combination.
 automationRouter.post('/message-triggers/:id/test', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
@@ -573,17 +622,23 @@ automationRouter.post('/message-triggers/:id/test', async (req: Request, res: Re
   if (!trig) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, trig.workspace_id);
   if (!auth) return;
+
+  const { eventRuntimeEnabled, actionRuntimeEnabled, runtimeExecutionEnabled, note } =
+    classifyMessageTriggerRuntimeCapability(trig.event_type, trig.action_type);
+
   return res.json({
     ok: true,
     dryRun: true,
-    runtimeExecutionEnabled: false,
+    runtimeExecutionEnabled,
+    eventRuntimeEnabled,
+    actionRuntimeEnabled,
     planned: {
       event_type: trig.event_type,
       action_type: trig.action_type,
       action_json: trig.action_json,
       delay_seconds: trig.delay_seconds,
     },
-    note: 'Saved. Runtime execution will be enabled in the next automation runtime pass.',
+    note,
   });
 });
 

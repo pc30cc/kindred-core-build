@@ -13,7 +13,6 @@ import { useWorkspacePlan } from '@/hooks/usePlans';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Progress } from '@/components/ui/progress';
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as ReTooltip, XAxis, YAxis, CartesianGrid,
 } from 'recharts';

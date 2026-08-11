@@ -55,6 +55,10 @@ vi.mock('../../../server/services/ai/index.js', () => ({
     aiCallCount++;
     return aiResponseImpl();
   },
+  executeAICompletionWithConfig: async (..._args: any[]) => {
+    aiCallCount++;
+    return aiResponseImpl();
+  },
   resolveAIConfig: async () => ({ provider: 'openai', model: 'gpt-4o-mini' }),
 }));
 
@@ -86,7 +90,7 @@ vi.mock('../../../server/services/ai-agent/answerStrategy.js', async (importOrig
 });
 
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({
-  finalizeRun: async () => {},
+  finalizeRun: async () => ({ ok: true as const, attempts: 1 }),
   logRun: async (_config: any, input: any) => {
     logRunCalls.push(input);
     return `run-${logRunCalls.length}`;

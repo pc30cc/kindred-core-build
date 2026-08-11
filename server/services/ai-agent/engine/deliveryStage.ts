@@ -116,16 +116,36 @@ export async function runDeliveryStage(
       decisionType: strategy.decisionType,
     });
     if (!inserted.id) {
-      await finalizeRun(config, runId, {
+      const failFinal = await finalizeRun(config, runId, {
         status: 'failed',
         creditsUsed: 0,
         errorMessage: inserted.error || 'ai_message_insert_failed',
       });
-      console.warn('[ai-agent] auto reply persistence failed', { conversationId, runId });
+      console.warn('[ai-agent] auto reply persistence failed', {
+        conversationId, runId, finalized: failFinal.ok, finalizeError: failFinal.error,
+      });
       return { ran: true, action: 'failed', reason: 'ai_message_insert_failed', runId };
     }
     decisionTimeline.push('reply_sent');
-    await finalizeRun(config, runId, { status: 'replied', creditsUsed: 1 });
+    const finalized = await finalizeRun(config, runId, { status: 'replied', creditsUsed: 1 });
+    if (!finalized.ok) {
+      // The visitor DID receive the message, but the accounting transition
+      // (status=replied, credits=1) did not persist after retries. Surface it
+      // loudly and mark the result so callers/reconciliation can pick it up —
+      // never claim the transition succeeded.
+      console.error('[ai-agent] run finalization failed after delivery', {
+        conversationId, runId, messageId: inserted.id, error: finalized.error, attempts: finalized.attempts,
+      });
+      await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+      return {
+        ran: true,
+        action: 'replied',
+        reason: 'run_finalization_failed',
+        runId,
+        messageId: inserted.id,
+        finalizationPending: true,
+      };
+    }
     console.log('[ai-agent] auto reply sent', { conversationId, runId, messageId: inserted.id });
     // Keep conversation in the Automated inbox while AI is handling it.
     await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
@@ -177,15 +197,33 @@ export async function runDeliveryStage(
     .single();
   if (sErr) {
     console.warn('[ai-agent] suggestion insert failed:', sErr.message);
-    await finalizeRun(config, runId, {
+    const failFinal = await finalizeRun(config, runId, {
       status: 'failed',
       creditsUsed: 0,
       errorMessage: sErr.message,
     });
+    if (!failFinal.ok) {
+      console.error('[ai-agent] suggestion failure finalization failed', { runId, error: failFinal.error });
+    }
+    return { ran: true, action: 'failed', reason: 'suggestion_insert_failed', runId };
+  }
+  if (!suggestion?.id) {
+    const failFinal = await finalizeRun(config, runId, {
+      status: 'failed',
+      creditsUsed: 0,
+      errorMessage: 'suggestion_insert_returned_no_id',
+    });
+    console.warn('[ai-agent] suggestion insert returned no id', { runId, finalized: failFinal.ok });
     return { ran: true, action: 'failed', reason: 'suggestion_insert_failed', runId };
   }
   decisionTimeline.push('suggestion_sent');
-  await finalizeRun(config, runId, { status: 'suggested', creditsUsed: 1 });
+  const finalizedSuggestion = await finalizeRun(config, runId, { status: 'suggested', creditsUsed: 1 });
+  if (!finalizedSuggestion.ok) {
+    console.error('[ai-agent] suggestion run finalization failed', {
+      conversationId, runId, suggestionId: suggestion.id,
+      error: finalizedSuggestion.error, attempts: finalizedSuggestion.attempts,
+    });
+  }
 
   try {
     await publishOperatorEvent(config, {
@@ -200,7 +238,8 @@ export async function runDeliveryStage(
   return {
     ran: true,
     action: 'suggested',
-    suggestionId: suggestion?.id || null,
+    suggestionId: suggestion.id,
     runId,
+    ...(finalizedSuggestion.ok ? {} : { reason: 'run_finalization_failed', finalizationPending: true }),
   };
 }

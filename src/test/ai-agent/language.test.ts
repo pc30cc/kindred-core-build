@@ -238,6 +238,7 @@ let fakeSb: ReturnType<typeof makeFakeSupabase>;
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }));
 vi.mock('../../../server/services/ai/index.js', () => ({
   executeAICompletion: async () => makeAIResponse(),
+  executeAICompletionWithConfig: async () => makeAIResponse(),
   resolveAIConfig: async () => ({ provider: 'openai', model: 'gpt-4o-mini' }),
 }));
 vi.mock('../../../server/services/realtime/publish.js', () => ({ publishOperatorEvent: vi.fn(async () => {}) }));
@@ -251,7 +252,7 @@ vi.mock('../../../server/services/ai-agent/answerStrategy.js', async (importOrig
   return { ...actual, countClarificationAttempts: async () => 0 };
 });
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({
-  finalizeRun: async () => {},
+  finalizeRun: async () => ({ ok: true as const, attempts: 1 }),
   logRun: async (_config: any, input: any) => {
     logRunCalls.push(input);
     return `run-${logRunCalls.length}`;

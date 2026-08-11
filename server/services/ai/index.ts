@@ -5,6 +5,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { redactSecrets } from '../../lib/redactSecrets.js';
 
 /**
  * Minimal fetch contract. Runtime completion paths use the global `fetch`;
@@ -12,14 +13,63 @@ import { getServiceClient } from '../../supabase.js';
  */
 export type HttpFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
-/** Per-attempt socket timeout. */
-const AI_HTTP_TIMEOUT_MS = parseInt(process.env.AI_HTTP_TIMEOUT_MS || '20000', 10);
-const AI_RETRY_ATTEMPTS = parseInt(process.env.AI_RETRY_ATTEMPTS || '3', 10);
 /**
- * Hard wall-clock budget across ALL attempts. Without it, three 45s attempts
- * plus backoff could hold a visitor's chat turn open for well over two minutes.
+ * Bounded timeout/retry policy for realtime chat.
+ *
+ *   per attempt : 12s  (range 1s … 60s)
+ *   attempts    : 2    (range 1 … 5)
+ *   total budget: 28s  (range 1s … 120s) — hard wall clock across ALL attempts
+ *
+ * Env overrides are validated: non-numeric, zero, negative or absurd values
+ * fall back to the default instead of creating instant-abort loops or
+ * unbounded waits.
  */
-const AI_TOTAL_BUDGET_MS = parseInt(process.env.AI_TOTAL_BUDGET_MS || '45000', 10);
+export function readBoundedEnvInt(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+  const parsed = Number(String(raw).trim());
+  if (!Number.isFinite(parsed)) return fallback;
+  const int = Math.trunc(parsed);
+  if (int < min || int > max) return fallback;
+  return int;
+}
+
+/** Per-attempt socket timeout. */
+const AI_HTTP_TIMEOUT_MS = readBoundedEnvInt('AI_HTTP_TIMEOUT_MS', 12000, 1000, 60000);
+const AI_RETRY_ATTEMPTS = readBoundedEnvInt('AI_RETRY_ATTEMPTS', 2, 1, 5);
+const AI_TOTAL_BUDGET_MS = readBoundedEnvInt('AI_TOTAL_BUDGET_MS', 28000, 1000, 120000);
+
+/**
+ * HTTP status retry policy.
+ *   400 / 401 / 403 / 404  → never retry (client/auth/config error)
+ *   408 / 429              → bounded retry (429 respects a sane Retry-After)
+ *   500 / 502 / 503 / 504  → bounded retry
+ *   everything else        → no retry
+ */
+export function isRetryableStatus(status: number): boolean {
+  if (status === 408 || status === 429) return true;
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+/** Retry-After in seconds or HTTP-date; ignored when absent/absurd (>15s). */
+export function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const secs = Number(value.trim());
+  if (Number.isFinite(secs)) {
+    const ms = Math.trunc(secs * 1000);
+    return ms >= 0 && ms <= 15000 ? ms : null;
+  }
+  const when = Date.parse(value);
+  if (!Number.isFinite(when)) return null;
+  const ms = when - Date.now();
+  return ms > 0 && ms <= 15000 ? ms : null;
+}
 
 export interface AIConfig {
   provider: string;
@@ -245,7 +295,18 @@ async function fetchWithRetry(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), Math.min(timeoutMs, remaining));
     try {
-      return await doFetch(url, { ...init, signal: ctrl.signal });
+      const res = await doFetch(url, { ...init, signal: ctrl.signal });
+      // HTTP-level retry policy (see isRetryableStatus). Non-retryable
+      // responses — including every 4xx that is not 408/429 — go straight
+      // back to the caller.
+      if (res.ok || !isRetryableStatus(res.status) || attempt === maxAttempts) return res;
+      const retryAfter = res.status === 429 ? parseRetryAfterMs(res.headers.get('retry-after')) : null;
+      const backoff = retryAfter ?? 750 * Math.pow(2, attempt - 1);
+      if (deadline - Date.now() - backoff <= 0) return res;
+      try { await res.body?.cancel(); } catch { /* ignore */ }
+      console.warn('[ai] retryable provider status, retrying', { attempt, status: res.status, backoff });
+      await new Promise((r) => setTimeout(r, backoff));
+      continue;
     } catch (err: any) {
       lastErr = err;
       const detail = String(
@@ -258,11 +319,13 @@ async function fetchWithRetry(
       const delay = 750 * Math.pow(2, attempt - 1); // 750ms, 1.5s
       const budgetLeft = deadline - Date.now() - delay;
       if (!transient || attempt === maxAttempts || budgetLeft <= 0) {
-        throw new Error(`AI network error after ${attempt} attempt(s): ${detail || err?.name || 'unknown'}`);
+        throw new Error(
+          `AI network error after ${attempt} attempt(s): ${redactSecrets(detail) || err?.name || 'unknown'}`,
+        );
       }
       console.warn(`[ai] transient fetch failure, retrying in ${delay}ms`, {
         attempt,
-        error: err?.message,
+        error: redactSecrets(err?.message),
         code: err?.code || err?.cause?.code,
       });
       await new Promise((r) => setTimeout(r, delay));
@@ -499,7 +562,19 @@ export async function executeAICompletion(
   if (!aiConfig) {
     throw new Error('No AI provider configured. Set up an AI provider in admin settings.');
   }
+  return executeAICompletionWithConfig(serverConfig, aiConfig, request);
+}
 
+/**
+ * Same as executeAICompletion but for callers that already resolved the
+ * provider config (engine generation stage) — avoids a duplicate DB lookup
+ * on every visitor turn.
+ */
+export async function executeAICompletionWithConfig(
+  serverConfig: ServerConfig,
+  aiConfig: AIConfig,
+  request: AIRequest,
+): Promise<AIResponse> {
   const handler = providerHandlers[aiConfig.provider];
   if (!handler) {
     throw new Error(`Unsupported AI provider: ${aiConfig.provider}`);
@@ -531,7 +606,7 @@ export async function executeAICompletion(
       provider_name: aiConfig.provider,
       model: request.model || aiConfig.model,
       success: false,
-      error_message: err.message,
+      error_message: redactSecrets(err?.message),
       endpoint: 'complete',
     });
     throw err;
@@ -576,6 +651,6 @@ export async function testAIConnection(
     );
     return { success: true, latencyMs: result.latencyMs, model: result.model };
   } catch (err: any) {
-    return { success: false, latencyMs: 0, model: config.model, error: err.message };
+    return { success: false, latencyMs: 0, model: config.model, error: redactSecrets(err?.message) || 'unknown_error' };
   }
 }

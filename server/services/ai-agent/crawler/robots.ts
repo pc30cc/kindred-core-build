@@ -2,29 +2,64 @@
  * Tiny robots.txt fetcher + path matcher. We follow the documented user-agent
  * scoping but keep things deliberately minimal; bypass via AI_KB_IGNORE_ROBOTS=1
  * (self-host operator override).
+ *
+ * SECURITY: robots.txt is fetched through the SAME hardened outbound transport
+ * as page fetches (`safeCrawlFetch`) — manual redirects, per-hop scheme/host/DNS
+ * validation, connect-time DNS pinning, byte cap and a deadline that covers body
+ * streaming. robots.txt is plain text, so only the content-type gate differs.
  */
+import { safeCrawlFetch, type SafeCrawlFetchOptions } from './safeCrawlFetch.js';
 
 const cache = new Map<string, { rules: { allow: string[]; disallow: string[] }; expires: number }>();
 
-export async function getRobotsRules(rootUrl: string, userAgent: string): Promise<{ allow: string[]; disallow: string[] }> {
+const ROBOTS_TIMEOUT_MS = 5000;
+const ROBOTS_MAX_BYTES = 100_000;
+
+export interface GetRobotsOptions {
+  /** Test seams, forwarded to the hardened transport. */
+  lookupImpl?: SafeCrawlFetchOptions['lookupImpl'];
+  fetchImpl?: SafeCrawlFetchOptions['fetchImpl'];
+  /** Skip the module-level cache (tests). */
+  noCache?: boolean;
+}
+
+export async function getRobotsRules(
+  rootUrl: string,
+  userAgent: string,
+  options: GetRobotsOptions = {},
+): Promise<{ allow: string[]; disallow: string[] }> {
   if (process.env.AI_KB_IGNORE_ROBOTS === '1') return { allow: [], disallow: [] };
   const u = new URL(rootUrl);
   const key = `${u.origin}|${userAgent.toLowerCase()}`;
-  const hit = cache.get(key);
-  if (hit && hit.expires > Date.now()) return hit.rules;
+  if (!options.noCache) {
+    const hit = cache.get(key);
+    if (hit && hit.expires > Date.now()) return hit.rules;
+  }
 
   const robotsUrl = `${u.origin}/robots.txt`;
+  const origin = u.origin;
   let body = '';
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 5000);
-    const r = await fetch(robotsUrl, { signal: ctrl.signal, headers: { 'user-agent': userAgent } });
-    clearTimeout(t);
-    if (r.ok) body = (await r.text()).slice(0, 100_000);
-  } catch { /* tolerate missing robots.txt */ }
+    const res = await safeCrawlFetch(robotsUrl, {
+      userAgent,
+      timeoutMs: ROBOTS_TIMEOUT_MS,
+      maxBytes: ROBOTS_MAX_BYTES,
+      // robots.txt is only ever valid on the SAME origin as the crawl root:
+      // any cross-origin (or cross-scheme/port) redirect is refused.
+      isUrlAllowed: (candidate) => {
+        try { return new URL(candidate).origin === origin; } catch { return false; }
+      },
+      accept: 'text/plain, text/*;q=0.9, */*;q=0.1',
+      // Plain text expected; never HTML-gate robots.txt.
+      isContentTypeAllowed: () => true,
+      lookupImpl: options.lookupImpl,
+      fetchImpl: options.fetchImpl,
+    });
+    if (res.ok && res.html) body = res.html.slice(0, ROBOTS_MAX_BYTES);
+  } catch { /* tolerate missing/blocked robots.txt */ }
 
   const rules = parseRobots(body, userAgent);
-  cache.set(key, { rules, expires: Date.now() + 30 * 60_000 });
+  if (!options.noCache) cache.set(key, { rules, expires: Date.now() + 30 * 60_000 });
   return rules;
 }
 

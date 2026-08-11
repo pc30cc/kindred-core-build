@@ -14,6 +14,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { canonicalize, isPathAllowed, isSameDomain, normalizeHost, urlHash, type PathFilter } from './urlRules.js';
+import { safeCrawlFetch } from './safeCrawlFetch.js';
 import { extractFromHtml, sha256Hex } from './extractText.js';
 import { getRobotsRules, isPathAllowedByRobots } from './robots.js';
 import { chunkText } from '../knowledgeIndex/chunker.js';
@@ -105,7 +106,7 @@ export async function crawlWebsiteSource(
     }
 
     // Fetch
-    const fetched = await fetchPage(url);
+    const fetched = await fetchPage(url, opts.rootHost);
     if (!fetched.ok || !fetched.html) {
       summary.pages_failed += 1;
       summary.errors.push(`${fetched.error || 'fetch_failed'}: ${url}`);
@@ -199,28 +200,21 @@ export async function crawlWebsiteSource(
   return summary;
 }
 
-async function fetchPage(url: string): Promise<{ ok: boolean; html?: string; status?: number; error?: string }> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), DEFAULT_TIMEOUT_MS);
-    const r = await fetch(url, {
-      signal: ctrl.signal,
-      redirect: 'follow',
-      headers: { 'user-agent': USER_AGENT, 'accept': 'text/html,application/xhtml+xml' },
-    });
-    clearTimeout(timer);
-    if (!r.ok) return { ok: false, status: r.status, error: `http_${r.status}` };
-    const ct = (r.headers.get('content-type') || '').toLowerCase();
-    if (!ct.includes('text/html') && !ct.includes('application/xhtml')) {
-      return { ok: false, status: r.status, error: 'unsupported_content_type' };
-    }
-    const buf = await r.arrayBuffer();
-    if (buf.byteLength > MAX_PAGE_BYTES) return { ok: false, status: r.status, error: 'page_too_large' };
-    const html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
-    return { ok: true, html, status: r.status };
-  } catch (err: any) {
-    return { ok: false, error: err?.name === 'AbortError' ? 'timeout' : (err?.message?.slice(0, 120) || 'fetch_error') };
-  }
+/**
+ * Fetch one page through the SSRF-hardened transport: manual redirects,
+ * per-hop DNS + same-domain revalidation and a streaming body cap.
+ */
+async function fetchPage(
+  url: string,
+  rootHost: string,
+): Promise<{ ok: boolean; html?: string; status?: number; error?: string }> {
+  const result = await safeCrawlFetch(url, {
+    userAgent: USER_AGENT,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxBytes: MAX_PAGE_BYTES,
+    isUrlAllowed: (candidate) => isSameDomain(candidate, rootHost),
+  });
+  return { ok: result.ok, html: result.html, status: result.status, error: result.error };
 }
 
 async function recordPage(

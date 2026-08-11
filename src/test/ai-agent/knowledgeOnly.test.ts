@@ -64,6 +64,7 @@ vi.mock('../../../server/services/ai-agent/answerStrategy.js', async (importOrig
 });
 
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({
+  finalizeRun: async () => {},
   logRun: async (_config: any, input: any) => {
     logRunCalls.push(input);
     return `run-${logRunCalls.length}`;

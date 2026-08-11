@@ -13,7 +13,6 @@ import { useWorkspacePlan } from '@/hooks/usePlans';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Progress } from '@/components/ui/progress';
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as ReTooltip, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
@@ -21,6 +20,8 @@ import {
   MessageSquare, Users, BookOpen, Eye, Inbox, Bot, ArrowUpRight, ArrowRight,
   Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio,
 } from 'lucide-react';
+import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
+import { cn } from '@/lib/utils';
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
@@ -133,41 +134,38 @@ export default function OverviewPage() {
   const contactLimit = Number(limits.max_contacts ?? 0);
   const contactUsed = (contacts ?? []).length;
 
-  const stats = [
-    { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, tone: 'primary', path: '/inbox' },
-    { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, tone: 'success', path: '/visitors' },
-    { label: tr('dashboard.statVisitsToday'), value: visitsToday, icon: Eye, tone: 'info', path: '/visitors' },
-    { label: tr('dashboard.statContacts'), value: contactUsed, icon: Users, tone: 'info', path: '/contacts' },
-    { label: tr('dashboard.statTeamOnline'), value: teamOnline, icon: ShieldCheck, tone: 'warning', path: '/settings/team' },
+  const stats: { label: string; value: number; icon: React.ElementType; accent: AiAccent; path: string }[] = [
+    { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, accent: 'indigo', path: '/inbox' },
+    { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, accent: 'emerald', path: '/visitors' },
+    { label: tr('dashboard.statVisitsToday'), value: visitsToday, icon: Eye, accent: 'sky', path: '/visitors' },
+    { label: tr('dashboard.statContacts'), value: contactUsed, icon: Users, accent: 'amber', path: '/contacts' },
+    { label: tr('dashboard.statTeamOnline'), value: teamOnline, icon: ShieldCheck, accent: 'rose', path: '/settings/team' },
   ];
-
-  const toneCls: Record<string, { bg: string; fg: string; ring: string }> = {
-    primary: { bg: 'bg-primary/10', fg: 'text-primary', ring: 'ring-primary/20' },
-    success: { bg: 'bg-success/10', fg: 'text-success', ring: 'ring-success/20' },
-    info: { bg: 'bg-info/10', fg: 'text-info', ring: 'ring-info/20' },
-    warning: { bg: 'bg-warning/10', fg: 'text-warning', ring: 'ring-warning/20' },
-  };
 
   const recent = list.slice(0, 6);
 
   return (
     <div dir={dir} className="space-y-6 animate-fade-in">
       {/* ── Hero ─────────────────────────────────────────── */}
-      <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-background to-background p-6 shadow-sm">
-        <div className="pointer-events-none absolute -top-24 end-[-4rem] h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute bottom-[-6rem] start-1/3 h-48 w-48 rounded-full bg-info/10 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-indigo-500/[0.14] via-violet-500/[0.08] to-cyan-500/[0.06] p-6 shadow-sm sm:p-7">
+        <div className="pointer-events-none absolute -top-24 end-[-4rem] h-64 w-64 rounded-full bg-violet-500/25 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-[-7rem] start-1/4 h-56 w-56 rounded-full bg-cyan-500/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 end-1/3 h-40 w-40 rounded-full bg-amber-500/15 blur-3xl" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div
               dir={dir}
-              className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur"
+              className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur"
             >
+              <Sparkles className="h-3 w-3 text-violet-500" />
               <bdi>{formatLongDate(new Date())}</bdi>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              {greeting}{userName ? `، ${userName}` : ''}
+            <h1 className="text-2xl font-bold tracking-tight sm:text-[32px]">
+              <span className="bg-gradient-to-br from-indigo-600 via-violet-600 to-cyan-500 bg-clip-text text-transparent dark:from-indigo-300 dark:via-violet-300 dark:to-cyan-200">
+                {greeting}{userName ? `، ${userName}` : ''}
+              </span>
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1.5 text-sm text-muted-foreground">
               {workspace?.name
                 ? `${tr('dashboard.workspaceLabel')}: ${workspace.name}`
                 : platformName}
@@ -176,9 +174,9 @@ export default function OverviewPage() {
 
           <Link
             to={wsPath('/billing')}
-            className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 px-4 py-3 backdrop-blur transition-colors hover:border-primary/40"
+            className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3 shadow-sm backdrop-blur transition-all hover:-translate-y-0.5 hover:border-violet-500/40 hover:shadow-md"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/25">
               <Sparkles className="h-4 w-4" />
             </span>
             <span className="leading-tight">
@@ -192,17 +190,22 @@ export default function OverviewPage() {
         {/* quick actions */}
         <div className="relative mt-5 flex flex-wrap gap-2">
           {[
-            { label: tr('dashboard.openInbox'), icon: Inbox, path: '/inbox' },
-            { label: tr('dashboard.manageContacts'), icon: Users, path: '/contacts' },
-            { label: tr('dashboard.manageKb'), icon: BookOpen, path: '/knowledge-base' },
-            { label: tr('dashboard.aiAgent'), icon: Bot, path: '/ai-agent' },
+            { label: tr('dashboard.openInbox'), icon: Inbox, path: '/inbox', accent: 'emerald' as AiAccent },
+            { label: tr('dashboard.manageContacts'), icon: Users, path: '/contacts', accent: 'amber' as AiAccent },
+            { label: tr('dashboard.manageKb'), icon: BookOpen, path: '/knowledge-base', accent: 'cyan' as AiAccent },
+            { label: tr('dashboard.aiAgent'), icon: Bot, path: '/ai-agent', accent: 'violet' as AiAccent },
           ].map((a) => (
             <Link
               key={a.label}
               to={wsPath(a.path)}
-              className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card/70 px-3.5 py-2 text-xs font-medium text-foreground backdrop-blur transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary"
+              className="group inline-flex items-center gap-2 rounded-2xl border border-border/60 bg-card/70 py-1.5 pe-3.5 ps-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
-              <a.icon className="h-3.5 w-3.5" />
+              <span className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm transition-transform group-hover:scale-105',
+                AI_ACCENT[a.accent].grad,
+              )}>
+                <a.icon className="h-3.5 w-3.5" />
+              </span>
               {a.label}
             </Link>
           ))}
@@ -212,21 +215,26 @@ export default function OverviewPage() {
       {/* ── KPI cards ────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {stats.map((s) => {
-          const tone = toneCls[s.tone];
+          const a = AI_ACCENT[s.accent];
           return (
             <Link
               key={s.label}
               to={wsPath(s.path)}
-              className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
             >
+              <span className={cn('pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r', a.grad)} />
+              <span className={cn('pointer-events-none absolute -top-10 -end-8 h-24 w-24 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100', a.glow)} />
               <div className="flex items-start justify-between">
-                <span className={`flex h-10 w-10 items-center justify-center rounded-xl ring-1 ${tone.bg} ${tone.ring}`}>
-                  <s.icon className={`h-4.5 w-4.5 ${tone.fg}`} />
+                <span className={cn(
+                  'flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-md transition-transform duration-300 group-hover:scale-110',
+                  a.grad,
+                )}>
+                  <s.icon className="h-[18px] w-[18px]" />
                 </span>
                 <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
               </div>
-              <div className="mt-3 text-2xl font-bold tabular-nums text-foreground">{fmt(s.value)}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">{s.label}</div>
+              <div className="relative mt-3 text-[26px] font-extrabold leading-none tabular-nums text-foreground">{fmt(s.value)}</div>
+              <div className="relative mt-1.5 text-xs font-medium text-muted-foreground">{s.label}</div>
             </Link>
           );
         })}
@@ -235,30 +243,42 @@ export default function OverviewPage() {
       {/* ── Main grid ────────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Chart */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm xl:col-span-2">
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm xl:col-span-2">
+          <div className="pointer-events-none absolute -top-16 -start-10 h-40 w-40 rounded-full bg-indigo-500/15 blur-3xl" />
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.activityTitle')}</h2>
-              <p className="text-xs text-muted-foreground">{tr('dashboard.activitySubtitle')}</p>
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
+                <MessageSquare className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.activityTitle')}</h2>
+                <p className="text-xs text-muted-foreground">{tr('dashboard.activitySubtitle')}</p>
+              </div>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+                <CheckCircle2 className="h-3.5 w-3.5" />
                 {tr('dashboard.resolvedConversations')}: <b className="text-foreground">{fmt(resolved)}</b>
               </span>
-              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                <Clock className="h-3.5 w-3.5 text-warning" />
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-300">
+                <Clock className="h-3.5 w-3.5" />
                 {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(openConvos)}</b>
               </span>
             </div>
           </div>
-          <div className="h-[240px] w-full" dir="ltr">
+          <div className="relative h-[240px] w-full" dir="ltr">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
                 <defs>
                   <linearGradient id="convGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.45} />
+                    <stop offset="60%" stopColor="#6366f1" stopOpacity={0.15} />
+                    <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="convStroke" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#6366f1" />
+                    <stop offset="50%" stopColor="#8b5cf6" />
+                    <stop offset="100%" stopColor="#06b6d4" />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -274,32 +294,38 @@ export default function OverviewPage() {
                   }}
                   labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
                 />
-                <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#convGrad)" />
+                <Area type="monotone" dataKey="value" stroke="url(#convStroke)" strokeWidth={2.5} fill="url(#convGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Plan & usage */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.planUsage')}</h2>
-            <Link to={wsPath('/billing')} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+          <div className="pointer-events-none absolute -top-16 -end-10 h-40 w-40 rounded-full bg-emerald-500/15 blur-3xl" />
+          <div className="relative mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/25">
+                <CreditCard className="h-4 w-4" />
+              </span>
+              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.planUsage')}</h2>
+            </div>
+            <Link to={wsPath('/billing')} className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-300">
               <CreditCard className="h-3.5 w-3.5" />
               {tr('dashboard.manageBilling')}
             </Link>
           </div>
 
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+          <div className="relative rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 p-3.5">
             <p className="text-[11px] text-muted-foreground">{tr('dashboard.currentPlan')}</p>
             <p className="text-lg font-bold text-foreground">{planName}</p>
           </div>
 
-          <div className="mt-4 space-y-4">
+          <div className="relative mt-4 space-y-4">
             {[
-              { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit },
-              { label: tr('dashboard.statTeamOnline'), used: seatUsed, limit: seatLimit },
-              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: Number(limits.max_kb_articles ?? 0) },
+              { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' },
+              { label: tr('dashboard.statTeamOnline'), used: seatUsed, limit: seatLimit, grad: 'from-rose-500 to-pink-500' },
+              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: Number(limits.max_kb_articles ?? 0), grad: 'from-cyan-500 to-sky-500' },
             ].map((row) => {
               const unlimited = !row.limit || row.limit <= 0;
               const pct = unlimited ? 0 : Math.min(100, Math.round((row.used / row.limit) * 100));
@@ -311,7 +337,12 @@ export default function OverviewPage() {
                       {fmt(row.used)}{unlimited ? ' / ∞' : ` / ${fmt(row.limit)}`}
                     </span>
                   </div>
-                  <Progress value={unlimited ? 4 : pct} className="h-1.5" />
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn('h-full rounded-full bg-gradient-to-r transition-all duration-500', row.grad)}
+                      style={{ width: `${unlimited ? 6 : Math.max(pct, 3)}%` }}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -322,10 +353,15 @@ export default function OverviewPage() {
       {/* ── Recent + team ────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Recent conversations */}
-        <div className="rounded-2xl border border-border/60 bg-card shadow-sm xl:col-span-2">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.recentConversations')}</h2>
-            <Link to={wsPath('/inbox')} className="text-xs font-medium text-primary hover:underline">
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm xl:col-span-2">
+          <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-sky-500/[0.10] to-transparent px-5 py-3.5">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/25">
+                <MessageSquare className="h-4 w-4" />
+              </span>
+              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.recentConversations')}</h2>
+            </div>
+            <Link to={wsPath('/inbox')} className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-300">
               {tr('dashboard.viewAll')}
             </Link>
           </div>
@@ -344,9 +380,9 @@ export default function OverviewPage() {
                       to={wsPath(`/inbox?c=${c.id}`)}
                       className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                     >
-                      <Avatar className="h-8 w-8">
+                      <Avatar className="h-9 w-9 ring-2 ring-sky-500/15">
                         {c.contacts?.avatar_url ? <AvatarImage src={c.contacts.avatar_url} alt={name} /> : null}
-                        <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
+                        <AvatarFallback className="bg-gradient-to-br from-sky-500 to-blue-500 text-[11px] font-semibold text-white">
                           {String(name).charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -357,12 +393,12 @@ export default function OverviewPage() {
                         </p>
                       </div>
                       <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
                           c.status === 'open'
-                            ? 'bg-primary/10 text-primary'
+                            ? 'bg-indigo-500/10 text-indigo-600 ring-indigo-500/20 dark:text-indigo-300'
                             : c.status === 'pending'
-                            ? 'bg-warning/10 text-warning'
-                            : 'bg-success/10 text-success'
+                            ? 'bg-amber-500/10 text-amber-600 ring-amber-500/20 dark:text-amber-300'
+                            : 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-300'
                         }`}
                       >
                         {tr(`inbox.${c.status || 'open'}`)}
@@ -381,10 +417,16 @@ export default function OverviewPage() {
         </div>
 
         {/* Team presence */}
-        <div className="rounded-2xl border border-border/60 bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.teamStatus')}</h2>
-            <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+          <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-rose-500/[0.10] to-transparent px-5 py-3.5">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/25">
+                <ShieldCheck className="h-4 w-4" />
+              </span>
+              <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.teamStatus')}</h2>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>
           </div>

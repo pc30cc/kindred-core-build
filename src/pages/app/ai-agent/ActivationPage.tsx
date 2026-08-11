@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Check, X, Loader2, AlertTriangle, Info } from 'lucide-react';
+import { Check, X, Loader2, AlertTriangle, Info, Power } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 import type { AgentMode, AgentSettings, EscalationStyle } from '@/lib/ai-agent-api';
 
 function CheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
@@ -71,26 +72,27 @@ export default function ActivationPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('aiAgent.activation.title')}</h1>
-        <p className="text-sm text-muted-foreground mt-1">{t('aiAgent.activation.subtitle')}</p>
-      </div>
-
-      {/* Master toggle */}
-      <Card>
-        <CardContent className="p-6 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${settings.enabled ? 'bg-success/15' : 'bg-muted'}`}>
-              <div className={`h-2.5 w-2.5 rounded-full ${settings.enabled ? 'bg-success' : 'bg-muted-foreground/40'}`} />
+      <AiPageHeader
+        icon={Power}
+        accent="emerald"
+        title={t('aiAgent.activation.title')}
+        subtitle={t('aiAgent.activation.subtitle')}
+        meta={
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${settings.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-muted text-muted-foreground'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${settings.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/50'}`} />
+            {settings.enabled ? t('aiAgent.activation.active') : t('aiAgent.activation.disabled')}
+          </span>
+        }
+        actions={
+          <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/70 px-4 py-2.5 backdrop-blur-sm">
+            <div className="text-end">
+              <p className="text-xs text-muted-foreground">{t('aiAgent.activation.modeLabel')}</p>
+              <p className="text-[13px] font-semibold">{t(`aiAgent.activation.${MODE_KEYS[settings.mode]}` as any)}</p>
             </div>
-            <div>
-              <p className="font-semibold">{settings.enabled ? t('aiAgent.activation.active') : t('aiAgent.activation.disabled')}</p>
-              <p className="text-xs text-muted-foreground">{t('aiAgent.activation.modeLabel')}: <Badge variant="outline" className="text-[10px]">{t(`aiAgent.activation.${MODE_KEYS[settings.mode]}` as any)}</Badge></p>
-            </div>
+            <Switch checked={settings.enabled} onCheckedChange={onToggle} disabled={update.isPending} />
           </div>
-          <Switch checked={settings.enabled} onCheckedChange={onToggle} disabled={update.isPending} />
-        </CardContent>
-      </Card>
+        }
+      />
 
       {/* Mode */}
       <Card>
@@ -330,54 +332,6 @@ export default function ActivationPage() {
         </CardContent>
       </Card>
 
-      {/* Learning — placeholder, feature ships in Phase 2 */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">{t('aiAgent.activation.learningTitle')}</CardTitle>
-            <Badge variant="outline" className="text-[10px]">{t('aiAgent.activation.comingSoon')}</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            {t('aiAgent.activation.learningIntro')}
-          </p>
-          <div className="flex items-center justify-between opacity-70">
-            <div>
-              <Label>{t('aiAgent.activation.enableLearning')}</Label>
-              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.enableLearningHint')}</p>
-            </div>
-            <Switch
-              checked={settings.learning_enabled !== false}
-              onCheckedChange={(v) => patch({ learning_enabled: v })}
-              disabled={update.isPending}
-            />
-          </div>
-          <div className="flex items-center justify-between opacity-70">
-            <div>
-              <Label>{t('aiAgent.activation.autoCandidates')}</Label>
-              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.autoCandidatesHint')}</p>
-            </div>
-            <Switch
-              checked={settings.auto_create_learning_candidates !== false}
-              onCheckedChange={(v) => patch({ auto_create_learning_candidates: v })}
-              disabled={update.isPending}
-            />
-          </div>
-          <div className="flex items-center justify-between opacity-70">
-            <div>
-              <Label>{t('aiAgent.activation.requireApproval')}</Label>
-              <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.requireApprovalHint')}</p>
-            </div>
-            <Switch
-              checked={settings.require_approval_for_learning !== false}
-              onCheckedChange={(v) => patch({ require_approval_for_learning: v })}
-              disabled={update.isPending}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Checklist */}
       <Card>
         <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.checklistTitle')}</CardTitle></CardHeader>
@@ -418,24 +372,6 @@ export default function ActivationPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.perHour')}</span><span>{limits.per_hour}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.fallbackShort')}</span><span>{limits.fallback_behavior === 'silent' ? t('aiAgent.activation.fallbackSilent') : t('aiAgent.activation.fallbackHandoff')}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">{t('aiAgent.activation.stopOnHandoffShort')}</span><span>{limits.stop_on_handoff ? t('aiAgent.activation.yes') : t('aiAgent.activation.no')}</span></div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Recent runs */}
-      {diag.recent_runs && diag.recent_runs.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.recentRuns')}</CardTitle></CardHeader>
-          <CardContent className="space-y-1.5 text-sm">
-            {diag.recent_runs.slice(0, 5).map((r) => (
-              <div key={r.id} className="flex items-center justify-between py-1 border-b last:border-0">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px]">{r.run_type || '?'}</Badge>
-                  <span className="text-xs text-muted-foreground">{r.mode || ''}</span>
-                </div>
-                <Badge variant={r.status === 'replied' || r.status === 'suggested' ? 'default' : 'secondary'} className="text-[10px]">{r.status || '?'}</Badge>
-              </div>
-            ))}
           </CardContent>
         </Card>
       )}

@@ -15,7 +15,7 @@ import { evaluateMessageTriggers } from '../../../server/services/ai-agent/runti
 import { evaluateInternalTools } from '../../../server/services/ai-agent/runtime/toolRuntime.js';
 import { makeSettings, makeConversationState } from './helpers/engineFixtures.js';
 
-function topic(overrides: Record<string, any> = {}) {
+function topic(overrides: Record<string, any> = {}): any {
   return {
     id: 't1', workspace_id: 'ws-1', name: 'Pricing', description: null, slug: 'pricing',
     keywords: ['price', 'pricing', 'plan'], examples: [], language: null,
@@ -25,7 +25,7 @@ function topic(overrides: Record<string, any> = {}) {
   };
 }
 
-function evalCtx(overrides: Record<string, any> = {}) {
+function evalCtx(overrides: Record<string, any> = {}): any {
   return {
     workspaceId: 'ws-1',
     conversationId: 'conv-1',

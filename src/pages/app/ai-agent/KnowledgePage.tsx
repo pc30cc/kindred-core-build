@@ -14,6 +14,7 @@ import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 import { EntitlementAccessGate } from '@/components/plan/EntitlementAccessGate';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
@@ -107,19 +108,7 @@ export default function KnowledgePage() {
 
   return (
     <div className="space-y-8" dir={dir}>
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex items-start gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-            <BookOpen className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Knowledge')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Sources your AI Agent uses to answer visitors.')}</p>
-          </div>
-        </div>
-      </div>
+      <AiPageHeader icon={BookOpen} accent="cyan" title={tr('title', 'Knowledge')} subtitle={tr('subtitle', 'Sources your AI Agent uses to answer visitors.')} />
 
       {/* Phase 6-S5-R1 — the AI KB Builder has its OWN entitlement. When it
           is locked, only this card is replaced; the rest of Knowledge

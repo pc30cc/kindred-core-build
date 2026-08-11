@@ -2899,9 +2899,11 @@ const tr: TranslationKeys = {
     notVisibleToVisitor: 'Siz göndermeden ziyaretçi göremez',
     suggestionInserted: 'Yanıt kutusuna eklendi',
     title: 'AI Asistanı',
+    subtitle: 'Sohbetlerinizi otomatikleştirin',
     section: { main: 'AI Asistanı' },
     nav: {
       overview: 'Genel Bakış',
+      activation: 'Etkinleştirme',
       articles: 'Yardım Makaleleri',
       knowledge: 'Bilgi Kaynakları',
       behavior: 'Davranış',

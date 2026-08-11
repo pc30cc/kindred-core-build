@@ -2899,9 +2899,11 @@ const fa: TranslationKeys = {
     notVisibleToVisitor: 'تا زمانی که ارسال نکنید برای بازدیدکننده نمایش داده نمی‌شود',
     suggestionInserted: 'در کادر پاسخ درج شد',
     title: 'دستیار هوشمند',
+    subtitle: 'گفتگوهای خود را هوشمند کنید',
     section: { main: 'دستیار هوشمند' },
     nav: {
       overview: 'نمای کلی',
+      activation: 'فعال‌سازی',
       articles: 'مقالات راهنما',
       knowledge: 'منابع دانش',
       behavior: 'رفتار',

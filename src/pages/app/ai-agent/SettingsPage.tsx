@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Sparkles, Bot, Loader2, Upload, Trash2, Settings as SettingsIcon, User, FileText, Eye, MessageCircle, Languages, Tags, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 const FALLBACK_INTRO_TEMPLATES: Record<string, (name: string) => string> = {
   en: (name) =>
@@ -35,13 +36,6 @@ const FALLBACK_HANDOFF_PRECHAT_TEMPLATES: Record<string, string> = {
 const LOCALE_LABELS: Record<string, string> = { fa: 'فارسی', en: 'English', tr: 'Türkçe' };
 const LOCALE_DIR: Record<string, 'rtl' | 'ltr'> = { fa: 'rtl', en: 'ltr', tr: 'ltr' };
 
-const ENABLE_ERROR_MESSAGES: Record<string, string> = {
-  ai_provider_not_configured: 'یک سرویس‌دهنده هوش مصنوعی برای این ورک‌اسپیس تنظیم نشده است.',
-  no_published_knowledge: 'برای پاسخ‌دهی فقط از پایگاه دانش، باید حداقل یک مقاله منتشر شده داشته باشید.',
-  module_ai_assistant_not_enabled: 'ماژول دستیار هوشمند در پلن فعلی این ورک‌اسپیس فعال نیست.',
-  owner_or_admin_required: 'فقط مالک یا ادمین ورک‌اسپیس می‌تواند این تنظیم را تغییر دهد.',
-};
-
 export default function AiAgentSettingsPage() {
   const { workspace } = useActiveWorkspace();
   const { data, isLoading } = useAiAgentSettings(workspace?.id);
@@ -56,7 +50,6 @@ export default function AiAgentSettingsPage() {
   const [form, setForm] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [enabling, setEnabling] = useState(false);
   const [introDrafts, setIntroDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [handoffDrafts, setHandoffDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
   const [handoffPrechatDrafts, setHandoffPrechatDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
@@ -109,19 +102,8 @@ export default function AiAgentSettingsPage() {
     });
   };
 
-  const toggleEnabled = async (v: boolean) => {
-    setEnabling(true);
-    try {
-      await update.mutateAsync({ enabled: v });
-      set({ enabled: v });
-      toast.success(v ? 'دستیار هوشمند فعال شد' : 'دستیار هوشمند غیرفعال شد');
-    } catch (e: any) {
-      toast.error(ENABLE_ERROR_MESSAGES[e?.code] || e?.message || 'ذخیره‌سازی ناموفق بود');
-    } finally {
-      setEnabling(false);
-    }
-  };
-
+  // Enable/disable is owned by the Activation page — Settings only shows
+  // the resulting status so the owner never has two conflicting switches.
   const toggleIntro = async (v: boolean) => {
     try {
       await update.mutateAsync({ ai_intro_enabled: v });
@@ -280,26 +262,18 @@ export default function AiAgentSettingsPage() {
 
   return (
     <div className="space-y-8 animate-fade-in" dir={dir}>
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-              <SettingsIcon className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Agent Settings')}</h1>
-              <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Configure how the AI agent presents itself and answers visitors.')}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 self-start sm:self-auto rounded-xl border border-border/60 bg-background/60 px-4 py-2.5">
-            <span className={`h-2 w-2 rounded-full ${form.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/40'}`} />
-            <span className="text-sm font-medium">{form.enabled ? 'دستیار هوشمند فعال است' : 'دستیار هوشمند غیرفعال است'}</span>
-            <Switch checked={!!form.enabled} onCheckedChange={toggleEnabled} disabled={enabling} />
-          </div>
-        </div>
-      </div>
+      <AiPageHeader
+        icon={SettingsIcon}
+        accent="rose"
+        title={tr('title', 'Agent Settings')}
+        subtitle={tr('subtitle', 'Configure how the AI agent presents itself and answers visitors.')}
+        meta={
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${form.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-border bg-muted text-muted-foreground'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${form.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/50'}`} />
+            {form.enabled ? t('aiAgent.activation.active') : t('aiAgent.activation.disabled')}
+          </span>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">

@@ -10,7 +10,7 @@
  * inside its mock implementations.
  */
 
-export function makeSettings(overrides: Record<string, any> = {}) {
+export function makeSettings(overrides: Record<string, any> = {}): any {
   return {
     id: 'settings-1',
     workspace_id: 'ws-1',
@@ -58,7 +58,7 @@ export function makeSettings(overrides: Record<string, any> = {}) {
   };
 }
 
-export function makeConversationState(overrides: Record<string, any> = {}) {
+export function makeConversationState(overrides: Record<string, any> = {}): any {
   return {
     exists: true,
     status: 'open',

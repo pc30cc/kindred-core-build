@@ -27,7 +27,7 @@ const { getSourceHealth } = await import('../../../server/services/ai-agent/sour
 const CONFIG = { supabaseUrl: 'x', supabaseAnonKey: 'y', supabaseServiceRoleKey: 'z' } as any;
 const WS_A = 'ws-a';
 
-function itemFor(items: Array<{ source_type: string; source_id: string }>, sourceId: string) {
+function itemFor(items: Array<any>, sourceId: string) {
   return items.find((i) => i.source_id === sourceId);
 }
 

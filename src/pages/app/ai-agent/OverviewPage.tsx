@@ -155,45 +155,34 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-8" dir={dir}>
-      {/* Hero header */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-              <Bot className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                {tr('title', 'Overview')}
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">
-                {tr('subtitle', 'Status, knowledge readiness, recent activity, and notices for your AI Agent.')}
-              </p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border',
-                  ready
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300',
-                )}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', ready ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500')} />
-                  {ready ? tr('statusReady', 'Ready') : tr('statusNotReady', 'Not ready')}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {ready ? tr('statusReadyHint', 'Your AI Agent is live and answering.') : tr('statusNotReadyHint', 'Add knowledge or enable the agent to go live.')}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 self-start sm:self-auto">
-            <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-background/60 px-4 py-2.5">
-              <span className={cn('h-2 w-2 rounded-full', data.settings.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/40')} />
-              <span className="text-sm font-medium">{data.settings.enabled ? 'دستیار هوشمند فعال است' : 'دستیار هوشمند غیرفعال است'}</span>
-              <Switch checked={!!data.settings.enabled} onCheckedChange={toggleEnabled} disabled={enabling} />
-            </div>
-            <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/activation'))}>
+      <AiPageHeader
+        icon={Bot}
+        accent="indigo"
+        title={tr('title', 'Overview')}
+        subtitle={tr('subtitle', 'Status, knowledge readiness, recent activity, and notices for your AI Agent.')}
+        meta={
+          <>
+            <span className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border',
+              ready
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300',
+            )}>
+              <span className={cn('h-1.5 w-1.5 rounded-full', ready ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500')} />
+              {ready ? tr('statusReady', 'Ready') : tr('statusNotReady', 'Not ready')}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {ready ? tr('statusReadyHint', 'Your AI Agent is live and answering.') : tr('statusNotReadyHint', 'Add knowledge or enable the agent to go live.')}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            <Button
+              size="sm"
+              className="bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:opacity-90 shadow-md shadow-violet-500/20"
+              onClick={() => navigate(wsPath('/ai-agent/activation'))}
+            >
               <ListChecks className="h-3.5 w-3.5 me-1.5" />
               {tr('setupAction', 'Setup & readiness')}
             </Button>
@@ -201,9 +190,9 @@ export default function OverviewPage() {
               <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', overview.isFetching && 'animate-spin')} />
               {tr('refresh', 'Refresh')}
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Status & configuration */}
       <Section title={tr('sectionStatus', 'Status & configuration')}>

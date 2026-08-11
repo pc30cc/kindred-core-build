@@ -36,6 +36,30 @@ import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
+
+/** Colorful icon chip shared by every sidebar entry. */
+function NavChip({
+  icon: Icon,
+  accent,
+  active,
+  collapsed,
+}: { icon: React.ElementType; accent: AiAccent; active: boolean; collapsed: boolean }) {
+  const a = AI_ACCENT[accent];
+  return (
+    <span
+      className={cn(
+        'flex shrink-0 items-center justify-center rounded-lg transition-all duration-200',
+        collapsed ? 'h-9 w-9' : 'h-7 w-7',
+        active
+          ? cn('bg-gradient-to-br text-white shadow-md', a.grad)
+          : cn('ring-1 group-hover:scale-105', a.chip),
+      )}
+    >
+      <Icon className={collapsed ? 'h-[18px] w-[18px]' : 'h-4 w-4'} />
+    </span>
+  );
+}
 
 function NavTip({ label, enabled, children }: { label: string; enabled: boolean; children: React.ReactElement }) {
   if (!enabled) return children;
@@ -199,21 +223,21 @@ export function AppSidebar() {
 
   const mainNav = [
     ...(aiAgentVisible
-      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, locked: !aiAssistantPlanEnabled } as const]
+      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, accent: 'violet', locked: !aiAssistantPlanEnabled } as const]
       : []),
     ...(callCenterVisible
-      ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall, locked: false } as const]
+      ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall, accent: 'emerald', locked: false } as const]
       : []),
-    { key: 'visitors', path: '/visitors', icon: Eye, locked: false },
-    { key: 'contacts', path: '/contacts', icon: Users, locked: false },
-    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, locked: false },
-    { key: 'team', path: '/team', icon: UserCog, locked: false },
+    { key: 'visitors', path: '/visitors', icon: Eye, accent: 'sky', locked: false },
+    { key: 'contacts', path: '/contacts', icon: Users, accent: 'amber', locked: false },
+    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, accent: 'cyan', locked: false },
+    { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
 
   const bottomNav = [
-    { key: 'search', path: '#', icon: Search },
-    { key: 'widget', path: '/widget', icon: Package },
-    { key: 'settings', path: '/settings/general', icon: Settings },
+    { key: 'search', path: '#', icon: Search, accent: 'sky' },
+    { key: 'widget', path: '/widget', icon: Package, accent: 'violet' },
+    { key: 'settings', path: '/settings/general', icon: Settings, accent: 'indigo' },
   ] as const;
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
@@ -354,8 +378,8 @@ export function AppSidebar() {
             collapsed && 'justify-center px-0'
           )}
         >
-          <div className="flex items-center gap-2">
-            <LayoutDashboard className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+          <div className="group flex items-center gap-2.5">
+            <NavChip icon={LayoutDashboard} accent="indigo" active={isActive('')} collapsed={collapsed} />
             {!collapsed && <span>{t('nav.dashboard')}</span>}
           </div>
         </Link>
@@ -369,14 +393,14 @@ export function AppSidebar() {
           to={wsPath('/inbox')}
           title={collapsed ? undefined : t('nav.inbox')}
           className={cn(
-            'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+            'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
               ? 'bg-sidebar-accent text-sidebar-accent-foreground'
               : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
             collapsed && 'justify-center px-0'
           )}
         >
-          <Inbox className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+          <NavChip icon={Inbox} accent="emerald" active={isActive('/inbox')} collapsed={collapsed} />
           {!collapsed && <span>{t('nav.inbox')}</span>}
         </Link>
         </NavTip>
@@ -458,14 +482,14 @@ export function AppSidebar() {
             to={wsPath(item.path)}
             title={collapsed ? undefined : t(`nav.${item.key}` as any)}
             className={cn(
-              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                 : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
               collapsed && 'justify-center px-0'
             )}
           >
-            <item.icon className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+            <NavChip icon={item.icon} accent={item.accent} active={isActive(item.path)} collapsed={collapsed} />
             {!collapsed && <span className="flex-1">{t(`nav.${item.key}` as any)}</span>}
             {item.locked && !collapsed && (
               <Lock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="locked" />
@@ -487,14 +511,14 @@ export function AppSidebar() {
               document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
             } : undefined}
             className={cn(
-              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
+              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                 : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
               collapsed && 'justify-center px-0'
             )}
           >
-            <item.icon className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+            <NavChip icon={item.icon} accent={item.accent} active={isActive(item.path)} collapsed={collapsed} />
             {!collapsed && <span>{t(`nav.${item.key}` as any)}</span>}
           </Link>
           </NavTip>
@@ -506,11 +530,11 @@ export function AppSidebar() {
             to="/admin"
             title={collapsed ? undefined : 'Super Admin'}
             className={cn(
-              'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
+              'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',
               collapsed && 'justify-center px-0'
             )}
           >
-            <Shield className={cn('shrink-0', collapsed ? 'h-7 w-7' : 'h-[18px] w-[18px]')} />
+            <NavChip icon={Shield} accent="rose" active={false} collapsed={collapsed} />
             {!collapsed && <span>Super Admin</span>}
           </Link>
           </NavTip>

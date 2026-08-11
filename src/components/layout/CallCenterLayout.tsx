@@ -13,6 +13,7 @@ import { callCenterApi } from '@/lib/call-center-api';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 
 type TabDef = {
   to: string;
@@ -21,16 +22,17 @@ type TabDef = {
   end?: boolean;
   requiresCallback?: boolean;
   requiresRecording?: boolean;
+  accent: AiAccent;
 };
 
 const ALL_TABS: TabDef[] = [
-  { to: '', icon: LayoutDashboard, i18nKey: 'overview', end: true },
-  { to: 'queue', icon: Headphones, i18nKey: 'queue' },
-  { to: 'calls', icon: Phone, i18nKey: 'calls' },
-  { to: 'callbacks', icon: PhoneCall, i18nKey: 'callbacks', requiresCallback: true },
-  { to: 'recordings', icon: Mic, i18nKey: 'recordings', requiresRecording: true },
-  { to: 'install', icon: Code2, i18nKey: 'install' },
-  { to: 'settings', icon: SettingsIcon, i18nKey: 'settings' },
+  { to: '', icon: LayoutDashboard, i18nKey: 'overview', end: true, accent: 'indigo' },
+  { to: 'queue', icon: Headphones, i18nKey: 'queue', accent: 'emerald' },
+  { to: 'calls', icon: Phone, i18nKey: 'calls', accent: 'sky' },
+  { to: 'callbacks', icon: PhoneCall, i18nKey: 'callbacks', requiresCallback: true, accent: 'amber' },
+  { to: 'recordings', icon: Mic, i18nKey: 'recordings', requiresRecording: true, accent: 'rose' },
+  { to: 'install', icon: Code2, i18nKey: 'install', accent: 'cyan' },
+  { to: 'settings', icon: SettingsIcon, i18nKey: 'settings', accent: 'violet' },
 ];
 
 function StatusPill({ tone, children }: { tone: 'ok' | 'warn' | 'danger' | 'muted'; children: React.ReactNode }) {
@@ -99,10 +101,10 @@ export function CallCenterLayout() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <header className="border-b border-border bg-gradient-to-r from-primary/5 via-background to-background">
+      <header className="border-b border-border/60 bg-gradient-to-r from-emerald-500/[0.10] via-teal-500/[0.05] to-transparent">
         <div className="px-6 pt-5 pb-4 flex items-start gap-4 flex-wrap">
           <div className="flex items-center gap-3 flex-1 min-w-[240px]">
-            <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center ring-1 ring-primary/20">
+            <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25 flex items-center justify-center">
               <Headset className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -133,25 +135,39 @@ export function CallCenterLayout() {
             <Button asChild size="sm" variant="ghost"><Link to={`${base}/settings`}><SettingsIcon className="h-4 w-4" /></Link></Button>
           </div>
         </div>
-        <nav className="flex gap-1 px-4 overflow-x-auto">
-          {tabs.map((tab) => (
+        <nav className="flex gap-1.5 px-4 pb-2 overflow-x-auto">
+          {tabs.map((tab) => {
+            const a = AI_ACCENT[tab.accent];
+            return (
             <NavLink
               key={tab.to}
               end={tab.end as any}
               to={tab.to ? `${base}/${tab.to}` : base}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-2 px-3 py-2.5 text-sm border-b-2 -mb-px transition-colors whitespace-nowrap',
+                  'group flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all whitespace-nowrap',
                   isActive
-                    ? 'border-primary text-foreground font-medium'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                    ? 'bg-background shadow-sm ring-1 ring-border/70 font-semibold text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-background/60',
                 )
               }
             >
-              <tab.icon className="h-4 w-4" />
-              {t(`callCenter.layout.tabs.${tab.i18nKey}` as any)}
+              {({ isActive }) => (
+                <>
+                  <span className={cn(
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200',
+                    isActive
+                      ? cn('bg-gradient-to-br text-white shadow-md', a.grad)
+                      : cn('ring-1 group-hover:scale-105', a.chip),
+                  )}>
+                    <tab.icon className="h-4 w-4" />
+                  </span>
+                  <span>{t(`callCenter.layout.tabs.${tab.i18nKey}` as any)}</span>
+                </>
+              )}
             </NavLink>
-          ))}
+            );
+          })}
         </nav>
       </header>
       <main className="flex-1 overflow-y-auto p-6">

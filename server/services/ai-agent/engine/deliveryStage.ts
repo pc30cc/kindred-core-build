@@ -48,6 +48,7 @@ export async function runDeliveryStage(
     routingMeta,
   } = answer;
   const { aiResult } = generation;
+  const aiActionsMeta = (generation as any).actionsMeta || null;
 
   const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
@@ -59,6 +60,7 @@ export async function runDeliveryStage(
     decision_timeline: decisionTimeline,
     runtime_warnings: runtimeCfg?.warnings || [],
     page_context: pageContextMetaRef,
+    ...(aiActionsMeta ? { ai_actions: aiActionsMeta } : {}),
   } as Record<string, unknown>);
 
   const kbIds = sources.filter((s) => s.kind === 'kb_article').map((s) => s.id);

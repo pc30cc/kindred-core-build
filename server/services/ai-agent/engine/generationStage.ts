@@ -41,6 +41,10 @@ import type { AnswerStageResult } from './answerStage.js';
 
 export interface GenerationStageResult {
   aiResult: Awaited<ReturnType<typeof executeAICompletion>>;
+  /** Phase 3 — action pipeline observability metadata (3.13). */
+  actionsMeta?: Record<string, unknown> | null;
+  /** Phase 3 — true when handoff executed through the action pipeline. */
+  actionHandoffExecuted?: boolean;
 }
 
 export async function runGenerationStage(
@@ -249,6 +253,65 @@ export async function runGenerationStage(
     return { terminal: { ran: true, action: 'failed', reason: err?.message || 'ai_call_failed', runId } };
   }
 
+  // ─── Phase 3 — plan → gate → execute → record, BEFORE delivery (3.8) ────
+  let actionsMeta: Record<string, unknown> | null = null;
+  let actionHandoffExecuted = false;
+  if (conversationId && (parseActionPlan(aiResult.text || '').blockPresent || enabledActionNames.length)) {
+    try {
+      const { data: convRow } = await sb
+        .from('conversations')
+        .select('workspace_id,priority,tags,metadata')
+        .eq('id', conversationId)
+        .maybeSingle();
+      const gate: GateContext = {
+        workspaceId,
+        conversationId,
+        conversationWorkspaceId: (convRow as any)?.workspace_id ?? null,
+        visitorMessageId,
+        visitorText: question,
+        enabledActionNames,
+        mode: settings.mode,
+        aiEnabled: settings.mode !== 'off',
+        canAutoReply: !!decision.canAutoReply,
+        canSuggest: !!decision.canSuggest,
+        humanTakeover: !!state?.humanTakeoverAt || !!state?.hasHumanAgentReplied,
+        aiManaged: state ? state.managedByAi !== false : true,
+        strictKb: !!settings.answer_only_from_kb,
+        handoffKeywords: (settings as any).handoff_keywords || [],
+        strategyHandoffRequired: strategy.decisionType === 'handoff',
+        currentPriority: (convRow as any)?.priority ?? null,
+        currentTags: Array.isArray((convRow as any)?.tags) ? (convRow as any).tags : [],
+        executedKeys: readExecutedActionKeys((convRow as any)?.metadata),
+      };
+      const pipeline = await runActionPipeline({
+        rawText: aiResult.text || '',
+        gate,
+        runner: createRealActionRunner({
+          config,
+          workspaceId,
+          conversationId,
+          responseLanguage: locale,
+          settings,
+          locale,
+        }),
+        idempotency: createConversationIdempotencyStore(config, conversationId, gate.executedKeys || []),
+        fallbackText: aiResult.text || '',
+      });
+      aiResult = { ...aiResult, text: pipeline.text };
+      actionHandoffExecuted = pipeline.handoffExecuted;
+      actionsMeta = {
+        catalog_size: Object.keys(ACTION_CATALOG).length,
+        enabled: enabledActionNames,
+        read_only_results: readOnlyToolResults,
+        ...pipeline.metadata,
+      };
+    } catch (err: any) {
+      actionsMeta = { error: redactSecrets(err?.message) || 'action_pipeline_failed' };
+    }
+  } else if (readOnlyToolResults.length) {
+    actionsMeta = { enabled: enabledActionNames, read_only_results: readOnlyToolResults };
+  }
+
   // Clarifying questions can legitimately be short / "I'm not sure".
   // Only post-validate when we expected a confident answer.
   const valid =
@@ -307,5 +370,5 @@ export async function runGenerationStage(
     return { terminal: { ran: true, action: 'handoff', reason: valid.reason, runId } };
   }
 
-  return { aiResult };
+  return { aiResult, actionsMeta, actionHandoffExecuted };
 }

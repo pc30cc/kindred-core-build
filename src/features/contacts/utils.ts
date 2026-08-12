@@ -38,7 +38,12 @@ export function getDisplayName(
   networkGeo?: DisplayGeoInfo | string | null,
   locale?: string,
 ): string {
-  const geoInfo: DisplayGeoInfo = networkGeo && typeof networkGeo === 'object' ? { ...networkGeo } : { city: networkGeo ?? undefined };
+  let geoInfo: DisplayGeoInfo;
+  if (typeof networkGeo === 'object' && networkGeo !== null) {
+    geoInfo = { ...networkGeo };
+  } else {
+    geoInfo = { city: typeof networkGeo === 'string' ? networkGeo : undefined };
+  }
   if (!geoInfo.city) {
     const meta = getLocationFromMetadata(c);
     geoInfo.city = meta.city ?? null;

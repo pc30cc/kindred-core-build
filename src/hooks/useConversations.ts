@@ -54,7 +54,7 @@ export function useConversations(
     queryFn: async () => {
       let q = supabase
         .from('conversations')
-        .select('*, contacts(name, email, avatar_url)')
+        .select('*, contacts(name, email, avatar_url, visitor_code, metadata)')
         .eq('workspace_id', workspaceId!)
         .order('updated_at', { ascending: false });
       if (queue === 'automated') {
@@ -88,7 +88,13 @@ export function useConversations(
       const { data, error } = await q;
       if (error) throw error;
       const convos = (data || []) as (Conversation & {
-        contacts: { name: string; email: string; avatar_url: string } | null;
+        contacts: {
+          name: string | null;
+          email: string | null;
+          avatar_url: string | null;
+          visitor_code: string | null;
+          metadata: Record<string, unknown> | null;
+        } | null;
         last_visitor_message?: { body: string; created_at: string; seen_at: string | null } | null;
         last_message?: { body: string; created_at: string; sender_type: string } | null;
         unread_count?: number;

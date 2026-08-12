@@ -84,6 +84,39 @@ async function backfillVisitorCodeIfMissing(
   await backfillVisitorCode(sb, contactId);
 }
 
+/**
+ * A concurrent widget request can win the workspace-scoped email/phone
+ * unique-index race after our initial lookup but before our insert. In that
+ * case the losing insert must adopt the winner instead of creating a
+ * conversation with contact_id=null.
+ */
+function isContactIdentityConflict(error: any): boolean {
+  if (error?.code !== '23505' || typeof error?.message !== 'string') return false;
+  return error.message.includes('contacts_workspace_email_unique_not_blank')
+    || error.message.includes('contacts_workspace_phone_unique_not_blank');
+}
+
+async function findContactAfterIdentityConflict(
+  sb: any,
+  workspaceId: string,
+  email: string | null,
+  phone: string | null,
+): Promise<{ id: string; visitor_code?: string | null } | null> {
+  if (email) {
+    const { data } = await sb.from('contacts').select('id, visitor_code')
+      .eq('workspace_id', workspaceId).eq('email', email)
+      .limit(1).maybeSingle();
+    if (data?.id) return data;
+  }
+  if (phone) {
+    const { data } = await sb.from('contacts').select('id, visitor_code')
+      .eq('workspace_id', workspaceId).eq('phone', phone)
+      .limit(1).maybeSingle();
+    if (data?.id) return data;
+  }
+  return null;
+}
+
 export interface EnsureVisitorContactInput {
   workspaceId: string;
   visitorId?: string | null;
@@ -162,6 +195,14 @@ export async function ensureVisitorContact(
 
     const { data: created, error } = await insertContactWithVisitorCode(sb, buildPayload, 'id');
     if (error) {
+      if (isContactIdentityConflict(error)) {
+        const existing = await findContactAfterIdentityConflict(sb, workspaceId, email, phone);
+        if (existing?.id) {
+          await linkContactToSessions(sb, workspaceId, existing.id, visitorId, input.sessionId || null);
+          await backfillVisitorCodeIfMissing(sb, existing.id, existing.visitor_code);
+          return existing.id;
+        }
+      }
       console.warn('[anonymousContact] insert failed:', error.message);
       return null;
     }

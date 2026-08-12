@@ -139,6 +139,58 @@ describe('ensureVisitorContact — visitor_code stability', () => {
     expect(state.contacts[0].visitor_code).toBeTruthy();
   });
 
+  it('adopts the contact created by a concurrent email insert instead of returning null', async () => {
+    let lookups = 0;
+    const winner = {
+      id: 'contact-race-winner', workspace_id: WS,
+      email: 'visitor@example.com', visitor_code: 'RACE', metadata: {},
+    };
+    const sb: any = {
+      from(table: string) {
+        if (table === 'visitor_sessions') {
+          const c: any = { update() { return c; }, eq() { return c; }, is() { return c; }, then: (r: any) => r({ data: [], error: null }) };
+          return c;
+        }
+        const filters: Record<string, any> = {};
+        const chain: any = {
+          select() { return chain; },
+          eq(col: string, val: any) { filters[col] = val; return chain; },
+          contains() { return chain; },
+          limit() { return chain; },
+          maybeSingle: async () => {
+            lookups++;
+            // Initial visitor-id and email lookups both miss. After the
+            // unique violation, the re-lookup sees the concurrently-created row.
+            return { data: lookups >= 3 && filters.email === winner.email ? winner : null };
+          },
+          insert() {
+            const insertChain: any = {
+              select() { return insertChain; },
+              single: async () => ({
+                data: null,
+                error: {
+                  code: '23505',
+                  message: 'duplicate key value violates unique constraint "contacts_workspace_email_unique_not_blank"',
+                },
+              }),
+            };
+            return insertChain;
+          },
+        };
+        return chain;
+      },
+    };
+
+    const id = await ensureVisitorContact(sb, {
+      workspaceId: WS,
+      visitorId: 'visitor-race',
+      sessionId: 'session-race',
+      email: winner.email,
+    });
+
+    expect(id).toBe(winner.id);
+  });
+
   it('does not create a new contact for the backfill — same row, same id', async () => {
     state.contacts.push({
       id: 'legacy-2', workspace_id: WS, visitor_code: null,

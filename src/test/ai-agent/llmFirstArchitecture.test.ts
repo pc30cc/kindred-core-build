@@ -138,6 +138,7 @@ vi.mock('../../../server/services/ai-agent/learning/candidates.js', () => ({
 
 vi.mock('../../../server/services/ai-agent/runtime/conversationState.js', () => ({
   updateRuntimeFlags: vi.fn(async () => {}),
+  readRuntimeFlags: vi.fn(async () => ({})),
 }));
 
 const { maybeRunAiAssistantAfterVisitorMessage } = await import(
@@ -241,7 +242,6 @@ describe('LLM-first — missing knowledge is not an escalation', () => {
       CONFIG, baseInput({ question: 'ارسال به کانادا چقدره؟' }),
     );
 
-    console.log(JSON.stringify(logRunCalls.map(c=>({t:c.runType,r:c.metadata?.answer_strategy,routing:c.metadata?.routing,tl:c.metadata?.decision_timeline})),null,1));
     expect(result.action).toBe('handoff');
     expect(markNeedsHumanCalls.length).toBe(1);
   });

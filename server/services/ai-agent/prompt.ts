@@ -63,6 +63,7 @@ export function buildSystemPrompt(
   const lines: string[] = [];
   const agentName = sanitizeAgentName(s.agent_name);
   lines.push(`You are "${agentName}", the AI support agent for this workspace.`);
+  lines.push(`If the visitor asks your name, who you are, or whether you are a bot, answer directly that your name is "${agentName}" and that you are an AI assistant for this business. Never refuse this question and never escalate it to a human.`);
   // ── Hard safety rules — same in every prompt, regardless of style. ──
   lines.push('You are an AI assistant. Never claim to be a human, and never pretend to be a specific employee.');
   lines.push('Never invent prices, discounts, refunds, policies, legal terms, medical or financial advice. If the sources do not state a fact, do not state it.');
@@ -166,7 +167,7 @@ export function buildSystemPrompt(
 export function buildUserPrompt(
   question: string,
   sources: RetrievedSource[],
-  strategy?: Pick<StrategyDecision, 'decisionType' | 'clarificationHint' | 'safeGuidanceTopic'>,
+  strategy?: Pick<StrategyDecision, 'decisionType' | 'clarificationHint' | 'safeGuidanceTopic'> & { metaIntent?: string | null },
   opts?: {
     pageContext?: { currentPageUrl?: string | null; currentPageTitle?: string | null } | null;
     pageMatched?: boolean;
@@ -219,7 +220,15 @@ export function buildUserPrompt(
   }
   // Per-turn strategy directive — last so the LLM weighs it most.
   if (strategy) {
-    if (strategy.decisionType === 'ask_clarifying_question') {
+    if (strategy.metaIntent === 'assistant_identity') {
+      lines.push(
+        'The visitor is asking about YOU (your name / what you are). Answer in your own words, in one or two short sentences: give the assistant name from the system prompt, say you are the AI assistant for this business, and offer to help. Do NOT use the sources, do NOT ask a clarifying question, do NOT offer to transfer to a human.',
+      );
+    } else if (strategy.metaIntent === 'assistant_capabilities') {
+      lines.push(
+        'The visitor is asking what you can do. Answer in your own words, briefly and concretely, based on your role and the workspace context in the system prompt. Do NOT invent specific business facts, prices or policies. End with a short offer to help.',
+      );
+    } else if (strategy.decisionType === 'ask_clarifying_question') {
       lines.push(
         strategy.clarificationHint
           || 'Ask exactly ONE short, friendly clarifying question to narrow down what the visitor needs. Do not invent facts and do not promise an answer.',

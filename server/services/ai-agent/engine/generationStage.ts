@@ -93,7 +93,7 @@ export async function runGenerationStage(
   // (present or future — e.g. the greeting-dedup fallthrough) that reaches
   // here despite strict-KB having no qualifying grounding. Never fabricate
   // an answer here — fail closed with a plain, observable skip.
-  if (isStrictKbNoGrounding(settings, strategy.retrievalStrength)) {
+  if (isStrictKbNoGrounding(settings, strategy.retrievalStrength, (strategy as any).metaIntent)) {
     decisionTimeline.push('strict_kb_safety_block');
     const runId = await logRun(config, {
       workspaceId,

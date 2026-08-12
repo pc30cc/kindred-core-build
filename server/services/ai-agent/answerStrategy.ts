@@ -240,7 +240,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   const allowCaveat = settings.allow_answer_with_caveat !== false;
   const maxClar = Math.max(0, settings.max_clarification_attempts ?? 1);
   const canAskClar =
-    allowClar && clarificationAttemptCount < maxClar && !input.justAnsweredClarification;
+    allowClar && (input.clarificationAttemptCount || 0) < maxClar && !input.justAnsweredClarification;
 
   // 3. Conflicting sources must never yield a confidently stated value.
   if (conflictResult.conflictDetected && allowCaveat

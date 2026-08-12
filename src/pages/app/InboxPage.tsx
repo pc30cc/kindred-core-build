@@ -160,8 +160,9 @@ function isPlaceholderSubject(subject?: string | null): boolean {
 /** Display title for a conversation: contact identity first, subject second. */
 function conversationTitle(conv: any, t: (k: any) => string): string {
   return (
-    conv?.contacts?.name
-    || conv?.contacts?.email
+    (conv?.contacts
+      ? contactDisplayName(conv.contacts, conv?.id, t('inbox.visitor') || 'Visitor')
+      : '')
     || (isPlaceholderSubject(conv?.subject) ? '' : conv.subject)
     || t('contacts.conversationUntitled')
   );

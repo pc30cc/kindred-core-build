@@ -22,6 +22,7 @@ import {
   DEFAULT_CONVERSATION_ID,
   DEFAULT_VISITOR_MESSAGE_ID,
 } from './helpers/engineFixtures.js';
+import { isBusinessEvidenceReason } from '../../../server/services/ai-agent/retrievalDecision.js';
 
 let settingsFixture = makeSettings();
 let conversationStateFixture = makeConversationState();
@@ -431,11 +432,18 @@ describe('Page context present is not a business-knowledge requirement', () => {
     expect(markNeedsHumanCalls.length).toBe(0);
   });
 
-  it('D-D — "این پلن چه امکاناتی داره؟" on /pricing DOES retrieve business knowledge', async () => {
+  it('D-D — "این پلن چه امکاناتی داره؟" on /pricing DOES retrieve (vocabulary), but vocabulary alone is not business evidence', async () => {
     const result = await askOnPage('این پلن چه امکاناتی داره؟');
     expect(result.action).toBe('replied');
     expect(hybridCallCount).toBe(1);
     expect(replyRetrievalMeta().retrieval_attempted).toBe(true);
+    expect(replyRetrievalMeta().retrieval_decision_reason).toBe('domain_vocabulary_match');
+    expect(replyRetrievalMeta().business_signal_detected).toBe(false);
+  });
+
+  it('D-D2 — explicit page reference ("محتوای این صفحه چیه؟") IS business evidence', async () => {
+    const result = await askOnPage('محتوای این صفحه چیه؟');
+    expect(result.action).toBe('replied');
     expect(replyRetrievalMeta().business_signal_detected).toBe(true);
   });
 
@@ -500,5 +508,60 @@ describe('Strict knowledge-only mode + page context', () => {
     expect(replyRetrievalMeta().retrieval_attempted).toBe(true);
     expect(result.action).toBe('replied');
     expect(markNeedsHumanCalls.length).toBe(0);
+  });
+});
+
+/**
+ * FINAL CLEANUP — static domain vocabulary is a RETRIEVAL OPTIMIZATION only.
+ * It may trigger a (speculative) retrieval, but it must never by itself make
+ * the turn "business knowledge required" / strictly workspace-grounded.
+ */
+describe('Domain vocabulary triggers retrieval but is not business evidence', () => {
+  async function ask(question: string) {
+    builtQueryImpl = async () => makeBuiltQuery({
+      originalMessage: question, retrievalQuery: question, expandedQuery: question,
+    });
+    return maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question }));
+  }
+  function strategyMeta(): any {
+    const log = logRunCalls.find((c) => c.runType === 'auto_reply');
+    return log?.metadata?.answer_strategy || {};
+  }
+
+  it('F1 — "یه فاکتور مهم برای انتخاب هاست چیه؟" retrieves via vocabulary only', async () => {
+    const result = await ask('یه فاکتور مهم برای انتخاب هاست چیه؟');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(1);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(true);
+    expect(replyRetrievalMeta().retrieval_decision_reason).toBe('domain_vocabulary_match');
+    expect(replyRetrievalMeta().business_signal_detected).toBe(false);
+  });
+
+  it('F2 — vocabulary retrieval with ZERO sources does not become strict business grounding', async () => {
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    const result = await ask('یه فاکتور مهم برای انتخاب هاست چیه؟');
+    expect(result.action).toBe('replied');
+    expect(strategyMeta().requires_business_knowledge).toBe(false);
+    expect(strategyMeta().grounding_mode).toBe('unverified');
+    expect(strategyMeta().handoff_required).toBe(false);
+    expect(markNeedsHumanCalls.length).toBe(0);
+  });
+
+  it('F3 — the same turn WITH relevant retrieved sources is grounded business knowledge', async () => {
+    hybridImpl = async () => makeHybridResult({
+      sources: [makeHybridSource({ id: 'kb-1', kind: 'kb', title: 'Hosting plans', score: 0.9 })],
+    });
+    const result = await ask('یه فاکتور مهم برای انتخاب هاست چیه؟');
+    expect(result.action).toBe('replied');
+    expect(strategyMeta().requires_business_knowledge).toBe(true);
+    expect(strategyMeta().grounding_mode).toBe('grounded');
+  });
+
+  it('F4 — an owner-configured workspace topic still counts as business evidence', () => {
+    expect(isBusinessEvidenceReason('workspace_topic_match')).toBe(true);
+    expect(isBusinessEvidenceReason('page_context_referenced')).toBe(true);
+    expect(isBusinessEvidenceReason('business_follow_up')).toBe(true);
+    expect(isBusinessEvidenceReason('domain_vocabulary_match')).toBe(false);
+    expect(isBusinessEvidenceReason('no_business_signal')).toBe(false);
   });
 });

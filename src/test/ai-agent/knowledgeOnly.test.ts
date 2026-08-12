@@ -219,7 +219,16 @@ describe('C9 — answer_only_from_kb, no matching source', () => {
       handoff_when_no_kb_match: true,
     });
     hybridImpl = async () => makeHybridResult({ sources: [] });
-    builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
+    // Real business evidence: a follow-up to a business-grounded turn.
+    // Static domain vocabulary (built.topics) is retrieval-only now.
+    builtQueryImpl = async () => makeBuiltQuery({
+      topics: ['pricing'],
+      followUpDetected: true,
+      contextTurns: [
+        { role: 'visitor', text: 'what are your pricing plans' },
+        { role: 'assistant', text: '...', metadata: { kb_article_ids: ['kb-1'], qna_ids: [] } },
+      ],
+    });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
 

@@ -99,8 +99,9 @@ vi.mock('../../../server/services/ai-agent/spamGuard.js', () => ({
   isConversationSpam: async () => false,
 }));
 
+let builtQueryImpl: () => Promise<any> = async () => makeBuiltQuery();
 vi.mock('../../../server/services/ai-agent/queryBuilder.js', () => ({
-  buildRetrievalQuery: async () => makeBuiltQuery(),
+  buildRetrievalQuery: async () => builtQueryImpl(),
 }));
 
 vi.mock('../../../server/services/ai-agent/runtimeConfig.js', () => ({
@@ -192,6 +193,7 @@ beforeEach(() => {
   fakeSb = makeFakeSupabase({
     workspaces: [{ id: DEFAULT_WORKSPACE_ID, locale: 'en', widget_language: 'en' }],
   });
+  builtQueryImpl = async () => makeBuiltQuery();
   vi.clearAllMocks();
 });
 
@@ -210,10 +212,18 @@ describe('E5 — strict KB, no usable grounding', () => {
   it('never calls the model and never fabricates an answer', async () => {
     settingsFixture = makeSettings({ answer_only_from_kb: true });
     hybridImpl = async () => makeHybridResult({ sources: [] });
+    // REAL business evidence (a follow-up to a business-grounded turn).
+    // Static domain vocabulary alone is only a retrieval optimization and
+    // deliberately no longer activates strict workspace grounding.
+    builtQueryImpl = async () => makeBuiltQuery({
+      followUpDetected: true,
+      contextTurns: [
+        { role: 'visitor', text: 'What is the price of your Pro plan?' },
+        { role: 'assistant', text: '...', metadata: { kb_article_ids: ['kb-1'], qna_ids: [] } },
+      ],
+    });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(
-      // Business signal present (pricing vocabulary) → retrieval runs, finds
-      // nothing, and strict KB blocks the model.
       CONFIG, baseInput({ question: 'What is the price of your Pro plan?' }),
     );
 

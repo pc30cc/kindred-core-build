@@ -69,11 +69,18 @@ export type RetrievalDecisionReason =
  * Reasons that constitute SEMANTIC evidence the turn is about the business.
  * `no_business_signal` is obviously excluded; note that "retrieval ran" is
  * NOT a member of this set by construction — only the reason is.
+ *
+ * `domain_vocabulary_match` is deliberately NOT a member either. That reason
+ * comes from a STATIC multilingual synonym map (./queryExpansion.ts) and is a
+ * RETRIEVAL OPTIMIZATION ONLY: the word "فاکتور" in "یه فاکتور مهم برای انتخاب
+ * هاست چیه؟" must not turn a general question into a billing/business-fact
+ * question, and must never activate strict workspace grounding on its own.
+ * If that speculative retrieval surfaces real trusted sources, the answer
+ * strategy becomes grounded through the SOURCES — not through the keyword.
  */
 export const BUSINESS_EVIDENCE_REASONS: RetrievalDecisionReason[] = [
   'page_context_referenced',
   'workspace_topic_match',
-  'domain_vocabulary_match',
   'business_follow_up',
 ];
 
@@ -103,19 +110,22 @@ export function decideKnowledgeRetrieval(
     return done(true, 'workspace_topic_match');
   }
 
-  // 3. Domain vocabulary of the current message (pricing/billing/features/…).
-  if ((signals.domainTopics || []).filter(Boolean).length > 0
-      || (signals.addedTerms || []).length > 0) {
-    return done(true, 'domain_vocabulary_match');
-  }
-
-  // 4. Follow-ups are classified from CONVERSATION CONTEXT, not from the
+  // 3. Follow-ups are classified from CONVERSATION CONTEXT, not from the
   //    text of the last message: "اون آخری رو بیشتر توضیح بده" retrieves only
   //    when the turn it refers back to was itself business knowledge.
+  //    Checked BEFORE static vocabulary so that a genuinely semantic signal
+  //    always wins the reason (vocabulary is retrieval-only evidence).
   if (signals.followUp
       && (signals.priorTurnUsedBusinessKnowledge
         || (signals.priorIntentDomainTopics || []).filter(Boolean).length > 0)) {
     return done(true, 'business_follow_up');
+  }
+
+  // 4. Domain vocabulary of the current message (pricing/billing/features/…).
+  //    RETRIEVAL OPTIMIZATION ONLY — never semantic business evidence.
+  if ((signals.domainTopics || []).filter(Boolean).length > 0
+      || (signals.addedTerms || []).length > 0) {
+    return done(true, 'domain_vocabulary_match');
   }
 
   // 5. No business signal anywhere → conversational turn, no vector search.

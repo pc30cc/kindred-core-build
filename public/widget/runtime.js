@@ -2311,6 +2311,32 @@
     // update while it's still on screen) just show the full text.
     var handoffPrechatSubtitleAnimated = false;
 
+    // ─── Chat auto-scroll ───
+    // The message list must follow new content (operator/AI replies, streamed
+    // reveal, images finishing layout) without the visitor having to scroll.
+    // We only stop following when the visitor deliberately scrolled up.
+    var chatStickToBottom = true;
+    function chatScrollToBottom(body, force) {
+      if (!body) return;
+      if (!force && !chatStickToBottom) return;
+      var apply = function () {
+        try { body.scrollTop = body.scrollHeight; } catch (_) {}
+      };
+      apply();
+      // Re-apply after layout settles (bubble entrance animation, lazy images,
+      // webfont swap) — a single synchronous set can land on a stale height.
+      try { requestAnimationFrame(function () { apply(); requestAnimationFrame(apply); }); } catch (_) { }
+      setTimeout(apply, 60);
+      setTimeout(apply, 220);
+    }
+    function bindChatScrollTracking(body) {
+      if (!body || body.__gsScrollBound) return;
+      body.__gsScrollBound = true;
+      body.addEventListener('scroll', function () {
+        chatStickToBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60;
+      }, { passive: true });
+    }
+
     // finish=true instantly completes whatever was mid-reveal instead of
     // leaving it frozen partway through — used when a second thing (e.g.
     // the handoff pre-chat card's subtitle) claims the single shared

@@ -166,7 +166,7 @@ export function buildSystemPrompt(
 export function buildUserPrompt(
   question: string,
   sources: RetrievedSource[],
-  strategy?: Pick<StrategyDecision, 'decisionType' | 'clarificationHint' | 'safeGuidanceTopic'>,
+  strategy?: Pick<StrategyDecision, 'decisionType' | 'clarificationHint' | 'safeGuidanceTopic'> & { metaIntent?: string | null },
   opts?: {
     pageContext?: { currentPageUrl?: string | null; currentPageTitle?: string | null } | null;
     pageMatched?: boolean;
@@ -219,7 +219,15 @@ export function buildUserPrompt(
   }
   // Per-turn strategy directive — last so the LLM weighs it most.
   if (strategy) {
-    if (strategy.decisionType === 'ask_clarifying_question') {
+    if (strategy.metaIntent === 'assistant_identity') {
+      lines.push(
+        'The visitor is asking about YOU (your name / what you are). Answer in your own words, in one or two short sentences: give the assistant name from the system prompt, say you are the AI assistant for this business, and offer to help. Do NOT use the sources, do NOT ask a clarifying question, do NOT offer to transfer to a human.',
+      );
+    } else if (strategy.metaIntent === 'assistant_capabilities') {
+      lines.push(
+        'The visitor is asking what you can do. Answer in your own words, briefly and concretely, based on your role and the workspace context in the system prompt. Do NOT invent specific business facts, prices or policies. End with a short offer to help.',
+      );
+    } else if (strategy.decisionType === 'ask_clarifying_question') {
       lines.push(
         strategy.clarificationHint
           || 'Ask exactly ONE short, friendly clarifying question to narrow down what the visitor needs. Do not invent facts and do not promise an answer.',

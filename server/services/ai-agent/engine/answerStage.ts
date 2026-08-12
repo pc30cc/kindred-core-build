@@ -29,7 +29,6 @@ import {
   buildRoutingMetadata, mergeRoutingMetadata, POST_STRATEGY_ROUTING_TRIGGER_TYPES,
   type RoutingEvaluationResult,
 } from '../runtime/routingRuntime.js';
-import { composeHandoffMessage } from '../handoffMessage.js';
 import {
   evaluateNoAnswerHooks,
   resolveHandoffAckMessage,
@@ -392,19 +391,15 @@ export async function runAnswerStage(
         // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
         // ordering note on the human-request handoff branch above.
         const display = deriveAgentDisplay(settings);
-        const body = await composeHandoffMessage(config, {
-          workspaceId,
-          locale,
-          reason: strategy.reason,
-          visitorText: question,
-          conversationContext: retrieval.built?.conversationContext || null,
-          settings,
-          fallback: await resolveHandoffAckMessage(
+        // Handoff wording stays deterministic and owner-controlled: an
+        // escalation must never depend on a second model call that can fail
+        // or spend credits on a turn the model was not allowed to answer.
+        const body = settings.fallback_message
+          || await resolveHandoffAckMessage(
             config, workspaceId, locale,
             availability.state === 'offline',
-            settings.fallback_message || pickTemplate('no_answer_handoff', locale),
-          ),
-        });
+            pickTemplate('no_answer_handoff', locale),
+          );
         const inserted = await insertAiMessage(config, {
           workspaceId,
           conversationId,

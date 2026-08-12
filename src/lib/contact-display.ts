@@ -7,21 +7,44 @@
  * src/features/contacts/utils.ts's getDisplayName for the Contacts-surface
  * wrapper.
  *
+ * NOT YET WIRED: Call Center (LiveQueuePage/CallsPage/OverviewPage/
+ * RecordingsPage) still shows its own hardcoded `callCenter.common.anonymous`
+ * string instead of this resolver. That's a deliberately deferred follow-up,
+ * not an architectural dead end — `call_sessions`/`call_queue_entries`/
+ * `callback_requests` all already carry `visitor_session_id`
+ * (server/routes/calls.ts reuses networkProfile.ts's own
+ * resolveConversationSessionId to stamp it, so it's the SAME session Inbox
+ * resolves for that conversation), and `visitor_sessions.contact_id` is
+ * already populated for every session touched by ensureVisitorContact/
+ * identityMerge. So the join back to a `contacts` row — and this resolver —
+ * is already there; nothing new needs to ship in the schema. What's
+ * missing is purely surface-level: a batched
+ * call-session(s)→contact resolver (mirroring
+ * server/services/visitors/networkProfile.ts's
+ * resolveConversationNetworkProfiles) plus a server route Call Center's
+ * client-side Supabase reads don't have today, and then wiring that into
+ * 4 files. Left undone here rather than rushed, since Call Center already
+ * has its own denormalized visitor_name/visitor_email display fields and
+ * changing those falls outside a display-precedence fix.
+ *
  * Precedence:
- *   1. a real name (anything but empty or the literal placeholder 'Visitor'
- *      that ensureVisitorContact/mergeVisitorIdentity seed every anonymous
- *      contact with)
- *   2. an email address — pre-existing behavior kept as-is: this codebase's
- *      own notion of "identified" already treats email/phone as sufficient
- *      (`anonymous: !(name || email || phone)` in anonymousContact.ts /
- *      identityMerge.ts), so an email-only contact is not the "anonymous"
- *      case below, it's just a contact with no name on file yet.
- *   3. anonymous fallback — localized "Visitor from {city} · {code}" (or
+ *   1. a real human name (anything but empty or the literal placeholder
+ *      'Visitor' that ensureVisitorContact/mergeVisitorIdentity used to seed
+ *      every anonymous contact with — see anonymousContact.ts's module doc
+ *      comment; new rows use `name: null` instead, so this is a legacy-row
+ *      compatibility check, not the primary path)
+ *   2. anonymous fallback — localized "Visitor from {city} · {code}" (or
  *      "Visitor · {code}" without a city). `code` is `contacts.visitor_code`
  *      (021 migration; see server/services/widget/visitorCode.ts), falling
  *      back to the legacy `metadata.anon_code` hash, and finally to a
  *      display-only derivation from fallbackId for contacts that predate
  *      both and haven't been touched since (never written back).
+ *
+ * Email/phone are CONTACT METADATA, not a display-name fallback — a contact
+ * known only by email still renders as "Visitor from {city} · {code}" here.
+ * Callers show the email/phone separately (Contacts row/detail already do;
+ * Inbox shows it in the contact header) — this function is only ever asked
+ * "what is this contact called", not "what contact info do we have".
  *
  * The anonymous label is a PRESENTATION string only — never persist it into
  * `name`/`display_name`. The real identity stays `name: null` (or the
@@ -39,10 +62,11 @@ export type ContactDisplayT = (key: string, vars?: Record<string, string>) => st
 
 const PLACEHOLDER = 'visitor';
 
+/** True when there is no real human name on file — email/phone don't count. */
 export function isAnonymousContact(contact?: DisplayableContact | null): boolean {
   if (!contact) return true;
   const n = (contact.name ?? '').trim().toLowerCase();
-  return (!n || n === PLACEHOLDER) && !contact.email;
+  return !n || n === PLACEHOLDER;
 }
 
 /** Treats null/undefined/blank/whitespace-only/literal "null"/"undefined" as unavailable. */
@@ -99,7 +123,6 @@ export function contactDisplayName(
 ): string {
   const name = (contact?.name ?? '').trim();
   if (name && name.toLowerCase() !== PLACEHOLDER) return name;
-  if (contact?.email) return contact.email;
   const code = resolveVisitorCode(contact, fallbackId);
   const cleanCity = sanitizeCity(city);
   return cleanCity

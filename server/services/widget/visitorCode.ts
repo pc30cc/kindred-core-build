@@ -29,44 +29,87 @@ export function generateVisitorCode(length = VISITOR_CODE_LENGTH): string {
 const PG_UNIQUE_VIOLATION = '23505';
 const MAX_ATTEMPTS = 5;
 
-/**
- * Generate a code guaranteed unused in this workspace at the moment of the
- * check. `contacts_workspace_visitor_code_idx` (021 migration) is the real
- * race-safety backstop — a concurrent insert that slips past this check
- * still gets rejected there, and callers must treat a 23505 on `visitor_code`
- * from their own insert/update as non-fatal (retry once, or persist without
- * a code — see isVisitorCodeConflict below). Never blocks/throws: a
- * workspace with pathological visitor_code density just falls back to no
- * code faster than usual, and the display resolver already renders a
- * legacy/id-derived fallback when one is absent.
- */
-export async function generateUniqueVisitorCode(
-  sb: any,
-  workspaceId: string,
-): Promise<string | null> {
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const code = generateVisitorCode();
-    try {
-      const { data } = await sb
-        .from('contacts')
-        .select('id')
-        .eq('workspace_id', workspaceId)
-        .eq('visitor_code', code)
-        .limit(1)
-        .maybeSingle();
-      if (!data) return code;
-    } catch {
-      // Lookup failure (e.g. column not migrated yet on an older deploy) —
-      // stop trying rather than write a code we couldn't check.
-      return null;
-    }
-  }
-  return null;
-}
-
 /** True for a unique_violation on visitor_code specifically (not some other constraint). */
 export function isVisitorCodeConflict(error: any): boolean {
   return !!error && error.code === PG_UNIQUE_VIOLATION
     && typeof error.message === 'string'
     && error.message.includes('visitor_code');
+}
+
+/**
+ * Insert a new contact with a race-safe visitor_code.
+ *
+ * Each attempt is a REAL insert with a freshly generated code — not a
+ * check-then-insert — so uniqueness is enforced by the DB constraint
+ * itself, never by a client-side race window. Only a genuine visitor_code
+ * conflict retries with a new code; any other insert error (bad payload,
+ * connection failure, a *different* constraint) is returned immediately,
+ * unmodified, so callers keep their existing error handling.
+ *
+ * If every attempt in the bounded loop collides, inserts once more with
+ * visitor_code: null (never violates the partial unique index) so contact
+ * creation is never blocked by code-space contention, then immediately
+ * tries to backfill a code onto that same row via backfillVisitorCode.
+ * The returned row reflects whichever code (if any) actually landed.
+ */
+export async function insertContactWithVisitorCode(
+  sb: any,
+  buildPayload: (visitorCode: string | null) => Record<string, unknown>,
+  selectColumns: string,
+  maxAttempts = MAX_ATTEMPTS,
+): Promise<{ data: any | null; error: any }> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const code = generateVisitorCode();
+    const { data, error } = await sb
+      .from('contacts').insert(buildPayload(code)).select(selectColumns).single();
+    if (!error) return { data, error: null };
+    if (!isVisitorCodeConflict(error)) return { data: null, error };
+    // else: genuine collision — loop again with a fresh code.
+  }
+
+  const { data, error } = await sb
+    .from('contacts').insert(buildPayload(null)).select(selectColumns).single();
+  if (error) return { data: null, error };
+
+  const id = (data as any)?.id;
+  if (id) {
+    const backfilled = await backfillVisitorCode(sb, id);
+    if (backfilled) (data as any).visitor_code = backfilled;
+  }
+  return { data, error: null };
+}
+
+/**
+ * Race-safe backfill for a contact that currently has visitor_code: null
+ * (a legacy row, or one that just fell through insertContactWithVisitorCode's
+ * retry loop). Each attempt is a real UPDATE ... WHERE visitor_code IS NULL
+ * with a freshly generated code, scoped by the contact's own id (which
+ * already pins it to one row/workspace); only a genuine visitor_code
+ * conflict — i.e. this workspace already has another contact with the
+ * generated code, caught by the 021 migration's partial unique index —
+ * retries with a new code. Never throws — returns null (leaving the row
+ * codeless) if every attempt collides or the update otherwise fails, since
+ * the display resolver already renders a graceful fallback for that case.
+ */
+export async function backfillVisitorCode(
+  sb: any,
+  contactId: string,
+  maxAttempts = MAX_ATTEMPTS,
+): Promise<string | null> {
+  try {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const code = generateVisitorCode();
+      const { error } = await sb
+        .from('contacts')
+        .update({ visitor_code: code })
+        .eq('id', contactId)
+        .is('visitor_code', null);
+      if (!error) return code;
+      if (!isVisitorCodeConflict(error)) return null;
+      // else: genuine collision — loop again with a fresh code.
+    }
+  } catch {
+    // best effort — display resolver falls back gracefully
+  }
+  return null;
 }

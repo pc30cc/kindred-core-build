@@ -115,9 +115,17 @@ describe('contactDisplayName — anonymous fallback', () => {
     expect(contactDisplayName(contact, 'c1', en, null)).toBe('Visitor · NEWW');
   });
 
-  it('email-only contact (no name) shows the email, not the anonymous label — pre-existing behavior preserved', () => {
+  it('email-only contact (no name) shows the localized anonymous label, NOT the email — email is metadata, not a display name', () => {
     const contact = { name: null, email: 'ali@example.com', visitor_code: 'K7M4' };
-    expect(contactDisplayName(contact, 'c1', en, 'Tehran')).toBe('ali@example.com');
+    expect(contactDisplayName(contact, 'c1', en, 'Tehran')).toBe('Visitor from Tehran · K7M4');
+    expect(contactDisplayName(contact, 'c1', fa, 'Tehran')).toBe('بازدیدکننده از Tehran · K7M4');
+  });
+
+  it('phone-only contact (no name) shows the localized anonymous label, NOT the phone number', () => {
+    const contact = { name: null, phone: '+15551234567' } as any;
+    const out = contactDisplayName(contact, 'c1', en, null);
+    expect(out).not.toContain('+15551234567');
+    expect(out).toMatch(/^Visitor · /);
   });
 
   it('CASE 15: never renders the "Visitor" placeholder name string as-is even if city/code are present', () => {
@@ -134,14 +142,17 @@ describe('contactDisplayName — anonymous fallback', () => {
 });
 
 describe('isAnonymousContact', () => {
-  it('true for the placeholder name with no email', () => {
+  it('true whenever there is no real human name, regardless of email/phone', () => {
     expect(isAnonymousContact({ name: 'Visitor' })).toBe(true);
     expect(isAnonymousContact({ name: null })).toBe(true);
     expect(isAnonymousContact(null)).toBe(true);
+    // Email/phone are metadata, not identity — an email-only contact is
+    // still "anonymous" for display purposes (Fix #3).
+    expect(isAnonymousContact({ name: 'Visitor', email: 'a@b.com' })).toBe(true);
+    expect(isAnonymousContact({ name: null, email: 'a@b.com' })).toBe(true);
   });
-  it('false once a real name or email exists', () => {
+  it('false only once a real human name exists', () => {
     expect(isAnonymousContact({ name: 'Ali Ahmadi' })).toBe(false);
-    expect(isAnonymousContact({ name: 'Visitor', email: 'a@b.com' })).toBe(false);
   });
 });
 

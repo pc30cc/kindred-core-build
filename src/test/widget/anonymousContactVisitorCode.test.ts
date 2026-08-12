@@ -126,29 +126,47 @@ describe('ensureVisitorContact — visitor_code stability', () => {
     expect(state.contacts).toHaveLength(1);
   });
 
-  it('contact creation still succeeds (with visitor_code left null) when every generated code is already taken', async () => {
-    const sbAllTaken: any = {
+  /**
+   * Regression test for the collision-retry bug: an insert-time
+   * visitor_code unique conflict must generate a FRESH code and retry the
+   * INSERT itself — not silently fall back to null while a stale local
+   * variable still holds the conflicting code (the actual bug: the retry
+   * re-inserted with null, but a later `if (!visitorCode)` check looked at
+   * the original — still-truthy — generated code and skipped the backfill,
+   * so the row was permanently left without one).
+   */
+  it('retries an insert-time visitor_code collision with a NEW code and the contact ends up with a real, non-null code', async () => {
+    let insertAttempts = 0;
+    const sbCollideThenSucceed: any = {
       from(table: string) {
         if (table === 'visitor_sessions') {
           const c: any = { update() { return c; }, eq() { return c; }, is() { return c; }, then: (r: any) => r({ data: [], error: null }) };
           return c;
         }
-        let lookingUpByVisitorCode = false;
         const chain: any = {
           select() { return chain; },
-          eq(col: string) { if (col === 'visitor_code') lookingUpByVisitorCode = true; return chain; },
+          eq() { return chain; },
           contains() { return chain; },
           limit() { return chain; },
-          // The visitor_id lookup (no match, so a new contact gets created)
-          // returns null; only the visitor_code uniqueness pre-check reports
-          // "taken" → generator exhausts its attempts and returns null →
-          // insert proceeds with visitor_code: null.
-          maybeSingle: async () => (lookingUpByVisitorCode ? { data: { id: 'someone-else' } } : { data: null }),
+          maybeSingle: async () => ({ data: null }), // no existing contact — always creates
           insert(payload: any) {
-            expect(payload.visitor_code).toBeNull();
             const insertChain: any = {
               select() { return insertChain; },
-              single: async () => ({ data: { id: 'created-1' }, error: null }),
+              single: async () => {
+                insertAttempts++;
+                // First two INSERT attempts collide regardless of which
+                // code was generated (simulates two other concurrent
+                // requests each winning a race against us); the third
+                // attempt (a genuinely fresh code) succeeds.
+                if (insertAttempts <= 2) {
+                  expect(payload.visitor_code).toBeTruthy(); // still trying real codes, not null
+                  return {
+                    data: null,
+                    error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' },
+                  };
+                }
+                return { data: { id: 'created-retry' }, error: null };
+              },
             };
             return insertChain;
           },
@@ -156,7 +174,65 @@ describe('ensureVisitorContact — visitor_code stability', () => {
         return chain;
       },
     };
-    const id = await ensureVisitorContact(sbAllTaken, { workspaceId: WS, visitorId: 'v-new', sessionId: 's1' });
-    expect(id).toBe('created-1');
+    const id = await ensureVisitorContact(sbCollideThenSucceed, { workspaceId: WS, visitorId: 'v-retry', sessionId: 's1' });
+    expect(id).toBe('created-retry');
+    expect(insertAttempts).toBe(3); // 2 collisions + 1 success, not "collide once then give up"
+  });
+
+  it('contact creation still succeeds (with visitor_code left null, then immediately backfilled) when every attempt collides', async () => {
+    const sbAllTaken: any = {
+      from(table: string) {
+        if (table === 'visitor_sessions') {
+          const c: any = { update() { return c; }, eq() { return c; }, is() { return c; }, then: (r: any) => r({ data: [], error: null }) };
+          return c;
+        }
+        let created = false;
+        const chain: any = {
+          select() { return chain; },
+          eq() { return chain; },
+          contains() { return chain; },
+          limit() { return chain; },
+          is() { return chain; },
+          maybeSingle: async () => ({ data: null }),
+          insert(payload: any) {
+            const insertChain: any = {
+              select() { return insertChain; },
+              single: async () => {
+                if (payload.visitor_code !== null) {
+                  // Every real code collides — code space is fully contended.
+                  return {
+                    data: null,
+                    error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' },
+                  };
+                }
+                created = true;
+                return { data: { id: 'created-null' }, error: null };
+              },
+            };
+            return insertChain;
+          },
+          update() {
+            const updateChain: any = {
+              eq() {
+                const c2: any = {
+                  is: () => ({
+                    then: (resolve: any) => resolve({
+                      // The post-create backfill attempt also collides every
+                      // time — it must give up gracefully, not throw/hang.
+                      error: created ? { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' } : null,
+                    }),
+                  }),
+                };
+                return c2;
+              },
+            };
+            return updateChain;
+          },
+        };
+        return chain;
+      },
+    };
+    const id = await ensureVisitorContact(sbAllTaken, { workspaceId: WS, visitorId: 'v-contended', sessionId: 's1' });
+    expect(id).toBe('created-null'); // contact creation is never blocked
   });
 });

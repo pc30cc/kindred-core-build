@@ -86,5 +86,66 @@ describe('mergeVisitorIdentity — new contact gets a visitor_code', () => {
     expect(state.contacts).toHaveLength(1);
     expect(state.contacts[0].visitor_code).toBeTruthy();
     expect(state.contacts[0].visitor_code).toMatch(/^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}$/);
+    expect(state.contacts[0].name).toBe('Ali Ahmadi');
+  });
+
+  it('never persists the literal placeholder "Visitor" as name — uses null when no real name is known', async () => {
+    const { mergeVisitorIdentity } = await import('../../../server/services/widget/identityMerge.js');
+    const state = { contacts: [] as any[] };
+    const supabase = fakeSupabase(state);
+
+    // email-only identification: no name submitted.
+    const result = await mergeVisitorIdentity({} as any, supabase, {
+      workspaceId: WS,
+      visitorId: 'v-email-only',
+      identity: { name: null, email: 'ali@example.com', phone: null },
+      method: 'email',
+    });
+
+    expect(result.isNewContact).toBe(true);
+    expect(state.contacts[0].name).toBeNull();
+    expect(state.contacts[0].name).not.toBe('Visitor');
+  });
+
+  it('retries an insert-time visitor_code collision with a new code (same bug/fix as ensureVisitorContact)', async () => {
+    const { mergeVisitorIdentity } = await import('../../../server/services/widget/identityMerge.js');
+    const state = { contacts: [] as any[] };
+    const supabase = fakeSupabase(state);
+    let insertAttempts = 0;
+
+    const originalFrom = supabase.from.bind(supabase);
+    supabase.from = (table: string) => {
+      if (table !== 'contacts') return originalFrom(table);
+      const real = originalFrom(table);
+      return {
+        ...real,
+        insert(payload: any) {
+          insertAttempts++;
+          if (insertAttempts <= 2) {
+            return {
+              select: () => ({
+                single: async () => ({
+                  data: null,
+                  error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' },
+                }),
+              }),
+            };
+          }
+          return real.insert(payload);
+        },
+      };
+    };
+
+    const result = await mergeVisitorIdentity({} as any, supabase, {
+      workspaceId: WS,
+      visitorId: 'v-collide',
+      identity: { name: 'Sara Karimi', email: null, phone: null },
+      method: 'prechat',
+    });
+
+    expect(result.isNewContact).toBe(true);
+    expect(insertAttempts).toBe(3);
+    expect(state.contacts).toHaveLength(1);
+    expect(state.contacts[0].visitor_code).toBeTruthy();
   });
 });

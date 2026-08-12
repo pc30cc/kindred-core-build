@@ -17,7 +17,8 @@
 import type { ServerConfig } from '../../../config.js';
 import { retrieveKnowledgeForRuntime } from '../runtimeRetrieval.js';
 import { buildRetrievalQuery } from '../queryBuilder.js';
-import { requiresKnowledgeLookup } from '../answerStrategy.js';
+import { decideKnowledgeRetrieval } from '../retrievalDecision.js';
+import { detectTopics } from '../queryExpansion.js';
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -36,6 +37,8 @@ export interface RetrievalStageResult {
   retrievalDebug: any;
   excludedSummary: any;
   queryMeta: Record<string, unknown>;
+  retrievalAttempted: boolean;
+  retrievalDecisionReason: string;
 }
 
 export async function runRetrievalStage(
@@ -60,15 +63,34 @@ export async function runRetrievalStage(
     widgetLocale: locale,
   });
 
-  // Phase 15 — do not spend a vector/keyword search on pure social chatter
-  // ("hi", "thanks"). This never changes WHETHER the model answers, only
-  // whether we look for business context first.
-  const knowledgeLookupNeeded = requiresKnowledgeLookup(built.originalMessage)
-    || !!pageContext?.currentPageUrl;
+  // Architecture cleanup — retrieval is decided from PIPELINE SIGNALS
+  // (owner topics, domain vocabulary, page context, business follow-up),
+  // never from message shape (question mark / digits / word count).
+  // See ../retrievalDecision.ts.
+  const lastAssistantTurn = [...(built.contextTurns || [])]
+    .reverse().find((t: any) => t?.role === 'assistant');
+  const lastAssistantMeta: any = lastAssistantTurn?.metadata || {};
+  const priorTurnUsedBusinessKnowledge =
+    ((lastAssistantMeta.kb_article_ids || []).length + (lastAssistantMeta.qna_ids || []).length) > 0;
+  const priorVisitorTurn = [...(built.contextTurns || [])]
+    .reverse().find((t: any) => t?.role === 'visitor' && (t?.text || '') !== built.originalMessage);
+  const priorIntentText = built.clarification?.originalIntent || priorVisitorTurn?.text || '';
+
+  const retrievalDecision = decideKnowledgeRetrieval({
+    domainTopics: (built.topics || []) as string[],
+    addedTerms: built.addedTerms || [],
+    workspaceTopicSlugs: ((ctxStage.detectedTopicsMeta as any)?.detectedTopics || [])
+      .map((t: any) => t?.slug).filter(Boolean),
+    pageContextPresent: !!pageContext?.currentPageUrl,
+    followUp: !!built.followUpDetected || !!built.previousAiAskedClarification,
+    priorIntentDomainTopics: priorIntentText ? (detectTopics(priorIntentText) as string[]) : [],
+    priorTurnUsedBusinessKnowledge,
+  });
+  const knowledgeLookupNeeded = retrievalDecision.retrieve;
   const emptyRetrieval = {
     sources: [] as any[], hybridUsed: false, vectorUsed: false, keywordUsed: false,
     embeddingProviderName: null, embeddingModelName: null,
-    fallbackReason: 'retrieval_skipped_small_talk', selectedSourcesMeta: [],
+    fallbackReason: `retrieval_skipped_${retrievalDecision.reason}`, selectedSourcesMeta: [],
     pageContextDebug: null, retrievalDebug: null, excludedSummary: null,
   };
   const {
@@ -106,6 +128,10 @@ export async function runRetrievalStage(
       follow_up_response: built.clarification?.followUpResponse ?? null,
     },
     knowledge_lookup_needed: knowledgeLookupNeeded,
+    // Instrumentation — tests/inspector can assert retrieval really was skipped.
+    retrieval_attempted: knowledgeLookupNeeded,
+    retrieval_decision_reason: retrievalDecision.reason,
+    retrieval_decision_signals: retrievalDecision.signals,
     retrieval_results_count: sources.length,
     hybrid_used: hybridUsed,
     vector_used: vectorUsed,
@@ -124,5 +150,7 @@ export async function runRetrievalStage(
     built, sources, hybridUsed, vectorUsed, keywordUsed, embeddingProviderName,
     embeddingModelName, fallbackReason, selectedSourcesMeta, pageContextDebug,
     retrievalDebug, excludedSummary, queryMeta,
+    retrievalAttempted: knowledgeLookupNeeded,
+    retrievalDecisionReason: retrievalDecision.reason,
   };
 }

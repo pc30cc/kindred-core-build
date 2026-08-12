@@ -65,13 +65,16 @@ export async function runContextStage(
   // Resolve locale (explicit > workspace > 'en')
   const sb = getServiceClient(config);
   // Read workspace locale info once — needed by language service.
+  // Column names must match the real schema — `locale` / `widget_language`
+  // do not exist and made this query error out, silently dropping the
+  // workspace's language configuration from the decision.
   const { data: wsRow } = await sb
     .from('workspaces')
-    .select('locale, widget_language')
+    .select('default_locale, widget_locale')
     .eq('id', workspaceId)
     .maybeSingle();
-  const widgetLocale = (wsRow as any)?.widget_language || '';
-  const workspaceLocale = (wsRow as any)?.locale || '';
+  const widgetLocale = (wsRow as any)?.widget_locale || '';
+  const workspaceLocale = (wsRow as any)?.default_locale || '';
 
   // Phase A — language policy. Decide what language to RESPOND in regardless
   // of what language the visitor wrote in.

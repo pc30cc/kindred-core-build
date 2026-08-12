@@ -98,9 +98,12 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     allowed_locales: ['en','tr','fa'],
     show_sources_to_operator: true,
     show_sources_to_visitor: false,
-    handoff_on_low_confidence: true,
+    // Missing/weak verified knowledge is NOT an escalation by default: the
+    // assistant says it has no confirmed information instead of dragging in
+    // a human. Owners can opt back in explicitly.
+    handoff_on_low_confidence: false,
     handoff_on_human_request: true,
-    handoff_when_no_kb_match: true,
+    handoff_when_no_kb_match: false,
     confidence_threshold: 0.55,
     instructions: {},
     metadata: {},

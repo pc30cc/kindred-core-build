@@ -77,7 +77,12 @@ export async function runRetrievalStage(
   const priorIntentText = built.clarification?.originalIntent || priorVisitorTurn?.text || '';
 
   const retrievalDecision = decideKnowledgeRetrieval({
-    domainTopics: (built.topics || []) as string[],
+    // Domain vocabulary of the CURRENT message. The builder already computes
+    // this; recompute when it returned nothing so the signal never depends on
+    // how the query was rewritten.
+    domainTopics: ((built.topics || []).length
+      ? built.topics
+      : detectTopics(built.originalMessage)) as string[],
     addedTerms: built.addedTerms || [],
     workspaceTopicSlugs: ((ctxStage.detectedTopicsMeta as any)?.detectedTopics || [])
       .map((t: any) => t?.slug).filter(Boolean),

@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../../config.js';
 import { resolveVisitorGeo } from '../geo/index.js';
 import { countryNameFromCode, flagEmojiFromCountryCode, precisionRank } from '../geo/countryNames.js';
+import { insertContactWithVisitorCode, backfillVisitorCode } from './visitorCode.js';
 
 export interface PreChatIdentityInput {
   name?: string | null;
@@ -232,23 +233,21 @@ export async function mergeVisitorIdentity(
 
   // 3. Create new contact if none exists
   if (!contact) {
-    const { data: created, error } = await supabase
-      .from('contacts')
-      .insert({
-        workspace_id: opts.workspaceId,
-        name: name || 'Visitor',
-        email,
-        phone,
-        metadata: {
-          visitor_id: opts.visitorId,
-          source: 'widget',
-          first_method: opts.method,
-          first_ip: persistableIp,
-          ...geoPatch,
-        },
-      })
-      .select('id')
-      .single();
+    const buildPayload = (visitorCode: string | null) => ({
+      workspace_id: opts.workspaceId,
+      name: name || null,
+      email,
+      phone,
+      visitor_code: visitorCode,
+      metadata: {
+        visitor_id: opts.visitorId,
+        source: 'widget',
+        first_method: opts.method,
+        first_ip: persistableIp,
+        ...geoPatch,
+      },
+    });
+    const { data: created, error } = await insertContactWithVisitorCode(supabase, buildPayload, 'id');
     if (error || !created) {
       throw new Error(`contact_insert_failed: ${error?.message || 'unknown'}`);
     }
@@ -258,16 +257,16 @@ export async function mergeVisitorIdentity(
     // Update only fields that are currently empty (never overwrite verified data)
     const { data: existing } = await supabase
       .from('contacts')
-      .select('name, email, phone, metadata')
+      .select('name, email, phone, metadata, visitor_code')
       .eq('id', contact.id)
       .maybeSingle();
 
     // A contact touched before any name was known (e.g. identified by
-    // email/phone alone on an earlier visit) gets seeded with the literal
-    // placeholder 'Visitor' below — that's a non-empty string, so a plain
-    // `!existing.name` check treats it as "already has a name" and a real
-    // name typed into pre-chat later would never actually get saved. Only
-    // a genuinely blank name, or the placeholder itself, counts as unset.
+    // email/phone alone on an earlier visit) has `name: null` — a plain
+    // `!existing.name` check already treats that as unset, so a real name
+    // typed into pre-chat later gets saved correctly. The `!== 'Visitor'`
+    // half of this check only matters for LEGACY rows that still carry the
+    // literal placeholder string from before this module wrote null.
     const hasRealName = !!existing?.name && existing.name !== 'Visitor';
     const updates: Record<string, unknown> = {};
     if (existing && !hasRealName && name) updates.name = name;
@@ -309,6 +308,16 @@ export async function mergeVisitorIdentity(
     if (Object.keys(updates).length > 0) {
       updates.updated_at = new Date().toISOString();
       await supabase.from('contacts').update(updates).eq('id', contact.id);
+    }
+
+    // Legacy contact (predates the 021 migration) or one whose earlier
+    // insert exhausted its collision-retry budget — backfill lazily, race-
+    // safe, same as ensureVisitorContact's identifier-lookup branches. Kept
+    // as its own statement (not folded into `updates` above) so its
+    // `WHERE visitor_code IS NULL` guard never gates the unrelated
+    // name/email/phone/metadata fields in the combined update.
+    if (!existing?.visitor_code) {
+      await backfillVisitorCode(supabase, contact.id);
     }
   }
 

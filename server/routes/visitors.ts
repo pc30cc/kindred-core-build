@@ -6,6 +6,8 @@ import {
   resolveNetworkProfile,
   resolveConversationNetworkProfiles,
   resolveNetworkProfiles,
+  resolveContactNetworkProfile,
+  resolveContactsNetworkProfiles,
 } from '../services/visitors/networkProfile.js';
 import type { ServerConfig } from '../config.js';
 import { routeParam } from '../lib/routeParams.js';
@@ -568,6 +570,133 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/visitor-intel/network?workspace_id=...&session_id=…|conversation_id=…|call_session_id=…|callback_id=…|contact_id=…
+ *
+ * THE single operator-facing read for a visitor's network identity (IP + geo +
+ * source + accuracy). Inbox, Call Center, Callbacks, Contacts and the
+ * Visitors drawer all call this one endpoint, so they can never show
+ * different IPs or countries for the same visitor, and the raw-IP privacy/
+ * plan policy is enforced once, server-side (an unauthorized viewer never
+ * receives the raw value at all — but `.geo`, including city, is NOT gated
+ * by that policy; see buildNetworkProfile in networkProfile.ts).
+ *
+ * `contact_id` resolves differently from the other handles: a contact has no
+ * `visitor_session_id` column of its own (sessions point AT contacts, not the
+ * other way around), so it goes through resolveContactNetworkProfile's own
+ * "newest session with an ip_hash, else newest session" pick instead of the
+ * generic single-column lookup below.
+ *
+ * Registered BEFORE the generic GET /:id below — Express matches routes in
+ * registration order, and `/:id` matches a bare `/network` too (with
+ * id === 'network'). `/:id`'s own guard clause used to be the only thing
+ * standing between this handler and a wrongly-registered-after-it version
+ * of it being permanently unreachable; keep this one ABOVE `/:id`, not
+ * just guarded inside it.
+ */
+visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+  try {
+    const policy = await resolveIpVisibilityPolicy(config, workspaceId, auth.role);
+
+    if (req.query.contact_id) {
+      const profile = await resolveContactNetworkProfile(config, workspaceId, String(req.query.contact_id), policy);
+      return res.json({ profile });
+    }
+
+    // Resolve whichever handle the caller has into the canonical session id.
+    let sessionId = (req.query.session_id as string) || '';
+    const lookup = async (table: string, id: string) => {
+      const { data } = await sb
+        .from(table)
+        .select('visitor_session_id')
+        .eq('workspace_id', workspaceId)
+        .eq('id', id)
+        .maybeSingle();
+      return ((data as any)?.visitor_session_id as string | null) ?? '';
+    };
+    if (!sessionId && req.query.conversation_id) {
+      sessionId = await lookup('conversations', String(req.query.conversation_id));
+    }
+    if (!sessionId && req.query.call_session_id) {
+      sessionId = await lookup('call_sessions', String(req.query.call_session_id));
+    }
+    if (!sessionId && req.query.callback_id) {
+      sessionId = await lookup('callback_requests', String(req.query.callback_id));
+    }
+    if (!sessionId) return res.json({ profile: null });
+
+    const profile = await resolveNetworkProfile(config, workspaceId, sessionId, policy);
+    return res.json({ profile });
+  } catch (err) {
+    console.error('[visitors.network] failed:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * POST /api/visitor-intel/network/batch
+ * body: { workspace_id, conversation_ids?: string[], session_ids?: string[], contact_ids?: string[] }
+ *
+ * Batched sibling of GET /network for LIST surfaces (Inbox, Contacts). One
+ * call per page of rows — never one per row — and the IP privacy/entitlement
+ * policy is applied here, server-side, exactly once for the viewer.
+ *
+ * A POST route, so it was never actually shadowed by GET /:id (different
+ * HTTP method) — registered up here next to GET /network purely so the two
+ * stay adjacent as the single/batch pair they are.
+ */
+visitorsAdminRouter.post('/network/batch', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = z
+    .object({
+      workspace_id: z.string().uuid(),
+      conversation_ids: z.array(z.string().uuid()).max(500).optional(),
+      session_ids: z.array(z.string().uuid()).max(500).optional(),
+      contact_ids: z.array(z.string().uuid()).max(500).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+
+  const workspaceId = parsed.data.workspace_id;
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  try {
+    const policy = await resolveIpVisibilityPolicy(config, workspaceId, auth.role);
+    const byConversation: Record<string, unknown> = {};
+    const bySession: Record<string, unknown> = {};
+    const byContact: Record<string, unknown> = {};
+
+    const convIds = parsed.data.conversation_ids ?? [];
+    if (convIds.length) {
+      const map = await resolveConversationNetworkProfiles(config, workspaceId, convIds, policy);
+      for (const [id, profile] of map) byConversation[id] = profile;
+    }
+    const sessIds = parsed.data.session_ids ?? [];
+    if (sessIds.length) {
+      const map = await resolveNetworkProfiles(config, workspaceId, sessIds, policy);
+      for (const [id, profile] of map) bySession[id] = profile;
+    }
+    const contactIds = parsed.data.contact_ids ?? [];
+    if (contactIds.length) {
+      const map = await resolveContactsNetworkProfiles(config, workspaceId, contactIds, policy);
+      for (const [id, profile] of map) byContact[id] = profile;
+    }
+    return res.json({ by_conversation: byConversation, by_session: bySession, by_contact: byContact });
+  } catch (err) {
+    console.error('[visitors.network.batch] failed:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
  * GET /api/visitor-intel/:id?workspace_id=...
  *
  * Detail for a single visitor session — full intelligence shape.
@@ -599,106 +728,6 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[visitors.detail] failed:', err);
     res.status(500).json({ error: 'Internal error' });
-  }
-});
-
-/**
- * GET /api/visitor-intel/network?workspace_id=...&session_id=…|conversation_id=…|call_session_id=…|callback_id=…
- *
- * THE single operator-facing read for a visitor's network identity (IP + geo +
- * source + accuracy). Inbox, Call Center, Callbacks and the Visitors drawer all
- * call this one endpoint, so they can never show different IPs or countries for
- * the same visitor, and the raw-IP privacy/plan policy is enforced once,
- * server-side (an unauthorized viewer never receives the raw value at all).
- */
-visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req.query.workspace_id as string) || '';
-  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
-
-  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
-  if (!auth) return;
-
-  const sb = getServiceClient(config);
-  try {
-    // Resolve whichever handle the caller has into the canonical session id.
-    let sessionId = (req.query.session_id as string) || '';
-    const lookup = async (table: string, id: string) => {
-      const { data } = await sb
-        .from(table)
-        .select('visitor_session_id')
-        .eq('workspace_id', workspaceId)
-        .eq('id', id)
-        .maybeSingle();
-      return ((data as any)?.visitor_session_id as string | null) ?? '';
-    };
-    if (!sessionId && req.query.conversation_id) {
-      sessionId = await lookup('conversations', String(req.query.conversation_id));
-    }
-    if (!sessionId && req.query.call_session_id) {
-      sessionId = await lookup('call_sessions', String(req.query.call_session_id));
-    }
-    if (!sessionId && req.query.callback_id) {
-      sessionId = await lookup('callback_requests', String(req.query.callback_id));
-    }
-    if (!sessionId) return res.json({ profile: null });
-
-    const policy = await resolveIpVisibilityPolicy(config, workspaceId, auth.role);
-    const profile = await resolveNetworkProfile(config, workspaceId, sessionId, policy);
-    return res.json({ profile });
-  } catch (err) {
-    console.error('[visitors.network] failed:', err);
-    return res.status(500).json({ error: 'Internal error' });
-  }
-});
-
-/**
- * GET /api/visitor-intel/:id/page-history?workspace_id=...&limit=20
- *
- * Returns ordered (most-recent first) page-view rows for a session.
- */
-/**
- * POST /api/visitor-intel/network/batch
- * body: { workspace_id, conversation_ids?: string[], session_ids?: string[] }
- *
- * Batched sibling of GET /network for LIST surfaces (Inbox). One call per
- * page of conversations — never one per row — and the IP privacy/entitlement
- * policy is applied here, server-side, exactly once for the viewer.
- */
-visitorsAdminRouter.post('/network/batch', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const parsed = z
-    .object({
-      workspace_id: z.string().uuid(),
-      conversation_ids: z.array(z.string().uuid()).max(500).optional(),
-      session_ids: z.array(z.string().uuid()).max(500).optional(),
-    })
-    .safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
-
-  const workspaceId = parsed.data.workspace_id;
-  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
-  if (!auth) return;
-
-  try {
-    const policy = await resolveIpVisibilityPolicy(config, workspaceId, auth.role);
-    const byConversation: Record<string, unknown> = {};
-    const bySession: Record<string, unknown> = {};
-
-    const convIds = parsed.data.conversation_ids ?? [];
-    if (convIds.length) {
-      const map = await resolveConversationNetworkProfiles(config, workspaceId, convIds, policy);
-      for (const [id, profile] of map) byConversation[id] = profile;
-    }
-    const sessIds = parsed.data.session_ids ?? [];
-    if (sessIds.length) {
-      const map = await resolveNetworkProfiles(config, workspaceId, sessIds, policy);
-      for (const [id, profile] of map) bySession[id] = profile;
-    }
-    return res.json({ by_conversation: byConversation, by_session: bySession });
-  } catch (err) {
-    console.error('[visitors.network.batch] failed:', err);
-    return res.status(500).json({ error: 'Internal error' });
   }
 });
 

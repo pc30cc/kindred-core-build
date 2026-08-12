@@ -376,6 +376,8 @@ const fa: TranslationKeys = {
     selectConversation: 'یک مکالمه را برای پاسخ انتخاب کنید',
     support: 'پشتیبانی',
     visitor: 'بازدیدکننده',
+    visitorAnonymous: 'بازدیدکننده · {{code}}',
+    visitorAnonymousFromCity: 'بازدیدکننده از {{city}} · {{code}}',
     aiAssistant: 'دستیار هوش مصنوعی',
     operator: 'اپراتور',
     seen: 'دیده شد',

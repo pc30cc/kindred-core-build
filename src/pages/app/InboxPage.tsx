@@ -159,10 +159,10 @@ function isPlaceholderSubject(subject?: string | null): boolean {
 }
 
 /** Display title for a conversation: contact identity first, subject second. */
-function conversationTitle(conv: any, t: (k: any) => string): string {
+function conversationTitle(conv: any, t: (k: string, vars?: Record<string, string>) => string): string {
   return (
     (conv?.contacts
-      ? contactDisplayName(conv.contacts, conv?.id, t('inbox.visitor') || 'Visitor')
+      ? contactDisplayName(conv.contacts, conv?.contact_id ?? conv?.id, t, conv?.visitor_network?.geo?.city)
       : '')
     || (isPlaceholderSubject(conv?.subject) ? '' : conv.subject)
     || t('contacts.conversationUntitled')
@@ -1824,7 +1824,7 @@ export default function InboxPage() {
                           <span className="font-medium">
                             {isAgent
                               ? agentLabel
-                              : contactDisplayName(selected?.contacts, selectedId, t('inbox.visitor') || 'Visitor')}
+                              : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo?.city)}
                           </span>
                           {isAi && (
                             <span className="px-1.5 py-px rounded bg-accent/40 text-accent-foreground text-[10px] font-semibold uppercase tracking-wide">
@@ -1882,7 +1882,7 @@ export default function InboxPage() {
                   <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </span>
                 <span>
-                  {contactDisplayName(selected?.contacts, selectedId, t('inbox.visitor') || 'Visitor')} {t('inbox.visitorTyping') || 'typing…'}
+                  {contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo?.city)} {t('inbox.visitorTyping') || 'typing…'}
                 </span>
               </div>
             )}

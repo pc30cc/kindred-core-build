@@ -531,6 +531,59 @@ export async function resolveContactNetworkProfile(
 }
 
 /**
+ * Batch sibling of {@link resolveContactNetworkProfile} for LIST surfaces
+ * (Contacts). Mirrors its "prefer the newest session with an ip_hash, else
+ * the newest session at all" preference per contact, but does it with ONE
+ * `visitor_sessions` query across every requested contact instead of up to
+ * two queries PER contact — same reasoning as resolveConversationSessionIds's
+ * in-memory reduction below. The actual geo/IP resolution is delegated
+ * entirely to resolveNetworkProfiles, so a Contacts row can never disagree
+ * with Inbox/Visitors/Call Center about the same visit.
+ */
+export async function resolveContactsNetworkProfiles(
+  config: ServerConfig,
+  workspaceId: string,
+  contactIds: string[],
+  policy: IpVisibilityPolicy,
+): Promise<Map<string, VisitorNetworkProfile>> {
+  const out = new Map<string, VisitorNetworkProfile>();
+  const ids = Array.from(new Set(contactIds.filter(Boolean)));
+  if (!ids.length) return out;
+  const sb = getServiceClient(config);
+
+  const { data: sessions } = await sb
+    .from('visitor_sessions')
+    .select('id, contact_id, ip_hash, last_seen_at')
+    .eq('workspace_id', workspaceId)
+    .in('contact_id', ids)
+    .order('last_seen_at', { ascending: false });
+
+  // Rows arrive newest-first, so the first time we see a contact_id (with or
+  // without ip_hash) is already its newest / newest-with-ip session.
+  const newestOverall = new Map<string, string>();
+  const newestWithIp = new Map<string, string>();
+  for (const s of (sessions ?? []) as any[]) {
+    if (!s.contact_id) continue;
+    if (!newestOverall.has(s.contact_id)) newestOverall.set(s.contact_id, s.id);
+    if (s.ip_hash && !newestWithIp.has(s.contact_id)) newestWithIp.set(s.contact_id, s.id);
+  }
+  const bestSessionByContact = new Map<string, string>();
+  for (const cid of ids) {
+    const best = newestWithIp.get(cid) ?? newestOverall.get(cid);
+    if (best) bestSessionByContact.set(cid, best);
+  }
+  const sessionIds = Array.from(new Set(bestSessionByContact.values()));
+  if (!sessionIds.length) return out;
+
+  const profiles = await resolveNetworkProfiles(config, workspaceId, sessionIds, policy);
+  for (const [contactId, sessionId] of bestSessionByContact) {
+    const p = profiles.get(sessionId);
+    if (p) out.set(contactId, p);
+  }
+  return out;
+}
+
+/**
  * Collapse the canonical geo onto the legacy `GeoResult.source` union that the
  * Visitors page / map legend already speak. Kept in ONE place so the mapping
  * can never drift between surfaces.

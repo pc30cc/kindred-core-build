@@ -1,5 +1,6 @@
 import type { Contact } from '@/types/models';
 import { formatRelative } from '@/lib/date';
+import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
 
 export function getInitials(name?: string | null, email?: string | null): string {
   if (name && name.trim()) {
@@ -10,8 +11,24 @@ export function getInitials(name?: string | null, email?: string | null): string
   return '?';
 }
 
-export function getDisplayName(c: Contact): string {
-  return c.name || c.email || c.phone || 'Anonymous';
+/**
+ * Delegates to the canonical resolver (src/lib/contact-display.ts) so
+ * Contacts never disagrees with Inbox about what an anonymous visitor is
+ * called.
+ *
+ * City precedence: `networkCity` (when the caller has one — the live
+ * session-based geo from useVisitorNetworkBatchByContact/useVisitorNetwork,
+ * the SAME canonical source Inbox reads) wins over `metadata.city` (a
+ * snapshot only ever written once a visitor identifies — see
+ * identityMerge.ts's resolveContactGeoPatch — so it can be stale or, for a
+ * still-anonymous contact, simply absent). Callers that don't have a
+ * network profile handy (or haven't fetched one) still get the
+ * metadata.city fallback for free, so this stays a drop-in for existing
+ * call sites.
+ */
+export function getDisplayName(c: Contact, t: ContactDisplayT, networkCity?: string | null): string {
+  const city = networkCity ?? getLocationFromMetadata(c).city ?? null;
+  return contactDisplayName(c, c.id, t, city);
 }
 
 /** Locale-aware relative time (Persian/Turkish/English follow the active UI locale). */

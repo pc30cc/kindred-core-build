@@ -36,6 +36,8 @@ import {
   getCompanyFromMetadata, getLocationFromMetadata, getScoreFromMetadata,
   exportContactsToCSV, downloadFile,
 } from '@/features/contacts/utils';
+import { isAnonymousContact } from '@/lib/contact-display';
+import { useVisitorNetworkBatchByContact } from '@/hooks/useVisitorNetwork';
 
 type SortKey = 'name' | 'email' | 'company' | 'last_active' | 'score';
 
@@ -109,6 +111,20 @@ export default function ContactsPage() {
 
     return list;
   }, [contacts, search, filterTag, filterHasEmail, filterHasPhone, sortBy, sortDir]);
+
+  // Anonymous contacts don't have geo written into metadata.city until
+  // identityMerge runs (that only happens once they self-identify), so the
+  // Inbox and Contacts would otherwise show different city+code labels for
+  // the same still-anonymous visitor. Reuse the SAME canonical network-
+  // profile resolver Inbox already uses (via visitor_sessions.contact_id) —
+  // scoped to only the anonymous rows actually on screen, never one request
+  // per row. Named contacts don't need this: their name wins regardless of
+  // city, so skipping them keeps the batch small.
+  const anonymousContactIds = useMemo(
+    () => filtered.filter((c) => isAnonymousContact(c)).map((c) => c.id),
+    [filtered],
+  );
+  const { data: networkByContact } = useVisitorNetworkBatchByContact(workspace?.id, anonymousContactIds);
 
   const toggleSort = (key: SortKey) => {
     if (sortBy === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -427,7 +443,7 @@ export default function ContactsPage() {
                             getInitials(c.name, c.email)
                           )}
                         </div>
-                        <span className="font-medium text-foreground truncate">{getDisplayName(c)}</span>
+                        <span className="font-medium text-foreground truncate">{getDisplayName(c, t, networkByContact?.[c.id]?.geo?.city)}</span>
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>

@@ -57,6 +57,7 @@ import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSetting
 import { clearAiManagementForPlatformOff, markNeedsHuman } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
+import { insertContactWithVisitorCode, backfillVisitorCode } from '../services/widget/visitorCode.js';
 import {
   pinContactOnVisitorSessions,
   issueContinuityCookieForContact,
@@ -2058,7 +2059,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
 
       if (visitor_id) {
         const { data: contact } = await supabase
-          .from('contacts').select('id, name, email, phone')
+          .from('contacts').select('id, name, email, phone, visitor_code')
           .eq('workspace_id', workspaceId)
           .contains('metadata', { visitor_id })
           .limit(1).maybeSingle();
@@ -2083,18 +2084,25 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
               knownContact = { name: updatedContact.name, email: updatedContact.email, phone: updatedContact.phone };
             }
           }
+          // Same lazy backfill as ensureVisitorContact/mergeVisitorIdentity —
+          // legacy contact, or one whose earlier insert exhausted its
+          // collision-retry budget.
+          if (!contact.visitor_code) await backfillVisitorCode(supabase, contact.id);
         } else {
-          const { data: createdContact } = await supabase
-            .from('contacts')
-            .insert({
-              workspace_id: workspaceId,
-              name: visitor_name || 'Visitor',
-              email: visitor_email || null,
-              phone: visitor_phone || null,
-              metadata: { visitor_id, source: 'widget', session_id: session_id || null },
-            })
-            .select('id, name, email, phone')
-            .maybeSingle();
+          const buildPayload = (visitorCode: string | null) => ({
+            workspace_id: workspaceId,
+            // Never seed a fake real name — see anonymousContact.ts's module
+            // doc comment. `visitor_name` here is only ever populated once
+            // the visitor has actually submitted one.
+            name: visitor_name || null,
+            email: visitor_email || null,
+            phone: visitor_phone || null,
+            visitor_code: visitorCode,
+            metadata: { visitor_id, source: 'widget', session_id: session_id || null },
+          });
+          const { data: createdContact } = await insertContactWithVisitorCode(
+            supabase, buildPayload, 'id, name, email, phone',
+          );
           if (createdContact) {
             contactId = createdContact.id;
             knownContact = { name: createdContact.name, email: createdContact.email, phone: createdContact.phone };

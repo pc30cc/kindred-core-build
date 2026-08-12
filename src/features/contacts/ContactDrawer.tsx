@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { getInitials, getDisplayName, timeAgo, getCompanyFromMetadata, getLocationFromMetadata } from './utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
+import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 
 interface Props {
   contactId: string | null;
@@ -35,6 +36,11 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const { wsSlug } = useParams();
   const { data: contact, isLoading } = useContact(contactId ?? undefined);
   const { data: conversations } = useContactConversations(contactId ?? undefined);
+  // Live session-based city (same canonical source Inbox reads) — see the
+  // identical note in ContactDetailPage.tsx. Scoped by the contact's own
+  // workspace_id rather than useCurrentWorkspace() since that's already on
+  // the fetched row and this drawer never needs a separate workspace fetch.
+  const { data: networkProfile } = useVisitorNetwork(contact?.workspace_id, { contactId: contactId ?? undefined });
   const updateMutation = useUpdateContact();
   const deleteMutation = useDeleteContact();
 
@@ -108,7 +114,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <SheetTitle className="text-base text-start">{getDisplayName(contact)}</SheetTitle>
+                  <SheetTitle className="text-base text-start">{getDisplayName(contact, t, networkProfile?.geo?.city)}</SheetTitle>
                   {contact.email && (
                     <p className="text-xs text-muted-foreground truncate">{contact.email}</p>
                   )}
@@ -221,7 +227,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                           <AlertDialogHeader>
                             <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
                             <AlertDialogDescription className="text-start">
-                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact) })}
+                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo?.city) })}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -233,7 +239,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                         </AlertDialogContent>
                       </AlertDialog>
                       <div className="pt-4">
-                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact)} />
+                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact, t, networkProfile?.geo?.city)} />
                       </div>
                     </div>
                   )}

@@ -410,7 +410,9 @@ describe('C8.6 — low-confidence handoff', () => {
         sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })],
       });
 
-    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'asdkjaslkdj random text' }));
+    // Signal-based retrieval: the turn must carry a business signal for
+    // knowledge retrieval (and therefore the weak-match ladder) to run at all.
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'what are your pricing plans' }));
 
     expect(aiCallCount).toBe(0);
     expect(['handoff', 'no_answer']).toContain(result.action);

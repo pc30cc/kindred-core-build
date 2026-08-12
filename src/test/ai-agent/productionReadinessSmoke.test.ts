@@ -212,7 +212,9 @@ describe('E5 — strict KB, no usable grounding', () => {
     hybridImpl = async () => makeHybridResult({ sources: [] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(
-      CONFIG, baseInput({ question: 'Do you ship to Antarctica on Sundays?' }),
+      // Business signal present (pricing vocabulary) → retrieval runs, finds
+      // nothing, and strict KB blocks the model.
+      CONFIG, baseInput({ question: 'What is the price of your Pro plan?' }),
     );
 
     expect(['handoff', 'no_answer', 'skipped']).toContain(result.action);

@@ -63,8 +63,9 @@ vi.mock('../../../server/services/ai-agent/retrieval.js', () => ({
   retrieveSources: async () => [],
 }));
 
+let hybridCallCount = 0;
 vi.mock('../../../server/services/ai-agent/retrievalHybrid.js', () => ({
-  retrieveHybridSources: (...args: any[]) => hybridImpl(),
+  retrieveHybridSources: (...args: any[]) => { hybridCallCount++; return hybridImpl(); },
 }));
 
 vi.mock('../../../server/services/ai-agent/answerStrategy.js', async (importOriginal) => {
@@ -186,6 +187,7 @@ beforeEach(() => {
   markNeedsHumanCalls.length = 0;
   aiCalls.length = 0;
   aiCallCount = 0;
+  hybridCallCount = 0;
   fakeSb = makeFakeSupabase({
     workspaces: [{ id: DEFAULT_WORKSPACE_ID, name: 'Acme', default_locale: 'fa', widget_locale: 'fa' }],
     conversations: [{ id: DEFAULT_CONVERSATION_ID, metadata: {} }],
@@ -287,4 +289,95 @@ describe('LLM-first — no intent phrases anywhere', () => {
       expect(lastPromptText()).toContain('Nova');
     });
   }
+});
+
+
+/** Metadata the engine persisted for the auto_reply run. */
+function replyRetrievalMeta(): any {
+  const log = logRunCalls.find((c) => c.runType === 'auto_reply');
+  return log?.metadata?.retrieval || {};
+}
+
+describe('Signal-based retrieval decision — no message-shape heuristics', () => {
+  async function ask(question: string, built: Record<string, any> = {}) {
+    builtQueryImpl = async () => makeBuiltQuery({
+      originalMessage: question, retrievalQuery: question, expandedQuery: question, ...built,
+    });
+    return maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question }));
+  }
+
+  it('C1 — long conversational message ("چه کارهایی می‌تونی برای من انجام بدی؟") answers with NO retrieval', async () => {
+    const result = await ask('چه کارهایی می‌تونی برای من انجام بدی؟');
+    expect(result.action).toBe('replied');
+    expect(aiCallCount).toBe(1);
+    expect(hybridCallCount).toBe(0);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(false);
+    expect(replyRetrievalMeta().retrieval_decision_reason).toBe('no_business_signal');
+    expect(markNeedsHumanCalls.length).toBe(0);
+  });
+
+  it('C2 — identity question with a question mark ("اسمت چیه؟") answers from config with NO retrieval', async () => {
+    const result = await ask('اسمت چیه؟');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(0);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(false);
+    expect(lastPromptText()).toContain('Nova');
+  });
+
+  it('C3 — a number alone ("من 25 سالمه") does not trigger business retrieval', async () => {
+    const result = await ask('من 25 سالمه');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(0);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(false);
+  });
+
+  it('C4 — conversational referential follow-up after an identity turn: NO retrieval', async () => {
+    const result = await ask('اون قسمت آخر رو بیشتر توضیح بده', {
+      followUpDetected: true,
+      conversationContextUsed: true,
+      conversationTurnsUsed: 2,
+      contextTurns: [
+        { role: 'visitor', text: 'خودتو معرفی کن' },
+        { role: 'assistant', text: 'من دستیار Nova هستم', metadata: { kb_article_ids: [], qna_ids: [] } },
+      ],
+      clarification: { asked: false, question: null, originalIntent: 'خودتو معرفی کن', followUpResponse: null },
+    });
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(0);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(false);
+  });
+
+  it('C5 — a real business question ("پلن حرفه‌ای شما چه امکاناتی دارد؟") DOES retrieve', async () => {
+    const result = await ask('پلن حرفه‌ای شما چه امکاناتی دارد؟');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(1);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(true);
+    expect(replyRetrievalMeta().retrieval_decision_reason).toBe('domain_vocabulary_match');
+  });
+
+  it('C6 — business follow-up ("قیمتش چقدره؟") keeps business context and retrieves', async () => {
+    const result = await ask('قیمتش چقدره؟', {
+      followUpDetected: true,
+      contextTurns: [
+        { role: 'visitor', text: 'پلن حرفه‌ای شما چه امکاناتی دارد؟' },
+        { role: 'assistant', text: '...', metadata: { kb_article_ids: ['kb-1'], qna_ids: [] } },
+      ],
+    });
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(1);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(true);
+  });
+
+  it('C7 — a purely referential follow-up retrieves when the previous turn used business knowledge', async () => {
+    const result = await ask('اون آخری رو بیشتر توضیح بده', {
+      followUpDetected: true,
+      contextTurns: [
+        { role: 'visitor', text: 'امکانات را بگو' },
+        { role: 'assistant', text: '...', metadata: { kb_article_ids: ['kb-9'], qna_ids: [] } },
+      ],
+    });
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(1);
+    expect(replyRetrievalMeta().retrieval_decision_reason).toBe('business_follow_up');
+  });
 });

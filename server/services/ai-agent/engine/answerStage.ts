@@ -116,6 +116,7 @@ export async function runAnswerStage(
     hybridUsed,
     // Phase 2.2 — the visitor is answering the clarification we just asked.
     justAnsweredClarification: built.previousAiAskedClarification,
+    knowledgeRetrievalAttempted: retrieval.retrievalAttempted,
   });
   console.log('[ai-agent] strategy decision', {
     conversationId,

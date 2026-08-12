@@ -68,6 +68,11 @@ export interface StrategyInput {
    * AI just asked. Asking another clarification immediately would loop.
    */
   justAnsweredClarification?: boolean;
+  /**
+   * Retrieval stage decided this turn plausibly needs business-specific
+   * knowledge (pipeline signals only — see ./retrievalDecision.ts).
+   */
+  knowledgeRetrievalAttempted?: boolean;
 }
 
 export interface StrategyDecision {
@@ -134,23 +139,6 @@ export function computeConfidence(inputs: ConfidenceInputs): { confidence: numbe
   c = Math.max(0, Math.min(1, Number(c.toFixed(4))));
   const band: ConfidenceBand = c >= 0.7 ? 'strong' : c >= 0.45 ? 'medium' : c > 0 ? 'weak' : 'none';
   return { confidence: c, band };
-}
-
-/**
- * COST GATE ONLY — never an answer gate.
- *
- * Decides whether spending a vector/keyword search on this turn is worth it.
- * Deliberately language-agnostic and phrase-free: we retrieve for anything
- * that carries enough signal to plausibly match a document, and skip only
- * ultra-short utterances with no question mark, digit or URL. When in doubt
- * we retrieve — skipping retrieval never changes WHETHER the model answers.
- */
-export function requiresKnowledgeLookup(text: string): boolean {
-  const q = (text || '').trim();
-  if (!q) return false;
-  if (/[?؟]/.test(q) || /\d/.test(q) || /https?:\/\//i.test(q)) return true;
-  const words = q.split(/\s+/).filter(Boolean).length;
-  return words > 3;
 }
 
 function classifyRetrieval(
@@ -294,13 +282,13 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   //   * a WORKSPACE-CONFIGURED topic (owner data, not our code) matched.
   // A greeting, a thank-you or an identity question produces neither, so
   // owner "escalate when unknown" policies simply do not apply to it.
-  //   * the message itself carries an information need (general, phrase-free
-  //     heuristic: a question mark, a number, a URL, or more than a few
-  //     words — see requiresKnowledgeLookup).
+  //   * the retrieval stage itself decided this turn needed business
+  //     knowledge (see ./retrievalDecision.ts — signal based, phrase free).
+  // Message SHAPE (question mark, digits, word count) is never used.
   const requiresBusinessKnowledge =
     sources.length > 0
     || (input.topics || []).filter(Boolean).length > 0
-    || requiresKnowledgeLookup(question);
+    || input.knowledgeRetrievalAttempted === true;
 
   // Escalation on missing evidence happens ONLY when the owner explicitly
   // asked for it (or a routing rule elsewhere in the engine fires).

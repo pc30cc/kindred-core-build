@@ -2316,9 +2316,10 @@
     // reveal, images finishing layout) without the visitor having to scroll.
     // We only stop following when the visitor deliberately scrolled up.
     var chatStickToBottom = true;
-    function chatScrollToBottom(body, force) {
+    function chatScrollToBottom(body, force, immediateOnly) {
       if (!body) return;
       if (!force && !chatStickToBottom) return;
+      if (immediateOnly) { try { body.scrollTop = body.scrollHeight; } catch (_) {} return; }
       var apply = function () {
         try { body.scrollTop = body.scrollHeight; } catch (_) {}
       };
@@ -2372,7 +2373,7 @@
           var host = el.closest('[data-typing-host]');
           if (host) host.removeAttribute('data-typing-active');
         }
-        chatScrollToBottom(body);
+        chatScrollToBottom(body, false, true);
       }
       if (done) stopTypewriter();
     }
@@ -3509,7 +3510,7 @@
         });
       }
       bindChatScrollTracking(body);
-      chatScrollToBottom(body, true);
+      chatScrollToBottom(body);
     }
 
     function renderChat(body) {

@@ -294,8 +294,13 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   //   * a WORKSPACE-CONFIGURED topic (owner data, not our code) matched.
   // A greeting, a thank-you or an identity question produces neither, so
   // owner "escalate when unknown" policies simply do not apply to it.
+  //   * the message itself carries an information need (general, phrase-free
+  //     heuristic: a question mark, a number, a URL, or more than a few
+  //     words — see requiresKnowledgeLookup).
   const requiresBusinessKnowledge =
-    sources.length > 0 || (input.topics || []).filter(Boolean).length > 0;
+    sources.length > 0
+    || (input.topics || []).filter(Boolean).length > 0
+    || requiresKnowledgeLookup(question);
 
   // Escalation on missing evidence happens ONLY when the owner explicitly
   // asked for it (or a routing rule elsewhere in the engine fires).

@@ -82,7 +82,7 @@ export async function runRetrievalStage(
     // how the query was rewritten.
     domainTopics: ((built.topics || []).length
       ? built.topics
-      : detectTopics(built.originalMessage)) as string[],
+      : detectTopics(question)) as string[],
     addedTerms: built.addedTerms || [],
     workspaceTopicSlugs: ((ctxStage.detectedTopicsMeta as any)?.detectedTopics || [])
       .map((t: any) => t?.slug).filter(Boolean),
@@ -92,7 +92,6 @@ export async function runRetrievalStage(
     priorTurnUsedBusinessKnowledge,
   });
   const knowledgeLookupNeeded = retrievalDecision.retrieve;
-  if (process.env.DEBUG_RETRIEVAL) console.log('[dbg]', JSON.stringify({ om: built.originalMessage, t: built.topics, d: retrievalDecision }));
   const emptyRetrieval = {
     sources: [] as any[], hybridUsed: false, vectorUsed: false, keywordUsed: false,
     embeddingProviderName: null, embeddingModelName: null,

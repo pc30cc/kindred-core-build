@@ -176,17 +176,22 @@ function classifyRetrieval(
 }
 
 /**
- * New architecture (LLM-first):
+ * LLM-first architecture. This function answers exactly ONE question —
+ * "how much trusted business evidence does this turn have?" — and then
+ * checks the small set of DETERMINISTIC handoff conditions. It never
+ * classifies the message into conversational/identity/greeting/business
+ * intents, and it owns no phrase, keyword or language list.
  *
- *   1. explicit human request                       -> handoff
- *   2. owner configured silence AND zero grounding  -> no_answer_silent
- *   3. everything else                              -> the LLM answers,
- *      with a grounding mode describing how much verified business evidence
- *      is available for this turn.
- *
- * A missing knowledge-base result is NEVER a handoff by itself. It only
- * lowers `groundingMode` to 'unverified', which the prompt layer turns into
- * "you may converse freely, but do not state unverified business facts".
+ *   1. explicit human request (owner keyword policy)   -> handoff
+ *   2. evidence ladder                                 -> grounded / partial
+ *   3. no qualifying evidence                          -> the LLM still
+ *      answers, with groundingMode 'unverified'. The prompt layer forbids
+ *      asserting unverified business facts, so the model either answers
+ *      conversationally, asks one clarifying question, or says plainly that
+ *      it has no verified information.
+ *   4. escalation happens on top of (3) only when an EXPLICIT owner policy
+ *      (handoff_when_no_kb_match / handoff_on_low_confidence) or a routing
+ *      rule elsewhere in the engine says a human is actually appropriate.
  */
 export function decideStrategy(input: StrategyInput): StrategyDecision {
   const { settings, question, sources } = input;
@@ -228,118 +233,102 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
       decisionType: 'handoff',
       reason: 'human_request',
       handoffRequired: true,
+      handoffReason: 'explicit_human_request',
+      requiresBusinessKnowledge: false,
       groundingMode: 'unverified',
       ...common,
     };
   }
 
-  // 2. Conversational turns — greetings, thanks, identity, capability and
-  //    other small talk. These do not depend on business evidence at all,
-  //    so the LLM answers them from the configured assistant persona. This
-  //    is the core of the LLM-first architecture: a missing knowledge-base
-  //    hit is NOT a reason to stay silent or escalate on such a turn.
-  const knowledgeQuestion = requiresKnowledgeLookup(question);
-  if (!knowledgeQuestion) {
-    return {
-      decisionType: 'answer',
-      reason: 'conversational_turn',
-      handoffRequired: false,
-      groundingMode: strength === 'exact_qna' || strength === 'strong' ? 'grounded' : 'unverified',
-      ...common,
-    };
-  }
-
-  // ── From here on the visitor is asking about the BUSINESS, so evidence
-  //    discipline applies: the model may speak, but what it is allowed to
-  //    assert depends on the grounding available.
+  // ── Evidence discipline. The model may always speak; what it is allowed
+  //    to ASSERT depends on the grounding available for this turn.
   const style: EscalationStyle = (settings.escalation_style as EscalationStyle) || 'balanced';
   const { answerMin, caveatMin } = thresholdsForStyle(style);
-  const allowClar = settings.allow_clarifying_questions !== false;
   const allowCaveat = settings.allow_answer_with_caveat !== false;
-  const maxClar = Math.max(0, settings.max_clarification_attempts ?? 1);
-  const canAskClar =
-    allowClar && (input.clarificationAttemptCount || 0) < maxClar && !input.justAnsweredClarification;
 
-  // 3. Conflicting sources must never yield a confidently stated value.
+  // 2. Conflicting sources must never yield a confidently stated value.
   if (conflictResult.conflictDetected && allowCaveat
       && (strength === 'exact_qna' || strength === 'strong' || strength === 'medium')) {
     return {
       decisionType: 'answer_with_caveat',
       reason: 'conflicting_sources',
       handoffRequired: false,
+      handoffReason: null,
+      requiresBusinessKnowledge: true,
       groundingMode: 'partial',
       ...common,
     };
   }
 
-  // 4. Exact Q&A or strong grounding → confident, grounded answer.
+  // 3. Exact Q&A or strong grounding → confident, grounded answer.
   if (strength === 'exact_qna' || (strength === 'strong' && topScore >= answerMin)) {
     return {
       decisionType: 'answer',
       reason: strength === 'exact_qna' ? 'exact_qna_match' : 'strong_kb_match',
       handoffRequired: false,
+      handoffReason: null,
+      requiresBusinessKnowledge: true,
       groundingMode: 'grounded',
       ...common,
     };
   }
 
-  // 5. Medium grounding → caveated answer when allowed.
+  // 4. Medium grounding → caveated answer when allowed.
   if (strength === 'medium' && topScore >= caveatMin && allowCaveat) {
     return {
       decisionType: 'answer_with_caveat',
       reason: 'medium_kb_match',
       handoffRequired: false,
+      handoffReason: null,
+      requiresBusinessKnowledge: true,
       groundingMode: 'partial',
       ...common,
     };
   }
 
-  const noQualifyingSource = strength === 'weak' || strength === 'none';
-  // `answer_only_from_kb` is an explicit owner decision: on BUSINESS
-  // questions the model must not speak without a qualifying source match.
-  // It no longer touches conversational turns, which returned above.
-  const strictKbNoGrounding = isStrictKbNoGrounding(settings, strength);
+  // ── 5. No qualifying evidence. This is NOT an escalation trigger.
+  //    Escalation happens only when the OWNER explicitly asked for it.
+  const ownerEscalates =
+    (strength === 'none' && settings.handoff_when_no_kb_match === true)
+    || (strength === 'weak' && settings.handoff_on_low_confidence === true);
 
-  // 6. Known commercial/support topic → safe guidance instead of a dead end.
-  const knownTopics = (input.topics || []).filter(Boolean);
-  if (knownTopics.length > 0 && style !== 'conservative' && !strictKbNoGrounding) {
+  if (ownerEscalates) {
+    // Owner opted for silence instead of a visible escalation.
+    if (settings.fallback_behavior === 'silent' && strength === 'none') {
+      return {
+        decisionType: 'no_answer_silent',
+        reason: 'no_verified_info_silent',
+        handoffRequired: false,
+        handoffReason: null,
+        requiresBusinessKnowledge: true,
+        groundingMode: 'unverified',
+        ...common,
+      };
+    }
     return {
-      decisionType: 'safe_guidance',
-      reason: 'safe_guidance_known_topic',
-      handoffRequired: false,
-      groundingMode: 'unverified',
-      safeGuidanceTopic: knownTopics[0],
-      ...common,
-    };
-  }
-
-  // 7. Vague or weakly matched → ask ONE clarifying question.
-  if (canAskClar && !strictKbNoGrounding && (isVague(question) || noQualifyingSource)) {
-    return {
-      decisionType: 'ask_clarifying_question',
-      reason: strength === 'none' ? 'no_kb_match_clarify' : 'vague_or_weak',
-      handoffRequired: false,
-      groundingMode: 'unverified',
-      clarificationHint:
-        'Ask exactly ONE short, friendly clarifying question to narrow down what the visitor needs. Do not invent facts and do not promise an answer.',
-      ...common,
-    };
-  }
-
-  // 8. Out of options on a business question → handoff (or stay silent).
-  if (settings.fallback_behavior === 'silent' && strength === 'none') {
-    return {
-      decisionType: 'no_answer_silent',
-      reason: 'no_kb_match_silent',
-      handoffRequired: false,
+      decisionType: 'handoff',
+      reason: strength === 'none'
+        ? 'insufficient_verified_info_requires_human'
+        : 'owner_policy_low_confidence',
+      handoffRequired: true,
+      handoffReason: strength === 'none'
+        ? 'insufficient_verified_info_requires_human'
+        : 'owner_policy',
       groundingMode: 'unverified',
       ...common,
     };
   }
+
+  // Default: the LLM answers. With groundingMode 'unverified' the prompt
+  // forbids inventing business facts, so the model either converses
+  // normally, asks one clarifying question, or states plainly that it has
+  // no verified information — without dragging in a human.
   return {
-    decisionType: 'handoff',
-    reason: strength === 'none' ? 'no_kb_match' : 'low_confidence',
-    handoffRequired: true,
+    decisionType: 'answer',
+    reason: strength === 'none' ? 'no_verified_evidence' : 'weak_evidence_only',
+    handoffRequired: false,
+    handoffReason: null,
+    requiresBusinessKnowledge: true,
     groundingMode: 'unverified',
     ...common,
   };

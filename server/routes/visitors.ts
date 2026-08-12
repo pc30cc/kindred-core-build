@@ -570,41 +570,6 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/visitor-intel/:id?workspace_id=...
- *
- * Detail for a single visitor session — full intelligence shape.
- * Used by the detail drawer.
- */
-visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
-  // Sub-route guard: /:id/page-history is handled below.
-  if (
-    req.params.id === 'live' || req.params.id === 'map' ||
-    req.params.id === 'map-config' || req.params.id === 'network'
-  ) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  const config = (req as any).serverConfig as ServerConfig;
-  const visitorId = routeParam(req.params.id);
-  if (!visitorId) return res.status(400).json({ error: 'Invalid visitor id' });
-  const workspaceId = (req.query.workspace_id as string) || '';
-  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
-
-  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
-  if (!auth) return;
-
-  try {
-    const item = await getVisitorIntelligence(config, workspaceId, visitorId, {
-      viewerRole: auth.role,
-    });
-    if (!item) return res.status(404).json({ error: 'Not found' });
-    res.json(item);
-  } catch (err) {
-    console.error('[visitors.detail] failed:', err);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
-
-/**
  * GET /api/visitor-intel/network?workspace_id=...&session_id=…|conversation_id=…|call_session_id=…|callback_id=…|contact_id=…
  *
  * THE single operator-facing read for a visitor's network identity (IP + geo +
@@ -620,6 +585,13 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
  * other way around), so it goes through resolveContactNetworkProfile's own
  * "newest session with an ip_hash, else newest session" pick instead of the
  * generic single-column lookup below.
+ *
+ * Registered BEFORE the generic GET /:id below — Express matches routes in
+ * registration order, and `/:id` matches a bare `/network` too (with
+ * id === 'network'). `/:id`'s own guard clause used to be the only thing
+ * standing between this handler and a wrongly-registered-after-it version
+ * of it being permanently unreachable; keep this one ABOVE `/:id`, not
+ * just guarded inside it.
  */
 visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -669,17 +641,16 @@ visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/visitor-intel/:id/page-history?workspace_id=...&limit=20
- *
- * Returns ordered (most-recent first) page-view rows for a session.
- */
-/**
  * POST /api/visitor-intel/network/batch
  * body: { workspace_id, conversation_ids?: string[], session_ids?: string[], contact_ids?: string[] }
  *
  * Batched sibling of GET /network for LIST surfaces (Inbox, Contacts). One
  * call per page of rows — never one per row — and the IP privacy/entitlement
  * policy is applied here, server-side, exactly once for the viewer.
+ *
+ * A POST route, so it was never actually shadowed by GET /:id (different
+ * HTTP method) — registered up here next to GET /network purely so the two
+ * stay adjacent as the single/batch pair they are.
  */
 visitorsAdminRouter.post('/network/batch', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -722,6 +693,41 @@ visitorsAdminRouter.post('/network/batch', async (req: Request, res: Response) =
   } catch (err) {
     console.error('[visitors.network.batch] failed:', err);
     return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitor-intel/:id?workspace_id=...
+ *
+ * Detail for a single visitor session — full intelligence shape.
+ * Used by the detail drawer.
+ */
+visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
+  // Sub-route guard: /:id/page-history is handled below.
+  if (
+    req.params.id === 'live' || req.params.id === 'map' ||
+    req.params.id === 'map-config' || req.params.id === 'network'
+  ) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const config = (req as any).serverConfig as ServerConfig;
+  const visitorId = routeParam(req.params.id);
+  if (!visitorId) return res.status(400).json({ error: 'Invalid visitor id' });
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  try {
+    const item = await getVisitorIntelligence(config, workspaceId, visitorId, {
+      viewerRole: auth.role,
+    });
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    res.json(item);
+  } catch (err) {
+    console.error('[visitors.detail] failed:', err);
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 

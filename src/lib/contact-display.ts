@@ -167,9 +167,12 @@ export function contactDisplayName(
   if (name && name.toLowerCase() !== PLACEHOLDER) return name;
   const code = resolveVisitorCode(contact, fallbackId);
   const isolatedCode = isolateBidi(code);
-  const geoInfo: DisplayGeoInfo = typeof geo === 'string' || geo == null
-    ? { city: geo ?? null }
-    : geo;
+  let geoInfo: DisplayGeoInfo;
+  if (typeof geo === 'object' && geo !== null) {
+    geoInfo = geo;
+  } else {
+    geoInfo = { city: typeof geo === 'string' ? geo : null };
+  }
   const isIran = (geoInfo.country_code ?? '').trim().toUpperCase() === 'IR';
   const cleanPlace = sanitizeCity(isIran ? geoInfo.region : geoInfo.city);
   if (!cleanPlace) {

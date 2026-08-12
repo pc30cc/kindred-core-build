@@ -1662,16 +1662,39 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // Fire-and-forget: must never block the widget /message response.
     // ─────────────────────────────────────────────────────────────────────
     if (insertedMsg?.id && convId && !platformAiOff) {
+      const aiConvId = convId;
+      const aiMsgId = insertedMsg.id;
       void maybeRunAiAssistantAfterVisitorMessage(config, {
         workspaceId,
-        conversationId: convId,
-        visitorMessageId: insertedMsg.id,
+        conversationId: aiConvId,
+        visitorMessageId: aiMsgId,
         question: messageBody,
         locale: (req.body && (req.body.locale as string)) || undefined,
         pageContext: pageContext || undefined,
-      }).catch((e: any) =>
-        console.warn('[widget-message] AI Agent engine error:', e?.message || e),
-      );
+      })
+        .then(async (result: any) => {
+          // Observability: several engine outcomes (empty question, agent
+          // disabled, duplicate suggestion, internal failure) return without
+          // writing an ai_agent_runs row, which makes a silent AI impossible
+          // to diagnose from the database. Persist those outcomes here.
+          if (!result || result.runId) return;
+          try {
+            await logAiRun(config, {
+              workspaceId,
+              conversationId: aiConvId,
+              visitorMessageId: aiMsgId,
+              runType: 'skip',
+              mode: 'unknown',
+              status: result.action === 'failed' ? 'failed' : 'skipped',
+              inputText: messageBody,
+              skipReason: result.reason || result.action || 'unlogged_outcome',
+              metadata: { engine_outcome: result.action || null, engine_reason: result.reason || null },
+            });
+          } catch { /* diagnostics must never break the visitor flow */ }
+        })
+        .catch((e: any) =>
+          console.warn('[widget-message] AI Agent engine error:', e?.message || e),
+        );
     }
     if (platformAiOff && insertedMsg?.id && convId) {
       console.log('[widget-message] ai_skipped_platform_disabled', {

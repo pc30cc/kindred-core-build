@@ -171,3 +171,21 @@ export async function loadConversationContext(
     return { ...EMPTY };
   }
 }
+export interface ModelMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * Phase 11 — render bounded turns as real role-tagged model messages.
+ * Operator replies are mapped to `assistant`: from the visitor's point of
+ * view they are the same side of the conversation.
+ */
+export function toModelMessages(turns: ContextTurn[]): ModelMessage[] {
+  return (turns || [])
+    .map((t) => ({
+      role: (t.role === 'visitor' ? 'user' : 'assistant') as ModelMessage['role'],
+      content: String(t.text || '').trim(),
+    }))
+    .filter((m) => m.content.length > 0);
+}

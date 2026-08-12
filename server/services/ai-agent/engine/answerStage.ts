@@ -1,7 +1,7 @@
 /**
  * AI Agent engine — answer-strategy stage (decideStrategy, page-aware
  * overrides, page-intent terminal reply, and the no-LLM branches:
- * no_answer_silent, handoff(strategy), greeting).
+ * no_answer_silent, handoff(strategy)).
  *
  * Mechanically extracted from runInternal() in server/services/ai-agent/engine.ts
  * (Phase 5 engine extraction, Commit F). The body below is byte-identical to
@@ -17,7 +17,7 @@
  * toolMeta via the same get/set ref pattern as the original.
  */
 import type { ServerConfig } from '../../../config.js';
-import { decideStrategy, countClarificationAttempts, isStrictKbNoGrounding } from '../answerStrategy.js';
+import { decideStrategy, countClarificationAttempts } from '../answerStrategy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged, markNeedsHuman } from '../handoffState.js';
@@ -29,13 +29,13 @@ import {
   buildRoutingMetadata, mergeRoutingMetadata, POST_STRATEGY_ROUTING_TRIGGER_TYPES,
   type RoutingEvaluationResult,
 } from '../runtime/routingRuntime.js';
+import { composeHandoffMessage } from '../handoffMessage.js';
 import {
   evaluateNoAnswerHooks,
   resolveHandoffAckMessage,
   applySafeRoutingSideEffects,
   pickPageNoUrl,
   pickPageNotIndexed,
-  pickGreeting,
 } from './helpers.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -139,6 +139,7 @@ export async function runAnswerStage(
     handoff_required: strategy.handoffRequired,
     escalation_style: settings.escalation_style || 'balanced',
     safe_guidance_topic: strategy.safeGuidanceTopic || null,
+    grounding_mode: strategy.groundingMode,
     // ── Phase 2 observability ──────────────────────────────────────────
     confidence: strategy.confidence,
     confidence_band: strategy.confidenceBand,
@@ -226,7 +227,9 @@ export async function runAnswerStage(
   // or short-circuited by the no_url/no_indexed_page terminal reply just
   // above. Evaluating any earlier would risk matching a stale reason that
   // no longer reflects the final outcome (Follow-up 9E.2 Blocker 1).
-  const strictBlocked = isStrictKbNoGrounding(settings, strategy.retrievalStrength, (strategy as any).metaIntent);
+  // LLM-first architecture: strict-KB no longer blocks the model, so no
+  // routing decision can be invalidated by a "strict KB block" any more.
+  const strictBlocked = false;
 
   // Normalize the PRE-strategy result now that retrievalStrength is finally
   // known, so a PRE keep_ai action that strict-KB blocks is never reported
@@ -389,12 +392,19 @@ export async function runAnswerStage(
         // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
         // ordering note on the human-request handoff branch above.
         const display = deriveAgentDisplay(settings);
-        const body = settings.fallback_message
-          || await resolveHandoffAckMessage(
+        const body = await composeHandoffMessage(config, {
+          workspaceId,
+          locale,
+          reason: strategy.reason,
+          visitorText: question,
+          conversationContext: retrieval.built?.conversationContext || null,
+          settings,
+          fallback: await resolveHandoffAckMessage(
             config, workspaceId, locale,
             availability.state === 'offline',
-            pickTemplate('no_answer_handoff', locale),
-          );
+            settings.fallback_message || pickTemplate('no_answer_handoff', locale),
+          ),
+        });
         const inserted = await insertAiMessage(config, {
           workspaceId,
           conversationId,
@@ -417,57 +427,6 @@ export async function runAnswerStage(
       return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId } };
     }
     return { terminal: { ran: true, action: 'no_answer', reason: strategy.reason, runId } };
-    }
-  }
-
-  // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────
-  if (strategy.decisionType === 'greeting') {
-    // C2 dedup — if we already greeted this visitor, fall through to LLM.
-    const flagsForGreet = (state._metadata as any) || {};
-    if (flagsForGreet.ai_greeting_sent === true) {
-      decisionTimeline.push('greeting_skipped_duplicate');
-      console.log('[ai-agent.runtime] greeting skipped — already greeted', { conversationId });
-      // Fall through to LLM by treating as substantive answer.
-      (strategy as any).decisionType = 'answer';
-      (strategy as any).reason = `${strategy.reason || 'greeting'}_dedup`;
-    } else {
-    const display = deriveAgentDisplay(settings);
-    const body = pickGreeting(locale, display.agentName);
-    const runId = await logRun(config, {
-      workspaceId,
-      conversationId,
-      visitorMessageId,
-      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
-      mode: settings.mode,
-      status: decision.canAutoReply ? 'replied' : 'suggested',
-      inputText: question,
-      outputText: body,
-      kbArticleIds: [],
-      confidence: 1,
-      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
-    });
-    if (decision.canAutoReply) {
-      const inserted = await insertAiMessage(config, {
-        workspaceId,
-        conversationId,
-        body,
-        source: 'ai_agent',
-        runId,
-        mode: settings.mode,
-        kbArticleIds: [],
-        qnaIds: [],
-        confidence: 1,
-        provider: null,
-        model: null,
-        handoff: false,
-        agentName: display.agentName,
-        agentLogoUrl: display.agentLogoUrl,
-      });
-      await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
-      await updateRuntimeFlags(config, conversationId, { greetingSent: true }).catch(() => {});
-      return { terminal: { ran: true, action: 'replied', runId, messageId: inserted.id } };
-    }
-    return { terminal: { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId } };
     }
   }
 

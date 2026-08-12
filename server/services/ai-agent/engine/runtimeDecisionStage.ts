@@ -25,6 +25,7 @@ import { runLimitHandoff, type LimitReason } from '../limitHandoff.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickHandoffAckMessage } from '../runtime/templates.js';
 import { resolveHandoffAckMessage } from './helpers.js';
+import { composeHandoffMessage } from '../handoffMessage.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -210,7 +211,18 @@ export async function runRuntimeDecisionStage(
     if (!handoffAlreadyDone && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
       const display = deriveAgentDisplay(settings);
       const teamOffline = availability.state === 'offline';
-      const ack = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickHandoffAckMessage(settings, locale));
+      const configuredAck = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickHandoffAckMessage(settings, locale));
+      // Phase 9 — context-aware wording, owner text as tone guidance and
+      // as the fallback whenever generation is unavailable.
+      const ack = await composeHandoffMessage(config, {
+        workspaceId,
+        locale,
+        reason: (decision as any).reason || 'handoff',
+        visitorText: question,
+        conversationContext: null,
+        settings,
+        fallback: configuredAck,
+      });
       const inserted = await insertAiMessage(config, {
         workspaceId,
         conversationId,

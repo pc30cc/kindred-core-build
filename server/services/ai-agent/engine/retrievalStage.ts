@@ -17,6 +17,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { retrieveKnowledgeForRuntime } from '../runtimeRetrieval.js';
 import { buildRetrievalQuery } from '../queryBuilder.js';
+import { requiresKnowledgeLookup } from '../answerStrategy.js';
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -59,11 +60,22 @@ export async function runRetrievalStage(
     widgetLocale: locale,
   });
 
+  // Phase 15 — do not spend a vector/keyword search on pure social chatter
+  // ("hi", "thanks"). This never changes WHETHER the model answers, only
+  // whether we look for business context first.
+  const knowledgeLookupNeeded = requiresKnowledgeLookup(built.originalMessage)
+    || !!pageContext?.currentPageUrl;
+  const emptyRetrieval = {
+    sources: [] as any[], hybridUsed: false, vectorUsed: false, keywordUsed: false,
+    embeddingProviderName: null, embeddingModelName: null,
+    fallbackReason: 'retrieval_skipped_small_talk', selectedSourcesMeta: [],
+    pageContextDebug: null, retrievalDebug: null, excludedSummary: null,
+  };
   const {
     sources, hybridUsed, vectorUsed, keywordUsed, embeddingProviderName,
     embeddingModelName, fallbackReason, selectedSourcesMeta, pageContextDebug,
     retrievalDebug, excludedSummary,
-  } = await retrieveKnowledgeForRuntime(config, {
+  } = knowledgeLookupNeeded ? await retrieveKnowledgeForRuntime(config, {
     workspaceId,
     originalMessage: built.originalMessage,
     retrievalQuery: built.retrievalQuery,
@@ -72,7 +84,7 @@ export async function runRetrievalStage(
     inputLanguage,
     limit: 5,
     pageContext,
-  });
+  }) : (emptyRetrieval as any);
 
   const queryMeta = {
     original_message: built.originalMessage,
@@ -93,6 +105,7 @@ export async function runRetrievalStage(
       original_intent: built.clarification?.originalIntent ?? null,
       follow_up_response: built.clarification?.followUpResponse ?? null,
     },
+    knowledge_lookup_needed: knowledgeLookupNeeded,
     retrieval_results_count: sources.length,
     hybrid_used: hybridUsed,
     vector_used: vectorUsed,

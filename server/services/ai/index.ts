@@ -85,6 +85,12 @@ export interface AIRequest {
   workspaceId: string;
   prompt: string;
   systemPrompt?: string;
+  /**
+   * Prior conversation turns, oldest first, WITHOUT the current message
+   * (which stays in `prompt`). Providers map these to their native role
+   * format so the model receives real multi-turn context.
+   */
+  messages?: { role: 'user' | 'assistant'; content: string }[];
   model?: string;
   maxTokens?: number;
   temperature?: number;
@@ -232,6 +238,7 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
     model,
     messages: [
       ...(req.systemPrompt ? [{ role: 'system', content: req.systemPrompt }] : []),
+      ...priorMessages(req),
       { role: 'user', content: req.prompt },
     ],
     max_tokens: req.maxTokens || config.maxTokens || 4096,
@@ -372,6 +379,17 @@ export async function requestJsonWithRetry(
   throw lastErr;
 }
 
+/**
+ * Normalized prior conversation turns (oldest first). Alternation is not
+ * enforced here: providers tolerate consecutive same-role turns, and the
+ * caller already bounds the history by turn count and characters.
+ */
+function priorMessages(req: AIRequest): { role: 'user' | 'assistant'; content: string }[] {
+  return (req.messages || [])
+    .filter((m) => m && typeof m.content === 'string' && m.content.trim().length > 0)
+    .map((m) => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, content: m.content }));
+}
+
 // ─── Anthropic ───────────────────────────────────────────────────
 
 async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetch): Promise<AIResponse> {
@@ -381,7 +399,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
   const body: any = {
     model,
     max_tokens: req.maxTokens || config.maxTokens || 4096,
-    messages: [{ role: 'user', content: req.prompt }],
+    messages: [...priorMessages(req), { role: 'user', content: req.prompt }],
   };
   if (req.systemPrompt) body.system = req.systemPrompt;
 
@@ -420,7 +438,13 @@ async function callGemini(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
   const model = req.model || config.model || 'gemini-2.5-flash';
 
   const body: any = {
-    contents: [{ parts: [{ text: req.prompt }] }],
+    contents: [
+      ...priorMessages(req).map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      })),
+      { role: 'user', parts: [{ text: req.prompt }] },
+    ],
     generationConfig: {
       maxOutputTokens: req.maxTokens || config.maxTokens || 4096,
       temperature: req.temperature ?? config.temperature ?? 0.7,

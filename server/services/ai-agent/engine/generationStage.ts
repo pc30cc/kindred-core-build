@@ -16,7 +16,7 @@ import type { ServerConfig } from '../../../config.js';
 import { executeAICompletion, executeAICompletionWithConfig, resolveAIConfig } from '../../ai/index.js';
 // `executeAICompletion` is still referenced by the GenerationStageResult type.
 import { buildSystemPrompt, buildUserPrompt } from '../prompt.js';
-import { isStrictKbNoGrounding } from '../answerStrategy.js';
+import { toModelMessages } from '../conversationContext.js';
 import { postValidateAnswer } from '../policy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
@@ -85,32 +85,6 @@ export async function runGenerationStage(
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
 
-  // ─── Follow-up 9D.1/9D.2 — load-bearing strict-KB provider guard ──────
-  // The single, unconditional choke point every path must cross before a
-  // provider call happens. AnswerStage's routingKeepAi check is the
-  // "normal path" fix (preserves full handoff/no-answer messaging); this is
-  // the last-resort backstop for any other upstream decisionType mutation
-  // (present or future — e.g. the greeting-dedup fallthrough) that reaches
-  // here despite strict-KB having no qualifying grounding. Never fabricate
-  // an answer here — fail closed with a plain, observable skip.
-  if (isStrictKbNoGrounding(settings, strategy.retrievalStrength, (strategy as any).metaIntent)) {
-    decisionTimeline.push('strict_kb_safety_block');
-    const runId = await logRun(config, {
-      workspaceId,
-      conversationId,
-      visitorMessageId,
-      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
-      mode: settings.mode,
-      status: 'skipped',
-      inputText: question,
-      skipReason: 'strict_kb_safety_block',
-      kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
-    });
-    return { terminal: { ran: false, action: 'skipped', reason: 'strict_kb_safety_block', runId } };
-  }
-
   // ─── LLM call ─────────────────────────────────────────────────────────
   const aiConfig = await resolveAIConfig(config, workspaceId);
   if (!aiConfig) {
@@ -168,6 +142,8 @@ export async function runGenerationStage(
   const systemPrompt = buildSystemPrompt(settings, locale, {
     responseLanguage: locale,
     inputLanguage,
+    businessName: ctxStage.workspaceName,
+    handoffGuidance: (settings.handoff_message_localized || {})[locale] || settings.fallback_message || null,
     workspaceLinks: wsContext ? {
       pricing: wsContext.pricingUrl,
       contact: wsContext.contactUrl,
@@ -179,11 +155,18 @@ export async function runGenerationStage(
     topicSlug: topTopicSlug,
     enabledActions: enabledActionNames,
   });
+  // Phase 11 — real role-tagged history. Providers that accept a message
+  // array get system + user/assistant turns + the current message; the
+  // rendered text block is only used as a fallback for that same context.
+  // The current visitor message is delivered separately as `prompt`, so it
+  // must never be duplicated as the last history turn.
+  const historyMessages = toModelMessages(built?.contextTurns || [])
+    .filter((m, i, arr) => !(i === arr.length - 1 && m.role === 'user' && m.content.trim() === question));
   const userPrompt = buildUserPrompt(question, sources, strategy, {
     pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
     pageMatched: pageExact || pagePath,
     // Phase 2.1 — bounded multi-turn context, already tenant-scoped.
-    conversationContext: built?.conversationContext || null,
+    conversationContext: historyMessages.length ? null : (built?.conversationContext || null),
     // Phase 2.7 — warn the model when sources materially disagree.
     conflictDetected: strategy.conflictDetected,
     toolResults: toolResultsBlock,
@@ -197,6 +180,7 @@ export async function runGenerationStage(
       workspaceId,
       prompt: userPrompt,
       systemPrompt,
+      messages: historyMessages,
       maxTokens: 600,
       temperature:
         settings.answer_guidance === 'creative' ? 0.6 :
@@ -278,7 +262,12 @@ export async function runGenerationStage(
         aiManaged: state ? state.managedByAi !== false : true,
         strictKb: !!settings.answer_only_from_kb,
         handoffKeywords: (settings as any).handoff_keywords || [],
-        strategyHandoffRequired: strategy.decisionType === 'handoff',
+        // The model may propose a handoff; deterministic authorization is
+        // an explicit human request (checked inside the gate), a strategy
+        // handoff, or a genuine verified-information gap on this turn.
+        strategyHandoffRequired:
+          strategy.decisionType === 'handoff'
+          || (strategy.groundingMode === 'unverified' && settings.handoff_when_no_kb_match !== false),
         currentPriority: (convRow as any)?.priority ?? null,
         currentTags: Array.isArray((convRow as any)?.tags) ? (convRow as any).tags : [],
         executedKeys: readExecutedActionKeys((convRow as any)?.metadata),

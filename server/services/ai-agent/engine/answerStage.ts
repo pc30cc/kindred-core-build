@@ -231,7 +231,7 @@ export async function runAnswerStage(
   // thanks) is answered from the assistant persona and was never gated by
   // the knowledge base.
   const strictBlocked =
-    strategy.reason !== 'conversational_turn'
+    strategy.requiresBusinessKnowledge
     && isStrictKbNoGrounding(settings, strategy.retrievalStrength);
 
   // Normalize the PRE-strategy result now that retrievalStrength is finally

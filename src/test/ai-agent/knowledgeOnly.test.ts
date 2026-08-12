@@ -155,7 +155,7 @@ function baseInput(overrides: Record<string, any> = {}) {
 }
 
 beforeEach(() => {
-  settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always' });
+  settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
   conversationStateFixture = makeConversationState();
   availabilityFixture = makeAvailability();
   hybridImpl = async () => makeHybridResult({ sources: [] });
@@ -172,41 +172,11 @@ beforeEach(() => {
 });
 
 describe('C9 — answer_only_from_kb, no matching source', () => {
-  it('PHASE 2 FIX: strict KB-only mode never calls the LLM, even on the first clarification attempt, when there is zero source grounding', async () => {
-    // Phase 1 found decideStrategy resolved to 'ask_clarifying_question'
-    // here (which DOES call the LLM), violating engine.ts's own declared
-    // invariant ("answer_only_from_kb -> no LLM call without a Q&A/KB
-    // match"). Phase 2 fix: decideStrategy now skips the
-    // ask_clarifying_question branch when answer_only_from_kb=true and
-    // retrieval strength is weak/none, falling through to the existing
-    // handoff/no_answer_silent logic (step 6) instead — no new response
-    // state was invented. This is an INTENTIONAL behavior change from the
-    // Phase 1 characterization above; see git history for the prior
-    // "SURPRISING FINDING" version of this test.
-    hybridImpl = async () => makeHybridResult({ sources: [] });
-
-    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
-
-    expect(aiCallCount).toBe(0);
-    expect(['handoff', 'no_answer']).toContain(result.action);
-    const log = logRunCalls.find((c) => c.status === 'handoff' || c.status === 'no_answer');
-    expect(log).toBeTruthy();
-    expect(log.metadata.answer_strategy.decision_type).not.toBe('ask_clarifying_question');
-  });
-
-  it('PHASE 2 FIX: strict KB-only mode never calls the LLM for a weak (non-qualifying) source match either', async () => {
-    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always' });
-    hybridImpl = async () =>
-      makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
-
-    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
-
-    expect(aiCallCount).toBe(0);
-    expect(['handoff', 'no_answer']).toContain(result.action);
-  });
-
-  it('non-strict mode (answer_only_from_kb=false) preserves the existing clarification behavior — LLM IS called on the first attempt', async () => {
-    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always' });
+  it('LLM-FIRST: strict KB-only mode with zero grounding still lets the model reply — the prompt, not silence, protects business facts', async () => {
+    // Architecture rewrite: answer_only_from_kb restricts BUSINESS FACTS,
+    // it is no longer an LLM kill-switch. With no evidence the turn is
+    // tagged groundingMode='unverified' and the model must say it has no
+    // confirmed information instead of inventing one.
     hybridImpl = async () => makeHybridResult({ sources: [] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
@@ -214,21 +184,42 @@ describe('C9 — answer_only_from_kb, no matching source', () => {
     expect(aiCallCount).toBe(1);
     expect(result.action).toBe('replied');
     const log = logRunCalls.find((c) => c.runType === 'auto_reply');
-    expect(log.metadata.answer_strategy.decision_type).toBe('ask_clarifying_question');
+    expect(log.metadata.answer_strategy.grounding_mode).toBe('unverified');
+    expect(log.metadata.answer_strategy.handoff_required).toBe(false);
   });
 
-  it('after the clarification budget is exhausted, current behavior moves to handoff/no-answer without a further LLM call', async () => {
-    // countClarificationAttempts is mocked to 0 for every test above; here
-    // we drive the real decideStrategy with an attempt count at/above
-    // max_clarification_attempts (default 1) to characterize the OTHER
-    // side of this same decision, still without a real DB attempts-count.
+  it('LLM-FIRST: a weak (non-qualifying) source match is answered with unverified grounding, not silence', async () => {
+    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
+    hybridImpl = async () =>
+      makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(aiCallCount).toBe(1);
+    expect(result.action).toBe('replied');
+  });
+
+  it('non-strict mode + zero sources: the model answers, and never resolves to a legacy scripted state', async () => {
+    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+
+    expect(aiCallCount).toBe(1);
+    expect(result.action).toBe('replied');
+    const log = logRunCalls.find((c) => c.runType === 'auto_reply');
+    expect(log.metadata.answer_strategy.decision_type).toBe('answer');
+    expect(log.metadata.answer_strategy.reason).toBe('no_verified_evidence');
+  });
+
+  it('owner policy handoff_when_no_kb_match=true + a configured topic escalates instead', async () => {
     settingsFixture = makeSettings({
       answer_only_from_kb: true,
       mode: 'auto_reply_always',
-      max_clarification_attempts: 1,
-      allow_clarifying_questions: false,
+      handoff_when_no_kb_match: true,
     });
     hybridImpl = async () => makeHybridResult({ sources: [] });
+    builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
 
@@ -247,36 +238,21 @@ describe('C9 — answer_only_from_kb vs. safe_guidance (known topic)', () => {
   // violating the declared "no LLM call without a Q&A/KB match" invariant.
   // These tests pin the fix: the SAME strictKbNoGrounding condition now
   // gates both safe_guidance and ask_clarifying_question.
-  it('strict KB + zero sources + known topic: never calls the LLM and never resolves to safe_guidance or ask_clarifying_question', async () => {
+  it('the scripted safe_guidance state no longer exists: a known topic with zero grounding is answered by the model', async () => {
+    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
     hybridImpl = async () => makeHybridResult({ sources: [] });
     builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
 
-    expect(aiCallCount).toBe(0);
-    expect(['handoff', 'no_answer']).toContain(result.action);
-    const log = logRunCalls.find((c) => c.status === 'handoff' || c.status === 'no_answer');
-    expect(log).toBeTruthy();
+    expect(result.action).toBe('replied');
+    const log = logRunCalls.find((c) => c.runType === 'auto_reply');
     expect(log.metadata.answer_strategy.decision_type).not.toBe('safe_guidance');
     expect(log.metadata.answer_strategy.decision_type).not.toBe('ask_clarifying_question');
   });
 
-  it('strict KB + weak (non-qualifying) source + known topic: never calls the LLM', async () => {
-    hybridImpl = async () =>
-      makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
-    builtQueryImpl = async () => makeBuiltQuery({ topics: ['support'] });
-
-    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
-
-    expect(aiCallCount).toBe(0);
-    expect(['handoff', 'no_answer']).toContain(result.action);
-    const log = logRunCalls.find((c) => c.status === 'handoff' || c.status === 'no_answer');
-    expect(log).toBeTruthy();
-    expect(log.metadata.answer_strategy.decision_type).not.toBe('safe_guidance');
-  });
-
-  it('non-strict mode + zero sources + known topic: safe_guidance is preserved (fix does not globally disable it)', async () => {
-    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always' });
+  it('non-strict mode + zero sources + known topic is also answered by the model, with unverified grounding', async () => {
+    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
     hybridImpl = async () => makeHybridResult({ sources: [] });
     builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
 
@@ -285,7 +261,7 @@ describe('C9 — answer_only_from_kb vs. safe_guidance (known topic)', () => {
     expect(aiCallCount).toBe(1);
     expect(result.action).toBe('replied');
     const log = logRunCalls.find((c) => c.runType === 'auto_reply');
-    expect(log.metadata.answer_strategy.decision_type).toBe('safe_guidance');
+    expect(log.metadata.answer_strategy.grounding_mode).toBe('unverified');
   });
 });
 

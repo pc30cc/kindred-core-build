@@ -118,11 +118,12 @@ describe('SettingsPage S3 — an explicitly edited field IS included with the in
     dataHolder.data = { settings: baseSettings({ answer_only_from_kb: false }) };
     render(<SettingsPage />);
 
-    // DOM order of the 4 switches on this page: [enabled (header),
-    // answer_only_from_kb, ai_intro_enabled, show_sources_to_operator].
-    // None of them are associated with a <Label htmlFor> in the current
-    // markup, so index into the ordered list rather than query by label.
-    fireEvent.click(screen.getAllByRole('switch')[1]);
+    // DOM order of the 3 switches on this page: [answer_only_from_kb,
+    // ai_intro_enabled, show_sources_to_operator]. None of them are
+    // associated with a <Label htmlFor> in the current markup, so index into
+    // the ordered list rather than query by label. (ai_intro_enabled saves
+    // immediately on toggle, so it must not be the one clicked here.)
+    fireEvent.click(screen.getAllByRole('switch')[0]);
     const patch = await clickSave();
 
     expect(patch.answer_only_from_kb).toBe(true);

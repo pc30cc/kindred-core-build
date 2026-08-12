@@ -379,13 +379,10 @@ describe('C8 — precedence when multiple handoff sources are simultaneously tru
 });
 
 describe('C8.6 — low-confidence handoff', () => {
-  it('non-strict mode (answer_only_from_kb=false): on the FIRST weak-match message, decideStrategy asks a clarifying question and the LLM IS called — unaffected by the Phase 2 strict-KB fix', async () => {
-    // This is the answer_only_from_kb=false counterpart of the Phase 2 fix
-    // in knowledgeOnly.test.ts — handoff_on_low_confidence alone does not
-    // (and per the fix, should not) prevent this first LLM call; the
-    // strict-mode case (answer_only_from_kb=true) is covered there and in
-    // this file's C8.7 block, both now asserting LLM=0.
-    settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_low_confidence: true, answer_only_from_kb: false });
+  it('LLM-FIRST: a weak match escalates only because the owner enabled handoff_on_low_confidence; with the policy off the model answers', async () => {
+    settingsFixture = makeSettings({
+      mode: 'auto_reply_always', handoff_on_low_confidence: false, answer_only_from_kb: false,
+    });
     hybridImpl = async () =>
       makeHybridResult({
         sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })],
@@ -396,10 +393,12 @@ describe('C8.6 — low-confidence handoff', () => {
     expect(aiCallCount).toBe(1);
     expect(result.action).toBe('replied');
     const log = logRunCalls.find((c) => c.runType === 'auto_reply');
-    expect(log.metadata.answer_strategy.decision_type).toBe('ask_clarifying_question');
+    expect(log.metadata.answer_strategy.decision_type).toBe('answer');
+    expect(log.metadata.answer_strategy.grounding_mode).toBe('unverified');
+    expect(log.metadata.answer_strategy.handoff_required).toBe(false);
   });
 
-  it('once the clarification budget is exhausted, the same weak match routes to handoff without a further LLM call', async () => {
+  it('with handoff_on_low_confidence ON, the same weak match escalates without an LLM call', async () => {
     settingsFixture = makeSettings({
       mode: 'auto_reply_always',
       handoff_on_low_confidence: true,

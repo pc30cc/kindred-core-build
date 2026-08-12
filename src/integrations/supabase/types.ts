@@ -3908,7 +3908,6 @@ export type Database = {
           spam_marked_by: string | null
           tags: string[] | null
           updated_at: string | null
-          visitor_code: string | null
           workspace_id: string
         }
         Insert: {
@@ -3925,7 +3924,6 @@ export type Database = {
           spam_marked_by?: string | null
           tags?: string[] | null
           updated_at?: string | null
-          visitor_code?: string | null
           workspace_id: string
         }
         Update: {
@@ -3942,7 +3940,6 @@ export type Database = {
           spam_marked_by?: string | null
           tags?: string[] | null
           updated_at?: string | null
-          visitor_code?: string | null
           workspace_id?: string
         }
         Relationships: [

@@ -44,12 +44,12 @@ vi.mock('../../../server/supabase.js', () => ({
   }),
 }));
 
-const resolveContactNetworkProfile = vi.fn(async () => ({ profile: 'by-contact' }));
+const resolveContactNetworkProfile = vi.fn(async (..._a: unknown[]) => ({ profile: 'by-contact' }));
 const resolveNetworkProfile = vi.fn(async (_cfg: unknown, _ws: string, sessionId: string) => ({ profile: 'by-session', sessionId }));
-const resolveConversationNetworkProfiles = vi.fn(async () => new Map());
-const resolveNetworkProfiles = vi.fn(async () => new Map());
-const resolveContactsNetworkProfiles = vi.fn(async () => new Map());
-const resolveIpVisibilityPolicy = vi.fn(async () => ({ entitled: false, canViewRaw: false }));
+const resolveConversationNetworkProfiles = vi.fn(async (..._a: unknown[]) => new Map());
+const resolveNetworkProfiles = vi.fn(async (..._a: unknown[]) => new Map());
+const resolveContactsNetworkProfiles = vi.fn(async (..._a: unknown[]) => new Map());
+const resolveIpVisibilityPolicy = vi.fn(async (..._a: unknown[]) => ({ entitled: false, canViewRaw: false }));
 
 vi.mock('../../../server/services/visitors/networkProfile.js', () => ({
   resolveIpVisibilityPolicy: (...a: unknown[]) => resolveIpVisibilityPolicy(...a),

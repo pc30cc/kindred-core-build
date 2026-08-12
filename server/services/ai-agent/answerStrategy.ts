@@ -69,10 +69,13 @@ export interface StrategyInput {
    */
   justAnsweredClarification?: boolean;
   /**
-   * Retrieval stage decided this turn plausibly needs business-specific
-   * knowledge (pipeline signals only — see ./retrievalDecision.ts).
+   * SEMANTIC evidence (never "retrieval ran") that this turn is about the
+   * business: an owner-configured topic matched, domain vocabulary matched,
+   * the visitor referred to the page they are on, or the turn is a
+   * follow-up to a business-grounded turn.
+   * See ./retrievalDecision.ts -> isBusinessEvidenceReason().
    */
-  knowledgeRetrievalAttempted?: boolean;
+  businessSignalDetected?: boolean;
 }
 
 export interface StrategyDecision {
@@ -285,10 +288,12 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   //   * the retrieval stage itself decided this turn needed business
   //     knowledge (see ./retrievalDecision.ts — signal based, phrase free).
   // Message SHAPE (question mark, digits, word count) is never used.
+  // A retrieval ATTEMPT is an execution signal and is deliberately not used
+  // here: retrieval may be speculative. Only real evidence counts.
   const requiresBusinessKnowledge =
     sources.length > 0
     || (input.topics || []).filter(Boolean).length > 0
-    || input.knowledgeRetrievalAttempted === true;
+    || input.businessSignalDetected === true;
 
   // Escalation on missing evidence happens ONLY when the owner explicitly
   // asked for it (or a routing rule elsewhere in the engine fires).

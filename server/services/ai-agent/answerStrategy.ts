@@ -24,6 +24,18 @@ import { detectSourceConflicts, type DetectedConflict } from './conflictDetectio
 /** How much verified business evidence backs this turn. */
 export type GroundingMode = 'grounded' | 'partial' | 'unverified';
 
+/**
+ * Explicit, enumerated reasons a conversation may be escalated to a human.
+ * "The knowledge base returned nothing" is deliberately NOT one of them:
+ * missing evidence only means the assistant may not assert a business fact.
+ */
+export type HandoffReason =
+  | 'explicit_human_request'
+  | 'routing_rule'
+  | 'human_only_action'
+  | 'owner_policy'
+  | 'insufficient_verified_info_requires_human';
+
 export type StrategyDecisionType =
   | 'answer'
   | 'answer_with_caveat'
@@ -78,6 +90,14 @@ export interface StrategyDecision {
   /** Phase 2.7 — materially conflicting sources on a business fact. */
   conflictDetected: boolean;
   conflicts: DetectedConflict[];
+  /** Explicit escalation reason. Null whenever handoffRequired is false. */
+  handoffReason: HandoffReason | null;
+  /**
+   * The single architectural question this module answers: does the turn
+   * need trusted, business-specific knowledge to be answered safely?
+   * Derived from evidence + question shape, never from phrase lists.
+   */
+  requiresBusinessKnowledge: boolean;
 }
 
 export type ConfidenceBand = 'none' | 'weak' | 'medium' | 'strong';
@@ -117,22 +137,20 @@ export function computeConfidence(inputs: ConfidenceInputs): { confidence: numbe
 }
 
 /**
- * Phase 15 — retrieval relevance. A message needs a knowledge lookup unless
- * it is unmistakably pure social chatter. This is NOT an answer gate: it only
- * decides whether we spend a vector/keyword search on the turn. When in
- * doubt we retrieve.
+ * COST GATE ONLY — never an answer gate.
+ *
+ * Decides whether spending a vector/keyword search on this turn is worth it.
+ * Deliberately language-agnostic and phrase-free: we retrieve for anything
+ * that carries enough signal to plausibly match a document, and skip only
+ * ultra-short utterances with no question mark, digit or URL. When in doubt
+ * we retrieve — skipping retrieval never changes WHETHER the model answers.
  */
-const PURE_SMALL_TALK: RegExp[] = [
-  /^\s*(hi|hello|hey|yo|good\s+(morning|afternoon|evening)|thanks?|thank\s+you|ok(ay)?|bye|goodbye)[\s!.,?]*$/i,
-  /^\s*(merhaba|selam|selamlar|günaydın|teşekkürler|sağol|tamam|görüşürüz)[\s!.,?]*$/i,
-  /^\s*(سلام|درود|سلام علیکم|ممنون|مرسی|متشکرم|باشه|خداحافظ|خدانگهدار)[\s!.,؟?]*$/,
-];
-
 export function requiresKnowledgeLookup(text: string): boolean {
   const q = (text || '').trim();
   if (!q) return false;
-  if (q.split(/\s+/).filter(Boolean).length > 4) return true;
-  return !PURE_SMALL_TALK.some((p) => p.test(q));
+  if (/[?؟]/.test(q) || /\d/.test(q) || /https?:\/\//i.test(q)) return true;
+  const words = q.split(/\s+/).filter(Boolean).length;
+  return words > 3;
 }
 
 function classifyRetrieval(

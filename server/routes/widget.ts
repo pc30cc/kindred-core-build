@@ -52,6 +52,7 @@ import {
   getRequestOrigin,
 } from '../services/widget/security.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
+import { logRun as logAiRun } from '../services/ai-agent/logs.js';
 import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
 import { clearAiManagementForPlatformOff, markNeedsHuman } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';

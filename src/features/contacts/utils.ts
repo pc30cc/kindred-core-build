@@ -1,6 +1,7 @@
 import type { Contact } from '@/types/models';
 import { formatRelative } from '@/lib/date';
-import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
+import { contactDisplayName, type ContactDisplayT, type DisplayGeoInfo } from '@/lib/contact-display';
+import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 
 export function getInitials(name?: string | null, email?: string | null): string {
   if (name && name.trim()) {
@@ -16,7 +17,7 @@ export function getInitials(name?: string | null, email?: string | null): string
  * Contacts never disagrees with Inbox about what an anonymous visitor is
  * called.
  *
- * City precedence: `networkCity` (when the caller has one — the live
+ * City precedence: `networkGeo` (when the caller has one — the live
  * session-based geo from useVisitorNetworkBatchByContact/useVisitorNetwork,
  * the SAME canonical source Inbox reads) wins over `metadata.city` (a
  * snapshot only ever written once a visitor identifies — see
@@ -25,10 +26,48 @@ export function getInitials(name?: string | null, email?: string | null): string
  * network profile handy (or haven't fetched one) still get the
  * metadata.city fallback for free, so this stays a drop-in for existing
  * call sites.
+ *
+ * @param networkGeo the live network profile's `geo` (preferred — carries
+ *   `country_code` so city localization can't collide two same-named
+ *   cities), a bare city string (legacy call sites), or omitted.
+ * @param locale active UI locale — drives city/country localization.
  */
-export function getDisplayName(c: Contact, t: ContactDisplayT, networkCity?: string | null): string {
-  const city = networkCity ?? getLocationFromMetadata(c).city ?? null;
-  return contactDisplayName(c, c.id, t, city);
+export function getDisplayName(
+  c: Contact,
+  t: ContactDisplayT,
+  networkGeo?: DisplayGeoInfo | string | null,
+  locale?: string,
+): string {
+  const geoInfo: DisplayGeoInfo = networkGeo && typeof networkGeo === 'object' ? { ...networkGeo } : { city: networkGeo ?? undefined };
+  if (!geoInfo.city) {
+    const meta = getLocationFromMetadata(c);
+    geoInfo.city = meta.city ?? null;
+    geoInfo.country_code = geoInfo.country_code ?? meta.countryCode ?? null;
+  }
+  return contactDisplayName(c, c.id, t, geoInfo, locale);
+}
+
+/**
+ * Localized "City, Country" label for the Contacts location column/rows.
+ * Prefers the live network profile (has `country_code`) over the
+ * `metadata.city`/`metadata.country` snapshot, mirroring `getDisplayName`'s
+ * own precedence so Contacts never shows two different cities for the same
+ * contact in the same view.
+ */
+export function getLocalizedLocation(
+  c: Contact,
+  locale: string,
+  networkGeo?: DisplayGeoInfo | null,
+): { label: string | null; flag: string | null } {
+  const meta = getLocationFromMetadata(c);
+  const geo: DisplayGeoInfo = networkGeo?.city || networkGeo?.country_code
+    ? networkGeo
+    : { city: meta.city ?? null, country_code: meta.countryCode ?? null };
+  const label = localizedLocationLabel(
+    { city: geo.city, country_code: geo.country_code, region: geo.region, country: meta.country ?? null },
+    locale,
+  );
+  return { label, flag: meta.flag ?? null };
 }
 
 /** Locale-aware relative time (Persian/Turkish/English follow the active UI locale). */
@@ -43,12 +82,13 @@ export function getCompanyFromMetadata(c: Contact): string | null {
   return company || null;
 }
 
-export function getLocationFromMetadata(c: Contact): { city?: string; country?: string; flag?: string } {
+export function getLocationFromMetadata(c: Contact): { city?: string; country?: string; flag?: string; countryCode?: string } {
   const meta = (c.metadata ?? {}) as Record<string, unknown>;
   return {
     city: (meta.city as string) || undefined,
     country: (meta.country as string) || undefined,
     flag: (meta.country_flag as string) || undefined,
+    countryCode: (meta.country_code as string) || undefined,
   };
 }
 

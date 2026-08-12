@@ -40,6 +40,7 @@ import {
 import { cn } from '@/lib/utils';
 import { VisitorNetworkCard } from '@/features/visitors/VisitorNetworkCard';
 import { contactDisplayName } from '@/lib/contact-display';
+import { localizedCountryName } from '@/lib/geo/countryLocalization';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
@@ -159,10 +160,10 @@ function isPlaceholderSubject(subject?: string | null): boolean {
 }
 
 /** Display title for a conversation: contact identity first, subject second. */
-function conversationTitle(conv: any, t: (k: string, vars?: Record<string, string>) => string): string {
+function conversationTitle(conv: any, t: (k: string, vars?: Record<string, string>) => string, locale?: string): string {
   return (
     (conv?.contacts
-      ? contactDisplayName(conv.contacts, conv?.contact_id ?? conv?.id, t, conv?.visitor_network?.geo?.city)
+      ? contactDisplayName(conv.contacts, conv?.contact_id ?? conv?.id, t, conv?.visitor_network?.geo, locale)
       : '')
     || (isPlaceholderSubject(conv?.subject) ? '' : conv.subject)
     || t('contacts.conversationUntitled')
@@ -194,7 +195,7 @@ function ToolbarPortal({ children }: { children: React.ReactNode }) {
 }
 
 export default function InboxPage() {
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
@@ -829,7 +830,7 @@ export default function InboxPage() {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {
       if (!search) return true;
-      const name = conversationTitle(c, t);
+      const name = conversationTitle(c, t, locale);
       return name.toLowerCase().includes(search.toLowerCase());
     });
     // Float unread conversations to the top — within each group keep the
@@ -840,7 +841,7 @@ export default function InboxPage() {
       if (ua !== ub) return ub - ua;
       return 0;
     });
-  }, [conversations, search]);
+  }, [conversations, search, t, locale]);
 
   const totalUnread = useMemo(() => {
     if (!conversations) return 0;
@@ -1170,7 +1171,7 @@ export default function InboxPage() {
           ) : (
             filteredConvos.map(conv => {
               const isActive = selectedId === conv.id;
-              const name = conversationTitle(conv, t);
+              const name = conversationTitle(conv, t, locale);
               const unreadCount = (conv as any).unread_count ?? 0;
               const hasUnread = unreadCount > 0 && !isActive;
 
@@ -1207,7 +1208,7 @@ export default function InboxPage() {
                         os={(conv as any).visitor_os}
                         device={(conv as any).visitor_device}
                         countryCode={(conv as any).visitor_country_code}
-                        countryName={(conv as any).visitor_country_name}
+                        countryName={localizedCountryName((conv as any).visitor_country_code, locale, (conv as any).visitor_country_name)}
                         size="lg"
                         ringClassName={
                           isActive ? 'ring-primary/40'
@@ -1438,7 +1439,7 @@ export default function InboxPage() {
                 </div>
                 <div>
                   <div className="text-[14.5px] font-bold text-foreground">
-                    {conversationTitle(selected, t)}
+                    {conversationTitle(selected, t, locale)}
                   </div>
                   <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
                     {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
@@ -1643,7 +1644,7 @@ export default function InboxPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] font-bold text-foreground truncate">
-                  {conversationTitle(selected, t)}
+                  {conversationTitle(selected, t, locale)}
                 </div>
                 <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <span className={cn('px-1.5 py-0.5 rounded-full text-[10.5px] font-medium border', statusColors[selected.status ?? 'open'])}>
@@ -1810,7 +1811,7 @@ export default function InboxPage() {
                           os={(selected as any)?.visitor_os}
                           device={(selected as any)?.visitor_device}
                           countryCode={(selected as any)?.visitor_country_code}
-                          countryName={(selected as any)?.visitor_country_name}
+                          countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
                           size="sm"
                           className="mt-0.5"
                         />
@@ -1824,7 +1825,7 @@ export default function InboxPage() {
                           <span className="font-medium">
                             {isAgent
                               ? agentLabel
-                              : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo?.city)}
+                              : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale)}
                           </span>
                           {isAi && (
                             <span className="px-1.5 py-px rounded bg-accent/40 text-accent-foreground text-[10px] font-semibold uppercase tracking-wide">
@@ -1882,7 +1883,7 @@ export default function InboxPage() {
                   <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </span>
                 <span>
-                  {contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo?.city)} {t('inbox.visitorTyping') || 'typing…'}
+                  {contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale)} {t('inbox.visitorTyping') || 'typing…'}
                 </span>
               </div>
             )}
@@ -2168,7 +2169,7 @@ export default function InboxPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="text-[15px] font-bold text-foreground truncate">
-                        {contactDisplayName(selected.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo?.city)}
+                        {contactDisplayName(selected.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale)}
                       </h3>
                       <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                         <span className={cn('text-[11px] px-2 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>
@@ -2202,6 +2203,7 @@ export default function InboxPage() {
                   reference={{ conversationId: selectedId }}
                   t={t as any}
                   dir={dir as any}
+                  locale={locale}
                 />
 
                 {/* Stats */}

@@ -13,6 +13,7 @@ import { useTranslation } from '@/i18n';
 import { formatDateTime, formatRelative } from '@/lib/date';
 import { OsAvatar } from '@/components/visitors/OsIcon';
 import { conversationsApi } from '@/lib/conversations-api';
+import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 
 interface Props {
   workspaceId: string | undefined;
@@ -26,7 +27,7 @@ interface Props {
  * visitor is selected, with a back button to return to the list.
  */
 export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { data, isLoading } = useVisitorDetail(workspaceId, sessionId);
   const history = useVisitorPageHistory(workspaceId, sessionId);
   const navigate = useNavigate();
@@ -154,7 +155,7 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
             {/* Info grid */}
             <div className="space-y-3 text-sm">
               <Row icon={<Globe className="w-3.5 h-3.5" />} label={t('visitors.currentPage')} value={data.current_page} truncate />
-              <LocationRow data={data} t={t} />
+              <LocationRow data={data} t={t} locale={locale} />
               <IpRow data={data} t={t} onCopy={copy} />
               <Row icon={<Monitor className="w-3.5 h-3.5" />} label={t('visitors.browser')}
                 value={[data.browser, data.os].filter(Boolean).join(' · ') || '—'} />
@@ -370,8 +371,8 @@ function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>)
   return t('visitors.landedAt', { when });
 }
 
-function LocationRow({ data, t }: { data: any; t: (k: string) => string }) {
-  const loc = [data.geo.city, data.geo.country].filter(Boolean).join(', ');
+function LocationRow({ data, t, locale }: { data: any; t: (k: string) => string; locale?: string }) {
+  const loc = localizedLocationLabel(data.geo, locale ?? 'en') ?? '';
   const src = data.geo.source as 'cache' | 'provider' | 'centroid' | 'session' | 'disabled' | 'none';
   const isPrecise = src === 'provider' || src === 'cache';
   const isApprox = src === 'centroid';

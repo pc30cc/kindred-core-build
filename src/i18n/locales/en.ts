@@ -376,6 +376,9 @@ const en = {
     visitor: 'Visitor',
     visitorAnonymous: 'Visitor · {{code}}',
     visitorAnonymousFromCity: 'Visitor from {{city}} · {{code}}',
+    // Iranian anonymous visitors use their province/region instead of city
+    // (see src/lib/contact-display.ts) — same wording pattern, different field.
+    visitorAnonymousFromRegion: 'Visitor from {{region}} · {{code}}',
     aiAssistant: 'AI assistant',
     operator: 'Operator',
     seen: 'Seen',

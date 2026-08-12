@@ -11,6 +11,8 @@ import {
   type VisitorNetworkRef,
   type VisitorNetworkProfile,
 } from '@/hooks/useVisitorNetwork';
+import { localizedCountryName } from '@/lib/geo/countryLocalization';
+import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 
 interface Props {
   workspaceId: string | undefined;
@@ -25,6 +27,8 @@ interface Props {
   showUnknown?: boolean;
   t: (k: string) => string | undefined;
   dir?: 'rtl' | 'ltr';
+  /** Active UI locale — drives country/city localization. Defaults to 'en' (canonical). */
+  locale?: string;
   className?: string;
 }
 
@@ -45,6 +49,7 @@ export function VisitorNetworkCard({
   showUnknown,
   t,
   dir = 'ltr',
+  locale = 'en',
   className,
 }: Props) {
   const hasInjected = profile !== undefined;
@@ -75,7 +80,8 @@ export function VisitorNetworkCard({
   }
 
   const { ip, geo } = data;
-  const place = [geo.city, geo.region, geo.country].filter(Boolean).join('، ') || '—';
+  const place = localizedLocationLabel(geo, locale, ['city', 'region', 'country']) || '—';
+  const localizedCountry = localizedCountryName(geo.country_code, locale, geo.country);
 
   return (
     <div className={cn('rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20', className)} dir={dir}>
@@ -92,7 +98,7 @@ export function VisitorNetworkCard({
       <Row icon={<Globe className="w-4 h-4" />} label={t('visitors.country') || 'Country'}>
         <span>
           {geo.country_code ? `${flagEmoji(geo.country_code)} ` : ''}
-          {geo.country || '—'}
+          {localizedCountry || '—'}
         </span>
       </Row>
       <Row icon={<MapPin className="w-4 h-4" />} label={t('visitors.location') || 'Location'}>
@@ -114,10 +120,13 @@ export function VisitorNetworkCard({
 export function VisitorNetworkInline({
   profile,
   t,
+  locale = 'en',
   className,
 }: {
   profile: VisitorNetworkProfile | null | undefined;
   t: (k: string) => string | undefined;
+  /** Active UI locale — drives country/city localization. Defaults to 'en' (canonical). */
+  locale?: string;
   className?: string;
 }) {
   if (!profile) {
@@ -128,11 +137,12 @@ export function VisitorNetworkInline({
     );
   }
   const { ip, geo } = profile;
-  const place = [geo.city, geo.region].filter(Boolean).join('، ');
+  const place = localizedLocationLabel(geo, locale, ['city', 'region']);
+  const localizedCountry = localizedCountryName(geo.country_code, locale, geo.country);
   return (
     <span className={cn('inline-flex items-center gap-1.5 text-[11px] text-muted-foreground', className)}>
       {geo.country_code && <span>{flagEmoji(geo.country_code)}</span>}
-      <span className="truncate">{place || geo.country || t('visitors.networkUnknownShort') || 'Location unknown'}</span>
+      <span className="truncate">{place || localizedCountry || t('visitors.networkUnknownShort') || 'Location unknown'}</span>
       {!ip.locked && ip.display && (
         <bdi dir="ltr" className="tabular-nums opacity-80">· {ip.display}</bdi>
       )}

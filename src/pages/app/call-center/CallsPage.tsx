@@ -363,7 +363,7 @@ function stateTone(s: string) {
 }
 
 export default function CallsPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const [status, setStatus] = useState('all');
   const [type, setType] = useState('all');
@@ -567,6 +567,7 @@ export default function CallsPage() {
                             : null
                         }
                         t={t as any}
+                        locale={locale}
                       />
                     </div>
                   </div>
@@ -626,6 +627,7 @@ export default function CallsPage() {
                 profile={detailProfile}
                 showUnknown
                 t={t as any}
+                locale={locale}
               />
               {(() => {
                 const rec = (detail.call as any)?.metadata?.recording || null;

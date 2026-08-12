@@ -377,7 +377,14 @@ const tr: TranslationKeys = {
     support: 'Destek',
     visitor: 'Ziyaretçi',
     visitorAnonymous: 'Ziyaretçi · {{code}}',
-    visitorAnonymousFromCity: 'Ziyaretçi · {{city}} · {{code}}',
+    // `city` arrives PRE-SUFFIXED with the Turkish ablative case (e.g.
+    // "İstanbul'dan") by src/lib/contact-display.ts — vowel harmony depends
+    // on the actual word, so a static template can't add the suffix itself.
+    visitorAnonymousFromCity: '{{city}} ziyaretçi · {{code}}',
+    // Iranian anonymous visitors use their province/region instead of city
+    // (see src/lib/contact-display.ts) — `region` arrives pre-suffixed the
+    // same way `city` does above.
+    visitorAnonymousFromRegion: '{{region}} ziyaretçi · {{code}}',
     aiAssistant: 'Yapay zekâ asistanı',
     operator: 'Operatör',
     seen: 'Görüldü',

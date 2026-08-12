@@ -24,6 +24,8 @@ import {
   RefreshCcw, AlertTriangle, Wifi, MessageSquare, X, Flame,
 } from 'lucide-react';
 import { OsAvatar } from '@/components/visitors/OsIcon';
+import { localizedCountryName } from '@/lib/geo/countryLocalization';
+import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 
 function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {
   const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -33,7 +35,7 @@ function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>)
 }
 
 export default function VisitorsPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id;
   const { data: role } = useWorkspaceRole(wsId);
@@ -89,7 +91,8 @@ export default function VisitorsPage() {
 
   const visitors: VisitorIntelItem[] = live.data?.items ?? [];
 
-  // Country list derived from current visitors (for the dropdown).
+  // Country list derived from current visitors (for the dropdown). Localized
+  // for display only — filtering still matches on the canonical country_code.
   const countryOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const v of visitors) {
@@ -98,9 +101,9 @@ export default function VisitorsPage() {
       if (code && name && !seen.has(code)) seen.set(code, name);
     }
     return [...seen.entries()]
-      .map(([code, name]) => ({ code, name }))
+      .map(([code, name]) => ({ code, name: localizedCountryName(code, locale, name) ?? name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visitors]);
+  }, [visitors, locale]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -358,7 +361,7 @@ export default function VisitorsPage() {
                 {filtered.map(v => {
                   const isSelected = selectedId === v.id;
                   const name = v.contact?.name || v.contact?.email || t('visitors.unknownVisitor');
-                  const loc = [v.geo.city, v.geo.country].filter(Boolean).join(', ') || t('visitors.unknownLocation');
+                  const loc = localizedLocationLabel(v.geo, locale) || t('visitors.unknownLocation');
                   return (
                     <li key={v.id}>
                       <button

@@ -220,7 +220,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export default function LiveQueuePage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { slug } = useParams();
   const base = `/app/w/${slug}/call-center`;
@@ -662,6 +662,7 @@ export default function LiveQueuePage() {
                               : null
                           }
                           t={t as any}
+                          locale={locale}
                         />
                       </div>
                     </div>
@@ -915,6 +916,7 @@ export default function LiveQueuePage() {
                     profile={selectedProfile}
                     showUnknown
                     t={t as any}
+                    locale={locale}
                   />
                   {(detail.call.page_url || detail.call.subject) && (
                     <>

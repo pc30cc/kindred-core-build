@@ -241,6 +241,7 @@ describe('LLM-first — missing knowledge is not an escalation', () => {
       CONFIG, baseInput({ question: 'ارسال به کانادا چقدره؟' }),
     );
 
+    console.log(JSON.stringify(logRunCalls.map(c=>({t:c.runType,r:c.metadata?.answer_strategy,routing:c.metadata?.routing,tl:c.metadata?.decision_timeline})),null,1));
     expect(result.action).toBe('handoff');
     expect(markNeedsHumanCalls.length).toBe(1);
   });

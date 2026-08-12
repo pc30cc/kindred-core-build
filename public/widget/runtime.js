@@ -2372,11 +2372,7 @@
           var host = el.closest('[data-typing-host]');
           if (host) host.removeAttribute('data-typing-active');
         }
-        var list = body.querySelector('.messages');
-        if (list) {
-          var nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
-          if (nearBottom) list.scrollTop = list.scrollHeight;
-        }
+        chatScrollToBottom(body);
       }
       if (done) stopTypewriter();
     }
@@ -3512,7 +3508,8 @@
           if (btn) btn.classList.add('failed');
         });
       }
-      body.scrollTop = body.scrollHeight;
+      bindChatScrollTracking(body);
+      chatScrollToBottom(body, true);
     }
 
     function renderChat(body) {

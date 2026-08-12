@@ -142,6 +142,7 @@ export async function runAnswerStage(
     escalation_style: settings.escalation_style || 'balanced',
     safe_guidance_topic: strategy.safeGuidanceTopic || null,
     grounding_mode: strategy.groundingMode,
+    requires_business_knowledge: strategy.requiresBusinessKnowledge,
     // ── Phase 2 observability ──────────────────────────────────────────
     confidence: strategy.confidence,
     confidence_band: strategy.confidenceBand,

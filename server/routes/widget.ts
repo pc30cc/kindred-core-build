@@ -56,6 +56,7 @@ import { logRun as logAiRun } from '../services/ai-agent/logs.js';
 import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
 import { clearAiManagementForPlatformOff, markNeedsHuman } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
+import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
 import {
   pinContactOnVisitorSessions,
   issueContinuityCookieForContact,

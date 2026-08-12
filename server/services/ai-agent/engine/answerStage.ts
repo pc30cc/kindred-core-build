@@ -17,7 +17,7 @@
  * toolMeta via the same get/set ref pattern as the original.
  */
 import type { ServerConfig } from '../../../config.js';
-import { decideStrategy, countClarificationAttempts } from '../answerStrategy.js';
+import { decideStrategy, countClarificationAttempts, isStrictKbNoGrounding } from '../answerStrategy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged, markNeedsHuman } from '../handoffState.js';
@@ -226,9 +226,13 @@ export async function runAnswerStage(
   // or short-circuited by the no_url/no_indexed_page terminal reply just
   // above. Evaluating any earlier would risk matching a stale reason that
   // no longer reflects the final outcome (Follow-up 9E.2 Blocker 1).
-  // LLM-first architecture: strict-KB no longer blocks the model, so no
-  // routing decision can be invalidated by a "strict KB block" any more.
-  const strictBlocked = false;
+  // Strict knowledge-only mode still blocks keep_ai routing overrides, but
+  // only on BUSINESS turns: a conversational turn (greeting, identity,
+  // thanks) is answered from the assistant persona and was never gated by
+  // the knowledge base.
+  const strictBlocked =
+    strategy.reason !== 'conversational_turn'
+    && isStrictKbNoGrounding(settings, strategy.retrievalStrength);
 
   // Normalize the PRE-strategy result now that retrievalStrength is finally
   // known, so a PRE keep_ai action that strict-KB blocks is never reported

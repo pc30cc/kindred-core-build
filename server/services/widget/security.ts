@@ -403,7 +403,7 @@ export async function verifyConversationOwnership(
 
   const { data: conv } = await supabase
     .from('conversations')
-    .select('id, status, assigned_to, updated_at, contact_id, visitor_session_id, workspace_id')
+    .select('id, status, assigned_to, updated_at, contact_id, visitor_session_id, workspace_id, metadata')
     .eq('id', conversationId)
     .maybeSingle();
 
@@ -427,6 +427,17 @@ export async function verifyConversationOwnership(
   // Match by visitor_session_id
   if (visitorSessionId && conv.visitor_session_id === visitorSessionId) {
     return { valid: true, conversation: conv };
+  }
+
+  // Match by conversation metadata.visitor_id. Conversations created by the
+  // AI intro before a visitor session exists carry no session id and no
+  // contact, so this is their only ownership anchor. The cookie-derived
+  // visitor id is authoritative and cannot be forged by client JS.
+  if (candidateVisitorIds.size > 0) {
+    const convVisitorId = ((conv as any).metadata || {}).visitor_id;
+    if (convVisitorId && candidateVisitorIds.has(convVisitorId)) {
+      return { valid: true, conversation: conv };
+    }
   }
 
   // Match by contact metadata.visitor_id

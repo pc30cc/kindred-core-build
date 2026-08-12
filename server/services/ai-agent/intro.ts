@@ -11,6 +11,7 @@ import { getOrCreateSettings, type AgentSettings } from './settings.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { logRun } from './logs.js';
 import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
+import { ensureVisitorContact } from '../widget/anonymousContact.js';
 import {
   clampLocaleToPlatformRegion,
   getPlatformAllowedLocales,
@@ -208,18 +209,14 @@ export async function maybeSendIntro(
     }
 
     if (!conversationId) {
-      // Try to attach a contact via the visitor_id metadata (set by pre-chat).
-      let contactId: string | null = null;
-      if (input.visitorId) {
-        const { data: c } = await sb
-          .from('contacts')
-          .select('id')
-          .eq('workspace_id', input.workspaceId)
-          .contains('metadata', { visitor_id: input.visitorId })
-          .limit(1)
-          .maybeSingle();
-        contactId = c?.id || null;
-      }
+      // Every conversation gets a contact — even AI-only threads started
+      // before the visitor has identified themselves. The placeholder is
+      // upgraded in place once the pre-chat / identity form is submitted.
+      const contactId: string | null = await ensureVisitorContact(sb, {
+        workspaceId: input.workspaceId,
+        visitorId: input.visitorId || null,
+        sessionId: input.visitorSessionId || null,
+      });
 
       const { data: created, error: createErr } = await sb
         .from('conversations')

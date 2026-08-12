@@ -294,8 +294,16 @@ export async function mergeVisitorIdentity(
       metaGeoFill.location_precision = geoPatch.location_precision;
       metaGeoFill.location_source = geoPatch.location_source;
     }
-    if (!meta.visitor_id || Object.keys(metaGeoFill).length) {
-      updates.metadata = { ...meta, visitor_id: opts.visitorId, ...metaGeoFill };
+    // The visitor just identified themselves — the placeholder contact
+    // created at conversation start is no longer anonymous.
+    const identified = !!(name || email || phone);
+    if (!meta.visitor_id || Object.keys(metaGeoFill).length || (identified && meta.anonymous)) {
+      updates.metadata = {
+        ...meta,
+        visitor_id: opts.visitorId,
+        ...metaGeoFill,
+        ...(identified ? { anonymous: false } : {}),
+      };
     }
 
     if (Object.keys(updates).length > 0) {

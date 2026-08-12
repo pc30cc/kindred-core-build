@@ -287,10 +287,22 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   }
 
   // ── 5. No qualifying evidence. This is NOT an escalation trigger.
-  //    Escalation happens only when the OWNER explicitly asked for it.
-  const ownerEscalates =
+  //
+  // "Does this turn need trusted business knowledge?" is answered from
+  // signals the system already produced — never from phrase lists:
+  //   * retrieval surfaced at least one candidate document, or
+  //   * a WORKSPACE-CONFIGURED topic (owner data, not our code) matched.
+  // A greeting, a thank-you or an identity question produces neither, so
+  // owner "escalate when unknown" policies simply do not apply to it.
+  const requiresBusinessKnowledge =
+    sources.length > 0 || (input.topics || []).filter(Boolean).length > 0;
+
+  // Escalation on missing evidence happens ONLY when the owner explicitly
+  // asked for it (or a routing rule elsewhere in the engine fires).
+  const ownerEscalates = requiresBusinessKnowledge && (
     (strength === 'none' && settings.handoff_when_no_kb_match === true)
-    || (strength === 'weak' && settings.handoff_on_low_confidence === true);
+    || (strength === 'weak' && settings.handoff_on_low_confidence === true)
+  );
 
   if (ownerEscalates) {
     // Owner opted for silence instead of a visible escalation.
@@ -300,7 +312,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
         reason: 'no_verified_info_silent',
         handoffRequired: false,
         handoffReason: null,
-        requiresBusinessKnowledge: true,
+        requiresBusinessKnowledge,
         groundingMode: 'unverified',
         ...common,
       };
@@ -314,7 +326,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
       handoffReason: strength === 'none'
         ? 'insufficient_verified_info_requires_human'
         : 'owner_policy',
-      requiresBusinessKnowledge: true,
+      requiresBusinessKnowledge,
       groundingMode: 'unverified',
       ...common,
     };
@@ -329,7 +341,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     reason: strength === 'none' ? 'no_verified_evidence' : 'weak_evidence_only',
     handoffRequired: false,
     handoffReason: null,
-    requiresBusinessKnowledge: true,
+    requiresBusinessKnowledge,
     groundingMode: 'unverified',
     ...common,
   };

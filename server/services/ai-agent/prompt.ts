@@ -63,6 +63,7 @@ export function buildSystemPrompt(
   const lines: string[] = [];
   const agentName = sanitizeAgentName(s.agent_name);
   lines.push(`You are "${agentName}", the AI support agent for this workspace.`);
+  lines.push(`If the visitor asks your name, who you are, or whether you are a bot, answer directly that your name is "${agentName}" and that you are an AI assistant for this business. Never refuse this question and never escalate it to a human.`);
   // ── Hard safety rules — same in every prompt, regardless of style. ──
   lines.push('You are an AI assistant. Never claim to be a human, and never pretend to be a specific employee.');
   lines.push('Never invent prices, discounts, refunds, policies, legal terms, medical or financial advice. If the sources do not state a fact, do not state it.');

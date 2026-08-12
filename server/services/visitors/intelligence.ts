@@ -91,7 +91,7 @@ export interface VisitorIntelligenceItem {
   ip_locked: boolean;            // true when the plan does not include IP visibility
 
   // Linkage
-  contact: { id: string; name: string | null; email: string | null; avatar_url: string | null } | null;
+  contact: { id: string; name: string | null; email: string | null; avatar_url: string | null; visitor_code?: string | null; metadata?: Record<string, unknown> | null } | null;
   conversation: { id: string; status: string | null; subject: string | null } | null;
 }
 
@@ -156,7 +156,7 @@ export async function listVisitorIntelligence(
 
   const sessionIds = (rows ?? []).map(r => (r.visitor_sessions as any).id).filter(Boolean);
   const convsBySession = new Map<string, { id: string; status: string | null; subject: string | null; contact_id: string | null }>();
-  const contactsById = new Map<string, { id: string; name: string | null; email: string | null; avatar_url: string | null }>();
+  const contactsById = new Map<string, VisitorIntelligenceItem['contact']>() as Map<string, NonNullable<VisitorIntelligenceItem['contact']>>;
 
   // Collect contact ids that are pinned directly on each visitor_session
   // (this is the canonical link populated by prechat / continuity-token /
@@ -190,7 +190,7 @@ export async function listVisitorIntelligence(
     if (contactIds.length) {
       const { data: cts } = await sb
         .from('contacts')
-        .select('id, name, email, avatar_url')
+        .select('id, name, email, avatar_url, visitor_code, metadata')
         .in('id', contactIds);
       for (const c of cts ?? []) contactsById.set(c.id, c);
     }
@@ -299,7 +299,7 @@ export async function getVisitorIntelligence(
     if ((session as any).contact_id) {
       const { data: c } = await sb
         .from('contacts')
-        .select('id, name, email, avatar_url')
+        .select('id, name, email, avatar_url, visitor_code, metadata')
         .eq('id', (session as any).contact_id)
         .maybeSingle();
       if (c) offlineContact = c;
@@ -335,7 +335,7 @@ export async function getVisitorIntelligence(
   if (resolvedContactId) {
     const { data: c } = await sb
       .from('contacts')
-      .select('id, name, email, avatar_url')
+      .select('id, name, email, avatar_url, visitor_code, metadata')
       .eq('id', resolvedContactId)
       .maybeSingle();
     if (c) contact = c;

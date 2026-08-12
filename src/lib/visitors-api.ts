@@ -52,7 +52,7 @@ export interface VisitorIntelItem {
   can_view_raw_ip: boolean;
   /** True when the workspace plan does not include IP visibility — no IP is sent. */
   ip_locked?: boolean;
-  contact: { id: string; name: string | null; email: string | null; avatar_url: string | null } | null;
+  contact: { id: string; name: string | null; email: string | null; avatar_url: string | null; visitor_code?: string | null; metadata?: Record<string, unknown> | null } | null;
   conversation: { id: string; status: string | null; subject: string | null } | null;
 }
 

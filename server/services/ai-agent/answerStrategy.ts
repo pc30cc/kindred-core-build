@@ -314,6 +314,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
       handoffReason: strength === 'none'
         ? 'insufficient_verified_info_requires_human'
         : 'owner_policy',
+      requiresBusinessKnowledge: true,
       groundingMode: 'unverified',
       ...common,
     };

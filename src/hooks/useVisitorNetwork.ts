@@ -38,7 +38,8 @@ export type VisitorNetworkRef =
   | { sessionId: string | null | undefined }
   | { conversationId: string | null | undefined }
   | { callSessionId: string | null | undefined }
-  | { callbackId: string | null | undefined };
+  | { callbackId: string | null | undefined }
+  | { contactId: string | null | undefined };
 
 function toParam(ref: VisitorNetworkRef): [string, string] | null {
   const r = ref as Record<string, string | null | undefined>;
@@ -46,6 +47,7 @@ function toParam(ref: VisitorNetworkRef): [string, string] | null {
   if (r.conversationId) return ['conversation_id', r.conversationId];
   if (r.callSessionId) return ['call_session_id', r.callSessionId];
   if (r.callbackId) return ['callback_id', r.callbackId];
+  if (r.contactId) return ['contact_id', r.contactId];
   return null;
 }
 
@@ -124,6 +126,40 @@ export function useVisitorNetworkBatchBySession(
       if (!res.ok) return {};
       const body = await res.json();
       return (body?.by_session as Record<string, VisitorNetworkProfile>) ?? {};
+    },
+  });
+}
+
+/**
+ * Batched profiles for LIST surfaces keyed by contact_id (Contacts page).
+ * ONE request per page of rows — never one per row. Same endpoint, same
+ * server-side geo/IP resolution as Inbox/Call Center, so an anonymous
+ * contact's city can never disagree between Contacts and Inbox.
+ */
+export function useVisitorNetworkBatchByContact(
+  workspaceId: string | undefined,
+  contactIds: Array<string | null | undefined>,
+) {
+  const ids = Array.from(new Set(contactIds.filter(Boolean) as string[])).sort();
+  return useQuery<Record<string, VisitorNetworkProfile>>({
+    queryKey: ['visitor-network', 'batch-contact', workspaceId, ids.join(',')],
+    enabled: !!workspaceId && ids.length > 0,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, contact_ids: ids.slice(0, 500) }),
+      });
+      if (!res.ok) return {};
+      const body = await res.json();
+      return (body?.by_contact as Record<string, VisitorNetworkProfile>) ?? {};
     },
   });
 }

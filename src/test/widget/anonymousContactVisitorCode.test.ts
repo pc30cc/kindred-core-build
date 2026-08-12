@@ -61,15 +61,37 @@ function fakeSb(state: { contacts: any[] }): any {
           };
           return insertChain;
         },
+        // Real UPDATE ... WHERE ... [RETURNING]: matches are computed from
+        // ALL chained filters (eq + is), applied once, then either awaited
+        // directly ({error}) or via .select() ({data: matchedRows, error}) —
+        // mirroring PostgREST closely enough that backfillVisitorCode's
+        // "zero rows updated" race-detection actually gets exercised here,
+        // not silently bypassed by a chain-shape mismatch.
         update(patch: any) {
-          const updateChain: any = {
-            eq(col: string, val: any) {
-              const row = state.contacts.find((c) => c[col] === val);
-              if (row && (!isNullCol || row[isNullCol] == null)) Object.assign(row, patch);
-              return { then: (resolve: any) => resolve({ error: null }) };
+          const uFilters: Record<string, any> = {};
+          let uIsNullCol: string | null = null;
+          const applyAndMatch = () => {
+            const matched = state.contacts.filter((c) => {
+              for (const [k, v] of Object.entries(uFilters)) if (c[k] !== v) return false;
+              if (uIsNullCol && c[uIsNullCol] != null) return false;
+              return true;
+            });
+            for (const row of matched) Object.assign(row, patch);
+            return matched;
+          };
+          const uChain: any = {
+            eq(col: string, val: any) { uFilters[col] = val; return uChain; },
+            is(col: string, _val: null) { uIsNullCol = col; return uChain; },
+            select() {
+              const matched = applyAndMatch();
+              return Promise.resolve({ data: matched.map((r) => ({ ...r })), error: null });
+            },
+            then(resolve: any) {
+              applyAndMatch();
+              return resolve({ error: null });
             },
           };
-          return updateChain;
+          return uChain;
         },
       };
       return chain;
@@ -186,7 +208,6 @@ describe('ensureVisitorContact — visitor_code stability', () => {
           const c: any = { update() { return c; }, eq() { return c; }, is() { return c; }, then: (r: any) => r({ data: [], error: null }) };
           return c;
         }
-        let created = false;
         const chain: any = {
           select() { return chain; },
           eq() { return chain; },
@@ -205,7 +226,6 @@ describe('ensureVisitorContact — visitor_code stability', () => {
                     error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' },
                   };
                 }
-                created = true;
                 return { data: { id: 'created-null' }, error: null };
               },
             };
@@ -216,10 +236,11 @@ describe('ensureVisitorContact — visitor_code stability', () => {
               eq() {
                 const c2: any = {
                   is: () => ({
-                    then: (resolve: any) => resolve({
-                      // The post-create backfill attempt also collides every
-                      // time — it must give up gracefully, not throw/hang.
-                      error: created ? { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' } : null,
+                    // The post-create backfill attempt also collides every
+                    // time — it must give up gracefully, not throw/hang.
+                    select: () => Promise.resolve({
+                      data: null,
+                      error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' },
                     }),
                   }),
                 };

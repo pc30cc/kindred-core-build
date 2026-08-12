@@ -119,14 +119,16 @@ describe('insertContactWithVisitorCode', () => {
               }),
             };
           },
-          update() {
+          update(patch: { visitor_code: string }) {
             return {
               eq: () => ({
-                is: () => {
-                  backfillAttempts++;
-                  // Backfill succeeds on its first try in this scenario.
-                  return Promise.resolve({ error: null });
-                },
+                is: () => ({
+                  select: async () => {
+                    backfillAttempts++;
+                    // Backfill succeeds on its first try in this scenario.
+                    return { data: [{ visitor_code: patch.visitor_code }], error: null };
+                  },
+                }),
               }),
             };
           },
@@ -141,40 +143,82 @@ describe('insertContactWithVisitorCode', () => {
   });
 });
 
+/**
+ * Stateful fake `contacts` table for backfillVisitorCode: a real
+ * UPDATE ... WHERE id = ? AND visitor_code IS NULL RETURNING visitor_code,
+ * so "zero rows returned because someone else already filled it" is an
+ * actual, observable outcome — not merely simulated by a caught exception.
+ * `collideCodes` lets a test force specific generated codes to be treated
+ * as already-taken elsewhere in the workspace (23505), independent of
+ * which contact row is being updated.
+ */
+function fakeContactsForBackfill(
+  rows: Record<string, { visitor_code: string | null }>,
+  collideCodes: Set<string> = new Set(),
+): any {
+  return {
+    from(table: string) {
+      expect(table).toBe('contacts');
+      let eqCol: string | null = null;
+      let eqVal: any = null;
+      let isNullCol: string | null = null;
+      const readChain: any = {
+        select() { return readChain; },
+        eq(col: string, val: any) { eqCol = col; eqVal = val; return readChain; },
+        is(col: string) { isNullCol = col; return readChain; },
+        maybeSingle: async () => ({ data: eqCol === 'id' ? (rows[eqVal] ?? null) : null }),
+        update(patch: { visitor_code: string }) {
+          return {
+            eq(col: string, val: any) { eqCol = col; eqVal = val; return this; },
+            is(col: string) { isNullCol = col; return this; },
+            select: async () => {
+              const row = rows[eqVal];
+              if (!row) return { data: [], error: null };
+              if (collideCodes.has(patch.visitor_code)) {
+                return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' } };
+              }
+              const matches = eqCol === 'id' && (!isNullCol || row[isNullCol as 'visitor_code'] == null);
+              if (!matches) return { data: [], error: null }; // 0 rows: WHERE didn't match
+              row.visitor_code = patch.visitor_code;
+              return { data: [{ visitor_code: row.visitor_code }], error: null };
+            },
+          };
+        },
+      };
+      return readChain;
+    },
+  };
+}
+
 describe('backfillVisitorCode', () => {
   it('CASE 13: assigns a code to a row that currently has none', async () => {
-    let updatedWith: string | null = null;
-    const sb: any = {
-      from() {
-        return {
-          update(patch: any) {
-            updatedWith = patch.visitor_code;
-            return { eq: () => ({ is: () => Promise.resolve({ error: null }) }) };
-          },
-        };
-      },
-    };
+    const rows = { 'contact-1': { visitor_code: null as string | null } };
+    const sb = fakeContactsForBackfill(rows);
     const code = await backfillVisitorCode(sb, 'contact-1');
     expect(code).toBeTruthy();
-    expect(updatedWith).toBe(code);
+    expect(rows['contact-1'].visitor_code).toBe(code);
   });
 
   it('retries with a new code on a genuine collision', async () => {
-    let attempt = 0;
+    // Every code this attempt tries first appears to collide; the retry
+    // loop must keep generating fresh ones rather than stalling.
+    const rows = { 'contact-2': { visitor_code: null as string | null } };
+    let attempts = 0;
     const sb: any = {
       from() {
         return {
-          update() {
+          update(patch: { visitor_code: string }) {
             return {
-              eq: () => ({
-                is: () => {
-                  attempt++;
-                  if (attempt <= 2) {
-                    return Promise.resolve({ error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' } });
-                  }
-                  return Promise.resolve({ error: null });
-                },
-              }),
+              eq() { return this; },
+              is() { return this; },
+              select: async () => {
+                attempts++;
+                if (attempts <= 2) {
+                  return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' } };
+                }
+                rows['contact-2'].visitor_code = patch.visitor_code;
+                return { data: [{ visitor_code: patch.visitor_code }], error: null };
+              },
             };
           },
         };
@@ -182,7 +226,8 @@ describe('backfillVisitorCode', () => {
     };
     const code = await backfillVisitorCode(sb, 'contact-2');
     expect(code).toBeTruthy();
-    expect(attempt).toBe(3);
+    expect(attempts).toBe(3);
+    expect(rows['contact-2'].visitor_code).toBe(code);
   });
 
   it('gives up gracefully (returns null, never throws) after repeated collisions', async () => {
@@ -191,9 +236,9 @@ describe('backfillVisitorCode', () => {
         return {
           update() {
             return {
-              eq: () => ({
-                is: () => Promise.resolve({ error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' } }),
-              }),
+              eq() { return this; },
+              is() { return this; },
+              select: async () => ({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "contacts_workspace_visitor_code_idx" on visitor_code' } }),
             };
           },
         };
@@ -205,5 +250,28 @@ describe('backfillVisitorCode', () => {
   it('never blocks/throws when the update itself throws', async () => {
     const sb: any = { from() { throw new Error('db down'); } };
     await expect(backfillVisitorCode(sb, 'contact-4')).resolves.toBeNull();
+  });
+
+  /**
+   * The exact race the fix addresses: request A wins and persists code A.
+   * Request B's own UPDATE ... WHERE visitor_code IS NULL then matches ZERO
+   * rows (not an error — Postgres/PostgREST report success either way), so
+   * B must read back and return A's actual persisted code, never the
+   * candidate code B itself generated but never wrote.
+   */
+  it('concurrency: request B backfilling after request A already filled it returns A\'s code, never an unpersisted candidate of its own', async () => {
+    const rows = { 'contact-race': { visitor_code: null as string | null } };
+    const sb = fakeContactsForBackfill(rows);
+
+    const codeA = await backfillVisitorCode(sb, 'contact-race');
+    expect(codeA).toBeTruthy();
+    expect(rows['contact-race'].visitor_code).toBe(codeA);
+
+    // Request B runs AFTER the field is no longer null — its own
+    // `WHERE visitor_code IS NULL` will match zero rows every attempt.
+    const codeB = await backfillVisitorCode(sb, 'contact-race');
+    expect(codeB).toBe(codeA);
+    // The row was never overwritten by B's own generated (but unpersisted) code.
+    expect(rows['contact-race'].visitor_code).toBe(codeA);
   });
 });

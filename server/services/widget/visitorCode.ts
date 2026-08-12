@@ -90,6 +90,17 @@ export async function insertContactWithVisitorCode(
  * retries with a new code. Never throws — returns null (leaving the row
  * codeless) if every attempt collides or the update otherwise fails, since
  * the display resolver already renders a graceful fallback for that case.
+ *
+ * ALWAYS returns the value actually persisted on the row, never merely the
+ * value this call attempted to write. `error === null` on an
+ * `UPDATE ... WHERE visitor_code IS NULL` does NOT mean our code landed —
+ * Postgres/PostgREST report success with zero affected rows just as
+ * happily as with one, and a concurrent caller can win that exact race
+ * between our WHERE check and our own write. `.select()` on the update
+ * tells them apart: an empty result means the WHERE clause matched nothing
+ * (either the row already had a code, or doesn't exist), so we read the
+ * row back and return whatever is actually there instead of the code we
+ * merely generated.
  */
 export async function backfillVisitorCode(
   sb: any,
@@ -99,14 +110,30 @@ export async function backfillVisitorCode(
   try {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const code = generateVisitorCode();
-      const { error } = await sb
+      const { data, error } = await sb
         .from('contacts')
         .update({ visitor_code: code })
         .eq('id', contactId)
-        .is('visitor_code', null);
-      if (!error) return code;
-      if (!isVisitorCodeConflict(error)) return null;
-      // else: genuine collision — loop again with a fresh code.
+        .is('visitor_code', null)
+        .select('visitor_code');
+      if (error) {
+        if (!isVisitorCodeConflict(error)) return null;
+        continue; // genuine collision — loop again with a fresh code.
+      }
+      const rows: Array<{ visitor_code?: string | null }> = Array.isArray(data) ? data : (data ? [data] : []);
+      if (rows.length > 0) {
+        // We actually won the race: our own write is what's on the row now.
+        return rows[0]?.visitor_code ?? code;
+      }
+      // Zero rows updated — someone else already filled it (or the contact
+      // doesn't exist). Read back the real, persisted value instead of
+      // returning the code we only ever generated, never wrote.
+      const { data: current } = await sb
+        .from('contacts')
+        .select('visitor_code')
+        .eq('id', contactId)
+        .maybeSingle();
+      return (current as { visitor_code?: string | null } | null)?.visitor_code ?? null;
     }
   } catch {
     // best effort — display resolver falls back gracefully

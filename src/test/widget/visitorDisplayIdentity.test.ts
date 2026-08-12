@@ -13,6 +13,7 @@ import {
   sanitizeCity,
   type ContactDisplayT,
 } from '../../lib/contact-display';
+import { getDisplayName } from '../../features/contacts/utils';
 
 /** Minimal i18next-shaped t() — interpolates {{var}} exactly like the real one. */
 const fa: ContactDisplayT = (key, vars) => {
@@ -186,5 +187,37 @@ describe('resolveVisitorCode', () => {
     const code = resolveVisitorCode({ visitor_code: 'K7M4' }, 'contact-id');
     expect(code).toBe('K7M4');
     expect(code).not.toContain('contact-id');
+  });
+});
+
+describe('getDisplayName — Contacts city precedence (Inbox/Contacts consistency)', () => {
+  it('a live network-profile city (Inbox\'s canonical source) wins over a stale/absent metadata.city', () => {
+    const contact = {
+      id: 'c1', name: 'Visitor', visitor_code: 'K7M4',
+      metadata: { city: 'Isfahan' }, // stale snapshot
+    } as any;
+    // Anonymous contact created via ensureVisitorContact never got a
+    // metadata.city write at all until identityMerge runs — but a live
+    // session (networkCity) is available regardless.
+    expect(getDisplayName(contact, en, 'Tehran')).toBe('Visitor from Tehran · K7M4');
+  });
+
+  it('falls back to metadata.city when no network profile is available (never crashes, never blocks on the extra fetch)', () => {
+    const contact = {
+      id: 'c1', name: 'Visitor', visitor_code: 'K7M4',
+      metadata: { city: 'Isfahan' },
+    } as any;
+    expect(getDisplayName(contact, en, undefined)).toBe('Visitor from Isfahan · K7M4');
+    expect(getDisplayName(contact, en, null)).toBe('Visitor from Isfahan · K7M4');
+  });
+
+  it('falls back to no-city label when neither a network profile nor metadata.city exists', () => {
+    const contact = { id: 'c1', name: 'Visitor', visitor_code: 'K7M4', metadata: {} } as any;
+    expect(getDisplayName(contact, en, undefined)).toBe('Visitor · K7M4');
+  });
+
+  it('a real name still wins over any city source', () => {
+    const contact = { id: 'c1', name: 'Ali Ahmadi', metadata: { city: 'Isfahan' } } as any;
+    expect(getDisplayName(contact, en, 'Tehran')).toBe('Ali Ahmadi');
   });
 });

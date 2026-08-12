@@ -14,12 +14,20 @@ export function getInitials(name?: string | null, email?: string | null): string
 /**
  * Delegates to the canonical resolver (src/lib/contact-display.ts) so
  * Contacts never disagrees with Inbox about what an anonymous visitor is
- * called. City comes from `metadata.city` (already read by
- * getLocationFromMetadata below) — the same value this page already shows
- * in its location column/row, not a new geo lookup.
+ * called.
+ *
+ * City precedence: `networkCity` (when the caller has one — the live
+ * session-based geo from useVisitorNetworkBatchByContact/useVisitorNetwork,
+ * the SAME canonical source Inbox reads) wins over `metadata.city` (a
+ * snapshot only ever written once a visitor identifies — see
+ * identityMerge.ts's resolveContactGeoPatch — so it can be stale or, for a
+ * still-anonymous contact, simply absent). Callers that don't have a
+ * network profile handy (or haven't fetched one) still get the
+ * metadata.city fallback for free, so this stays a drop-in for existing
+ * call sites.
  */
-export function getDisplayName(c: Contact, t: ContactDisplayT): string {
-  const city = getLocationFromMetadata(c).city ?? null;
+export function getDisplayName(c: Contact, t: ContactDisplayT, networkCity?: string | null): string {
+  const city = networkCity ?? getLocationFromMetadata(c).city ?? null;
   return contactDisplayName(c, c.id, t, city);
 }
 

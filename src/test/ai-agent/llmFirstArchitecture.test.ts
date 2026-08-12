@@ -480,7 +480,7 @@ describe('Strict knowledge-only mode + page context', () => {
     expect(result.action).toBe('replied');
     expect(aiCallCount).toBe(1);
     const log = logRunCalls.find((c) => c.runType === 'auto_reply');
-    expect(log.metadata.answer_strategy.requires_business_knowledge ?? false).toBe(false);
+    expect(log.metadata.answer_strategy.requires_business_knowledge).toBe(false);
     expect(markNeedsHumanCalls.length).toBe(0);
     expect(lastPromptText()).toContain('Nova');
   });

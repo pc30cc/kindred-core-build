@@ -567,7 +567,7 @@
         msgSeen: 'Seen',
         msgFailed: 'Not delivered',
         typingOperator: 'Support is typing…',
-        aiThinking: 'AI assistant is thinking…',
+        aiThinking: 'Thinking…',
         routingAgentJoined: '{name} joined the conversation',
         routingAgentJoinedSuffix: 'joined the conversation',
         routingAgentJoinedGeneric: 'A colleague joined the conversation',
@@ -747,7 +747,7 @@
         msgSeen: 'دیده شد',
         msgFailed: 'ارسال نشد',
         typingOperator: 'پشتیبانی در حال نوشتن…',
-        aiThinking: 'دستیار هوش مصنوعی در حال فکر کردن…',
+        aiThinking: 'در حال فکر…',
         routingAgentJoined: '{name} به گفتگو پیوست',
         routingAgentJoinedSuffix: 'به گفتگو پیوست',
         routingAgentJoinedGeneric: 'یکی از همکاران به گفتگو پیوست',
@@ -921,7 +921,7 @@
         msgSeen: 'Görüldü',
         msgFailed: 'İletilemedi',
         typingOperator: 'Destek yazıyor…',
-        aiThinking: 'Yapay zeka asistanı düşünüyor…',
+        aiThinking: 'Düşünüyor…',
         routingAgentJoined: '{name} görüşmeye katıldı',
         routingAgentJoinedSuffix: 'görüşmeye katıldı',
         routingAgentJoinedGeneric: 'Bir temsilci görüşmeye katıldı',
@@ -3294,7 +3294,7 @@
         '<div class="msg operator ai-thinking-bubble">' +
           '<span class="ai-thinking-spark" aria-hidden="true"></span>' +
           '<span class="typing-dots"><span></span><span></span><span></span></span>' +
-          '<span class="ai-thinking-label">' + Util.escapeHtml(t('aiThinking') || 'AI assistant is thinking…') + '</span>' +
+          '<span class="ai-thinking-label">' + Util.escapeHtml(t('aiThinking') || 'Thinking…') + '</span>' +
         '</div>' +
       '</div>';
     }

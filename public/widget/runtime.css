@@ -1774,30 +1774,38 @@ a.kb-category:hover{ background: #F9FAFB; border-color: #E5E7EB; }
 .ai-thinking-bubble {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  font-size: 11px;
-  line-height: 1.4;
-  background: transparent;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  line-height: 1.3;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 8%, transparent);
   box-shadow: none;
-  color: color-mix(in srgb, var(--gs-primary, #3B82F6), #111 15%);
+  color: color-mix(in srgb, var(--gs-primary, #3B82F6), #111 20%);
+  opacity: 0.9;
+  animation: gs-ai-thinking-in 220ms ease-out both;
+}
+@keyframes gs-ai-thinking-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 0.9; transform: none; }
 }
 /* No avatar slot for the waiting row — it is a status cue, not a message. */
 .ai-thinking-row { gap: 0; }
 .ai-thinking-spark {
   display: inline-block;
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   flex-shrink: 0;
   background-color: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'/%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'/%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3C/svg%3E") center / contain no-repeat;
   animation: gs-ai-spark 1.6s ease-in-out infinite;
 }
-.ai-thinking-bubble .typing-dots span { background: var(--gs-primary, #3B82F6); opacity: 0.65; }
-.ai-thinking-label { font-size: 11px; }
+.ai-thinking-bubble .typing-dots { gap: 2px; }
+.ai-thinking-bubble .typing-dots span { width: 3px; height: 3px; background: var(--gs-primary, #3B82F6); opacity: 0.6; }
+.ai-thinking-label { font-size: 10px; font-weight: 500; letter-spacing: 0.01em; opacity: 0.85; }
 @media (prefers-color-scheme: dark) {
-  .ai-thinking-bubble { color: color-mix(in srgb, var(--gs-primary, #3B82F6), #fff 20%); }
+  .ai-thinking-bubble { color: color-mix(in srgb, var(--gs-primary, #3B82F6), #fff 25%); background: color-mix(in srgb, var(--gs-primary, #3B82F6) 14%, transparent); }
 }
 
 /* ─── Phase 8C — Call channel panel (visitor-facing) ─── */

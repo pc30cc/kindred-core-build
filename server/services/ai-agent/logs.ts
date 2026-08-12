@@ -28,7 +28,41 @@ export interface LogRunInput {
 
 export async function logRun(config: ServerConfig, input: LogRunInput): Promise<string | null> {
   const sb = getServiceClient(config);
+  const fullRow = {
+    workspace_id: input.workspaceId,
+    conversation_id: input.conversationId ?? null,
+    visitor_message_id: input.visitorMessageId ?? null,
+    run_type: input.runType,
+    mode: input.mode ?? null,
+    status: input.status,
+    input_text: input.inputText ?? null,
+    output_text: input.outputText ?? null,
+    skip_reason: input.skipReason ?? null,
+    error_message: redactErrorMessage(input.errorMessage),
+    provider: input.provider ?? null,
+    model: input.model ?? null,
+    prompt_tokens: input.promptTokens ?? null,
+    completion_tokens: input.completionTokens ?? null,
+    credits_used: input.creditsUsed ?? 0,
+    kb_article_ids: input.kbArticleIds ?? [],
+    confidence: input.confidence ?? null,
+    metadata: input.metadata ?? {},
+  };
   const { data, error } = await sb
+    .from('ai_agent_runs')
+    .insert(fullRow)
+    .select('id')
+    .single();
+  if (!error) return data?.id || null;
+
+  // A diagnostic/enrichment field must never suppress an otherwise ready AI
+  // reply. Some retrieval sources carry non-article identifiers, and older
+  // self-host schemas can reject one of the optional observability fields.
+  // Retry with the stable core contract so delivery still has a durable run
+  // id; preserve the redacted first error for operators to diagnose.
+  const firstError = redactErrorMessage(error.message) || 'run_log_insert_failed';
+  console.warn('[ai-agent] full logRun insert failed; retrying core row:', firstError);
+  const { data: fallbackData, error: fallbackError } = await sb
     .from('ai_agent_runs')
     .insert({
       workspace_id: input.workspaceId,
@@ -41,22 +75,19 @@ export async function logRun(config: ServerConfig, input: LogRunInput): Promise<
       output_text: input.outputText ?? null,
       skip_reason: input.skipReason ?? null,
       error_message: redactErrorMessage(input.errorMessage),
-      provider: input.provider ?? null,
-      model: input.model ?? null,
-      prompt_tokens: input.promptTokens ?? null,
-      completion_tokens: input.completionTokens ?? null,
       credits_used: input.creditsUsed ?? 0,
-      kb_article_ids: input.kbArticleIds ?? [],
-      confidence: input.confidence ?? null,
-      metadata: input.metadata ?? {},
+      metadata: {
+        log_enrichment_degraded: true,
+        log_enrichment_error: firstError,
+      },
     })
     .select('id')
     .single();
-  if (error) {
-    console.warn('[ai-agent] logRun failed:', error.message);
+  if (fallbackError) {
+    console.warn('[ai-agent] core logRun insert failed:', redactErrorMessage(fallbackError.message));
     return null;
   }
-  return data?.id || null;
+  return fallbackData?.id || null;
 }
 
 /**

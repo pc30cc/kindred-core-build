@@ -26,6 +26,7 @@ import {
 import { OsAvatar } from '@/components/visitors/OsIcon';
 import { localizedCountryName } from '@/lib/geo/countryLocalization';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
+import { contactDisplayName } from '@/lib/contact-display';
 
 function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {
   const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -360,7 +361,9 @@ export default function VisitorsPage() {
               >
                 {filtered.map(v => {
                   const isSelected = selectedId === v.id;
-                  const name = v.contact?.name || v.contact?.email || t('visitors.unknownVisitor');
+                  const name = v.contact
+                    ? contactDisplayName(v.contact, v.contact.id, t, v.geo, locale)
+                    : t('visitors.unknownVisitor');
                   const loc = localizedLocationLabel(v.geo, locale) || t('visitors.unknownLocation');
                   return (
                     <li key={v.id}>

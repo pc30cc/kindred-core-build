@@ -684,15 +684,20 @@ describe('C8.10 — strict-KB provider boundary (Follow-up 9D.1/9D.2)', () => {
     expect(result.action).toBe('replied');
   });
 
-  it('SKG1 — strict KB + zero sources + duplicate greeting: the greeting-dedup mutation must not bypass the strict-KB invariant either', async () => {
+  it('SKG1 — LLM-first: strict KB + zero sources + a greeting is answered by the model, because a greeting asks for no business fact', async () => {
+    // Intentional change from the pre-LLM-first architecture: answer_only_from_kb
+    // constrains BUSINESS answers. A greeting/identity/small-talk turn needs no
+    // knowledge-base grounding, so the model answers it from the configured
+    // assistant persona instead of escalating to a human. The strict-KB
+    // invariant is still pinned for business questions by SK0/SK1/SKR1/SKR2.
     settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
     conversationStateFixture = makeConversationState({ _metadata: { ai_greeting_sent: true } });
     hybridImpl = async () => makeHybridResult({ sources: [] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'hi' }));
 
-    expect(aiCallCount).toBe(0);
-    expect(result.action).not.toBe('replied');
+    expect(aiCallCount).toBe(1);
+    expect(result.action).toBe('replied');
   });
 
   it('HR1 — explicit human-request keyword + an unrelated live keep_ai match: decideRuntime already terminates before retrieval, so no bypass exists here (confirms, does not change, production precedence)', async () => {

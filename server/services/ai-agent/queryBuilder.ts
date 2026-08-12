@@ -36,6 +36,8 @@ export interface BuiltRetrievalQuery {
   previousAiAskedClarification: boolean;
   /** Phase 2.1 — bounded rendered conversation context (may be ''). */
   conversationContext: string;
+  /** Bounded turns behind `conversationContext`, for role-tagged prompting. */
+  contextTurns: ContextTurn[];
   conversationContextUsed: boolean;
   conversationTurnsUsed: number;
   /** Phase 2.2 — clarification continuity metadata. */
@@ -115,6 +117,7 @@ export async function buildRetrievalQuery(
   let previousAiAskedClarification = false;
   let augmented = current;
   let conversationContext = '';
+  let contextTurns: ContextTurn[] = [];
   let conversationContextUsed = false;
   let conversationTurnsUsed = 0;
   let clarificationQuestion: string | null = null;
@@ -129,6 +132,7 @@ export async function buildRetrievalQuery(
       lookback: RECENT_LOOKBACK,
     });
     conversationContext = loaded.text;
+    contextTurns = loaded.turns;
     conversationContextUsed = loaded.used;
     conversationTurnsUsed = loaded.turnsUsed;
     const recent: Array<any> = loaded.allTurns.map((t: ContextTurn) => ({
@@ -207,6 +211,7 @@ export async function buildRetrievalQuery(
     followUpDetected,
     previousAiAskedClarification,
     conversationContext,
+    contextTurns,
     conversationContextUsed,
     conversationTurnsUsed,
     clarification: {

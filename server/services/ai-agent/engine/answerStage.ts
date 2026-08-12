@@ -1,7 +1,7 @@
 /**
  * AI Agent engine — answer-strategy stage (decideStrategy, page-aware
  * overrides, page-intent terminal reply, and the no-LLM branches:
- * no_answer_silent, handoff(strategy), greeting).
+ * no_answer_silent, handoff(strategy)).
  *
  * Mechanically extracted from runInternal() in server/services/ai-agent/engine.ts
  * (Phase 5 engine extraction, Commit F). The body below is byte-identical to
@@ -35,7 +35,6 @@ import {
   applySafeRoutingSideEffects,
   pickPageNoUrl,
   pickPageNotIndexed,
-  pickGreeting,
 } from './helpers.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -139,6 +138,7 @@ export async function runAnswerStage(
     handoff_required: strategy.handoffRequired,
     escalation_style: settings.escalation_style || 'balanced',
     safe_guidance_topic: strategy.safeGuidanceTopic || null,
+    grounding_mode: strategy.groundingMode,
     // ── Phase 2 observability ──────────────────────────────────────────
     confidence: strategy.confidence,
     confidence_band: strategy.confidenceBand,
@@ -226,7 +226,13 @@ export async function runAnswerStage(
   // or short-circuited by the no_url/no_indexed_page terminal reply just
   // above. Evaluating any earlier would risk matching a stale reason that
   // no longer reflects the final outcome (Follow-up 9E.2 Blocker 1).
-  const strictBlocked = isStrictKbNoGrounding(settings, strategy.retrievalStrength, (strategy as any).metaIntent);
+  // Strict knowledge-only mode still blocks keep_ai routing overrides, but
+  // only on BUSINESS turns: a conversational turn (greeting, identity,
+  // thanks) is answered from the assistant persona and was never gated by
+  // the knowledge base.
+  const strictBlocked =
+    strategy.reason !== 'conversational_turn'
+    && isStrictKbNoGrounding(settings, strategy.retrievalStrength);
 
   // Normalize the PRE-strategy result now that retrievalStrength is finally
   // known, so a PRE keep_ai action that strict-KB blocks is never reported
@@ -389,6 +395,9 @@ export async function runAnswerStage(
         // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
         // ordering note on the human-request handoff branch above.
         const display = deriveAgentDisplay(settings);
+        // Handoff wording stays deterministic and owner-controlled: an
+        // escalation must never depend on a second model call that can fail
+        // or spend credits on a turn the model was not allowed to answer.
         const body = settings.fallback_message
           || await resolveHandoffAckMessage(
             config, workspaceId, locale,
@@ -417,57 +426,6 @@ export async function runAnswerStage(
       return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId } };
     }
     return { terminal: { ran: true, action: 'no_answer', reason: strategy.reason, runId } };
-    }
-  }
-
-  // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────
-  if (strategy.decisionType === 'greeting') {
-    // C2 dedup — if we already greeted this visitor, fall through to LLM.
-    const flagsForGreet = (state._metadata as any) || {};
-    if (flagsForGreet.ai_greeting_sent === true) {
-      decisionTimeline.push('greeting_skipped_duplicate');
-      console.log('[ai-agent.runtime] greeting skipped — already greeted', { conversationId });
-      // Fall through to LLM by treating as substantive answer.
-      (strategy as any).decisionType = 'answer';
-      (strategy as any).reason = `${strategy.reason || 'greeting'}_dedup`;
-    } else {
-    const display = deriveAgentDisplay(settings);
-    const body = pickGreeting(locale, display.agentName);
-    const runId = await logRun(config, {
-      workspaceId,
-      conversationId,
-      visitorMessageId,
-      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
-      mode: settings.mode,
-      status: decision.canAutoReply ? 'replied' : 'suggested',
-      inputText: question,
-      outputText: body,
-      kbArticleIds: [],
-      confidence: 1,
-      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
-    });
-    if (decision.canAutoReply) {
-      const inserted = await insertAiMessage(config, {
-        workspaceId,
-        conversationId,
-        body,
-        source: 'ai_agent',
-        runId,
-        mode: settings.mode,
-        kbArticleIds: [],
-        qnaIds: [],
-        confidence: 1,
-        provider: null,
-        model: null,
-        handoff: false,
-        agentName: display.agentName,
-        agentLogoUrl: display.agentLogoUrl,
-      });
-      await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
-      await updateRuntimeFlags(config, conversationId, { greetingSent: true }).catch(() => {});
-      return { terminal: { ran: true, action: 'replied', runId, messageId: inserted.id } };
-    }
-    return { terminal: { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId } };
     }
   }
 

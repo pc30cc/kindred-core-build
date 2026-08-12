@@ -29,6 +29,8 @@ import type { PreflightResult } from './preflightStage.js';
 export interface ContextStageResult {
   sb: ReturnType<typeof getServiceClient>;
   locale: string;
+  /** workspaces.name — business display name for the system prompt. */
+  workspaceName: string | null;
   inputLanguage: string;
   languageMeta: Record<string, unknown>;
   detectedTopicsMeta: Record<string, unknown>;
@@ -70,10 +72,12 @@ export async function runContextStage(
   // workspace's language configuration from the decision.
   const { data: wsRow } = await sb
     .from('workspaces')
-    .select('default_locale, widget_locale')
+    .select('name, default_locale, widget_locale')
     .eq('id', workspaceId)
     .maybeSingle();
   const widgetLocale = (wsRow as any)?.widget_locale || '';
+  // Business display name — feeds the dynamic assistant identity prompt.
+  const workspaceName = ((wsRow as any)?.name || '').toString().trim() || null;
   const workspaceLocale = (wsRow as any)?.default_locale || '';
 
   // Phase A — language policy. Decide what language to RESPOND in regardless
@@ -216,7 +220,7 @@ export async function runContextStage(
   ]);
 
   return {
-    sb, locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
+    sb, locale, workspaceName, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
     humanRequestFromTopics, guidanceMeta, routingMeta, triggerMeta, workflowMeta,
     toolMeta, pageContextMetaRef, state, availability,
   };

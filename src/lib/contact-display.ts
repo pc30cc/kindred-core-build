@@ -1,3 +1,8 @@
+import { isolateBidi } from './bidi';
+import { normalizeLocaleTag } from './geo/countryLocalization';
+import { localizedIranProvince } from './geo/iranProvinceLocalization';
+import { turkishAblativeForm } from './geo/turkishGrammar';
+
 /**
  * Display name for a contact in operator surfaces.
  *
@@ -40,6 +45,17 @@
  *      display-only derivation from fallbackId for contacts that predate
  *      both and haven't been touched since (never written back).
  *
+ * ── Iran uses province, not city ──────────────────────────────────────────
+ * For a visitor whose canonical `country_code` is IR, the anonymous label
+ * is built from `geo.region` (their province — "Visitor from {region} ·
+ * {code}" / "بازدیدکننده از استان {region} · {code}"), never `geo.city` —
+ * even when both are populated. This replaced an earlier, much heavier
+ * city-level Persian localization system; province is a small, fixed,
+ * 31-entry table (./geo/iranProvinceLocalization.ts) instead. Every other
+ * country's anonymous label still uses `geo.city`, canonical/untranslated,
+ * exactly as before — this is an Iran-specific identity rule, not a
+ * general city→region swap.
+ *
  * Email/phone are CONTACT METADATA, not a display-name fallback — a contact
  * known only by email still renders as "Visitor from {city} · {code}" here.
  * Callers show the email/phone separately (Contacts row/detail already do;
@@ -48,8 +64,10 @@
  *
  * The anonymous label is a PRESENTATION string only — never persist it into
  * `name`/`display_name`. The real identity stays `name: null` (or the
- * literal placeholder) + `visitor_code` + city metadata; this function just
- * renders them together.
+ * literal placeholder) + `visitor_code` + geo metadata; this function just
+ * renders them together. `geo.city` itself is untouched canonical metadata
+ * — still available for Visitor Intelligence/Map/analytics — it's simply no
+ * longer part of the Iranian anonymous-identity string.
  */
 export interface DisplayableContact {
   name?: string | null;
@@ -59,6 +77,20 @@ export interface DisplayableContact {
 }
 
 export type ContactDisplayT = (key: string, vars?: Record<string, string>) => string;
+
+/**
+ * Canonical geo shape (matches `VisitorNetworkGeo` from
+ * server/services/visitors/networkProfile.ts) so city localization can key
+ * off `country_code` and never collide two same-named cities in different
+ * countries. Passing a bare string is still supported for callers that only
+ * have a city string handy — it just skips curated localization (no code to
+ * key against) and falls straight to the canonical name.
+ */
+export interface DisplayGeoInfo {
+  city?: string | null;
+  country_code?: string | null;
+  region?: string | null;
+}
 
 const PLACEHOLDER = 'visitor';
 
@@ -111,21 +143,51 @@ export function resolveVisitorCode(
  *   the contact's own id, never a conversation/session id (those aren't
  *   stable across the same visitor's repeat conversations).
  * @param t translate function (i18next-style `t(key, vars)`)
- * @param city optional current city for this visitor — pass whatever the
- *   caller already has (Inbox: `conversation.visitor_network.geo.city`;
- *   Contacts: `metadata.city`); never fetched by this function.
+ * @param geo optional current city (or full `{city, country_code, region}`)
+ *   for this visitor — pass whatever the caller already has (Inbox:
+ *   `conversation.visitor_network.geo`; Contacts: `networkProfile.geo` or
+ *   `metadata`); never fetched by this function. A bare string is still
+ *   accepted for callers that only have a city name, at the cost of skipping
+ *   curated localization (no country_code to key against). For a visitor
+ *   whose `country_code` is IR, `geo.region` (province) is used instead of
+ *   `geo.city` — see the module doc comment.
+ * @param locale active UI locale ('en' | 'fa' | 'tr' or a variant like
+ *   'fa-IR') — drives Iran province localization and, for Turkish, the
+ *   ablative suffix ("İzmir'den ziyaretçi"). Omit to keep the canonical
+ *   (English) name, e.g. for non-UI contexts.
  */
 export function contactDisplayName(
   contact: DisplayableContact | null | undefined,
   fallbackId: string | null | undefined,
   t: ContactDisplayT,
-  city?: string | null,
+  geo?: string | null | DisplayGeoInfo,
+  locale?: string,
 ): string {
   const name = (contact?.name ?? '').trim();
   if (name && name.toLowerCase() !== PLACEHOLDER) return name;
   const code = resolveVisitorCode(contact, fallbackId);
-  const cleanCity = sanitizeCity(city);
-  return cleanCity
-    ? t('inbox.visitorAnonymousFromCity', { city: cleanCity, code })
-    : t('inbox.visitorAnonymous', { code });
+  const isolatedCode = isolateBidi(code);
+  const geoInfo: DisplayGeoInfo = geo && typeof geo === 'object' ? geo : { city: geo ?? null };
+  const isIran = (geoInfo.country_code ?? '').trim().toUpperCase() === 'IR';
+  const cleanPlace = sanitizeCity(isIran ? geoInfo.region : geoInfo.city);
+  if (!cleanPlace) {
+    return t('inbox.visitorAnonymous', { code: isolatedCode });
+  }
+  const loc = normalizeLocaleTag(locale);
+  // Iran: province, localized to Persian only in the fa locale (never
+  // guessed for other countries — no city/region translation exists for
+  // anyone else). Everywhere else: the canonical city, untranslated.
+  const localizedPlace = isIran
+    ? (localizedIranProvince(cleanPlace, geoInfo.country_code, loc) ?? cleanPlace)
+    : cleanPlace;
+  // Turkish grammar needs the place pre-suffixed ("İzmir'den") before
+  // interpolation — tr.ts's templates are `{{city}} ziyaretçi · {{code}}` /
+  // `{{region}} ziyaretçi · {{code}}`, not `from {{...}}`, because the
+  // ablative suffix depends on the actual word (vowel harmony), not
+  // something a static template can express.
+  const placeForTemplate = loc === 'tr' ? turkishAblativeForm(localizedPlace) : localizedPlace;
+  const isolatedPlace = isolateBidi(placeForTemplate);
+  return isIran
+    ? t('inbox.visitorAnonymousFromRegion', { region: isolatedPlace, code: isolatedCode })
+    : t('inbox.visitorAnonymousFromCity', { city: isolatedPlace, code: isolatedCode });
 }

@@ -378,6 +378,9 @@ const fa: TranslationKeys = {
     visitor: 'بازدیدکننده',
     visitorAnonymous: 'بازدیدکننده · {{code}}',
     visitorAnonymousFromCity: 'بازدیدکننده از {{city}} · {{code}}',
+    // Iranian anonymous visitors: "بازدیدکننده از استان {province} · {code}"
+    // — city is no longer used for Iran (see src/lib/contact-display.ts).
+    visitorAnonymousFromRegion: 'بازدیدکننده از استان {{region}} · {{code}}',
     aiAssistant: 'دستیار هوش مصنوعی',
     operator: 'اپراتور',
     seen: 'دیده شد',

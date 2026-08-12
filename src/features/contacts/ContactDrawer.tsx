@@ -20,7 +20,7 @@ import {
   ExternalLink, Trash2, Save, Loader2, User as UserIcon, Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getInitials, getDisplayName, timeAgo, getCompanyFromMetadata, getLocationFromMetadata } from './utils';
+import { getInitials, getDisplayName, timeAgo, getCompanyFromMetadata, getLocalizedLocation } from './utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 
@@ -32,7 +32,7 @@ interface Props {
 
 export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const navigate = useNavigate();
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const { wsSlug } = useParams();
   const { data: contact, isLoading } = useContact(contactId ?? undefined);
   const { data: conversations } = useContactConversations(contactId ?? undefined);
@@ -88,7 +88,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
     }
   };
 
-  const location = contact ? getLocationFromMetadata(contact) : {};
+  const location = contact ? getLocalizedLocation(contact, locale, networkProfile?.geo ?? null) : { label: null, flag: null };
   const company = contact ? getCompanyFromMetadata(contact) : null;
 
   return (
@@ -114,7 +114,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <SheetTitle className="text-base text-start">{getDisplayName(contact, t, networkProfile?.geo?.city)}</SheetTitle>
+                  <SheetTitle className="text-base text-start">{getDisplayName(contact, t, networkProfile?.geo, locale)}</SheetTitle>
                   {contact.email && (
                     <p className="text-xs text-muted-foreground truncate">{contact.email}</p>
                   )}
@@ -195,7 +195,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       <InfoRow icon={Mail} label={t('contacts.email')} value={contact.email} />
                       <InfoRow icon={Phone} label={t('contacts.phone')} value={contact.phone} />
                       <InfoRow icon={Building2} label={t('contacts.company')} value={company} />
-                      <InfoRow icon={MapPin} label={t('contacts.location')} value={[location.city, location.country].filter(Boolean).join(', ') || null} />
+                      <InfoRow icon={MapPin} label={t('contacts.location')} value={location.label} />
                       <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? new Date(contact.created_at).toLocaleString() : null} />
                       <InfoRow icon={Calendar} label={t('contacts.updatedAt')} value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
                       {(contact.tags ?? []).length > 0 && (
@@ -227,7 +227,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                           <AlertDialogHeader>
                             <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
                             <AlertDialogDescription className="text-start">
-                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo?.city) })}
+                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo, locale) })}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -239,7 +239,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                         </AlertDialogContent>
                       </AlertDialog>
                       <div className="pt-4">
-                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact, t, networkProfile?.geo?.city)} />
+                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact, t, networkProfile?.geo, locale)} />
                       </div>
                     </div>
                   )}

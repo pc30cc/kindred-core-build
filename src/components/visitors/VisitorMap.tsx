@@ -17,6 +17,8 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import type { MapMarker, MapTilesConfig } from '@/lib/visitors-api';
 import { Globe2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
+import { isolateBidi } from '@/lib/bidi';
 
 interface Props {
   config: MapTilesConfig | undefined;
@@ -106,8 +108,16 @@ function relTime(iso: string | undefined | null): string {
 }
 
 /** Compact, label-driven HTML tooltip with location + status + page. */
-function buildTooltipHtml(m: MapMarker): string {
-  const loc = [m.city, m.country].filter(Boolean).join(', ') || 'Unknown location';
+function buildTooltipHtml(m: MapMarker, locale: string): string {
+  // Raw HTML string, not a React text node — bidi-isolate the localized
+  // place name so it can't be visually reordered by whatever direction the
+  // page/tooltip container happens to inherit (see src/lib/bidi.ts).
+  const loc = isolateBidi(
+    localizedLocationLabel(
+      { city: m.city, country: m.country, country_code: m.country_code },
+      locale,
+    ) || 'Unknown location',
+  );
   const statusColor = STATUS_COLORS[m.status] ?? STATUS_COLORS.unknown;
   const statusLabel = STATUS_LABEL[m.status] ?? 'Unknown';
   const page = shortPage(m.current_page);
@@ -133,7 +143,7 @@ function buildTooltipHtml(m: MapMarker): string {
 }
 
 export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
@@ -223,7 +233,7 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
         // Patch in place: swap icon for status/selection changes, reposition
         // when realtime moves the visitor.
         existing.setIcon(buildVisitorIcon(m.status, isSelected));
-        existing.setTooltipContent(buildTooltipHtml(m));
+        existing.setTooltipContent(buildTooltipHtml(m, locale));
         const ll = existing.getLatLng();
         if (ll.lat !== m.lat || ll.lng !== m.lng) existing.setLatLng([m.lat, m.lng]);
       } else {
@@ -234,7 +244,7 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
         });
         const id = m.id;
         marker.on('click', () => onSelectRef.current?.(id));
-        marker.bindTooltip(buildTooltipHtml(m), {
+        marker.bindTooltip(buildTooltipHtml(m, locale), {
           direction: 'top',
           offset: [0, -4],
           opacity: 1,
@@ -269,7 +279,7 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
         didAutoFitRef.current = true;
       }
     }
-  }, [markers, selectedId, t]);
+  }, [markers, selectedId, t, locale]);
 
   // Compute a small status badge so operators can tell at a glance whether
   // the map is using their configured provider, a silent fallback, or is off.

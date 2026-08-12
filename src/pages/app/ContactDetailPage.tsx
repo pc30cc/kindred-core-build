@@ -25,7 +25,7 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
   getInitials, getDisplayName,
-  getCompanyFromMetadata, getLocationFromMetadata,
+  getCompanyFromMetadata, getLocalizedLocation,
 } from '@/features/contacts/utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 import { useContactIp } from '@/hooks/useContactIp';
@@ -84,7 +84,7 @@ function callStateLabel(state: string, t: (k: any) => string): string {
 }
 
 export default function ContactDetailPage() {
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const rtl = dir === 'rtl';
   const { id, slug: wsSlug } = useParams();
   const navigate = useNavigate();
@@ -169,8 +169,7 @@ export default function ContactDetailPage() {
   }
 
   const company = getCompanyFromMetadata(contact);
-  const loc = getLocationFromMetadata(contact);
-  const location = [loc.city, loc.country].filter(Boolean).join('، ') || null;
+  const { label: location } = getLocalizedLocation(contact, locale, networkProfile?.geo ?? null);
   const BackIcon = rtl ? ArrowRight : ArrowLeft;
   const billingHref = `/app/w/${wsSlug}/billing`;
   const ipLocked = ipState?.status === 'locked';
@@ -198,13 +197,13 @@ export default function ContactDetailPage() {
         </Button>
         <div className="w-8 h-8 rounded-md overflow-hidden bg-primary/10 flex items-center justify-center shrink-0">
           {contact.avatar_url ? (
-            <img src={contact.avatar_url} alt={getDisplayName(contact, t, networkProfile?.geo?.city)} className="w-full h-full object-cover" />
+            <img src={contact.avatar_url} alt={getDisplayName(contact, t, networkProfile?.geo, locale)} className="w-full h-full object-cover" />
           ) : (
             <span className="text-[11px] font-bold text-primary">{getInitials(contact.name, contact.email)}</span>
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-foreground truncate leading-tight">{getDisplayName(contact, t, networkProfile?.geo?.city)}</h1>
+          <h1 className="text-sm font-semibold text-foreground truncate leading-tight">{getDisplayName(contact, t, networkProfile?.geo, locale)}</h1>
           <p className="text-[11px] text-muted-foreground truncate">
             {[company, contact.email, contact.phone].filter(Boolean).join(' · ') || '—'}
           </p>
@@ -243,7 +242,7 @@ export default function ContactDetailPage() {
                 <AlertDialogHeader className="text-start sm:text-start">
                   <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
                   <AlertDialogDescription className="text-start">
-                    {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo?.city) })}
+                    {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo, locale) })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter className="sm:justify-start gap-2">
@@ -330,7 +329,7 @@ export default function ContactDetailPage() {
                         </>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <Row icon={UserIcon} label={t('contacts.name')} value={getDisplayName(contact, t, networkProfile?.geo?.city)} />
+                          <Row icon={UserIcon} label={t('contacts.name')} value={getDisplayName(contact, t, networkProfile?.geo, locale)} />
                           <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
                           <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
                           <Row icon={Building2} label={t('contacts.company')} value={company} />
@@ -579,7 +578,7 @@ export default function ContactDetailPage() {
                     </CardContent>
                   </Card>
                   <div className="mt-4">
-                    <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact, t, networkProfile?.geo?.city)} />
+                    <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact, t, networkProfile?.geo, locale)} />
                   </div>
                 </TabsContent>
               </Tabs>

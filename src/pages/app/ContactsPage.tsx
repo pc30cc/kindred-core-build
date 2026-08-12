@@ -33,7 +33,7 @@ import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import {
   getInitials, getDisplayName, timeAgo,
-  getCompanyFromMetadata, getLocationFromMetadata, getScoreFromMetadata,
+  getCompanyFromMetadata, getLocalizedLocation, getScoreFromMetadata,
   exportContactsToCSV, downloadFile,
 } from '@/features/contacts/utils';
 import { isAnonymousContact } from '@/lib/contact-display';
@@ -42,7 +42,7 @@ import { useVisitorNetworkBatchByContact } from '@/hooks/useVisitorNetwork';
 type SortKey = 'name' | 'email' | 'company' | 'last_active' | 'score';
 
 export default function ContactsPage() {
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const navigate = useNavigate();
   const { slug: wsSlug } = useParams();
   const workspace = useCurrentWorkspace();
@@ -420,7 +420,7 @@ export default function ContactsPage() {
               {filtered.map((c) => {
                 const isSel = selected.has(c.id);
                 const company = getCompanyFromMetadata(c);
-                const loc = getLocationFromMetadata(c);
+                const loc = getLocalizedLocation(c, locale, networkByContact?.[c.id]?.geo ?? null);
                 const score = getScoreFromMetadata(c);
                 return (
                   <tr
@@ -443,7 +443,7 @@ export default function ContactsPage() {
                             getInitials(c.name, c.email)
                           )}
                         </div>
-                        <span className="font-medium text-foreground truncate">{getDisplayName(c, t, networkByContact?.[c.id]?.geo?.city)}</span>
+                        <span className="font-medium text-foreground truncate">{getDisplayName(c, t, networkByContact?.[c.id]?.geo, locale)}</span>
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
@@ -451,10 +451,10 @@ export default function ContactsPage() {
                       <SourceBadge info={channels?.[c.id]} t={t} />
                     </td>
                     <td className="p-3 text-muted-foreground">
-                      {loc.country || loc.city ? (
+                      {loc.label ? (
                         <div className="flex items-center gap-1.5">
                           {loc.flag && <span>{loc.flag}</span>}
-                          <span className="truncate">{[loc.city, loc.country].filter(Boolean).join(', ')}</span>
+                          <span className="truncate">{loc.label}</span>
                         </div>
                       ) : (
                         <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>

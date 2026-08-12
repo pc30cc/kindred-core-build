@@ -56,6 +56,7 @@ import { logRun as logAiRun } from '../services/ai-agent/logs.js';
 import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
 import { clearAiManagementForPlatformOff, markNeedsHuman } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
+import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
 import {
   pinContactOnVisitorSessions,
   issueContinuityCookieForContact,
@@ -1497,29 +1498,17 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         if (!ok) return;
       }
 
-      // Find or create contact
-      let contactId: string | null = null;
-
-      if (body.visitor_id) {
-        const { data: existingContact } = await supabase
-          .from('contacts').select('id')
-          .eq('workspace_id', workspaceId)
-          .contains('metadata', { visitor_id: body.visitor_id })
-          .limit(1).maybeSingle();
-        contactId = existingContact?.id || null;
-      }
-
-      if (!contactId && (body.visitor_name || body.visitor_email || body.visitor_id)) {
-        const { data: newContact } = await supabase
-          .from('contacts').insert({
-            workspace_id: workspaceId,
-            name: body.visitor_name || 'Visitor',
-            email: body.visitor_email || null,
-            phone: body.visitor_phone || null,
-            metadata: { visitor_id: body.visitor_id, source: 'widget' },
-          }).select('id').single();
-        contactId = newContact?.id || null;
-      }
+      // Find or create contact. Every conversation gets one — anonymous
+      // visitors get a placeholder contact that the pre-chat / identity
+      // form later fills in (see services/widget/anonymousContact.ts).
+      const contactId: string | null = await ensureVisitorContact(supabase, {
+        workspaceId,
+        visitorId: body.visitor_id || null,
+        sessionId: body.session_id || null,
+        name: body.visitor_name || null,
+        email: body.visitor_email || null,
+        phone: body.visitor_phone || null,
+      });
 
       // Cross-widget continuity: pin the contact on this device's visitor
       // sessions and refresh the continuity cookie so the CALL widget skips

@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { VisitorNetworkCard } from '@/features/visitors/VisitorNetworkCard';
+import { contactDisplayName } from '@/lib/contact-display';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
@@ -160,8 +161,9 @@ function isPlaceholderSubject(subject?: string | null): boolean {
 /** Display title for a conversation: contact identity first, subject second. */
 function conversationTitle(conv: any, t: (k: any) => string): string {
   return (
-    conv?.contacts?.name
-    || conv?.contacts?.email
+    (conv?.contacts
+      ? contactDisplayName(conv.contacts, conv?.id, t('inbox.visitor') || 'Visitor')
+      : '')
     || (isPlaceholderSubject(conv?.subject) ? '' : conv.subject)
     || t('contacts.conversationUntitled')
   );
@@ -1822,7 +1824,7 @@ export default function InboxPage() {
                           <span className="font-medium">
                             {isAgent
                               ? agentLabel
-                              : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
+                              : contactDisplayName(selected?.contacts, selectedId, t('inbox.visitor') || 'Visitor')}
                           </span>
                           {isAi && (
                             <span className="px-1.5 py-px rounded bg-accent/40 text-accent-foreground text-[10px] font-semibold uppercase tracking-wide">
@@ -1880,7 +1882,7 @@ export default function InboxPage() {
                   <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </span>
                 <span>
-                  {(selected?.contacts?.name || t('inbox.visitor') || 'Visitor')} {t('inbox.visitorTyping') || 'typing…'}
+                  {contactDisplayName(selected?.contacts, selectedId, t('inbox.visitor') || 'Visitor')} {t('inbox.visitorTyping') || 'typing…'}
                 </span>
               </div>
             )}
@@ -2166,7 +2168,7 @@ export default function InboxPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="text-[15px] font-bold text-foreground truncate">
-                        {selected.contacts?.name || `#${selectedId?.slice(0, 8)}`}
+                        {contactDisplayName(selected.contacts, selectedId, t('inbox.visitor') || 'Visitor')}
                       </h3>
                       <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                         <span className={cn('text-[11px] px-2 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>

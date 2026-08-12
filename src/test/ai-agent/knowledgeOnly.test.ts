@@ -155,7 +155,7 @@ function baseInput(overrides: Record<string, any> = {}) {
 }
 
 beforeEach(() => {
-  settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always' });
+  settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
   conversationStateFixture = makeConversationState();
   availabilityFixture = makeAvailability();
   hybridImpl = async () => makeHybridResult({ sources: [] });
@@ -189,7 +189,7 @@ describe('C9 — answer_only_from_kb, no matching source', () => {
   });
 
   it('LLM-FIRST: a weak (non-qualifying) source match is answered with unverified grounding, not silence', async () => {
-    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always' });
+    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
     hybridImpl = async () =>
       makeHybridResult({ sources: [makeHybridSource({ final_score: 0.15, keyword_score: 0.15, vector_score: 0.1 })] });
 
@@ -200,7 +200,7 @@ describe('C9 — answer_only_from_kb, no matching source', () => {
   });
 
   it('non-strict mode + zero sources: the model answers, and never resolves to a legacy scripted state', async () => {
-    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always' });
+    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
     hybridImpl = async () => makeHybridResult({ sources: [] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
@@ -239,7 +239,7 @@ describe('C9 — answer_only_from_kb vs. safe_guidance (known topic)', () => {
   // These tests pin the fix: the SAME strictKbNoGrounding condition now
   // gates both safe_guidance and ask_clarifying_question.
   it('the scripted safe_guidance state no longer exists: a known topic with zero grounding is answered by the model', async () => {
-    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always' });
+    settingsFixture = makeSettings({ answer_only_from_kb: true, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
     hybridImpl = async () => makeHybridResult({ sources: [] });
     builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
 
@@ -252,7 +252,7 @@ describe('C9 — answer_only_from_kb vs. safe_guidance (known topic)', () => {
   });
 
   it('non-strict mode + zero sources + known topic is also answered by the model, with unverified grounding', async () => {
-    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always' });
+    settingsFixture = makeSettings({ answer_only_from_kb: false, mode: 'auto_reply_always', handoff_when_no_kb_match: false, handoff_on_low_confidence: false });
     hybridImpl = async () => makeHybridResult({ sources: [] });
     builtQueryImpl = async () => makeBuiltQuery({ topics: ['pricing'] });
 

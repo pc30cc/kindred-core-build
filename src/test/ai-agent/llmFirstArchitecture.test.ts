@@ -381,3 +381,124 @@ describe('Signal-based retrieval decision — no message-shape heuristics', () =
     expect(replyRetrievalMeta().retrieval_decision_reason).toBe('business_follow_up');
   });
 });
+
+/**
+ * ADVERSARIAL — page context is AMBIENT, never proof the turn is a business
+ * question. The widget sits on /pricing for every one of these messages.
+ */
+describe('Page context present is not a business-knowledge requirement', () => {
+  const PAGE = { currentPageUrl: 'https://acme.test/pricing', currentPageTitle: 'Pricing' };
+
+  async function askOnPage(question: string, built: Record<string, any> = {}) {
+    builtQueryImpl = async () => makeBuiltQuery({
+      originalMessage: question, retrievalQuery: question, expandedQuery: question, ...built,
+    });
+    return maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG, baseInput({ question, pageContext: PAGE }),
+    );
+  }
+
+  function strategyMeta(): any {
+    const log = logRunCalls.find((c) => c.runType === 'auto_reply');
+    return log?.metadata?.answer_strategy || {};
+  }
+
+  it('D-A — greeting on /pricing: no retrieval, no business grounding, no handoff', async () => {
+    const result = await askOnPage('سلام');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(0);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(false);
+    expect(replyRetrievalMeta().retrieval_decision_reason).toBe('no_business_signal');
+    expect(replyRetrievalMeta().business_signal_detected).toBe(false);
+    expect(markNeedsHumanCalls.length).toBe(0);
+    expect(strategyMeta().handoff_required).toBe(false);
+  });
+
+  it('D-B — identity question on /pricing: assistant name reaches the model, no strict-KB refusal', async () => {
+    const result = await askOnPage('اسمت چیه؟');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(0);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(false);
+    expect(lastPromptText()).toContain('Nova');
+    expect(markNeedsHumanCalls.length).toBe(0);
+  });
+
+  it('D-C — "ممنون" on /pricing stays conversational', async () => {
+    const result = await askOnPage('ممنون');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(0);
+    expect(replyRetrievalMeta().business_signal_detected).toBe(false);
+    expect(markNeedsHumanCalls.length).toBe(0);
+  });
+
+  it('D-D — "این پلن چه امکاناتی داره؟" on /pricing DOES retrieve business knowledge', async () => {
+    const result = await askOnPage('این پلن چه امکاناتی داره؟');
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(1);
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(true);
+    expect(replyRetrievalMeta().business_signal_detected).toBe(true);
+  });
+
+  it('D-E — business-grounded follow-up on /pricing keeps retrieval', async () => {
+    const result = await askOnPage('اون آخری رو بیشتر توضیح بده', {
+      followUpDetected: true,
+      contextTurns: [
+        { role: 'visitor', text: 'امکانات را بگو' },
+        { role: 'assistant', text: '...', metadata: { kb_article_ids: ['kb-9'], qna_ids: [] } },
+      ],
+    });
+    expect(result.action).toBe('replied');
+    expect(hybridCallCount).toBe(1);
+    expect(replyRetrievalMeta().retrieval_decision_reason).toBe('business_follow_up');
+  });
+});
+
+describe('Strict knowledge-only mode + page context', () => {
+  const PAGE = { currentPageUrl: 'https://acme.test/pricing', currentPageTitle: 'Pricing' };
+
+  beforeEach(() => {
+    settingsFixture = makeSettings({
+      mode: 'auto_reply_always',
+      agent_name: 'Nova',
+      answer_only_from_kb: true,
+      handoff_when_no_kb_match: false,
+      handoff_on_low_confidence: false,
+    });
+  });
+
+  async function askOnPage(question: string) {
+    builtQueryImpl = async () => makeBuiltQuery({
+      originalMessage: question, retrievalQuery: question, expandedQuery: question,
+    });
+    return maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG, baseInput({ question, pageContext: PAGE }),
+    );
+  }
+
+  it('E1 — "تو کی هستی؟" under strict KB is answered from Assistant Config, not refused', async () => {
+    const result = await askOnPage('تو کی هستی؟');
+    expect(result.action).toBe('replied');
+    expect(aiCallCount).toBe(1);
+    const log = logRunCalls.find((c) => c.runType === 'auto_reply');
+    expect(log.metadata.answer_strategy.requires_business_knowledge ?? false).toBe(false);
+    expect(markNeedsHumanCalls.length).toBe(0);
+    expect(lastPromptText()).toContain('Nova');
+  });
+
+  it('E2 — unverified business question does not invent facts and does not auto-handoff', async () => {
+    const result = await askOnPage('هزینه ارسال به کانادا برای این پلن چقدره؟');
+    expect(result.action).toBe('replied');
+    expect(markNeedsHumanCalls.length).toBe(0);
+    const log = logRunCalls.find((c) => c.runType === 'auto_reply');
+    expect(log.metadata.answer_strategy.grounding_mode).toBe('unverified');
+    expect(log.metadata.answer_strategy.handoff_required).toBe(false);
+  });
+
+  it('E3 — retrieval attempted with zero sources never hands off on its own', async () => {
+    hybridImpl = async () => makeHybridResult({ sources: [] });
+    const result = await askOnPage('قیمت پلن حرفه‌ای چقدره؟');
+    expect(replyRetrievalMeta().retrieval_attempted).toBe(true);
+    expect(result.action).toBe('replied');
+    expect(markNeedsHumanCalls.length).toBe(0);
+  });
+});

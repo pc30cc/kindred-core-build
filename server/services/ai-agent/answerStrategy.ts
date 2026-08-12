@@ -280,19 +280,21 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   // ── 5. No qualifying evidence. This is NOT an escalation trigger.
   //
   // "Does this turn need trusted business knowledge?" is answered from
-  // signals the system already produced — never from phrase lists:
-  //   * retrieval surfaced at least one candidate document, or
-  //   * a WORKSPACE-CONFIGURED topic (owner data, not our code) matched.
+  // REAL EVIDENCE the system already produced — never from phrase lists:
+  //   * retrieval surfaced at least one trusted source, or
+  //   * a genuinely semantic business signal exists (owner-configured topic
+  //     matched, the visitor explicitly referred to the page, or this is a
+  //     follow-up to a previously business-grounded turn).
   // A greeting, a thank-you or an identity question produces neither, so
   // owner "escalate when unknown" policies simply do not apply to it.
-  //   * the retrieval stage itself decided this turn needed business
-  //     knowledge (see ./retrievalDecision.ts — signal based, phrase free).
-  // Message SHAPE (question mark, digits, word count) is never used.
+  // Message SHAPE (question mark, digits, word count) is never used, and
+  // neither is STATIC DOMAIN VOCABULARY: `input.topics` comes from the
+  // static synonym map in ./queryExpansion.ts and is a retrieval
+  // optimization only (see BUSINESS_EVIDENCE_REASONS in ./retrievalDecision.ts).
   // A retrieval ATTEMPT is an execution signal and is deliberately not used
   // here: retrieval may be speculative. Only real evidence counts.
   const requiresBusinessKnowledge =
     sources.length > 0
-    || (input.topics || []).filter(Boolean).length > 0
     || input.businessSignalDetected === true;
 
   // Escalation on missing evidence happens ONLY when the owner explicitly

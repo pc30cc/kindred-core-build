@@ -216,6 +216,17 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+/**
+ * An OWNER-CONFIGURED workspace topic — the kind of signal that is real
+ * business evidence (see retrievalDecision.ts::BUSINESS_EVIDENCE_REASONS).
+ */
+const ACCOUNT_TOPIC = {
+  id: 'topic-account', workspace_id: DEFAULT_WORKSPACE_ID, name: 'Account', description: null,
+  slug: 'account', keywords: ['password', 'login', 'account'], examples: [], language: null,
+  confidence_threshold: 0.3, action: 'label_only', action_json: {}, enabled: true, system: false,
+  created_at: '', updated_at: '',
+} as any;
+
 describe('C8.2 — topic-detected human-request handoff', () => {
   it('a configured "human-request" topic match forces handoff even without a literal keyword hit', async () => {
     settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_human_request: true, handoff_keywords: [] });
@@ -428,8 +439,11 @@ describe('C8.7 — no-KB-match handoff (exhausted clarification budget)', () => 
       handoff_when_no_kb_match: true,
     });
     hybridImpl = async () => makeHybridResult({ sources: [] });
+    // Owner-configured topic = real business evidence. Static domain
+    // vocabulary alone no longer activates strict workspace grounding.
+    runtimeCfgFixture = makeRuntimeConfig({ topics: [ACCOUNT_TOPIC] });
 
-    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput());
+    const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
 
     expect(aiCallCount).toBe(0);
     expect(['handoff', 'no_answer']).toContain(result.action);
@@ -601,6 +615,7 @@ describe('C8.10 — strict-KB provider boundary (Follow-up 9D.1/9D.2)', () => {
   it('SK0 — strict KB + zero sources + no Routing: existing invariant, unaffected by this fix', async () => {
     settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
     hybridImpl = async () => makeHybridResult({ sources: [] });
+    runtimeCfgFixture = makeRuntimeConfig({ topics: [ACCOUNT_TOPIC] });
 
     const result = await maybeRunAiAssistantAfterVisitorMessage(CONFIG, baseInput({ question: 'how do I reset my password' }));
 
@@ -649,6 +664,7 @@ describe('C8.10 — strict-KB provider boundary (Follow-up 9D.1/9D.2)', () => {
   it('SKR2 — strict KB + zero sources + LIVE language -> keep_ai: proves the fix is a general invariant, not topic-specific', async () => {
     settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: true, fallback_behavior: 'handoff' });
     runtimeCfgFixture = makeRuntimeConfig({
+      topics: [ACCOUNT_TOPIC],
       routingRules: [
         { id: 'route-skr2', name: 'EN keep AI', trigger_type: 'language', conditions_json: { language: 'en' }, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
       ],
@@ -985,6 +1001,7 @@ describe('C8.11 — Follow-up 9E.3 post-strategy Routing (engine-level)', () => 
     settingsFixture = makeSettings({ mode: 'auto_reply_always', answer_only_from_kb: false, allow_clarifying_questions: false, fallback_behavior: 'handoff' });
     hybridImpl = async () => makeHybridResult({ sources: [] });
     runtimeCfgFixture = makeRuntimeConfig({
+      topics: [ACCOUNT_TOPIC],
       routingRules: [
         { id: 'route-illegal-keepai', name: 'Illegal keep AI', trigger_type: 'no_answer', conditions_json: {}, action_type: 'keep_ai', action_json: {}, priority: 1, enabled: true },
       ],

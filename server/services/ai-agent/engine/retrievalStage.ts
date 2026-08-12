@@ -92,6 +92,7 @@ export async function runRetrievalStage(
     priorTurnUsedBusinessKnowledge,
   });
   const knowledgeLookupNeeded = retrievalDecision.retrieve;
+  if (process.env.DEBUG_RETRIEVAL) console.log('[dbg]', JSON.stringify(retrievalDecision));
   const emptyRetrieval = {
     sources: [] as any[], hybridUsed: false, vectorUsed: false, keywordUsed: false,
     embeddingProviderName: null, embeddingModelName: null,

@@ -3441,7 +3441,13 @@
         }
       });
       if (extraRowHtml) html += extraRowHtml;
-      if (s.aiThinking) html += renderAiThinkingRow();
+      // Only while the thread is genuinely waiting: the indicator sits
+      // directly UNDER the visitor's own last message and disappears the
+      // instant any AI/operator message lands (even if it arrived through
+      // history/polling rather than the realtime 'message' event).
+      var lastMsg = s.messages && s.messages.length ? s.messages[s.messages.length - 1] : null;
+      var waitingOnAi = !!lastMsg && (lastMsg.sender === 'visitor' || lastMsg.from === 'visitor' || lastMsg.author === 'visitor');
+      if (s.aiThinking && waitingOnAi) html += renderAiThinkingRow();
       html += '</div>';
       return html;
     }

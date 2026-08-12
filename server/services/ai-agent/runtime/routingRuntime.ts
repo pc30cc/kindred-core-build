@@ -152,7 +152,15 @@ function ruleMatches(rule: RoutingRule, ctx: RuntimeEvaluationContext): MatchRes
       const unsupported = unsupportedKeysPresent(cond, NO_ANSWER_UNSUPPORTED_KEYS);
       if (unsupported.length) return dormant(`unsupported_condition:${unsupported.join(',')}`);
       const r = ctx.answerStrategy?.reason;
-      return match(r === 'no_kb_match' || r === 'no_kb_match_silent');
+      return match(
+        r === 'no_kb_match' || r === 'no_kb_match_silent'
+        // LLM-first reasons: no verified evidence for a business question.
+        // The AI still answers ("I have no confirmed information"); an owner
+        // routing rule is what turns that into a real handoff.
+        || r === 'no_verified_evidence'
+        || r === 'no_verified_info_silent'
+        || r === 'insufficient_verified_info_requires_human',
+      );
     }
     case 'low_confidence': {
       const unsupported = unsupportedKeysPresent(cond, LOW_CONFIDENCE_UNSUPPORTED_KEYS);
@@ -161,7 +169,11 @@ function ruleMatches(rule: RoutingRule, ctx: RuntimeEvaluationContext): MatchRes
       // a conservative-style workspace can legitimately produce
       // reason='low_confidence' with retrievalStrength='medium'; `reason`
       // is decideStrategy()'s own single authoritative discriminant.
-      if (ctx.answerStrategy?.reason !== 'low_confidence') return match(false);
+      const lcReason = ctx.answerStrategy?.reason || '';
+      const LOW_CONFIDENCE_REASONS = new Set([
+        'low_confidence', 'weak_evidence_only', 'owner_policy_low_confidence',
+      ]);
+      if (!LOW_CONFIDENCE_REASONS.has(lcReason)) return match(false);
       const validated = validateConfidenceBelow(cond);
       if (validated.status === 'invalid') return dormant('invalid_condition:confidence_below');
       const threshold = validated.status === 'canonical' ? validated.threshold : 0.5;

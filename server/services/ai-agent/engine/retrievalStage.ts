@@ -17,7 +17,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { retrieveKnowledgeForRuntime } from '../runtimeRetrieval.js';
 import { buildRetrievalQuery } from '../queryBuilder.js';
-import { decideKnowledgeRetrieval } from '../retrievalDecision.js';
+import { decideKnowledgeRetrieval, isBusinessEvidenceReason } from '../retrievalDecision.js';
 import { detectTopics } from '../queryExpansion.js';
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -39,6 +39,8 @@ export interface RetrievalStageResult {
   queryMeta: Record<string, unknown>;
   retrievalAttempted: boolean;
   retrievalDecisionReason: string;
+  /** Semantic (not execution) evidence that this turn is business-specific. */
+  businessSignalDetected: boolean;
 }
 
 export async function runRetrievalStage(
@@ -86,7 +88,9 @@ export async function runRetrievalStage(
     addedTerms: built.addedTerms || [],
     workspaceTopicSlugs: ((ctxStage.detectedTopicsMeta as any)?.detectedTopics || [])
       .map((t: any) => t?.slug).filter(Boolean),
-    pageContextPresent: !!pageContext?.currentPageUrl,
+    // Ambient availability vs. the visitor actually referring to the page.
+    pageContextAvailable: !!pageContext?.currentPageUrl,
+    pageContextReferenced: !!pre.isPageIntent && !!pageContext?.currentPageUrl,
     followUp: !!built.followUpDetected || !!built.previousAiAskedClarification,
     priorIntentDomainTopics: priorIntentText ? (detectTopics(priorIntentText) as string[]) : [],
     priorTurnUsedBusinessKnowledge,
@@ -137,6 +141,7 @@ export async function runRetrievalStage(
     retrieval_attempted: knowledgeLookupNeeded,
     retrieval_decision_reason: retrievalDecision.reason,
     retrieval_decision_signals: retrievalDecision.signals,
+    business_signal_detected: isBusinessEvidenceReason(retrievalDecision.reason),
     retrieval_results_count: sources.length,
     hybrid_used: hybridUsed,
     vector_used: vectorUsed,
@@ -157,5 +162,6 @@ export async function runRetrievalStage(
     retrievalDebug, excludedSummary, queryMeta,
     retrievalAttempted: knowledgeLookupNeeded,
     retrievalDecisionReason: retrievalDecision.reason,
+    businessSignalDetected: isBusinessEvidenceReason(retrievalDecision.reason),
   };
 }

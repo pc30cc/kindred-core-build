@@ -38,8 +38,18 @@ export interface RetrievalDecisionSignals {
   addedTerms: string[];
   /** Owner-configured topics detected for this message. */
   workspaceTopicSlugs: string[];
-  /** The visitor is chatting from an indexed page context. */
-  pageContextPresent: boolean;
+  /**
+   * We merely KNOW which page the visitor is viewing. This is ambient
+   * context, never evidence that the message needs business knowledge:
+   * standing on /pricing and saying "سلام" is still a greeting.
+   */
+  pageContextAvailable: boolean;
+  /**
+   * The visitor's message explicitly REFERS to the page they are on
+   * ("این صفحه چیه؟"), detected upstream by detectPageIntent(). Only this
+   * — not mere availability — makes page context a business signal.
+   */
+  pageContextReferenced: boolean;
   /** queryBuilder detected a referential / clarification follow-up. */
   followUp: boolean;
   /** Topic groups of the visitor turn this follow-up refers back to. */
@@ -49,11 +59,27 @@ export interface RetrievalDecisionSignals {
 }
 
 export type RetrievalDecisionReason =
-  | 'page_context'
+  | 'page_context_referenced'
   | 'workspace_topic_match'
   | 'domain_vocabulary_match'
   | 'business_follow_up'
   | 'no_business_signal';
+
+/**
+ * Reasons that constitute SEMANTIC evidence the turn is about the business.
+ * `no_business_signal` is obviously excluded; note that "retrieval ran" is
+ * NOT a member of this set by construction — only the reason is.
+ */
+export const BUSINESS_EVIDENCE_REASONS: RetrievalDecisionReason[] = [
+  'page_context_referenced',
+  'workspace_topic_match',
+  'domain_vocabulary_match',
+  'business_follow_up',
+];
+
+export function isBusinessEvidenceReason(reason: RetrievalDecisionReason): boolean {
+  return BUSINESS_EVIDENCE_REASONS.includes(reason);
+}
 
 export interface RetrievalDecision {
   retrieve: boolean;
@@ -67,8 +93,10 @@ export function decideKnowledgeRetrieval(
   const done = (retrieve: boolean, reason: RetrievalDecisionReason): RetrievalDecision =>
     ({ retrieve, reason, signals });
 
-  // 1. Page context: the visitor is asking about a concrete indexed page.
-  if (signals.pageContextPresent) return done(true, 'page_context');
+  // 1. Page context is only a business signal when the visitor ACTUALLY
+  //    referred to the page. Availability alone (widget embedded on
+  //    /pricing) never turns a greeting into a business question.
+  if (signals.pageContextReferenced) return done(true, 'page_context_referenced');
 
   // 2. Owner-configured topic matched → owner data says this is their domain.
   if ((signals.workspaceTopicSlugs || []).filter(Boolean).length > 0) {

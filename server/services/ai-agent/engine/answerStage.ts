@@ -116,7 +116,9 @@ export async function runAnswerStage(
     hybridUsed,
     // Phase 2.2 — the visitor is answering the clarification we just asked.
     justAnsweredClarification: built.previousAiAskedClarification,
-    knowledgeRetrievalAttempted: retrieval.retrievalAttempted,
+    // Semantic evidence only — a retrieval ATTEMPT never makes a turn
+    // business-specific (page context alone must not force strict-KB).
+    businessSignalDetected: retrieval.businessSignalDetected,
   });
   console.log('[ai-agent] strategy decision', {
     conversationId,
@@ -140,6 +142,7 @@ export async function runAnswerStage(
     escalation_style: settings.escalation_style || 'balanced',
     safe_guidance_topic: strategy.safeGuidanceTopic || null,
     grounding_mode: strategy.groundingMode,
+    requires_business_knowledge: strategy.requiresBusinessKnowledge,
     // ── Phase 2 observability ──────────────────────────────────────────
     confidence: strategy.confidence,
     confidence_band: strategy.confidenceBand,

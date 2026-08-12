@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
+import { contactDisplayName } from '@/lib/contact-display';
 import { formatDateTime, formatRelative } from '@/lib/date';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 
@@ -53,7 +54,7 @@ export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium truncate">
-                    {data.contact?.name || data.contact?.email || `Visitor ${data.visitor_id.slice(0, 8)}`}
+                    {data.contact ? contactDisplayName(data.contact, data.contact.id, t, data.geo, locale) : `Visitor ${data.visitor_id.slice(0, 8)}`}
                   </span>
                   <Badge variant="outline" className="text-[10px]">{data.status}</Badge>
                 </div>

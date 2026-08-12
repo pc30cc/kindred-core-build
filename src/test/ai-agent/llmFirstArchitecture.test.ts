@@ -218,6 +218,8 @@ describe('LLM-first — missing knowledge is not an escalation', () => {
 
   it('A2 — the SAME turn hands off once an owner routing rule says unknown questions go to support', async () => {
     runtimeCfgFixture = {
+      settings: settingsFixture,
+      instructions: {},
       topics: [], guidanceRules: [], routingRules: [
         {
           id: 'route-unknown-shipping', name: 'Unknown questions → support',
@@ -225,7 +227,9 @@ describe('LLM-first — missing knowledge is not an escalation', () => {
           action_json: {}, priority: 1, enabled: true,
         },
       ],
-      messageTriggers: [], workflows: [], tools: [], instructions: {}, warnings: [],
+      messageTriggers: [], workflows: [], internalTools: [],
+      knowledgeStatus: { totalChunks: 0, totalSources: 0, hasEmbeddings: false },
+      warnings: [], loadedAt: Date.now(),
     };
     builtQueryImpl = async () => makeBuiltQuery({
       originalMessage: 'ارسال به کانادا چقدره؟',

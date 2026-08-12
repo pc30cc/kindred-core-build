@@ -374,6 +374,8 @@ const en = {
     selectConversation: 'Select a conversation to start replying',
     support: 'Support',
     visitor: 'Visitor',
+    visitorAnonymous: 'Visitor · {{code}}',
+    visitorAnonymousFromCity: 'Visitor from {{city}} · {{code}}',
     aiAssistant: 'AI assistant',
     operator: 'Operator',
     seen: 'Seen',

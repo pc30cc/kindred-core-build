@@ -427,7 +427,7 @@ export default function ContactsPage() {
                             getInitials(c.name, c.email)
                           )}
                         </div>
-                        <span className="font-medium text-foreground truncate">{getDisplayName(c)}</span>
+                        <span className="font-medium text-foreground truncate">{getDisplayName(c, t)}</span>
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>

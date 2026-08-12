@@ -97,6 +97,8 @@ export interface Contact {
   avatar_url: string | null;
   tags: string[];
   metadata: Record<string, unknown>;
+  /** Stable anonymous display code — see src/lib/contact-display.ts. */
+  visitor_code?: string | null;
   created_at: string;
   updated_at: string;
 }

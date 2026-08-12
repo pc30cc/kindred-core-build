@@ -108,7 +108,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <SheetTitle className="text-base text-start">{getDisplayName(contact)}</SheetTitle>
+                  <SheetTitle className="text-base text-start">{getDisplayName(contact, t)}</SheetTitle>
                   {contact.email && (
                     <p className="text-xs text-muted-foreground truncate">{contact.email}</p>
                   )}
@@ -221,7 +221,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                           <AlertDialogHeader>
                             <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
                             <AlertDialogDescription className="text-start">
-                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact) })}
+                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t) })}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -233,7 +233,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                         </AlertDialogContent>
                       </AlertDialog>
                       <div className="pt-4">
-                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact)} />
+                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact, t)} />
                       </div>
                     </div>
                   )}

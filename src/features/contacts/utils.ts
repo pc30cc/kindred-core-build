@@ -1,5 +1,6 @@
 import type { Contact } from '@/types/models';
 import { formatRelative } from '@/lib/date';
+import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
 
 export function getInitials(name?: string | null, email?: string | null): string {
   if (name && name.trim()) {
@@ -10,8 +11,16 @@ export function getInitials(name?: string | null, email?: string | null): string
   return '?';
 }
 
-export function getDisplayName(c: Contact): string {
-  return c.name || c.email || c.phone || 'Anonymous';
+/**
+ * Delegates to the canonical resolver (src/lib/contact-display.ts) so
+ * Contacts never disagrees with Inbox about what an anonymous visitor is
+ * called. City comes from `metadata.city` (already read by
+ * getLocationFromMetadata below) — the same value this page already shows
+ * in its location column/row, not a new geo lookup.
+ */
+export function getDisplayName(c: Contact, t: ContactDisplayT): string {
+  const city = getLocationFromMetadata(c).city ?? null;
+  return contactDisplayName(c, c.id, t, city);
 }
 
 /** Locale-aware relative time (Persian/Turkish/English follow the active UI locale). */

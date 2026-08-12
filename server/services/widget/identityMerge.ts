@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../../config.js';
 import { resolveVisitorGeo } from '../geo/index.js';
 import { countryNameFromCode, flagEmojiFromCountryCode, precisionRank } from '../geo/countryNames.js';
+import { generateUniqueVisitorCode, isVisitorCodeConflict } from './visitorCode.js';
 
 export interface PreChatIdentityInput {
   name?: string | null;
@@ -232,33 +233,46 @@ export async function mergeVisitorIdentity(
 
   // 3. Create new contact if none exists
   if (!contact) {
-    const { data: created, error } = await supabase
-      .from('contacts')
-      .insert({
-        workspace_id: opts.workspaceId,
-        name: name || 'Visitor',
-        email,
-        phone,
-        metadata: {
-          visitor_id: opts.visitorId,
-          source: 'widget',
-          first_method: opts.method,
-          first_ip: persistableIp,
-          ...geoPatch,
-        },
-      })
-      .select('id')
-      .single();
+    const buildPayload = (visitorCode: string | null) => ({
+      workspace_id: opts.workspaceId,
+      name: name || 'Visitor',
+      email,
+      phone,
+      visitor_code: visitorCode,
+      metadata: {
+        visitor_id: opts.visitorId,
+        source: 'widget',
+        first_method: opts.method,
+        first_ip: persistableIp,
+        ...geoPatch,
+      },
+    });
+    const visitorCode = await generateUniqueVisitorCode(supabase, opts.workspaceId);
+    let { data: created, error } = await supabase
+      .from('contacts').insert(buildPayload(visitorCode)).select('id').single();
+    // See ensureVisitorContact's identical retry — another concurrent
+    // request won this code between our check and the insert.
+    if (error && isVisitorCodeConflict(error)) {
+      ({ data: created, error } = await supabase
+        .from('contacts').insert(buildPayload(null)).select('id').single());
+    }
     if (error || !created) {
       throw new Error(`contact_insert_failed: ${error?.message || 'unknown'}`);
     }
     contact = created;
     isNewContact = true;
+    if (!visitorCode) {
+      const backfill = await generateUniqueVisitorCode(supabase, opts.workspaceId);
+      if (backfill) {
+        await supabase.from('contacts').update({ visitor_code: backfill })
+          .eq('id', created.id).is('visitor_code', null);
+      }
+    }
   } else {
     // Update only fields that are currently empty (never overwrite verified data)
     const { data: existing } = await supabase
       .from('contacts')
-      .select('name, email, phone, metadata')
+      .select('name, email, phone, metadata, visitor_code')
       .eq('id', contact.id)
       .maybeSingle();
 
@@ -304,6 +318,14 @@ export async function mergeVisitorIdentity(
         ...metaGeoFill,
         ...(identified ? { anonymous: false } : {}),
       };
+    }
+
+    // Legacy contact (predates the 021 migration) or one whose earlier
+    // insert lost the collision-retry race — backfill lazily, same as
+    // ensureVisitorContact's identifier-lookup branches.
+    if (!existing?.visitor_code) {
+      const code = await generateUniqueVisitorCode(supabase, opts.workspaceId);
+      if (code) updates.visitor_code = code;
     }
 
     if (Object.keys(updates).length > 0) {

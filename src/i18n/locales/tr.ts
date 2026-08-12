@@ -376,6 +376,8 @@ const tr: TranslationKeys = {
     selectConversation: 'Yanıtlamak için bir konuşma seçin',
     support: 'Destek',
     visitor: 'Ziyaretçi',
+    visitorAnonymous: 'Ziyaretçi · {{code}}',
+    visitorAnonymousFromCity: 'Ziyaretçi · {{city}} · {{code}}',
     aiAssistant: 'Yapay zekâ asistanı',
     operator: 'Operatör',
     seen: 'Görüldü',

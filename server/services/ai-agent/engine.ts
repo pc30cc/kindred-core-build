@@ -34,6 +34,7 @@ import { runRetrievalStage } from './engine/retrievalStage.js';
 import { runAnswerStage } from './engine/answerStage.js';
 import { runGenerationStage } from './engine/generationStage.js';
 import { runDeliveryStage } from './engine/deliveryStage.js';
+import { logRun } from './logs.js';
 
 export type { MaybeRunInput, MaybeRunResult } from './engine/types.js';
 
@@ -45,6 +46,20 @@ export async function maybeRunAiAssistantAfterVisitorMessage(
     return await runInternal(config, input);
   } catch (err: any) {
     console.warn('[ai-agent] engine failed:', err?.message || err);
+    // Persist the failure so a silent AI (no reply, no run row) is always
+    // diagnosable from ai_agent_runs instead of only from server stdout.
+    try {
+      await logRun(config, {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId || null,
+        runType: 'auto_reply',
+        mode: 'unknown',
+        status: 'failed',
+        inputText: input.question || null,
+        outputText: null,
+        metadata: { error: String(err?.message || err), stack: String(err?.stack || '').slice(0, 2000) },
+      });
+    } catch { /* logging must never mask the original failure */ }
     return { ran: false, action: 'failed', reason: err?.message || 'engine_error' };
   }
 }

@@ -191,6 +191,22 @@ export async function maybeSendIntro(
       }
     }
 
+    // No session id yet (widget opened before a visitor session was
+    // negotiated): fall back to the visitor id so the intro re-uses the
+    // visitor's existing open conversation instead of orphaning a new one.
+    if (!conversationId && input.visitorId) {
+      const { data: existingByVisitor } = await sb
+        .from('conversations')
+        .select('id')
+        .eq('workspace_id', input.workspaceId)
+        .contains('metadata', { visitor_id: input.visitorId })
+        .neq('status', 'closed')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingByVisitor?.id) conversationId = existingByVisitor.id;
+    }
+
     if (!conversationId) {
       // Try to attach a contact via the visitor_id metadata (set by pre-chat).
       let contactId: string | null = null;
@@ -214,7 +230,13 @@ export async function maybeSendIntro(
           subject: 'New conversation',
           contact_id: contactId,
           visitor_session_id: input.visitorSessionId || null,
-          metadata: { ai_state: 'ai_managed', source: 'ai_agent_intro' },
+          metadata: {
+            ai_state: 'ai_managed',
+            source: 'ai_agent_intro',
+            // Ownership anchor — without a session id or contact this is the
+            // only way /message can prove the visitor owns this conversation.
+            visitor_id: input.visitorId || null,
+          },
           updated_at: new Date().toISOString(),
         })
         .select('id')

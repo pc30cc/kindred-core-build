@@ -226,7 +226,7 @@ export async function runAnswerStage(
   // or short-circuited by the no_url/no_indexed_page terminal reply just
   // above. Evaluating any earlier would risk matching a stale reason that
   // no longer reflects the final outcome (Follow-up 9E.2 Blocker 1).
-  const strictBlocked = isStrictKbNoGrounding(settings, strategy.retrievalStrength);
+  const strictBlocked = isStrictKbNoGrounding(settings, strategy.retrievalStrength, (strategy as any).metaIntent);
 
   // Normalize the PRE-strategy result now that retrievalStrength is finally
   // known, so a PRE keep_ai action that strict-KB blocks is never reported

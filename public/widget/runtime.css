@@ -448,13 +448,15 @@ textarea:focus-visible{
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  /* Physical sides, always: the visitor's own messages stay on the RIGHT and
-     operator/AI replies on the LEFT, in RTL locales too. The inner bubble
-     restores the reading direction for its text. */
+  /* LTR locales: visitor on the RIGHT, operator/AI on the LEFT. */
   direction: ltr;
 }
 .msg-row.operator { justify-content: flex-start; }
 .msg-row.visitor  { justify-content: flex-end; }
+/* RTL locales (fa): mirror the conversation — operator/AI replies sit on the
+   RIGHT, the visitor's own messages on the LEFT, both right-aligned text. */
+.panel-rtl .msg-row,
+[dir="rtl"] .msg-row { direction: rtl; }
 /* Text inside bubbles follows the panel's reading direction again. */.panel-rtl .msg,
 [dir="rtl"] .msg{ direction: rtl; text-align: right; }
 .msg-avatar {

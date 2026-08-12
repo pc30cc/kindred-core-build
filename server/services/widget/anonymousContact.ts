@@ -17,6 +17,36 @@
 
 export const ANON_CONTACT_NAME = 'Visitor';
 
+/**
+ * Pin the contact on this visitor's sessions so every network surface
+ * (contact IP lookup, geo, Visitors list) can resolve it. Without this the
+ * contact exists but has no session, so IP/location never show up.
+ */
+async function linkContactToSessions(
+  sb: any,
+  workspaceId: string,
+  contactId: string,
+  visitorId: string | null,
+  sessionId: string | null,
+): Promise<void> {
+  try {
+    if (visitorId) {
+      await sb.from('visitor_sessions')
+        .update({ contact_id: contactId })
+        .eq('workspace_id', workspaceId)
+        .eq('visitor_id', visitorId)
+        .is('contact_id', null);
+    }
+    if (sessionId) {
+      await sb.from('visitor_sessions')
+        .update({ contact_id: contactId })
+        .eq('workspace_id', workspaceId)
+        .eq('id', sessionId)
+        .is('contact_id', null);
+    }
+  } catch { /* best effort */ }
+}
+
 /** Short uppercase code derived from the visitor/session id (stable per visitor). */
 export function anonCodeFrom(seed: string): string {
   let h = 0;
@@ -54,21 +84,30 @@ export async function ensureVisitorContact(
         .eq('workspace_id', workspaceId)
         .contains('metadata', { visitor_id: visitorId })
         .limit(1).maybeSingle();
-      if (data?.id) return data.id as string;
+      if (data?.id) {
+        await linkContactToSessions(sb, workspaceId, data.id, visitorId, input.sessionId || null);
+        return data.id as string;
+      }
     }
     if (email) {
       const { data } = await sb
         .from('contacts').select('id')
         .eq('workspace_id', workspaceId).eq('email', email)
         .limit(1).maybeSingle();
-      if (data?.id) return data.id as string;
+      if (data?.id) {
+        await linkContactToSessions(sb, workspaceId, data.id, visitorId, input.sessionId || null);
+        return data.id as string;
+      }
     }
     if (phone) {
       const { data } = await sb
         .from('contacts').select('id')
         .eq('workspace_id', workspaceId).eq('phone', phone)
         .limit(1).maybeSingle();
-      if (data?.id) return data.id as string;
+      if (data?.id) {
+        await linkContactToSessions(sb, workspaceId, data.id, visitorId, input.sessionId || null);
+        return data.id as string;
+      }
     }
 
     const seed = visitorId || input.sessionId || `${Date.now()}`;
@@ -91,6 +130,9 @@ export async function ensureVisitorContact(
     if (error) {
       console.warn('[anonymousContact] insert failed:', error.message);
       return null;
+    }
+    if (created?.id) {
+      await linkContactToSessions(sb, workspaceId, created.id, visitorId, input.sessionId || null);
     }
     return created?.id ?? null;
   } catch (err: any) {

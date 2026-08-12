@@ -215,8 +215,101 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     };
   }
 
-  // 2. Owner explicitly configured silence for ungrounded turns.
-  if (settings.fallback_behavior === 'silent' && strength === 'none' && settings.answer_only_from_kb) {
+  // 2. Conversational turns — greetings, thanks, identity, capability and
+  //    other small talk. These do not depend on business evidence at all,
+  //    so the LLM answers them from the configured assistant persona. This
+  //    is the core of the LLM-first architecture: a missing knowledge-base
+  //    hit is NOT a reason to stay silent or escalate on such a turn.
+  const knowledgeQuestion = requiresKnowledgeLookup(question);
+  if (!knowledgeQuestion) {
+    return {
+      decisionType: 'answer',
+      reason: 'conversational_turn',
+      handoffRequired: false,
+      groundingMode: strength === 'exact_qna' || strength === 'strong' ? 'grounded' : 'unverified',
+      ...common,
+    };
+  }
+
+  // ── From here on the visitor is asking about the BUSINESS, so evidence
+  //    discipline applies: the model may speak, but what it is allowed to
+  //    assert depends on the grounding available.
+  const style: EscalationStyle = (settings.escalation_style as EscalationStyle) || 'balanced';
+  const { answerMin, caveatMin } = thresholdsForStyle(style);
+  const allowClar = settings.allow_clarifying_questions !== false;
+  const allowCaveat = settings.allow_answer_with_caveat !== false;
+  const maxClar = Math.max(0, settings.max_clarification_attempts ?? 1);
+  const canAskClar =
+    allowClar && clarificationAttemptCount < maxClar && !input.justAnsweredClarification;
+
+  // 3. Conflicting sources must never yield a confidently stated value.
+  if (conflictResult.conflictDetected && allowCaveat
+      && (strength === 'exact_qna' || strength === 'strong' || strength === 'medium')) {
+    return {
+      decisionType: 'answer_with_caveat',
+      reason: 'conflicting_sources',
+      handoffRequired: false,
+      groundingMode: 'partial',
+      ...common,
+    };
+  }
+
+  // 4. Exact Q&A or strong grounding → confident, grounded answer.
+  if (strength === 'exact_qna' || (strength === 'strong' && topScore >= answerMin)) {
+    return {
+      decisionType: 'answer',
+      reason: strength === 'exact_qna' ? 'exact_qna_match' : 'strong_kb_match',
+      handoffRequired: false,
+      groundingMode: 'grounded',
+      ...common,
+    };
+  }
+
+  // 5. Medium grounding → caveated answer when allowed.
+  if (strength === 'medium' && topScore >= caveatMin && allowCaveat) {
+    return {
+      decisionType: 'answer_with_caveat',
+      reason: 'medium_kb_match',
+      handoffRequired: false,
+      groundingMode: 'partial',
+      ...common,
+    };
+  }
+
+  const noQualifyingSource = strength === 'weak' || strength === 'none';
+  // `answer_only_from_kb` is an explicit owner decision: on BUSINESS
+  // questions the model must not speak without a qualifying source match.
+  // It no longer touches conversational turns, which returned above.
+  const strictKbNoGrounding = isStrictKbNoGrounding(settings, strength);
+
+  // 6. Known commercial/support topic → safe guidance instead of a dead end.
+  const knownTopics = (input.topics || []).filter(Boolean);
+  if (knownTopics.length > 0 && style !== 'conservative' && !strictKbNoGrounding) {
+    return {
+      decisionType: 'safe_guidance',
+      reason: 'safe_guidance_known_topic',
+      handoffRequired: false,
+      groundingMode: 'unverified',
+      safeGuidanceTopic: knownTopics[0],
+      ...common,
+    };
+  }
+
+  // 7. Vague or weakly matched → ask ONE clarifying question.
+  if (canAskClar && !strictKbNoGrounding && (isVague(question) || noQualifyingSource)) {
+    return {
+      decisionType: 'ask_clarifying_question',
+      reason: strength === 'none' ? 'no_kb_match_clarify' : 'vague_or_weak',
+      handoffRequired: false,
+      groundingMode: 'unverified',
+      clarificationHint:
+        'Ask exactly ONE short, friendly clarifying question to narrow down what the visitor needs. Do not invent facts and do not promise an answer.',
+      ...common,
+    };
+  }
+
+  // 8. Out of options on a business question → handoff (or stay silent).
+  if (settings.fallback_behavior === 'silent' && strength === 'none') {
     return {
       decisionType: 'no_answer_silent',
       reason: 'no_kb_match_silent',
@@ -225,30 +318,48 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
       ...common,
     };
   }
-
-  // 3. The LLM answers. Grounding mode describes the evidence available.
-  const allowCaveat = settings.allow_answer_with_caveat !== false;
-  let groundingMode: GroundingMode;
-  let reason: string;
-  if (strength === 'exact_qna' || strength === 'strong') {
-    groundingMode = conflictResult.conflictDetected ? 'partial' : 'grounded';
-    reason = strength === 'exact_qna' ? 'exact_qna_match' : 'strong_kb_match';
-  } else if (strength === 'medium') {
-    groundingMode = 'partial';
-    reason = conflictResult.conflictDetected ? 'conflicting_sources' : 'medium_kb_match';
-  } else {
-    groundingMode = 'unverified';
-    reason = strength === 'weak' ? 'weak_kb_match' : 'no_kb_match';
-  }
-  const decisionType: StrategyDecisionType =
-    groundingMode === 'partial' && allowCaveat ? 'answer_with_caveat' : 'answer';
   return {
-    decisionType,
-    reason,
-    handoffRequired: false,
-    groundingMode,
+    decisionType: 'handoff',
+    reason: strength === 'none' ? 'no_kb_match' : 'low_confidence',
+    handoffRequired: true,
+    groundingMode: 'unverified',
     ...common,
   };
+}
+
+export type EscalationStyle = 'conservative' | 'balanced' | 'proactive';
+
+function thresholdsForStyle(style: EscalationStyle): { answerMin: number; caveatMin: number } {
+  if (style === 'conservative') return { answerMin: 0.75, caveatMin: 0.6 };
+  if (style === 'proactive') return { answerMin: 0.6, caveatMin: 0.35 };
+  return { answerMin: 0.68, caveatMin: 0.45 };
+}
+
+const VAGUE_PATTERNS: RegExp[] = [
+  /^\s*\??\s*$/,
+  /^\s*(help|info|information|question|problem|issue)\s*[?!.]*\s*$/i,
+  /^\s*(کمک|سوال|مشکل|راهنمایی)\s*[؟?!.]*\s*$/,
+  /^\s*(yardım|soru|sorun|bilgi)\s*[?!.]*\s*$/i,
+];
+
+export function isVague(text: string): boolean {
+  const q = (text || '').trim();
+  if (!q) return true;
+  if (q.split(/\s+/).filter(Boolean).length <= 2 && q.length <= 14) return true;
+  return VAGUE_PATTERNS.some((p) => p.test(q));
+}
+
+/**
+ * Strict knowledge-only mode with no qualifying grounding. Applies ONLY to
+ * business questions — conversational turns are resolved before this is
+ * ever consulted.
+ */
+export function isStrictKbNoGrounding(
+  settings: AgentSettings,
+  strength: StrategyDecision['retrievalStrength'],
+): boolean {
+  if (!settings.answer_only_from_kb) return false;
+  return strength === 'weak' || strength === 'none';
 }
 
 /**

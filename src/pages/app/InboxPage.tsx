@@ -200,6 +200,8 @@ export default function InboxPage() {
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { slug: wsSlug } = useParams();
   const queueParam = searchParams.get('queue');
   const filterParam = searchParams.get('filter');
   const statusParam = searchParams.get('status');

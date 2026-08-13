@@ -185,7 +185,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                 </TabsTrigger>
               </TabsList>
 
-              <ScrollArea className="flex-1">
+              <ScrollArea dir={dir} className="flex-1">
                 <TabsContent value="info" className="p-5 space-y-4 mt-0 text-start">
                   {editing ? (
                     <div className="space-y-3">

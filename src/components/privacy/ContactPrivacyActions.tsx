@@ -79,15 +79,15 @@ export function ContactPrivacyActions({ contactId, contactLabel }: Props) {
   };
 
   return (
-    <Card className="border-warning/30">
-      <CardHeader>
+    <Card className="border-warning/30 text-start">
+      <CardHeader className="text-start">
         <CardTitle className="text-base flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-warning" />
           {t('privacy.contact.title')}
         </CardTitle>
         <CardDescription className="text-xs">{t('privacy.contact.subtitle')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 text-start">
         <Alert>
           <Info className="h-4 w-4" />
           <AlertTitle className="text-xs">{t('privacy.scope.title')}</AlertTitle>

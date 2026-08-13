@@ -1533,79 +1533,14 @@ export default function InboxPage() {
                     <UserCheck className="w-3.5 h-3.5" /> {t('inbox.humanActive') || 'Human active'}
                   </Badge>
                 )}
-                {(selected as any)?.is_spam ? (
-                  <>
-                    <Badge
-                      variant="outline"
-                      className="text-[11px] gap-1 border-warning/40 text-warning bg-warning/10"
-                      title={t('inbox.spamTip') || 'This conversation is marked as spam.'}
-                    >
-                      <Ban className="w-3.5 h-3.5" /> {t('inbox.spam') || 'Spam'}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 px-3 text-[11.5px] font-semibold"
-                      onClick={async () => {
-                        if (!workspace?.id || !selectedId) return;
-                        try {
-                          await conversationsApi.unmarkSpam({
-                            workspace_id: workspace.id,
-                            conversation_id: selectedId,
-                          });
-                          toast({ title: t('inbox.removedFromSpam') || 'Removed from spam' });
-                          qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
-                        } catch (e: any) {
-                          toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
-                        }
-                      }}
-                    >
-                      <ShieldOff className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
-                      {t('inbox.notSpam') || 'Not spam'}
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    size="sm"
+                {(selected as any)?.is_spam && (
+                  <Badge
                     variant="outline"
-                    className="h-8 px-3 text-[11.5px] font-semibold text-muted-foreground hover:text-warning hover:border-warning/40"
-                    onClick={async () => {
-                      if (!workspace?.id || !selectedId) return;
-                      try {
-                        const r = await conversationsApi.markSpam({
-                          workspace_id: workspace.id,
-                          conversation_id: selectedId,
-                        });
-                        toast({
-                          title: t('inbox.markedSpamTitle') || 'Marked as spam',
-                          description: t('inbox.markedSpamDesc') || 'Conversation moved to Spam.',
-                        });
-                        qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
-                      } catch (e: any) {
-                        toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
-                      }
-                    }}
-                    title={t('inbox.markSpamTip') || 'Mark as spam'}
+                    className="text-[11px] gap-1 border-warning/40 text-warning bg-warning/10"
+                    title={t('inbox.spamTip') || 'This conversation is marked as spam.'}
                   >
-                    <Ban className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
-                    {t('inbox.markSpam') || 'Mark as spam'}
-                  </Button>
-                )}
-                {selected.status === 'open' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
-                    className="h-8 px-3 text-[11.5px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
-                  >
-                    <CheckCircle2 className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
-                    {t('inbox.resolve') || 'Resolve'}
-                  </Button>
-                )}
-                {selected.status === 'resolved' && (
-                  <Button size="sm" variant="outline" className="h-8 px-3 text-[11.5px] font-semibold" onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'open' })}>
-                    {t('inbox.reopen') || 'Reopen'}
-                  </Button>
+                    <Ban className="w-3.5 h-3.5" /> {t('inbox.spam') || 'Spam'}
+                  </Badge>
                 )}
                 <button
                   aria-label={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}

@@ -20,7 +20,7 @@ import {
   ExternalLink, Trash2, Save, Loader2, User as UserIcon, Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getInitials, getDisplayName, timeAgo, getCompanyFromMetadata, getLocalizedLocation } from './utils';
+import { getDisplayName, timeAgo, getCompanyFromMetadata, getLocalizedLocation } from './utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
@@ -203,7 +203,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       <InfoRow icon={Phone} label={t('contacts.phone')} value={contact.phone} />
                       <InfoRow icon={Building2} label={t('contacts.company')} value={company} />
                       <InfoRow icon={MapPin} label={t('contacts.location')} value={location.label} />
-                      <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at, locale as any) : null} />
+                      <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at, undefined, locale) : null} />
                       <InfoRow icon={Calendar} label={t('contacts.updatedAt')} value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
                       {(contact.tags ?? []).length > 0 && (
                         <div className="space-y-1.5 pt-2">
@@ -330,7 +330,7 @@ function ActivityItem({ time, label, locale }: { time?: string | null; label: st
       <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
       <div className="flex-1 text-start">
         <p className="text-sm text-foreground">{label}</p>
-        <p className="text-[11px] text-muted-foreground">{time ? formatDateTime(time, locale as any) : ''}</p>
+        <p className="text-[11px] text-muted-foreground">{time ? formatDateTime(time, undefined, locale) : ''}</p>
       </div>
     </div>
   );

@@ -362,6 +362,7 @@ const en = {
     assign: 'Assign',
     resolve: 'Resolve',
     reopen: 'Reopen',
+    openContact: 'View contact',
     filters: 'Filters',
     all: 'All',
     open: 'Active',

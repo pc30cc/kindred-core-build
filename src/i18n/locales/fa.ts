@@ -364,6 +364,7 @@ const fa: TranslationKeys = {
     assign: 'اختصاص',
     resolve: 'حل شده',
     reopen: 'بازگشایی',
+    openContact: 'مشاهده مخاطب',
     filters: 'فیلترها',
     all: 'همه',
     open: 'در حال مکالمه',

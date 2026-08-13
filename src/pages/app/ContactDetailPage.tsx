@@ -28,6 +28,7 @@ import {
   getCompanyFromMetadata, getLocalizedLocation,
 } from '@/features/contacts/utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { useContactIp } from '@/hooks/useContactIp';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { Globe, Lock } from 'lucide-react';
@@ -195,13 +196,16 @@ export default function ContactDetailPage() {
         <Button variant="ghost" size="sm" onClick={() => navigate(`/app/w/${wsSlug}/contacts`)} className="gap-1.5 shrink-0">
           <BackIcon className="w-4 h-4" />{t('contacts.back')}
         </Button>
-        <div className="w-8 h-8 rounded-md overflow-hidden bg-primary/10 flex items-center justify-center shrink-0">
-          {contact.avatar_url ? (
-            <img src={contact.avatar_url} alt={getDisplayName(contact, t, networkProfile?.geo, locale)} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-[11px] font-bold text-primary">{getInitials(contact.name, contact.email)}</span>
-          )}
-        </div>
+        <ContactAvatar
+          name={getDisplayName(contact, t, networkProfile?.geo, locale)}
+          email={contact.email}
+          avatarUrl={contact.avatar_url}
+          os={networkProfile?.device?.os}
+          device={networkProfile?.device?.device}
+          countryCode={networkProfile?.geo?.country_code}
+          countryName={networkProfile?.geo?.country}
+          size="sm"
+        />
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold text-foreground truncate leading-tight">{getDisplayName(contact, t, networkProfile?.geo, locale)}</h1>
           <p className="text-[11px] text-muted-foreground truncate">

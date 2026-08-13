@@ -20,9 +20,11 @@ import {
   ExternalLink, Trash2, Save, Loader2, User as UserIcon, Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getInitials, getDisplayName, timeAgo, getCompanyFromMetadata, getLocalizedLocation } from './utils';
+import { getDisplayName, timeAgo, getCompanyFromMetadata, getLocalizedLocation } from './utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { formatDateTime } from '@/lib/date';
 
 interface Props {
   contactId: string | null;
@@ -91,6 +93,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
 
   const location = contact ? getLocalizedLocation(contact, locale, networkProfile?.geo ?? null) : { label: null, flag: null };
   const company = contact ? getCompanyFromMetadata(contact) : null;
+  const displayName = contact ? getDisplayName(contact, t, networkProfile?.geo, locale) : '';
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -105,19 +108,22 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
           </div>
         ) : (
           <>
-            <SheetHeader className="p-5 border-b border-border bg-gradient-to-br from-primary/5 to-transparent">
+            <SheetHeader className="p-5 border-b border-border bg-gradient-to-br from-primary/5 to-transparent text-start">
               <div className="flex items-start gap-3">
-                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary shrink-0">
-                  {contact.avatar_url ? (
-                    <img src={contact.avatar_url} alt="" className="w-14 h-14 rounded-full object-cover" />
-                  ) : (
-                    getInitials(contact.name, contact.email)
-                  )}
-                </div>
+                <ContactAvatar
+                  name={displayName}
+                  email={contact.email}
+                  avatarUrl={contact.avatar_url}
+                  os={networkProfile?.device?.os}
+                  device={networkProfile?.device?.device}
+                  countryCode={networkProfile?.geo?.country_code}
+                  countryName={networkProfile?.geo?.country}
+                  size="lg"
+                />
                 <div className="flex-1 min-w-0">
-                  <SheetTitle className="text-base text-start">{getDisplayName(contact, t, networkProfile?.geo, locale)}</SheetTitle>
+                  <SheetTitle className="text-base text-start">{displayName}</SheetTitle>
                   {contact.email && (
-                    <p className="text-xs text-muted-foreground truncate">{contact.email}</p>
+                    <p className="text-xs text-muted-foreground truncate text-start">{contact.email}</p>
                   )}
                   <div className="flex flex-wrap gap-1 mt-2">
                     {(contact.tags ?? []).slice(0, 3).map((tag) => (
@@ -197,7 +203,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                       <InfoRow icon={Phone} label={t('contacts.phone')} value={contact.phone} />
                       <InfoRow icon={Building2} label={t('contacts.company')} value={company} />
                       <InfoRow icon={MapPin} label={t('contacts.location')} value={location.label} />
-                      <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? new Date(contact.created_at).toLocaleString() : null} />
+                      <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at, undefined, locale) : null} />
                       <InfoRow icon={Calendar} label={t('contacts.updatedAt')} value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
                       {(contact.tags ?? []).length > 0 && (
                         <div className="space-y-1.5 pt-2">
@@ -228,7 +234,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                           <AlertDialogHeader>
                             <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
                             <AlertDialogDescription className="text-start">
-                              {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo, locale) })}
+                              {t('contacts.deleteOneDesc', { name: displayName })}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -240,7 +246,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                         </AlertDialogContent>
                       </AlertDialog>
                       <div className="pt-4">
-                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact, t, networkProfile?.geo, locale)} />
+                        <ContactPrivacyActions contactId={contact.id} contactLabel={displayName} />
                       </div>
                     </div>
                   )}
@@ -289,9 +295,9 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
 
                 <TabsContent value="activity" className="p-5 mt-0">
                   <div className="space-y-3">
-                    <ActivityItem time={contact.created_at} label={t('contacts.activityCreated')} />
+                    <ActivityItem time={contact.created_at} label={t('contacts.activityCreated')} locale={locale} />
                     {contact.updated_at !== contact.created_at && (
-                      <ActivityItem time={contact.updated_at} label={t('contacts.activityUpdated')} />
+                      <ActivityItem time={contact.updated_at} label={t('contacts.activityUpdated')} locale={locale} />
                     )}
                   </div>
                 </TabsContent>
@@ -306,25 +312,25 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
 
 function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) {
   return (
-    <div className="flex items-start gap-3 py-1.5">
+    <div className="flex items-start gap-3 py-1.5 text-start">
       <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center shrink-0">
         <Icon className="w-3.5 h-3.5 text-muted-foreground" />
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 text-start">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
-        <p className="text-sm text-foreground truncate">{value || '—'}</p>
+        <p className="text-sm text-foreground truncate" dir="auto">{value || '—'}</p>
       </div>
     </div>
   );
 }
 
-function ActivityItem({ time, label }: { time?: string | null; label: string }) {
+function ActivityItem({ time, label, locale }: { time?: string | null; label: string; locale?: string }) {
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex items-start gap-3 text-start">
       <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
-      <div className="flex-1">
+      <div className="flex-1 text-start">
         <p className="text-sm text-foreground">{label}</p>
-        <p className="text-[11px] text-muted-foreground">{time ? new Date(time).toLocaleString() : ''}</p>
+        <p className="text-[11px] text-muted-foreground">{time ? formatDateTime(time, undefined, locale) : ''}</p>
       </div>
     </div>
   );

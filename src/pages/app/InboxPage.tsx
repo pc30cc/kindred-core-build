@@ -55,6 +55,7 @@ import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
 import { Sparkles } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { ContactDrawer } from '@/features/contacts/ContactDrawer';
 import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
 import TeamChatPanel from '@/components/inbox/TeamChatPanel';
@@ -464,11 +465,12 @@ export default function InboxPage() {
       : undefined
   );
 
+  const [contactDrawerId, setContactDrawerId] = useState<string | null>(null);
   const openContactProfile = useCallback(() => {
     const cid = (selected as any)?.contact_id;
-    if (!cid || !wsSlug) return;
-    navigate(`/app/w/${wsSlug}/contacts/${cid}`);
-  }, [selected, wsSlug, navigate]);
+    if (!cid) return;
+    setContactDrawerId(cid);
+  }, [selected]);
 
   // Selection safety — when the active conversation drops out of the
   // current queue/filter (AI handoff, takeover, spam toggle, platform AI
@@ -2295,6 +2297,11 @@ export default function InboxPage() {
         </div>
         </>
       )}
+      <ContactDrawer
+        contactId={contactDrawerId}
+        open={!!contactDrawerId}
+        onOpenChange={(o) => { if (!o) setContactDrawerId(null); }}
+      />
     </div>
   );
 }

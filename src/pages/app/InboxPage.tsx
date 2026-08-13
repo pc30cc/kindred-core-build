@@ -1428,15 +1428,16 @@ export default function InboxPage() {
             <div className="hidden md:flex px-4 py-2.5 border-b border-border items-center justify-between shrink-0 bg-card/50">
               <div className="flex items-center gap-2.5">
                 <div className="relative">
-                  <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
-                    {selected.contacts?.avatar_url ? (
-                      <img src={selected.contacts.avatar_url} className="w-full h-full rounded-full object-cover" alt="" />
-                    ) : (
-                      <span className="text-[15px] font-bold text-primary">
-                        {getInitials(selected.contacts?.name, selected.contacts?.email)}
-                      </span>
-                    )}
-                  </div>
+                  <ContactAvatar
+                    name={selected.contacts?.name}
+                    email={selected.contacts?.email}
+                    avatarUrl={selected.contacts?.avatar_url}
+                    os={(selected as any)?.visitor_os}
+                    device={(selected as any)?.visitor_device}
+                    countryCode={(selected as any)?.visitor_country_code}
+                    countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
+                    size="md"
+                  />
                   {presence && presence.status !== 'unknown' ? (
                     <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-card p-[1.5px] shadow-sm">
                       <PresenceDot state={presence.status as 'online' | 'idle' | 'offline'} size={12} />
@@ -1446,9 +1447,15 @@ export default function InboxPage() {
                   )}
                 </div>
                 <div>
-                  <div className="text-[14.5px] font-bold text-foreground">
+                  <button
+                    type="button"
+                    onClick={openContactProfile}
+                    disabled={!(selected as any)?.contact_id}
+                    className="text-[14.5px] font-bold text-foreground hover:text-primary transition-colors disabled:hover:text-foreground disabled:cursor-default text-start"
+                    title={t('inbox.openContact') || 'View contact'}
+                  >
                     {conversationTitle(selected, t, locale)}
-                  </div>
+                  </button>
                   <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
                     {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
                     {presence && presence.status !== 'unknown' && (
@@ -1471,9 +1478,6 @@ export default function InboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <Badge className={cn('text-[11px] border', statusColors[selected.status ?? 'open'])}>
-                  {statusLabels[selected.status ?? 'open']}
-                </Badge>
                 {(selected as any)?.metadata?.ai_state === 'ai_managed' && (
                   <>
                     <Badge variant="secondary" className="text-[11px] gap-1">

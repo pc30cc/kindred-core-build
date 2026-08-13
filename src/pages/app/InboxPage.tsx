@@ -464,6 +464,12 @@ export default function InboxPage() {
       : undefined
   );
 
+  const openContactProfile = useCallback(() => {
+    const cid = (selected as any)?.contact_id;
+    if (!cid || !wsSlug) return;
+    navigate(`/app/w/${wsSlug}/contacts/${cid}`);
+  }, [selected, wsSlug, navigate]);
+
   // Selection safety — when the active conversation drops out of the
   // current queue/filter (AI handoff, takeover, spam toggle, platform AI
   // disabled repair, filter change), clear the selection on desktop and

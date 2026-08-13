@@ -31,8 +31,9 @@ import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import {
-  getInitials, getDisplayName, timeAgo,
+  getDisplayName, timeAgo,
   getCompanyFromMetadata, getLocalizedLocation, getScoreFromMetadata,
   exportContactsToCSV, downloadFile,
 } from '@/features/contacts/utils';
@@ -422,6 +423,8 @@ export default function ContactsPage() {
                 const company = getCompanyFromMetadata(c);
                 const loc = getLocalizedLocation(c, locale, networkByContact?.[c.id]?.geo ?? null);
                 const score = getScoreFromMetadata(c);
+                const net = networkByContact?.[c.id];
+                const name = getDisplayName(c, t, net?.geo, locale);
                 return (
                   <tr
                     key={c.id}
@@ -436,14 +439,17 @@ export default function ContactsPage() {
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
-                          {c.avatar_url ? (
-                            <img src={c.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
-                          ) : (
-                            getInitials(c.name, c.email)
-                          )}
-                        </div>
-                        <span className="font-medium text-foreground truncate">{getDisplayName(c, t, networkByContact?.[c.id]?.geo, locale)}</span>
+                        <ContactAvatar
+                          name={name}
+                          email={c.email}
+                          avatarUrl={c.avatar_url}
+                          os={net?.device?.os}
+                          device={net?.device?.device}
+                          countryCode={net?.geo?.country_code}
+                          countryName={net?.geo?.country}
+                          size="sm"
+                        />
+                        <span className="font-medium text-foreground truncate">{name}</span>
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>

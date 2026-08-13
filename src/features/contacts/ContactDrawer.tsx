@@ -32,6 +32,25 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+/**
+ * Conversation subjects are sometimes persisted with an English default
+ * ("New conversation"). Map those onto the active locale.
+ */
+const DEFAULT_SUBJECTS = new Set([
+  'new conversation',
+  'new chat',
+  'untitled conversation',
+  'untitled',
+]);
+
+function conversationTitle(conv: any, t: (k: any, v?: any) => string): string {
+  const subject = (conv?.subject ?? '').trim();
+  if (!subject || DEFAULT_SUBJECTS.has(subject.toLowerCase())) {
+    return t('contacts.conversationUntitled');
+  }
+  return subject;
+}
+
 export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const { t, dir, locale } = useTranslation();

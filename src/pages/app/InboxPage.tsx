@@ -2119,9 +2119,15 @@ export default function InboxPage() {
                       )} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-[15px] font-bold text-foreground truncate">
+                      <button
+                        type="button"
+                        onClick={openContactProfile}
+                        disabled={!(selected as any)?.contact_id}
+                        title={t('inbox.openContact') || 'View contact'}
+                        className="block w-full text-start text-[15px] font-bold text-foreground truncate hover:text-primary transition-colors disabled:hover:text-foreground disabled:cursor-default"
+                      >
                         {contactDisplayName(selected.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale)}
-                      </h3>
+                      </button>
                       <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                         <span className={cn('text-[11px] px-2 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>
                           {statusLabels[selected.status ?? 'open']}

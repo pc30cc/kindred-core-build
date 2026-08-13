@@ -33,7 +33,8 @@ interface Props {
 export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const { t, dir, locale } = useTranslation();
-  const { wsSlug } = useParams();
+  const params = useParams();
+  const wsSlug = params.wsSlug ?? params.slug;
   const { data: contact, isLoading } = useContact(contactId ?? undefined);
   const { data: conversations } = useContactConversations(contactId ?? undefined);
   // Live session-based city (same canonical source Inbox reads) — see the

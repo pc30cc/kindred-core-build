@@ -32,6 +32,25 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+/**
+ * Conversation subjects are sometimes persisted with an English default
+ * ("New conversation"). Map those onto the active locale.
+ */
+const DEFAULT_SUBJECTS = new Set([
+  'new conversation',
+  'new chat',
+  'untitled conversation',
+  'untitled',
+]);
+
+function conversationTitle(conv: any, t: (k: any, v?: any) => string): string {
+  const subject = (conv?.subject ?? '').trim();
+  if (!subject || DEFAULT_SUBJECTS.has(subject.toLowerCase())) {
+    return t('contacts.conversationUntitled');
+  }
+  return subject;
+}
+
 export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const { t, dir, locale } = useTranslation();
@@ -153,7 +172,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
               </div>
             </SheetHeader>
 
-            <Tabs defaultValue="info" className="flex-1 flex flex-col overflow-hidden">
+            <Tabs defaultValue="info" dir={dir} className="flex-1 flex flex-col overflow-hidden text-start">
               <TabsList className="mx-5 mt-3 grid grid-cols-3 h-9">
                 <TabsTrigger value="info" className="text-xs">
                   <UserIcon className="w-3.5 h-3.5 me-1" />{t('contacts.tabInfo')}
@@ -167,7 +186,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
               </TabsList>
 
               <ScrollArea className="flex-1">
-                <TabsContent value="info" className="p-5 space-y-4 mt-0">
+                <TabsContent value="info" className="p-5 space-y-4 mt-0 text-start">
                   {editing ? (
                     <div className="space-y-3">
                       <div className="space-y-1.5">
@@ -252,7 +271,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   )}
                 </TabsContent>
 
-                <TabsContent value="conversations" className="p-5 space-y-2 mt-0">
+                <TabsContent value="conversations" className="p-5 space-y-2 mt-0 text-start">
                   {!conversations?.length ? (
                     <div className="text-center py-12 text-sm text-muted-foreground">
                       <MessageSquare className="w-10 h-10 mx-auto mb-2 text-muted-foreground/30" />
@@ -269,8 +288,8 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                         }}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground line-clamp-1">
-                            {conv.subject || t('contacts.conversationFallback', { id: conv.id.slice(0, 8) })}
+                          <p className="text-sm font-medium text-foreground line-clamp-1 text-start" dir="auto">
+                            {conversationTitle(conv, t)}
                           </p>
                           <span className="text-[10px] text-muted-foreground shrink-0">
                             {timeAgo(conv.updated_at)}
@@ -293,7 +312,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   )}
                 </TabsContent>
 
-                <TabsContent value="activity" className="p-5 mt-0">
+                <TabsContent value="activity" className="p-5 mt-0 text-start">
                   <div className="space-y-3">
                     <ActivityItem time={contact.created_at} label={t('contacts.activityCreated')} locale={locale} />
                     {contact.updated_at !== contact.created_at && (

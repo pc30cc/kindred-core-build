@@ -2297,6 +2297,11 @@ export default function InboxPage() {
         </div>
         </>
       )}
+      <ContactDrawer
+        contactId={contactDrawerId}
+        open={!!contactDrawerId}
+        onOpenChange={(o) => { if (!o) setContactDrawerId(null); }}
+      />
     </div>
   );
 }

@@ -24,7 +24,7 @@ import { useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  getInitials, getDisplayName,
+  getDisplayName,
   getCompanyFromMetadata, getLocalizedLocation,
 } from '@/features/contacts/utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';

@@ -364,6 +364,7 @@ const tr: TranslationKeys = {
     assign: 'Ata',
     resolve: 'Çözüldü',
     reopen: 'Yeniden aç',
+    openContact: 'Kişi profilini aç',
     filters: 'Filtreler',
     all: 'Tümü',
     open: 'Görüşmede',

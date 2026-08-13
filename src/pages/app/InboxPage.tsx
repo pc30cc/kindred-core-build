@@ -2155,13 +2155,17 @@ export default function InboxPage() {
                 <div className="rounded-xl bg-gradient-to-b from-primary/5 to-transparent border border-border/50 p-4">
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
-                      <div className="w-14 h-14 rounded-2xl bg-secondary ring-2 ring-primary/20 flex items-center justify-center text-base font-bold text-secondary-foreground overflow-hidden">
-                        {selected.contacts?.avatar_url ? (
-                          <img src={selected.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
-                        ) : (
-                          getInitials(selected.contacts?.name, selected.contacts?.email)
-                        )}
-                      </div>
+                      <ContactAvatar
+                        name={selected.contacts?.name}
+                        email={selected.contacts?.email}
+                        avatarUrl={selected.contacts?.avatar_url}
+                        os={(selected as any)?.visitor_os}
+                        device={(selected as any)?.visitor_device}
+                        countryCode={(selected as any)?.visitor_country_code}
+                        countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
+                        size="lg"
+                        ringClassName="ring-2 ring-primary/20"
+                      />
                       <div className={cn(
                         'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                         statusDots[selected.status ?? 'open']
@@ -2177,6 +2181,72 @@ export default function InboxPage() {
                         </span>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Quick actions — spam + resolve, right under the profile */}
+                  <div className="mt-3 flex items-center gap-2">
+                    {(selected as any)?.is_spam ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 flex-1 px-2 text-[11.5px] font-semibold"
+                        onClick={async () => {
+                          if (!workspace?.id || !selectedId) return;
+                          try {
+                            await conversationsApi.unmarkSpam({ workspace_id: workspace.id, conversation_id: selectedId });
+                            toast({ title: t('inbox.removedFromSpam') || 'Removed from spam' });
+                            qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                          } catch (e: any) {
+                            toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
+                          }
+                        }}
+                      >
+                        <ShieldOff className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                        {t('inbox.notSpam') || 'Not spam'}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 flex-1 px-2 text-[11.5px] font-semibold text-muted-foreground hover:text-warning hover:border-warning/40"
+                        onClick={async () => {
+                          if (!workspace?.id || !selectedId) return;
+                          try {
+                            await conversationsApi.markSpam({ workspace_id: workspace.id, conversation_id: selectedId });
+                            toast({
+                              title: t('inbox.markedSpamTitle') || 'Marked as spam',
+                              description: t('inbox.markedSpamDesc') || 'Conversation moved to Spam.',
+                            });
+                            qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                          } catch (e: any) {
+                            toast({ title: t('inbox.actionFailed') || 'Action failed', description: e?.message || '—', variant: 'destructive' });
+                          }
+                        }}
+                      >
+                        <Ban className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                        {t('inbox.markSpam') || 'Mark as spam'}
+                      </Button>
+                    )}
+                    {selected.status === 'resolved' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 flex-1 px-2 text-[11.5px] font-semibold"
+                        onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'open' })}
+                      >
+                        {t('inbox.reopen') || 'Reopen'}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 flex-1 px-2 text-[11.5px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
+                        onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
+                      >
+                        <CheckCircle2 className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                        {t('inbox.resolve') || 'Resolve'}
+                      </Button>
+                    )}
                   </div>
                 </div>
 

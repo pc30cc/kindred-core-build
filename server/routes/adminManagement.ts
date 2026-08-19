@@ -251,3 +251,83 @@ adminManagementRouter.get('/runtime-config', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ config: data });
 });
+
+// ── Global default email templates (platform-wide, workspace_id IS NULL).
+// These are the platform's default transactional emails, not any single
+// workspace's overrides — RLS never covered this case (get_workspace_role
+// on a NULL workspace_id doesn't resolve to owner/admin for anyone), so
+// this was effectively unreachable/unsafe pre-migration. Gated the same
+// as every other route here: requirePlatformAdmin only. ─────────────────
+adminManagementRouter.get('/email-templates', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('email_templates')
+    .select('*')
+    .is('workspace_id', null)
+    .order('slug');
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ templates: data });
+});
+
+const emailTemplateSchema = z.object({
+  slug: z.string().min(1).max(100),
+  locale: z.string().min(1).max(10),
+  subject: z.string().min(1),
+  html_body: z.string().min(1),
+  text_body: z.string().nullable().optional(),
+  is_active: z.boolean().default(true),
+});
+
+adminManagementRouter.post('/email-templates', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = emailTemplateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('email_templates')
+    .insert({ ...parsed.data, workspace_id: null })
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ template: data });
+});
+
+const emailTemplateUpdateSchema = z.object({
+  subject: z.string().min(1),
+  html_body: z.string().min(1),
+  text_body: z.string().nullable().optional(),
+  is_active: z.boolean(),
+});
+
+adminManagementRouter.put('/email-templates/:id', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = emailTemplateUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('email_templates')
+    .update(parsed.data)
+    .eq('id', req.params.id)
+    .is('workspace_id', null)
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ template: data });
+});
+
+adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { error } = await sb
+    .from('email_templates')
+    .delete()
+    .eq('id', req.params.id)
+    .is('workspace_id', null);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});

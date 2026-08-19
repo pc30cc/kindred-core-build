@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { API_BASE } from '@/lib/api';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,17 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
 import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy } from 'lucide-react';
+
+async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Request failed: ${res.status}`);
+  return body as T;
+}
 
 interface DbTemplate {
   id: string;
@@ -99,13 +110,13 @@ export default function EmailTemplatesTab() {
 
   async function fetchTemplates() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('email_templates')
-      .select('*')
-      .is('workspace_id', null)
-      .order('slug');
-    if (error) { toast.error('Failed to load templates'); console.error(error); }
-    else { setTemplates(data || []); }
+    try {
+      const { templates } = await adminFetch<{ templates: DbTemplate[] }>('/api/admin/management/email-templates');
+      setTemplates(templates || []);
+    } catch (err: any) {
+      toast.error('Failed to load templates');
+      console.error(err);
+    }
     setLoading(false);
   }
 
@@ -125,37 +136,59 @@ export default function EmailTemplatesTab() {
   async function handleSave() {
     if (!editSubject.trim() || !editHtml.trim()) { toast.error('Subject and HTML body are required'); return; }
     setSaving(true);
-    if (editId) {
-      const { error } = await supabase.from('email_templates').update({
-        subject: editSubject, html_body: editHtml, text_body: editText || null, is_active: editActive,
-      }).eq('id', editId);
-      if (error) { toast.error('Failed to update template'); } else { toast.success('Template updated'); await fetchTemplates(); }
-    } else {
-      const { error } = await supabase.from('email_templates').insert({
-        slug: selectedSlug, locale: selectedLocale, subject: editSubject,
-        html_body: editHtml, text_body: editText || null, is_active: editActive,
-      } as any);
-      if (error) { toast.error('Failed to create template'); } else { toast.success('Template created'); await fetchTemplates(); }
+    try {
+      if (editId) {
+        await adminFetch(`/api/admin/management/email-templates/${editId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ subject: editSubject, html_body: editHtml, text_body: editText || null, is_active: editActive }),
+        });
+        toast.success('Template updated');
+      } else {
+        await adminFetch('/api/admin/management/email-templates', {
+          method: 'POST',
+          body: JSON.stringify({
+            slug: selectedSlug, locale: selectedLocale, subject: editSubject,
+            html_body: editHtml, text_body: editText || null, is_active: editActive,
+          }),
+        });
+        toast.success('Template created');
+      }
+      await fetchTemplates();
+    } catch {
+      toast.error(editId ? 'Failed to update template' : 'Failed to create template');
     }
     setSaving(false);
   }
 
   async function handleDelete() {
     if (!editId) return;
-    const { error } = await supabase.from('email_templates').delete().eq('id', editId);
-    if (error) { toast.error('Failed to delete'); } else { toast.success('Template deleted'); await fetchTemplates(); }
+    try {
+      await adminFetch(`/api/admin/management/email-templates/${editId}`, { method: 'DELETE' });
+      toast.success('Template deleted');
+      await fetchTemplates();
+    } catch {
+      toast.error('Failed to delete');
+    }
   }
 
   async function handleDuplicate() {
     const existingLocales = templates.filter(t => t.slug === selectedSlug).map(t => t.locale);
     const nextLocale = LOCALES.find(l => activeLocales.includes(l.code) && !existingLocales.includes(l.code));
     if (!nextLocale) { toast.info('Template exists for all locales'); return; }
-    const { error } = await supabase.from('email_templates').insert({
-      slug: selectedSlug, locale: nextLocale.code, subject: editSubject,
-      html_body: editHtml, text_body: editText || null, is_active: editActive,
-    } as any);
-    if (error) { toast.error('Failed to duplicate'); }
-    else { toast.success(`Duplicated to ${nextLocale.label}`); setSelectedLocale(nextLocale.code); await fetchTemplates(); }
+    try {
+      await adminFetch('/api/admin/management/email-templates', {
+        method: 'POST',
+        body: JSON.stringify({
+          slug: selectedSlug, locale: nextLocale.code, subject: editSubject,
+          html_body: editHtml, text_body: editText || null, is_active: editActive,
+        }),
+      });
+      toast.success(`Duplicated to ${nextLocale.label}`);
+      setSelectedLocale(nextLocale.code);
+      await fetchTemplates();
+    } catch {
+      toast.error('Failed to duplicate');
+    }
   }
 
   const filteredSlugs = categoryFilter === 'all'

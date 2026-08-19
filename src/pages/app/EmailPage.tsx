@@ -16,7 +16,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Mail, Send, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api';
+
+async function integrationsFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Request failed: ${res.status}`);
+  return body as T;
+}
 
 const statusBadge = (status: string) => {
   switch (status) {
@@ -37,9 +48,10 @@ export default function EmailPage() {
   const { data: templates } = useQuery({
     queryKey: ['email-templates', workspace?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('email_templates').select('*').eq('workspace_id', workspace!.id).order('slug');
-      if (error) throw error;
-      return data;
+      const { templates } = await integrationsFetch<{ templates: any[] }>(
+        `/api/workspace-integrations/${workspace!.id}/email-templates`,
+      );
+      return templates;
     },
     enabled: !!workspace?.id,
   });

@@ -6,6 +6,7 @@
 
 import { providerRegistry } from './registry';
 import { supabaseAuthProvider } from './supabase/auth';
+import { selfHostedAuthProvider } from './selfHosted/auth';
 import { supabaseDatabaseProvider } from './supabase/database';
 import { supabaseRealtimeProvider } from './supabase/realtime';
 import { createApiEmailProvider } from './email/api';
@@ -40,9 +41,31 @@ export function bootstrapProviders(): void {
   if (bootstrapped) return;
   bootstrapped = true;
 
-  // --- Core providers (Supabase implementations) ---
-  providerRegistry.register('auth', 'supabase', supabaseAuthProvider, {
+  // --- Auth: self-hosted session-cookie provider (server/routes/auth.ts) ---
+  // Dashboard authentication is first-party as of the auth migration —
+  // Supabase Auth/GoTrue is no longer this app's identity root of trust.
+  providerRegistry.register('auth', 'self-hosted', selfHostedAuthProvider, {
     priority: 0,
+    healthCheck: async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_BASE_URL;
+        const res = await fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' });
+        return res.ok || res.status === 401 ? 'healthy' : 'down';
+      } catch {
+        return 'down';
+      }
+    },
+    meta: {
+      vendor: 'self-hosted',
+      builtIn: true,
+      description: 'First-party session-cookie auth — Supabase Auth/GoTrue is not used for dashboard identity.',
+    },
+  });
+
+  // Retained for reference/inspection only — never activated. Supabase
+  // Auth/GoTrue is not this app's dashboard identity root of trust.
+  providerRegistry.register('auth', 'supabase', supabaseAuthProvider, {
+    priority: 100,
     healthCheck: async () => {
       try {
         await supabaseAuthProvider.getSession();
@@ -51,7 +74,7 @@ export function bootstrapProviders(): void {
         return 'down';
       }
     },
-    meta: { vendor: 'supabase', builtIn: true },
+    meta: { vendor: 'supabase', builtIn: true, description: 'Legacy — superseded by the self-hosted auth provider.' },
   });
 
   providerRegistry.register('database', 'supabase', supabaseDatabaseProvider, {
@@ -192,7 +215,7 @@ export function bootstrapProviders(): void {
   });
 
   // Set active defaults for core providers
-  providerRegistry.setActive('auth', 'supabase');
+  providerRegistry.setActive('auth', 'self-hosted');
   providerRegistry.setActive('database', 'supabase');
   providerRegistry.setActive('realtime', 'supabase');
   providerRegistry.setActive('email', 'api');

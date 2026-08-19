@@ -48,7 +48,7 @@ const tt = (t: any, key: string, fallback: string) => {
 
 export default function InvitePage() {
   const { t } = useTranslation();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, signOut } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token');
@@ -87,18 +87,13 @@ export default function InvitePage() {
     setState('accepting');
     try {
       // Canonical seat-creation boundary lives in the Express server
-      // (POST /api/workspace-members/accept-invitation). The server
-      // forwards the user's JWT into a scoped Supabase client so the
-      // existing `accept_workspace_invitation` SECURITY DEFINER RPC
-      // sees the same `auth.uid()`. See docs/MAX_AGENTS_POLICY.md.
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      if (!accessToken) throw new Error('Not authenticated');
-      const res = await fetch(`${API_BASE}/api/workspace-members/accept-invitation`, {credentials: 'include', 
+      // (POST /api/workspace-members/accept-invitation). Identity comes
+      // from the gs_session HttpOnly cookie (credentials:'include' below),
+      // resolved server-side by server/lib/workspaceAuth.ts.
+      const res = await fetch(`${API_BASE}/api/workspace-members/accept-invitation`, {credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ token }),
       });
@@ -145,7 +140,7 @@ export default function InvitePage() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut();
     navigate(`/auth/login?redirect=${encodeURIComponent(inviteRedirectUrl)}`);
   };
 

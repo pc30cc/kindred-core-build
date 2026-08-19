@@ -229,14 +229,11 @@ export default function TeamPage() {
   // Send invite email via self-hosted backend
   const sendInviteEmail = async (token: string, email: string, role: string) => {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token || '';
       const link = `${window.location.origin}/auth/invite?token=${token}`;
-      await fetch(`${API_BASE}/api/email/send`, {credentials: 'include', 
+      await fetch(`${API_BASE}/api/email/send`, {credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           workspaceId: wsId,

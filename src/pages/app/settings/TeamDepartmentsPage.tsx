@@ -891,11 +891,9 @@ export function InviteMemberDialog({
       // Best-effort email
       if (email.trim() && API_BASE) {
         try {
-          const { data: sessionData } = await supabase.auth.getSession();
-          const accessToken = sessionData.session?.access_token || '';
-          await fetch(`${API_BASE}/api/email/send`, {credentials: 'include', 
+          await fetch(`${API_BASE}/api/email/send`, {credentials: 'include',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               workspaceId, to: email.trim(),
               subject: `You've been invited to ${workspaceName}`,

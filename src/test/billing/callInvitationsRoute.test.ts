@@ -31,6 +31,16 @@ vi.mock("../../../server/supabase.js", () => ({
   getServiceClient: () => sbMock,
 }));
 
+vi.mock("../../../server/services/auth/sessions.js", () => ({
+  SESSION_COOKIE_NAME: "gs_session",
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    const user = state.user?.data?.user;
+    if (!user) return null;
+    return { sessionId: "test-session", userId: user.id, email: "test@example.com" };
+  },
+}));
+
 vi.mock("../../../server/services/calls/entitlementComposer.js", () => ({
   loadEffectiveCallEntitlements: async () => state.effective,
 }));
@@ -65,6 +75,7 @@ function makeReqRes(body: any) {
     params: {},
     query: {},
     headers: { authorization: "Bearer t" },
+    cookies: { gs_session: "t" },
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;

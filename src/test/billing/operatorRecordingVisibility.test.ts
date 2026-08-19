@@ -46,6 +46,13 @@ const sbMock: any = {
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => sbMock }));
 vi.mock('../../../server/middleware/adminBypass.js', () => ({ isGlobalAdmin: async () => false }));
+vi.mock('../../../server/services/auth/sessions.js', () => ({
+  SESSION_COOKIE_NAME: 'gs_session',
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    return { sessionId: 'test-session', userId: 'u-1', email: 'test@example.com' };
+  },
+}));
 vi.mock('../../../server/services/storage/index.js', async () => {
   // Only `downloadFile` is exercised by the archive route in this test file.
   // Every other export is stubbed to a harmless no-op so importing the
@@ -82,6 +89,7 @@ function makeReqRes(opts: { params?: any; query?: any; body?: any } = {}) {
     query: opts.query ?? {},
     body: opts.body ?? {},
     headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
     serverConfig: {
       supabaseUrl: 'http://x',
       supabaseServiceRoleKey: 'k-operator-test-secret',
@@ -393,6 +401,7 @@ describe('POST /calls/:id/recordings/archive', () => {
       query: { workspaceId: WS_OK },
       body: { recording_ids: [REC_A, REC_OTHER_WS] },
       headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
       serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
     };
     const { res, get } = makeRes();
@@ -417,6 +426,7 @@ describe('POST /calls/:id/recordings/archive', () => {
       query: { workspaceId: WS_OK },
       body: { recording_ids: [REC_A] },
       headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
       serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
     };
     const { res, get } = makeRes();
@@ -432,6 +442,7 @@ describe('POST /calls/:id/recordings/archive', () => {
         query: { workspaceId: WS_OK },
         body: { recording_ids: [] },
         headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
         serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
       };
       const { res, get } = makeRes();
@@ -448,6 +459,7 @@ describe('POST /calls/:id/recordings/archive', () => {
         query: { workspaceId: WS_OK },
         body: { recording_ids: tooMany },
         headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
         serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
       };
       const { res, get } = makeRes();
@@ -499,6 +511,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
         { call_id: CALL_A, recording_id: REC_OTHER_WS },
       ] },
       headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
       serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
     };
     const { res, get } = makeRes();
@@ -525,6 +538,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
       query: { workspaceId: WS_OK },
       body: { items: [{ call_id: CALL_A, recording_id: REC_B1 }] },
       headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
       serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
     };
     const { res, get } = makeRes();
@@ -538,6 +552,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
       const req: any = {
         query: { workspaceId: WS_OK }, body: { items: [] },
         headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
         serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
       };
       const { res, get } = makeRes();
@@ -553,6 +568,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
       const req: any = {
         query: { workspaceId: WS_OK }, body: { items },
         headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
         serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
       };
       const { res, get } = makeRes();
@@ -565,6 +581,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
         query: { workspaceId: WS_OK },
         body: { items: [{ call_id: 'nope', recording_id: REC_A1 }] },
         headers: { authorization: 'Bearer t' },
+      cookies: { gs_session: 't' },
         serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
       };
       const { res, get } = makeRes();

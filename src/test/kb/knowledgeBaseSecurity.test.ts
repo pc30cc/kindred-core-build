@@ -244,7 +244,7 @@ const live = Boolean(URL_ && ANON && SERVICE);
 
 describe.skipIf(!live)('RLS behaviour against a real database', () => {
   const rest = (path: string, key: string, init: RequestInit = {}) =>
-    fetch(`${URL_}/rest/v1/${path}`, {
+    fetch(`${URL_}/rest/v1/${path}`, {credentials: 'include', 
       ...init,
       headers: {
         apikey: key,

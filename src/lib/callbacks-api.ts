@@ -54,13 +54,13 @@ async function authHeader(): Promise<Record<string, string>> {
 export const callbacksApi = {
   async list(workspaceId: string, status?: CallbackStatus | 'open'): Promise<CallbackRow[]> {
     const url = `${API_BASE}/api/callbacks/${workspaceId}` + (status ? `?status=${status}` : '');
-    const res = await fetch(url, { headers: await authHeader() });
+    const res = await fetch(url, {credentials: 'include', headers: await authHeader() });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     const json = await res.json();
     return json.callbacks ?? [];
   },
   async update(workspaceId: string, callbackId: string, status: CallbackStatus): Promise<CallbackRow> {
-    const res = await fetch(`${API_BASE}/api/callbacks/${workspaceId}/${callbackId}`, {
+    const res = await fetch(`${API_BASE}/api/callbacks/${workspaceId}/${callbackId}`, {credentials: 'include', 
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
       body: JSON.stringify({ status }),
@@ -73,7 +73,7 @@ export const callbacksApi = {
     return json.callback;
   },
   async getCounts(workspaceId: string): Promise<CallbackCounts> {
-    const res = await fetch(`${API_BASE}/api/callbacks/${workspaceId}/counts`, {
+    const res = await fetch(`${API_BASE}/api/callbacks/${workspaceId}/counts`, {credentials: 'include', 
       headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);

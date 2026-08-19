@@ -50,7 +50,7 @@ export interface WorkspaceCallSettingsResponse {
 }
 
 export async function fetchWorkspaceCallSettings(workspaceId: string): Promise<WorkspaceCallSettingsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {credentials: 'include', 
     headers: await authHeader(),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -61,7 +61,7 @@ export async function updateWorkspaceCallSettings(
   workspaceId: string,
   patch: Partial<WorkspaceCallOverrides>,
 ): Promise<WorkspaceCallSettingsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {credentials: 'include', 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(patch),
@@ -82,7 +82,7 @@ export interface WorkspaceRolePermissionsResponse {
 export async function fetchWorkspaceRolePermissions(
   workspaceId: string,
 ): Promise<WorkspaceRolePermissionsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {credentials: 'include', 
     headers: await authHeader(),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -98,7 +98,7 @@ export async function setWorkspaceRolePermission(
     granted: boolean | null;
   },
 ): Promise<{ ok: true }> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {credentials: 'include', 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(input),

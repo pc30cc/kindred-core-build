@@ -228,7 +228,7 @@ async function authHeaders(): Promise<Record<string, string>> {
  */
 async function negotiateConnect(workspaceId: string): Promise<RealtimeNegotiation | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({ workspace_id: workspaceId }),
@@ -245,7 +245,7 @@ async function operatorSubscribe(
   conversationId: string,
 ): Promise<SubscribeResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-subscribe`, {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-subscribe`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({ workspace_id: workspaceId, conversation_id: conversationId }),
@@ -259,7 +259,7 @@ async function operatorSubscribe(
 
 async function operatorInboxSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-inbox-subscribe`, {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-inbox-subscribe`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({ workspace_id: workspaceId }),
@@ -273,7 +273,7 @@ async function operatorInboxSubscribe(workspaceId: string): Promise<SubscribeRes
 
 async function operatorVisitorsSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-visitors-subscribe`, {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-visitors-subscribe`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({ workspace_id: workspaceId }),

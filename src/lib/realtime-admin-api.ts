@@ -48,14 +48,14 @@ export interface RealtimeAdminAuditEntry {
 
 export const realtimeAdminApi = {
   async getConfig(): Promise<RealtimeAdminConfig> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/config`, { headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/realtime/admin/config`, {credentials: 'include', headers: await authHeaders() });
     if (!res.ok) throw new Error(`Load failed: ${res.status}`);
     const json = await res.json();
     return json.config as RealtimeAdminConfig;
   },
 
   async saveConfig(payload: Partial<RealtimeAdminConfig>): Promise<RealtimeAdminConfig> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/config`, {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/config`, {credentials: 'include', 
       method: 'PUT',
       headers: await authHeaders(),
       body: JSON.stringify(payload),
@@ -66,7 +66,7 @@ export const realtimeAdminApi = {
   },
 
   async testConnection(): Promise<{ status: 'healthy' | 'degraded' | 'down' | 'unknown'; message?: string; checked_at?: number }> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/test`, {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/test`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
     });
@@ -74,18 +74,18 @@ export const realtimeAdminApi = {
   },
 
   async resolved(): Promise<unknown> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/resolved`, { headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/realtime/admin/resolved`, {credentials: 'include', headers: await authHeaders() });
     return res.json();
   },
 
   async audit(): Promise<RealtimeAdminAuditEntry[]> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/audit`, { headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/realtime/admin/audit`, {credentials: 'include', headers: await authHeaders() });
     if (!res.ok) return [];
     const json = await res.json();
     return (json.entries ?? []) as RealtimeAdminAuditEntry[];
   },
 
   async refresh(): Promise<void> {
-    await fetch(`${API_BASE}/api/realtime/admin/refresh`, { method: 'POST', headers: await authHeaders() });
+    await fetch(`${API_BASE}/api/realtime/admin/refresh`, {credentials: 'include', method: 'POST', headers: await authHeaders() });
   },
 };

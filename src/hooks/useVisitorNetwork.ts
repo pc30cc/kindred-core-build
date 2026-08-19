@@ -62,7 +62,7 @@ export function useVisitorNetwork(workspaceId: string | undefined, ref: VisitorN
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       const qs = new URLSearchParams({ workspace_id: workspaceId!, [param![0]]: param![1] });
-      const res = await fetch(`${API_BASE}/api/visitor-intel/network?${qs.toString()}`, {
+      const res = await fetch(`${API_BASE}/api/visitor-intel/network?${qs.toString()}`, {credentials: 'include', 
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`network lookup failed: ${res.status}`);
@@ -81,7 +81,7 @@ export async function fetchVisitorNetworkForConversations(
   if (!workspaceId || ids.length === 0) return {};
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+  const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {credentials: 'include', 
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -115,7 +115,7 @@ export function useVisitorNetworkBatchBySession(
     queryFn: async () => {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
-      const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+      const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -149,7 +149,7 @@ export function useVisitorNetworkBatchByContact(
     queryFn: async () => {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
-      const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+      const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -14,7 +14,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...init,
     headers: { ...(await authHeaders()), ...((init?.headers as any) || {}) },
   });

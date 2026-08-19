@@ -32,7 +32,7 @@ async function authHeader(): Promise<Record<string, string>> {
 
 export const callAvailabilityApi = {
   async getMyAvailability(workspaceId: string): Promise<AvailabilityRow | null> {
-    const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}/me`, {
+    const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}/me`, {credentials: 'include', 
       headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -40,7 +40,7 @@ export const callAvailabilityApi = {
     return json.availability ?? null;
   },
   async setMyAvailability(workspaceId: string, status: AvailabilityStatus): Promise<AvailabilityRow> {
-    const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}/me`, {
+    const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}/me`, {credentials: 'include', 
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
       body: JSON.stringify({ status }),
@@ -53,7 +53,7 @@ export const callAvailabilityApi = {
     return json.availability;
   },
   async listWorkspaceAvailability(workspaceId: string): Promise<AvailabilityRow[]> {
-    const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}`, {
+    const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}`, {credentials: 'include', 
       headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);

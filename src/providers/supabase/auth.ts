@@ -8,7 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL;
 async function recordLoginResult(email: string, success: boolean) {
   if (!API_BASE) return;
   try {
-    await fetch(`${API_BASE}/api/auth/record-result`, {
+    await fetch(`${API_BASE}/api/auth/record-result`, {credentials: 'include', 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, success }),

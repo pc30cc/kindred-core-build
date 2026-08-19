@@ -218,12 +218,12 @@ export const aiKbApi = {
     url.searchParams.set('workspaceId', workspaceId);
     if (domainId) url.searchParams.set('domain_id', domainId);
     return parse<AiKbSourceResponse>(
-      await fetch(url.toString().replace(window.location.origin, ''), { headers: await authHeaders() }),
+      await fetch(url.toString().replace(window.location.origin, ''), {credentials: 'include', headers: await authHeaders() }),
     );
   },
   async createJob(workspaceId: string, opts: { domain_id?: string; locale?: 'en' | 'fa' | 'tr' } = {}) {
     return parse<{ job: AiKbJobDto }>(
-      await fetch(`${API_BASE}/api/ai-kb/jobs`, {
+      await fetch(`${API_BASE}/api/ai-kb/jobs`, {credentials: 'include', 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ workspaceId, ...opts }),
@@ -232,57 +232,57 @@ export const aiKbApi = {
   },
   async listJobs(workspaceId: string) {
     return parse<{ jobs: AiKbJobDto[] }>(
-      await fetch(`${API_BASE}/api/ai-kb/jobs?workspaceId=${workspaceId}`, { headers: await authHeaders() }),
+      await fetch(`${API_BASE}/api/ai-kb/jobs?workspaceId=${workspaceId}`, {credentials: 'include', headers: await authHeaders() }),
     );
   },
   async getJob(id: string) {
     return parse<AiKbJobDetailDto>(
-      await fetch(`${API_BASE}/api/ai-kb/jobs/${id}`, { headers: await authHeaders() }),
+      await fetch(`${API_BASE}/api/ai-kb/jobs/${id}`, {credentials: 'include', headers: await authHeaders() }),
     );
   },
   async accept(id: string) {
     return parse<{ ok: true; kb_article_id?: string }>(
-      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/accept`, {
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/accept`, {credentials: 'include', 
         method: 'POST', headers: await authHeaders(),
       }),
     );
   },
   async reject(id: string) {
     return parse<{ ok: true }>(
-      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/reject`, {
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/reject`, {credentials: 'include', 
         method: 'POST', headers: await authHeaders(),
       }),
     );
   },
   async publish(id: string) {
     return parse<{ ok: true; kb_article_id?: string; slug?: string; locale?: string }>(
-      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/publish`, {
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/publish`, {credentials: 'include', 
         method: 'POST', headers: await authHeaders(),
       }),
     );
   },
   async publishAll(jobId: string) {
     return parse<AiKbPublishAllResponse>(
-      await fetch(`${API_BASE}/api/ai-kb/jobs/${jobId}/publish-all`, {
+      await fetch(`${API_BASE}/api/ai-kb/jobs/${jobId}/publish-all`, {credentials: 'include', 
         method: 'POST', headers: await authHeaders(),
       }),
     );
   },
   async getVisibility(id: string) {
     return parse<AiKbVisibilityDto>(
-      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/visibility`, { headers: await authHeaders() }),
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/visibility`, {credentials: 'include', headers: await authHeaders() }),
     );
   },
   async getDiagnostics(workspaceId: string) {
     return parse<AiKbDiagnosticsDto>(
-      await fetch(`${API_BASE}/api/ai-kb/worker/diagnostics?workspaceId=${workspaceId}`, {
+      await fetch(`${API_BASE}/api/ai-kb/worker/diagnostics?workspaceId=${workspaceId}`, {credentials: 'include', 
         headers: await authHeaders(),
       }),
     );
   },
   async createTestJob(workspaceId: string, generate = false) {
     return parse<{ job: AiKbJobDto }>(
-      await fetch(`${API_BASE}/api/ai-kb/jobs/test`, {
+      await fetch(`${API_BASE}/api/ai-kb/jobs/test`, {credentials: 'include', 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ workspaceId, generate }),

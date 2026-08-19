@@ -136,7 +136,7 @@ export async function logClientSecurityEvent(
 ) {
   if (!API_BASE) return; // No backend configured — skip silently
   try {
-    await fetch(`${API_BASE}/api/auth/record-result`, {
+    await fetch(`${API_BASE}/api/auth/record-result`, {credentials: 'include', 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

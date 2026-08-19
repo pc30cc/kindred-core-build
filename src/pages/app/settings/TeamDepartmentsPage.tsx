@@ -893,7 +893,7 @@ export function InviteMemberDialog({
         try {
           const { data: sessionData } = await supabase.auth.getSession();
           const accessToken = sessionData.session?.access_token || '';
-          await fetch(`${API_BASE}/api/email/send`, {
+          await fetch(`${API_BASE}/api/email/send`, {credentials: 'include', 
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
             body: JSON.stringify({

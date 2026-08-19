@@ -94,7 +94,7 @@ export default function InvitePage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
       if (!accessToken) throw new Error('Not authenticated');
-      const res = await fetch(`${API_BASE}/api/workspace-members/accept-invitation`, {
+      const res = await fetch(`${API_BASE}/api/workspace-members/accept-invitation`, {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

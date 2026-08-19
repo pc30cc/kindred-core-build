@@ -62,21 +62,21 @@ export interface SloDefinition {
 
 export async function fetchSla(range: Range = '24h', scope_type = 'platform') {
   const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/sla?range=${range}&scope_type=${scope_type}`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/sla?range=${range}&scope_type=${scope_type}`, {credentials: 'include', headers });
   if (!r.ok) throw new Error(`SLA load failed: ${r.status}`);
   return r.json() as Promise<{ range: Range; summary: SlaSummary; rows: any[] }>;
 }
 
 export async function fetchBusinessMetrics(range: Range = '24h') {
   const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/business?range=${range}`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/business?range=${range}`, {credentials: 'include', headers });
   if (!r.ok) throw new Error(`Business metrics load failed: ${r.status}`);
   return r.json() as Promise<{ range: Range; summary: BusinessSummary; rows: any[] }>;
 }
 
 export async function fetchWorkspaceHealth() {
   const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/workspace-health`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/workspace-health`, {credentials: 'include', headers });
   if (!r.ok) throw new Error(`Workspace health load failed: ${r.status}`);
   return r.json() as Promise<{
     counts: { healthy: number; warning: number; at_risk: number };
@@ -88,7 +88,7 @@ export async function fetchWorkspaceHealth() {
 
 export async function fetchSlos() {
   const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/slos`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/slos`, {credentials: 'include', headers });
   if (!r.ok) throw new Error(`SLOs load failed: ${r.status}`);
   return r.json() as Promise<{ slos: SloDefinition[] }>;
 }
@@ -98,7 +98,7 @@ export async function updateSlo(
   patch: Partial<Pick<SloDefinition, 'target_value' | 'window_seconds' | 'enabled'>>,
 ) {
   const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/slos/${id}`, {
+  const r = await fetch(`${API_BASE}/api/admin/reliability/slos/${id}`, {credentials: 'include', 
     method: 'PATCH',
     headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(patch),
@@ -109,7 +109,7 @@ export async function updateSlo(
 
 export async function triggerReliabilityRollup() {
   const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/rollup`, { method: 'POST', headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/rollup`, {credentials: 'include', method: 'POST', headers });
   if (!r.ok) throw new Error(`Rollup failed: ${r.status}`);
   return r.json();
 }

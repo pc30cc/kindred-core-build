@@ -56,7 +56,7 @@ export function useConversationTimeline(
     queryFn: async (): Promise<TimelineEvent[]> => {
       const url = `${API_BASE}/api/conversations/${encodeURIComponent(conversationId!)}/timeline`
         + `?workspace_id=${encodeURIComponent(workspaceId!)}`;
-      const res = await fetch(url, { headers: await authHeaders() });
+      const res = await fetch(url, {credentials: 'include', headers: await authHeaders() });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Timeline load failed: ${res.status}`);
       return (json.events ?? []) as TimelineEvent[];

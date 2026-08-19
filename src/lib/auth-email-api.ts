@@ -11,7 +11,7 @@ if (!API_BASE && import.meta.env.PROD) {
 
 
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

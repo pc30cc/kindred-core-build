@@ -21,7 +21,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 /** Server-side publish boundary — never write status:'active' directly. */
 async function publishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
   const headers = await authHeaders();
-  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/publish`, {
+  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/publish`, {credentials: 'include', 
     method: 'POST', headers,
   });
   const json = await res.json();
@@ -35,7 +35,7 @@ async function publishSmartRule(workspaceId: string, ruleId: string): Promise<Sm
 
 async function unpublishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
   const headers = await authHeaders();
-  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/unpublish`, {
+  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/unpublish`, {credentials: 'include', 
     method: 'POST', headers,
   });
   const json = await res.json();

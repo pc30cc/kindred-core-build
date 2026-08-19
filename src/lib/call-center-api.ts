@@ -19,7 +19,7 @@ const FRIENDLY_API_ERRORS: Record<string, string> = {
 };
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -559,7 +559,7 @@ export const callCenterApi = {
   ): Promise<{ blob: Blob; included: number; excluded: number; filename: string }> => {
     const res = await fetch(
       `${API_BASE}/api/call-center/calls/${encodeURIComponent(callId)}/recordings/archive?workspaceId=${encodeURIComponent(workspaceId)}`,
-      {
+      {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -601,7 +601,7 @@ export const callCenterApi = {
   ): Promise<{ blob: Blob; included: number; excluded: number; calls: number; filename: string }> => {
     const res = await fetch(
       `${API_BASE}/api/call-center/workspaces/recordings/archive?workspaceId=${encodeURIComponent(workspaceId)}`,
-      {
+      {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -23,7 +23,7 @@ async function fetchPolicy(workspaceId: string): Promise<EffectivePolicySnapshot
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.access_token) return null;
-    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {credentials: 'include', 
       method: 'POST',
       headers: {
         Authorization: `Bearer ${session.access_token}`,

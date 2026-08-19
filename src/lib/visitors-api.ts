@@ -13,7 +13,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', headers: await authHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `API error: ${res.status}`);
@@ -175,7 +175,7 @@ export async function warmVisitorGeo(
   workspaceId: string,
   opts: { lookback_days?: number; limit?: number; force?: boolean } = {},
 ): Promise<WarmGeoResult> {
-  const res = await fetch(`${API_BASE}/api/visitor-intel/warm-geo`, {
+  const res = await fetch(`${API_BASE}/api/visitor-intel/warm-geo`, {credentials: 'include', 
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ workspace_id: workspaceId, ...opts }),

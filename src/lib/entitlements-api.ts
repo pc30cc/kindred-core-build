@@ -71,7 +71,7 @@ export interface EntitlementDiagnostics {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', headers: await authHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `Entitlements API error: ${res.status}`);
@@ -95,7 +95,7 @@ export async function validatePlanPayload(payload: {
   entitlements?: Record<string, unknown>;
   limits?: Record<string, unknown>;
 }) {
-  const res = await fetch(`${API_BASE}/api/plans/admin/validate`, {
+  const res = await fetch(`${API_BASE}/api/plans/admin/validate`, {credentials: 'include', 
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify(payload),
@@ -118,7 +118,7 @@ export async function fetchEntitlementDiagnostics() {
 export async function setWorkspaceModuleOverride(input: {
   workspaceId: string; moduleKey: string; enabled: boolean; adminNotes?: string;
 }) {
-  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module`, {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module`, {credentials: 'include', 
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify(input),
@@ -130,7 +130,7 @@ export async function setWorkspaceModuleOverride(input: {
 export async function setWorkspaceChannelOverride(input: {
   workspaceId: string; channelKey: string; enabled: boolean; adminNotes?: string;
 }) {
-  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel`, {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel`, {credentials: 'include', 
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify(input),
@@ -140,7 +140,7 @@ export async function setWorkspaceChannelOverride(input: {
 }
 
 export async function deleteWorkspaceModuleOverride(id: string) {
-  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module/${id}`, {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module/${id}`, {credentials: 'include', 
     method: 'DELETE',
     headers: await authHeaders(),
   });
@@ -149,7 +149,7 @@ export async function deleteWorkspaceModuleOverride(id: string) {
 }
 
 export async function deleteWorkspaceChannelOverride(id: string) {
-  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel/${id}`, {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel/${id}`, {credentials: 'include', 
     method: 'DELETE',
     headers: await authHeaders(),
   });
@@ -162,7 +162,7 @@ export async function deleteWorkspaceChannelOverride(id: string) {
 export async function setWorkspaceLimitOverride(input: {
   workspaceId: string; limitKey: string; limitValue: number; adminNotes?: string;
 }) {
-  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit`, {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit`, {credentials: 'include', 
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify(input),
@@ -172,7 +172,7 @@ export async function setWorkspaceLimitOverride(input: {
 }
 
 export async function deleteWorkspaceLimitOverride(id: string) {
-  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit/${id}`, {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit/${id}`, {credentials: 'include', 
     method: 'DELETE',
     headers: await authHeaders(),
   });

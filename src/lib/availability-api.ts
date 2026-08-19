@@ -18,7 +18,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...(await authHeaders()),
     ...((init?.headers as Record<string, string>) || {}),
   };
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
   return body as T;

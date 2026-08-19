@@ -53,7 +53,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/knowledge-base${path}`, {
+  const res = await fetch(`${API_BASE}/api/knowledge-base${path}`, {credentials: 'include', 
     ...init,
     headers: { ...(await authHeaders()), ...(init?.headers || {}) },
   });

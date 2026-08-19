@@ -12,7 +12,7 @@ if (!API_BASE && import.meta.env.PROD) {
 
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -819,7 +819,7 @@ export class ResendVerificationError extends Error {
  * provider — no Supabase built-in mail involved.
  */
 export async function resendMyVerificationEmail(locale?: string): Promise<ResendVerificationResult> {
-  const res = await fetch(`${API_BASE}/api/account/resend-verification`, {
+  const res = await fetch(`${API_BASE}/api/account/resend-verification`, {credentials: 'include', 
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await userAuthHeaders()) },
     body: JSON.stringify({ locale: locale || 'en' }),

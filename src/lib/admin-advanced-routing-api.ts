@@ -21,7 +21,7 @@ async function authHeader(): Promise<Record<string, string>> {
 }
 
 export async function getGlobalAdvancedRouting(): Promise<GlobalAdvancedRoutingPolicy> {
-  const res = await fetch(`${API_BASE}/api/admin/advanced-routing`, {
+  const res = await fetch(`${API_BASE}/api/admin/advanced-routing`, {credentials: 'include', 
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
   });
   if (!res.ok) {
@@ -35,7 +35,7 @@ export async function getGlobalAdvancedRouting(): Promise<GlobalAdvancedRoutingP
 export async function updateGlobalAdvancedRouting(
   patch: Partial<GlobalAdvancedRoutingPolicy>,
 ): Promise<GlobalAdvancedRoutingPolicy> {
-  const res = await fetch(`${API_BASE}/api/admin/advanced-routing`, {
+  const res = await fetch(`${API_BASE}/api/admin/advanced-routing`, {credentials: 'include', 
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(patch),

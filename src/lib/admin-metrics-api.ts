@@ -35,7 +35,7 @@ export interface MetricEventRow {
 
 export async function fetchMetricsSummary(range: '1h' | '24h' | '7d' = '1h'): Promise<MetricsSummary> {
   const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/metrics/summary?range=${range}`, { headers });
+  const res = await fetch(`${API_BASE}/api/admin/metrics/summary?range=${range}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load summary: ${res.status}`);
   return res.json();
 }
@@ -45,7 +45,7 @@ export async function fetchMetricsEvents(opts: { metric?: string; limit?: number
   const params = new URLSearchParams();
   if (opts.metric) params.set('metric', opts.metric);
   if (opts.limit) params.set('limit', String(opts.limit));
-  const res = await fetch(`${API_BASE}/api/admin/metrics/events?${params}`, { headers });
+  const res = await fetch(`${API_BASE}/api/admin/metrics/events?${params}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load events: ${res.status}`);
   return res.json();
 }

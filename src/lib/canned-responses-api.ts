@@ -99,14 +99,14 @@ export const cannedResponsesApi = {
     });
     if (params.q) search.set('q', params.q);
     if (params.limit) search.set('limit', String(params.limit));
-    const res = await fetch(`${API_BASE}/api/canned-responses?${search.toString()}`, {
+    const res = await fetch(`${API_BASE}/api/canned-responses?${search.toString()}`, {credentials: 'include', 
       headers: await authHeaders(),
     });
     return parse<CannedListResponse>(res, 'Canned responses load failed');
   },
 
   async create(input: CannedCreateInput): Promise<CannedResponse> {
-    const res = await fetch(`${API_BASE}/api/canned-responses`, {
+    const res = await fetch(`${API_BASE}/api/canned-responses`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(input),
@@ -116,7 +116,7 @@ export const cannedResponsesApi = {
   },
 
   async update(id: string, input: CannedUpdateInput): Promise<CannedResponse> {
-    const res = await fetch(`${API_BASE}/api/canned-responses/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${API_BASE}/api/canned-responses/${encodeURIComponent(id)}`, {credentials: 'include', 
       method: 'PATCH',
       headers: await authHeaders(),
       body: JSON.stringify(input),
@@ -129,7 +129,7 @@ export const cannedResponsesApi = {
     const url =
       `${API_BASE}/api/canned-responses/${encodeURIComponent(id)}` +
       `?workspace_id=${encodeURIComponent(workspace_id)}`;
-    const res = await fetch(url, { method: 'DELETE', headers: await authHeaders() });
+    const res = await fetch(url, {credentials: 'include', method: 'DELETE', headers: await authHeaders() });
     await parse<{ ok: true }>(res, 'Delete failed');
   },
 
@@ -143,7 +143,7 @@ export const cannedResponsesApi = {
   ): Promise<{ ok: true; usage_count: number; last_used_at: string }> {
     const res = await fetch(
       `${API_BASE}/api/canned-responses/${encodeURIComponent(id)}/track-use`,
-      {
+      {credentials: 'include', 
         method: 'POST',
         headers: await authHeaders(),
         body: JSON.stringify({ workspace_id }),

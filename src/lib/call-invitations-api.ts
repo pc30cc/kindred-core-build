@@ -16,7 +16,7 @@ async function authHeader(): Promise<Record<string, string>> {
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(API_BASE + path, {
+  const res = await fetch(API_BASE + path, {credentials: 'include', 
     ...init,
     headers: {
       'Content-Type': 'application/json',

@@ -46,7 +46,7 @@ export interface OperatorActivityStats {
 export async function fetchOperatorActivity(workspaceId: string, days: number): Promise<OperatorActivityStats> {
   const res = await fetch(
     `${API_BASE}/api/operator-activity/${workspaceId}/stats?days=${days}`,
-    { headers: await authHeaders() },
+    {credentials: 'include', headers: await authHeaders() },
   );
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
@@ -54,7 +54,7 @@ export async function fetchOperatorActivity(workspaceId: string, days: number): 
 }
 
 export async function sendOperatorHeartbeat(workspaceId: string): Promise<void> {
-  await fetch(`${API_BASE}/api/operator-activity/heartbeat`, {
+  await fetch(`${API_BASE}/api/operator-activity/heartbeat`, {credentials: 'include', 
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify({ workspace_id: workspaceId }),

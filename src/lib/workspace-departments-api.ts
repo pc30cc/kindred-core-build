@@ -65,7 +65,7 @@ export interface DepartmentDiagnostics {
 }
 
 async function jsonFetch(path: string, init?: RequestInit) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...init,
     headers: {
       'Content-Type': 'application/json',

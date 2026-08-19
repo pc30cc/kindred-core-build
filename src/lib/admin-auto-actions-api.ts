@@ -65,7 +65,7 @@ export async function fetchAutoActionDefinitions(): Promise<{
   definitions: AutoActionDefinition[];
 }> {
   const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/auto-actions/definitions`, { headers });
+  const res = await fetch(`${API_BASE}/api/admin/auto-actions/definitions`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load definitions: ${res.status}`);
   return res.json();
 }
@@ -77,7 +77,7 @@ export async function updateAutoActionDefinition(
   >,
 ): Promise<{ definition: AutoActionDefinition }> {
   const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/auto-actions/definitions/${id}`, {
+  const res = await fetch(`${API_BASE}/api/admin/auto-actions/definitions/${id}`, {credentials: 'include', 
     method: 'PATCH',
     headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(patch),
@@ -96,14 +96,14 @@ export async function fetchAutoActionEvents(
   const params = new URLSearchParams();
   if (opts.state) params.set('state', opts.state);
   if (opts.limit) params.set('limit', String(opts.limit));
-  const res = await fetch(`${API_BASE}/api/admin/auto-actions/events?${params}`, { headers });
+  const res = await fetch(`${API_BASE}/api/admin/auto-actions/events?${params}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load events: ${res.status}`);
   return res.json();
 }
 
 export async function fetchActiveAutoActions(): Promise<{ active: ActiveAutoAction[] }> {
   const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/auto-actions/active`, { headers });
+  const res = await fetch(`${API_BASE}/api/admin/auto-actions/active`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load active actions: ${res.status}`);
   return res.json();
 }
@@ -113,7 +113,7 @@ export async function evaluateAutoActionsNow(): Promise<{
   result: { expired: number; resolved: number; activated: number; ran_at: string };
 }> {
   const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/auto-actions/evaluate`, {
+  const res = await fetch(`${API_BASE}/api/admin/auto-actions/evaluate`, {credentials: 'include', 
     method: 'POST',
     headers,
   });
@@ -125,7 +125,7 @@ export async function overrideAutoAction(eventId: string): Promise<{ ok: boolean
   const headers = await authHeader();
   const res = await fetch(
     `${API_BASE}/api/admin/auto-actions/events/${eventId}/override`,
-    { method: 'POST', headers },
+    {credentials: 'include', method: 'POST', headers },
   );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

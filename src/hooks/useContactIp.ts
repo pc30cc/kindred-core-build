@@ -23,7 +23,7 @@ export function useContactIp(contactId: string | undefined) {
     queryFn: async () => {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
-      const res = await fetch(`${API_BASE}/api/contacts/${contactId}/ip`, {
+      const res = await fetch(`${API_BASE}/api/contacts/${contactId}/ip`, {credentials: 'include', 
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),

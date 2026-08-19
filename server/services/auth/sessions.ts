@@ -98,7 +98,16 @@ export function clearSessionCookie(res: CookieResponse): void {
 export function verifyOriginForMutation(req: { headers: Record<string, unknown> }, corsOrigins: string[]): boolean {
   const origin = req.headers.origin;
   if (typeof origin !== 'string' || !origin) return true; // nothing to check against
-  if (corsOrigins.length === 1 && corsOrigins[0] === '*') return true; // operator explicitly opted into any origin
+  // `corsOrigins === ['*']` means CORS_ORIGINS is unconfigured (or
+  // explicitly wildcarded) — there is no real allow-list to check the
+  // Origin against, so a mutation that DOES present one must be treated as
+  // untrusted rather than approved. Approving here would make the (very
+  // common, previously-documented-as-default) wildcard config a total CSRF
+  // bypass for every authenticated mutation — exactly the failure mode this
+  // function exists to prevent. A genuinely same-origin request either
+  // sends no Origin header at all (caught by the branch above) or is
+  // already covered by an explicitly configured corsOrigins list.
+  if (corsOrigins.length === 1 && corsOrigins[0] === '*') return false;
   return corsOrigins.includes(origin);
 }
 

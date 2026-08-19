@@ -18,10 +18,12 @@
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
+import { validateSessionToken, verifyOriginForMutation, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 import { lookup } from 'node:dns/promises';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export type WorkspaceAuth = { userId: string; isAdmin: boolean; role: string | null };
 
@@ -34,6 +36,16 @@ export function serverConfigOf(req: any): ServerConfig {
  * returns null on failure — missing cookie, unknown/expired/revoked
  * session, all indistinguishable to the caller (no information about
  * *why* auth failed is ever leaked here).
+ *
+ * CSRF: for state-changing methods, also requires `verifyOriginForMutation`
+ * to pass. This is the single choke point essentially every authenticated
+ * dashboard route already goes through (directly, or via
+ * `authorizeWorkspaceAccess`/`requirePlatformAdmin` below, which both call
+ * this), so wiring the check here — rather than per-route — is what
+ * actually makes it apply everywhere instead of existing only as unit-
+ * tested, never-called dead code. SameSite=Lax (sessions.ts) is the primary
+ * defense; this is the explicit defense-in-depth layer for SameSite=None
+ * deployments and non-preflighted request shapes.
  */
 export async function requireUser(req: any, res: any): Promise<string | null> {
   const config = serverConfigOf(req);
@@ -41,6 +53,10 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
   const session = await validateSessionToken(config, token);
   if (!session) {
     res.status(401).json({ error: 'Not authenticated' });
+    return null;
+  }
+  if (MUTATING_METHODS.has(req.method) && !verifyOriginForMutation(req, config.corsOrigins)) {
+    res.status(403).json({ error: 'Origin not allowed' });
     return null;
   }
   return session.userId;

@@ -85,7 +85,7 @@ npm run dev        # Vite dev server on http://localhost:5173
 | `SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (server-only!) |
 | `PORT` | No | Server port (default: 3001) |
-| `CORS_ORIGINS` | No | Comma-separated allowed origins (default: *) |
+| `CORS_ORIGINS` | No | Comma-separated allowed origins for cross-origin dashboard requests. Unset/`*` fails closed (rejects cross-origin credentialed requests) rather than allowing every origin — only needed if the frontend is served from a different origin than the API; a same-origin reverse-proxy deployment doesn't need it. |
 | `RATE_LIMIT_WINDOW_MS` | No | Rate limit window in ms (default: 60000) |
 | `RATE_LIMIT_MAX` | No | Max requests per window (default: 100) |
 

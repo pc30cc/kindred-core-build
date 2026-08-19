@@ -1,7 +1,7 @@
 /**
  * Account Security — mirrors the Crisp "Security" panel layout but powered by
  * our self-hosted backend (Express + Supabase service role). Shows:
- *   • Active sessions (Supabase auth.sessions, geo + UA enriched)
+ *   • Active sessions (first-party public.auth_sessions, geo + UA enriched)
  *   • Recent login history (login_attempts table, geo enriched)
  *
  * No Edge Functions. All reads/writes go through /api/account/security/*.

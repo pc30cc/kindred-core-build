@@ -50,6 +50,24 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/024_user_credentials.sql',
     hosted: 'supabase/migrations/20260819120000_user_credentials.sql',
   },
+  {
+    label: '027 — profiles.phone column (auth migration account.ts follow-up)',
+    selfHost: 'database/migrations/027_profiles_phone.sql',
+    hosted: 'supabase/migrations/20260819140000_profiles_phone.sql',
+  },
+  {
+    label: '028 — admin_impersonation_tokens table (auth migration admin impersonation)',
+    selfHost: 'database/migrations/028_admin_impersonation_tokens.sql',
+    hosted: 'supabase/migrations/20260819150000_admin_impersonation_tokens.sql',
+  },
+  // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
+  // (repoint identity-root FKs to profiles) are deliberately NOT registered
+  // here — same precedent as 022/023 (visitor/anon RLS hardening): the two
+  // chains' starting schemas differ (self-host creates 3 tables from
+  // scratch for 025 vs. hosted's single ADD COLUMN; self-host covers 6
+  // FK-bearing tables for 026 vs. hosted's 11, since hosted has later
+  // features self-host's bootstrap chain never received), so the SQL is
+  // intentionally asymmetric, not a drift bug.
 ];
 
 /** Strips line comments, block comments and collapses whitespace. */

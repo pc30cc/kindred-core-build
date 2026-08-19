@@ -8,7 +8,6 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -40,13 +39,6 @@ export interface TimelineEvent {
   actor: TimelineActor | null;
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}` }
-    : {};
-}
-
 export function useConversationTimeline(
   conversationId: string | undefined,
   workspaceId: string | undefined,
@@ -56,7 +48,7 @@ export function useConversationTimeline(
     queryFn: async (): Promise<TimelineEvent[]> => {
       const url = `${API_BASE}/api/conversations/${encodeURIComponent(conversationId!)}/timeline`
         + `?workspace_id=${encodeURIComponent(workspaceId!)}`;
-      const res = await fetch(url, {credentials: 'include', headers: await authHeaders() });
+      const res = await fetch(url, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Timeline load failed: ${res.status}`);
       return (json.events ?? []) as TimelineEvent[];

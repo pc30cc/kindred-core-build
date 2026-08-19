@@ -6,7 +6,6 @@
  * vendor / token. Never throws.
  */
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import {
   SAFE_DEFAULT_POLICY,
   type EffectivePolicySnapshot,
@@ -19,16 +18,10 @@ const POLL_MS = 30_000;
 
 async function fetchPolicy(workspaceId: string): Promise<EffectivePolicySnapshot | null> {
   try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) return null;
-    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+      credentials: 'include',
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workspace_id: workspaceId }),
     });
     if (!res.ok) return null;

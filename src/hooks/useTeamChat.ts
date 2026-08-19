@@ -3,20 +3,14 @@
  * All I/O goes through the self-hosted Express API (/api/team-chat).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
-}
-
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
     ...init,
-    headers: { ...(await authHeaders()), ...((init?.headers as any) || {}) },
+    headers: { 'Content-Type': 'application/json', ...((init?.headers as any) || {}) },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);

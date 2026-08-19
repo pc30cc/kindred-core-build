@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi } from '@/lib/conversations-api';
@@ -52,42 +51,20 @@ export function useConversations(
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      let q = supabase
-        .from('conversations')
-        .select('*, contacts(name, email, avatar_url, visitor_code, metadata)')
-        .eq('workspace_id', workspaceId!)
-        .order('updated_at', { ascending: false });
-      if (queue === 'automated') {
-        q = q
-          .eq('ai_state', 'ai_managed')
-          .neq('status', 'closed')
-          .is('assigned_to', null)
-          .eq('is_spam', false);
-      } else if (queue === 'spam') {
-        q = q.eq('is_spam', true);
-      } else {
-        // Main Inbox — human-actionable. Exclude spam and AI-managed
-        // threads; needs_human + human_active stay visible because the
-        // operator should act on them. Include rows where ai_state IS NULL
-        // (e.g. classic conversations, or ones restored after platform AI
-        // was disabled) — PostgREST .neq() filters NULL out otherwise.
-        q = q.eq('is_spam', false);
-        if (needsHuman) {
-          q = q.eq('ai_state', 'needs_human');
-        } else {
-          q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
-        }
-        if (assignedToMe) q = q.eq('assigned_to', assignedToMe);
-        // `status` may be a comma-separated group (e.g. 'resolved,closed')
-        // so one tab can cover several underlying statuses.
-        if (status && status !== 'all') {
-          const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
-          q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
-        }
-      }
-      const { data, error } = await q;
-      if (error) throw error;
-      const convos = (data || []) as (Conversation & {
+      // List + queue filtering + message enrichment (last message, last
+      // visitor message, unread count) + the "unanswered AI-intro thread"
+      // exclusion are all computed server-side now — see GET
+      // /api/conversations in server/routes/conversations.ts. Direct
+      // supabase.from('conversations') relied on RLS scoped to auth.uid(),
+      // which is NULL without a Supabase Auth session.
+      const { conversations } = await conversationsApi.list({
+        workspace_id: workspaceId!,
+        queue,
+        status,
+        needsHuman,
+        assignedToMe,
+      });
+      const convos = conversations as (Conversation & {
         contacts: {
           name: string | null;
           email: string | null;
@@ -105,54 +82,6 @@ export function useConversations(
         visitor_network?: VisitorNetworkProfile | null;
       })[];
 
-      // Enrich each conversation with the latest visitor (sender_type='contact')
-      // message preview so the inbox list can show what the visitor last said
-      // instead of just the conversation subject. Single batched query keyed
-      // on conversation_id IN (...).
-      const ids = convos.map((c) => c.id).filter(Boolean);
-      if (ids.length > 0) {
-        const { data: msgs } = await supabase
-          .from('conversation_messages')
-          .select('conversation_id, body, created_at, sender_type, seen_at')
-          .in('conversation_id', ids)
-          .order('created_at', { ascending: false })
-          .limit(1000);
-        const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-        const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
-        const unreadByConv: Record<string, number> = {};
-        for (const m of (msgs || []) as Array<{
-          conversation_id: string; body: string | null; created_at: string; seen_at: string | null; sender_type: string;
-        }>) {
-          if (!m.conversation_id) continue;
-          // Latest message of ANY sender — drives the list preview so the
-          // operator sees their own reply / the AI reply, not "no messages".
-          if (!lastByConv[m.conversation_id]) {
-            lastByConv[m.conversation_id] = {
-              body: m.body ?? '',
-              created_at: m.created_at,
-              sender_type: m.sender_type,
-            };
-          }
-          // Visitor-only stream — drives unread counts and "last visitor said".
-          if (m.sender_type !== 'contact') continue;
-          if (!byConv[m.conversation_id]) {
-            byConv[m.conversation_id] = {
-              body: m.body ?? '',
-              created_at: m.created_at,
-              seen_at: m.seen_at ?? null,
-            };
-          }
-          if (!m.seen_at) {
-            unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
-          }
-        }
-        for (const c of convos) {
-          c.last_visitor_message = byConv[c.id] ?? null;
-          c.last_message = lastByConv[c.id] ?? null;
-          c.unread_count = unreadByConv[c.id] ?? 0;
-        }
-      }
-
       // Enrich with the visitor's network profile (geo + IP + device).
       //
       // This goes through the canonical server resolver
@@ -165,6 +94,7 @@ export function useConversations(
       // (the contact's newest session is only a legacy fallback), so a
       // returning visitor no longer makes older threads show the newest
       // visit's country.
+      const ids = convos.map((c) => c.id).filter(Boolean);
       try {
         const netByConv = await fetchVisitorNetworkForConversations(workspaceId!, ids);
         for (const c of convos) {
@@ -179,20 +109,6 @@ export function useConversations(
         // Enrichment is decorative for the list — never block the inbox.
       }
 
-      if (queue === 'main') {
-        // AI greeting threads (source='ai_agent_intro') that the visitor never
-        // answered are not human-actionable — they only clutter Main Inbox and
-        // make it look like AI conversations are mixed into the human queue.
-        // They stay reachable from the Automated queue / direct link.
-        return convos.filter((c) => {
-          const meta = (c as any)?.metadata || {};
-          const introOnly = meta.source === 'ai_agent_intro' && !c.last_visitor_message;
-          const humanTouched = !!(c as any).assigned_to
-            || (c as any).ai_state === 'human_active'
-            || (c.last_message && c.last_message.sender_type === 'agent');
-          return !introOnly || humanTouched;
-        });
-      }
       return convos;
     },
     enabled: !!workspaceId,
@@ -214,35 +130,7 @@ export function useInboxCounts(workspaceId: string | undefined) {
     queryKey: ['inbox-counts', workspaceId],
     enabled: !!workspaceId,
     staleTime: 15_000,
-    queryFn: async () => {
-      const base = () =>
-        supabase
-          .from('conversations')
-          .select('id', { count: 'exact', head: true })
-          .eq('workspace_id', workspaceId!);
-      const [mainRes, autoRes, needsRes, spamRes] = await Promise.all([
-        base()
-          .eq('is_spam', false)
-          .neq('status', 'closed')
-          .or('ai_state.is.null,ai_state.neq.ai_managed'),
-        base()
-          .eq('is_spam', false)
-          .neq('status', 'closed')
-          .eq('ai_state', 'ai_managed')
-          .is('assigned_to', null),
-        base()
-          .eq('is_spam', false)
-          .neq('status', 'closed')
-          .eq('ai_state', 'needs_human'),
-        base().eq('is_spam', true),
-      ]);
-      return {
-        main: mainRes.count ?? 0,
-        automated: autoRes.count ?? 0,
-        needs_human: needsRes.count ?? 0,
-        spam: spamRes.count ?? 0,
-      };
-    },
+    queryFn: () => conversationsApi.getInboxCounts(workspaceId!),
   });
 }
 
@@ -264,29 +152,7 @@ export function useInboxTabCounts(workspaceId: string | undefined) {
     gcTime: 5 * 60_000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
-    queryFn: async () => {
-      const base = () =>
-        supabase
-          .from('conversations')
-          .select('id', { count: 'exact', head: true })
-          .eq('workspace_id', workspaceId!)
-          .eq('is_spam', false)
-          .or('ai_state.is.null,ai_state.neq.ai_managed');
-      const [openRes, pendingRes, resolvedRes, allRes, needsRes] = await Promise.all([
-        base().eq('status', 'open'),
-        base().eq('status', 'pending'),
-        base().in('status', ['resolved', 'closed']),
-        base(),
-        base().eq('ai_state', 'needs_human'),
-      ]);
-      return {
-        open: openRes.count ?? 0,
-        pending: pendingRes.count ?? 0,
-        resolved: resolvedRes.count ?? 0,
-        all: allRes.count ?? 0,
-        needs_human: needsRes.count ?? 0,
-      } as Record<string, number>;
-    },
+    queryFn: () => conversationsApi.getInboxTabCounts(workspaceId!),
   });
 }
 
@@ -313,84 +179,10 @@ export function useConversationMessages(conversationId: string | undefined) {
   return useQuery({
     queryKey: ['messages', conversationId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('conversation_messages')
-        .select('*')
-        .eq('conversation_id', conversationId!)
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      const messages = (data || []) as ConversationMessage[];
-
-      // Phase 2 — Enrich messages with attachment metadata. The widget's
-      // server route already does this for visitor reads; for the inbox we
-      // do it client-side via a single batched query keyed on message_id +
-      // metadata.attachment_id (covers both operator and visitor uploads).
-      const ids = new Set<string>();
-      const fromMeta = new Set<string>();
-      for (const m of messages) {
-        if (m?.id) ids.add(m.id);
-        const aid = (m?.metadata as any)?.attachment_id;
-        if (typeof aid === 'string') fromMeta.add(aid);
-      }
-      const attMap: Record<string, MessageAttachment> = {};
-      const byMsg: Record<string, MessageAttachment> = {};
-      if (ids.size || fromMeta.size) {
-        const orFilters: string[] = [];
-        if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
-        if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
-        const { data: atts } = await supabase
-          .from('conversation_attachments')
-          .select('id, file_name, mime_type, size_bytes, status, message_id')
-          .or(orFilters.join(','));
-        for (const a of (atts || []) as Array<{
-          id: string; file_name: string; mime_type: string;
-          size_bytes: number; status: string; message_id: string | null;
-        }>) {
-          if (a.status !== 'attached' && a.status !== 'uploaded') continue;
-          const meta: MessageAttachment = {
-            id: a.id,
-            file_name: a.file_name,
-            mime_type: a.mime_type,
-            size_bytes: a.size_bytes,
-            kind: a.mime_type.startsWith('image/') ? 'image' : 'file',
-          };
-          attMap[a.id] = meta;
-          if (a.message_id) byMsg[a.message_id] = meta;
-        }
-      }
-
-      // Resolve operator/AI sender identity (name + avatar) so the thread can
-      // show who replied instead of a generic "Support" label.
-      const senderIds = Array.from(new Set(
-        messages
-          .filter((m) => (m.sender_type === 'agent' || m.sender_type === 'ai') && m.sender_id)
-          .map((m) => m.sender_id as string),
-      ));
-      const senderMap: Record<string, { name: string | null; avatar: string | null }> = {};
-      if (senderIds.length) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', senderIds);
-        for (const p of (profiles || []) as Array<{ id: string; full_name: string | null; avatar_url: string | null }>) {
-          senderMap[p.id] = { name: p.full_name || null, avatar: p.avatar_url || null };
-        }
-      }
-
-      return messages.map<ConversationMessageWithAttachment>((m) => {
-        const aid = (m?.metadata as any)?.attachment_id;
-        const att =
-          (typeof aid === 'string' && attMap[aid]) ||
-          (m.id && byMsg[m.id]) ||
-          null;
-        const prof = m.sender_id ? senderMap[m.sender_id] : null;
-        return {
-          ...m,
-          ...(att ? { attachment: att } : {}),
-          sender_name: prof?.name ?? null,
-          sender_avatar: prof?.avatar ?? null,
-        };
-      });
+      // Attachment + sender enrichment now happens server-side — see GET
+      // /api/conversations/:id/messages in server/routes/conversations.ts.
+      const { messages } = await conversationsApi.getMessages(conversationId!);
+      return messages as ConversationMessageWithAttachment[];
     },
     select: (rows) => dedupeById(rows as (ConversationMessageWithAttachment & { id: string })[]),
     enabled: !!conversationId,
@@ -439,31 +231,8 @@ export function useSendMessage(
 export function useDeleteAllConversations() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (workspaceId: string) => {
-      // Fetch conversation ids for this workspace
-      const { data: convs, error: fetchErr } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('workspace_id', workspaceId);
-      if (fetchErr) throw fetchErr;
-      const ids = (convs ?? []).map((c) => c.id);
-      if (ids.length === 0) return { deleted: 0 };
-
-      // Delete messages first (no FK cascade guaranteed)
-      const { error: msgErr } = await supabase
-        .from('conversation_messages')
-        .delete()
-        .in('conversation_id', ids);
-      if (msgErr) throw msgErr;
-
-      const { error: convErr } = await supabase
-        .from('conversations')
-        .delete()
-        .in('id', ids);
-      if (convErr) throw convErr;
-
-      return { deleted: ids.length };
-    },
+    // Owner/admin only — see server/routes/conversations.ts DELETE /.
+    mutationFn: (workspaceId: string) => conversationsApi.deleteAll(workspaceId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['conversations'] });
       qc.invalidateQueries({ queryKey: ['messages'] });
@@ -563,12 +332,13 @@ export function useUpdateConversation() {
 export function useMarkConversationSeen() {
   const qc = useQueryClient();
   return useMutation({
+    // Server route (POST /:id/seen) reimplements the previous
+    // mark_conversation_seen RPC's logic directly — that RPC checked
+    // is_workspace_member(workspace_id, auth.uid()) internally, which
+    // silently no-ops without a Supabase Auth session.
     mutationFn: async (conversationId: string) => {
-      const { data, error } = await (supabase.rpc as any)('mark_conversation_seen', {
-        _conversation_id: conversationId,
-      });
-      if (error) throw error;
-      return (data as number) ?? 0;
+      const { count } = await conversationsApi.markSeen(conversationId);
+      return count;
     },
     onSuccess: (_count, conversationId) => {
       qc.invalidateQueries({ queryKey: ['messages', conversationId] });

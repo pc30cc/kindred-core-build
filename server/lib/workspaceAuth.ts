@@ -1,16 +1,24 @@
 /**
  * Shared user + workspace authorization helpers for HTTP routes.
  *
- * The publishable (anon) key is NOT an identity: it is embedded in the
- * frontend bundle and readable by anyone. Routes that act on workspace data
- * or spend workspace resources must derive identity from a real Supabase user
- * JWT and verify workspace membership server-side before any service-role
- * (RLS-bypassing) access happens.
+ * AUTHENTICATION (this file's `requireUser`) is first-party as of the auth
+ * migration: identity is derived from the `gs_session` HttpOnly cookie
+ * (server/services/auth/sessions.ts, backed by `public.auth_sessions`), not
+ * from a Supabase Auth JWT. `sb.auth.getUser()` / GoTrue is no longer this
+ * codebase's root of trust for dashboard/application authentication —
+ * Supabase/PostgreSQL remains only as database infrastructure.
+ *
+ * AUTHORIZATION (`authorizeWorkspaceAccess` below) is unchanged: workspace
+ * membership and role are still verified server-side via the same
+ * `is_workspace_member`/`workspace_members` checks, using service_role
+ * (which bypasses RLS) — the anon key was never treated as an identity, and
+ * still isn't.
  */
 
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 import { lookup } from 'node:dns/promises';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,30 +29,21 @@ export function serverConfigOf(req: any): ServerConfig {
   return (req as any).serverConfig as ServerConfig;
 }
 
-/** Resolves the caller from the Bearer JWT. Writes 401 and returns null on failure. */
+/**
+ * Resolves the caller from the first-party session cookie. Writes 401 and
+ * returns null on failure — missing cookie, unknown/expired/revoked
+ * session, all indistinguishable to the caller (no information about
+ * *why* auth failed is ever leaked here).
+ */
 export async function requireUser(req: any, res: any): Promise<string | null> {
   const config = serverConfigOf(req);
-  const authHeader = req.headers?.authorization;
-  if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
+  const token = req.cookies?.[SESSION_COOKIE_NAME];
+  const session = await validateSessionToken(config, token);
+  if (!session) {
+    res.status(401).json({ error: 'Not authenticated' });
     return null;
   }
-  const token = authHeader.slice('Bearer '.length).trim();
-  if (!token || token === config.supabaseAnonKey || token === config.supabaseServiceRoleKey) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  try {
-    const { data, error } = await getServiceClient(config).auth.getUser(token);
-    if (error || !data?.user) {
-      res.status(401).json({ error: 'Invalid token' });
-      return null;
-    }
-    return data.user.id;
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
+  return session.userId;
 }
 
 /**

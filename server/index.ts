@@ -18,6 +18,7 @@ import { accountRouter } from './routes/account.js';
 import { workspacesRouter } from './routes/workspaces.js';
 import { workspaceMembersRouter } from './routes/workspaceMembers.js';
 import { widgetSettingsRouter } from './routes/widgetSettings.js';
+import { workspaceIntegrationsRouter } from './routes/workspaceIntegrations.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
@@ -345,6 +346,7 @@ app.use('/api/account', accountRouter);
 app.use('/api/workspaces', workspacesRouter);
 app.use('/api/workspace-members', workspaceMembersRouter);
 app.use('/api/widget-settings', widgetSettingsRouter);
+app.use('/api/workspace-integrations', workspaceIntegrationsRouter);
 
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);

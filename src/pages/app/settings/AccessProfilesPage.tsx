@@ -9,11 +9,10 @@
  *   Access Profiles → what they can access
  *   Departments     → where visitors get routed
  */
-import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useTranslation } from '@/i18n';
-import { supabase } from '@/lib/supabase';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,18 +59,7 @@ export default function AccessProfilesPage() {
   const wsPath = useWorkspacePath();
   const wsId = workspace?.id;
 
-  const { data: members = [] } = useQuery({
-    queryKey: ['ws-members-access', wsId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_members')
-        .select('id, role')
-        .eq('workspace_id', wsId!);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!wsId,
-  });
+  const { data: members = [] } = useWorkspaceMembers(wsId);
 
   const getProfileLabel = (role: string) =>
     (t as any)(`team.${role}`) || role;

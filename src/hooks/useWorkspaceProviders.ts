@@ -1,5 +1,5 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { API_BASE } from '@/lib/api';
 
 export type WsProviderType = 'email' | 'ai' | 'webhook';
 
@@ -15,6 +15,17 @@ export interface WsProviderSetting {
   updated_at: string;
 }
 
+async function integrationsFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Request failed: ${res.status}`);
+  return body as T;
+}
+
 function queryKey(workspaceId: string) {
   return ['workspace-provider-settings', workspaceId];
 }
@@ -23,13 +34,10 @@ export function useWorkspaceProviders(workspaceId: string | undefined) {
   return useQuery({
     queryKey: queryKey(workspaceId!),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_provider_settings')
-        .select('*')
-        .eq('workspace_id', workspaceId!)
-        .order('provider_type');
-      if (error) throw error;
-      return data as WsProviderSetting[];
+      const { settings } = await integrationsFetch<{ settings: WsProviderSetting[] }>(
+        `/api/workspace-integrations/${workspaceId}/providers`,
+      );
+      return settings;
     },
     enabled: !!workspaceId,
   });
@@ -45,19 +53,11 @@ export function useUpsertWsProvider(workspaceId: string | undefined) {
       config: Record<string, unknown>;
       secrets: Record<string, unknown>;
     }) => {
-      const { data, error } = await supabase
-        .from('workspace_provider_settings')
-        .upsert(
-          {
-            workspace_id: workspaceId!,
-            ...payload,
-          },
-          { onConflict: 'workspace_id,provider_type' }
-        )
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+      const { setting } = await integrationsFetch<{ setting: WsProviderSetting }>(
+        `/api/workspace-integrations/${workspaceId}/providers`,
+        { method: 'PUT', body: JSON.stringify(payload) },
+      );
+      return setting;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKey(workspaceId!) }),
   });
@@ -67,12 +67,10 @@ export function useDeleteWsProvider(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (providerType: WsProviderType) => {
-      const { error } = await supabase
-        .from('workspace_provider_settings')
-        .delete()
-        .eq('workspace_id', workspaceId!)
-        .eq('provider_type', providerType);
-      if (error) throw error;
+      await integrationsFetch(
+        `/api/workspace-integrations/${workspaceId}/providers/${providerType}`,
+        { method: 'DELETE' },
+      );
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKey(workspaceId!) }),
   });

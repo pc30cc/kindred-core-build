@@ -15,6 +15,7 @@ import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
+import { workspacesRouter } from './routes/workspaces.js';
 import { workspaceMembersRouter } from './routes/workspaceMembers.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
@@ -339,6 +340,7 @@ app.use('/api/account', accountRouter);
 
 // Canonical server-owned workspace seat-creation boundary.
 // See docs/MAX_AGENTS_POLICY.md and server/routes/workspaceMembers.ts.
+app.use('/api/workspaces', workspacesRouter);
 app.use('/api/workspace-members', workspaceMembersRouter);
 
 // Self-service notification preferences

@@ -87,6 +87,7 @@ vi.mock("../../../server/services/auth/sessions.js", () => ({
     if (!user) return null;
     return { sessionId: "test-session", userId: user.id, email: "test@example.com" };
   },
+  verifyOriginForMutation: () => true,
 }));
 
 // ─── Feature-gating middleware stub ──────────────────────────────

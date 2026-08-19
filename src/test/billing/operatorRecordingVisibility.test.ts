@@ -52,6 +52,7 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
     if (!token) return null;
     return { sessionId: 'test-session', userId: 'u-1', email: 'test@example.com' };
   },
+  verifyOriginForMutation: () => true,
 }));
 vi.mock('../../../server/services/storage/index.js', async () => {
   // Only `downloadFile` is exercised by the archive route in this test file.

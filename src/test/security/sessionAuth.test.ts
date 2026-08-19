@@ -71,9 +71,13 @@ describe('sessions.ts — verifyOriginForMutation (CSRF defense-in-depth)', () =
     expect(verifyOriginForMutation(req, ['https://app.example.com'])).toBe(false);
   });
 
-  it('allows any Origin when the operator explicitly configured a wildcard', () => {
+  it('rejects a wildcard CORS config — wildcard cannot silently disable CSRF protection', () => {
+    // A wildcard corsOrigins config (['*']) means every origin is
+    // CORS-trusted, which combined with credentialed cookie auth would let
+    // any attacker origin issue authenticated mutations. Fail closed instead
+    // of treating '*' as "trust this Origin header".
     const req = { headers: { origin: 'https://anything.example.com' } };
-    expect(verifyOriginForMutation(req, ['*'])).toBe(true);
+    expect(verifyOriginForMutation(req, ['*'])).toBe(false);
   });
 
   it('rejects when corsOrigins is empty (no origin is trusted)', () => {

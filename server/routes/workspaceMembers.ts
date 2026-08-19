@@ -117,6 +117,19 @@ async function resolveInvitationContext(req: any, res: any, next: any) {
     .maybeSingle();
   req.alreadyWorkspaceMember = !!existingMember;
 
+  // NEW-signup policy (same boundary as POST /api/workspaces and
+  // /provision-account): the invited_email match above proves the
+  // invitation was addressed to this profile's email column, not that
+  // the caller has actually verified ownership of that address. An
+  // unverified account accepting an invite would create a new
+  // workspace membership on the strength of a self-reported, unproven
+  // email. Idempotent re-accept of an EXISTING membership is exempt —
+  // it grants no new access and must keep working (e.g. for legacy
+  // members who predate the verification requirement).
+  if (!req.alreadyWorkspaceMember && !(await isEmailVerified(config, req.authUser.id))) {
+    return res.status(403).json({ error: 'email_verification_required' });
+  }
+
   // Expose workspaceId where requireLimit's extractor looks for it.
   req.body.workspaceId = inv.workspace_id;
   req.invitationContext = { id: inv.id, workspace_id: inv.workspace_id };

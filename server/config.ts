@@ -9,6 +9,18 @@ export interface ServerConfig {
   corsOrigins: string[];
   rateLimitWindowMs: number;
   rateLimitMax: number;
+  /**
+   * Deployment-controlled platform-admin bootstrap boundary
+   * (server/routes/adminBootstrap.ts). Only the caller whose verified
+   * first-party email exactly matches this value may bootstrap the first
+   * platform admin — bootstrap_admin's own "zero admins exist" check
+   * remains as defense in depth, but is no longer the only guard,
+   * closing the first-authenticated-user-wins race on a fresh, publicly
+   * reachable install. Normalized (trim + lowercase) at load time.
+   * `undefined` when unset — bootstrap fails closed in that case rather
+   * than falling back to "any user."
+   */
+  initialAdminEmail?: string;
 }
 
 export function loadConfig(): ServerConfig {
@@ -26,5 +38,6 @@ export function loadConfig(): ServerConfig {
     corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map(s => s.trim()),
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
     rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+    initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase() || undefined,
   };
 }

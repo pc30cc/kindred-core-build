@@ -63,7 +63,11 @@ export function WorkspaceRedirect() {
           await refetch();
         } catch (err: any) {
           console.error('Auto-provision failed:', err);
-          setError(err?.message || 'Failed to create workspace');
+          setError(
+            err?.message === 'email_verification_required'
+              ? 'Please verify your email before creating a workspace. Check your inbox for the verification link.'
+              : err?.message || 'Failed to create workspace',
+          );
         } finally {
           setProvisioning(false);
         }

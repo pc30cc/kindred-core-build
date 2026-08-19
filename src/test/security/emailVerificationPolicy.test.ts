@@ -49,6 +49,10 @@ vi.mock('../../../server/supabase.js', () => ({
         (db.workspaces ||= []).push({ id, owner_id: args._user_id, name: args._name });
         return { data: id, error: null };
       }
+      if (name === 'provision_account_on_signup') {
+        (db.workspaces ||= []).push({ id: crypto.randomUUID(), owner_id: args._user_id, name: 'Provisioned WS' });
+        return { data: null, error: null };
+      }
       return { data: null, error: null };
     },
   }),
@@ -155,6 +159,28 @@ describe('email verification policy — workspace creation', () => {
   it('a legacy user whose verification was backfilled from auth.users can create a workspace', async () => {
     const res = await call('POST', '/api/workspaces', 'legacy-token', { accountId: ACCOUNT, name: 'Legacy WS' });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('email verification policy — provision-account (first-run auto-provision)', () => {
+  it('unverified new user: POST /api/workspaces AND POST /api/workspaces/provision-account both 403, no account/workspace created', async () => {
+    const before = (db.workspaces ?? []).length;
+
+    const createRes = await call('POST', '/api/workspaces', 'unverified-token', { accountId: ACCOUNT, name: 'Squatter WS' });
+    expect(createRes.status).toBe(403);
+    expect(createRes.json.error).toBe('email_verification_required');
+
+    const provisionRes = await call('POST', '/api/workspaces/provision-account', 'unverified-token');
+    expect(provisionRes.status).toBe(403);
+    expect(provisionRes.json.error).toBe('email_verification_required');
+
+    expect((db.workspaces ?? []).length).toBe(before);
+  });
+
+  it('a verified user can provision their first-run account/workspace', async () => {
+    const res = await call('POST', '/api/workspaces/provision-account', 'verified-token');
+    expect(res.status).toBe(200);
+    expect(res.json.ok).toBe(true);
   });
 });
 

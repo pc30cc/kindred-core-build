@@ -132,6 +132,18 @@ beforeEach(() => {
     { id: crypto.randomUUID(), workspace_id: WS_A, user_id: USER_A, role: 'owner' },
     { id: crypto.randomUUID(), workspace_id: WS_B, user_id: USER_B, role: 'owner' },
   ];
+  // Both callers are verified — this file isn't about the email-verification
+  // gate (see emailVerificationPolicy.test.ts for that); it's about
+  // provision-account always using the SESSION user id, so both users must
+  // clear the gate to reach that logic.
+  db.profiles = [
+    { id: USER_A, email: 'user-a@example.com', full_name: 'User A', phone: null, created_at: '2026-01-01' },
+    { id: USER_B, email: 'user-b@example.com', full_name: 'User B', phone: null, created_at: '2026-01-01' },
+  ];
+  db.user_credentials = [
+    { user_id: USER_A, email_verified_at: '2026-01-01T00:00:00Z' },
+    { user_id: USER_B, email_verified_at: '2026-01-01T00:00:00Z' },
+  ];
 });
 
 describe('GET /api/workspaces — workspace resolution, no Supabase Auth session needed', () => {

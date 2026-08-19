@@ -86,13 +86,9 @@ async function loadHardening(): Promise<ClientHardeningSettings> {
   if (hardeningInflight) return hardeningInflight;
   hardeningInflight = (async () => {
     try {
-      const { data } = await supabase
-        .from('widget_platform_settings')
-        .select(
-          'realtime_reconnect_jitter_pct, realtime_pending_max, realtime_message_dedupe_enabled, realtime_message_dedupe_window',
-        )
-        .limit(1)
-        .maybeSingle();
+      // Table-level anon SELECT on widget_platform_settings was revoked
+      // (see 20260731160434_...sql); the RPC is the anon-allowlisted read path.
+      const { data } = await supabase.rpc('get_widget_platform_settings');
       const value: ClientHardeningSettings = data
         ? {
             reconnectJitterPct: clampInt(data.realtime_reconnect_jitter_pct, 0, 50, 20),

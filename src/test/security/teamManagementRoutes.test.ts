@@ -166,32 +166,54 @@ function call(
 }
 
 const OWNER = crypto.randomUUID();
+const ADMIN = crypto.randomUUID();
 const AGENT = crypto.randomUUID();
 const OUTSIDER = crypto.randomUUID();
 const WS = crypto.randomUUID();
-let memberRowId: string;
+// Second, unrelated workspace + member + department, for cross-tenant tests.
+const WS_B = crypto.randomUUID();
+const OWNER_B = crypto.randomUUID();
+const MEMBER_B = crypto.randomUUID();
+let ownerMemberRowId: string;
+let adminMemberRowId: string;
 let agentMemberRowId: string;
 let deptId: string;
+let deptBId: string;
 
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
-  memberRowId = crypto.randomUUID();
+  ownerMemberRowId = crypto.randomUUID();
+  adminMemberRowId = crypto.randomUUID();
   agentMemberRowId = crypto.randomUUID();
   deptId = crypto.randomUUID();
+  deptBId = crypto.randomUUID();
   db.__sessions = [
     { token: 'owner-token', userId: OWNER },
+    { token: 'admin-token', userId: ADMIN },
     { token: 'agent-token', userId: AGENT },
     { token: 'outsider-token', userId: OUTSIDER },
+    { token: 'owner-b-token', userId: OWNER_B },
+  ];
+  db.workspaces = [
+    { id: WS, owner_id: OWNER },
+    { id: WS_B, owner_id: OWNER_B },
   ];
   db.workspace_members = [
-    { id: memberRowId, workspace_id: WS, user_id: OWNER, role: 'owner', created_at: new Date().toISOString() },
+    { id: ownerMemberRowId, workspace_id: WS, user_id: OWNER, role: 'owner', created_at: new Date().toISOString() },
+    { id: adminMemberRowId, workspace_id: WS, user_id: ADMIN, role: 'admin', created_at: new Date().toISOString() },
     { id: agentMemberRowId, workspace_id: WS, user_id: AGENT, role: 'agent', created_at: new Date().toISOString() },
+    { id: crypto.randomUUID(), workspace_id: WS_B, user_id: OWNER_B, role: 'owner', created_at: new Date().toISOString() },
+    { id: crypto.randomUUID(), workspace_id: WS_B, user_id: MEMBER_B, role: 'agent', created_at: new Date().toISOString() },
   ];
   db.profiles = [
     { id: OWNER, full_name: 'Owner', email: 'owner@example.com', avatar_url: null },
+    { id: ADMIN, full_name: 'Admin', email: 'admin@example.com', avatar_url: null },
     { id: AGENT, full_name: 'Agent', email: 'agent@example.com', avatar_url: null },
   ];
-  db.workspace_departments = [{ id: deptId, workspace_id: WS, name: 'Sales' }];
+  db.workspace_departments = [
+    { id: deptId, workspace_id: WS, name: 'Sales' },
+    { id: deptBId, workspace_id: WS_B, name: 'Support (Workspace B)' },
+  ];
   db.workspace_department_members = [];
   db.workspace_invitations = [];
 });
@@ -270,6 +292,123 @@ describe('POST /api/workspace-members/invitations — role accepts the full enum
   });
 });
 
+// ════════════════════════════════════════════════════════════════════
+// PHASE A — owner/admin privilege boundary.
+//
+// workspaces.owner_id designates exactly one canonical owner. There is
+// no ownership-transfer feature anywhere in the codebase, so role
+// assignment must NEVER be able to grant 'owner', and the member row
+// matching workspaces.owner_id must never be role-changed or deleted
+// through the generic member-management endpoints — regardless of who
+// is asking (admin OR the owner acting on their own row).
+// ════════════════════════════════════════════════════════════════════
+describe('Owner/admin privilege boundary — ADMIN cannot touch ownership', () => {
+  it('admin cannot promote self to owner', async () => {
+    const res = await call('PATCH', `/api/workspace-members/${adminMemberRowId}?workspaceId=${WS}`, {
+      token: 'admin-token',
+      body: { role: 'owner' },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('owner_role_not_assignable');
+    expect(db.workspace_members.find((m) => m.id === adminMemberRowId)?.role).toBe('admin');
+  });
+
+  it('admin cannot promote another member to owner', async () => {
+    const res = await call('PATCH', `/api/workspace-members/${agentMemberRowId}?workspaceId=${WS}`, {
+      token: 'admin-token',
+      body: { role: 'owner' },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('owner_role_not_assignable');
+    expect(db.workspace_members.find((m) => m.id === agentMemberRowId)?.role).toBe('agent');
+  });
+
+  it('owner (acting on someone else) also cannot promote anyone to owner — no transfer flow exists', async () => {
+    const res = await call('PATCH', `/api/workspace-members/${agentMemberRowId}?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { role: 'owner' },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('owner_role_not_assignable');
+  });
+
+  it('admin cannot invite a new member with role=owner', async () => {
+    const res = await call('POST', '/api/workspace-members/invitations', {
+      token: 'admin-token',
+      body: { workspaceId: WS, role: 'owner', invitedEmail: null },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('owner_role_not_assignable');
+    expect(db.workspace_invitations).toHaveLength(0);
+  });
+
+  it('owner also cannot invite role=owner — no transfer flow exists', async () => {
+    const res = await call('POST', '/api/workspace-members/invitations', {
+      token: 'owner-token',
+      body: { workspaceId: WS, role: 'owner', invitedEmail: null },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('owner_role_not_assignable');
+  });
+
+  it('admin cannot remove the owner', async () => {
+    const res = await call('DELETE', `/api/workspace-members/${ownerMemberRowId}?workspaceId=${WS}`, { token: 'admin-token' });
+    expect(res.status).toBe(403);
+    expect(res.json.error).toBe('cannot_remove_owner');
+    expect(db.workspace_members.find((m) => m.id === ownerMemberRowId)).toBeDefined();
+  });
+
+  it('admin cannot demote the owner to a lower role', async () => {
+    const res = await call('PATCH', `/api/workspace-members/${ownerMemberRowId}?workspaceId=${WS}`, {
+      token: 'admin-token',
+      body: { role: 'agent' },
+    });
+    expect(res.status).toBe(403);
+    expect(res.json.error).toBe('cannot_modify_owner');
+    expect(db.workspace_members.find((m) => m.id === ownerMemberRowId)?.role).toBe('owner');
+  });
+
+  it('owner cannot remove themselves — no transfer flow has completed', async () => {
+    const res = await call('DELETE', `/api/workspace-members/${ownerMemberRowId}?workspaceId=${WS}`, { token: 'owner-token' });
+    expect(res.status).toBe(403);
+    expect(res.json.error).toBe('cannot_remove_owner');
+    expect(db.workspace_members.find((m) => m.id === ownerMemberRowId)).toBeDefined();
+  });
+
+  it('owner cannot demote themselves — no transfer flow has completed', async () => {
+    const res = await call('PATCH', `/api/workspace-members/${ownerMemberRowId}?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { role: 'admin' },
+    });
+    expect(res.status).toBe(403);
+    expect(res.json.error).toBe('cannot_modify_owner');
+    expect(db.workspace_members.find((m) => m.id === ownerMemberRowId)?.role).toBe('owner');
+  });
+
+  it('after every rejected attempt, workspace_members role="owner" count stays exactly 1 and matches workspaces.owner_id', async () => {
+    await call('PATCH', `/api/workspace-members/${agentMemberRowId}?workspaceId=${WS}`, { token: 'admin-token', body: { role: 'owner' } });
+    await call('PATCH', `/api/workspace-members/${ownerMemberRowId}?workspaceId=${WS}`, { token: 'admin-token', body: { role: 'agent' } });
+    await call('DELETE', `/api/workspace-members/${ownerMemberRowId}?workspaceId=${WS}`, { token: 'admin-token' });
+    const owners = db.workspace_members.filter((m) => m.workspace_id === WS && m.role === 'owner');
+    expect(owners).toHaveLength(1);
+    expect(owners[0].user_id).toBe(db.workspaces.find((w) => w.id === WS)?.owner_id);
+    expect(owners[0].user_id).toBe(OWNER);
+  });
+
+  it('owner still retains all normal management operations (admin/agent role changes, invitations)', async () => {
+    const patch = await call('PATCH', `/api/workspace-members/${agentMemberRowId}?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { role: 'admin' },
+    });
+    expect(patch.status).toBe(200);
+    const invite = await call('POST', '/api/workspace-members/invitations', {
+      token: 'owner-token',
+      body: { workspaceId: WS, role: 'agent', invitedEmail: null },
+    });
+    expect(invite.status).toBe(201);
+  });
+});
+
 describe('GET/PUT /api/workspace-members/user/:userId/departments', () => {
   it('round-trips a department assignment set', async () => {
     const put = await call('PUT', `/api/workspace-members/user/${AGENT}/departments?workspaceId=${WS}`, {
@@ -289,5 +428,63 @@ describe('GET/PUT /api/workspace-members/user/:userId/departments', () => {
       body: { department_ids: [deptId] },
     });
     expect(res.status).toBe(403);
+  });
+
+  // ── Adversarial: cross-workspace target user / department ──
+  it('rejects a target user who belongs to a different workspace than the actor manages', async () => {
+    const res = await call('PUT', `/api/workspace-members/user/${MEMBER_B}/departments?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { department_ids: [deptId] },
+    });
+    expect(res.status).toBe(404);
+    expect(res.json.error).toBe('target_not_a_workspace_member');
+    expect(db.workspace_department_members.find((r) => r.user_id === MEMBER_B)).toBeUndefined();
+  });
+
+  it('GET also rejects a target user from a different workspace', async () => {
+    const res = await call('GET', `/api/workspace-members/user/${MEMBER_B}/departments?workspaceId=${WS}`, { token: 'owner-token' });
+    expect(res.status).toBe(404);
+    expect(res.json.error).toBe('target_not_a_workspace_member');
+  });
+
+  it('rejects a department id that belongs to a different workspace', async () => {
+    const res = await call('PUT', `/api/workspace-members/user/${AGENT}/departments?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { department_ids: [deptBId] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('department_not_in_workspace');
+    expect(res.json.invalid).toEqual([deptBId]);
+    expect(db.workspace_department_members.find((r) => r.user_id === AGENT)).toBeUndefined();
+  });
+
+  it('rejects a mixed batch of one valid + one foreign-workspace department id — no partial write', async () => {
+    const res = await call('PUT', `/api/workspace-members/user/${AGENT}/departments?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { department_ids: [deptId, deptBId] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('department_not_in_workspace');
+    expect(res.json.invalid).toEqual([deptBId]);
+    // Neither id should have been written — reject-whole-batch semantics.
+    expect(db.workspace_department_members.filter((r) => r.user_id === AGENT)).toHaveLength(0);
+  });
+
+  it('rejects a nonexistent user id', async () => {
+    const res = await call('PUT', `/api/workspace-members/user/${crypto.randomUUID()}/departments?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { department_ids: [deptId] },
+    });
+    expect(res.status).toBe(404);
+    expect(res.json.error).toBe('target_not_a_workspace_member');
+  });
+
+  it('rejects a nonexistent department id', async () => {
+    const res = await call('PUT', `/api/workspace-members/user/${AGENT}/departments?workspaceId=${WS}`, {
+      token: 'owner-token',
+      body: { department_ids: [crypto.randomUUID()] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('department_not_in_workspace');
   });
 });

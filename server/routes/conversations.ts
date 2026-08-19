@@ -706,6 +706,361 @@ conversationsRouter.post('/spam', async (req: any, res: any) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// GET / — Inbox list.
+//
+// Replaces src/hooks/useConversations.ts's direct
+// supabase.from('conversations').select('*, contacts(...)') query, which
+// relied on RLS scoped to auth.uid() and silently returned nothing once
+// the dashboard stopped carrying a Supabase Auth session. Reproduces the
+// exact queue/status/needs-human/assigned-to-me filtering, the contact
+// join, the last-message/last-visitor-message/unread-count enrichment,
+// and the "unanswered AI-intro thread" exclusion from Main Inbox — all
+// previously computed client-side against two direct Supabase reads.
+//
+// Visitor network-profile enrichment (geo/IP/device) is intentionally
+// NOT duplicated here: it already goes through the authenticated
+// POST /api/visitor-intel/network/batch route (see
+// src/hooks/useVisitorNetwork.ts), so the frontend hook calls that
+// separately after this list resolves, exactly as it does today.
+// ═══════════════════════════════════════════════════════════════════
+const listQuerySchema = z.object({
+  workspace_id: z.string().uuid(),
+  queue: z.enum(['main', 'automated', 'spam']).optional().default('main'),
+  status: z.string().max(200).optional(),
+  needs_human: z.enum(['true', 'false']).optional(),
+  assigned_to_me: z.string().uuid().optional(),
+});
+
+conversationsRouter.get('/', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = listQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid query', details: parsed.error.flatten().fieldErrors });
+    }
+    const { workspace_id, queue, status, assigned_to_me } = parsed.data;
+    const needsHuman = parsed.data.needs_human === 'true';
+    const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    let q = sb
+      .from('conversations')
+      .select('*, contacts(name, email, avatar_url, visitor_code, metadata)')
+      .eq('workspace_id', workspace_id)
+      .order('updated_at', { ascending: false });
+
+    if (queue === 'automated') {
+      q = q.eq('ai_state', 'ai_managed').neq('status', 'closed').is('assigned_to', null).eq('is_spam', false);
+    } else if (queue === 'spam') {
+      q = q.eq('is_spam', true);
+    } else {
+      q = q.eq('is_spam', false);
+      if (needsHuman) {
+        q = q.eq('ai_state', 'needs_human');
+      } else {
+        q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
+      }
+      if (assigned_to_me) q = q.eq('assigned_to', assigned_to_me);
+      if (status && status !== 'all') {
+        const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
+        q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
+      }
+    }
+
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+    const convos = (data || []) as any[];
+
+    const ids = convos.map((c) => c.id).filter(Boolean);
+    if (ids.length > 0) {
+      const { data: msgs } = await sb
+        .from('conversation_messages')
+        .select('conversation_id, body, created_at, sender_type, seen_at')
+        .in('conversation_id', ids)
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
+      const unreadByConv: Record<string, number> = {};
+      for (const m of (msgs || []) as any[]) {
+        if (!m.conversation_id) continue;
+        if (!lastByConv[m.conversation_id]) {
+          lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, sender_type: m.sender_type };
+        }
+        if (m.sender_type !== 'contact') continue;
+        if (!byConv[m.conversation_id]) {
+          byConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, seen_at: m.seen_at ?? null };
+        }
+        if (!m.seen_at) {
+          unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
+        }
+      }
+      for (const c of convos) {
+        c.last_visitor_message = byConv[c.id] ?? null;
+        c.last_message = lastByConv[c.id] ?? null;
+        c.unread_count = unreadByConv[c.id] ?? 0;
+      }
+    }
+
+    let result = convos;
+    if (queue === 'main') {
+      // AI greeting threads (source='ai_agent_intro') the visitor never
+      // answered are not human-actionable — exclude them from Main Inbox
+      // unless a human has already touched the thread.
+      result = convos.filter((c) => {
+        const meta = c?.metadata || {};
+        const introOnly = meta.source === 'ai_agent_intro' && !c.last_visitor_message;
+        const humanTouched = !!c.assigned_to || c.ai_state === 'human_active'
+          || (c.last_message && c.last_message.sender_type === 'agent');
+        return !introOnly || humanTouched;
+      });
+    }
+
+    return res.json({ conversations: result });
+  } catch (err: any) {
+    console.error('[conversations list] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ─── Sidebar inbox counters ─────────────────────────────────────────
+conversationsRouter.get('/inbox-counts', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const workspaceId = String(req.query.workspace_id || '');
+    if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    const base = () =>
+      sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+    const [mainRes, autoRes, needsRes, spamRes] = await Promise.all([
+      base().eq('is_spam', false).neq('status', 'closed').or('ai_state.is.null,ai_state.neq.ai_managed'),
+      base().eq('is_spam', false).neq('status', 'closed').eq('ai_state', 'ai_managed').is('assigned_to', null),
+      base().eq('is_spam', false).neq('status', 'closed').eq('ai_state', 'needs_human'),
+      base().eq('is_spam', true),
+    ]);
+    return res.json({
+      main: mainRes.count ?? 0,
+      automated: autoRes.count ?? 0,
+      needs_human: needsRes.count ?? 0,
+      spam: spamRes.count ?? 0,
+    });
+  } catch (err: any) {
+    console.error('[conversations inbox-counts] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ─── Per-tab counters for the Main Inbox status tabs ─────────────────
+conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const workspaceId = String(req.query.workspace_id || '');
+    if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    const base = () =>
+      sb.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed');
+    const [openRes, pendingRes, resolvedRes, allRes, needsRes] = await Promise.all([
+      base().eq('status', 'open'),
+      base().eq('status', 'pending'),
+      base().in('status', ['resolved', 'closed']),
+      base(),
+      base().eq('ai_state', 'needs_human'),
+    ]);
+    return res.json({
+      open: openRes.count ?? 0,
+      pending: pendingRes.count ?? 0,
+      resolved: resolvedRes.count ?? 0,
+      all: allRes.count ?? 0,
+      needs_human: needsRes.count ?? 0,
+    });
+  } catch (err: any) {
+    console.error('[conversations inbox-tab-counts] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /:id/messages — thread for one conversation, enriched with
+// attachment metadata and sender identity (name + avatar).
+//
+// Replaces src/hooks/useConversations.ts's direct reads of
+// conversation_messages / conversation_attachments / profiles.
+// Authorization derives from the conversation's OWN workspace_id, not
+// a client-supplied one — a caller cannot probe an arbitrary
+// conversation id by guessing/forging a workspace_id query param.
+// ═══════════════════════════════════════════════════════════════════
+conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const conversationId = req.params.id;
+    const sb = getServiceClient(config);
+
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('id, workspace_id')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
+
+    const auth = await authorizeWorkspaceMember(req, res, config, (conv as any).workspace_id);
+    if (!auth) return;
+
+    const { data, error } = await sb
+      .from('conversation_messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    const messages = (data || []) as any[];
+
+    const ids = new Set<string>();
+    const fromMeta = new Set<string>();
+    for (const m of messages) {
+      if (m?.id) ids.add(m.id);
+      const aid = (m?.metadata as any)?.attachment_id;
+      if (typeof aid === 'string') fromMeta.add(aid);
+    }
+    const attMap: Record<string, any> = {};
+    const byMsg: Record<string, any> = {};
+    if (ids.size || fromMeta.size) {
+      const orFilters: string[] = [];
+      if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
+      if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
+      const { data: atts } = await sb
+        .from('conversation_attachments')
+        .select('id, file_name, mime_type, size_bytes, status, message_id')
+        .or(orFilters.join(','));
+      for (const a of (atts || []) as any[]) {
+        if (a.status !== 'attached' && a.status !== 'uploaded') continue;
+        const meta = {
+          id: a.id, file_name: a.file_name, mime_type: a.mime_type, size_bytes: a.size_bytes,
+          kind: String(a.mime_type).startsWith('image/') ? 'image' : 'file',
+        };
+        attMap[a.id] = meta;
+        if (a.message_id) byMsg[a.message_id] = meta;
+      }
+    }
+
+    const senderIds = Array.from(new Set(
+      messages.filter((m) => (m.sender_type === 'agent' || m.sender_type === 'ai') && m.sender_id).map((m) => m.sender_id),
+    ));
+    const senderMap: Record<string, { name: string | null; avatar: string | null }> = {};
+    if (senderIds.length) {
+      const { data: profiles } = await sb.from('profiles').select('id, full_name, avatar_url').in('id', senderIds);
+      for (const p of (profiles || []) as any[]) {
+        senderMap[p.id] = { name: p.full_name || null, avatar: p.avatar_url || null };
+      }
+    }
+
+    const enriched = messages.map((m) => {
+      const aid = (m?.metadata as any)?.attachment_id;
+      const att = (typeof aid === 'string' && attMap[aid]) || (m.id && byMsg[m.id]) || null;
+      const prof = m.sender_id ? senderMap[m.sender_id] : null;
+      return {
+        ...m,
+        ...(att ? { attachment: att } : {}),
+        sender_name: prof?.name ?? null,
+        sender_avatar: prof?.avatar ?? null,
+      };
+    });
+
+    return res.json({ messages: enriched });
+  } catch (err: any) {
+    console.error('[conversations messages] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /:id/seen — operator-side "seen" trigger.
+//
+// Replaces the client-side supabase.rpc('mark_conversation_seen', ...)
+// call. That RPC checks is_workspace_member(workspace_id, auth.uid())
+// internally — it would silently no-op (0 rows) called via service_role,
+// since auth.uid() is NULL outside a Supabase Auth session. The
+// membership check and monotonic update are reimplemented directly here
+// against the same table/columns; behavior is identical.
+// ═══════════════════════════════════════════════════════════════════
+conversationsRouter.post('/:id/seen', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const conversationId = req.params.id;
+    const sb = getServiceClient(config);
+
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('id, workspace_id')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
+
+    const auth = await authorizeWorkspaceMember(req, res, config, (conv as any).workspace_id);
+    if (!auth) return;
+
+    const { data, error } = await sb
+      .from('conversation_messages')
+      .update({ seen_at: new Date().toISOString() })
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'contact')
+      .is('seen_at', null)
+      .select('id');
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true, count: (data || []).length });
+  } catch (err: any) {
+    console.error('[conversations seen] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE / — delete ALL conversations (+ their messages) in a
+// workspace. Destructive workspace-wide operation, so — unlike the
+// per-message/per-conversation routes above, which only require plain
+// membership — this requires manage:true (owner/admin), matching the
+// bar already set for other destructive workspace-wide operations
+// (member removal, invitation deletion) elsewhere in this migration.
+// ═══════════════════════════════════════════════════════════════════
+const deleteAllSchema = z.object({ workspace_id: z.string().uuid() });
+
+conversationsRouter.delete('/', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = deleteAllSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'workspace_id is required' });
+    const auth = await authorizeWorkspaceAccess(req, res, parsed.data.workspace_id, { manage: true });
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    const { data: convs, error: fetchErr } = await sb
+      .from('conversations')
+      .select('id')
+      .eq('workspace_id', parsed.data.workspace_id);
+    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+    const ids = (convs ?? []).map((c: any) => c.id);
+    if (ids.length === 0) return res.json({ deleted: 0 });
+
+    const { error: msgErr } = await sb.from('conversation_messages').delete().in('conversation_id', ids);
+    if (msgErr) return res.status(500).json({ error: msgErr.message });
+
+    const { error: convErr } = await sb.from('conversations').delete().in('id', ids);
+    if (convErr) return res.status(500).json({ error: convErr.message });
+
+    return res.json({ deleted: ids.length });
+  } catch (err: any) {
+    console.error('[conversations delete-all] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
 conversationsRouter.post('/not-spam', async (req: any, res: any) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = spamSchema.safeParse(req.body);

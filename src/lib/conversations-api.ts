@@ -242,7 +242,7 @@ export const conversationsApi = {
 
   /** Clear the spam flag (and the contact's flag, if any). */
   async unmarkSpam(payload: { workspace_id: string; conversation_id: string }) {
-    const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {credentials: 'include',
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(payload),
@@ -250,5 +250,71 @@ export const conversationsApi = {
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Unmark spam failed: ${res.status}`);
     return json as { ok: true; conversation_ids: string[]; contact_id: string | null };
+  },
+
+  // ─── Inbox list + counts ──────────────────────────────────────
+  // See server/routes/conversations.ts (GET /) — replaces the previous
+  // direct supabase.from('conversations') read in useConversations.ts.
+  async list(params: {
+    workspace_id: string;
+    queue?: 'main' | 'automated' | 'spam';
+    status?: string;
+    needsHuman?: boolean;
+    assignedToMe?: string | null;
+  }): Promise<{ conversations: any[] }> {
+    const q = new URLSearchParams({ workspace_id: params.workspace_id });
+    if (params.queue) q.set('queue', params.queue);
+    if (params.status) q.set('status', params.status);
+    if (params.needsHuman) q.set('needs_human', 'true');
+    if (params.assignedToMe) q.set('assigned_to_me', params.assignedToMe);
+    const res = await fetch(`${API_BASE}/api/conversations?${q}`, {credentials: 'include', headers: await authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `List failed: ${res.status}`);
+    return json;
+  },
+
+  async getInboxCounts(workspaceId: string): Promise<{ main: number; automated: number; needs_human: number; spam: number }> {
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-counts?workspace_id=${encodeURIComponent(workspaceId)}`, {credentials: 'include', headers: await authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Counts failed: ${res.status}`);
+    return json;
+  },
+
+  async getInboxTabCounts(workspaceId: string): Promise<Record<string, number>> {
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-tab-counts?workspace_id=${encodeURIComponent(workspaceId)}`, {credentials: 'include', headers: await authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Tab counts failed: ${res.status}`);
+    return json;
+  },
+
+  /** Thread for one conversation, enriched with attachment + sender identity. */
+  async getMessages(conversationId: string): Promise<{ messages: any[] }> {
+    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, {credentials: 'include', headers: await authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Messages failed: ${res.status}`);
+    return json;
+  },
+
+  /** Mark every unseen visitor message in a conversation as seen. */
+  async markSeen(conversationId: string): Promise<{ ok: boolean; count: number }> {
+    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/seen`, {credentials: 'include',
+      method: 'POST',
+      headers: await authHeaders(),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Mark seen failed: ${res.status}`);
+    return json;
+  },
+
+  /** Delete every conversation (and its messages) in a workspace. Owner/admin only. */
+  async deleteAll(workspaceId: string): Promise<{ deleted: number }> {
+    const res = await fetch(`${API_BASE}/api/conversations`, {credentials: 'include',
+      method: 'DELETE',
+      headers: await authHeaders(),
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Delete all failed: ${res.status}`);
+    return json;
   },
 };

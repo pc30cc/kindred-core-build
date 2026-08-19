@@ -59,6 +59,11 @@ export async function syncProvidersFromDB(workspaceId?: string): Promise<void> {
         if (!match) continue;
         const type = match[1] as ProviderTypeKey;
         if (!PROVIDER_TYPE_KEYS.includes(type)) continue;
+        // Auth is never DB-switchable. First-party gs_session auth
+        // (server/routes/auth.ts) is the sole identity system; a
+        // `default_auth_provider` row must never be able to flip the
+        // active provider here, however it came to exist.
+        if (type === 'auth') continue;
 
         const value = row.value as { provider_name?: string } | null;
         if (value?.provider_name) {
@@ -106,6 +111,11 @@ export async function setGlobalDefaultProvider(
   providerName: string,
   config?: Record<string, unknown>
 ): Promise<{ error: Error | null }> {
+  // Auth is never DB-switchable — see the matching guard in
+  // syncProvidersFromDB above.
+  if (type === 'auth') {
+    return { error: new Error('The auth provider cannot be changed at runtime.') };
+  }
   const key = `default_${type}_provider`;
   const value = { provider_name: providerName, config: config || {} };
 

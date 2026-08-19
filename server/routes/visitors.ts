@@ -617,6 +617,59 @@ visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/visitor-intel/presence-by-conversation?workspace_id=&conversation_id=
+ *
+ * Latest visitor_presence row for the visitor session linked to a
+ * conversation. Replaces a direct browser `supabase.from('visitor_presence')`
+ * read — that table's RLS requires `auth.uid()`, which the browser client no
+ * longer carries under first-party (`gs_session`) auth.
+ */
+visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  const conversationId = (req.query.conversation_id as string) || '';
+  if (!workspaceId || !conversationId) {
+    return res.status(400).json({ error: 'workspace_id and conversation_id required' });
+  }
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+  try {
+    const { data: conv, error: convErr } = await sb
+      .from('conversations')
+      .select('visitor_session_id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (convErr) throw convErr;
+    const sessionId = (conv as any)?.visitor_session_id as string | null;
+    if (!sessionId) {
+      return res.json({ status: 'unknown', current_page: null, updated_at: null });
+    }
+    const { data: presence, error: pErr } = await sb
+      .from('visitor_presence')
+      .select('status, current_page, updated_at')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_session_id', sessionId)
+      .maybeSingle();
+    if (pErr) throw pErr;
+    if (!presence) {
+      return res.json({ status: 'unknown', current_page: null, updated_at: null });
+    }
+    return res.json({
+      status: (presence as any).status,
+      current_page: (presence as any).current_page ?? null,
+      updated_at: (presence as any).updated_at ?? null,
+    });
+  } catch (err) {
+    console.error('[visitors.presence-by-conversation] failed:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
  * POST /api/visitor-intel/network/batch
  * body: { workspace_id, conversation_ids?: string[], session_ids?: string[], contact_ids?: string[] }
  *

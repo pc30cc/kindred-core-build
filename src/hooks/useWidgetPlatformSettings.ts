@@ -1,5 +1,5 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { API_BASE } from '@/lib/api';
 
 export type PreChatPolicy = 'force_on' | 'force_off' | 'default_on' | 'default_off';
 export type FeatureLockMode = 'allow' | 'force_on' | 'force_off';
@@ -55,13 +55,10 @@ export function useWidgetPlatformSettings() {
   return useQuery({
     queryKey: QUERY_KEY,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('widget_platform_settings')
-        .select('*')
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data as WidgetPlatformSettings | null;
+      const res = await fetch(`${API_BASE}/api/widget-settings/platform/config`, { credentials: 'include' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Load failed: ${res.status}`);
+      return json.settings as WidgetPlatformSettings | null;
     },
   });
 }
@@ -70,14 +67,15 @@ export function useUpdateWidgetPlatformSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<WidgetPlatformSettings> }) => {
-      const { data, error } = await supabase
-        .from('widget_platform_settings')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+      const res = await fetch(`${API_BASE}/api/widget-settings/platform/config`, {
+        credentials: 'include',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...updates }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+      return json.settings;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
   });

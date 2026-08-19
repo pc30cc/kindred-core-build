@@ -26,6 +26,7 @@ import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { phoneVerificationRouter } from './routes/phoneVerification.js';
 import { adminRouter } from './routes/admin.js';
+import { adminBootstrapRouter } from './routes/adminBootstrap.js';
 import { realtimeRouter } from './routes/realtime.js';
 import { mapGeoRouter } from './routes/mapGeo.js';
 import { conversationsRouter } from './routes/conversations.js';
@@ -366,6 +367,7 @@ app.use('/api/phone-verification', phoneVerificationRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
+app.use('/api/admin-status', adminRateLimiter, adminBootstrapRouter);
 
 // Tokenized super-admin recording playback (read-only). Not under
 // /api/admin because native <audio>/<video> elements cannot attach a

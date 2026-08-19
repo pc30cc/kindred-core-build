@@ -1,18 +1,25 @@
 import { useAuth } from '@/features/auth/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api';
+
+async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Request failed: ${res.status}`);
+  return body as T;
+}
 
 export function useIsGlobalAdmin() {
   const { user } = useAuth();
   return useQuery({
     queryKey: ['global-admin', user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('has_role', {
-        _user_id: user!.id,
-        _role: 'admin',
-      });
-      if (error) throw error;
-      return data as boolean;
+      const { isAdmin } = await adminFetch<{ isAdmin: boolean }>('/api/admin-status/is-admin');
+      return isAdmin;
     },
     enabled: !!user,
   });
@@ -72,15 +79,11 @@ export function useAdminProfiles(
   return useQuery({
     queryKey: ['admin-profiles', limit, offset, search, sort, phoneStatus],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_list_profiles', {
-        _limit: limit,
-        _offset: offset,
-        _search: search,
-        _sort: sort,
-        _phone_status: phoneStatus,
+      const params = new URLSearchParams({
+        limit: String(limit), offset: String(offset), search, sort, phoneStatus,
       });
-      if (error) throw error;
-      return (data as unknown as AdminProfileRow[]) ?? [];
+      const { profiles } = await adminFetch<{ profiles: AdminProfileRow[] }>(`/api/admin/management/users?${params}`);
+      return profiles ?? [];
     },
   });
 }
@@ -88,18 +91,12 @@ export function useAdminProfiles(
 export function useAdminUserDetail(userId: string | null) {
   return useQuery({
     queryKey: ['admin-user-detail', userId],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_get_user_detail', {
-        _user_id: userId!,
-      });
-      if (error) throw error;
-      return data as {
-        profile: any;
-        roles: string[];
-        workspaces: Array<{ id: string; name: string; slug: string; role: string; created_at: string }>;
-        account: { id: string; name: string; slug: string; role: string } | null;
-      };
-    },
+    queryFn: () => adminFetch<{
+      profile: any;
+      roles: string[];
+      workspaces: Array<{ id: string; name: string; slug: string; role: string; created_at: string }>;
+      account: { id: string; name: string; slug: string; role: string } | null;
+    }>(`/api/admin/management/users/${userId}`),
     enabled: !!userId,
   });
 }
@@ -108,12 +105,9 @@ export function useAdminProfileCount(search = '', phoneStatus: AdminPhoneStatusF
   return useQuery({
     queryKey: ['admin-profile-count', search, phoneStatus],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_count_profiles', {
-        _search: search,
-        _phone_status: phoneStatus,
-      });
-      if (error) throw error;
-      return data as number;
+      const params = new URLSearchParams({ search, phoneStatus });
+      const { count } = await adminFetch<{ count: number }>(`/api/admin/management/users/count?${params}`);
+      return count;
     },
   });
 }
@@ -128,15 +122,11 @@ export function useAdminWorkspaces(
   return useQuery({
     queryKey: ['admin-workspaces', limit, offset, search, sort, phoneStatus],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_list_workspaces', {
-        _limit: limit,
-        _offset: offset,
-        _search: search,
-        _sort: sort,
-        _phone_status: phoneStatus,
+      const params = new URLSearchParams({
+        limit: String(limit), offset: String(offset), search, sort, phoneStatus,
       });
-      if (error) throw error;
-      return (data as unknown as AdminWorkspaceRow[]) ?? [];
+      const { workspaces } = await adminFetch<{ workspaces: AdminWorkspaceRow[] }>(`/api/admin/management/workspaces?${params}`);
+      return workspaces ?? [];
     },
   });
 }
@@ -145,12 +135,9 @@ export function useAdminWorkspaceCount(search = '', phoneStatus: AdminPhoneStatu
   return useQuery({
     queryKey: ['admin-workspace-count', search, phoneStatus],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_count_workspaces', {
-        _search: search,
-        _phone_status: phoneStatus,
-      });
-      if (error) throw error;
-      return data as number;
+      const params = new URLSearchParams({ search, phoneStatus });
+      const { count } = await adminFetch<{ count: number }>(`/api/admin/management/workspaces/count?${params}`);
+      return count;
     },
   });
 }
@@ -158,20 +145,14 @@ export function useAdminWorkspaceCount(search = '', phoneStatus: AdminPhoneStatu
 export function useAdminWorkspaceDetail(workspaceId: string | null) {
   return useQuery({
     queryKey: ['admin-workspace-detail', workspaceId],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_get_workspace_detail', {
-        _workspace_id: workspaceId!,
-      });
-      if (error) throw error;
-      return data as {
-        workspace: any;
-        members: Array<{ id: string; user_id: string; role: string; created_at: string; email: string; full_name: string | null }>;
-        branding: any;
-        widget_settings: any;
-        contact_count: number;
-        conversation_count: number;
-      };
-    },
+    queryFn: () => adminFetch<{
+      workspace: any;
+      members: Array<{ id: string; user_id: string; role: string; created_at: string; email: string; full_name: string | null }>;
+      branding: any;
+      widget_settings: any;
+      contact_count: number;
+      conversation_count: number;
+    }>(`/api/admin/management/workspaces/${workspaceId}`),
     enabled: !!workspaceId,
   });
 }
@@ -179,13 +160,8 @@ export function useAdminWorkspaceDetail(workspaceId: string | null) {
 export function useAdminDeleteWorkspace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (workspaceId: string) => {
-      const { data, error } = await supabase.rpc('admin_delete_workspace', {
-        _workspace_id: workspaceId,
-      });
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (workspaceId: string) =>
+      adminFetch(`/api/admin/management/workspaces/${workspaceId}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-workspaces'] });
       qc.invalidateQueries({ queryKey: ['admin-workspace-count'] });
@@ -198,12 +174,8 @@ export function useAdminUserRoles(userId: string) {
   return useQuery({
     queryKey: ['admin-user-roles', userId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('*')
-        .eq('user_id', userId);
-      if (error) throw error;
-      return data;
+      const { roles } = await adminFetch<{ roles: any[] }>(`/api/admin/management/users/${userId}/roles`);
+      return roles;
     },
     enabled: !!userId,
   });
@@ -212,12 +184,11 @@ export function useAdminUserRoles(userId: string) {
 export function useAssignRole() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: 'admin' | 'moderator' | 'user' }) => {
-      const { error } = await supabase
-        .from('user_roles')
-        .upsert({ user_id: userId, role }, { onConflict: 'user_id,role' });
-      if (error) throw error;
-    },
+    mutationFn: ({ userId, role }: { userId: string; role: 'admin' | 'moderator' | 'user' }) =>
+      adminFetch(`/api/admin/management/users/${userId}/roles`, {
+        method: 'POST',
+        body: JSON.stringify({ role }),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-user-roles'] });
       qc.invalidateQueries({ queryKey: ['admin-profiles'] });
@@ -228,14 +199,8 @@ export function useAssignRole() {
 export function useRemoveRole() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: 'admin' | 'moderator' | 'user' }) => {
-      const { error } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId)
-        .eq('role', role);
-      if (error) throw error;
-    },
+    mutationFn: ({ userId, role }: { userId: string; role: 'admin' | 'moderator' | 'user' }) =>
+      adminFetch(`/api/admin/management/users/${userId}/roles/${role}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-user-roles'] });
     },
@@ -243,15 +208,11 @@ export function useRemoveRole() {
 }
 
 export function useBootstrapAdmin() {
-  const { user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.rpc('bootstrap_admin', {
-        _user_id: user!.id,
-      });
-      if (error) throw error;
-      return data as boolean;
+      const { promoted } = await adminFetch<{ promoted: boolean }>('/api/admin-status/bootstrap', { method: 'POST' });
+      return promoted;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['global-admin'] });
@@ -263,13 +224,8 @@ export function useAdminFeatureFlags() {
   return useQuery({
     queryKey: ['admin-feature-flags'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('feature_flags')
-        .select('*')
-        .is('workspace_id', null)
-        .order('key');
-      if (error) throw error;
-      return data;
+      const { flags } = await adminFetch<{ flags: any[] }>('/api/admin/management/feature-flags');
+      return flags;
     },
   });
 }
@@ -278,13 +234,8 @@ export function useAdminAuditLogs(limit = 50) {
   return useQuery({
     queryKey: ['admin-audit-logs', limit],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return data;
+      const { logs } = await adminFetch<{ logs: any[] }>(`/api/admin/management/audit-logs?limit=${limit}`);
+      return logs;
     },
   });
 }
@@ -293,12 +244,8 @@ export function useAdminProviderConfigs() {
   return useQuery({
     queryKey: ['admin-provider-configs'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('provider_configs')
-        .select('*')
-        .order('provider_type');
-      if (error) throw error;
-      return data;
+      const { configs } = await adminFetch<{ configs: any[] }>('/api/admin/management/provider-configs');
+      return configs;
     },
   });
 }
@@ -307,12 +254,8 @@ export function useAdminRuntimeConfig() {
   return useQuery({
     queryKey: ['admin-runtime-config'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('app_runtime_config')
-        .select('*')
-        .order('key');
-      if (error) throw error;
-      return data;
+      const { config } = await adminFetch<{ config: any[] }>('/api/admin/management/runtime-config');
+      return config;
     },
   });
 }

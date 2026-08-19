@@ -23,6 +23,7 @@ import { getServiceClient } from '../supabase.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
   checkAiKbAccess,
   readAiKbCapabilities,
@@ -67,25 +68,15 @@ function logInternal(scope: string, error: unknown, context: Record<string, unkn
 
 export interface AiKbAuth { userId: string; isAdmin: boolean }
 
-/** Authenticate only. Writes 401 and returns null when the JWT is invalid. */
+/** Authenticate only. Writes 401 and returns null when the session cookie is invalid. */
 async function authenticate(
   req: Request,
   res: Response,
   config: ServerConfig,
 ): Promise<AiKbAuth | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  return { userId: user.id, isAdmin: await isGlobalAdmin(config, user.id) };
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return null;
+  return { userId, isAdmin: await isGlobalAdmin(config, userId) };
 }
 
 /**
@@ -108,37 +99,12 @@ async function isAuthorizedForWorkspace(
 async function authorizeMember(
   req: Request,
   res: Response,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; isAdmin: boolean } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const isAdmin = await isGlobalAdmin(config, user.id);
-  if (!isAdmin) {
-    const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-      _workspace_id: workspaceId,
-      _user_id: user.id,
-    });
-    if (memErr) {
-      res.status(500).json({ error: 'Membership check failed' });
-      return null;
-    }
-    if (!isMember) {
-      res.status(403).json({ error: 'Not a workspace member' });
-      return null;
-    }
-  }
-  return { userId: user.id, isAdmin };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId, isAdmin: auth.isAdmin };
 }
 
 /**

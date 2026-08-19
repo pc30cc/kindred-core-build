@@ -1,7 +1,7 @@
 /**
  * NOTIFICATION PREFERENCES — self-service for the authenticated user.
  *
- * Auth: Supabase access token (Bearer) — verified via service client.
+ * Auth: first-party session cookie (server/lib/workspaceAuth.ts).
  * Storage: row-per-user (workspace_id NULL means "global default").
  * Backward-compatible: returns sensible defaults if no row exists yet.
  */
@@ -10,20 +10,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 
 export const notificationsRouter = Router();
 
 async function requireUser(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-  const token = authHeader.slice(7);
-  const sb = getServiceClient(config);
-  const { data, error } = await sb.auth.getUser(token);
-  if (error || !data?.user) return res.status(401).json({ error: 'Invalid token' });
-  req.authUser = data.user;
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return;
+  req.authUser = { id: userId };
   next();
 }
 

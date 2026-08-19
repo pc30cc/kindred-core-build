@@ -24,26 +24,14 @@ import {
 import { resolveRealtimeProvider, loadRealtimeConfig } from '../services/realtime/index.js';
 import { loadFailoverState } from '../services/realtime/failoverState.js';
 import { runFailoverTickOnce } from '../services/realtime/failoverTicker.js';
+import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const realtimeControlRouter = Router();
 
 async function requireAdmin(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(
-    authHeader.replace('Bearer ', ''),
-  );
-  if (error || !user) return res.status(401).json({ error: 'Invalid token' });
-  const { data: isAdmin } = await sb.rpc('has_role', {
-    _user_id: user.id,
-    _role: 'admin',
-  });
-  if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
-  (req as any).adminUser = user;
+  const userId = await requirePlatformAdmin(req, res);
+  if (!userId) return;
+  (req as any).adminUser = { id: userId };
   next();
 }
 

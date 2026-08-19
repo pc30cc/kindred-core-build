@@ -20,6 +20,11 @@ import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
 } from '../services/billing/entitlementChange.js';
+import {
+  requireUser as requireSessionUser,
+  authorizeWorkspaceAccess,
+  requirePlatformAdmin,
+} from '../lib/workspaceAuth.js';
 
 export const billingRouter = Router();
 
@@ -30,43 +35,17 @@ function getConfig(req: any) {
 
 // ─── Auth / Authorization ────────────────────────────────────────
 //
-// Billing routes previously accepted the publishable anon key (or nothing at
-// all) as identity, so any visitor could read/modify any workspace's
-// subscription by passing a `workspaceId`. Identity is now derived from a real
-// Supabase user JWT and workspace membership/role is verified BEFORE any
-// service-role database access or provider request happens.
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Identity is derived from the first-party session cookie
+// (server/lib/workspaceAuth.ts); workspace membership/role is verified
+// BEFORE any service-role database access or provider request happens.
 
 function serverConfigOf(req: any): ServerConfig {
   return (req as any).serverConfig as ServerConfig;
 }
 
-/** Resolves the calling user from the Bearer JWT. Writes 401 and returns null on failure. */
+/** Resolves the calling user from the session cookie. Writes 401 and returns null on failure. */
 async function requireUser(req: any, res: any): Promise<string | null> {
-  const config = serverConfigOf(req);
-  const authHeader = req.headers.authorization;
-  if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.slice('Bearer '.length).trim();
-  // Publishable anon key and service-role key are not user identities.
-  if (!token || token === config.supabaseAnonKey || token === config.supabaseServiceRoleKey) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  try {
-    const { data, error } = await getServiceClient(config).auth.getUser(token);
-    if (error || !data?.user) {
-      res.status(401).json({ error: 'Invalid token' });
-      return null;
-    }
-    return data.user.id;
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
+  return requireSessionUser(req, res);
 }
 
 type BillingAuth = { userId: string; isAdmin: boolean; role: string | null };
@@ -82,49 +61,13 @@ async function authorizeWorkspace(
   workspaceId: unknown,
   opts: { manage?: boolean } = {},
 ): Promise<BillingAuth | null> {
-  const userId = await requireUser(req, res);
-  if (!userId) return null;
-
-  if (typeof workspaceId !== 'string' || !UUID_RE.test(workspaceId)) {
-    res.status(400).json({ error: 'Invalid workspaceId' });
-    return null;
-  }
-
-  const config = serverConfigOf(req);
-  if (await isGlobalAdmin(config, userId)) return { userId, isAdmin: true, role: null };
-
-  const sb = getServiceClient(config);
-  const { data: isMember } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: userId,
-  });
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  const role = ((member as { role?: string } | null)?.role) ?? null;
-
-  if (opts.manage && role !== 'owner' && role !== 'admin') {
-    res.status(403).json({ error: 'Insufficient workspace permissions' });
-    return null;
-  }
-  return { userId, isAdmin: false, role };
+  return authorizeWorkspaceAccess(req, res, workspaceId, opts);
 }
 
 /** Super-admin (platform) gate — `has_role(uid,'admin')` only. No fallbacks. */
 async function requireSuperAdmin(req: any, res: any, next: any) {
-  const userId = await requireUser(req, res);
+  const userId = await requirePlatformAdmin(req, res);
   if (!userId) return;
-  if (!(await isGlobalAdmin(serverConfigOf(req), userId))) {
-    return res.status(403).json({ error: 'Not authorized' });
-  }
   (req as any).adminUserId = userId;
   next();
 }

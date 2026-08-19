@@ -22,6 +22,7 @@ import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
+import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const adminRouter = Router();
 
@@ -59,31 +60,9 @@ async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise<string
 
 // Middleware: verify caller is a global admin
 async function requireAdmin(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-
-  // Check admin role
-  const { data: isAdmin } = await sb.rpc('has_role', {
-    _user_id: user.id,
-    _role: 'admin',
-  });
-
-  if (!isAdmin) {
-    return res.status(403).json({ error: 'Not authorized' });
-  }
-
-  (req as any).adminUser = user;
+  const userId = await requirePlatformAdmin(req, res);
+  if (!userId) return;
+  (req as any).adminUser = { id: userId };
   next();
 }
 

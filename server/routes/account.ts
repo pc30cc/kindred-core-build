@@ -1,7 +1,7 @@
 /**
  * ACCOUNT ROUTES — self-service for the currently authenticated user.
  *
- * Auth: Supabase access token (Bearer) — verified via service client.
+ * Auth: first-party session cookie (server/lib/workspaceAuth.ts).
  * Storage: avatars are uploaded through the active workspace storage
  *   provider (BunnyCDN / S3 / local) using the existing storage service,
  *   so secrets never reach the browser.
@@ -20,23 +20,33 @@ import { uploadFile, deleteFile } from '../services/storage/index.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, maskIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
+import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { findIdentityById } from '../services/auth/identity.js';
+import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/auth/password.js';
 
 export const accountRouter = Router();
 
 // ── Auth middleware ───────────────────────────────────────────────
+// Builds a `req.authUser` shaped like the old Supabase Auth user object
+// (id/email/phone/email_confirmed_at/user_metadata.full_name) so downstream
+// handlers below didn't need individual rewrites — but every field now
+// comes from `profiles`/`user_credentials`, not `auth.users`.
 async function requireUser(req: any, res: any, next: any) {
   const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return;
+  const identity = await findIdentityById(config, userId);
+  if (!identity) {
+    return res.status(401).json({ error: 'Account not found' });
   }
-  const token = authHeader.slice(7);
-  const sb = getServiceClient(config);
-  const { data, error } = await sb.auth.getUser(token);
-  if (error || !data?.user) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-  req.authUser = data.user;
+  req.authUser = {
+    id: identity.id,
+    email: identity.email,
+    phone: identity.phone,
+    email_confirmed_at: identity.emailVerifiedAt,
+    created_at: identity.createdAt,
+    user_metadata: { full_name: identity.fullName },
+  };
   next();
 }
 
@@ -125,13 +135,13 @@ accountRouter.patch('/me', async (req, res) => {
       }
     }
 
-    // Phone is on auth.users — propagate via admin API
     if (parsed.data.phone !== undefined) {
-      const { error: authErr } = await sb.auth.admin.updateUserById(user.id, {
-        phone: parsed.data.phone || undefined,
-      });
-      if (authErr) {
-        return res.status(400).json({ error: authErr.message });
+      const { error: phoneErr } = await sb
+        .from('profiles')
+        .update({ phone: parsed.data.phone || null })
+        .eq('id', user.id);
+      if (phoneErr) {
+        return res.status(400).json({ error: phoneErr.message });
       }
     }
 
@@ -318,7 +328,8 @@ accountRouter.delete('/avatar', async (req, res) => {
 });
 
 // ── POST /api/account/change-password ─────────────────────────────
-// Verifies current password by attempting a password sign-in, then updates.
+// Verifies the current password against the stored Argon2id hash, then
+// writes the new one. First-party — no Supabase Auth involved.
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
   newPassword: z.string().min(8).max(255),
@@ -337,23 +348,33 @@ accountRouter.post('/change-password', async (req, res) => {
       return res.status(400).json({ error: 'Account has no email' });
     }
 
-    // Re-auth with a throwaway anon client (does not affect current session)
-    const { createClient } = await import('@supabase/supabase-js');
-    const verifier = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { error: signInErr } = await verifier.auth.signInWithPassword({
-      email: user.email,
-      password: parsed.data.currentPassword,
-    });
-    if (signInErr) {
+    const sb = getServiceClient(config);
+    const { data: cred, error: credErr } = await sb
+      .from('user_credentials')
+      .select('password_hash')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (credErr) {
+      return res.status(500).json({ error: credErr.message });
+    }
+    if (!cred?.password_hash || !(await verifyPassword(cred.password_hash, parsed.data.currentPassword))) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
-    const sb = getServiceClient(config);
-    const { error: updErr } = await sb.auth.admin.updateUserById(user.id, {
-      password: parsed.data.newPassword,
-    });
+    let newHash: string;
+    try {
+      newHash = await hashPassword(parsed.data.newPassword);
+    } catch (err) {
+      if (err instanceof InvalidPasswordError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
+    }
+
+    const { error: updErr } = await sb
+      .from('user_credentials')
+      .update({ password_hash: newHash, password_algo: 'argon2id', password_set_at: new Date().toISOString() })
+      .eq('user_id', user.id);
     if (updErr) {
       return res.status(500).json({ error: updErr.message });
     }

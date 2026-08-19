@@ -19,37 +19,19 @@ import {
   type QueueChannel,
 } from '../services/calls/queue.js';
 import { resolveUserCallPermissions } from '../services/calls/permissions.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const callQueueRouter = Router();
 
 async function requireWorkspaceMember(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(
-    authHeader.replace('Bearer ', ''),
-  );
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 // GET /api/call-queue/:workspaceId?channel=audio|video

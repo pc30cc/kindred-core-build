@@ -465,11 +465,11 @@ accountRouter.post('/resend-verification', async (req, res) => {
 
 // ─── SECURITY: Active sessions + login history ───────────────────
 //
-// We read directly from Supabase's managed `auth.sessions` table via
-// service-role; the JS SDK does not expose a list endpoint for it.
-// `public.auth_sessions` columns this router reads via listActiveSessions():
-//   id, created_at, expires_at, ip_address, user_agent — see
-//   server/services/auth/sessions.ts for the full table shape.
+// Reads the first-party `public.auth_sessions` table via service-role
+// (see server/services/auth/sessions.ts for the full table shape and
+// listActiveSessions()) — never Supabase's own `auth.sessions`, which this
+// app's users don't populate under first-party auth. Columns read:
+//   id, created_at, expires_at, ip_address, user_agent
 //
 // `login_attempts` (already in our schema) powers the recent login history.
 

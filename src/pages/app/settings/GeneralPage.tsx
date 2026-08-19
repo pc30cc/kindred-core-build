@@ -1,7 +1,7 @@
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useBranding, useUpdateBranding } from '@/hooks/useBranding';
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
@@ -54,24 +54,22 @@ export default function SettingsGeneralPage() {
     queryKey: ['workspace-primary-domain', 'full', workspace?.id],
     enabled: !!workspace,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('workspace_domains')
-        .select('domain, is_primary, verified')
-        .eq('workspace_id', workspace!.id)
-        .order('is_primary', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data;
+      const res = await fetch(`${API_BASE}/api/workspaces/${workspace!.id}/primary-domain`, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json() as Promise<{ domain: string | null; is_primary: boolean | null; verified: boolean | null }>;
     },
   });
 
   const updateName = useMutation({
     mutationFn: async (name: string) => {
-      const { error } = await supabase
-        .from('workspaces')
-        .update({ name, updated_at: new Date().toISOString() })
-        .eq('id', workspace!.id);
-      if (error) throw error;
+      const res = await fetch(`${API_BASE}/api/workspaces/${workspace!.id}`, {
+        credentials: 'include',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workspaces'] });

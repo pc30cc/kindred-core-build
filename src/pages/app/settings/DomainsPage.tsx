@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,17 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, Globe, CheckCircle, AlertCircle } from 'lucide-react';
+
+async function domainsApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Request failed: ${res.status}`);
+  return body as T;
+}
 
 export default function SettingsDomainsPage() {
   const { t } = useTranslation();
@@ -19,25 +30,18 @@ export default function SettingsDomainsPage() {
   const { data: domains, isLoading } = useQuery({
     queryKey: ['domains', workspace?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_domains')
-        .select('*')
-        .eq('workspace_id', workspace!.id)
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      return data;
+      const { domains } = await domainsApi<{ domains: any[] }>(`/api/workspaces/${workspace!.id}/domains`);
+      return domains;
     },
     enabled: !!workspace?.id,
   });
 
   const addDomain = useMutation({
-    mutationFn: async (domain: string) => {
-      const { error } = await supabase.from('workspace_domains').insert({
-        workspace_id: workspace!.id,
-        domain,
-      });
-      if (error) throw error;
-    },
+    mutationFn: (domain: string) =>
+      domainsApi(`/api/workspaces/${workspace!.id}/domains`, {
+        method: 'POST',
+        body: JSON.stringify({ domain }),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['domains'] });
       setNewDomain('');
@@ -45,21 +49,14 @@ export default function SettingsDomainsPage() {
   });
 
   const deleteDomain = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('workspace_domains').delete().eq('id', id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) =>
+      domainsApi(`/api/workspaces/${workspace!.id}/domains/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['domains'] }),
   });
 
   const setPrimary = useMutation({
-    mutationFn: async (id: string) => {
-      // Unset all primary
-      await supabase.from('workspace_domains').update({ is_primary: false }).eq('workspace_id', workspace!.id);
-      // Set new primary
-      const { error } = await supabase.from('workspace_domains').update({ is_primary: true }).eq('id', id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) =>
+      domainsApi(`/api/workspaces/${workspace!.id}/domains/${id}/primary`, { method: 'PATCH' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['domains'] }),
   });
 

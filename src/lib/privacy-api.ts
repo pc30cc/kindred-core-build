@@ -1,9 +1,7 @@
 /**
- * Privacy API client.
- * Uses the Supabase user access token as Bearer (matches server expectations).
+ * Privacy API client. Auth is the first-party gs_session HttpOnly cookie
+ * (credentials: 'include').
  */
-import { supabase } from '@/lib/supabase';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export type PrivacyAction = 'export' | 'delete';
@@ -38,20 +36,12 @@ export interface PrivacyJob {
   cancelled_at: string | null;
 }
 
-async function bearer(): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error('Not signed in');
-  return token;
-}
-
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = await bearer();
-  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
       ...(init?.headers || {}),
     },
   });

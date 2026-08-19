@@ -1,12 +1,5 @@
-import { supabase } from '@/lib/supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
-  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
-}
 
 export interface MapGeoSettings {
   geo: {
@@ -31,7 +24,6 @@ export interface MapGeoSettings {
 async function call<T>(method: string, path: string, body?: any): Promise<T> {
   const res = await fetch(`${API_BASE}/api/admin/map-geo${path}`, {credentials: 'include', 
     method,
-    headers: await authHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {

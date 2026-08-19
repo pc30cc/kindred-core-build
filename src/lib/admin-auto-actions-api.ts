@@ -2,15 +2,8 @@
  * Phase 5C — Admin auto-actions client.
  * All endpoints require global admin (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export type AutoActionType =
   | 'disable_typing_temporarily'
@@ -64,7 +57,7 @@ export interface ActiveAutoAction {
 export async function fetchAutoActionDefinitions(): Promise<{
   definitions: AutoActionDefinition[];
 }> {
-  const headers = await authHeader();
+  const headers = {};
   const res = await fetch(`${API_BASE}/api/admin/auto-actions/definitions`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load definitions: ${res.status}`);
   return res.json();
@@ -76,7 +69,7 @@ export async function updateAutoActionDefinition(
     Pick<AutoActionDefinition, 'enabled' | 'cooldown_seconds' | 'max_duration_seconds' | 'min_severity'>
   >,
 ): Promise<{ definition: AutoActionDefinition }> {
-  const headers = await authHeader();
+  const headers = {};
   const res = await fetch(`${API_BASE}/api/admin/auto-actions/definitions/${id}`, {credentials: 'include', 
     method: 'PATCH',
     headers: { ...headers, 'content-type': 'application/json' },
@@ -92,7 +85,7 @@ export async function updateAutoActionDefinition(
 export async function fetchAutoActionEvents(
   opts: { state?: AutoActionState; limit?: number } = {},
 ): Promise<{ events: AutoActionEvent[] }> {
-  const headers = await authHeader();
+  const headers = {};
   const params = new URLSearchParams();
   if (opts.state) params.set('state', opts.state);
   if (opts.limit) params.set('limit', String(opts.limit));
@@ -102,7 +95,7 @@ export async function fetchAutoActionEvents(
 }
 
 export async function fetchActiveAutoActions(): Promise<{ active: ActiveAutoAction[] }> {
-  const headers = await authHeader();
+  const headers = {};
   const res = await fetch(`${API_BASE}/api/admin/auto-actions/active`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load active actions: ${res.status}`);
   return res.json();
@@ -112,7 +105,7 @@ export async function evaluateAutoActionsNow(): Promise<{
   ok: boolean;
   result: { expired: number; resolved: number; activated: number; ran_at: string };
 }> {
-  const headers = await authHeader();
+  const headers = {};
   const res = await fetch(`${API_BASE}/api/admin/auto-actions/evaluate`, {credentials: 'include', 
     method: 'POST',
     headers,
@@ -122,7 +115,7 @@ export async function evaluateAutoActionsNow(): Promise<{
 }
 
 export async function overrideAutoAction(eventId: string): Promise<{ ok: boolean }> {
-  const headers = await authHeader();
+  const headers = {};
   const res = await fetch(
     `${API_BASE}/api/admin/auto-actions/events/${eventId}/override`,
     {credentials: 'include', method: 'POST', headers },

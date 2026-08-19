@@ -4,20 +4,10 @@
  * Mechanically extracted from the original src/lib/ai-agent-api.ts (Phase 4
  * frontend API client split). Every domain module imports jsonFetch/
  * AiAgentApiError/API_BASE from here instead of duplicating this logic.
- * No behavior change: same API_BASE resolution, same Supabase session
- * lookup, same Authorization header behavior, same Content-Type handling,
- * same caller header merge order, same network error mapping, same
- * AiAgentApiError shape, same JSON parsing and empty-response behavior.
+ * Auth: first-party gs_session HttpOnly cookie (credentials: 'include') —
+ * no Supabase Auth session/Bearer token involved.
  */
-import { supabase } from '@/integrations/supabase/client';
-
 export const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 /**
  * Structured error for the AI Agent API client.
@@ -69,7 +59,6 @@ export async function jsonFetch(path: string, init: RequestInit = {}): Promise<u
       ...init,
       headers: {
         'Content-Type': 'application/json',
-        ...(await authHeaders()),
         ...(init.headers || {}),
       },
     });

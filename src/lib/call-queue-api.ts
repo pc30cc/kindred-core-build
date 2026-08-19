@@ -2,15 +2,8 @@
  * Phase 8C — Operator-side call queue API client.
  * All endpoints require workspace membership (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export type QueueChannel = 'audio' | 'video';
 export type QueueState =
@@ -56,7 +49,6 @@ export const callQueueApi = {
     const url = new URL(`${API_BASE}/api/call-queue/${workspaceId}`, window.location.origin);
     if (channel) url.searchParams.set('channel', channel);
     const res = await fetch(url.toString().replace(window.location.origin, ''), {credentials: 'include', 
-      headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     return res.json();
@@ -64,7 +56,6 @@ export const callQueueApi = {
   async offer(workspaceId: string, entryId: string): Promise<{ entry: CallQueueEntry }> {
     const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/offer`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeader(),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -75,7 +66,7 @@ export const callQueueApi = {
   async accept(workspaceId: string, entryId: string, callSessionId?: string): Promise<{ entry: CallQueueEntry }> {
     const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/accept`, {credentials: 'include', 
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ call_session_id: callSessionId }),
     });
     if (!res.ok) {
@@ -87,7 +78,7 @@ export const callQueueApi = {
   async cancel(workspaceId: string, entryId: string, reason?: string): Promise<{ entry: CallQueueEntry }> {
     const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/cancel`, {credentials: 'include', 
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -105,7 +96,6 @@ export const callQueueApi = {
     role: 'owner' | 'admin' | 'agent' | 'viewer' | null;
   }> {
     const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/me/permissions`, {credentials: 'include', 
-      headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     return res.json();

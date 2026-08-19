@@ -4,21 +4,11 @@
  * which inserts the message AND publishes to Centrifugo (if active) so
  * the visitor widget receives it live.
  *
- * Auth: Bearer = Supabase user access token (same pattern as
- * realtime-admin-api.ts).
+ * Auth: first-party gs_session HttpOnly cookie (credentials: 'include').
  */
-import { supabase } from '@/integrations/supabase/client';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 export interface SendMessageResult {
   ok: boolean;
@@ -59,7 +49,7 @@ export const conversationsApi = {
   }): Promise<SendMessageResult> {
     const res = await fetch(`${API_BASE}/api/conversations/send-message`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -78,7 +68,7 @@ export const conversationsApi = {
     try {
       await fetch(`${API_BASE}/api/conversations/typing`, {credentials: 'include', 
         method: 'POST',
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify(payload),
       });
     } catch {
@@ -98,7 +88,7 @@ export const conversationsApi = {
   }): Promise<OperatorAttachmentInit> {
     const res = await fetch(`${API_BASE}/api/conversation-attachments/init`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({
         workspace_id: payload.workspace_id,
         conversation_id: payload.conversation_id,
@@ -141,7 +131,7 @@ export const conversationsApi = {
       `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}/upload`,
       {credentials: 'include', 
         method: 'POST',
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify({ workspace_id: payload.workspace_id, data: b64 }),
       },
     );
@@ -157,7 +147,7 @@ export const conversationsApi = {
   }): Promise<void> {
     await fetch(
       `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}?workspace_id=${encodeURIComponent(payload.workspace_id)}`,
-      {credentials: 'include', method: 'DELETE', headers: await authHeaders() },
+      {credentials: 'include', method: 'DELETE', headers: JSON_HEADERS },
     );
   },
 
@@ -173,7 +163,7 @@ export const conversationsApi = {
   }): Promise<{ ok: boolean; conversation_id: string; created: boolean }> {
     const res = await fetch(`${API_BASE}/api/conversations/start-from-visitor`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -216,7 +206,7 @@ export const conversationsApi = {
       `${API_BASE}/api/conversations/${encodeURIComponent(conversation_id)}`,
       {credentials: 'include', 
         method: 'PATCH',
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify({ workspace_id, ...rest }),
       },
     );
@@ -232,7 +222,7 @@ export const conversationsApi = {
   async markSpam(payload: { workspace_id: string; conversation_id: string }) {
     const res = await fetch(`${API_BASE}/api/conversations/spam`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -244,7 +234,7 @@ export const conversationsApi = {
   async unmarkSpam(payload: { workspace_id: string; conversation_id: string }) {
     const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -267,21 +257,21 @@ export const conversationsApi = {
     if (params.status) q.set('status', params.status);
     if (params.needsHuman) q.set('needs_human', 'true');
     if (params.assignedToMe) q.set('assigned_to_me', params.assignedToMe);
-    const res = await fetch(`${API_BASE}/api/conversations?${q}`, {credentials: 'include', headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/conversations?${q}`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `List failed: ${res.status}`);
     return json;
   },
 
   async getInboxCounts(workspaceId: string): Promise<{ main: number; automated: number; needs_human: number; spam: number }> {
-    const res = await fetch(`${API_BASE}/api/conversations/inbox-counts?workspace_id=${encodeURIComponent(workspaceId)}`, {credentials: 'include', headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-counts?workspace_id=${encodeURIComponent(workspaceId)}`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Counts failed: ${res.status}`);
     return json;
   },
 
   async getInboxTabCounts(workspaceId: string): Promise<Record<string, number>> {
-    const res = await fetch(`${API_BASE}/api/conversations/inbox-tab-counts?workspace_id=${encodeURIComponent(workspaceId)}`, {credentials: 'include', headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-tab-counts?workspace_id=${encodeURIComponent(workspaceId)}`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Tab counts failed: ${res.status}`);
     return json;
@@ -289,7 +279,7 @@ export const conversationsApi = {
 
   /** Thread for one conversation, enriched with attachment + sender identity. */
   async getMessages(conversationId: string): Promise<{ messages: any[] }> {
-    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, {credentials: 'include', headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Messages failed: ${res.status}`);
     return json;
@@ -299,7 +289,7 @@ export const conversationsApi = {
   async markSeen(conversationId: string): Promise<{ ok: boolean; count: number }> {
     const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/seen`, {credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Mark seen failed: ${res.status}`);
@@ -310,7 +300,7 @@ export const conversationsApi = {
   async deleteAll(workspaceId: string): Promise<{ deleted: number }> {
     const res = await fetch(`${API_BASE}/api/conversations`, {credentials: 'include',
       method: 'DELETE',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({ workspace_id: workspaceId }),
     });
     const json = await res.json();

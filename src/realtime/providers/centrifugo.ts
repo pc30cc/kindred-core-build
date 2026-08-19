@@ -161,60 +161,7 @@ interface SubscribeResponse {
   expires_at?: number;
 }
 
-/**
- * Single-flight Supabase access-token refresh.
- *
- * Wake/network-change race: after a long sleep `supabase.auth.getSession()`
- * synchronously returns the cached (now-expired) JWT. The Supabase auto-
- * refresh runs asynchronously in the background, so the very first
- * `/api/realtime/operator-connect` POST after wake goes out with a stale
- * bearer and the server responds 401 — which then drives the
- * `reconnect open failed` loop and the proactive-refresh failures we see
- * in the overnight logs.
- *
- * Fix: before returning auth headers, if the cached access token is at /
- * past expiry (or within a 30s safety window), await a single refresh.
- * Concurrent callers share the same in-flight promise so we never fire
- * N parallel refreshes.
- */
-const ACCESS_TOKEN_REFRESH_LEAD_MS = 30_000;
-let inflightSupabaseRefresh: Promise<void> | null = null;
-
-async function ensureFreshSupabaseSession(): Promise<void> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) return;
-  const expMs = (session.expires_at || 0) * 1000;
-  if (!expMs) return;
-  if (Date.now() < expMs - ACCESS_TOKEN_REFRESH_LEAD_MS) return;
-  if (inflightSupabaseRefresh) {
-    await inflightSupabaseRefresh;
-    return;
-  }
-  inflightSupabaseRefresh = (async () => {
-    try {
-      await supabase.auth.refreshSession();
-    } catch {
-      /* swallow — caller will see 401 and the reconnect loop will retry */
-    } finally {
-      inflightSupabaseRefresh = null;
-    }
-  })();
-  await inflightSupabaseRefresh;
-}
-
-async function authHeaders(): Promise<Record<string, string>> {
-  // Serialize a Supabase refresh BEFORE reading the session so we never
-  // POST a stale bearer to the realtime endpoints right after wake.
-  await ensureFreshSupabaseSession();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /**
  * Fetch a fresh connection negotiation. Used both for the initial open and
@@ -224,9 +171,10 @@ async function authHeaders(): Promise<Record<string, string>> {
  */
 async function negotiateConnect(workspaceId: string): Promise<RealtimeNegotiation | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({ workspace_id: workspaceId }),
     });
     if (!res.ok) return null;
@@ -241,9 +189,10 @@ async function operatorSubscribe(
   conversationId: string,
 ): Promise<SubscribeResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-subscribe`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/realtime/operator-subscribe`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({ workspace_id: workspaceId, conversation_id: conversationId }),
     });
     if (!res.ok) return null;
@@ -255,9 +204,10 @@ async function operatorSubscribe(
 
 async function operatorInboxSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-inbox-subscribe`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/realtime/operator-inbox-subscribe`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({ workspace_id: workspaceId }),
     });
     if (!res.ok) return null;
@@ -269,9 +219,10 @@ async function operatorInboxSubscribe(workspaceId: string): Promise<SubscribeRes
 
 async function operatorVisitorsSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-visitors-subscribe`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/realtime/operator-visitors-subscribe`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({ workspace_id: workspaceId }),
     });
     if (!res.ok) return null;

@@ -2,7 +2,6 @@
  * Phase 8D — Callback request API client (operator-side).
  * Visitor-side callback creation flows through the widget runtime.
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -45,16 +44,10 @@ export interface CallbackCounts {
   cancelled: number;
 }
 
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export const callbacksApi = {
   async list(workspaceId: string, status?: CallbackStatus | 'open'): Promise<CallbackRow[]> {
     const url = `${API_BASE}/api/callbacks/${workspaceId}` + (status ? `?status=${status}` : '');
-    const res = await fetch(url, {credentials: 'include', headers: await authHeader() });
+    const res = await fetch(url, {credentials: 'include', headers: {} });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     const json = await res.json();
     return json.callbacks ?? [];
@@ -62,7 +55,7 @@ export const callbacksApi = {
   async update(workspaceId: string, callbackId: string, status: CallbackStatus): Promise<CallbackRow> {
     const res = await fetch(`${API_BASE}/api/callbacks/${workspaceId}/${callbackId}`, {credentials: 'include', 
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
     if (!res.ok) {
@@ -74,7 +67,6 @@ export const callbacksApi = {
   },
   async getCounts(workspaceId: string): Promise<CallbackCounts> {
     const res = await fetch(`${API_BASE}/api/callbacks/${workspaceId}/counts`, {credentials: 'include', 
-      headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     return res.json();

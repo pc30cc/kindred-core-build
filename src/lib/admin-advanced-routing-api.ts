@@ -2,7 +2,6 @@
  * Super-admin Global Advanced Routing API client.
  * All endpoints require global admin role (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -14,15 +13,9 @@ export interface GlobalAdvancedRoutingPolicy {
   general_pool_enabled: boolean;
 }
 
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export async function getGlobalAdvancedRouting(): Promise<GlobalAdvancedRoutingPolicy> {
   const res = await fetch(`${API_BASE}/api/admin/advanced-routing`, {credentials: 'include', 
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -37,7 +30,7 @@ export async function updateGlobalAdvancedRouting(
 ): Promise<GlobalAdvancedRoutingPolicy> {
   const res = await fetch(`${API_BASE}/api/admin/advanced-routing`, {credentials: 'include', 
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!res.ok) {

@@ -4,19 +4,9 @@
  * self-hosted backend. The server enforces `max_contacts` via the
  * shared TypeScript entitlement stack before inserting.
  *
- * Auth: Bearer = Supabase user access token (same pattern as
- * conversations-api.ts).
+ * Auth: first-party gs_session HttpOnly cookie (credentials: 'include').
  */
-import { supabase } from '@/integrations/supabase/client';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
 
 export interface CreateContactInput {
   workspace_id: string;
@@ -36,9 +26,10 @@ export interface BulkCreateResult {
 
 export const contactsApi = {
   async create(payload: CreateContactInput) {
-    const res = await fetch(`${API_BASE}/api/contacts`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/contacts`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -53,9 +44,10 @@ export const contactsApi = {
 
   async bulkCreate(workspace_id: string, contacts: Array<Omit<CreateContactInput, 'workspace_id'>>): Promise<BulkCreateResult> {
     if (!contacts.length) return { ok: true, inserted: 0 };
-    const res = await fetch(`${API_BASE}/api/contacts/bulk`, {credentials: 'include',
+    const res = await fetch(`${API_BASE}/api/contacts/bulk`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workspace_id, contacts }),
     });
     const json = await res.json();
@@ -72,14 +64,14 @@ export const contactsApi = {
   // See server/routes/contacts.ts — replaces the previous direct
   // supabase.from('contacts'/'conversations'/...) reads/writes.
   async list(workspaceId: string) {
-    const res = await fetch(`${API_BASE}/api/contacts?workspace_id=${encodeURIComponent(workspaceId)}`, {credentials: 'include', headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/contacts?workspace_id=${encodeURIComponent(workspaceId)}`, {credentials: 'include', headers: {} });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `List failed: ${res.status}`);
     return json.contacts;
   },
 
   async get(id: string) {
-    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include', headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include', headers: {} });
     if (res.status === 404) return null;
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Get failed: ${res.status}`);
@@ -87,16 +79,17 @@ export const contactsApi = {
   },
 
   async getConversations(contactId: string) {
-    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(contactId)}/conversations`, {credentials: 'include', headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(contactId)}/conversations`, {credentials: 'include', headers: {} });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Get conversations failed: ${res.status}`);
     return json.conversations;
   },
 
   async update(id: string, patch: Record<string, unknown>) {
-    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include',
+    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {
+      credentials: 'include',
       method: 'PATCH',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     });
     const json = await res.json();
@@ -107,7 +100,6 @@ export const contactsApi = {
   async delete(id: string): Promise<void> {
     const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include',
       method: 'DELETE',
-      headers: await authHeaders(),
     });
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
@@ -117,9 +109,10 @@ export const contactsApi = {
 
   async bulkDelete(ids: string[]): Promise<{ deleted: number }> {
     if (!ids.length) return { deleted: 0 };
-    const res = await fetch(`${API_BASE}/api/contacts/bulk-delete`, {credentials: 'include',
+    const res = await fetch(`${API_BASE}/api/contacts/bulk-delete`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
     });
     const json = await res.json();

@@ -24,6 +24,8 @@ import { z } from 'zod';
 import { issueVerificationEmail } from '../services/auth-email.js';
 import { findIdentityByEmail, findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, verifyPassword, needsRehash, InvalidPasswordError } from '../services/auth/password.js';
+import { redeemImpersonationToken } from '../services/auth/impersonation.js';
+import { resolveAppBaseUrl } from './admin.js';
 import {
   createSession,
   setSessionCookie,
@@ -407,6 +409,41 @@ authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
     console.error('[auth] Logout-all error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
+});
+
+/**
+ * GET /api/auth/impersonate
+ * Redeems a one-time platform-admin "login as user" token (issued by
+ * POST /api/admin/impersonate) — sets a real session cookie for the target
+ * user and redirects into the app. Replaces the old Supabase Auth
+ * magic-link verify URL; the frontend just opens this URL in a new tab.
+ */
+authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const redeemed = await redeemImpersonationToken(config, req.query.token as string | undefined);
+  if (!redeemed) {
+    return res.status(400).send('This impersonation link is invalid or has expired.');
+  }
+
+  const identity = await findIdentityById(config, redeemed.targetUserId);
+  if (!identity) {
+    return res.status(404).send('Target user no longer exists.');
+  }
+
+  const session = await createSession(config, {
+    userId: identity.id,
+    email: identity.email,
+    ipAddress: req.ip || null,
+    userAgent: (req.headers['user-agent'] as string | undefined) || null,
+  });
+  setSessionCookie(res, session.token, session.expiresAt);
+  await logSecurityEvent(req, 'admin_impersonation', 'warn', {
+    userId: identity.id,
+    adminUserId: redeemed.createdBy,
+  });
+
+  const redirectBase = await resolveAppBaseUrl(config, req);
+  return res.redirect(302, `${redirectBase || ''}/app`);
 });
 
 /**

@@ -46,6 +46,8 @@ import {
   assignCallToAgent, transferCall, RoutingException,
 } from '../services/callCenter/routing.js';
 import crypto from 'crypto';
+import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 
 export const callCenterRouter = Router();
 
@@ -65,78 +67,18 @@ function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
 }
 
 // ── auth helpers ───────────────────────────────────────────────────────────
-/**
- * CC-2H Phase 7 — Resilient auth lookup.
- *
- * Wraps `sb.auth.getUser()` so transient network failures against the
- * Supabase auth host (DNS EAI_AGAIN, undici UND_ERR_CONNECT_TIMEOUT,
- * ECONNRESET, fetch failed, etc.) do NOT bubble up as raw stack traces
- * or get misinterpreted as "unauthenticated" 401s.
- *
- * Behavior:
- *   - return { user }   → success
- *   - return { user: null }                       → no/invalid bearer
- *   - return { unreachable: true, code }          → transient infra failure
- *
- * One short retry (200 ms) is attempted for transient errors. Total
- * wait stays under ~2s. NEVER returns a fabricated user.
- */
-const TRANSIENT_AUTH_CODES = [
-  'EAI_AGAIN', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT',
-  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT',
-  'fetch failed',
-];
-function classifyAuthError(err: any): string | null {
-  const code = err?.code || err?.cause?.code || '';
-  const msg = String(err?.message || err?.cause?.message || err || '');
-  for (const c of TRANSIENT_AUTH_CODES) {
-    if (code === c) return c;
-    if (msg.includes(c)) return c;
-  }
-  return null;
-}
+// Identity comes from the first-party gs_session cookie (server/lib/
+// workspaceAuth.ts) — a local, indexed database lookup, not an external
+// auth provider call. The retry/"unreachable" classification this file
+// used to need for Supabase Auth network failures no longer applies, so
+// it's been dropped rather than ported.
 interface AuthLookup {
-  user: any | null;
-  unreachable?: boolean;
-  code?: string;
+  user: { id: string } | null;
 }
 async function lookupUser(req: any, config: ServerConfig): Promise<AuthLookup> {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return { user: null };
-  const sb = getServiceClient(config);
-  const token = auth.replace('Bearer ', '');
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const { data, error } = await sb.auth.getUser(token);
-      if (error) {
-        const transient = classifyAuthError(error);
-        if (transient && attempt === 0) {
-          await new Promise((r) => setTimeout(r, 200));
-          continue;
-        }
-        if (transient) {
-          console.warn('[call_center.auth_provider_unreachable]', { code: transient, attempt });
-          return { user: null, unreachable: true, code: transient };
-        }
-        return { user: null };
-      }
-      return { user: data?.user || null };
-    } catch (err: any) {
-      const transient = classifyAuthError(err);
-      if (transient && attempt === 0) {
-        await new Promise((r) => setTimeout(r, 200));
-        continue;
-      }
-      if (transient) {
-        console.warn('[call_center.auth_provider_unreachable]', { code: transient, attempt });
-        return { user: null, unreachable: true, code: transient };
-      }
-      // Non-transient unexpected error — log safely, treat as no user.
-      console.warn('[call_center.auth_lookup_failed]', { message: String(err?.message || err) });
-      return { user: null };
-    }
-  }
-  return { user: null };
+  const token = (req as any).cookies?.[SESSION_COOKIE_NAME];
+  const session = await validateSessionToken(config, token);
+  return { user: session ? { id: session.userId } : null };
 }
 
 async function getUser(req: any, config: ServerConfig) {
@@ -146,18 +88,9 @@ async function getUser(req: any, config: ServerConfig) {
 
 async function requireMember(req: any, res: any, workspaceId: string) {
   const config = (req as any).serverConfig as ServerConfig;
-  const lookup = await lookupUser(req, config);
-  if (lookup.unreachable) {
-    res.status(503).json({ error: 'auth_provider_unreachable' });
-    return null;
-  }
-  if (!lookup.user) { res.status(401).json({ error: 'unauthenticated' }); return null; }
-  const sb = getServiceClient(config);
-  const { data: ok } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId, _user_id: lookup.user.id,
-  });
-  if (!ok) { res.status(403).json({ error: 'not_member' }); return null; }
-  return { userId: lookup.user.id, config };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId, config };
 }
 
 async function requireWorkspaceAdmin(req: any, res: any, workspaceId: string) {
@@ -270,11 +203,9 @@ async function requireCallOperator(req: any, res: any, workspaceId: string) {
 
 async function requireGlobalAdmin(req: any, res: any) {
   const config = (req as any).serverConfig as ServerConfig;
-  const user = await getUser(req, config);
-  if (!user) { res.status(401).json({ error: 'unauthenticated' }); return null; }
-  const ok = await isGlobalAdmin(config, user.id);
-  if (!ok) { res.status(403).json({ error: 'forbidden' }); return null; }
-  return { userId: user.id, config };
+  const userId = await requirePlatformAdmin(req, res);
+  if (!userId) return null;
+  return { userId, config };
 }
 
 // ── Workspace settings ─────────────────────────────────────────────────────
@@ -1953,23 +1884,9 @@ callCenterRouter.get('/diagnostics/livekit', async (req, res) => {
   const wid = String(req.query.workspaceId || '');
   if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
   const config = (req as any).serverConfig as ServerConfig;
-  const lookup = await lookupUser(req, config);
-  if (lookup.unreachable) return res.status(503).json({ error: 'auth_provider_unreachable' });
-  if (!lookup.user) return res.status(401).json({ error: 'unauthenticated' });
-  const sb = getServiceClient(config);
-  const isAdmin = await isGlobalAdmin(config, lookup.user.id);
-  let role: string | null = null;
-  if (!isAdmin) {
-    const { data: ok } = await sb.rpc('is_workspace_member', {
-      _workspace_id: wid, _user_id: lookup.user.id,
-    });
-    if (!ok) return res.status(403).json({ error: 'not_member' });
-    const { data: roleRaw } = await sb.rpc('get_workspace_role', {
-      _workspace_id: wid, _user_id: lookup.user.id,
-    });
-    role = roleRaw ? String(roleRaw) : null;
-  }
-  if (!isAdmin && !(role && DIAG_ROLES.has(role))) {
+  const auth = await authorizeWorkspaceAccess(req, res, wid);
+  if (!auth) return;
+  if (!auth.isAdmin && !(auth.role && DIAG_ROLES.has(auth.role))) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

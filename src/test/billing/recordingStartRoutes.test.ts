@@ -48,6 +48,14 @@ vi.mock("../../../server/middleware/adminBypass.js", () => ({
   isGlobalAdmin: async () => true,
 }));
 
+vi.mock("../../../server/services/auth/sessions.js", () => ({
+  SESSION_COOKIE_NAME: "gs_session",
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    return { sessionId: "test-session", userId: "u-1", email: "test@example.com" };
+  },
+}));
+
 const { startCallsMock, startCenterMock, stopCallsMock, stopCenterMock } =
   vi.hoisted(() => ({
     startCallsMock: vi.fn(),
@@ -99,6 +107,7 @@ function makeReqRes(opts: { params?: any; query?: any; body?: any } = {}) {
     query: opts.query ?? { workspaceId: "11111111-1111-1111-1111-111111111111" },
     body: opts.body ?? {},
     headers: { authorization: "Bearer t" },
+    cookies: { gs_session: "t" },
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;

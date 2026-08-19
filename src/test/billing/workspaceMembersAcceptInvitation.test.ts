@@ -79,6 +79,16 @@ vi.mock("../../../server/supabase.js", () => ({
   getServiceClient: () => makeServiceClient(),
 }));
 
+vi.mock("../../../server/services/auth/sessions.js", () => ({
+  SESSION_COOKIE_NAME: "gs_session",
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    const user = serviceState.user?.data?.user;
+    if (!user) return null;
+    return { sessionId: "test-session", userId: user.id, email: "test@example.com" };
+  },
+}));
+
 // ─── Feature-gating middleware stub ──────────────────────────────
 // Returns a configurable passthrough so we can simulate at-limit
 // without standing up the real check_workspace_entitlement RPC.
@@ -131,9 +141,11 @@ function findHandler(method: string, path: string) {
 }
 
 function makeReqRes(body: any, authHeader?: string) {
+  const tokenMatch = authHeader ? /^Bearer (.+)$/.exec(authHeader) : null;
   const req: any = {
     body,
     headers: authHeader ? { authorization: authHeader } : {},
+    cookies: tokenMatch ? { gs_session: tokenMatch[1] } : {},
     serverConfig: {
       supabaseUrl: "http://x",
       supabaseAnonKey: "anon-key-fake",

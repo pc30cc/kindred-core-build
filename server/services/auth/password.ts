@@ -9,10 +9,17 @@
  * the single source of truth so `needsRehash` can detect a stored hash that
  * predates a future parameter bump.
  */
-import { hash as argon2Hash, verify as argon2Verify, Algorithm } from '@node-rs/argon2';
+import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
+
+// @node-rs/argon2 exports `Algorithm` as a `const enum`, which this
+// project's `isolatedModules` tsconfig setting forbids importing across
+// module boundaries (each file must be independently transpilable). Use the
+// underlying numeric value directly instead — Argon2id = 2, per
+// node_modules/@node-rs/argon2/index.d.ts.
+const ARGON2ID = 2;
 
 export const CURRENT_PARAMS = Object.freeze({
-  algorithm: Algorithm.Argon2id,
+  algorithm: ARGON2ID,
   memoryCost: 19456, // 19 MiB
   timeCost: 2,
   parallelism: 1,

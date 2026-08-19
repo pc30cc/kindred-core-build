@@ -17,6 +17,7 @@ import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
 import { workspacesRouter } from './routes/workspaces.js';
 import { workspaceMembersRouter } from './routes/workspaceMembers.js';
+import { widgetSettingsRouter } from './routes/widgetSettings.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
@@ -342,6 +343,7 @@ app.use('/api/account', accountRouter);
 // See docs/MAX_AGENTS_POLICY.md and server/routes/workspaceMembers.ts.
 app.use('/api/workspaces', workspacesRouter);
 app.use('/api/workspace-members', workspaceMembersRouter);
+app.use('/api/widget-settings', widgetSettingsRouter);
 
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);

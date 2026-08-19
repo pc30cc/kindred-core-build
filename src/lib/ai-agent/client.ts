@@ -65,7 +65,7 @@ export async function jsonFetch(path: string, init: RequestInit = {}): Promise<u
   const method = (init.method || 'GET').toUpperCase();
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
       ...init,
       headers: {
         'Content-Type': 'application/json',

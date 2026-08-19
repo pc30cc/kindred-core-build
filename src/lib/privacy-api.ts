@@ -47,7 +47,7 @@ async function bearer(): Promise<string> {
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await bearer();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...init,
     headers: {
       'Content-Type': 'application/json',

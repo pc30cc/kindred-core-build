@@ -55,14 +55,14 @@ export const callQueueApi = {
   async list(workspaceId: string, channel?: QueueChannel): Promise<{ entries: CallQueueEntry[] }> {
     const url = new URL(`${API_BASE}/api/call-queue/${workspaceId}`, window.location.origin);
     if (channel) url.searchParams.set('channel', channel);
-    const res = await fetch(url.toString().replace(window.location.origin, ''), {
+    const res = await fetch(url.toString().replace(window.location.origin, ''), {credentials: 'include', 
       headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     return res.json();
   },
   async offer(workspaceId: string, entryId: string): Promise<{ entry: CallQueueEntry }> {
-    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/offer`, {
+    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/offer`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeader(),
     });
@@ -73,7 +73,7 @@ export const callQueueApi = {
     return res.json();
   },
   async accept(workspaceId: string, entryId: string, callSessionId?: string): Promise<{ entry: CallQueueEntry }> {
-    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/accept`, {
+    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/accept`, {credentials: 'include', 
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
       body: JSON.stringify({ call_session_id: callSessionId }),
@@ -85,7 +85,7 @@ export const callQueueApi = {
     return res.json();
   },
   async cancel(workspaceId: string, entryId: string, reason?: string): Promise<{ entry: CallQueueEntry }> {
-    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/cancel`, {
+    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/${entryId}/cancel`, {credentials: 'include', 
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
       body: JSON.stringify({ reason }),
@@ -104,7 +104,7 @@ export const callQueueApi = {
     can_manage_call_queue: boolean;
     role: 'owner' | 'admin' | 'agent' | 'viewer' | null;
   }> {
-    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/me/permissions`, {
+    const res = await fetch(`${API_BASE}/api/call-queue/${workspaceId}/me/permissions`, {credentials: 'include', 
       headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);

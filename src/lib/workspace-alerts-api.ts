@@ -31,7 +31,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 export async function fetchWorkspaceAlerts(workspaceId: string): Promise<WorkspaceAlertsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}`, {
+  const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}`, {credentials: 'include', 
     headers: await authHeaders(),
   });
   const body = await res.json().catch(() => ({}));
@@ -47,7 +47,7 @@ export async function dismissWorkspaceAlerts(
   workspaceId: string,
   payload: { alertId?: string; all?: boolean },
 ): Promise<{ dismissed: number }> {
-  const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}/dismiss`, {
+  const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}/dismiss`, {credentials: 'include', 
     method: 'POST',
     headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

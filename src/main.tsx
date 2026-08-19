@@ -25,7 +25,7 @@ function logCallUiBuildVersion() {
       correction: CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
       verifiedVisually: false,
     });
-    fetch('/widget/widget-manifest.json', { cache: 'no-store' })
+    fetch('/widget/widget-manifest.json', {credentials: 'include', cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((manifest) => {
         if (!manifest) return;

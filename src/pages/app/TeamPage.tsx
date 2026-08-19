@@ -232,7 +232,7 @@ export default function TeamPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token || '';
       const link = `${window.location.origin}/auth/invite?token=${token}`;
-      await fetch(`${API_BASE}/api/email/send`, {
+      await fetch(`${API_BASE}/api/email/send`, {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

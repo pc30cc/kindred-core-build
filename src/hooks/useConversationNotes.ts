@@ -46,7 +46,7 @@ export function useConversationNotes(
       const headers = await authHeaders();
       const url = `${API_BASE}/api/conversations/${encodeURIComponent(conversationId!)}/notes`
         + `?workspace_id=${encodeURIComponent(workspaceId!)}`;
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, {credentials: 'include', headers });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Notes load failed: ${res.status}`);
       return (json.notes ?? []) as ConversationNote[];
@@ -64,7 +64,7 @@ export function useCreateNote(
   return useMutation({
     mutationFn: async (body: string) => {
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
-      const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes`, {
+      const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes`, {credentials: 'include', 
         method: 'POST',
         headers: await authHeaders(),
         body: JSON.stringify({ workspace_id: workspaceId, body }),
@@ -90,7 +90,7 @@ export function useUpdateNote(
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
       const res = await fetch(
         `${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes/${encodeURIComponent(noteId)}`,
-        {
+        {credentials: 'include', 
           method: 'PATCH',
           headers: await authHeaders(),
           body: JSON.stringify({ workspace_id: workspaceId, body }),
@@ -116,7 +116,7 @@ export function useDeleteNote(
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
       const url = `${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes/${encodeURIComponent(noteId)}`
         + `?workspace_id=${encodeURIComponent(workspaceId)}`;
-      const res = await fetch(url, { method: 'DELETE', headers: await authHeaders() });
+      const res = await fetch(url, {credentials: 'include', method: 'DELETE', headers: await authHeaders() });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error || `Delete failed: ${res.status}`);

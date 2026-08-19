@@ -36,7 +36,7 @@ export interface BulkCreateResult {
 
 export const contactsApi = {
   async create(payload: CreateContactInput) {
-    const res = await fetch(`${API_BASE}/api/contacts`, {
+    const res = await fetch(`${API_BASE}/api/contacts`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(payload),
@@ -53,7 +53,7 @@ export const contactsApi = {
 
   async bulkCreate(workspace_id: string, contacts: Array<Omit<CreateContactInput, 'workspace_id'>>): Promise<BulkCreateResult> {
     if (!contacts.length) return { ok: true, inserted: 0 };
-    const res = await fetch(`${API_BASE}/api/contacts/bulk`, {
+    const res = await fetch(`${API_BASE}/api/contacts/bulk`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({ workspace_id, contacts }),

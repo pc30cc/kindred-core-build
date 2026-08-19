@@ -101,7 +101,7 @@ async function fetchWorkspaceOverride(workspaceId: string): Promise<RealtimeVend
 
 async function negotiate(workspaceId: string): Promise<RealtimeNegotiation | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({ workspace_id: workspaceId }),

@@ -106,14 +106,14 @@ export interface EnforcementNormalization {
 
 async function get<T>(path: string): Promise<T> {
   const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, { headers });
+  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return res.json();
 }
 
 async function send<T>(path: string, method: string, body?: any): Promise<T> {
   const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, {
+  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, {credentials: 'include', 
     method,
     headers: { ...headers, 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,

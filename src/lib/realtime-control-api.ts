@@ -97,7 +97,7 @@ export interface RealtimeFailoverState {
 
 export const realtimeControlApi = {
   async get(): Promise<RealtimeControlBundle> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {credentials: 'include', 
       headers: await authHeaders(),
     });
     if (!res.ok) throw new Error(`Load failed: ${res.status}`);
@@ -106,7 +106,7 @@ export const realtimeControlApi = {
   async update(
     patch: Partial<RealtimeControlSettings>,
   ): Promise<{ ok: boolean; settings: RealtimeControlSettings }> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {credentials: 'include', 
       method: 'PUT',
       headers: await authHeaders(),
       body: JSON.stringify(patch),
@@ -116,7 +116,7 @@ export const realtimeControlApi = {
     return json;
   },
   async audit(): Promise<RealtimeControlAuditEntry[]> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/control/audit`, {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control/audit`, {credentials: 'include', 
       headers: await authHeaders(),
     });
     if (!res.ok) return [];
@@ -124,7 +124,7 @@ export const realtimeControlApi = {
     return (json.entries ?? []) as RealtimeControlAuditEntry[];
   },
   async failover(): Promise<RealtimeFailoverState> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/control/failover`, {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control/failover`, {credentials: 'include', 
       headers: await authHeaders(),
     });
     if (!res.ok) throw new Error(`Load failed: ${res.status}`);
@@ -133,7 +133,7 @@ export const realtimeControlApi = {
   async evaluateFailover(): Promise<{ ok: boolean; effective_provider: RealtimeProviderId }> {
     const res = await fetch(
       `${API_BASE}/api/realtime/admin/control/failover/evaluate`,
-      { method: 'POST', headers: await authHeaders() },
+      {credentials: 'include', method: 'POST', headers: await authHeaders() },
     );
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Evaluate failed');

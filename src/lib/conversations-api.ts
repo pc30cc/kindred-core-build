@@ -57,7 +57,7 @@ export const conversationsApi = {
     metadata?: Record<string, unknown>;
     attachment_id?: string | null;
   }): Promise<SendMessageResult> {
-    const res = await fetch(`${API_BASE}/api/conversations/send-message`, {
+    const res = await fetch(`${API_BASE}/api/conversations/send-message`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(payload),
@@ -76,7 +76,7 @@ export const conversationsApi = {
     conversation_id: string;
   }): Promise<void> {
     try {
-      await fetch(`${API_BASE}/api/conversations/typing`, {
+      await fetch(`${API_BASE}/api/conversations/typing`, {credentials: 'include', 
         method: 'POST',
         headers: await authHeaders(),
         body: JSON.stringify(payload),
@@ -96,7 +96,7 @@ export const conversationsApi = {
     conversation_id: string | null;
     file: File;
   }): Promise<OperatorAttachmentInit> {
-    const res = await fetch(`${API_BASE}/api/conversation-attachments/init`, {
+    const res = await fetch(`${API_BASE}/api/conversation-attachments/init`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({
@@ -139,7 +139,7 @@ export const conversationsApi = {
 
     const res = await fetch(
       `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}/upload`,
-      {
+      {credentials: 'include', 
         method: 'POST',
         headers: await authHeaders(),
         body: JSON.stringify({ workspace_id: payload.workspace_id, data: b64 }),
@@ -157,7 +157,7 @@ export const conversationsApi = {
   }): Promise<void> {
     await fetch(
       `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}?workspace_id=${encodeURIComponent(payload.workspace_id)}`,
-      { method: 'DELETE', headers: await authHeaders() },
+      {credentials: 'include', method: 'DELETE', headers: await authHeaders() },
     );
   },
 
@@ -171,7 +171,7 @@ export const conversationsApi = {
     workspace_id: string;
     visitor_session_id: string;
   }): Promise<{ ok: boolean; conversation_id: string; created: boolean }> {
-    const res = await fetch(`${API_BASE}/api/conversations/start-from-visitor`, {
+    const res = await fetch(`${API_BASE}/api/conversations/start-from-visitor`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(payload),
@@ -214,7 +214,7 @@ export const conversationsApi = {
     const { workspace_id, conversation_id, ...rest } = payload;
     const res = await fetch(
       `${API_BASE}/api/conversations/${encodeURIComponent(conversation_id)}`,
-      {
+      {credentials: 'include', 
         method: 'PATCH',
         headers: await authHeaders(),
         body: JSON.stringify({ workspace_id, ...rest }),
@@ -230,7 +230,7 @@ export const conversationsApi = {
    * Soft routing only — does not block the visitor.
    */
   async markSpam(payload: { workspace_id: string; conversation_id: string }) {
-    const res = await fetch(`${API_BASE}/api/conversations/spam`, {
+    const res = await fetch(`${API_BASE}/api/conversations/spam`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(payload),
@@ -242,7 +242,7 @@ export const conversationsApi = {
 
   /** Clear the spam flag (and the contact's flag, if any). */
   async unmarkSpam(payload: { workspace_id: string; conversation_id: string }) {
-    const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {
+    const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {credentials: 'include', 
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify(payload),

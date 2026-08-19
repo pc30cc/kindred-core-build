@@ -17,6 +17,7 @@ import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const storageRouter = Router();
 
@@ -25,87 +26,36 @@ const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
 
 // ─── Auth / Authorization ────────────────────────────────────────
 //
-// Storage routes previously accepted the *publishable* anon key as proof of
-// identity, which made every operation reachable by anyone who can read the
-// frontend bundle. Identity is now derived from a real Supabase user JWT and
-// workspace membership is verified server-side before the service-role client
-// (which bypasses RLS) is ever used.
+// Identity is derived from the first-party session cookie
+// (server/lib/workspaceAuth.ts) and workspace membership is verified
+// server-side before the service-role client (which bypasses RLS) is ever
+// used.
 //
 // There is no internal server-to-server caller of these HTTP routes — in-process
 // callers (conversation attachments, recordings, AI file ingestion) import the
-// storage service directly — so raw service-role bearer acceptance is removed.
+// storage service directly.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type StorageAuth = { userId: string; isAdmin: boolean; role: string | null };
 
 /**
- * Resolves the caller from the Bearer JWT and verifies membership of
+ * Resolves the caller from the session cookie and verifies membership of
  * `workspaceId`. Writes the response and returns null when the caller is
  * rejected. Never echoes tokens or internal details back to the client.
  */
 async function authorizeStorageAccess(
   req: Parameters<Parameters<typeof storageRouter.post>[1]>[0],
   res: Parameters<Parameters<typeof storageRouter.post>[1]>[1],
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
   opts: { ownerOrAdmin?: boolean } = {},
 ): Promise<StorageAuth | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.slice('Bearer '.length).trim();
-  // The publishable anon key and the service-role key are not user identities.
-  if (!token || token === config.supabaseAnonKey || token === config.supabaseServiceRoleKey) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
   if (!UUID_RE.test(workspaceId)) {
     res.status(400).json({ error: 'Invalid workspaceId' });
     return null;
   }
-
-  const sb = getServiceClient(config);
-  let userId: string;
-  try {
-    const { data, error } = await sb.auth.getUser(token);
-    if (error || !data?.user) {
-      res.status(401).json({ error: 'Invalid token' });
-      return null;
-    }
-    userId = data.user.id;
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-
-  const admin = await isGlobalAdmin(config, userId);
-  if (admin) return { userId, isAdmin: true, role: null };
-
-  const { data: isMember } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: userId,
-  });
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  const role = ((member as { role?: string } | null)?.role) ?? null;
-
-  if (opts.ownerOrAdmin && role !== 'owner' && role !== 'admin') {
-    res.status(403).json({ error: 'Insufficient workspace permissions' });
-    return null;
-  }
-  return { userId, isAdmin: false, role };
+  return authorizeWorkspaceAccess(req, res, workspaceId, { manage: opts.ownerOrAdmin });
 }
 
 /**
@@ -260,22 +210,8 @@ storageRouter.post('/test', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     // Accepts raw provider credentials and performs outbound requests —
     // platform-admin only. No workspace context, so membership does not apply.
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing authorization' });
-    }
-    const token = authHeader.slice('Bearer '.length).trim();
-    if (!token || token === config.supabaseAnonKey || token === config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-    const sb = getServiceClient(config);
-    const { data: userData, error: userErr } = await sb.auth.getUser(token);
-    if (userErr || !userData?.user) {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-    if (!(await isGlobalAdmin(config, userData.user.id))) {
-      return res.status(403).json({ error: 'Admin required' });
-    }
+    const adminId = await requirePlatformAdmin(req, res);
+    if (!adminId) return;
 
     const parsed = testSchema.safeParse(req.body);
     if (!parsed.success) {

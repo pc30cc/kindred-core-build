@@ -12,18 +12,14 @@ import {
   setMyAvailability,
   type AvailabilityStatus,
 } from '../services/calls/availability.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const callAvailabilityRouter = Router();
 
-async function requireMember(req: any, res: any, config: ServerConfig, workspaceId: string) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) { res.status(401).json({ error: 'missing_auth' }); return null; }
-  const sb = getServiceClient(config);
-  const { data: { user } } = await sb.auth.getUser(authHeader.replace('Bearer ', ''));
-  if (!user) { res.status(401).json({ error: 'invalid_token' }); return null; }
-  const { data: ok } = await sb.rpc('is_workspace_member', { _workspace_id: workspaceId, _user_id: user.id });
-  if (!ok) { res.status(403).json({ error: 'not_member' }); return null; }
-  return { userId: user.id };
+async function requireMember(req: any, res: any, _config: ServerConfig, workspaceId: string) {
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 // GET /api/call-availability/:workspaceId  → all operators in workspace

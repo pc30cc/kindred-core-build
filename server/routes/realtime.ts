@@ -41,6 +41,7 @@ import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSe
 import { emitMetric } from '../services/observability/metrics.js';
 import { realtimeControlRouter } from './realtimeControl.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const realtimeRouter = Router();
 
@@ -360,20 +361,10 @@ const operatorSubscribeSchema = z.object({
   conversation_id: z.string().uuid(),
 });
 
-async function authorizeOperator(req: any, res: any, config: ServerConfig, workspaceId: string) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(authHeader.replace('Bearer ', ''));
-  if (error || !user) { res.status(401).json({ error: 'Invalid token' }); return null; }
-  const { data: isMember } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId, _user_id: user.id,
-  });
-  if (!isMember) { res.status(403).json({ error: 'Not a workspace member' }); return null; }
-  return user;
+async function authorizeOperator(req: any, res: any, _config: ServerConfig, workspaceId: string) {
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { id: auth.userId };
 }
 
 realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_connect'), async (req, res) => {
@@ -618,16 +609,9 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
 //  ADMIN: /api/realtime/admin/*
 // ─────────────────────────────────────────────────────────────────────
 async function requireAdmin(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing authorization' });
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) return res.status(401).json({ error: 'Invalid token' });
-  const { data: isAdmin } = await sb.rpc('has_role', { _user_id: user.id, _role: 'admin' });
-  if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
-  (req as any).adminUser = user;
+  const userId = await requirePlatformAdmin(req, res);
+  if (!userId) return;
+  (req as any).adminUser = { id: userId };
   next();
 }
 

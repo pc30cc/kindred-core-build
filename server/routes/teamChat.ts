@@ -1,10 +1,10 @@
 /**
  * Team chat — internal direct messages between workspace operators.
  *
- * Self-hosted Express only (no edge functions). Bearer = Supabase user
- * access token; membership is verified via `is_workspace_member` before
- * every operation, and RLS on `team_messages` enforces the same rule
- * defensively at the database layer.
+ * Self-hosted Express only (no edge functions). Identity = first-party
+ * session cookie (server/lib/workspaceAuth.ts); membership is verified via
+ * `is_workspace_member` before every operation, and RLS on `team_messages`
+ * enforces the same rule defensively at the database layer.
  *
  * ─── ROUTES ────────────────────────────────────────────────────────
  *   GET  /api/team-chat/colleagues?workspace_id=  → directory + unread + last msg
@@ -17,39 +17,19 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const teamChatRouter = Router();
 
 async function authorizeMember(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(authHeader.replace('Bearer ', ''));
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (memErr) {
-    res.status(500).json({ error: 'Membership check failed' });
-    return null;
-  }
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 // ═══ GET /api/team-chat/colleagues ═════════════════════════════════

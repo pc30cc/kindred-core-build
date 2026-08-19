@@ -1,7 +1,7 @@
 /**
  * USER AVAILABILITY — per-operator presence schedule.
  *
- * Auth: Supabase access token (Bearer).
+ * Auth: first-party session cookie (server/lib/workspaceAuth.ts).
  * Storage: row-per-(user, workspace) — workspace_id NULL = global default.
  * Computes a live snapshot (online/offline/away) on every GET so the UI
  * can show "You are currently seen as: …" without reimplementing logic.
@@ -19,20 +19,14 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { listWorkspacePresence } from '../services/widget/operatorPresence.js';
+import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 
 export const availabilityRouter = Router();
 
 async function requireUser(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-  const token = authHeader.slice(7);
-  const sb = getServiceClient(config);
-  const { data, error } = await sb.auth.getUser(token);
-  if (error || !data?.user) return res.status(401).json({ error: 'Invalid token' });
-  req.authUser = data.user;
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return;
+  req.authUser = { id: userId };
   next();
 }
 

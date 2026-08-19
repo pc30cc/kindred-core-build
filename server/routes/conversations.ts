@@ -43,6 +43,7 @@ import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const conversationsRouter = Router();
 
@@ -72,44 +73,18 @@ const startFromVisitorSchema = z.object({
 
 /**
  * Authenticate the request as a workspace member.
- * Returns { userId, workspaceId } on success, sends 401/403 on failure.
+ * Returns { userId } on success, sends 401/403 on failure. Delegates to the
+ * central first-party session helper (server/lib/workspaceAuth.ts).
  */
 async function authorizeWorkspaceMember(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const {
-    data: { user },
-    error,
-  } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-
-  // Membership check via the same RPC used by RLS policies.
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (memErr) {
-    res.status(500).json({ error: 'Membership check failed' });
-    return null;
-  }
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 /**

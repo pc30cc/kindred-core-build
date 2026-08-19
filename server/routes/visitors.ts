@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
   resolveIpVisibilityPolicy,
   resolveNetworkProfile,
@@ -30,44 +31,19 @@ export const visitorRouter = Router();
 export const visitorsAdminRouter = Router();
 
 // ============================================
-// Auth helper for operator-side reads.
-// Same pattern used in conversations.ts / cannedResponses.ts:
-// Bearer = Supabase user access token; verify workspace membership via RPC.
+// Auth helper for operator-side reads. Delegates to the central first-party
+// session-cookie helper (server/lib/workspaceAuth.ts) — identity no longer
+// comes from a Supabase Auth Bearer token.
 // ============================================
 async function authorizeWorkspaceMember(
   req: Request,
   res: Response,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; role: string | null } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  // Resolve workspace role for IP-exposure decisions.
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-  return { userId: user.id, role: (member?.role as string | null) ?? null };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId, role: auth.role };
 }
 
 // ============================================

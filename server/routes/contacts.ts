@@ -2,7 +2,7 @@
  * Contacts API — canonical TS-first create / import chokepoint.
  *
  * Flow:
- *   1. Bearer = Supabase user access token.
+ *   1. Identity = first-party session cookie (server/lib/workspaceAuth.ts).
  *   2. Verify the user is a workspace member via `is_workspace_member`.
  *   3. Compose entitlements + enforce `max_contacts` through the
  *      existing TypeScript stack (`requireLimit` / `checkEntitlementFromDB`
@@ -32,6 +32,7 @@ import {
   resolveIpVisibilityPolicy,
   resolveContactNetworkProfile,
 } from '../services/visitors/networkProfile.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const contactsRouter = Router();
 
@@ -57,41 +58,13 @@ const bulkSchema = z.object({
 async function authorizeWorkspaceMember(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; role: string | null } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (memErr) {
-    res.status(500).json({ error: 'Membership check failed' });
-    return null;
-  }
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
   // Workspace role drives the raw-IP decision (see networkProfile.ts).
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-  return { userId: user.id, role: ((member as any)?.role as string | null) ?? null };
+  return { userId: auth.userId, role: auth.role };
 }
 
 function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: string) {

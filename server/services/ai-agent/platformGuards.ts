@@ -12,6 +12,7 @@ import { checkModuleAccess } from '../../middleware/featureGating.js';
 import { getServiceClient } from '../../supabase.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { getPlatformAiAgentSettings, isPlatformSettingsLookupFailed } from './platformSettings.js';
+import { validateSessionToken, SESSION_COOKIE_NAME } from '../auth/sessions.js';
 
 /** Transient, retryable: platform AI state could not be resolved. */
 export const PLATFORM_STATUS_UNAVAILABLE = 'ai_platform_status_unavailable';
@@ -271,15 +272,9 @@ export function aiAgentPlatformGuard() {
     // BUT: super admins NEVER bypass `ai_agent_enabled=false` (true kill switch).
     let userId: string | null = null;
     try {
-      const authHeader = req.headers.authorization;
-      if (authHeader?.startsWith('Bearer ')) {
-        const token = authHeader.replace('Bearer ', '').trim();
-        if (token) {
-          const sb = getServiceClient(config);
-          const { data: { user } } = await sb.auth.getUser(token);
-          userId = user?.id || null;
-        }
-      }
+      const token = (req as any).cookies?.[SESSION_COOKIE_NAME];
+      const session = await validateSessionToken(config, token);
+      userId = session?.userId || null;
     } catch { /* ignore */ }
     const isAdmin = userId
       ? await isGlobalAdmin(config, userId).catch(() => false)

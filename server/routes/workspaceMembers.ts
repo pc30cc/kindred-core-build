@@ -40,24 +40,15 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
+import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 
 export const workspaceMembersRouter = Router();
 
-// ── Auth middleware (mirrors the proven pattern in account.ts) ───
+// ── Auth middleware — delegates to the central first-party session helper ─
 async function requireUser(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-  const token = authHeader.slice(7);
-  const sb = getServiceClient(config);
-  const { data, error } = await sb.auth.getUser(token);
-  if (error || !data?.user) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-  req.authUser = data.user;
-  req.authToken = token;
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return;
+  req.authUser = { id: userId };
   next();
 }
 

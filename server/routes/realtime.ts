@@ -351,7 +351,7 @@ realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), asyn
 
 // ─────────────────────────────────────────────────────────────────────
 //  OPERATOR (inbox): /api/realtime/operator-connect | /operator-subscribe
-//  Auth = Supabase user JWT + workspace membership.
+//  Auth = first-party gs_session cookie (authorizeWorkspaceAccess) + workspace membership.
 //  Lets the workspace inbox subscribe to the SAME conversation channels
 //  the visitor widget uses, so agent↔visitor messages flow live both ways.
 // ─────────────────────────────────────────────────────────────────────

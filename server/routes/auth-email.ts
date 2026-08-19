@@ -1,7 +1,9 @@
 /**
  * AUTH EMAIL ROUTES — sends auth-related emails through configured provider
- * Replaces Supabase's built-in auth emails with the self-hosted email system.
- * Uses auth_verify_tokens and auth_reset_tokens tables.
+ * Uses auth_verify_tokens and auth_reset_tokens tables. First-party as of
+ * the auth migration: `verify-email`/`reset-password` write directly to
+ * `public.user_credentials` (Argon2id password hash, email_verified_at) —
+ * `sb.auth.admin.updateUserById` / `auth.users` are not touched here.
  */
 
 import { Router, type Response } from 'express';
@@ -9,6 +11,10 @@ import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
+import { findIdentityByEmail } from '../services/auth/identity.js';
+import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
+import { revokeAllSessions } from '../services/auth/sessions.js';
+import { logSecurityEvent } from '../middleware/security.js';
 
 export const authEmailRouter = Router();
 
@@ -28,15 +34,6 @@ function handleRouteError(res: Response, scope: string, error: unknown) {
   return res.status(500).json({ error: message });
 }
 
-function resolveUserFullName(userMetadata: unknown, fallback: string | null = null): string | null {
-  if (userMetadata && typeof userMetadata === 'object') {
-    const fullName = (userMetadata as Record<string, unknown>).full_name;
-    if (typeof fullName === 'string' && fullName.trim()) return fullName.trim();
-  }
-
-  return fallback?.trim() || null;
-}
-
 interface AuthLookupUser {
   id: string;
   email: string | null;
@@ -45,61 +42,14 @@ interface AuthLookupUser {
 }
 
 async function findAuthUserByEmail(config: ServerConfig, email: string): Promise<AuthLookupUser | null> {
-  const sb = getServiceClient(config);
-  const normalizedEmail = email.trim().toLowerCase();
-
-  const { data: profile, error: profileError } = await sb
-    .from('profiles')
-    .select('id, email, full_name')
-    .eq('email', normalizedEmail)
-    .maybeSingle();
-
-  if (profileError) {
-    throw new Error(`Failed to look up profile: ${profileError.message}`);
-  }
-
-  if (profile?.id) {
-    const { data: authUserData, error: authUserError } = await sb.auth.admin.getUserById(profile.id);
-
-    if (authUserError) {
-      throw new Error(`Failed to load auth user: ${authUserError.message}`);
-    }
-
-    if (authUserData?.user) {
-      return {
-        id: authUserData.user.id,
-        email: authUserData.user.email ?? profile.email ?? normalizedEmail,
-        emailConfirmedAt: authUserData.user.email_confirmed_at ?? null,
-        fullName: resolveUserFullName(authUserData.user.user_metadata, profile.full_name ?? null),
-      };
-    }
-  }
-
-  const perPage = 200;
-
-  for (let page = 1; page <= 10; page += 1) {
-    const { data, error } = await sb.auth.admin.listUsers({ page, perPage });
-
-    if (error) {
-      throw new Error(`Failed to search auth users: ${error.message}`);
-    }
-
-    const users = data?.users ?? [];
-    const matchedUser = users.find((candidate) => candidate.email?.trim().toLowerCase() === normalizedEmail);
-
-    if (matchedUser) {
-      return {
-        id: matchedUser.id,
-        email: matchedUser.email ?? normalizedEmail,
-        emailConfirmedAt: matchedUser.email_confirmed_at ?? null,
-        fullName: resolveUserFullName(matchedUser.user_metadata, profile?.full_name ?? null),
-      };
-    }
-
-    if (users.length < perPage) break;
-  }
-
-  return null;
+  const identity = await findIdentityByEmail(config, email);
+  if (!identity) return null;
+  return {
+    id: identity.id,
+    email: identity.email,
+    emailConfirmedAt: identity.emailVerifiedAt,
+    fullName: identity.fullName,
+  };
 }
 
 /**
@@ -169,11 +119,16 @@ authEmailRouter.post('/verify-email', async (req, res) => {
       return res.status(400).json({ error: 'Token has expired' });
     }
 
-    // Confirm user's email via admin API + set metadata flag
-    const { error: updateError } = await sb.auth.admin.updateUserById(tokenData.user_id, {
-      email_confirm: true,
-      user_metadata: { app_email_verified: true },
-    });
+    // Mark the identity's email verified. Upsert so this also works for a
+    // user_credentials row that doesn't exist yet (shouldn't happen for a
+    // signup-issued token, but keeps this endpoint safe either way) without
+    // ever touching password_hash/status on an existing row.
+    const { error: updateError } = await sb
+      .from('user_credentials')
+      .upsert(
+        { user_id: tokenData.user_id, email_verified_at: new Date().toISOString() },
+        { onConflict: 'user_id' },
+      );
 
     if (updateError) {
       console.error('[auth-email] Failed to confirm user:', updateError);
@@ -238,8 +193,14 @@ authEmailRouter.post('/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'token and newPassword are required' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    let passwordHash: string;
+    try {
+      passwordHash = await hashPassword(newPassword);
+    } catch (err) {
+      if (err instanceof InvalidPasswordError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
     }
 
     const tokenHash = hashToken(token);
@@ -261,10 +222,20 @@ authEmailRouter.post('/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'Token has expired' });
     }
 
-    // Update password via admin API
-    const { error: updateError } = await sb.auth.admin.updateUserById(tokenData.user_id, {
-      password: newPassword,
-    });
+    // Write the new Argon2id hash. Upsert (not update) so this also serves as
+    // the migrated-user "password setup" path — a pre-migration account with
+    // no user_credentials row yet gets one created here, the same way
+    // "forgot password" would for any first-party account.
+    const { error: updateError } = await sb.from('user_credentials').upsert(
+      {
+        user_id: tokenData.user_id,
+        password_hash: passwordHash,
+        password_algo: 'argon2id',
+        password_set_at: new Date().toISOString(),
+        failed_login_count: 0,
+      },
+      { onConflict: 'user_id' },
+    );
 
     if (updateError) {
       console.error('[auth-email] Failed to reset password:', updateError);
@@ -275,6 +246,10 @@ authEmailRouter.post('/reset-password', async (req, res) => {
     await sb.from('auth_reset_tokens')
       .update({ used_at: new Date().toISOString() })
       .eq('id', tokenData.id);
+
+    // The old password (if any) must stop working everywhere immediately.
+    const revokedCount = await revokeAllSessions(config, tokenData.user_id, 'password_reset');
+    await logSecurityEvent(req, 'password_changed', 'info', { userId: tokenData.user_id, revokedCount });
 
     return res.json({ success: true });
   } catch (err) {

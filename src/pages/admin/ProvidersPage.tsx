@@ -18,6 +18,7 @@ import { ProviderIcon } from '@/features/providers/ProviderIcon';
 import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
 import { AdminSmsProviderCard } from '@/features/providers/AdminSmsProviderCard';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
+import { AdminAuthStatusCard } from '@/features/providers/AdminAuthStatusCard';
 import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
 import { VisitorIntelligenceSection } from '@/features/providers/VisitorIntelligenceSection';
 import { Link } from 'react-router-dom';
@@ -34,6 +35,7 @@ const GROUPS: { key: string; types: ProviderTypeKey[] }[] = [
 ];
 
 function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
+  if (type === 'auth') return <AdminAuthStatusCard />;
   if (type === 'realtime') return <AdminRealtimeCard />;
   if (type === 'sms') return <AdminSmsProviderCard />;
   if (type === 'storage') {

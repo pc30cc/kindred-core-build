@@ -33,6 +33,7 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
     if (token === USER_TOKEN) return { sessionId: 'test-session', userId: 'user-id', email: 'user@example.com' };
     return null;
   },
+  verifyOriginForMutation: () => true,
 }));
 
 const state = {

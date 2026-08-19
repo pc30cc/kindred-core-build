@@ -56,6 +56,7 @@ vi.mock("../../../server/services/auth/sessions.js", () => ({
     if (!token) return null;
     return { sessionId: "test-session", userId: "u-1", email: "test@example.com" };
   },
+  verifyOriginForMutation: () => true,
 }));
 
 vi.mock("../../../server/services/realtime/publish.js", () => ({

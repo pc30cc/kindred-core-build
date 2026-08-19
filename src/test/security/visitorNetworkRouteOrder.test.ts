@@ -26,6 +26,7 @@ const CALLBACK_ID = '66666666-6666-4666-8666-666666666666';
 vi.mock('../../../server/services/auth/sessions.js', () => ({
   validateSessionToken: async () => ({ sessionId: 'test-session', userId: USER_ID, email: 'test@example.com' }),
   SESSION_COOKIE_NAME: 'gs_session',
+  verifyOriginForMutation: () => true,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({

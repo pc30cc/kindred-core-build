@@ -121,6 +121,7 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
     if (!authUser) return null;
     return { sessionId: 'test-session', userId: authUser.id, email: 'test@example.com' };
   },
+  verifyOriginForMutation: () => true,
 }));
 
 const { billingRouter, billingWebhookRouter } = await import('../../../server/routes/billing.js');

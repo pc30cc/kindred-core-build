@@ -66,6 +66,7 @@ vi.mock("../../../server/services/auth/sessions.js", () => ({
     if (!user) return null;
     return { sessionId: "test-session", userId: user.id, email: "test@example.com" };
   },
+  verifyOriginForMutation: () => true,
 }));
 
 vi.mock("../../../server/middleware/featureGating.js", () => ({

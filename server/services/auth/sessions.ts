@@ -31,6 +31,77 @@ import { getServiceClient } from '../../supabase.js';
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const SESSION_COOKIE_NAME = 'gs_session';
 
+/**
+ * `SameSite` policy for the session cookie. Defaults to `lax`, matching
+ * this project's documented reverse-proxy deployment topology
+ * (SELF_HOST_GUIDE.md routes `/api/*` to the backend under the SAME
+ * domain as the frontend — same-site by construction) and local dev
+ * (Vite :5173 / Express :3001 are different ports but the same "site" —
+ * both `localhost` — so Lax cookies flow between them once the frontend
+ * sends `credentials: 'include'`/`'same-origin'`).
+ *
+ * `Lax` is also this app's PRIMARY CSRF defense: browsers withhold a Lax
+ * cookie from cross-site non-GET requests entirely (fetch/XHR/form POST),
+ * so a malicious third-party page cannot ride a logged-in user's session
+ * to call a mutating endpoint, regardless of what that endpoint does.
+ * `verifyOriginForMutation` (below) is the explicit defense-in-depth layer
+ * on top of that, per this migration's own instruction not to rely on
+ * SameSite/CORS alone.
+ *
+ * Only override to `none` (which forces `Secure` and genuinely needs the
+ * extra Origin check to matter) if the deployment puts the frontend and
+ * backend on genuinely different sites — not just different subdomains or
+ * ports of the same registrable domain.
+ */
+const SESSION_COOKIE_SAMESITE = (process.env.SESSION_COOKIE_SAMESITE || 'lax') as 'lax' | 'strict' | 'none';
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+export interface CookieResponse {
+  cookie(name: string, value: string, options: Record<string, unknown>): unknown;
+  clearCookie(name: string, options?: Record<string, unknown>): unknown;
+}
+
+function cookieOptions(maxAgeMs?: number) {
+  return {
+    httpOnly: true,
+    secure: isProduction() || SESSION_COOKIE_SAMESITE === 'none',
+    sameSite: SESSION_COOKIE_SAMESITE,
+    path: '/',
+    ...(maxAgeMs !== undefined ? { maxAge: maxAgeMs } : {}),
+  };
+}
+
+/** Sets the session cookie. Never call with a raw token you didn't just mint via createSession. */
+export function setSessionCookie(res: CookieResponse, token: string, expiresAt: Date): void {
+  res.cookie(SESSION_COOKIE_NAME, token, cookieOptions(expiresAt.getTime() - Date.now()));
+}
+
+/** Clears the session cookie client-side (logout). Does NOT revoke the session row — call revokeSession first. */
+export function clearSessionCookie(res: CookieResponse): void {
+  res.clearCookie(SESSION_COOKIE_NAME, cookieOptions());
+}
+
+/**
+ * Defense-in-depth CSRF check for state-changing requests, independent of
+ * SameSite (see the cookie policy comment above — this is the explicit
+ * "do not rely on SameSite/CORS alone" layer). When the browser sends an
+ * `Origin` header (it does on every cross-origin fetch, and on most
+ * same-origin ones too), it must match an allowed origin. Requests with no
+ * Origin header at all (some same-origin browser navigations, non-browser
+ * API clients using a Bearer token elsewhere, curl) are not rejected here —
+ * this check only ever tightens, never substitutes for, the cookie itself
+ * being unforgeable and SameSite already blocking cross-site delivery.
+ */
+export function verifyOriginForMutation(req: { headers: Record<string, unknown> }, corsOrigins: string[]): boolean {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string' || !origin) return true; // nothing to check against
+  if (corsOrigins.length === 1 && corsOrigins[0] === '*') return true; // operator explicitly opted into any origin
+  return corsOrigins.includes(origin);
+}
+
 export type RevokeReason =
   | 'logout'
   | 'logout_all'

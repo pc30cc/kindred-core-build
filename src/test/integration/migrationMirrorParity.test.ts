@@ -45,6 +45,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/014_core_security_definer_acl_lockdown.sql',
     hosted: 'supabase/migrations/20260803150000_core_security_definer_acl_lockdown.sql',
   },
+  {
+    label: '024 — first-party user_credentials table (auth migration Phase 3/4)',
+    selfHost: 'database/migrations/024_user_credentials.sql',
+    hosted: 'supabase/migrations/20260819120000_user_credentials.sql',
+  },
 ];
 
 /** Strips line comments, block comments and collapses whitespace. */

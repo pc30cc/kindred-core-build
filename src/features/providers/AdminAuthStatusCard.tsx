@@ -70,11 +70,11 @@ export function AdminAuthStatusCard() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Badge variant="outline" className="text-[10px] mb-2">Migration-only / legacy</Badge>
+          <Badge variant="outline" className="text-[10px] mb-2">Removed</Badge>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Retained only as legacy infrastructure from before the first-party auth migration.
-            It is not selectable as a normal provider and does not authenticate any part of this
-            application. Auth0, Clerk, and Firebase Auth are shown elsewhere in this admin area as
+            The legacy Supabase Auth provider has been removed from the application's runtime
+            source entirely — it is no longer selectable, registered, or reachable by any code
+            path. Auth0, Clerk, and Firebase Auth are shown elsewhere in this admin area as
             historical configuration entries only — none of them are wired to login, signup, or
             session validation.
           </p>

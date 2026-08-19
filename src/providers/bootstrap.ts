@@ -5,7 +5,6 @@
 // ============================================
 
 import { providerRegistry } from './registry';
-import { supabaseAuthProvider } from './supabase/auth';
 import { selfHostedAuthProvider } from './selfHosted/auth';
 import { supabaseDatabaseProvider } from './supabase/database';
 import { supabaseRealtimeProvider } from './supabase/realtime';
@@ -62,21 +61,17 @@ export function bootstrapProviders(): void {
     },
   });
 
-  // Retained for reference/inspection only — never activated. Supabase
-  // Auth/GoTrue is not this app's dashboard identity root of trust.
-  providerRegistry.register('auth', 'supabase', supabaseAuthProvider, {
-    priority: 100,
-    healthCheck: async () => {
-      try {
-        await supabaseAuthProvider.getSession();
-        return 'healthy';
-      } catch {
-        return 'down';
-      }
-    },
-    meta: { vendor: 'supabase', builtIn: true, description: 'Legacy — superseded by the self-hosted auth provider.' },
-  });
-
+  // The legacy Supabase Auth provider (src/providers/supabase/auth.ts) has
+  // been deleted from runtime source entirely — it is not registered here,
+  // so syncProvidersFromDB() (called on every app start) can never resolve
+  // a `default_auth_provider` DB row to it, no matter what that row
+  // contains. There is deliberately no "registered but inactive" auth
+  // entry: that shape was itself the accidental-reactivation risk — a
+  // stray/attacker-written app_runtime_config row naming 'supabase' would
+  // have silently flipped providerRegistry's active auth provider with no
+  // UI ever surfacing the change. Auth != Database: the Supabase
+  // *database* client below is unaffected and remains required for
+  // PostgreSQL.
   providerRegistry.register('database', 'supabase', supabaseDatabaseProvider, {
     priority: 0,
     healthCheck: async () => {

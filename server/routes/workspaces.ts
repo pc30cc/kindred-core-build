@@ -172,6 +172,13 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
 
+  // Same NEW-signup policy as POST / above: provisioning the first-run
+  // account/workspace makes this user its owner, so it must not be
+  // reachable as a verification bypass for that same policy.
+  if (!(await isEmailVerified(config, userId))) {
+    return res.status(403).json({ error: 'email_verification_required' });
+  }
+
   const sb = getServiceClient(config);
   const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
   if (error) return res.status(500).json({ error: error.message });

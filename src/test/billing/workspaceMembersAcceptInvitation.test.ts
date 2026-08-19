@@ -114,6 +114,15 @@ vi.mock("../../../server/services/billing/usageResolvers.js", () => ({
   usageFnForLimit: (_k: string) => async () => 0,
 }));
 
+// ─── Email-verification gate stub ────────────────────────────────
+// Controls isEmailVerified(config, userId) independently of the
+// service-client stub above, so tests can flip verified/unverified
+// without having to also fabricate profiles/user_credentials rows.
+let emailVerified = true;
+vi.mock("../../../server/services/auth/identity.js", () => ({
+  isEmailVerified: async () => emailVerified,
+}));
+
 import { workspaceMembersRouter } from "../../../server/routes/workspaceMembers";
 
 function findHandler(method: string, path: string) {
@@ -167,6 +176,7 @@ describe("POST /api/workspace-members/accept-invitation — canonical seat-creat
     rpcCalls.length = 0;
     limitMwCalls.length = 0;
     limitMwBehavior = "allow";
+    emailVerified = true;
     serviceState.user = { data: { user: { id: "u-1" } }, error: null };
     serviceState.invitation = {
       id: "inv-1",
@@ -321,5 +331,50 @@ describe("POST /api/workspace-members/accept-invitation — canonical seat-creat
     const { req, res, get } = makeReqRes({ token: "t" }, "Bearer t");
     await handler(req, res);
     expect(get().statusCode).toBe(500);
+  });
+
+  describe("email-verification gate on NEW membership creation", () => {
+    it("unverified caller with a matching-email invite: 403, no companion RPC call (no membership created)", async () => {
+      emailVerified = false;
+      const handler = findHandler("post", "/accept-invitation");
+      const { req, res, get } = makeReqRes({ token: "t" }, "Bearer t");
+      await handler(req, res);
+      expect(get().statusCode).toBe(403);
+      expect(get().jsonBody?.error).toBe("email_verification_required");
+      expect(rpcCalls).toHaveLength(0);
+    });
+
+    it("verified caller with a matching-email invite: allowed, companion RPC called", async () => {
+      emailVerified = true;
+      const handler = findHandler("post", "/accept-invitation");
+      const { req, res, get } = makeReqRes({ token: "t" }, "Bearer t");
+      await handler(req, res);
+      expect(get().statusCode).toBeUndefined();
+      expect(rpcCalls).toHaveLength(1);
+      expect(rpcCalls[0].name).toBe("accept_workspace_invitation_as");
+    });
+
+    it("verified caller whose profile email does NOT match the invite's invited_email: still denied at the pre-flight email check, before verification is even considered", async () => {
+      emailVerified = true;
+      serviceState.invitation = { ...serviceState.invitation, invited_email: "someone-else@example.com" };
+      serviceState.profile = { email: "user@example.com" };
+      const handler = findHandler("post", "/accept-invitation");
+      const { req, res, get } = makeReqRes({ token: "t" }, "Bearer t");
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody?.error).toBe("This invitation is for a different email address");
+      expect(rpcCalls).toHaveLength(0);
+    });
+
+    it("unverified caller who is ALREADY a workspace member (idempotent re-accept): exempt from the gate, still succeeds", async () => {
+      emailVerified = false;
+      serviceState.existingMember = { user_id: "u-1" };
+      const handler = findHandler("post", "/accept-invitation");
+      const { req, res, get } = makeReqRes({ token: "t" }, "Bearer t");
+      await handler(req, res);
+      expect(get().statusCode).toBeUndefined();
+      expect(rpcCalls).toHaveLength(1);
+      expect(rpcCalls[0].name).toBe("accept_workspace_invitation_as");
+    });
   });
 });

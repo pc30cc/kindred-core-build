@@ -110,7 +110,11 @@ export default function InvitePage() {
         toast.success(tt(t, 'invite.accepted', `Joined ${result.workspace_name}`));
       }
     } catch (err: any) {
-      toast.error(err.message);
+      toast.error(
+        err.message === 'email_verification_required'
+          ? tt(t, 'invite.emailVerificationRequired', 'Please verify your email before accepting this invitation. Check your inbox for the verification link.')
+          : err.message,
+      );
       setState('ready');
     }
   }, [token, user, t]);

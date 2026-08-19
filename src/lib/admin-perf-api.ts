@@ -2,15 +2,8 @@
  * Phase 5A — Admin performance API client.
  * All endpoints require global admin (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export type PerfRange = '1h' | '24h';
 
@@ -51,21 +44,21 @@ export interface PerfProcessResponse {
 }
 
 export async function fetchPerfSummary(range: PerfRange = '1h'): Promise<PerfSummary> {
-  const headers = await authHeader();
+  const headers = {};
   const res = await fetch(`${API_BASE}/api/admin/perf/summary?range=${range}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load perf summary: ${res.status}`);
   return res.json();
 }
 
 export async function fetchPerfProcess(range: PerfRange = '1h'): Promise<PerfProcessResponse> {
-  const headers = await authHeader();
+  const headers = {};
   const res = await fetch(`${API_BASE}/api/admin/perf/process?range=${range}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load process samples: ${res.status}`);
   return res.json();
 }
 
 export async function triggerPerfRollup(): Promise<{ ok: boolean }> {
-  const headers = { ...(await authHeader()), 'Content-Type': 'application/json' };
+  const headers = { ...({}), 'Content-Type': 'application/json' };
   const res = await fetch(`${API_BASE}/api/admin/perf/rollup`, {credentials: 'include', method: 'POST', headers });
   if (!res.ok) throw new Error(`Failed to trigger rollup: ${res.status}`);
   return res.json();

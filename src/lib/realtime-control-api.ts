@@ -2,19 +2,8 @@
  * Phase 6A — Realtime control-plane admin client.
  * Talks to the self-hosted Express backend (NEVER edge functions).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token
-    ? {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      }
-    : { 'Content-Type': 'application/json' };
-}
 
 export type RealtimeProviderId =
   | 'centrifugo'
@@ -98,7 +87,6 @@ export interface RealtimeFailoverState {
 export const realtimeControlApi = {
   async get(): Promise<RealtimeControlBundle> {
     const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {credentials: 'include', 
-      headers: await authHeaders(),
     });
     if (!res.ok) throw new Error(`Load failed: ${res.status}`);
     return res.json();
@@ -106,9 +94,10 @@ export const realtimeControlApi = {
   async update(
     patch: Partial<RealtimeControlSettings>,
   ): Promise<{ ok: boolean; settings: RealtimeControlSettings }> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {
+      credentials: 'include',
       method: 'PUT',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     });
     const json = await res.json();
@@ -117,7 +106,6 @@ export const realtimeControlApi = {
   },
   async audit(): Promise<RealtimeControlAuditEntry[]> {
     const res = await fetch(`${API_BASE}/api/realtime/admin/control/audit`, {credentials: 'include', 
-      headers: await authHeaders(),
     });
     if (!res.ok) return [];
     const json = await res.json();
@@ -125,7 +113,6 @@ export const realtimeControlApi = {
   },
   async failover(): Promise<RealtimeFailoverState> {
     const res = await fetch(`${API_BASE}/api/realtime/admin/control/failover`, {credentials: 'include', 
-      headers: await authHeaders(),
     });
     if (!res.ok) throw new Error(`Load failed: ${res.status}`);
     return res.json();
@@ -133,7 +120,7 @@ export const realtimeControlApi = {
   async evaluateFailover(): Promise<{ ok: boolean; effective_provider: RealtimeProviderId }> {
     const res = await fetch(
       `${API_BASE}/api/realtime/admin/control/failover/evaluate`,
-      {credentials: 'include', method: 'POST', headers: await authHeaders() },
+      {credentials: 'include', method: 'POST', headers: {} },
     );
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Evaluate failed');

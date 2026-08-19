@@ -8,7 +8,6 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
-import { supabase } from '@/integrations/supabase/client';
 
 export type ContactIpState =
   | { status: 'ok'; ip: string | null }
@@ -21,13 +20,9 @@ export function useContactIp(contactId: string | undefined) {
     staleTime: 60_000,
     retry: false,
     queryFn: async () => {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      const res = await fetch(`${API_BASE}/api/contacts/${contactId}/ip`, {credentials: 'include', 
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      const res = await fetch(`${API_BASE}/api/contacts/${contactId}/ip`, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
       });
       if (res.status === 403) return { status: 'locked' };
       if (!res.ok) throw new Error(`IP lookup failed: ${res.status}`);

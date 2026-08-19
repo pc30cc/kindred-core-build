@@ -2,7 +2,6 @@
  * Phase 8D — Operator call availability API client.
  * All endpoints require workspace membership.
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -24,16 +23,9 @@ export interface AvailabilityRow {
   updated_at: string;
 }
 
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export const callAvailabilityApi = {
   async getMyAvailability(workspaceId: string): Promise<AvailabilityRow | null> {
     const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}/me`, {credentials: 'include', 
-      headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     const json = await res.json();
@@ -42,7 +34,7 @@ export const callAvailabilityApi = {
   async setMyAvailability(workspaceId: string, status: AvailabilityStatus): Promise<AvailabilityRow> {
     const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}/me`, {credentials: 'include', 
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
     if (!res.ok) {
@@ -54,7 +46,6 @@ export const callAvailabilityApi = {
   },
   async listWorkspaceAvailability(workspaceId: string): Promise<AvailabilityRow[]> {
     const res = await fetch(`${API_BASE}/api/call-availability/${workspaceId}`, {credentials: 'include', 
-      headers: await authHeader(),
     });
     if (!res.ok) throw new Error(`Failed: ${res.status}`);
     const json = await res.json();

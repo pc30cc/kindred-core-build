@@ -16,16 +16,6 @@ import { API_BASE } from './api';
  * admin. The publishable anon key is not an identity, so every call carries
  * the current Supabase session token.
  */
-async function authHeaders(): Promise<Record<string, string>> {
-  const { supabase } = await import('@/integrations/supabase/client');
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
 export type CapabilityType = 'feature' | 'module' | 'channel' | 'limit';
 
 export interface CapabilityDefinition {
@@ -71,7 +61,7 @@ export interface EntitlementDiagnostics {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', headers: {} });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `Entitlements API error: ${res.status}`);
@@ -97,7 +87,7 @@ export async function validatePlanPayload(payload: {
 }) {
   const res = await fetch(`${API_BASE}/api/plans/admin/validate`, {credentials: 'include', 
     method: 'POST',
-    headers: await authHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Validate failed: ${res.status}`);
@@ -120,7 +110,7 @@ export async function setWorkspaceModuleOverride(input: {
 }) {
   const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module`, {credentials: 'include', 
     method: 'POST',
-    headers: await authHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Override failed: ${res.status}`);
@@ -132,7 +122,7 @@ export async function setWorkspaceChannelOverride(input: {
 }) {
   const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel`, {credentials: 'include', 
     method: 'POST',
-    headers: await authHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Override failed: ${res.status}`);
@@ -142,7 +132,6 @@ export async function setWorkspaceChannelOverride(input: {
 export async function deleteWorkspaceModuleOverride(id: string) {
   const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module/${id}`, {credentials: 'include', 
     method: 'DELETE',
-    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`Delete override failed: ${res.status}`);
   return res.json();
@@ -151,7 +140,6 @@ export async function deleteWorkspaceModuleOverride(id: string) {
 export async function deleteWorkspaceChannelOverride(id: string) {
   const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel/${id}`, {credentials: 'include', 
     method: 'DELETE',
-    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`Delete override failed: ${res.status}`);
   return res.json();
@@ -164,7 +152,7 @@ export async function setWorkspaceLimitOverride(input: {
 }) {
   const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit`, {credentials: 'include', 
     method: 'POST',
-    headers: await authHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Override failed: ${res.status}`);
@@ -174,7 +162,6 @@ export async function setWorkspaceLimitOverride(input: {
 export async function deleteWorkspaceLimitOverride(id: string) {
   const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit/${id}`, {credentials: 'include', 
     method: 'DELETE',
-    headers: await authHeaders(),
   });
   if (!res.ok) throw new Error(`Delete override failed: ${res.status}`);
   return res.json();

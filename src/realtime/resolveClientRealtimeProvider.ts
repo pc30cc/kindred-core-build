@@ -36,31 +36,6 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || ''
 const SUPPORTED_VENDORS: RealtimeVendor[] = ['centrifugo', 'supabase'];
 
 const cache = new Map<string, Promise<ClientRealtimeProvider>>();
-const ACCESS_TOKEN_REFRESH_LEAD_MS = 30_000;
-let inflightSupabaseRefresh: Promise<void> | null = null;
-
-async function ensureFreshSupabaseSession(): Promise<void> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) return;
-  const expMs = (session.expires_at || 0) * 1000;
-  if (!expMs || Date.now() < expMs - ACCESS_TOKEN_REFRESH_LEAD_MS) return;
-  if (inflightSupabaseRefresh) {
-    await inflightSupabaseRefresh;
-    return;
-  }
-  inflightSupabaseRefresh = (async () => {
-    try {
-      await supabase.auth.refreshSession();
-    } catch {
-      /* caller will observe auth failure and retry */
-    } finally {
-      inflightSupabaseRefresh = null;
-    }
-  })();
-  await inflightSupabaseRefresh;
-}
 
 /**
  * Drop the cached provider for a workspace so the next resolve call
@@ -70,16 +45,6 @@ async function ensureFreshSupabaseSession(): Promise<void> {
 export function invalidateClientRealtimeCache(workspaceId?: string): void {
   if (workspaceId) cache.delete(workspaceId);
   else cache.clear();
-}
-
-async function authHeaders(): Promise<Record<string, string>> {
-  await ensureFreshSupabaseSession();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
 }
 
 async function fetchWorkspaceOverride(workspaceId: string): Promise<RealtimeVendor | null> {
@@ -101,9 +66,10 @@ async function fetchWorkspaceOverride(workspaceId: string): Promise<RealtimeVend
 
 async function negotiate(workspaceId: string): Promise<RealtimeNegotiation | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workspace_id: workspaceId }),
     });
     if (!res.ok) return null;

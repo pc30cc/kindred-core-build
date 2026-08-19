@@ -5,22 +5,14 @@
  * returns server-minted LiveKit JWT + dynamic TURN credentials. URLs
  * always come from the resolver - never hardcoded here.
  */
-import { supabase } from '@/integrations/supabase/client';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: 'Bearer ' + token } : {};
-}
-
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(API_BASE + path, {credentials: 'include', 
+  const res = await fetch(API_BASE + path, {
+    credentials: 'include',
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(await authHeader()),
       ...(init?.headers || {}),
     },
   });

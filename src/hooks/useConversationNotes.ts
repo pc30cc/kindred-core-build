@@ -8,9 +8,9 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 export interface ConversationNote {
   id: string;
@@ -29,13 +29,6 @@ export interface ConversationNote {
   } | null;
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
-
 export function useConversationNotes(
   conversationId: string | undefined,
   workspaceId: string | undefined,
@@ -43,10 +36,9 @@ export function useConversationNotes(
   return useQuery({
     queryKey: ['conversation-notes', conversationId, workspaceId],
     queryFn: async (): Promise<ConversationNote[]> => {
-      const headers = await authHeaders();
       const url = `${API_BASE}/api/conversations/${encodeURIComponent(conversationId!)}/notes`
         + `?workspace_id=${encodeURIComponent(workspaceId!)}`;
-      const res = await fetch(url, {credentials: 'include', headers });
+      const res = await fetch(url, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Notes load failed: ${res.status}`);
       return (json.notes ?? []) as ConversationNote[];
@@ -64,9 +56,10 @@ export function useCreateNote(
   return useMutation({
     mutationFn: async (body: string) => {
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
-      const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes`, {credentials: 'include', 
+      const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes`, {
+        credentials: 'include',
         method: 'POST',
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify({ workspace_id: workspaceId, body }),
       });
       const json = await res.json();
@@ -90,9 +83,10 @@ export function useUpdateNote(
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
       const res = await fetch(
         `${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes/${encodeURIComponent(noteId)}`,
-        {credentials: 'include', 
+        {
+          credentials: 'include',
           method: 'PATCH',
-          headers: await authHeaders(),
+          headers: JSON_HEADERS,
           body: JSON.stringify({ workspace_id: workspaceId, body }),
         },
       );
@@ -116,7 +110,7 @@ export function useDeleteNote(
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
       const url = `${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes/${encodeURIComponent(noteId)}`
         + `?workspace_id=${encodeURIComponent(workspaceId)}`;
-      const res = await fetch(url, {credentials: 'include', method: 'DELETE', headers: await authHeaders() });
+      const res = await fetch(url, { credentials: 'include', method: 'DELETE' });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error || `Delete failed: ${res.status}`);

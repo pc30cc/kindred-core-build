@@ -2,7 +2,6 @@
  * AI Knowledge Base Builder — operator-side API client.
  * All work runs through the project's own Express backend (no edge functions).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
@@ -75,12 +74,6 @@ export const AI_KB_PLATFORM_DENIAL_CODES = new Set([
   'ai_workspace_disabled',
   'ai_platform_disabled',
 ]);
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 // ─── Public DTO contract (mirrors server/services/ai-kb/dto.ts) ───
 export interface AiKbJobDto {
@@ -218,65 +211,60 @@ export const aiKbApi = {
     url.searchParams.set('workspaceId', workspaceId);
     if (domainId) url.searchParams.set('domain_id', domainId);
     return parse<AiKbSourceResponse>(
-      await fetch(url.toString().replace(window.location.origin, ''), {credentials: 'include', headers: await authHeaders() }),
+      await fetch(url.toString().replace(window.location.origin, ''), {credentials: 'include', headers: {} }),
     );
   },
   async createJob(workspaceId: string, opts: { domain_id?: string; locale?: 'en' | 'fa' | 'tr' } = {}) {
     return parse<{ job: AiKbJobDto }>(
       await fetch(`${API_BASE}/api/ai-kb/jobs`, {credentials: 'include', 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, ...opts }),
       }),
     );
   },
   async listJobs(workspaceId: string) {
     return parse<{ jobs: AiKbJobDto[] }>(
-      await fetch(`${API_BASE}/api/ai-kb/jobs?workspaceId=${workspaceId}`, {credentials: 'include', headers: await authHeaders() }),
+      await fetch(`${API_BASE}/api/ai-kb/jobs?workspaceId=${workspaceId}`, {credentials: 'include', headers: {} }),
     );
   },
   async getJob(id: string) {
     return parse<AiKbJobDetailDto>(
-      await fetch(`${API_BASE}/api/ai-kb/jobs/${id}`, {credentials: 'include', headers: await authHeaders() }),
+      await fetch(`${API_BASE}/api/ai-kb/jobs/${id}`, {credentials: 'include', headers: {} }),
     );
   },
   async accept(id: string) {
     return parse<{ ok: true; kb_article_id?: string }>(
       await fetch(`${API_BASE}/api/ai-kb/generated/${id}/accept`, {credentials: 'include', 
-        method: 'POST', headers: await authHeaders(),
-      }),
+        method: 'POST',      }),
     );
   },
   async reject(id: string) {
     return parse<{ ok: true }>(
       await fetch(`${API_BASE}/api/ai-kb/generated/${id}/reject`, {credentials: 'include', 
-        method: 'POST', headers: await authHeaders(),
-      }),
+        method: 'POST',      }),
     );
   },
   async publish(id: string) {
     return parse<{ ok: true; kb_article_id?: string; slug?: string; locale?: string }>(
       await fetch(`${API_BASE}/api/ai-kb/generated/${id}/publish`, {credentials: 'include', 
-        method: 'POST', headers: await authHeaders(),
-      }),
+        method: 'POST',      }),
     );
   },
   async publishAll(jobId: string) {
     return parse<AiKbPublishAllResponse>(
       await fetch(`${API_BASE}/api/ai-kb/jobs/${jobId}/publish-all`, {credentials: 'include', 
-        method: 'POST', headers: await authHeaders(),
-      }),
+        method: 'POST',      }),
     );
   },
   async getVisibility(id: string) {
     return parse<AiKbVisibilityDto>(
-      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/visibility`, {credentials: 'include', headers: await authHeaders() }),
+      await fetch(`${API_BASE}/api/ai-kb/generated/${id}/visibility`, {credentials: 'include', headers: {} }),
     );
   },
   async getDiagnostics(workspaceId: string) {
     return parse<AiKbDiagnosticsDto>(
       await fetch(`${API_BASE}/api/ai-kb/worker/diagnostics?workspaceId=${workspaceId}`, {credentials: 'include', 
-        headers: await authHeaders(),
       }),
     );
   },
@@ -284,7 +272,7 @@ export const aiKbApi = {
     return parse<{ job: AiKbJobDto }>(
       await fetch(`${API_BASE}/api/ai-kb/jobs/test`, {credentials: 'include', 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, generate }),
       }),
     );

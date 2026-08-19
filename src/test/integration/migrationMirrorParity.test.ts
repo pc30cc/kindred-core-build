@@ -67,8 +67,7 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
   },
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered
-  // here — same precedent as 022/023 (visitor/anon RLS hardening): the two
-  // chains' starting schemas differ (self-host creates 3 tables from
+  // here: the two chains' starting schemas differ (self-host creates 3 tables from
   // scratch for 025 vs. hosted's single ADD COLUMN; self-host covers 6
   // FK-bearing tables for 026 vs. hosted's 11, since hosted has later
   // features self-host's bootstrap chain never received), so the SQL is

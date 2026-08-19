@@ -15,9 +15,44 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { requireUser } from '../lib/workspaceAuth.js';
+import { requireUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const workspacesRouter = Router();
+
+// ── GET /api/workspaces/:workspaceId/role — the caller's own role ────────
+// Backs src/hooks/useWorkspaceRole.ts, which used to query
+// workspace_members directly (RLS on auth.uid(), silently empty without a
+// Supabase Auth session). A platform super admin (who bypasses membership
+// entirely in authorizeWorkspaceAccess) has no workspace_members row, so
+// role comes back null for them — same as a non-member — which is correct:
+// this endpoint answers "what workspace_members.role does this caller
+// have," not "can this caller act here."
+workspacesRouter.get('/:workspaceId/role', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  return res.json({ role: auth.role });
+});
+
+// ── GET /api/workspaces/:workspaceId/primary-domain ───────────────────────
+// Backs the sidebar's workspace-name subtitle. Narrow, read-only reuse of
+// the "Members can view domains" read access (full domain CRUD is a
+// separate, not-yet-migrated settings page — out of scope here).
+workspacesRouter.get('/:workspaceId/primary-domain', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspace_domains')
+    .select('domain, is_primary')
+    .eq('workspace_id', req.params.workspaceId)
+    .order('is_primary', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ domain: data?.domain ?? null });
+});
 
 // ── GET /api/workspaces — every workspace the caller is a member of ──────
 workspacesRouter.get('/', async (req, res) => {
@@ -74,6 +109,29 @@ workspacesRouter.get('/account', async (req, res) => {
   if (!account) return res.status(404).json({ error: 'No account found' });
 
   return res.json({ account });
+});
+
+// ── POST /api/workspaces/provision-account — first-run account+workspace ─
+// Backs WorkspaceRedirect.tsx's auto-provision path, which used to call
+// supabase.rpc('provision_account_on_signup', { _user_id: user.id })
+// directly from the browser. That RPC is SECURITY DEFINER but — unlike
+// create_workspace_atomic — takes _user_id with NO internal check that it
+// matches the caller: any authenticated caller could provision a phantom
+// account/workspace attributed to an ARBITRARY other user's profile id
+// (their own access is unaffected, but it pollutes the target user's data
+// and is unbounded resource-exhaustion griefing). Routing it through the
+// session-derived userId here closes that off — the RPC is now only ever
+// invoked with the caller's own id, mirroring how /api/workspaces (POST,
+// above/below) already calls create_workspace_atomic.
+workspacesRouter.post('/provision-account', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const userId = await requireUser(req, res);
+  if (!userId) return;
+
+  const sb = getServiceClient(config);
+  const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
 });
 
 // ── POST /api/workspaces — create a workspace within the caller's account ─

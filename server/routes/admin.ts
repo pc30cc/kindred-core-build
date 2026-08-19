@@ -22,6 +22,7 @@ import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
 import { adminSecurityRouter } from './adminSecurity.js';
+import { adminManagementRouter } from './adminManagement.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -78,6 +79,10 @@ adminRouter.use('/widget', adminWidgetRouter);
 
 // Security dashboard — audit events / IP blocklist (super admin only)
 adminRouter.use('/security', adminSecurityRouter);
+
+// Users / workspaces / roles / feature flags / audit logs / provider &
+// runtime config (super admin only)
+adminRouter.use('/management', adminManagementRouter);
 
 // Widget templates registry (super admin only)
 

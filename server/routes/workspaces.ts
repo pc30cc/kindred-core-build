@@ -16,8 +16,47 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requireUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
+import { PhoneVerificationError } from '../services/phoneVerification/types.js';
 
 export const workspacesRouter = Router();
+
+// ── GET /api/workspaces/:workspaceId — minimal identity (id/slug/name) ───
+// Backs CreateWorkspaceDialog.tsx's post-create redirect (previously a
+// direct `supabase.from('workspaces').select('slug')` — same auth.uid()
+// problem as everything else in this file).
+workspacesRouter.get('/:workspaceId', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspaces')
+    .select('id, slug, name')
+    .eq('id', req.params.workspaceId)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'Workspace not found' });
+  return res.json(data);
+});
+
+const updateWorkspaceSchema = z.object({ name: z.string().trim().min(1).max(120) });
+
+// ── PATCH /api/workspaces/:workspaceId — rename (settings/GeneralPage.tsx) ─
+workspacesRouter.patch('/:workspaceId', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const parsed = updateWorkspaceSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { error } = await sb
+    .from('workspaces')
+    .update({ name: parsed.data.name, updated_at: new Date().toISOString() })
+    .eq('id', req.params.workspaceId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
 
 // ── GET /api/workspaces/:workspaceId/role — the caller's own role ────────
 // Backs src/hooks/useWorkspaceRole.ts, which used to query
@@ -45,13 +84,17 @@ workspacesRouter.get('/:workspaceId/primary-domain', async (req, res) => {
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('workspace_domains')
-    .select('domain, is_primary')
+    .select('domain, is_primary, verified')
     .eq('workspace_id', req.params.workspaceId)
     .order('is_primary', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ domain: data?.domain ?? null });
+  return res.json({
+    domain: data?.domain ?? null,
+    is_primary: data?.is_primary ?? null,
+    verified: data?.verified ?? null,
+  });
 });
 
 // ── GET /api/workspaces — every workspace the caller is a member of ──────
@@ -165,4 +208,132 @@ workspacesRouter.post('/', async (req, res) => {
   if (error) return res.status(400).json({ error: error.message });
 
   return res.json({ workspaceId: data as string });
+});
+
+// ── Workspace branding (settings/GeneralPage.tsx, useBranding.ts) ─────────
+workspacesRouter.get('/:workspaceId/branding', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspace_branding')
+    .select('*')
+    .eq('workspace_id', req.params.workspaceId)
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data });
+});
+
+const brandingUpdateSchema = z.object({}).passthrough();
+
+workspacesRouter.patch('/:workspaceId/branding', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const parsed = brandingUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspace_branding')
+    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .eq('workspace_id', req.params.workspaceId)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data });
+});
+
+// ── Domain management (settings/DomainsPage.tsx) ──────────────────────────
+// Replaces direct browser supabase.from('workspace_domains') CRUD. Writes
+// mirror the RLS policy being replaced exactly: workspace owner/admin AND
+// `workspace_owner_phone_verified` (supabase/migrations/20260801223349_...sql,
+// "Admins+ manage ws domains (phone gated)"). Reads stay member-level, same
+// as the pre-existing "Authenticated users can view domains" read policy
+// (scoped to this workspace here, since the old policy was USING (true)
+// cross-tenant — a laxness we don't need to reproduce).
+
+async function requireDomainManage(req: any, res: any, workspaceId: string): Promise<{ userId: string } | null> {
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return null;
+  try {
+    await assertPhoneVerificationSatisfied((req as any).serverConfig, {
+      actorUserId: auth.userId,
+      purpose: 'widget_access',
+      workspaceId,
+    });
+  } catch (err) {
+    if (err instanceof PhoneVerificationError) {
+      res.status(err.status).json({ error: err.code });
+      return null;
+    }
+    throw err;
+  }
+  return { userId: auth.userId };
+}
+
+workspacesRouter.get('/:workspaceId/domains', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspace_domains')
+    .select('*')
+    .eq('workspace_id', req.params.workspaceId)
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ domains: data });
+});
+
+const addDomainSchema = z.object({ domain: z.string().trim().min(1).max(255) });
+
+workspacesRouter.post('/:workspaceId/domains', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const workspaceId = req.params.workspaceId;
+  const parsed = addDomainSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  if (!(await requireDomainManage(req, res, workspaceId))) return;
+  const sb = getServiceClient(config);
+  const { error } = await sb.from('workspace_domains').insert({
+    workspace_id: workspaceId,
+    domain: parsed.data.domain,
+  });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
+
+async function loadDomainForWorkspace(sb: ReturnType<typeof getServiceClient>, workspaceId: string, domainId: string) {
+  const { data } = await sb
+    .from('workspace_domains')
+    .select('id')
+    .eq('id', domainId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  return data;
+}
+
+workspacesRouter.delete('/:workspaceId/domains/:domainId', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const { workspaceId, domainId } = req.params;
+  if (!(await requireDomainManage(req, res, workspaceId))) return;
+  const sb = getServiceClient(config);
+  const existing = await loadDomainForWorkspace(sb, workspaceId, domainId);
+  if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  const { error } = await sb.from('workspace_domains').delete().eq('id', domainId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
+
+workspacesRouter.patch('/:workspaceId/domains/:domainId/primary', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const { workspaceId, domainId } = req.params;
+  if (!(await requireDomainManage(req, res, workspaceId))) return;
+  const sb = getServiceClient(config);
+  const existing = await loadDomainForWorkspace(sb, workspaceId, domainId);
+  if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  await sb.from('workspace_domains').update({ is_primary: false }).eq('workspace_id', workspaceId);
+  const { error } = await sb.from('workspace_domains').update({ is_primary: true }).eq('id', domainId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
 });

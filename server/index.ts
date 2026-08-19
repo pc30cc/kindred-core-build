@@ -191,8 +191,37 @@ for (const dir of CALL_WIDGET_VENDOR_SOURCES) {
   );
 }
 
+// SECURITY: `credentials: true` below means every response to an allowed
+// origin carries `Access-Control-Allow-Credentials: true`, so the cookie-
+// authenticated dashboard session rides along on cross-origin requests from
+// that origin. `CORS_ORIGINS` unset (the `*` default, see config.ts) used
+// to be handled by passing `origin: true` to the `cors` package, which
+// reflects the REQUEST'S Origin verbatim (the only way to combine a
+// wildcard with credentials — browsers refuse literal `*` alongside
+// Allow-Credentials) — i.e. by default this server trusted every origin on
+// the internet with a real, cookie-carrying session, for both accidental
+// (default-configured) and deliberately unsafe (`CORS_ORIGINS=*`, as this
+// repo's own .env.docker.example previously suggested) deployments alike.
+//
+// Fixed to fail closed: an unconfigured/wildcarded corsOrigins now disables
+// cross-origin CORS entirely (`origin: false` — no Access-Control-Allow-*
+// headers at all). This costs nothing for the documented, intended
+// same-origin reverse-proxy topology (SELF_HOST_GUIDE.md) — browsers never
+// consult CORS headers for same-origin requests in the first place — and it
+// requires any deployment that genuinely needs cross-origin browser calls
+// (e.g. local dev, Vite :5173 talking to Express :3001) to say so
+// explicitly via CORS_ORIGINS, as server/.env.example already documents.
+if (config.corsOrigins.length === 1 && config.corsOrigins[0] === '*') {
+  console.warn(
+    '[security] CORS_ORIGINS is not set (or set to "*"). Cross-origin ' +
+    'browser requests with credentials are now REJECTED by default — set ' +
+    'CORS_ORIGINS to your frontend origin(s) if the frontend is served ' +
+    'from a different origin than this API. Same-origin deployments are ' +
+    'unaffected.'
+  );
+}
 const appCors = cors({
-  origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
+  origin: config.corsOrigins.length === 1 && config.corsOrigins[0] === '*' ? false : config.corsOrigins,
   credentials: true,
 });
 

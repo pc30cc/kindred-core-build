@@ -31,6 +31,7 @@ import {
   setSessionCookie,
   clearSessionCookie,
   validateSessionToken,
+  verifyOriginForMutation,
   revokeSession,
   revokeAllSessions,
   SESSION_COOKIE_NAME,
@@ -170,6 +171,23 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     const validPassword = await verifyPassword(identity.passwordHash, password);
     if (!validPassword) return genericInvalid();
 
+    // POLICY DECISION — email verification is NOT required to log in.
+    // `user_credentials.email_verified_at` starts NULL for every one of the
+    // pre-existing (migrated) accounts created by the auth migration — there
+    // was no backfill from the old `auth.users.email_confirmed_at`, and
+    // inventing one is out of scope here. Gating login on it would lock out
+    // every current customer, not just new signups, until each one clicked
+    // a fresh verification link. The frontend's own signup flow already
+    // auto-logs a brand-new user in immediately after signup without
+    // checking this flag (src/pages/auth/SignupPage.tsx), so this matches
+    // already-shipped product behavior rather than introducing a new gap.
+    //
+    // This is safe independently of the account-takeover fix above: that
+    // fix is structural (signup can never attach a password to an existing
+    // identity at all, verified or not), so leaving verification
+    // non-blocking here does not reopen it. Verified/unverified is exposed
+    // to the client (`emailVerified` in the response) so the UI can still
+    // nudge toward verification without blocking access to it.
     recordLoginAttempt(req, normalizedEmail, true);
     await sb.from('login_attempts').insert({ ip_address: req.ip || 'unknown', email: normalizedEmail, success: true });
 
@@ -232,6 +250,37 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
     const sb = getServiceClient(config);
 
+    // SECURITY (account-takeover fix): a signup request must NEVER create or
+    // replace credentials, or mutate profile fields, for an identity that
+    // already existed before this request — whether it's a migrated
+    // (pre-first-party) user with password_hash IS NULL, an unverified
+    // signup, or a fully set-up account. Every existing user starts with
+    // password_hash = NULL after the auth migration, so writing credentials
+    // here for "existing, no password yet" let anyone who knew a victim's
+    // email attach an attacker-chosen password to the victim's identity via
+    // a bare POST — instant account takeover, no proof of email ownership
+    // required. This check runs BEFORE hashing the submitted password, so an
+    // existing-identity signup attempt never pays (or needs) the Argon2id
+    // cost at all.
+    //
+    // The only path that may ever set a password on an EXISTING identity is
+    // proof-of-email-ownership through a token mailed to that address:
+    // POST /api/auth-email/reset-password. Its own comment documents that it
+    // doubles as the migrated-user "password setup" flow — the same
+    // user_credentials upsert this route used to do, but gated by a
+    // single-use token instead of a bare, unauthenticated POST body.
+    //
+    // The response is identical in shape (status + error message) whether
+    // or not the existing identity has a password, so this endpoint reveals
+    // no more than the login endpoint already does for the same email.
+    const existing = await findIdentityByEmail(config, normalizedEmail);
+    if (existing) {
+      return res.status(409).json({
+        error: 'An account with this email already exists',
+        passwordSetupRequired: !existing.passwordHash,
+      });
+    }
+
     let passwordHash: string;
     try {
       passwordHash = await hashPassword(password);
@@ -252,41 +301,6 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       signup_ip: req.ip || null,
       signup_locale: locale || null,
     };
-
-    const existing = await findIdentityByEmail(config, normalizedEmail);
-
-    // An existing, fully set-up account (password + verified email) is a
-    // genuine duplicate. An existing profile with no password yet (migrated
-    // user) or an unverified signup is treated as "continue/resend" — the
-    // same UX the pre-migration endpoint offered for an unconfirmed user.
-    if (existing?.passwordHash && existing.emailVerifiedAt) {
-      return res.status(409).json({ error: 'An account with this email already exists' });
-    }
-
-    if (existing) {
-      await sb.from('user_credentials').upsert(
-        { user_id: existing.id, password_hash: passwordHash, password_algo: 'argon2id', password_set_at: new Date().toISOString() },
-        { onConflict: 'user_id' },
-      );
-      await sb.from('profiles').update(profileFields).eq('id', existing.id);
-
-      const verificationResult = await issueVerificationEmail(config, {
-        userId: existing.id,
-        email: normalizedEmail,
-        fullName,
-        locale,
-        ipAddress: req.ip || null,
-      });
-      if (!verificationResult.success) {
-        return res.status(500).json({ error: verificationResult.error || 'Failed to send verification email' });
-      }
-
-      return res.json({
-        user: { id: existing.id, email: normalizedEmail, fullName: fullName?.trim() || existing.fullName },
-        needsEmailVerification: true,
-        resent: true,
-      });
-    }
 
     const newUserId = crypto.randomUUID();
     const { error: profileError } = await sb.from('profiles').insert({ id: newUserId, ...profileFields });
@@ -373,6 +387,9 @@ authSecurityRouter.get('/session', async (req, res) => {
 authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
+    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+      return res.status(403).json({ error: 'Origin not allowed' });
+    }
     const token = req.cookies?.[SESSION_COOKIE_NAME];
     const session = await validateSessionToken(config, token);
     if (session) {
@@ -395,6 +412,9 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
 authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
+    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+      return res.status(403).json({ error: 'Origin not allowed' });
+    }
     const token = req.cookies?.[SESSION_COOKIE_NAME];
     const session = await validateSessionToken(config, token);
     if (!session) {

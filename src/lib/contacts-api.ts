@@ -53,7 +53,7 @@ export const contactsApi = {
 
   async bulkCreate(workspace_id: string, contacts: Array<Omit<CreateContactInput, 'workspace_id'>>): Promise<BulkCreateResult> {
     if (!contacts.length) return { ok: true, inserted: 0 };
-    const res = await fetch(`${API_BASE}/api/contacts/bulk`, {credentials: 'include', 
+    const res = await fetch(`${API_BASE}/api/contacts/bulk`, {credentials: 'include',
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({ workspace_id, contacts }),
@@ -66,5 +66,64 @@ export const contactsApi = {
       throw err;
     }
     return { ok: true, inserted: Number(json.inserted ?? 0) };
+  },
+
+  // ─── List / read / update / delete ──────────────────────────
+  // See server/routes/contacts.ts — replaces the previous direct
+  // supabase.from('contacts'/'conversations'/...) reads/writes.
+  async list(workspaceId: string) {
+    const res = await fetch(`${API_BASE}/api/contacts?workspace_id=${encodeURIComponent(workspaceId)}`, {credentials: 'include', headers: await authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `List failed: ${res.status}`);
+    return json.contacts;
+  },
+
+  async get(id: string) {
+    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include', headers: await authHeaders() });
+    if (res.status === 404) return null;
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Get failed: ${res.status}`);
+    return json.contact;
+  },
+
+  async getConversations(contactId: string) {
+    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(contactId)}/conversations`, {credentials: 'include', headers: await authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Get conversations failed: ${res.status}`);
+    return json.conversations;
+  },
+
+  async update(id: string, patch: Record<string, unknown>) {
+    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include',
+      method: 'PATCH',
+      headers: await authHeaders(),
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+    return json.contact;
+  },
+
+  async delete(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include',
+      method: 'DELETE',
+      headers: await authHeaders(),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error || `Delete failed: ${res.status}`);
+    }
+  },
+
+  async bulkDelete(ids: string[]): Promise<{ deleted: number }> {
+    if (!ids.length) return { deleted: 0 };
+    const res = await fetch(`${API_BASE}/api/contacts/bulk-delete`, {credentials: 'include',
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ ids }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Bulk delete failed: ${res.status}`);
+    return json;
   },
 };

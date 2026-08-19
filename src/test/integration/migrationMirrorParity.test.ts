@@ -60,6 +60,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/028_admin_impersonation_tokens.sql',
     hosted: 'supabase/migrations/20260819150000_admin_impersonation_tokens.sql',
   },
+  {
+    label: '029 — legacy email-verification backfill (GoTrue cutover closure)',
+    selfHost: 'database/migrations/029_backfill_legacy_email_verification.sql',
+    hosted: 'supabase/migrations/20260819160000_backfill_legacy_email_verification.sql',
+  },
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered
   // here — same precedent as 022/023 (visitor/anon RLS hardening): the two

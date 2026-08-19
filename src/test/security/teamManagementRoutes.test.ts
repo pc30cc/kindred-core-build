@@ -210,6 +210,12 @@ beforeEach(() => {
     { id: ADMIN, full_name: 'Admin', email: 'admin@example.com', avatar_url: null },
     { id: AGENT, full_name: 'Agent', email: 'agent@example.com', avatar_url: null },
   ];
+  // Verified so invitation-creation tests exercise role/permission logic,
+  // not the separate isEmailVerified gate (covered by its own test file).
+  db.user_credentials = [
+    { user_id: OWNER, email_verified_at: new Date().toISOString() },
+    { user_id: ADMIN, email_verified_at: new Date().toISOString() },
+  ];
   db.workspace_departments = [
     { id: deptId, workspace_id: WS, name: 'Sales' },
     { id: deptBId, workspace_id: WS_B, name: 'Support (Workspace B)' },

@@ -18,6 +18,7 @@ import { getServiceClient } from '../supabase.js';
 import { requireUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
+import { isEmailVerified } from '../services/auth/identity.js';
 
 export const workspacesRouter = Router();
 
@@ -191,6 +192,14 @@ workspacesRouter.post('/', async (req, res) => {
   const parsed = createWorkspaceSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+  }
+
+  // NEW-signup policy: an unverified account cannot become a workspace
+  // owner. See identity.ts's isEmailVerified for why this is enforced here
+  // rather than at login — legacy/migrated users are unaffected once
+  // 029_backfill_legacy_email_verification.sql has run.
+  if (!(await isEmailVerified(config, userId))) {
+    return res.status(403).json({ error: 'email_verification_required' });
   }
 
   const sb = getServiceClient(config);

@@ -42,6 +42,7 @@ import { getServiceClient } from '../supabase.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { isEmailVerified } from '../services/auth/identity.js';
 
 export const workspaceMembersRouter = Router();
 
@@ -513,6 +514,11 @@ workspaceMembersRouter.post('/invitations', async (req, res) => {
   if (!auth) return;
 
   const config: ServerConfig = (req as any).serverConfig;
+  // NEW-signup policy: an unverified account cannot pull other people into
+  // a workspace it controls. See identity.ts's isEmailVerified.
+  if (!(await isEmailVerified(config, auth.userId))) {
+    return res.status(403).json({ error: 'email_verification_required' });
+  }
   const sb = getServiceClient(config);
   const insertData: Record<string, unknown> = {
     workspace_id: workspaceId,

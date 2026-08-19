@@ -63,6 +63,26 @@ interface ProfileRow {
   created_at: string | null;
 }
 
+/**
+ * Server-side email-verification gate — NEW-signup policy, deliberately
+ * separate from legacy-user compatibility (029_backfill_legacy_email_
+ * verification.sql corrects historical state; this function does not care
+ * how a user got their verified/unverified state, only what it currently
+ * is). Enforced, not just UI-nudged, on the specific abuse-relevant
+ * operations named in the GoTrue-off closure review: creating a workspace
+ * (an unverified/squatted account should not be able to become an owner)
+ * and sending invitations (an unverified account should not be able to
+ * pull other people into a workspace it controls). Everything else an
+ * unverified account can already reach — existing memberships, the
+ * dashboard itself — stays reachable, matching the documented decision not
+ * to mass-lock-out every current user by gating login/session-restore on
+ * this flag.
+ */
+export async function isEmailVerified(config: ServerConfig, userId: string): Promise<boolean> {
+  const identity = await findIdentityById(config, userId);
+  return !!identity?.emailVerifiedAt;
+}
+
 async function identityFromProfileRow(config: ServerConfig, profile: ProfileRow): Promise<Identity> {
   const sb = getServiceClient(config);
   const { data: cred, error: credError } = await sb

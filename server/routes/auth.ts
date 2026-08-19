@@ -172,22 +172,30 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     if (!validPassword) return genericInvalid();
 
     // POLICY DECISION — email verification is NOT required to log in.
-    // `user_credentials.email_verified_at` starts NULL for every one of the
-    // pre-existing (migrated) accounts created by the auth migration — there
-    // was no backfill from the old `auth.users.email_confirmed_at`, and
-    // inventing one is out of scope here. Gating login on it would lock out
-    // every current customer, not just new signups, until each one clicked
-    // a fresh verification link. The frontend's own signup flow already
-    // auto-logs a brand-new user in immediately after signup without
-    // checking this flag (src/pages/auth/SignupPage.tsx), so this matches
-    // already-shipped product behavior rather than introducing a new gap.
+    // GoTrue-off closure pass: `029_backfill_legacy_email_verification.sql`
+    // now backfills `user_credentials.email_verified_at` from the legacy
+    // `auth.users.email_confirmed_at` for every migrated account (a
+    // one-time, migration-time-only read — see that file), so this is no
+    // longer "every current user reads unverified." But gating LOGIN itself
+    // on this flag is still not done: it would depend on that migration
+    // having been applied in every deployment before this code ships, and a
+    // login-time lockout is a worse failure mode than the alternative below.
+    //
+    // Instead, verification is enforced server-side at the specific
+    // abuse-relevant operations an unverified/squatted account could use
+    // maliciously — see `isEmailVerified()` (server/services/auth/
+    // identity.ts), enforced on workspace creation (workspaces.ts) and
+    // invitation creation (workspaceMembers.ts). An unverified account can
+    // sign in and use an EXISTING membership, but cannot become an owner or
+    // pull other people into a workspace it controls. This is enforced
+    // server-side, not just surfaced in the UI.
     //
     // This is safe independently of the account-takeover fix above: that
     // fix is structural (signup can never attach a password to an existing
-    // identity at all, verified or not), so leaving verification
-    // non-blocking here does not reopen it. Verified/unverified is exposed
-    // to the client (`emailVerified` in the response) so the UI can still
-    // nudge toward verification without blocking access to it.
+    // identity at all, verified or not), so leaving login non-blocking here
+    // does not reopen it. Verified/unverified is exposed to the client
+    // (`emailVerified` in the response) so the UI can still nudge toward
+    // verification.
     recordLoginAttempt(req, normalizedEmail, true);
     await sb.from('login_attempts').insert({ ip_address: req.ip || 'unknown', email: normalizedEmail, success: true });
 

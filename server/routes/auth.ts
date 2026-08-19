@@ -270,15 +270,21 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
     // user_credentials upsert this route used to do, but gated by a
     // single-use token instead of a bare, unauthenticated POST body.
     //
-    // The response is identical in shape (status + error message) whether
-    // or not the existing identity has a password, so this endpoint reveals
-    // no more than the login endpoint already does for the same email.
+    // The response is identical regardless of whether the existing identity
+    // has a password — signup deliberately does NOT reveal that (it did
+    // previously, via a passwordSetupRequired flag, which let an
+    // unauthenticated caller enumerate which emails are migrated accounts
+    // still needing a password vs. accounts with one already set, without
+    // even attempting a real login). The frontend routes every
+    // "account already exists" case to a single generic "sign in or reset
+    // your password" message. A legitimate migrated user who actually
+    // tries to log in still gets routed to password setup correctly — that
+    // decision is made by /login (which already knows the caller reached
+    // it with the right email), not by /signup (reachable by anyone probing
+    // arbitrary addresses with no login attempt at all).
     const existing = await findIdentityByEmail(config, normalizedEmail);
     if (existing) {
-      return res.status(409).json({
-        error: 'An account with this email already exists',
-        passwordSetupRequired: !existing.passwordHash,
-      });
+      return res.status(409).json({ error: 'An account with this email already exists' });
     }
 
     let passwordHash: string;

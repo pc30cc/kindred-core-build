@@ -254,6 +254,40 @@ describe('A — migrated user (password_hash NULL) cannot be taken over via sign
   });
 });
 
+describe('F — signup never reveals whether an existing account has a password set', () => {
+  it('a migrated user (no password) and an active user (has a password) get an IDENTICAL signup response', async () => {
+    const migratedId = crypto.randomUUID();
+    db.profiles.push({ id: migratedId, email: VICTIM_EMAIL, full_name: 'Migrated', created_at: new Date().toISOString() });
+    // No user_credentials row — migrated, passwordless.
+
+    const activeEmail = 'active-user@example.com';
+    const activeId = crypto.randomUUID();
+    const { hashPassword } = await import('../../../server/services/auth/password.js');
+    db.profiles.push({ id: activeId, email: activeEmail, full_name: 'Active', created_at: new Date().toISOString() });
+    db.user_credentials.push({
+      user_id: activeId,
+      password_hash: await hashPassword('SomeExistingPassword1'),
+      password_algo: 'argon2id',
+      email_verified_at: new Date().toISOString(),
+      status: 'active',
+    });
+
+    const migratedRes = await call('POST', '/api/auth/signup', {
+      body: { email: VICTIM_EMAIL, password: 'ProbePassword123', website: '' },
+    });
+    const activeRes = await call('POST', '/api/auth/signup', {
+      body: { email: activeEmail, password: 'ProbePassword123', website: '' },
+    });
+
+    expect(migratedRes.status).toBe(409);
+    expect(activeRes.status).toBe(409);
+    // Same status, same body shape, no field distinguishing the two states.
+    expect(migratedRes.json).toEqual(activeRes.json);
+    expect(migratedRes.json).not.toHaveProperty('passwordSetupRequired');
+    expect(Object.keys(migratedRes.json)).toEqual(['error']);
+  });
+});
+
 describe('B — existing active user with a password cannot be overwritten via signup', () => {
   it('second signup with a different password leaves the original password valid', async () => {
     const userId = crypto.randomUUID();

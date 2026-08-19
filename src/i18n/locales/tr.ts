@@ -110,6 +110,8 @@ const tr: TranslationKeys = {
     lastNamePlaceholder: 'Soyad',
     continue: 'Devam',
     signupFailed: 'Kayıt başarısız',
+    accountExists: 'Hesap zaten mevcut',
+    accountExistsHint: 'Giriş yapın veya şifrenizi hatırlamıyorsanız Şifremi Unuttum seçeneğini kullanın.',
     signupSuccess: 'Kayıt başarılı!',
     signupSuccessDesc: 'Hesabınızı doğrulamak için e-postanızı kontrol edin.',
     forgotTitle: 'Şifrenizi mi unuttunuz?',

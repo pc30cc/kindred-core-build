@@ -110,6 +110,8 @@ const fa: TranslationKeys = {
     lastNamePlaceholder: 'نام خانوادگی',
     continue: 'ادامه',
     signupFailed: 'ثبت‌نام ناموفق بود',
+    accountExists: 'این حساب قبلاً وجود دارد',
+    accountExistsHint: 'وارد شوید یا در صورت فراموشی رمز عبور از گزینه «فراموشی رمز عبور» استفاده کنید.',
     signupSuccess: 'ثبت‌نام با موفقیت انجام شد!',
     signupSuccessDesc: 'لطفاً ایمیل خود را برای تأیید حساب بررسی کنید.',
     forgotTitle: 'رمز عبور را فراموش کرده‌اید؟',

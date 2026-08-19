@@ -108,6 +108,8 @@ const en = {
     lastNamePlaceholder: 'Last name',
     continue: 'Continue',
     signupFailed: 'Registration failed',
+    accountExists: 'Account already exists',
+    accountExistsHint: 'Sign in, or use Forgot Password if you don\'t remember your password.',
     signupSuccess: 'Registration successful!',
     signupSuccessDesc: 'Please check your email to verify your account.',
     forgotTitle: 'Forgot your password?',

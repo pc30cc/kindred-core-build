@@ -1,11 +1,17 @@
 /**
- * AUTH SECURITY ROUTES — server-side brute force + captcha enforcement
- * These endpoints sit in front of Supabase Auth to add security layers.
+ * AUTH ROUTES — first-party login/signup.
+ *
+ * `/login` and `/signup` are the real authentication endpoints as of the
+ * auth migration: identity lives in `profiles` + `user_credentials`
+ * (Argon2id, server/services/auth/password.ts), sessions are opaque
+ * HttpOnly cookies (server/services/auth/sessions.ts). Supabase Auth/GoTrue
+ * is not used here — `sb.auth.admin.*` / `auth.users` are neither read nor
+ * written by this file.
  */
 
 import { Router } from 'express';
+import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
-import type { User } from '@supabase/supabase-js';
 import { getServiceClient } from '../supabase.js';
 import {
   authRateLimiter,
@@ -15,7 +21,18 @@ import {
   logSecurityEvent,
 } from '../middleware/security.js';
 import { z } from 'zod';
-import { issueSignupLinkEmail, issueVerificationEmail } from '../services/auth-email.js';
+import { issueVerificationEmail } from '../services/auth-email.js';
+import { findIdentityByEmail, findIdentityById } from '../services/auth/identity.js';
+import { hashPassword, verifyPassword, needsRehash, InvalidPasswordError } from '../services/auth/password.js';
+import {
+  createSession,
+  setSessionCookie,
+  clearSessionCookie,
+  validateSessionToken,
+  revokeSession,
+  revokeAllSessions,
+  SESSION_COOKIE_NAME,
+} from '../services/auth/sessions.js';
 
 export const authSecurityRouter = Router();
 
@@ -69,7 +86,8 @@ authSecurityRouter.post('/check-brute-force', authRateLimiter, async (req, res) 
 
 /**
  * POST /api/auth/login
- * Secured login endpoint with brute force + captcha
+ * Real first-party login: brute force + captcha, Argon2id password
+ * verification against `user_credentials`, then an application session.
  */
 authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
   try {
@@ -79,22 +97,21 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
     }
 
-    const { email, password, captchaToken } = parsed.data;
+    const { password, captchaToken } = parsed.data;
+    const normalizedEmail = parsed.data.email.trim().toLowerCase();
+    const sb = getServiceClient(config);
 
-    // Check brute force
-    const bruteCheck = await checkBruteForce(req, email);
+    const bruteCheck = await checkBruteForce(req, normalizedEmail);
     if (bruteCheck.blocked) {
-      await logSecurityEvent(req, 'brute_force', 'error', { email, failCount: bruteCheck.failCount });
+      await logSecurityEvent(req, 'brute_force', 'error', { email: normalizedEmail, failCount: bruteCheck.failCount });
       return res.status(429).json({
         error: 'Account temporarily locked due to too many failed attempts.',
         retryAfter: bruteCheck.retryAfter,
       });
     }
 
-    // If 3+ failures, require captcha
-    if ((bruteCheck.failCount || 0) >= 3 && captchaToken) {
-      // Check for captcha provider config in runtime config
-      const sb = getServiceClient(config);
+    // 3+ recent failures requires a verified captcha before we even touch credentials.
+    if ((bruteCheck.failCount || 0) >= 3) {
       const { data: captchaConfig } = await sb
         .from('app_runtime_config')
         .select('value')
@@ -103,6 +120,9 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
 
       if (captchaConfig?.value) {
         const captchaSettings = captchaConfig.value as any;
+        if (!captchaToken) {
+          return res.status(400).json({ error: 'Captcha verification required', requiresCaptcha: true });
+        }
         const verification = await verifyCaptcha(
           captchaToken,
           captchaSettings.provider || 'turnstile',
@@ -110,52 +130,91 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
           req.ip
         );
         if (!verification.success) {
-          await logSecurityEvent(req, 'captcha_failed', 'warn', { email, provider: captchaSettings.provider });
+          await logSecurityEvent(req, 'captcha_failed', 'warn', { email: normalizedEmail, provider: captchaSettings.provider });
           return res.status(400).json({ error: 'Captcha verification failed' });
         }
       }
     }
 
-    // Record attempt (will be marked success/fail after result)
-    // Use Supabase client to verify credentials
-    const sb = getServiceClient(config);
-    const { data: listData, error: loginError } = await sb.auth.admin.listUsers();
-    // `listUsers()` returns a success/error union; with `strictNullChecks: false`
-    // the error branch collapses `users` to `never[]`, so the callback param
-    // loses its type. Annotating the local array restores it without changing
-    // the runtime value or the lookup itself.
-    const loginUsers: User[] = listData?.users ?? [];
-    const loginUser = loginUsers.find(u => u.email === email) ?? null;
+    const genericInvalid = async () => {
+      recordLoginAttempt(req, normalizedEmail, false);
+      await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail });
+      await sb.from('login_attempts').insert({ ip_address: req.ip || 'unknown', email: normalizedEmail, success: false });
+      return res.status(401).json({ error: 'Invalid email or password' });
+    };
 
-    // We don't actually perform login here — the frontend does via Supabase SDK
-    // This endpoint validates brute force + captcha, then returns clearance
-    if (loginError) {
-      recordLoginAttempt(req, email, false);
-      await logSecurityEvent(req, 'login_failed', 'warn', { email });
+    const identity = await findIdentityByEmail(config, normalizedEmail);
+    if (!identity) return genericInvalid();
 
-      // Log to DB for persistence
-      await sb.from('login_attempts').insert({
-        ip_address: req.ip || 'unknown',
-        email,
-        success: false,
-      });
-
-      return res.json({ cleared: true }); // Don't reveal user existence
+    if (identity.status === 'disabled') {
+      recordLoginAttempt(req, normalizedEmail, false);
+      await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail, userId: identity.id, reason: 'disabled' });
+      return res.status(403).json({ error: 'This account has been disabled.' });
     }
 
+    if (!identity.passwordHash) {
+      // Migrated (pre-first-party) user, or a brand-new profile row with no
+      // credentials yet: there is no password to check against. This is a
+      // deliberate, documented departure from the generic-failure response —
+      // the account genuinely needs a one-time password-setup step (via the
+      // same forgot-password flow), which is a different remediation than
+      // "your password was wrong". It does not reveal anything an attacker
+      // couldn't already learn by attempting "forgot password" for the email.
+      recordLoginAttempt(req, normalizedEmail, false);
+      await logSecurityEvent(req, 'login_failed', 'info', { email: normalizedEmail, userId: identity.id, reason: 'password_setup_required' });
+      return res.status(403).json({ error: 'Password setup required', passwordSetupRequired: true });
+    }
+
+    const validPassword = await verifyPassword(identity.passwordHash, password);
+    if (!validPassword) return genericInvalid();
+
+    recordLoginAttempt(req, normalizedEmail, true);
+    await sb.from('login_attempts').insert({ ip_address: req.ip || 'unknown', email: normalizedEmail, success: true });
+
+    // Silent rehash-on-login when stored params are weaker than current policy.
+    if (needsRehash(identity.passwordHash)) {
+      try {
+        const upgradedHash = await hashPassword(password);
+        await sb.from('user_credentials').update({ password_hash: upgradedHash }).eq('user_id', identity.id);
+      } catch (rehashErr) {
+        console.error('[auth] Rehash-on-login failed (non-fatal):', rehashErr);
+      }
+    }
+
+    await sb
+      .from('user_credentials')
+      .update({ last_login_at: new Date().toISOString(), failed_login_count: 0 })
+      .eq('user_id', identity.id);
+
+    const session = await createSession(config, {
+      userId: identity.id,
+      email: identity.email,
+      ipAddress: req.ip || null,
+      userAgent: (req.headers['user-agent'] as string | undefined) || null,
+    });
+    setSessionCookie(res, session.token, session.expiresAt);
+
+    await logSecurityEvent(req, 'login_success', 'info', { email: normalizedEmail, userId: identity.id });
+
     return res.json({
-      cleared: true,
-      requiresCaptcha: (bruteCheck.failCount || 0) >= 3,
+      user: {
+        id: identity.id,
+        email: identity.email,
+        emailVerified: !!identity.emailVerifiedAt,
+        fullName: identity.fullName,
+      },
     });
   } catch (err) {
-    console.error('[auth] Login check error:', err);
+    console.error('[auth] Login error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });
 
 /**
  * POST /api/auth/signup
- * Create user server-side without triggering Supabase built-in auth emails.
+ * First-party account creation: `profiles` is the identity root (026 freed
+ * it from requiring an `auth.users` row), `user_credentials` holds the
+ * Argon2id hash. No `sb.auth.admin.*` call anywhere in this path.
  */
 authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
   try {
@@ -166,98 +225,104 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
     }
 
-    const { email, password, fullName, website, locale, metadata } = parsed.data;
+    const { password, fullName, website, locale, metadata } = parsed.data;
     const normalizedWebsite = website ? normalizeWebsiteUrl(website) : null;
-
+    const normalizedEmail = parsed.data.email.trim().toLowerCase();
     const sb = getServiceClient(config);
-    const normalizedEmail = email.trim().toLowerCase();
-    const userMetadata = {
-      full_name: fullName?.trim() || '',
-      website: normalizedWebsite,
-      ...metadata,
+
+    let passwordHash: string;
+    try {
+      passwordHash = await hashPassword(password);
+    } catch (err) {
+      if (err instanceof InvalidPasswordError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
+    }
+
+    const profileFields = {
+      email: normalizedEmail,
+      full_name: fullName?.trim() || null,
+      company_name: metadata?.companyName || null,
+      website_domain: metadata?.websiteDomain || normalizedWebsite || null,
+      main_goal: metadata?.mainGoal || null,
+      ai_mode: metadata?.aiMode || null,
+      signup_ip: req.ip || null,
+      signup_locale: locale || null,
     };
 
-    const { data: listUsersData } = await sb.auth.admin.listUsers();
-    const signupUsers: User[] = listUsersData?.users ?? [];
-    const existingUser = signupUsers.find(u => u.email === normalizedEmail) ?? null;
+    const existing = await findIdentityByEmail(config, normalizedEmail);
 
-    if (existingUser?.email_confirmed_at) {
+    // An existing, fully set-up account (password + verified email) is a
+    // genuine duplicate. An existing profile with no password yet (migrated
+    // user) or an unverified signup is treated as "continue/resend" — the
+    // same UX the pre-migration endpoint offered for an unconfirmed user.
+    if (existing?.passwordHash && existing.emailVerifiedAt) {
       return res.status(409).json({ error: 'An account with this email already exists' });
     }
 
-    if (existingUser) {
-      const { data: updatedUserData, error: updateError } = await sb.auth.admin.updateUserById(existingUser.id, {
-        password,
-        user_metadata: userMetadata,
-      });
-
-      if (updateError) {
-        return res.status(500).json({ error: updateError.message || 'Failed to update existing account' });
-      }
-
-      await sb.from('profiles').upsert({
-        id: existingUser.id,
-        email: normalizedEmail,
-        full_name: fullName?.trim() || null,
-        company_name: metadata?.companyName || null,
-        website_domain: metadata?.websiteDomain || null,
-        main_goal: metadata?.mainGoal || null,
-        ai_mode: metadata?.aiMode || null,
-        signup_ip: req.ip || null,
-        signup_locale: locale || null,
-      }, { onConflict: 'id' });
+    if (existing) {
+      await sb.from('user_credentials').upsert(
+        { user_id: existing.id, password_hash: passwordHash, password_algo: 'argon2id', password_set_at: new Date().toISOString() },
+        { onConflict: 'user_id' },
+      );
+      await sb.from('profiles').update(profileFields).eq('id', existing.id);
 
       const verificationResult = await issueVerificationEmail(config, {
-        userId: existingUser.id,
+        userId: existing.id,
         email: normalizedEmail,
         fullName,
         locale,
         ipAddress: req.ip || null,
       });
-
       if (!verificationResult.success) {
         return res.status(500).json({ error: verificationResult.error || 'Failed to send verification email' });
       }
 
-      return res.json({ user: updatedUserData.user || existingUser, needsEmailVerification: true, resent: true });
+      return res.json({
+        user: { id: existing.id, email: normalizedEmail, fullName: fullName?.trim() || existing.fullName },
+        needsEmailVerification: true,
+        resent: true,
+      });
     }
 
-    const signupResult = await issueSignupLinkEmail(config, {
-      email: normalizedEmail,
-      password,
-      fullName,
-      website: normalizedWebsite,
-      locale,
+    const newUserId = crypto.randomUUID();
+    const { error: profileError } = await sb.from('profiles').insert({ id: newUserId, ...profileFields });
+    if (profileError) {
+      // Most likely a unique-email race with a concurrent signup for the same address.
+      return res.status(409).json({ error: 'An account with this email already exists' });
+    }
+
+    const { error: credError } = await sb.from('user_credentials').insert({
+      user_id: newUserId,
+      password_hash: passwordHash,
+      password_algo: 'argon2id',
+      password_set_at: new Date().toISOString(),
     });
-
-    if (!signupResult.userId) {
-      return res.status(500).json({ error: signupResult.error || 'Failed to create account' });
+    if (credError) {
+      // Don't leave an unusable, password-less identity behind.
+      await sb.from('profiles').delete().eq('id', newUserId);
+      console.error('[auth] Failed to create credentials, rolled back profile:', credError);
+      return res.status(500).json({ error: 'Failed to create account' });
     }
 
-    // If user was created but verification email failed, still succeed —
-    // user can resend verification later from the panel banner.
-    if (!signupResult.success && signupResult.userId) {
-      console.warn('[auth] Signup succeeded but verification email failed:', signupResult.error);
-    }
-
-    await sb.from('profiles').upsert({
-      id: signupResult.userId,
+    const verificationResult = await issueVerificationEmail(config, {
+      userId: newUserId,
       email: normalizedEmail,
-      full_name: fullName?.trim() || null,
-      company_name: metadata?.companyName || null,
-      website_domain: metadata?.websiteDomain || null,
-      main_goal: metadata?.mainGoal || null,
-      ai_mode: metadata?.aiMode || null,
-      signup_ip: req.ip || null,
-      signup_locale: locale || null,
-    }, { onConflict: 'id' });
+      fullName,
+      locale,
+      ipAddress: req.ip || null,
+    });
+    if (!verificationResult.success) {
+      // Account exists and is usable — user can resend from the panel banner.
+      console.warn('[auth] Signup succeeded but verification email failed:', verificationResult.error);
+    }
 
     return res.json({
       user: {
-        id: signupResult.userId,
+        id: newUserId,
         email: normalizedEmail,
         email_confirmed_at: null,
-        user_metadata: userMetadata,
         created_at: new Date().toISOString(),
       },
       needsEmailVerification: true,
@@ -270,11 +335,86 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
 });
 
 /**
+ * GET /api/auth/session
+ * Resolves the caller's session from the `gs_session` HttpOnly cookie.
+ * Frontend AuthProvider.getSession() reads state here — never from
+ * browser-readable storage, since the cookie itself isn't visible to JS.
+ */
+authSecurityRouter.get('/session', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const token = req.cookies?.[SESSION_COOKIE_NAME];
+    const session = await validateSessionToken(config, token);
+    if (!session) return res.json({ user: null });
+
+    const identity = await findIdentityById(config, session.userId);
+    if (!identity) return res.json({ user: null });
+
+    return res.json({
+      user: {
+        id: identity.id,
+        email: identity.email,
+        emailVerified: !!identity.emailVerifiedAt,
+        fullName: identity.fullName,
+      },
+    });
+  } catch (err) {
+    console.error('[auth] Session check error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * POST /api/auth/logout
+ * Revokes only the calling browser's session and clears its cookie.
+ */
+authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const token = req.cookies?.[SESSION_COOKIE_NAME];
+    const session = await validateSessionToken(config, token);
+    if (session) {
+      await revokeSession(config, session.sessionId, 'logout');
+      await logSecurityEvent(req, 'session_revoked', 'info', { userId: session.userId, reason: 'logout' });
+    }
+    clearSessionCookie(res);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[auth] Logout error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * POST /api/auth/logout-all
+ * Revokes every session for the caller's account (all devices), including
+ * this one, and clears this browser's cookie.
+ */
+authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const token = req.cookies?.[SESSION_COOKIE_NAME];
+    const session = await validateSessionToken(config, token);
+    if (!session) {
+      clearSessionCookie(res);
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const revokedCount = await revokeAllSessions(config, session.userId, 'logout_all');
+    await logSecurityEvent(req, 'logout_all', 'info', { userId: session.userId, revokedCount });
+    clearSessionCookie(res);
+    return res.json({ success: true, revokedCount });
+  } catch (err) {
+    console.error('[auth] Logout-all error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
  * POST /api/auth/record-result
  * Frontend calls after Supabase auth to record success/failure.
  * Also accepts generic security event logging from the client.
  */
-authSecurityRouter.post('/record-result', async (req, res) => {
+authSecurityRouter.post('/record-result', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
     const { email, success, eventType, severity, metadata } = req.body;

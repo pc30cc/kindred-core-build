@@ -69,7 +69,6 @@ import { invalidateManifestCache, getManifestDiagnostics } from './services/widg
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
-  authRateLimiter,
   emailRateLimiter,
   widgetRateLimiter,
   visitorRateLimiter,
@@ -254,8 +253,11 @@ app.use('/api/', abuseDetectionMiddleware());
 // Health (no rate limit)
 app.use('/api/health', healthRouter);
 
-// Auth security (brute force + captcha) — strict rate limit
-app.use('/api/auth', authRateLimiter, authSecurityRouter);
+// Auth security (brute force + captcha). The strict 5/min limiter is applied
+// per-route inside authSecurityRouter (login/signup/etc.), NOT blanket here —
+// GET /api/auth/session is read-only and called on every page load/tab, so it
+// must not share a budget with security-sensitive mutating actions.
+app.use('/api/auth', authSecurityRouter);
 
 // Auth email — verification & reset via configured provider
 app.use('/api/auth-email', emailRateLimiter, authEmailRouter);

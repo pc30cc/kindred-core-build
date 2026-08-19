@@ -57,14 +57,6 @@ interface VerificationEmailOptions {
   ipAddress?: string | null;
 }
 
-interface SignupLinkEmailOptions {
-  email: string;
-  password: string;
-  fullName?: string | null;
-  website?: string | null;
-  locale?: string;
-}
-
 interface RecoveryEmailOptions {
   userId: string;
   email: string;
@@ -133,57 +125,6 @@ export async function issueVerificationEmail(
     return { success: true };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to send verification email' };
-  }
-}
-
-export async function issueSignupLinkEmail(
-  config: ServerConfig,
-  options: SignupLinkEmailOptions,
-): Promise<{ success: boolean; userId?: string; error?: string }> {
-  try {
-    const sb = getServiceClient(config);
-    const normalizedWebsite = options.website?.trim() || '';
-    const userMetadata = {
-      full_name: options.fullName?.trim() || '',
-      website: normalizedWebsite,
-      website_url: normalizedWebsite,
-      locale: options.locale || 'en',
-      app_email_verified: false,
-    };
-
-    // email_confirm: true allows immediate signIn, but we still send
-    // a verification email and track real verification via auth_verify_tokens.
-    const { data: createData, error: createError } = await sb.auth.admin.createUser({
-      email: options.email,
-      password: options.password,
-      email_confirm: true,
-      user_metadata: userMetadata,
-    });
-
-    if (createError) {
-      throw new Error(createError.message || 'Failed to create user');
-    }
-
-    const userId = createData.user?.id;
-    if (!userId) {
-      throw new Error('User creation returned no user ID');
-    }
-
-    const verificationResult = await issueVerificationEmail(config, {
-      userId,
-      email: options.email,
-      fullName: options.fullName,
-      locale: options.locale,
-      ipAddress: null,
-    });
-
-    if (!verificationResult.success) {
-      return { success: false, userId, error: verificationResult.error };
-    }
-
-    return { success: true, userId };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to send signup email' };
   }
 }
 

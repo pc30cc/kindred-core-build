@@ -15,6 +15,7 @@ import { Router } from 'express';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
+import { findIdentityById } from '../services/auth/identity.js';
 
 export const workspaceAlertsRouter = Router();
 
@@ -68,7 +69,7 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
   const sb = getServiceClient(config);
   const period = new Date().toISOString().slice(0, 7);
 
-  const [planInfo, usageRes, overridesRes, paymentsRes, userRes] = await Promise.all([
+  const [planInfo, usageRes, overridesRes, paymentsRes, identity] = await Promise.all([
     getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId).catch(
       () => null,
     ),
@@ -88,14 +89,13 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: false })
       .limit(5),
-    sb.auth.admin.getUserById(userId).catch(() => null as any),
+    findIdentityById(config, userId).catch(() => null),
   ]);
 
   const alerts: WorkspaceAlert[] = [];
 
   // ── 1. Account verification ──────────────────────────────
-  const authUser = userRes?.data?.user;
-  if (authUser && !authUser.email_confirmed_at) {
+  if (identity && !identity.emailVerifiedAt) {
     alerts.push({ id: 'email_unverified', kind: 'email_unverified', severity: 'warning' });
   }
 

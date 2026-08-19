@@ -1,7 +1,7 @@
 /**
  * Privacy routes — GDPR export / delete request flow.
  *
- * Auth: Bearer = Supabase user access token (operator).
+ * Auth: first-party session cookie (server/lib/workspaceAuth.ts, operator).
  * Authorization: workspace admin for contact/visitor jobs, self for user jobs.
  * Rate limiting: ad-hoc per-workspace counters (project policy: no shared
  * primitives yet).
@@ -19,23 +19,22 @@ import { readLegacyArtifact, deleteLegacyArtifact } from '../services/privacy/ar
 import { resolvePrivacyStoragePolicy } from '../services/privacy/storageResolver.js';
 import { downloadWithConfig, deleteWithConfig } from '../services/storage/index.js';
 import type { PrivacyAction, PrivacySubjectType } from '../services/privacy/types.js';
+import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { findIdentityById } from '../services/auth/identity.js';
+import { verifyPassword } from '../services/auth/password.js';
 
 export const privacyRouter = Router();
 
 // ─── Auth helper ───────────────────────────────────────────────────
 async function authUser(req: any, res: any, config: ServerConfig): Promise<{ userId: string; email: string | null } | null> {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return null;
+  const identity = await findIdentityById(config, userId);
+  if (!identity) {
+    res.status(401).json({ error: 'Account not found' });
     return null;
   }
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(auth.replace('Bearer ', ''));
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  return { userId: user.id, email: user.email || null };
+  return { userId: identity.id, email: identity.email || null };
 }
 
 async function isWorkspaceAdmin(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
@@ -82,9 +81,10 @@ privacyRouter.post('/reauth', async (req, res) => {
 
   if (parsed.data.password) {
     if (!me.email) return res.status(400).json({ error: 'No email on account' });
-    const sb = getServiceClient(config);
-    const { error } = await sb.auth.signInWithPassword({ email: me.email, password: parsed.data.password });
-    if (error) return res.status(401).json({ error: 'Invalid password' });
+    const identity = await findIdentityById(config, me.userId);
+    if (!identity?.passwordHash || !(await verifyPassword(identity.passwordHash, parsed.data.password))) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
   } else if (!parsed.data.oauth) {
     return res.status(400).json({ error: 'password or oauth=true required' });
   }

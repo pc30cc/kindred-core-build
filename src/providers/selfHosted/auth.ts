@@ -95,14 +95,36 @@ export const selfHostedAuthProvider: AuthProvider = {
     }
   },
 
+  // Because the session lives in an HttpOnly cookie the browser can't read
+  // or delete on its own, "signed out" is only true once the SERVER
+  // confirms the gs_session was revoked — clearing local state on a failed
+  // or unreachable logout request would report a signed-out UI while a
+  // real, still-valid session cookie remains usable (e.g. by anyone else
+  // with access to this browser). POST /api/auth/logout
+  // (server/routes/auth.ts) is idempotent — it 200s whether or not there
+  // was a session to revoke — so any 2xx response is proof there is no
+  // longer a live server-side session for this browser, and any non-2xx
+  // response, or the request never completing at all, is proof of nothing
+  // and must be reported as a failure instead.
   async signOut() {
+    let ok: boolean;
+    let status: number;
+    let json: any;
     try {
-      await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
-    } catch {
-      // Best-effort: even if the request fails, the local auth state below
-      // still clears — a stale cookie the server rejects is equivalent to
-      // being logged out from this app's point of view.
+      const res = await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      ok = res.ok;
+      status = res.status;
+      json = await res.json().catch(() => ({}));
+    } catch (error) {
+      // Network failure — no proof the server-side session was revoked.
+      return { error: error instanceof Error ? error : new Error('Logout request failed') };
     }
+
+    if (!ok) {
+      const message = json?.error || `Logout failed (HTTP ${status})`;
+      return { error: new Error(message) };
+    }
+
     notify(null);
     return { error: null };
   },

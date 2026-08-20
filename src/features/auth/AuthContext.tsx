@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { AuthProvider, AuthSession, AuthUser } from '@/types/providers';
 import { selfHostedAuthProvider } from '@/providers/selfHosted/auth';
+import { toast } from '@/lib/toast';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -41,7 +42,16 @@ export function AuthContextProvider({
   }, [provider]);
 
   const handleSignOut = useCallback(async () => {
-    await provider.signOut();
+    // Only clear local session state when the provider actually confirms
+    // the server-side session is gone — otherwise a real gs_session cookie
+    // could remain valid while the UI falsely shows the user as signed
+    // out (see src/providers/selfHosted/auth.ts's signOut() for why a
+    // non-2xx response or a network failure is never treated as success).
+    const { error } = await provider.signOut();
+    if (error) {
+      toast.error(error.message || 'Failed to sign out. Please try again.');
+      return;
+    }
     setSession(null);
   }, [provider]);
 

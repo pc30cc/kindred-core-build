@@ -13,7 +13,6 @@ import { getServiceClient } from '../supabase.js';
 import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
 import { findIdentityByEmail } from '../services/auth/identity.js';
 import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
-import { revokeAllSessions } from '../services/auth/sessions.js';
 import { logSecurityEvent } from '../middleware/security.js';
 
 export const authEmailRouter = Router();
@@ -90,6 +89,14 @@ authEmailRouter.post('/send-verification', async (req, res) => {
 /**
  * POST /api/auth-email/verify-email
  * Verify token and confirm user's email.
+ *
+ * Redemption is ATOMIC: `redeem_email_verify_token` (service_role-only,
+ * database/migrations/030_atomic_auth_token_redemption.sql) claims the
+ * token with a single conditional UPDATE ... WHERE used_at IS NULL ...
+ * RETURNING and writes user_credentials.email_verified_at in the same
+ * function call, so two simultaneous requests for the same raw token can
+ * never both succeed — the old SELECT-then-UPDATE shape here let both
+ * requests pass the "is it unused" check before either write landed.
  */
 authEmailRouter.post('/verify-email', async (req, res) => {
   try {
@@ -101,46 +108,18 @@ authEmailRouter.post('/verify-email', async (req, res) => {
     const tokenHash = hashToken(token);
     const sb = getServiceClient(config);
 
-    // Find valid token
-    const { data: tokenData, error: tokenError } = await sb
-      .from('auth_verify_tokens')
-      .select('*')
-      .eq('token_hash', tokenHash)
-      .is('used_at', null)
-      .is('revoked_at', null)
-      .maybeSingle();
-
-    if (tokenError || !tokenData) {
-      return res.status(400).json({ error: 'Invalid or expired token' });
-    }
-
-    // Check expiry
-    if (new Date(tokenData.expires_at) < new Date()) {
-      return res.status(400).json({ error: 'Token has expired' });
-    }
-
-    // Mark the identity's email verified. Upsert so this also works for a
-    // user_credentials row that doesn't exist yet (shouldn't happen for a
-    // signup-issued token, but keeps this endpoint safe either way) without
-    // ever touching password_hash/status on an existing row.
-    const { error: updateError } = await sb
-      .from('user_credentials')
-      .upsert(
-        { user_id: tokenData.user_id, email_verified_at: new Date().toISOString() },
-        { onConflict: 'user_id' },
-      );
-
-    if (updateError) {
-      console.error('[auth-email] Failed to confirm user:', updateError);
+    const { data, error } = await sb.rpc('redeem_email_verify_token', { _token_hash: tokenHash });
+    if (error) {
+      console.error('[auth-email] redeem_email_verify_token error:', error);
       return res.status(500).json({ error: 'Failed to confirm email' });
     }
 
-    // Mark token as used
-    await sb.from('auth_verify_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', tokenData.id);
+    const redeemed = Array.isArray(data) ? data[0] : data;
+    if (!redeemed?.redeemed_user_id) {
+      return res.status(400).json({ error: 'Invalid or expired token' });
+    }
 
-    return res.json({ success: true, email: tokenData.email });
+    return res.json({ success: true, email: redeemed.redeemed_email });
   } catch (err) {
     return handleRouteError(res, '[auth-email] verify-email error:', err);
   }
@@ -183,6 +162,16 @@ authEmailRouter.post('/send-reset', async (req, res) => {
 /**
  * POST /api/auth-email/reset-password
  * Validate reset token and update user's password.
+ *
+ * Redemption is ATOMIC: `redeem_password_reset_token` (service_role-only,
+ * database/migrations/030_atomic_auth_token_redemption.sql) claims the
+ * token, writes the new hash, and revokes every existing session for that
+ * user — all inside one function call/transaction — so two simultaneous
+ * requests for the same raw token can never both succeed, and a failure
+ * partway through can never leave the token "used" with no password
+ * change or a password change with the old sessions still live. Identity
+ * comes ONLY from the token row the function itself claims; this route
+ * never passes a client-supplied user id into it.
  */
 authEmailRouter.post('/reset-password', async (req, res) => {
   try {
@@ -206,50 +195,24 @@ authEmailRouter.post('/reset-password', async (req, res) => {
     const tokenHash = hashToken(token);
     const sb = getServiceClient(config);
 
-    const { data: tokenData, error: tokenError } = await sb
-      .from('auth_reset_tokens')
-      .select('*')
-      .eq('token_hash', tokenHash)
-      .is('used_at', null)
-      .is('revoked_at', null)
-      .maybeSingle();
-
-    if (tokenError || !tokenData) {
-      return res.status(400).json({ error: 'Invalid or expired token' });
-    }
-
-    if (new Date(tokenData.expires_at) < new Date()) {
-      return res.status(400).json({ error: 'Token has expired' });
-    }
-
-    // Write the new Argon2id hash. Upsert (not update) so this also serves as
-    // the migrated-user "password setup" path — a pre-migration account with
-    // no user_credentials row yet gets one created here, the same way
-    // "forgot password" would for any first-party account.
-    const { error: updateError } = await sb.from('user_credentials').upsert(
-      {
-        user_id: tokenData.user_id,
-        password_hash: passwordHash,
-        password_algo: 'argon2id',
-        password_set_at: new Date().toISOString(),
-        failed_login_count: 0,
-      },
-      { onConflict: 'user_id' },
-    );
-
-    if (updateError) {
-      console.error('[auth-email] Failed to reset password:', updateError);
+    const { data, error } = await sb.rpc('redeem_password_reset_token', {
+      _token_hash: tokenHash,
+      _new_password_hash: passwordHash,
+    });
+    if (error) {
+      console.error('[auth-email] redeem_password_reset_token error:', error);
       return res.status(500).json({ error: 'Failed to reset password' });
     }
 
-    // Mark token as used
-    await sb.from('auth_reset_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', tokenData.id);
+    const redeemed = Array.isArray(data) ? data[0] : data;
+    if (!redeemed?.redeemed_user_id) {
+      return res.status(400).json({ error: 'Invalid or expired token' });
+    }
 
-    // The old password (if any) must stop working everywhere immediately.
-    const revokedCount = await revokeAllSessions(config, tokenData.user_id, 'password_reset');
-    await logSecurityEvent(req, 'password_changed', 'info', { userId: tokenData.user_id, revokedCount });
+    await logSecurityEvent(req, 'password_changed', 'info', {
+      userId: redeemed.redeemed_user_id,
+      revokedCount: redeemed.redeemed_sessions_revoked ?? 0,
+    });
 
     return res.json({ success: true });
   } catch (err) {

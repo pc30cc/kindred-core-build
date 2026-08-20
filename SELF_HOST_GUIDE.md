@@ -88,6 +88,7 @@ npm run dev        # Vite dev server on http://localhost:5173
 | `CORS_ORIGINS` | No | Comma-separated allowed origins for cross-origin dashboard requests. Unset/`*` fails closed (rejects cross-origin credentialed requests) rather than allowing every origin — only needed if the frontend is served from a different origin than the API; a same-origin reverse-proxy deployment doesn't need it. |
 | `RATE_LIMIT_WINDOW_MS` | No | Rate limit window in ms (default: 60000) |
 | `RATE_LIMIT_MAX` | No | Max requests per window (default: 100) |
+| `APP_BASE_URL` | No* | The dashboard's public https URL, used to build links in verification/password-reset emails. Prefer configuring `app_base_url` via the admin UI (Super Admin → Domains) instead — that takes priority. *Effectively required in production if neither is set and `CORS_ORIGINS` isn't a real URL: auth emails fail loudly rather than going out with a broken link. |
 
 ## Frontend Environment Variables
 

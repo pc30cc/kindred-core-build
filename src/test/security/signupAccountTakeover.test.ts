@@ -137,6 +137,83 @@ function fakeClient() {
       };
       return builder;
     },
+    // Mirrors the claim-then-write shape of the real SECURITY DEFINER
+    // functions (database/migrations/030_atomic_auth_token_redemption.sql)
+    // closely enough to exercise this suite's single-use/replay
+    // assertions realistically: an in-memory equivalent of the atomic
+    // conditional UPDATE ... WHERE used_at IS NULL ... RETURNING.
+    async rpc(name: string, args: any) {
+      if (name === 'redeem_password_reset_token') {
+        const token = (db.auth_reset_tokens || []).find(
+          (t: Row) => t.token_hash === args._token_hash && !t.used_at && !t.revoked_at && new Date(t.expires_at) > new Date(),
+        );
+        if (!token) return { data: [], error: null };
+        token.used_at = new Date().toISOString();
+
+        const existingCred = (db.user_credentials || []).find((c: Row) => c.user_id === token.user_id);
+        if (existingCred) {
+          Object.assign(existingCred, {
+            password_hash: args._new_password_hash,
+            password_algo: 'argon2id',
+            password_set_at: new Date().toISOString(),
+            failed_login_count: 0,
+          });
+        } else {
+          (db.user_credentials ||= []).push({
+            user_id: token.user_id,
+            password_hash: args._new_password_hash,
+            password_algo: 'argon2id',
+            password_set_at: new Date().toISOString(),
+            failed_login_count: 0,
+          });
+        }
+
+        let revoked = 0;
+        for (const s of db.auth_sessions || []) {
+          if (s.user_id === token.user_id && !s.revoked_at) {
+            s.revoked_at = new Date().toISOString();
+            s.revoke_reason = 'password_reset';
+            revoked += 1;
+          }
+        }
+
+        return {
+          data: [{ redeemed_user_id: token.user_id, redeemed_email: token.email, redeemed_sessions_revoked: revoked }],
+          error: null,
+        };
+      }
+      if (name === 'redeem_email_verify_token') {
+        const token = (db.auth_verify_tokens || []).find(
+          (t: Row) => t.token_hash === args._token_hash && !t.used_at && !t.revoked_at && new Date(t.expires_at) > new Date(),
+        );
+        if (!token) return { data: [], error: null };
+        token.used_at = new Date().toISOString();
+
+        const existingCred = (db.user_credentials || []).find((c: Row) => c.user_id === token.user_id);
+        if (existingCred) existingCred.email_verified_at = new Date().toISOString();
+        else (db.user_credentials ||= []).push({ user_id: token.user_id, email_verified_at: new Date().toISOString() });
+
+        return { data: [{ redeemed_user_id: token.user_id, redeemed_email: token.email }], error: null };
+      }
+      if (name === 'change_password_and_revoke_sessions') {
+        const cred = (db.user_credentials || []).find((c: Row) => c.user_id === args._user_id);
+        if (!cred) return { data: null, error: { message: `no user_credentials row for ${args._user_id}` } };
+        cred.password_hash = args._new_password_hash;
+        cred.password_algo = 'argon2id';
+        cred.password_set_at = new Date().toISOString();
+
+        let revoked = 0;
+        for (const s of db.auth_sessions || []) {
+          if (s.user_id === args._user_id && !s.revoked_at && s.id !== args._except_session_id) {
+            s.revoked_at = new Date().toISOString();
+            s.revoke_reason = 'password_changed';
+            revoked += 1;
+          }
+        }
+        return { data: revoked, error: null };
+      }
+      return { data: null, error: null };
+    },
   };
 }
 

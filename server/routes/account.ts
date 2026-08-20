@@ -338,6 +338,17 @@ accountRouter.delete('/avatar', async (req, res) => {
 // ── POST /api/account/change-password ─────────────────────────────
 // Verifies the current password against the stored Argon2id hash, then
 // writes the new one. First-party — no Supabase Auth involved.
+//
+// A session stolen before the change must not survive it: after a
+// successful write, every OTHER active first-party session for this user
+// is revoked (revoke_reason='password_changed') — the caller's own current
+// session (req.currentSessionId, set by this router's requireUser above)
+// is deliberately exempted so changing your password doesn't also log you
+// out of the tab you did it from. The write and the revocation happen
+// inside one `change_password_and_revoke_sessions` SECURITY DEFINER call
+// (database/migrations/031_change_password_revoke_sessions.sql) so a
+// failure partway through can never leave the password changed with the
+// old sessions still live.
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
   newPassword: z.string().min(8).max(255),
@@ -347,6 +358,7 @@ accountRouter.post('/change-password', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
     const user = (req as any).authUser;
+    const currentSessionId: string | null = (req as any).currentSessionId ?? null;
     const parsed = changePasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'New password must be at least 8 characters' });
@@ -379,15 +391,16 @@ accountRouter.post('/change-password', async (req, res) => {
       throw err;
     }
 
-    const { error: updErr } = await sb
-      .from('user_credentials')
-      .update({ password_hash: newHash, password_algo: 'argon2id', password_set_at: new Date().toISOString() })
-      .eq('user_id', user.id);
-    if (updErr) {
-      return res.status(500).json({ error: updErr.message });
+    const { data: revokedCount, error: rpcErr } = await sb.rpc('change_password_and_revoke_sessions', {
+      _user_id: user.id,
+      _new_password_hash: newHash,
+      _except_session_id: currentSessionId,
+    });
+    if (rpcErr) {
+      return res.status(500).json({ error: rpcErr.message });
     }
 
-    return res.json({ success: true });
+    return res.json({ success: true, revoked_sessions: revokedCount ?? 0 });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to change password' });
   }

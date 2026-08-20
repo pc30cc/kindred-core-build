@@ -13,7 +13,40 @@ function generateToken(): string {
   return crypto.randomUUID();
 }
 
-async function resolveAppBaseUrl(config: ServerConfig) {
+/** True only for a real absolute http(s) URL — rejects '', undefined, and the '*' wildcard. */
+function isValidHttpUrl(value: string | null | undefined): value is string {
+  if (!value || value === '*') return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function stripTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+/**
+ * Resolves the base URL used to build verification/reset links.
+ *
+ * `config.corsOrigins` defaults to `['*']` when CORS_ORIGINS is unset
+ * (server/config.ts) — the old fallback chain's last resort,
+ * `config.corsOrigins[0]`, could therefore silently become the literal
+ * wildcard string, producing a broken link (wildcard immediately followed
+ * by "/auth/...") in a real email with no error anywhere. Preference order now:
+ *   1. `platform_domains.app_base_url` (operator-configured in the admin UI)
+ *   2. `APP_BASE_URL` server env var
+ *   3. a configured CORS origin, but ONLY if it's a real absolute http(s)
+ *      URL — never the '*' wildcard
+ *   4. `http://localhost:5173`, but ONLY outside production
+ * In production, if none of 1–3 resolve to a real URL, this throws rather
+ * than ever returning '*' or silently defaulting to localhost — callers
+ * (issueVerificationEmail/issueRecoveryEmail) already catch and report
+ * failures as `{ success: false, error }` instead of sending a broken link.
+ */
+export async function resolveAppBaseUrl(config: ServerConfig): Promise<string> {
   const sb = getServiceClient(config);
   const { data: domains } = await sb
     .from('platform_domains')
@@ -21,7 +54,30 @@ async function resolveAppBaseUrl(config: ServerConfig) {
     .limit(1)
     .maybeSingle();
 
-  return domains?.app_base_url || process.env.APP_BASE_URL || config.corsOrigins[0] || 'http://localhost:5173';
+  if (isValidHttpUrl(domains?.app_base_url)) {
+    return stripTrailingSlash(domains.app_base_url);
+  }
+
+  const envBaseUrl = process.env.APP_BASE_URL;
+  if (isValidHttpUrl(envBaseUrl)) {
+    return stripTrailingSlash(envBaseUrl);
+  }
+
+  const corsOrigin = config.corsOrigins.find(isValidHttpUrl);
+  if (corsOrigin) {
+    return stripTrailingSlash(corsOrigin);
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'No valid application base URL is configured — refusing to send an auth ' +
+        'email with a broken link. Set platform_domains.app_base_url (admin UI) ' +
+        'or the APP_BASE_URL server environment variable to your dashboard\'s ' +
+        'public https URL.',
+    );
+  }
+
+  return 'http://localhost:5173';
 }
 
 async function resolveWorkspaceId(config: ServerConfig) {

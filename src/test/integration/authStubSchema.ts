@@ -44,24 +44,42 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
 }
 
 /**
- * Ensures the full self-host migration chain (000 through the newest
- * 0NN_*.sql, NO exclusions — every file in database/migrations/ applies,
- * matching the real production/CI contract exactly) is installed on `db`,
+ * database/migrations/*.sql in filename order, EXCLUDING two files with a
+ * pre-existing, documented, auth-unrelated gap in the self-host chain: each
+ * references a table no earlier self-host migration ever creates
+ * (`widget_smart_rules` for 017, `call_sessions`/`call_queue_entries` for
+ * 018 — Smart Engagement and Call Center base schema, respectively, never
+ * ported to the self-host chain at all). Neither file is reachable from —
+ * or a dependency of — anything the first-party Auth migration chain
+ * touches (024-041), so excluding them here does not weaken this suite's
+ * Auth coverage.
+ *
+ * An earlier pass on this branch (commit bf6a76f, since reverted) added
+ * full base-table ports for both features directly into 017/018 so the
+ * ENTIRE self-host chain — including unrelated Smart Engagement/Call
+ * Center product schema — would apply with zero exclusions. That expanded
+ * this Auth-only migration branch into general self-host product-parity
+ * work, which is explicitly out of scope here. The gap is real (confirmed:
+ * a fresh, unexcluded chain fails at 017 with "relation
+ * public.widget_smart_rules does not exist") and is tracked as separate
+ * self-host parity debt — see database/README.md / the branch's own final
+ * report — not something this Auth test harness claims to fix or to prove
+ * closed. This harness's job is narrower: prove the first-party Auth chain
+ * (024-041 plus 042+) installs and behaves correctly, which does not
+ * require 017/018 to apply at all.
+ */
+export const AUTH_CHAIN_EXCLUDED_FILES = new Set([
+  '017_smart_rules_published_snapshot.sql',
+  '018_call_visitor_session_link.sql',
+]);
+
+/**
+ * Ensures the full auth-relevant self-host migration chain (000 through the
+ * newest 0NN_*.sql, minus AUTH_CHAIN_EXCLUDED_FILES) is installed on `db`,
  * safe to call from MULTIPLE test files sharing ONE database in the same
  * CI run (this repo's "Integration tests" job runs every src/test/integration
  * .pg.test.ts file — except the dedicated AI-KB-tail one — against a single
  * shared `app` database with --no-file-parallelism).
- *
- * 017 and 018 previously required exclusion here: each referenced a table
- * (`widget_smart_rules` / `call_sessions`) no earlier self-host migration
- * created, so the chain could never actually apply past 016 on a truly
- * fresh database — self-host could never have completed first-run
- * migration at all. Both files now carry their own real, current-final
- * hosted-derived base schema (Smart Engagement tables for 017; Call
- * Center's call_sessions/call_queue_entries for 018) ported ahead of their
- * original ALTER logic, so the chain applies end to end with zero
- * exclusions — see each file's own top-of-file comment for the full
- * root-cause trace and scope decisions.
  *
  * 001-023 contain non-idempotent DDL (bare `CREATE POLICY`, no `IF NOT
  * EXISTS`) — by design, since a real deployment only ever runs each
@@ -80,7 +98,7 @@ export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
 
   const dir = resolve(process.cwd(), 'database/migrations');
   const allFiles = readdirSync(dir)
-    .filter((f) => f.endsWith('.sql'))
+    .filter((f) => f.endsWith('.sql') && !AUTH_CHAIN_EXCLUDED_FILES.has(f))
     .sort();
 
   const { rows } = await db.query(`SELECT to_regclass('public.profiles') IS NOT NULL AS installed`);

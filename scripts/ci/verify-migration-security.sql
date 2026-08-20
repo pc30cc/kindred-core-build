@@ -381,23 +381,39 @@ BEGIN
 END
 $core_anon$;
 
--- 8c. Auth trigger proof: a real insert into auth.users, performed by the
---     trusted owner, must fire on_auth_user_created and create the profile —
---     without the trigger being disabled and without handle_new_user() being
---     PUBLIC-executable. Everything here is rolled back with the outer
---     transaction.
+-- 8c. Legacy GoTrue-signup boundary proof (037 — retire_legacy_signup_trigger).
+--     auth.users/auth schema MAY still physically exist during a controlled
+--     cutover window (029 legitimately reads it at migration time, and
+--     rollback safety during cutover depends on not dropping it), but it
+--     MUST NOT be an alternative application-provisioning path any more:
+--       1. on_auth_user_created MUST NOT exist (any name variant).
+--       2. A real INSERT into auth.users, performed by the trusted owner,
+--          MUST have ZERO application side effects — no profiles, accounts,
+--          account_members, workspaces, workspace_members, user_credentials,
+--          or auth_sessions row is created as a result.
+--       3. handle_new_user(), if retained inert for migration/rollback
+--          history, must remain unreachable by PUBLIC/anon/authenticated.
+--     This replaces the pre-037 proof (which asserted the OPPOSITE — that
+--     the trigger fires and provisions a profile — the exact behavior 037
+--     deliberately removed as a security fix). Everything here is rolled
+--     back with the outer transaction.
 DO $auth_trigger$
 DECLARE
   uid uuid := gen_random_uuid();
   n   integer;
 BEGIN
   IF to_regclass('auth.users') IS NULL OR to_regclass('public.profiles') IS NULL THEN
-    RAISE EXCEPTION 'auth.users / public.profiles missing — trigger proof impossible';
+    RAISE EXCEPTION 'auth.users / public.profiles missing — trigger-retirement proof impossible';
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'on_auth_user_created' AND NOT tgisinternal
+
+  IF EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace ns ON ns.oid = c.relnamespace
+    WHERE ns.nspname = 'auth' AND c.relname = 'users'
+      AND t.tgname = 'on_auth_user_created' AND NOT t.tgisinternal
   ) THEN
-    RAISE EXCEPTION 'on_auth_user_created trigger is absent';
+    RAISE EXCEPTION '037 invariant violated: on_auth_user_created trigger is still present on auth.users';
   END IF;
 
   INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
@@ -407,18 +423,100 @@ BEGIN
           jsonb_build_object('full_name', 'CI Proof'));
 
   SELECT count(*) INTO n FROM public.profiles WHERE id = uid;
-  IF n <> 1 THEN
-    RAISE EXCEPTION 'handle_new_user did not create the profile row (found %)', n;
+  IF n <> 0 THEN
+    RAISE EXCEPTION '037 invariant violated: INSERT into auth.users provisioned a public.profiles row (found %) — auth.users must not be an alternative provisioning path', n;
   END IF;
 
-  IF has_function_privilege('public', to_regprocedure('public.handle_new_user()')::text, 'EXECUTE') THEN
-    RAISE EXCEPTION 'handle_new_user() became PUBLIC-executable during the trigger proof';
+  IF to_regclass('public.accounts') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.accounts WHERE owner_id = uid) THEN
+    RAISE EXCEPTION '037 invariant violated: INSERT into auth.users provisioned a public.accounts row';
+  END IF;
+
+  IF to_regclass('public.account_members') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.account_members WHERE user_id = uid) THEN
+    RAISE EXCEPTION '037 invariant violated: INSERT into auth.users provisioned a public.account_members row';
+  END IF;
+
+  IF to_regclass('public.workspaces') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.workspaces WHERE owner_id = uid) THEN
+    RAISE EXCEPTION '037 invariant violated: INSERT into auth.users provisioned a public.workspaces row';
+  END IF;
+
+  IF to_regclass('public.workspace_members') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.workspace_members WHERE user_id = uid) THEN
+    RAISE EXCEPTION '037 invariant violated: INSERT into auth.users provisioned a public.workspace_members row';
+  END IF;
+
+  IF to_regclass('public.user_credentials') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.user_credentials WHERE user_id = uid) THEN
+    RAISE EXCEPTION '037 invariant violated: INSERT into auth.users provisioned a public.user_credentials row';
+  END IF;
+
+  IF to_regclass('public.auth_sessions') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.auth_sessions WHERE user_id = uid) THEN
+    RAISE EXCEPTION '037 invariant violated: INSERT into auth.users provisioned a public.auth_sessions row';
+  END IF;
+
+  -- handle_new_user() may exist (kept inert for migration/rollback history —
+  -- 037's own comment explains why it's not dropped), but must never be
+  -- reachable by a customer-facing role, whether or not a trigger calls it.
+  IF to_regprocedure('public.handle_new_user()') IS NOT NULL THEN
+    IF has_function_privilege('public', to_regprocedure('public.handle_new_user()')::text, 'EXECUTE')
+       OR has_function_privilege('anon', to_regprocedure('public.handle_new_user()')::text, 'EXECUTE')
+       OR has_function_privilege('authenticated', to_regprocedure('public.handle_new_user()')::text, 'EXECUTE') THEN
+      RAISE EXCEPTION 'handle_new_user() is executable by PUBLIC/anon/authenticated';
+    END IF;
   END IF;
 
   DELETE FROM auth.users WHERE id = uid;
-  RAISE NOTICE 'auth trigger proof passed (profile created, handle_new_user not PUBLIC-executable)';
+  RAISE NOTICE '037 invariant verified: on_auth_user_created absent, INSERT INTO auth.users has zero application side effects, handle_new_user() unreachable';
 END
 $auth_trigger$;
+
+-- 8d. Workspace-provisioning RPCs: service_role only. Both are SECURITY
+--     DEFINER and take a caller-supplied identity argument with no
+--     independent proof the caller IS that identity — provision_account_
+--     on_signup (037) and create_workspace_atomic (the later closure that
+--     fixed the same class of gap for it) must be unreachable by anything
+--     but the trusted backend. Present on both chains as of 039 (self-host)
+--     / 20260415075435 (hosted) onward, so this is unconditional, not
+--     gated behind require_hosted_service_acl.
+DO $provisioning_rpcs$
+DECLARE
+  fn  text;
+  sig text;
+  rpcs text[] := ARRAY[
+    'public.provision_account_on_signup(uuid)',
+    'public.create_workspace_atomic(uuid, text, text, uuid)'
+  ];
+  audited integer := 0;
+BEGIN
+  FOREACH fn IN ARRAY rpcs LOOP
+    sig := to_regprocedure(fn)::text;
+    IF sig IS NULL THEN
+      RAISE EXCEPTION 'workspace-provisioning RPC % missing — chain incomplete', fn;
+    END IF;
+    IF has_function_privilege('public', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is PUBLIC-executable', fn;
+    END IF;
+    IF has_function_privilege('anon', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is anon-executable', fn;
+    END IF;
+    IF has_function_privilege('authenticated', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is authenticated-executable', fn;
+    END IF;
+    IF NOT has_function_privilege('service_role', sig, 'EXECUTE') THEN
+      RAISE EXCEPTION '% is not executable by service_role', fn;
+    END IF;
+    audited := audited + 1;
+  END LOOP;
+
+  IF audited <> array_length(rpcs, 1) THEN
+    RAISE EXCEPTION 'workspace-provisioning RPC ACL audit incomplete: % of %', audited, array_length(rpcs, 1);
+  END IF;
+  RAISE NOTICE 'workspace-provisioning RPCs verified service_role-only: %', array_to_string(rpcs, ', ');
+END
+$provisioning_rpcs$;
 
 ROLLBACK;
 

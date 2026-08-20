@@ -55,8 +55,11 @@ suite('admin_impersonation_tokens — atomic expiry+single-use claim (real Postg
     `);
   });
 
+  // 037 retired the auth.users -> profiles trigger, so this writes profiles
+  // directly (the same first-party-signup shape POST /api/auth/signup
+  // uses) rather than relying on the now-removed side effect.
   async function makeUser(email: string): Promise<string> {
-    const { rows } = await db.query(`INSERT INTO auth.users (email) VALUES ($1) RETURNING id`, [email]);
+    const { rows } = await db.query(`INSERT INTO public.profiles (id, email) VALUES (gen_random_uuid(), $1) RETURNING id`, [email]);
     return rows[0].id as string;
   }
 

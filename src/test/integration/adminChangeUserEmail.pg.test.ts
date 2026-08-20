@@ -45,8 +45,11 @@ suite('035 — admin_change_user_email (real PostgreSQL)', () => {
     `);
   });
 
+  // 037 retired the auth.users -> profiles trigger, so this writes profiles
+  // directly (the same first-party-signup shape POST /api/auth/signup
+  // uses) rather than relying on the now-removed side effect.
   async function makeUser(email: string, verified = true): Promise<string> {
-    const { rows } = await db.query(`INSERT INTO auth.users (email) VALUES ($1) RETURNING id`, [email]);
+    const { rows } = await db.query(`INSERT INTO public.profiles (id, email) VALUES (gen_random_uuid(), $1) RETURNING id`, [email]);
     const userId = rows[0].id as string;
     await db.query(
       `INSERT INTO public.user_credentials (user_id, password_hash, email_verified_at) VALUES ($1, 'HASH', $2)`,

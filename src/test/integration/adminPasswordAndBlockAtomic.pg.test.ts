@@ -46,8 +46,11 @@ suite('033/034 — admin_set_password_and_revoke_sessions / admin_set_user_block
     `);
   });
 
+  // 037 retired the auth.users -> profiles trigger, so this writes profiles
+  // directly (the same first-party-signup shape POST /api/auth/signup
+  // uses) rather than relying on the now-removed side effect.
   async function makeUser(email: string, withCred = true): Promise<string> {
-    const { rows } = await db.query(`INSERT INTO auth.users (email) VALUES ($1) RETURNING id`, [email]);
+    const { rows } = await db.query(`INSERT INTO public.profiles (id, email) VALUES (gen_random_uuid(), $1) RETURNING id`, [email]);
     const userId = rows[0].id as string;
     if (withCred) {
       await db.query(`INSERT INTO public.user_credentials (user_id, password_hash) VALUES ($1, 'OLD_HASH')`, [userId]);

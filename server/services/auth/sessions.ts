@@ -196,14 +196,27 @@ export async function validateSessionToken(config: ServerConfig, token: string |
   return { sessionId: data.id as string, userId: data.user_id as string, email: data.email as string };
 }
 
-/** Revoke exactly one session (e.g. logout from this device). Idempotent — revoking an already-revoked session is a no-op. */
+/**
+ * Revoke exactly one session (e.g. logout from this device). Idempotent —
+ * revoking an already-revoked (or nonexistent) session is a no-op, but a
+ * genuine database failure on the write itself MUST surface: this is a
+ * security-critical mutation (callers like POST /api/auth/logout decide
+ * whether the browser may be told "you're safely logged out" based on
+ * this succeeding), so — unlike validateSessionToken's deliberate "errors
+ * mean not-authenticated" contract — an `{ error }` here is never silently
+ * swallowed. PostgREST/Supabase database failures are returned as
+ * `{ error }`, not thrown, so this must be checked explicitly.
+ */
 export async function revokeSession(config: ServerConfig, sessionId: string, reason: RevokeReason): Promise<void> {
   const sb = getServiceClient(config);
-  await sb
+  const { error } = await sb
     .from('auth_sessions')
     .update({ revoked_at: new Date().toISOString(), revoke_reason: reason })
     .eq('id', sessionId)
     .is('revoked_at', null);
+  if (error) {
+    throw new Error(`Failed to revoke session: ${error.message}`);
+  }
 }
 
 /** Revoke every active session for a user (logout-all / password reset / account disabled). Returns the count actually revoked. */

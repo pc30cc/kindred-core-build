@@ -27,7 +27,6 @@ import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
-import { revokeAllSessions } from '../services/auth/sessions.js';
 import { issueImpersonationToken } from '../services/auth/impersonation.js';
 
 export const adminRouter = Router();
@@ -186,16 +185,18 @@ adminRouter.post('/change-password', async (req, res) => {
       throw err;
     }
 
-    const { error } = await sb.from('user_credentials').upsert(
-      { user_id: userId, password_hash: passwordHash, password_algo: 'argon2id', password_set_at: new Date().toISOString() },
-      { onConflict: 'user_id' },
-    );
+    // Password write + full session revocation (the old password, and any
+    // session it protected, must stop working everywhere immediately) in
+    // one atomic service_role-only call — a DB failure partway through
+    // must never leave the password changed with old sessions still live.
+    // Also covers a migrated user with no user_credentials row yet.
+    const { error } = await sb.rpc('admin_set_password_and_revoke_sessions', {
+      _user_id: userId,
+      _new_password_hash: passwordHash,
+    });
     if (error) {
-      return res.status(400).json({ error: error.message });
+      return res.status(500).json({ error: error.message });
     }
-
-    // The old password (if any) must stop working everywhere immediately.
-    await revokeAllSessions(config, userId, 'admin_action');
 
     res.json({ success: true });
   } catch (err: any) {
@@ -215,16 +216,16 @@ adminRouter.post('/block-user', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const { error } = await sb.from('user_credentials').upsert(
-      { user_id: userId, status: blocked ? 'disabled' : 'active' },
-      { onConflict: 'user_id' },
-    );
+    // Status flip + (when blocking) full session revocation in one atomic
+    // service_role-only call — a DB failure partway through must never
+    // leave the account marked disabled with a session still usable.
+    // Unblocking does not revoke sessions (see 034's own comment).
+    const { error } = await sb.rpc('admin_set_user_block_status', {
+      _user_id: userId,
+      _blocked: blocked,
+    });
     if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    if (blocked) {
-      await revokeAllSessions(config, userId, 'admin_action');
+      return res.status(500).json({ error: error.message });
     }
 
     res.json({ success: true, blocked });
@@ -371,17 +372,39 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const patch: Record<string, unknown> = {};
     for (const key of ['full_name', 'company_name', 'website_domain', 'preferred_locale'] as const) {
       if (key in body) patch[key] = (body as any)[key] || null;
     }
 
-    if (body.email) {
-      patch.email = body.email.toLowerCase();
+    if (Object.keys(patch).length > 0) {
+      patch.updated_at = new Date().toISOString();
+      const { error } = await sb.from('profiles').update(patch).eq('id', userId);
+      if (error) return res.status(500).json({ error: error.message });
     }
 
-    const { error } = await sb.from('profiles').update(patch).eq('id', userId);
-    if (error) return res.status(500).json({ error: error.message });
+    // The canonical login email is an identity-boundary change, not an
+    // ordinary field edit: it must invalidate everything issued against the
+    // OLD address (unused reset/verify tokens, verified-state, sessions —
+    // see admin_change_user_email, database/migrations/035) atomically, so
+    // it runs through its own RPC rather than the plain field update above.
+    if (body.email) {
+      const { data, error } = await sb.rpc('admin_change_user_email', {
+        _user_id: userId,
+        _new_email: body.email,
+      });
+      if (error) {
+        // Postgres 23505 = unique_violation: the normalized new email
+        // already belongs to another profile (profiles_email_normalized_
+        // unique_idx, 032/036) — a clean 409, not a raw DB error leak.
+        if ((error as any).code === '23505') {
+          return res.status(409).json({ error: 'An account with this email already exists' });
+        }
+        return res.status(500).json({ error: error.message });
+      }
+      const result = Array.isArray(data) ? data[0] : data;
+      return res.json({ success: true, email_changed: !!result?.changed });
+    }
 
     res.json({ success: true });
   } catch (err: any) {

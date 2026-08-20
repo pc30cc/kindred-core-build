@@ -429,7 +429,12 @@ accountRouter.post('/resend-verification', async (req, res) => {
     const email: string | undefined = user?.email;
     if (!email) return res.status(400).json({ error: 'Account has no email' });
 
-    if (user?.user_metadata?.app_email_verified === true) {
+    // Canonical verification state, set by this router's own requireUser
+    // middleware from identity.emailVerifiedAt (user_credentials) — NOT
+    // `user_metadata.app_email_verified`, which this middleware never
+    // populates (dead condition: an already-verified caller could hit this
+    // every time and mint another token/email indefinitely).
+    if (user?.email_confirmed_at) {
       return res.json({ success: true, already_verified: true });
     }
 

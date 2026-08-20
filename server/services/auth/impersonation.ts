@@ -46,7 +46,19 @@ export interface RedeemedImpersonation {
   createdBy: string;
 }
 
-/** Redeems a one-time impersonation token. Returns null for anything other than "valid, unused, unexpired". */
+/**
+ * Redeems a one-time impersonation token. Returns null for anything other
+ * than "valid, unused, unexpired".
+ *
+ * The single-use claim AND the expiry check happen in the SAME conditional
+ * UPDATE (`used_at IS NULL AND expires_at > now()`), not a separate
+ * SELECT-then-check-then-UPDATE: a token read a moment before its 60s TTL
+ * expires must not be claimable by an UPDATE that lands a moment after —
+ * with expiry only checked against a JS `Date` read earlier, that gap was
+ * real. Row-level locking on the UPDATE makes the whole claim (single-use
+ * AND not-expired) atomic, the same guarantee already used for the
+ * reset/verify token redemption RPCs (030_atomic_auth_token_redemption.sql).
+ */
 export async function redeemImpersonationToken(
   config: ServerConfig,
   rawToken: string | null | undefined,
@@ -57,22 +69,14 @@ export async function redeemImpersonationToken(
 
   const { data, error } = await sb
     .from('admin_impersonation_tokens')
-    .select('id, target_user_id, created_by, expires_at, used_at')
+    .update({ used_at: new Date().toISOString() })
     .eq('token_hash', tokenHash)
     .is('used_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .select('target_user_id, created_by')
     .maybeSingle();
 
   if (error || !data) return null;
-  if (new Date(data.expires_at).getTime() < Date.now()) return null;
-
-  // Mark used immediately (before the caller creates a session) so a raced
-  // second redemption of the same raw token cannot succeed twice.
-  const { error: updateError, count } = await sb
-    .from('admin_impersonation_tokens')
-    .update({ used_at: new Date().toISOString() }, { count: 'exact' })
-    .eq('id', data.id)
-    .is('used_at', null);
-  if (updateError || !count) return null;
 
   return { targetUserId: data.target_user_id as string, createdBy: data.created_by as string };
 }

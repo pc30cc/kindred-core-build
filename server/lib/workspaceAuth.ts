@@ -46,6 +46,33 @@ export function serverConfigOf(req: any): ServerConfig {
  * tested, never-called dead code. SameSite=Lax (sessions.ts) is the primary
  * defense; this is the explicit defense-in-depth layer for SameSite=None
  * deployments and non-preflighted request shapes.
+ *
+ * DISABLED-ACCOUNT ENFORCEMENT — DELIBERATELY NOT CHECKED HERE. This
+ * function validates the SESSION (exists, unrevoked, unexpired) but does
+ * not independently re-check user_credentials.status on every request.
+ * That is a conscious choice, not an oversight:
+ *   - POST /api/admin/block-user revokes every active session for the
+ *     target atomically WITH the status flip (admin_set_user_block_status,
+ *     database/migrations/034) — a session that existed at block time is
+ *     provably gone by the time that call returns, via the exact same
+ *     `revoked_at IS NULL` check this function already performs
+ *     (validateSessionToken, services/auth/sessions.ts). No separate
+ *     status lookup is needed to catch that case.
+ *   - POST /api/auth/login independently checks `identity.status ===
+ *     'disabled'` before ever minting a session, so a disabled account
+ *     cannot acquire a NEW valid session through the normal login path.
+ *   - The one session-creation path that bypasses login — admin
+ *     impersonation (GET /api/auth/impersonate) — is separately gated: it
+ *     rejects a disabled target before calling createSession() (see that
+ *     route's own comment).
+ * Given those three, the only remaining gap is a session minted by some
+ * FUTURE code path that neither goes through login nor gets swept by a
+ * block — and closing that hypothetical by joining user_credentials.status
+ * into this function would add a query to literally every authenticated
+ * request in the app for a case that does not currently exist. That cost
+ * was judged not worth paying here; if a new session-issuing path is ever
+ * added, it must perform its own status check the way impersonation now
+ * does, rather than relying on this function to catch it.
  */
 export async function requireUser(req: any, res: any): Promise<string | null> {
   const config = serverConfigOf(req);

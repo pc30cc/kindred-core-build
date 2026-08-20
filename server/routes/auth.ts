@@ -406,10 +406,27 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
     }
     const token = req.cookies?.[SESSION_COOKIE_NAME];
     const session = await validateSessionToken(config, token);
-    if (session) {
-      await revokeSession(config, session.sessionId, 'logout');
-      await logSecurityEvent(req, 'session_revoked', 'info', { userId: session.userId, reason: 'logout' });
+    if (!session) {
+      // Nothing valid to revoke server-side — this IS "already logged
+      // out", so clearing a stale/absent cookie and reporting 200 is honest.
+      clearSessionCookie(res);
+      return res.json({ success: true });
     }
+    try {
+      // Revocation must be CONFIRMED before the browser is told it's safe
+      // to consider itself signed out: revokeSession() now throws on any
+      // database failure (rather than silently no-opping), so reaching the
+      // cookie-clear below is itself the proof the DB write succeeded — a
+      // valid session must never be left usable while the client believes
+      // logout succeeded.
+      await revokeSession(config, session.sessionId, 'logout');
+    } catch (revokeErr) {
+      console.error('[auth] Logout revocation failed:', revokeErr);
+      // Do NOT clear the cookie: the session may still be valid
+      // server-side, and the UI must not be told it is safely signed out.
+      return res.status(500).json({ error: 'Failed to sign out. Please try again.' });
+    }
+    await logSecurityEvent(req, 'session_revoked', 'info', { userId: session.userId, reason: 'logout' });
     clearSessionCookie(res);
     return res.json({ success: true });
   } catch (err) {
@@ -463,6 +480,15 @@ authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
   if (!identity) {
     return res.status(404).send('Target user no longer exists.');
   }
+  if (identity.status === 'disabled') {
+    // Blocking a user revokes their existing sessions (see
+    // admin_set_user_block_status, database/migrations/034), but a
+    // one-time impersonation token issued BEFORE the block (and redeemed
+    // after) is a separate session-creation path that check doesn't cover
+    // — an already-disabled target must never receive a fresh, valid
+    // session through this route either.
+    return res.status(403).send('This user account has been disabled.');
+  }
 
   const session = await createSession(config, {
     userId: identity.id,
@@ -478,49 +504,6 @@ authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
 
   const redirectBase = await resolveAppBaseUrl(config, req);
   return res.redirect(302, `${redirectBase || ''}/app`);
-});
-
-/**
- * POST /api/auth/record-result
- * Frontend calls after Supabase auth to record success/failure.
- * Also accepts generic security event logging from the client.
- */
-authSecurityRouter.post('/record-result', authRateLimiter, async (req, res) => {
-  try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const { email, success, eventType, severity, metadata } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'email required' });
-    }
-
-    // If this is a generic security event log
-    if (eventType) {
-      await logSecurityEvent(req, eventType, severity || 'info', { email, ...metadata });
-      return res.json({ ok: true });
-    }
-
-    // Standard login result recording
-    if (typeof success !== 'boolean') {
-      return res.status(400).json({ error: 'success (boolean) required' });
-    }
-
-    recordLoginAttempt(req, email, success);
-
-    const sb = getServiceClient(config);
-    await sb.from('login_attempts').insert({
-      ip_address: req.ip || 'unknown',
-      email,
-      success,
-    });
-
-    if (!success) {
-      await logSecurityEvent(req, 'login_failed', 'warn', { email });
-    }
-
-    return res.json({ ok: true });
-  } catch {
-    return res.status(500).json({ error: 'Internal error' });
-  }
 });
 
 /**

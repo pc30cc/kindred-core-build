@@ -9,6 +9,7 @@ import {
   parseEntitlementResponse,
   parseNumericEntitlementResponse,
   isUnreadableEntitlementReason,
+  isCheckWorkspaceEntitlementFunctionMissing,
 } from '../services/billing/entitlementParse.js';
 
 interface EntitlementResult {
@@ -67,6 +68,26 @@ export async function checkEntitlementFromDB(
       _workspace_id: workspaceId,
       _feature: feature,
     });
+
+    // Self-host ships with no billing/plans subsystem at all — the RPC
+    // itself does not exist there, which is a deployment-shape fact, not an
+    // outage. Treated as explicitly unlimited/allowed rather than routed
+    // through the fail-closed "unavailable" path below, which exists for
+    // real failures on a deployment that DOES have this RPC (hosted, always;
+    // any self-host install that installs the billing subsystem). See
+    // isCheckWorkspaceEntitlementFunctionMissing's own doc comment — this
+    // never fires for any deployment where the function is actually present.
+    if (error && isCheckWorkspaceEntitlementFunctionMissing(error)) {
+      const result: EntitlementResult = {
+        allowed: true,
+        limit: -1,
+        limitValid: true,
+        plan: 'self-host-unlimited',
+        reason: 'self_host_billing_schema_absent',
+      };
+      cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
+      return result;
+    }
 
     const parsed = opts.numeric
       ? parseNumericEntitlementResponse(data, error)

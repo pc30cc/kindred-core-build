@@ -35,28 +35,50 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 });
 
 // `requireLimit('max_agents', ...)` (mounted on POST /accept-invitation)
-// calls checkEntitlementFromDB, which builds its OWN raw supabase-js client
-// from req.serverConfig.supabaseUrl/supabaseServiceRoleKey and calls
+// runs FOR REAL in this suite — no mock. It calls checkEntitlementFromDB,
+// which builds its OWN raw supabase-js client from
+// req.serverConfig.supabaseUrl/supabaseServiceRoleKey and calls
 // `rpc('check_workspace_entitlement', ...)` — a completely separate path
-// from getServiceClient() above, and one this test's Postgres-backed
-// adapter cannot intercept. check_workspace_entitlement does not exist
-// anywhere in database/migrations/ — self-host has no billing/plan
-// subsystem at all (confirmed: no billing_plans/workspace_subscriptions
-// table on this chain either), so this call would fail on any real
-// self-host deployment today, independent of anything this migration adds.
-// That is a genuine, separate, pre-existing gap (the same category as
-// callback_requests/workspace_usage_counters — see the branch's own final
-// report) — NOT an invitation-schema problem, and out of scope to fix by
-// porting billing infrastructure into this Auth-only branch. No-opping the
-// seat-limit gate here, the same way authRateLimiter is no-opped above,
-// isolates THIS suite's proof (the invitation schema, ACL, trust boundary,
-// idempotency, and tenant isolation this closure is actually responsible
-// for) from that separate, already-tracked gap.
-vi.mock('../../../server/middleware/featureGating.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../server/middleware/featureGating.js')>();
+// from getServiceClient() above. Self-host has no billing/plan subsystem at
+// all (no billing_plans/workspace_subscriptions/check_workspace_entitlement
+// anywhere in database/migrations/), so on a real self-host deployment this
+// RPC call fails with Postgres 42883 (undefined_function) / PostgREST
+// PGRST202 — a database-shape fact, not an outage. featureGating.ts's
+// checkEntitlementFromDB (via isCheckWorkspaceEntitlementFunctionMissing in
+// entitlementParse.ts) now detects EXACTLY that condition and treats it as
+// an explicit "no billing subsystem installed" deployment fact — allowed,
+// unlimited (-1) — while still failing closed (503) for every other RPC
+// failure, and remaining fully fail-closed on any deployment (hosted, or a
+// self-host that installs the billing subsystem) where the function is
+// actually present. Only the HTTP TRANSPORT is swapped out here (real
+// PostgREST over HTTP -> a direct query against the same real Postgres
+// connection this suite already uses), exactly the same "swap transport,
+// not logic" technique makePgServiceClient uses for getServiceClient()
+// above — the real middleware, the real parser, and a REAL 42883 from a REAL
+// database missing the function all run unmocked.
+// `server/` carries its OWN nested node_modules/@supabase/supabase-js
+// (different physical package than the root one) — featureGating.ts's
+// `import { createClient } from '@supabase/supabase-js'` resolves against
+// THAT nested copy, not the root one a root-relative `vi.mock('@supabase/
+// supabase-js', ...)` would intercept. Mock it by its actual resolved path
+// so this is the exact module featureGating.ts imports.
+vi.mock('../../../server/node_modules/@supabase/supabase-js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@supabase/supabase-js')>();
   return {
     ...actual,
-    requireLimit: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+    createClient: (_url: string, _key: string) => ({
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'check_workspace_entitlement') {
+          try {
+            const r = await db.query(`SELECT public.check_workspace_entitlement($1, $2) AS result`, [args._workspace_id, args._feature]);
+            return { data: r.rows[0]?.result ?? null, error: null };
+          } catch (e: any) {
+            return { data: null, error: { message: e.message, code: e.code } };
+          }
+        }
+        return { data: null, error: { message: `unhandled rpc in test adapter: ${name}` } };
+      },
+    }),
   };
 });
 
@@ -488,5 +510,58 @@ suite('Self-host owner invite acceptance: full first-party Auth lifecycle', () =
     const memberA = await signupAndVerify('case9-membera@invite.test');
     const acceptRes = await call('POST', '/api/workspace-members/accept-invitation', { cookie: memberA.cookie, body: { token: invA.token } });
     expect(acceptRes.status).toBe(200);
+  });
+
+  // Every CASE above exercises accounts/account_members/workspace_invitations
+  // through makePgServiceClient — a test-harness adapter, not real PostgREST
+  // role enforcement. This proves the actual Postgres privilege boundary
+  // 043_service_role_table_grants.sql establishes: a literal `SET ROLE
+  // service_role` (what self-host PostgREST really does for a service_role
+  // JWT) can reach exactly the operations server/routes/workspaces.ts and
+  // server/routes/workspaceMembers.ts need, and a literal `SET ROLE
+  // anon`/`authenticated` — the direct browser/PostgREST path Section D
+  // forbids — cannot reach workspace_invitations at all.
+  it('GRANTS PROOF — service_role has exactly the real Postgres table privileges these routes need; anon/authenticated have none', async () => {
+    capturedEmails = [];
+    const owner = await makeOwner('grants-owner@invite.test');
+    const ownerRow = await db.query(`SELECT owner_id FROM public.accounts WHERE id = $1`, [owner.accountId]);
+    const ownerId = ownerRow.rows[0].owner_id;
+
+    const client = await (db as unknown as { connect(): Promise<any> }).connect();
+    try {
+      await client.query('SET ROLE service_role');
+
+      await expect(client.query('SELECT id FROM public.accounts WHERE id = $1', [owner.accountId])).resolves.toBeDefined();
+      await expect(client.query('SELECT id FROM public.account_members WHERE account_id = $1', [owner.accountId])).resolves.toBeDefined();
+      await expect(client.query('SELECT id FROM public.workspace_invitations WHERE workspace_id = $1', [owner.workspaceId])).resolves.toBeDefined();
+
+      const ins = await client.query(
+        `INSERT INTO public.workspace_invitations (workspace_id, role, created_by, max_uses)
+         VALUES ($1, 'agent', $2, 0) RETURNING id`,
+        [owner.workspaceId, ownerId],
+      );
+      const invId = ins.rows[0].id;
+      await expect(
+        client.query(`UPDATE public.workspace_invitations SET revoked_at = now() WHERE id = $1`, [invId]),
+      ).resolves.toBeDefined();
+      await expect(
+        client.query(`DELETE FROM public.workspace_invitations WHERE id = $1`, [invId]),
+      ).resolves.toBeDefined();
+
+      await client.query('RESET ROLE');
+
+      await client.query('SET ROLE anon');
+      await expect(client.query('SELECT id FROM public.workspace_invitations LIMIT 1')).rejects.toThrow(/permission denied/i);
+      await expect(client.query('SELECT id FROM public.accounts LIMIT 1')).rejects.toThrow(/permission denied/i);
+      await client.query('RESET ROLE');
+
+      await client.query('SET ROLE authenticated');
+      await expect(client.query('SELECT id FROM public.workspace_invitations LIMIT 1')).rejects.toThrow(/permission denied/i);
+      await expect(client.query('SELECT id FROM public.accounts LIMIT 1')).rejects.toThrow(/permission denied/i);
+      await client.query('RESET ROLE');
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
   });
 });

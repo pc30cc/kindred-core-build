@@ -10,8 +10,22 @@
  * returned zero rows, meaning no logged-in user could resolve a workspace
  * to enter the app at all. This router replaces those direct queries with
  * service_role-backed, session-authenticated lookups.
+ *
+ * ROUTE ORDERING: every STATIC path (`/`, `/account`, `/provision-account`)
+ * is registered before any `/:workspaceId`-shaped route. Express matches
+ * routes in registration order, so a dynamic param registered first would
+ * "shadow" a static route with the same segment count — `GET /account`
+ * would never be reached, captured instead by `GET /:workspaceId` with
+ * workspaceId="account" (this happened; see the fix commit). The
+ * workspaceId param itself is ALSO constrained to a UUID shape via an
+ * inline path-to-regexp pattern (not just checked inside the handler via
+ * authorizeWorkspaceAccess's own UUID_RE, which still runs too, as
+ * defense-in-depth) — this is what makes the ordering fix structural
+ * rather than incidental: even a future static route added in the wrong
+ * position could not be captured by `:workspaceId`, because a non-UUID
+ * segment can never match that param pattern in the first place.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -22,81 +36,25 @@ import { isEmailVerified } from '../services/auth/identity.js';
 
 export const workspacesRouter = Router();
 
-// ── GET /api/workspaces/:workspaceId — minimal identity (id/slug/name) ───
-// Backs CreateWorkspaceDialog.tsx's post-create redirect (previously a
-// direct `supabase.from('workspaces').select('slug')` — same auth.uid()
-// problem as everything else in this file).
-workspacesRouter.get('/:workspaceId', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
-  if (!auth) return;
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('workspaces')
-    .select('id, slug, name')
-    .eq('id', req.params.workspaceId)
-    .maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: 'Workspace not found' });
-  return res.json(data);
-});
+// Matches server/lib/workspaceAuth.ts's own UUID_RE shape (case-insensitive
+// by allowing both cases directly in the character class, since Express's
+// route regex matching does not honor a separate `i` flag here).
+// Explicitly widened to `string` (not a preserved literal type) — Express's
+// route-param type inference otherwise tries to parse a param NAME out of
+// this literal at the type level and chokes on the parenthesized regex,
+// inferring a bogus property like `workspaceId([0`. Widening makes every
+// route below fall back to the generic (index-signature) params type,
+// where `req.params.workspaceId: string` is valid and correct.
+const WORKSPACE_ID_PARAM: string = ':workspaceId([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})';
 
-const updateWorkspaceSchema = z.object({ name: z.string().trim().min(1).max(120) });
+// Because the param pattern above is a computed (non-literal-preserving)
+// string, Express's type-level route-param parser can't infer `req.params`
+// from the path text the way it does for a plain `:workspaceId` literal —
+// these two request types spell it out explicitly for the handlers below.
+type WorkspaceIdRequest = Request<{ workspaceId: string }>;
+type WorkspaceDomainRequest = Request<{ workspaceId: string; domainId: string }>;
 
-// ── PATCH /api/workspaces/:workspaceId — rename (settings/GeneralPage.tsx) ─
-workspacesRouter.patch('/:workspaceId', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
-  const parsed = updateWorkspaceSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
-  if (!auth) return;
-  const sb = getServiceClient(config);
-  const { error } = await sb
-    .from('workspaces')
-    .update({ name: parsed.data.name, updated_at: new Date().toISOString() })
-    .eq('id', req.params.workspaceId);
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ success: true });
-});
-
-// ── GET /api/workspaces/:workspaceId/role — the caller's own role ────────
-// Backs src/hooks/useWorkspaceRole.ts, which used to query
-// workspace_members directly (RLS on auth.uid(), silently empty without a
-// Supabase Auth session). A platform super admin (who bypasses membership
-// entirely in authorizeWorkspaceAccess) has no workspace_members row, so
-// role comes back null for them — same as a non-member — which is correct:
-// this endpoint answers "what workspace_members.role does this caller
-// have," not "can this caller act here."
-workspacesRouter.get('/:workspaceId/role', async (req, res) => {
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
-  if (!auth) return;
-  return res.json({ role: auth.role });
-});
-
-// ── GET /api/workspaces/:workspaceId/primary-domain ───────────────────────
-// Backs the sidebar's workspace-name subtitle. Narrow, read-only reuse of
-// the "Members can view domains" read access (full domain CRUD is a
-// separate, not-yet-migrated settings page — out of scope here).
-workspacesRouter.get('/:workspaceId/primary-domain', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
-  if (!auth) return;
-
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('workspace_domains')
-    .select('domain, is_primary, verified')
-    .eq('workspace_id', req.params.workspaceId)
-    .order('is_primary', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({
-    domain: data?.domain ?? null,
-    is_primary: data?.is_primary ?? null,
-    verified: data?.verified ?? null,
-  });
-});
+// ═══════════════════ STATIC ROUTES (no :workspaceId) ═══════════════════
 
 // ── GET /api/workspaces — every workspace the caller is a member of ──────
 workspacesRouter.get('/', async (req, res) => {
@@ -226,8 +184,86 @@ workspacesRouter.post('/', async (req, res) => {
   return res.json({ workspaceId: data as string });
 });
 
+// ═══════════════════ DYNAMIC ROUTES (/:workspaceId/...) ═══════════════════
+
+// ── GET /api/workspaces/:workspaceId — minimal identity (id/slug/name) ───
+// Backs CreateWorkspaceDialog.tsx's post-create redirect (previously a
+// direct `supabase.from('workspaces').select('slug')` — same auth.uid()
+// problem as everything else in this file).
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}`, async (req: WorkspaceIdRequest, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspaces')
+    .select('id, slug, name')
+    .eq('id', req.params.workspaceId)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'Workspace not found' });
+  return res.json(data);
+});
+
+const updateWorkspaceSchema = z.object({ name: z.string().trim().min(1).max(120) });
+
+// ── PATCH /api/workspaces/:workspaceId — rename (settings/GeneralPage.tsx) ─
+workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}`, async (req: WorkspaceIdRequest, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const parsed = updateWorkspaceSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { error } = await sb
+    .from('workspaces')
+    .update({ name: parsed.data.name, updated_at: new Date().toISOString() })
+    .eq('id', req.params.workspaceId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
+
+// ── GET /api/workspaces/:workspaceId/role — the caller's own role ────────
+// Backs src/hooks/useWorkspaceRole.ts, which used to query
+// workspace_members directly (RLS on auth.uid(), silently empty without a
+// Supabase Auth session). A platform super admin (who bypasses membership
+// entirely in authorizeWorkspaceAccess) has no workspace_members row, so
+// role comes back null for them — same as a non-member — which is correct:
+// this endpoint answers "what workspace_members.role does this caller
+// have," not "can this caller act here."
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/role`, async (req: WorkspaceIdRequest, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  return res.json({ role: auth.role });
+});
+
+// ── GET /api/workspaces/:workspaceId/primary-domain ───────────────────────
+// Backs the sidebar's workspace-name subtitle. Narrow, read-only reuse of
+// the "Members can view domains" read access (full domain CRUD is a
+// separate, not-yet-migrated settings page — out of scope here).
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/primary-domain`, async (req: WorkspaceIdRequest, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspace_domains')
+    .select('domain, is_primary, verified')
+    .eq('workspace_id', req.params.workspaceId)
+    .order('is_primary', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({
+    domain: data?.domain ?? null,
+    is_primary: data?.is_primary ?? null,
+    verified: data?.verified ?? null,
+  });
+});
+
 // ── Workspace branding (settings/GeneralPage.tsx, useBranding.ts) ─────────
-workspacesRouter.get('/:workspaceId/branding', async (req, res) => {
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
@@ -243,7 +279,7 @@ workspacesRouter.get('/:workspaceId/branding', async (req, res) => {
 
 const brandingUpdateSchema = z.object({}).passthrough();
 
-workspacesRouter.patch('/:workspaceId/branding', async (req, res) => {
+workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const parsed = brandingUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
@@ -288,7 +324,7 @@ async function requireDomainManage(req: any, res: any, workspaceId: string): Pro
   return { userId: auth.userId };
 }
 
-workspacesRouter.get('/:workspaceId/domains', async (req, res) => {
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
@@ -304,7 +340,7 @@ workspacesRouter.get('/:workspaceId/domains', async (req, res) => {
 
 const addDomainSchema = z.object({ domain: z.string().trim().min(1).max(255) });
 
-workspacesRouter.post('/:workspaceId/domains', async (req, res) => {
+workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const workspaceId = req.params.workspaceId;
   const parsed = addDomainSchema.safeParse(req.body);
@@ -329,7 +365,7 @@ async function loadDomainForWorkspace(sb: ReturnType<typeof getServiceClient>, w
   return data;
 }
 
-workspacesRouter.delete('/:workspaceId/domains/:domainId', async (req, res) => {
+workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: WorkspaceDomainRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const { workspaceId, domainId } = req.params;
   if (!(await requireDomainManage(req, res, workspaceId))) return;
@@ -341,7 +377,7 @@ workspacesRouter.delete('/:workspaceId/domains/:domainId', async (req, res) => {
   return res.json({ success: true });
 });
 
-workspacesRouter.patch('/:workspaceId/domains/:domainId/primary', async (req, res) => {
+workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/domains/:domainId/primary`, async (req: WorkspaceDomainRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const { workspaceId, domainId } = req.params;
   if (!(await requireDomainManage(req, res, workspaceId))) return;

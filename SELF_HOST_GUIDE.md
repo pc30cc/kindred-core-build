@@ -19,24 +19,23 @@
 ## Prerequisites
 
 - Node.js 18+
-- A Supabase project (or any Postgres with auth)
+- A Supabase project (or any Postgres instance) — used as the application database only; dashboard authentication is first-party and does not require Supabase Auth/GoTrue
 - A VPS / Docker host / Coolify instance
 
 ## Quick Start (Development)
 
 ### 1. Database Setup
 
-Run migrations in order against your Supabase project:
+Apply the **complete** `database/migrations/` chain, in numeric order, against your Supabase/Postgres project — not just the first few files:
 
 ```bash
 # Via Supabase SQL Editor or psql
-psql $DATABASE_URL -f database/migrations/001_core_tables.sql
-psql $DATABASE_URL -f database/migrations/002_workspace_features.sql
-psql $DATABASE_URL -f database/migrations/003_visitors_kb_config.sql
-psql $DATABASE_URL -f database/migrations/004_seed_defaults.sql
+for f in database/migrations/*.sql; do
+  psql "$DATABASE_URL" -f "$f" || break
+done
 ```
 
-**Migration order is critical.** 001 creates core tables + helper functions. 002 adds workspace features. 003 adds visitors + KB. 004 seeds default feature flags.
+**Migration order is critical, and the chain must be run through its current head, not truncated.** Early migrations create core tables, workspace features, visitors/KB, and default feature flags; later migrations build the entire first-party authentication system (`profiles` as the identity root, `user_credentials`, session/token RPCs) and the account/workspace provisioning schema (`accounts`, `account_members`, `create_workspace_atomic`, `provision_account_on_signup`) that the dashboard's signup, login, and workspace-bootstrap flows depend on. Stopping partway through the chain leaves the dashboard unable to complete signup or provision a first workspace.
 
 ### 2. Backend Server
 
@@ -164,10 +163,10 @@ server {
 
 ## What Is NOT Dependent on Lovable Cloud
 
-- ✅ Auth — uses your Supabase project directly
+- ✅ Auth — first-party: the dashboard authenticates against `profiles` + `user_credentials` in your own Postgres schema, not Supabase Auth/GoTrue. Login/signup issue an HttpOnly `gs_session` cookie from your own Express server; Supabase GoTrue is not used as application auth at all.
 - ✅ Email verification — fully self-hosted custom token system (no Supabase GoTrue links)
 - ✅ Password reset — fully self-hosted custom token system
-- ✅ Database — your Supabase Postgres
+- ✅ Database — your Supabase Postgres (used purely as a Postgres database — GoTrue/`auth.users` is not part of the application's identity model)
 - ✅ Realtime — your Supabase Realtime
 - ✅ Widget bootstrap — your own Express server (`/api/widget/config`)
 - ✅ Visitor tracking — your own Express server (`/api/visitors/track`)

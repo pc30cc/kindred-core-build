@@ -44,27 +44,24 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
 }
 
 /**
- * database/migrations/*.sql in filename order, EXCLUDING two files with a
- * pre-existing, documented, auth-unrelated gap in the self-host chain (each
- * references a table no earlier self-host migration ever creates —
- * `widget_smart_rules` / `call_sessions` — first surfaced while applying
- * this same chain for 022/023 in an earlier closure pass; see that
- * commit's own message). Neither file is reachable from — or a dependency
- * of — anything the auth migration touches, so excluding them here does
- * not weaken this suite's coverage of 024-032.
- */
-export const AUTH_CHAIN_EXCLUDED_FILES = new Set([
-  '017_smart_rules_published_snapshot.sql',
-  '018_call_visitor_session_link.sql',
-]);
-
-/**
- * Ensures the full auth-relevant self-host migration chain (000 through the
- * newest 0NN_*.sql, minus AUTH_CHAIN_EXCLUDED_FILES) is installed on `db`,
+ * Ensures the full self-host migration chain (000 through the newest
+ * 0NN_*.sql, NO exclusions — every file in database/migrations/ applies,
+ * matching the real production/CI contract exactly) is installed on `db`,
  * safe to call from MULTIPLE test files sharing ONE database in the same
  * CI run (this repo's "Integration tests" job runs every src/test/integration
  * .pg.test.ts file — except the dedicated AI-KB-tail one — against a single
  * shared `app` database with --no-file-parallelism).
+ *
+ * 017 and 018 previously required exclusion here: each referenced a table
+ * (`widget_smart_rules` / `call_sessions`) no earlier self-host migration
+ * created, so the chain could never actually apply past 016 on a truly
+ * fresh database — self-host could never have completed first-run
+ * migration at all. Both files now carry their own real, current-final
+ * hosted-derived base schema (Smart Engagement tables for 017; Call
+ * Center's call_sessions/call_queue_entries for 018) ported ahead of their
+ * original ALTER logic, so the chain applies end to end with zero
+ * exclusions — see each file's own top-of-file comment for the full
+ * root-cause trace and scope decisions.
  *
  * 001-023 contain non-idempotent DDL (bare `CREATE POLICY`, no `IF NOT
  * EXISTS`) — by design, since a real deployment only ever runs each
@@ -83,7 +80,7 @@ export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
 
   const dir = resolve(process.cwd(), 'database/migrations');
   const allFiles = readdirSync(dir)
-    .filter((f) => f.endsWith('.sql') && !AUTH_CHAIN_EXCLUDED_FILES.has(f))
+    .filter((f) => f.endsWith('.sql'))
     .sort();
 
   const { rows } = await db.query(`SELECT to_regclass('public.profiles') IS NOT NULL AS installed`);

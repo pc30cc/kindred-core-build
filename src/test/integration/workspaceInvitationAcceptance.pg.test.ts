@@ -43,14 +43,20 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 // all (no billing_plans/workspace_subscriptions/check_workspace_entitlement
 // anywhere in database/migrations/), so on a real self-host deployment this
 // RPC call fails with Postgres 42883 (undefined_function) / PostgREST
-// PGRST202 — a database-shape fact, not an outage. featureGating.ts's
-// checkEntitlementFromDB (via isCheckWorkspaceEntitlementFunctionMissing in
-// entitlementParse.ts) now detects EXACTLY that condition and treats it as
-// an explicit "no billing subsystem installed" deployment fact — allowed,
-// unlimited (-1) — while still failing closed (503) for every other RPC
-// failure, and remaining fully fail-closed on any deployment (hosted, or a
-// self-host that installs the billing subsystem) where the function is
-// actually present. Only the HTTP TRANSPORT is swapped out here (real
+// PGRST202. checkEntitlementFromDB now resolves this to allowed/unlimited
+// (-1) ONLY when BOTH halves of an explicit two-part condition hold: (1)
+// req.serverConfig.selfHostBillingUnlimited is true — set below, mirroring
+// the SELF_HOST_BILLING_MODE=unlimited an operator running this exact,
+// billing-less chain would set — and (2) the RPC error precisely names
+// check_workspace_entitlement as missing
+// (isCheckWorkspaceEntitlementFunctionMissing). Neither alone is
+// sufficient — a bare PGRST202 can also mean a stale hosted schema-cache
+// entry, so this suite deliberately sets the flag explicitly rather than
+// relying on the error alone, exactly as a real self-host deployment must.
+// Every other RPC failure, or the flag being unset, still fails closed
+// (503) — proved directly in src/test/billing/requireLimitMiddleware.test.ts's
+// "explicit self-host billing-less boundary" suite (cases A-G). Only the
+// HTTP TRANSPORT is swapped out here (real
 // PostgREST over HTTP -> a direct query against the same real Postgres
 // connection this suite already uses), exactly the same "swap transport,
 // not logic" technique makePgServiceClient uses for getServiceClient()
@@ -220,7 +226,14 @@ const { workspaceMembersRouter } = await import('../../../server/routes/workspac
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'], port: 0, supabaseAnonKey: 'k', rateLimitWindowMs: 60000, rateLimitMax: 10000 };
+  // Real self-host deployment posture: the explicit, server-only
+  // self-host-billing-less flag is set (as an operator running this chain
+  // WITHOUT the billing/plans subsystem would set SELF_HOST_BILLING_MODE=
+  // unlimited) — required alongside the real 42883 this DB actually
+  // produces for requireLimit's max_agents gate to resolve to unlimited
+  // instead of failing closed. See checkEntitlementFromDB's two-part
+  // condition in server/middleware/featureGating.ts.
+  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'], port: 0, supabaseAnonKey: 'k', rateLimitWindowMs: 60000, rateLimitMax: 10000, selfHostBillingUnlimited: true };
   next();
 });
 app.use(cookieParser());

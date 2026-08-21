@@ -383,6 +383,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     corsOrigins: ['*'],
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
+    selfHostBillingUnlimited: false,
   };
   const jobQueue = new DbJobQueueProvider(sb);
   const snap = job.plan_snapshot || {};

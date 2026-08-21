@@ -90,17 +90,28 @@ const CHECK_WORKSPACE_ENTITLEMENT_FN = 'check_workspace_entitlement';
  * workspace_subscriptions, or check_workspace_entitlement — see
  * database/migrations/039_account_workspace_provisioning.sql's own note on
  * this). A deployment in that shape cannot have a paid-tier restriction to
- * enforce, so callers use this to treat the RPC's outright absence as an
- * explicit "no billing subsystem installed" deployment fact, distinct from
- * every other RPC failure.
+ * enforce, so callers use this as HALF of a two-part condition for treating
+ * the RPC's absence as an explicit "no billing subsystem installed"
+ * deployment fact, distinct from every other RPC failure.
+ *
+ * IMPORTANT — this function is NOT by itself sufficient proof of deployment
+ * type, and callers MUST NOT treat it as such. PostgREST's own docs note
+ * PGRST202 ("could not find the function in the schema cache") can also mean
+ * a stale schema-cache entry or an argument-signature mismatch on a
+ * deployment where the function genuinely exists — not only outright
+ * absence. server/middleware/featureGating.ts's checkEntitlementFromDB only
+ * acts on this signal when ALSO gated by an explicit, server-only,
+ * request-uncontrollable deployment flag
+ * (ServerConfig.selfHostBillingUnlimited /
+ * SELF_HOST_BILLING_MODE=unlimited, default false/fail-closed) — no hosted
+ * deployment sets that flag, so a transient hosted schema-cache hiccup can
+ * never reach this branch regardless of what error PostgREST returns.
  *
  * Returns true ONLY when the database/PostgREST reports that
- * public.check_workspace_entitlement itself does not exist. A timeout,
- * permission error, wrong-argument-shape call, or any other RPC failure —
- * including on a deployment that DOES have the function installed — returns
- * false and MUST still fail closed via isUnreadableEntitlementReason. This
- * never fires for hosted (the function always exists there), so hosted's
- * fail-closed billing semantics are unchanged.
+ * public.check_workspace_entitlement itself does not exist (or plausibly
+ * doesn't — see above). A timeout, permission error, or any other RPC
+ * failure returns false and MUST still fail closed via
+ * isUnreadableEntitlementReason.
  */
 export function isCheckWorkspaceEntitlementFunctionMissing(error: {
   code?: string;

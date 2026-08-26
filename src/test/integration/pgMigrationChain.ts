@@ -42,10 +42,16 @@ export const MIGRATION_CHAIN = AI_KB_TAIL_MIGRATIONS;
  */
 export const CLEAN_INSTALL_CHAIN = [ROLE_BOOTSTRAP, ...AI_KB_TAIL_MIGRATIONS];
 
-/** Minimal structural type for a connected `pg` client. */
+/**
+ * Minimal structural type for a connected `pg` client. `rowCount` is part of
+ * every real `pg` QueryResult (null for statements that report no count) and
+ * is what the atomic-claim/single-use tests assert on, so it belongs in the
+ * structural type rather than being cast away at each call site.
+ */
 export interface PgQueryable {
-  query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
+  query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
 }
+
 
 /** Applies files in exact order WITHOUT resetting anything first. */
 export async function applyChainClean(db: PgQueryable, files = CLEAN_INSTALL_CHAIN): Promise<void> {

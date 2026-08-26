@@ -43,6 +43,7 @@ function makeConfig(corsOrigins: string[]): ServerConfig {
     corsOrigins,
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
+    selfHostBillingUnlimited: false,
   };
 }
 

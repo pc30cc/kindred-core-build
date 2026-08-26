@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -5803,6 +5803,7 @@ export type Database = {
           full_name: string | null
           id: string
           main_goal: string | null
+          phone: string | null
           preferred_locale: string | null
           signup_ip: string | null
           signup_locale: string | null
@@ -5818,6 +5819,7 @@ export type Database = {
           full_name?: string | null
           id: string
           main_goal?: string | null
+          phone?: string | null
           preferred_locale?: string | null
           signup_ip?: string | null
           signup_locale?: string | null
@@ -5833,6 +5835,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           main_goal?: string | null
+          phone?: string | null
           preferred_locale?: string | null
           signup_ip?: string | null
           signup_locale?: string | null
@@ -6465,6 +6468,53 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_credentials: {
+        Row: {
+          created_at: string
+          email_verified_at: string | null
+          failed_login_count: number
+          last_login_at: string | null
+          password_algo: string
+          password_hash: string | null
+          password_set_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_verified_at?: string | null
+          failed_login_count?: number
+          last_login_at?: string | null
+          password_algo?: string
+          password_hash?: string | null
+          password_set_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email_verified_at?: string | null
+          failed_login_count?: number
+          last_login_at?: string | null
+          password_algo?: string
+          password_hash?: string | null
+          password_set_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_credentials_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -8786,6 +8836,21 @@ export type Database = {
         Returns: undefined
       }
       realtime_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      redeem_email_verify_token: {
+        Args: { _token_hash: string }
+        Returns: {
+          redeemed_email: string
+          redeemed_user_id: string
+        }[]
+      }
+      redeem_password_reset_token: {
+        Args: { _new_password_hash: string; _token_hash: string }
+        Returns: {
+          redeemed_email: string
+          redeemed_sessions_revoked: number
+          redeemed_user_id: string
+        }[]
+      }
       register_workspace_domain: {
         Args: {
           _make_primary?: boolean

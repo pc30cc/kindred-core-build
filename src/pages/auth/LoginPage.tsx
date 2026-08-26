@@ -32,17 +32,34 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState<string | null>(null);
+  const [setupRequired, setSetupRequired] = useState(false);
   const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const brandName = useMemo(() => brand?.platform_name || '', [brand]);
   const brandLetter = useMemo(() => brandName.charAt(0) || '', [brandName]);
 
+  const forgotHref = useMemo(
+    () => (emailValid ? `/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}` : '/auth/forgot-password'),
+    [email, emailValid],
+  );
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setSetupRequired(false);
     try {
       const { error } = await signIn({ email, password });
       if (error) {
+        // Migrated account with no first-party password yet — the backend
+        // answers 403 { passwordSetupRequired: true }. Surface the real
+        // remediation instead of a bare "login failed" toast.
+        if ((error as Error & { passwordSetupRequired?: boolean }).passwordSetupRequired) {
+          setSetupRequired(true);
+          toast.error(t('auth.passwordSetupRequiredTitle'), {
+            description: t('auth.passwordSetupRequiredDesc'),
+          });
+          return;
+        }
         toast.error(t('auth.loginFailed'), { description: error.message });
         return;
       }
@@ -54,6 +71,7 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
 
   const fieldShell = (args: {
     id: string;
@@ -159,7 +177,8 @@ export default function LoginPage() {
                     {t('auth.password')}
                   </Label>
                   <Link
-                    to="/auth/forgot-password"
+                    to={forgotHref}
+
                     className="text-xs text-primary hover:underline font-medium"
                   >
                     {t('auth.forgotPassword')}
@@ -197,7 +216,20 @@ export default function LoginPage() {
                 })}
               </div>
 
+              {setupRequired && (
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3" role="alert">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">{t('auth.passwordSetupRequiredTitle')}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{t('auth.passwordSetupRequiredDesc')}</p>
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="w-full rounded-lg">
+                    <Link to={forgotHref}>{t('auth.setPasswordAction')}</Link>
+                  </Button>
+                </div>
+              )}
+
               <Button
+
                 type="submit"
                 className="w-full h-12 text-base font-semibold gap-2 rounded-xl shadow-sm hover:shadow-md transition-shadow"
                 disabled={loading}

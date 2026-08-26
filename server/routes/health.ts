@@ -8,6 +8,33 @@ healthRouter.get('/', (_req, res) => {
 });
 
 /**
+ * CORS deployment diagnostic.
+ *
+ * Cross-origin login/reset failures are almost always a deployment-env
+ * problem (CORS_ORIGINS unset, or the container not restarted after it was
+ * set) rather than a code problem: the server answers 403/200 correctly but
+ * the browser drops the response because no Access-Control-Allow-Origin
+ * header is present. This endpoint makes that state observable without
+ * shell access to the container.
+ *
+ * Leaks nothing: booleans + origin count only, never the configured values.
+ */
+healthRouter.get('/cors', (req, res) => {
+  const config = (req as any).serverConfig as { corsOrigins: string[] } | undefined;
+  const origins = config?.corsOrigins ?? [];
+  const wildcard = origins.length === 1 && origins[0] === '*';
+  const requestOrigin = req.headers.origin;
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    corsConfigured: !wildcard && origins.length > 0,
+    originCount: wildcard ? 0 : origins.length,
+    requestOriginAllowed: typeof requestOrigin === 'string' && !wildcard && origins.includes(requestOrigin),
+  });
+});
+
+
+/**
  * Widget asset diagnostics.
  *
  * Exposes which widget-manifest source the backend resolved (local FS,

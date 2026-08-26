@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import {
   useAdminWorkspaces, useAdminWorkspaceCount,
-  useAdminWorkspaceDetail, useAdminDeleteWorkspace,
+  useAdminWorkspaceDetail, useAdminDeleteWorkspace, useAdminUserDetail,
 } from '@/hooks/useAdmin';
+
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';

@@ -3,16 +3,8 @@
  * Talks to the self-hosted Express backend (NEVER edge functions).
  * Auth: Bearer (Supabase user access token).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
 
 export interface RealtimeAdminConfig {
   vendor: 'centrifugo' | 'polling_builtin' | 'disabled';
@@ -48,7 +40,7 @@ export interface RealtimeAdminAuditEntry {
 
 export const realtimeAdminApi = {
   async getConfig(): Promise<RealtimeAdminConfig> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/config`, { headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/realtime/admin/config`, {credentials: 'include', headers: {} });
     if (!res.ok) throw new Error(`Load failed: ${res.status}`);
     const json = await res.json();
     return json.config as RealtimeAdminConfig;
@@ -56,8 +48,9 @@ export const realtimeAdminApi = {
 
   async saveConfig(payload: Partial<RealtimeAdminConfig>): Promise<RealtimeAdminConfig> {
     const res = await fetch(`${API_BASE}/api/realtime/admin/config`, {
+      credentials: 'include',
       method: 'PUT',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -66,26 +59,25 @@ export const realtimeAdminApi = {
   },
 
   async testConnection(): Promise<{ status: 'healthy' | 'degraded' | 'down' | 'unknown'; message?: string; checked_at?: number }> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/test`, {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/test`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
     });
     return res.json();
   },
 
   async resolved(): Promise<unknown> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/resolved`, { headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/realtime/admin/resolved`, {credentials: 'include', headers: {} });
     return res.json();
   },
 
   async audit(): Promise<RealtimeAdminAuditEntry[]> {
-    const res = await fetch(`${API_BASE}/api/realtime/admin/audit`, { headers: await authHeaders() });
+    const res = await fetch(`${API_BASE}/api/realtime/admin/audit`, {credentials: 'include', headers: {} });
     if (!res.ok) return [];
     const json = await res.json();
     return (json.entries ?? []) as RealtimeAdminAuditEntry[];
   },
 
   async refresh(): Promise<void> {
-    await fetch(`${API_BASE}/api/realtime/admin/refresh`, { method: 'POST', headers: await authHeaders() });
+    await fetch(`${API_BASE}/api/realtime/admin/refresh`, {credentials: 'include', method: 'POST', headers: {} });
   },
 };

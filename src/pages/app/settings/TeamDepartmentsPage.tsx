@@ -34,12 +34,31 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
-import { supabase } from '@/lib/supabase';
 import {
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentMembers, setDepartmentMembers,
   type Department,
 } from '@/lib/workspace-departments-api';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+// Team/member management goes through the backend (gs_session cookie +
+// service_role) rather than direct supabase.from() calls — the dashboard's
+// browser session no longer carries a Supabase Auth JWT, so auth.uid()-scoped
+// RLS on a direct query would silently return/write nothing. See
+// server/routes/workspaceMembers.ts.
+async function teamApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `API error: ${res.status}`);
+  }
+  return res.json();
+}
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -122,21 +141,8 @@ export default function TeamDepartmentsPage() {
   const { data: allMembers = [], isLoading: loadingMembers } = useQuery({
     queryKey: ['ws-members', wsId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_members')
-        .select('id, role, created_at, user_id')
-        .eq('workspace_id', wsId!);
-      if (error) throw error;
-      if (!data) return [];
-      const userIds = data.map((m: any) => m.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, avatar_url')
-        .in('id', userIds);
-      return data.map((m: any) => ({
-        ...m,
-        profile: profiles?.find((p: any) => p.id === m.user_id),
-      }));
+      const { members } = await teamApi<{ members: any[] }>(`/api/workspace-members?workspaceId=${wsId}`);
+      return members;
     },
     enabled: !!wsId,
   });
@@ -147,28 +153,9 @@ export default function TeamDepartmentsPage() {
   );
 
   /* ─── Department assignments per user ─── */
-  const { data: deptsData } = useQuery({
-    queryKey: ['ws-departments-overview', wsId],
-    queryFn: async () => {
-      const [{ data: depts }, { data: assigns }] = await Promise.all([
-        supabase.from('workspace_departments').select('id, name').eq('workspace_id', wsId!),
-        supabase.from('workspace_department_members').select('user_id, department_id').eq('workspace_id', wsId!),
-      ]);
-      return { departments: depts ?? [], assignments: assigns ?? [] };
-    },
-    enabled: !!wsId,
-  });
-
-  const deptNameById = new Map<string, string>(
-    (deptsData?.departments ?? []).map((d: any) => [d.id, d.name]),
+  const deptsByUser = new Map<string, string[]>(
+    (allMembers as any[]).map((m: any) => [m.user_id, m.department_names ?? []]),
   );
-  const deptsByUser = new Map<string, string[]>();
-  for (const a of deptsData?.assignments ?? []) {
-    const list = deptsByUser.get(a.user_id) ?? [];
-    const name = deptNameById.get(a.department_id);
-    if (name) list.push(name);
-    deptsByUser.set(a.user_id, list);
-  }
 
   /* ─── Presence + filters ─── */
   const { data: presenceData } = useTeamPresence(wsId);
@@ -187,8 +174,7 @@ export default function TeamDepartmentsPage() {
 
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
-      const { error } = await supabase.from('workspace_members').delete().eq('id', memberId);
-      if (error) throw error;
+      await teamApi(`/api/workspace-members/${memberId}?workspaceId=${wsId}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       toast.success(t('teamDept.toastMemberRemoved'));
@@ -718,26 +704,15 @@ function MemberDepartmentsDialog({
   const queryClient = useQueryClient();
   const { data: departments = [] } = useQuery({
     queryKey: ['ws-departments-list', workspaceId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_departments')
-        .select('id, name, enabled')
-        .eq('workspace_id', workspaceId)
-        .order('sort_order', { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => listDepartments(workspaceId),
   });
   const { data: assignedIds = [] as string[] } = useQuery<string[]>({
     queryKey: ['ws-department-member-assignments', workspaceId, memberUserId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_department_members')
-        .select('department_id')
-        .eq('workspace_id', workspaceId)
-        .eq('user_id', memberUserId);
-      if (error) throw error;
-      return (data ?? []).map((r: any) => r.department_id);
+      const { department_ids } = await teamApi<{ department_ids: string[] }>(
+        `/api/workspace-members/user/${memberUserId}/departments?workspaceId=${workspaceId}`,
+      );
+      return department_ids ?? [];
     },
   });
 
@@ -749,24 +724,10 @@ function MemberDepartmentsDialog({
 
   const save = useMutation({
     mutationFn: async () => {
-      const current = new Set(assignedIds);
-      const next = sel;
-      const toAdd = [...next].filter(id => !current.has(id));
-      const toRemove = [...current].filter(id => !next.has(id));
-      if (toAdd.length) {
-        const { error } = await supabase.from('workspace_department_members').insert(
-          toAdd.map(department_id => ({ workspace_id: workspaceId, department_id, user_id: memberUserId })),
-        );
-        if (error) throw error;
-      }
-      if (toRemove.length) {
-        const { error } = await supabase.from('workspace_department_members')
-          .delete()
-          .eq('workspace_id', workspaceId)
-          .eq('user_id', memberUserId)
-          .in('department_id', toRemove);
-        if (error) throw error;
-      }
+      await teamApi(`/api/workspace-members/user/${memberUserId}/departments?workspaceId=${workspaceId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ department_ids: Array.from(sel) }),
+      });
     },
     onSuccess: () => {
       toast.success(t('teamDept.toastDeptsUpdated'));
@@ -867,20 +828,16 @@ export function InviteMemberDialog({
   const create = useMutation({
     mutationFn: async () => {
       const expiresAt = new Date(Date.now() + 30 * 86400000).toISOString();
-      const { data, error } = await supabase
-        .from('workspace_invitations')
-        .insert({
-          workspace_id: workspaceId,
-          role: role as any,
-          created_by: user!.id,
-          max_uses: 0,
-          invited_email: email.trim() || null,
-          expires_at: expiresAt,
-        } as any)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+      const { invitation } = await teamApi<{ invitation: any }>('/api/workspace-members/invitations', {
+        method: 'POST',
+        body: JSON.stringify({
+          workspaceId,
+          role,
+          invitedEmail: email.trim() || null,
+          expiresAt,
+        }),
+      });
+      return invitation;
     },
     onSuccess: async (inv: any) => {
       const url = `${window.location.origin}/auth/invite?token=${inv.token}`;
@@ -891,11 +848,9 @@ export function InviteMemberDialog({
       // Best-effort email
       if (email.trim() && API_BASE) {
         try {
-          const { data: sessionData } = await supabase.auth.getSession();
-          const accessToken = sessionData.session?.access_token || '';
-          await fetch(`${API_BASE}/api/email/send`, {
+          await fetch(`${API_BASE}/api/email/send`, {credentials: 'include',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               workspaceId, to: email.trim(),
               subject: `You've been invited to ${workspaceName}`,

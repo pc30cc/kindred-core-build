@@ -5,7 +5,7 @@
 // ============================================
 
 import { providerRegistry } from './registry';
-import { supabaseAuthProvider } from './supabase/auth';
+import { selfHostedAuthProvider } from './selfHosted/auth';
 import { supabaseDatabaseProvider } from './supabase/database';
 import { supabaseRealtimeProvider } from './supabase/realtime';
 import { createApiEmailProvider } from './email/api';
@@ -40,20 +40,38 @@ export function bootstrapProviders(): void {
   if (bootstrapped) return;
   bootstrapped = true;
 
-  // --- Core providers (Supabase implementations) ---
-  providerRegistry.register('auth', 'supabase', supabaseAuthProvider, {
+  // --- Auth: self-hosted session-cookie provider (server/routes/auth.ts) ---
+  // Dashboard authentication is first-party as of the auth migration —
+  // Supabase Auth/GoTrue is no longer this app's identity root of trust.
+  providerRegistry.register('auth', 'self-hosted', selfHostedAuthProvider, {
     priority: 0,
     healthCheck: async () => {
       try {
-        await supabaseAuthProvider.getSession();
-        return 'healthy';
+        const API_BASE = import.meta.env.VITE_API_BASE_URL;
+        const res = await fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' });
+        return res.ok || res.status === 401 ? 'healthy' : 'down';
       } catch {
         return 'down';
       }
     },
-    meta: { vendor: 'supabase', builtIn: true },
+    meta: {
+      vendor: 'self-hosted',
+      builtIn: true,
+      description: 'First-party session-cookie auth — Supabase Auth/GoTrue is not used for dashboard identity.',
+    },
   });
 
+  // The legacy Supabase Auth provider (src/providers/supabase/auth.ts) has
+  // been deleted from runtime source entirely — it is not registered here,
+  // so syncProvidersFromDB() (called on every app start) can never resolve
+  // a `default_auth_provider` DB row to it, no matter what that row
+  // contains. There is deliberately no "registered but inactive" auth
+  // entry: that shape was itself the accidental-reactivation risk — a
+  // stray/attacker-written app_runtime_config row naming 'supabase' would
+  // have silently flipped providerRegistry's active auth provider with no
+  // UI ever surfacing the change. Auth != Database: the Supabase
+  // *database* client below is unaffected and remains required for
+  // PostgreSQL.
   providerRegistry.register('database', 'supabase', supabaseDatabaseProvider, {
     priority: 0,
     healthCheck: async () => {
@@ -192,7 +210,7 @@ export function bootstrapProviders(): void {
   });
 
   // Set active defaults for core providers
-  providerRegistry.setActive('auth', 'supabase');
+  providerRegistry.setActive('auth', 'self-hosted');
   providerRegistry.setActive('database', 'supabase');
   providerRegistry.setActive('realtime', 'supabase');
   providerRegistry.setActive('email', 'api');

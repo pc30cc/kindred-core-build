@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
 import express from 'express';
+import cookieParser from 'cookie-parser';
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
@@ -45,6 +46,16 @@ vi.mock('../../../server/supabase.js', () => ({
   }),
 }));
 
+vi.mock('../../../server/services/auth/sessions.js', () => ({
+  SESSION_COOKIE_NAME: 'gs_session',
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token || token === 'ANON_KEY') return null;
+    if (!authUser) return null;
+    return { sessionId: 'test-session', userId: authUser.id, email: 'test@example.com' };
+  },
+  verifyOriginForMutation: () => true,
+}));
+
 let globalAdmin = false;
 vi.mock('../../../server/middleware/adminBypass.js', () => ({
   isGlobalAdmin: async () => globalAdmin,
@@ -70,6 +81,7 @@ app.use((req, _res, next) => {
   };
   next();
 });
+app.use(cookieParser());
 app.use(express.json());
 app.use('/api/plans', plansRouter);
 
@@ -77,8 +89,11 @@ const server = http.createServer(app).listen(0);
 const port = () => (server.address() as any).port;
 
 function call(method: string, path: string, headers: Record<string, string> = {}) {
+  const finalHeaders = { ...headers };
+  const authMatch = /^Bearer (.+)$/.exec(finalHeaders.authorization || '');
+  if (authMatch) finalHeaders.cookie = `gs_session=${authMatch[1]}`;
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port: port(), path, method, headers }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port: port(), path, method, headers: finalHeaders }, (res) => {
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => resolve({ status: res.statusCode || 0, body: d }));

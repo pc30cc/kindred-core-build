@@ -2,8 +2,6 @@
  * Workspace operational alerts — read-only, server-derived.
  * Backed by the self-hosted Express endpoint /api/workspace-alerts/:workspaceId.
  */
-import { supabase } from '@/integrations/supabase/client';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 export type AlertSeverity = 'critical' | 'warning' | 'info';
@@ -25,15 +23,8 @@ export interface WorkspaceAlertsResponse {
   generatedAt: string;
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  return { Authorization: `Bearer ${data?.session?.access_token || ''}` };
-}
-
 export async function fetchWorkspaceAlerts(workspaceId: string): Promise<WorkspaceAlertsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}`, {
-    headers: await authHeaders(),
-  });
+  const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}`, { credentials: 'include' });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
   return body as WorkspaceAlertsResponse;
@@ -48,8 +39,9 @@ export async function dismissWorkspaceAlerts(
   payload: { alertId?: string; all?: boolean },
 ): Promise<{ dismissed: number }> {
   const res = await fetch(`${API_BASE}/api/workspace-alerts/${workspaceId}/dismiss`, {
+    credentials: 'include',
     method: 'POST',
-    headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const body = await res.json().catch(() => ({}));

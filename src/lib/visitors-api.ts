@@ -2,18 +2,10 @@
  * Visitor Intelligence API client.
  * Talks to the new /api/visitor-intel/* backend routes (auth + membership enforced).
  */
-import { supabase } from '@/lib/supabase';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `API error: ${res.status}`);
@@ -176,8 +168,9 @@ export async function warmVisitorGeo(
   opts: { lookback_days?: number; limit?: number; force?: boolean } = {},
 ): Promise<WarmGeoResult> {
   const res = await fetch(`${API_BASE}/api/visitor-intel/warm-geo`, {
+    credentials: 'include',
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspace_id: workspaceId, ...opts }),
   });
   if (!res.ok) {

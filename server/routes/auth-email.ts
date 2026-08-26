@@ -1,7 +1,9 @@
 /**
  * AUTH EMAIL ROUTES — sends auth-related emails through configured provider
- * Replaces Supabase's built-in auth emails with the self-hosted email system.
- * Uses auth_verify_tokens and auth_reset_tokens tables.
+ * Uses auth_verify_tokens and auth_reset_tokens tables. First-party as of
+ * the auth migration: `verify-email`/`reset-password` write directly to
+ * `public.user_credentials` (Argon2id password hash, email_verified_at) —
+ * `sb.auth.admin.updateUserById` / `auth.users` are not touched here.
  */
 
 import { Router, type Response } from 'express';
@@ -9,6 +11,9 @@ import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
+import { findIdentityByEmail } from '../services/auth/identity.js';
+import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
+import { logSecurityEvent } from '../middleware/security.js';
 
 export const authEmailRouter = Router();
 
@@ -28,15 +33,6 @@ function handleRouteError(res: Response, scope: string, error: unknown) {
   return res.status(500).json({ error: message });
 }
 
-function resolveUserFullName(userMetadata: unknown, fallback: string | null = null): string | null {
-  if (userMetadata && typeof userMetadata === 'object') {
-    const fullName = (userMetadata as Record<string, unknown>).full_name;
-    if (typeof fullName === 'string' && fullName.trim()) return fullName.trim();
-  }
-
-  return fallback?.trim() || null;
-}
-
 interface AuthLookupUser {
   id: string;
   email: string | null;
@@ -45,61 +41,14 @@ interface AuthLookupUser {
 }
 
 async function findAuthUserByEmail(config: ServerConfig, email: string): Promise<AuthLookupUser | null> {
-  const sb = getServiceClient(config);
-  const normalizedEmail = email.trim().toLowerCase();
-
-  const { data: profile, error: profileError } = await sb
-    .from('profiles')
-    .select('id, email, full_name')
-    .eq('email', normalizedEmail)
-    .maybeSingle();
-
-  if (profileError) {
-    throw new Error(`Failed to look up profile: ${profileError.message}`);
-  }
-
-  if (profile?.id) {
-    const { data: authUserData, error: authUserError } = await sb.auth.admin.getUserById(profile.id);
-
-    if (authUserError) {
-      throw new Error(`Failed to load auth user: ${authUserError.message}`);
-    }
-
-    if (authUserData?.user) {
-      return {
-        id: authUserData.user.id,
-        email: authUserData.user.email ?? profile.email ?? normalizedEmail,
-        emailConfirmedAt: authUserData.user.email_confirmed_at ?? null,
-        fullName: resolveUserFullName(authUserData.user.user_metadata, profile.full_name ?? null),
-      };
-    }
-  }
-
-  const perPage = 200;
-
-  for (let page = 1; page <= 10; page += 1) {
-    const { data, error } = await sb.auth.admin.listUsers({ page, perPage });
-
-    if (error) {
-      throw new Error(`Failed to search auth users: ${error.message}`);
-    }
-
-    const users = data?.users ?? [];
-    const matchedUser = users.find((candidate) => candidate.email?.trim().toLowerCase() === normalizedEmail);
-
-    if (matchedUser) {
-      return {
-        id: matchedUser.id,
-        email: matchedUser.email ?? normalizedEmail,
-        emailConfirmedAt: matchedUser.email_confirmed_at ?? null,
-        fullName: resolveUserFullName(matchedUser.user_metadata, profile?.full_name ?? null),
-      };
-    }
-
-    if (users.length < perPage) break;
-  }
-
-  return null;
+  const identity = await findIdentityByEmail(config, email);
+  if (!identity) return null;
+  return {
+    id: identity.id,
+    email: identity.email,
+    emailConfirmedAt: identity.emailVerifiedAt,
+    fullName: identity.fullName,
+  };
 }
 
 /**
@@ -140,6 +89,14 @@ authEmailRouter.post('/send-verification', async (req, res) => {
 /**
  * POST /api/auth-email/verify-email
  * Verify token and confirm user's email.
+ *
+ * Redemption is ATOMIC: `redeem_email_verify_token` (service_role-only,
+ * database/migrations/030_atomic_auth_token_redemption.sql) claims the
+ * token with a single conditional UPDATE ... WHERE used_at IS NULL ...
+ * RETURNING and writes user_credentials.email_verified_at in the same
+ * function call, so two simultaneous requests for the same raw token can
+ * never both succeed — the old SELECT-then-UPDATE shape here let both
+ * requests pass the "is it unused" check before either write landed.
  */
 authEmailRouter.post('/verify-email', async (req, res) => {
   try {
@@ -151,41 +108,18 @@ authEmailRouter.post('/verify-email', async (req, res) => {
     const tokenHash = hashToken(token);
     const sb = getServiceClient(config);
 
-    // Find valid token
-    const { data: tokenData, error: tokenError } = await sb
-      .from('auth_verify_tokens')
-      .select('*')
-      .eq('token_hash', tokenHash)
-      .is('used_at', null)
-      .is('revoked_at', null)
-      .maybeSingle();
-
-    if (tokenError || !tokenData) {
-      return res.status(400).json({ error: 'Invalid or expired token' });
-    }
-
-    // Check expiry
-    if (new Date(tokenData.expires_at) < new Date()) {
-      return res.status(400).json({ error: 'Token has expired' });
-    }
-
-    // Confirm user's email via admin API + set metadata flag
-    const { error: updateError } = await sb.auth.admin.updateUserById(tokenData.user_id, {
-      email_confirm: true,
-      user_metadata: { app_email_verified: true },
-    });
-
-    if (updateError) {
-      console.error('[auth-email] Failed to confirm user:', updateError);
+    const { data, error } = await sb.rpc('redeem_email_verify_token', { _token_hash: tokenHash });
+    if (error) {
+      console.error('[auth-email] redeem_email_verify_token error:', error);
       return res.status(500).json({ error: 'Failed to confirm email' });
     }
 
-    // Mark token as used
-    await sb.from('auth_verify_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', tokenData.id);
+    const redeemed = Array.isArray(data) ? data[0] : data;
+    if (!redeemed?.redeemed_user_id) {
+      return res.status(400).json({ error: 'Invalid or expired token' });
+    }
 
-    return res.json({ success: true, email: tokenData.email });
+    return res.json({ success: true, email: redeemed.redeemed_email });
   } catch (err) {
     return handleRouteError(res, '[auth-email] verify-email error:', err);
   }
@@ -228,6 +162,16 @@ authEmailRouter.post('/send-reset', async (req, res) => {
 /**
  * POST /api/auth-email/reset-password
  * Validate reset token and update user's password.
+ *
+ * Redemption is ATOMIC: `redeem_password_reset_token` (service_role-only,
+ * database/migrations/030_atomic_auth_token_redemption.sql) claims the
+ * token, writes the new hash, and revokes every existing session for that
+ * user — all inside one function call/transaction — so two simultaneous
+ * requests for the same raw token can never both succeed, and a failure
+ * partway through can never leave the token "used" with no password
+ * change or a password change with the old sessions still live. Identity
+ * comes ONLY from the token row the function itself claims; this route
+ * never passes a client-supplied user id into it.
  */
 authEmailRouter.post('/reset-password', async (req, res) => {
   try {
@@ -238,43 +182,37 @@ authEmailRouter.post('/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'token and newPassword are required' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    let passwordHash: string;
+    try {
+      passwordHash = await hashPassword(newPassword);
+    } catch (err) {
+      if (err instanceof InvalidPasswordError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
     }
 
     const tokenHash = hashToken(token);
     const sb = getServiceClient(config);
 
-    const { data: tokenData, error: tokenError } = await sb
-      .from('auth_reset_tokens')
-      .select('*')
-      .eq('token_hash', tokenHash)
-      .is('used_at', null)
-      .is('revoked_at', null)
-      .maybeSingle();
-
-    if (tokenError || !tokenData) {
-      return res.status(400).json({ error: 'Invalid or expired token' });
-    }
-
-    if (new Date(tokenData.expires_at) < new Date()) {
-      return res.status(400).json({ error: 'Token has expired' });
-    }
-
-    // Update password via admin API
-    const { error: updateError } = await sb.auth.admin.updateUserById(tokenData.user_id, {
-      password: newPassword,
+    const { data, error } = await sb.rpc('redeem_password_reset_token', {
+      _token_hash: tokenHash,
+      _new_password_hash: passwordHash,
     });
-
-    if (updateError) {
-      console.error('[auth-email] Failed to reset password:', updateError);
+    if (error) {
+      console.error('[auth-email] redeem_password_reset_token error:', error);
       return res.status(500).json({ error: 'Failed to reset password' });
     }
 
-    // Mark token as used
-    await sb.from('auth_reset_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', tokenData.id);
+    const redeemed = Array.isArray(data) ? data[0] : data;
+    if (!redeemed?.redeemed_user_id) {
+      return res.status(400).json({ error: 'Invalid or expired token' });
+    }
+
+    await logSecurityEvent(req, 'password_changed', 'info', {
+      userId: redeemed.redeemed_user_id,
+      revokedCount: redeemed.redeemed_sessions_revoked ?? 0,
+    });
 
     return res.json({ success: true });
   } catch (err) {

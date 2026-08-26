@@ -1,5 +1,3 @@
-import { supabase } from '@/lib/supabase';
-
 export type WidgetUrlTestKind =
   | 'loader'
   | 'manifest'
@@ -32,17 +30,10 @@ export async function testWidgetUrl(input: {
   asset_base?: string;
   api_base?: string;
 }): Promise<WidgetUrlTestResult> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
-  if (!token) throw new Error('Not authenticated');
-
   const res = await fetch(`${apiBase()}/api/admin/widget/test-url`, {
     method: 'POST',
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
 

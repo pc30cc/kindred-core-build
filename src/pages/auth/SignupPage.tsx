@@ -79,7 +79,17 @@ export default function SignupPage() {
         metadata: { locale, companyName: companyName.trim(), websiteDomain: websiteDomain.trim(), mainGoal, aiMode },
       });
       if (error) {
-        toast.error(t('auth.signupFailed'), { description: error.message });
+        // Generic by design: the backend never reveals whether an existing
+        // account has a password set yet (see server/routes/auth.ts) — an
+        // unauthenticated signup attempt is not the place to disambiguate
+        // that. Every "account already exists" case routes to the same
+        // sign-in-or-reset message; a legitimate migrated user who then
+        // tries to log in is correctly routed to password setup by /login.
+        if (error.message.toLowerCase().includes('already exists')) {
+          toast.error(t('auth.accountExists'), { description: t('auth.accountExistsHint') });
+        } else {
+          toast.error(t('auth.signupFailed'), { description: error.message });
+        }
         return;
       }
 

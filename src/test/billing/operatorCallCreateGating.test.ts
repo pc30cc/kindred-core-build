@@ -63,6 +63,15 @@ const sbMock: any = {
 };
 vi.mock("../../../server/supabase.js", () => ({ getServiceClient: () => sbMock }));
 
+vi.mock("../../../server/services/auth/sessions.js", () => ({
+  SESSION_COOKIE_NAME: "gs_session",
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    return { sessionId: "test-session", userId: "u-1", email: "test@example.com" };
+  },
+  verifyOriginForMutation: () => true,
+}));
+
 vi.mock("../../../server/services/calls/controlPlane.js", () => ({
   loadCallControlPlane: async () => ({
     enabled: true,
@@ -114,6 +123,7 @@ function makeReqRes(body: any) {
     query: {},
     body,
     headers: { authorization: "Bearer t" },
+    cookies: { gs_session: "t" },
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;

@@ -58,41 +58,20 @@ import { getLiveKitReadinessState } from '../services/calls/providers/livekitPro
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
 import { loadLiveKitConfig, isMinimallyConfigured } from '../services/calls/livekitConfig.js';
 import { endCallSession, type EndCallReason } from '../services/calls/endSession.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const callsRouter = Router();
 
-// ─── auth helper (mirrors conversations.ts) ───────────────────────────────
+// ─── auth helper — delegates to the central first-party session helper ────
 async function requireWorkspaceMember(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (memErr) {
-    res.status(500).json({ error: 'Membership check failed' });
-    return null;
-  }
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 async function loadSessionWithMembership(
@@ -887,25 +866,13 @@ callsRouter.get('/diagnostics', async (req, res) => {
   const sb = getServiceClient(config);
 
   // Verify the caller is at least a signed-in user.
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const { data: { user }, error: authErr } = await sb.auth.getUser(token);
-  if (authErr || !user) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return;
 
   const workspaceId = (req.query.workspace_id as string | undefined)?.trim() || null;
   if (workspaceId) {
-    const { data: isMember } = await sb.rpc('is_workspace_member', {
-      _workspace_id: workspaceId,
-      _user_id: user.id,
-    });
-    if (!isMember) {
-      return res.status(403).json({ error: 'Not a workspace member' });
-    }
+    const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+    if (!auth) return;
   }
 
   // Selected provider order — global if no workspace, else workspace-scoped.

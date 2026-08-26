@@ -9,7 +9,8 @@ import { useProfile } from '@/hooks/useProfile';
 import { Button } from '@/components/ui/button';
 import { Building2, LogOut, RefreshCw, HeadsetIcon, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 export function WorkspaceRedirect() {
   const { data: workspaces, isLoading, refetch } = useWorkspaces();
@@ -32,12 +33,21 @@ export function WorkspaceRedirect() {
         try {
           let accountId = account?.id;
 
-          // If no account exists, provision via RPC
+          // If no account exists, provision one. Routed through the backend
+          // (POST /api/workspaces/provision-account) rather than a direct
+          // supabase.rpc call — see server/routes/workspaces.ts for why:
+          // the RPC takes _user_id with no internal check that it matches
+          // the caller, so it must only ever be invoked with a
+          // session-derived id, never a client-supplied one.
           if (!accountId) {
-            const { error: provErr } = await supabase.rpc('provision_account_on_signup', {
-              _user_id: user.id,
+            const res = await fetch(`${API_BASE}/api/workspaces/provision-account`, {
+              method: 'POST',
+              credentials: 'include',
             });
-            if (provErr) throw provErr;
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({ error: res.statusText }));
+              throw new Error(body.error || `API error: ${res.status}`);
+            }
             // Refetch to pick up the new workspace
             await refetch();
             setProvisioning(false);
@@ -53,7 +63,11 @@ export function WorkspaceRedirect() {
           await refetch();
         } catch (err: any) {
           console.error('Auto-provision failed:', err);
-          setError(err?.message || 'Failed to create workspace');
+          setError(
+            err?.message === 'email_verification_required'
+              ? 'Please verify your email before creating a workspace. Check your inbox for the verification link.'
+              : err?.message || 'Failed to create workspace',
+          );
         } finally {
           setProvisioning(false);
         }

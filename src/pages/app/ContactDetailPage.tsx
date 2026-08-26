@@ -91,11 +91,11 @@ export default function ContactDetailPage() {
   const navigate = useNavigate();
   const { data: contact, isLoading } = useContact(id);
   const { data: conversations } = useContactConversations(id);
-  const { data: calls } = useContactCalls(id);
+  const workspace = useCurrentWorkspace();
+  const { data: calls } = useContactCalls(workspace?.id, id);
   const { data: ipState } = useContactIp(id);
   const updateMutation = useUpdateContact();
   const deleteMutation = useDeleteContact();
-  const workspace = useCurrentWorkspace();
   // Live session-based city — the same canonical source Inbox reads — takes
   // precedence over the metadata.city snapshot getDisplayName falls back to
   // (that one is only ever written once a visitor identifies; a still-

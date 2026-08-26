@@ -2,7 +2,7 @@
  * Phase 2 — Operator attachment endpoints (Inbox-facing)
  *
  * Mirrors the widget attachment contract but with operator-grade auth:
- *   - Bearer = Supabase user access token
+ *   - Identity = first-party session cookie (server/lib/workspaceAuth.ts)
  *   - Workspace membership re-verified per call
  *
  * Storage path scope is server-built and identical to the visitor flow:
@@ -28,6 +28,7 @@ import { getServiceClient } from '../supabase.js';
 import { uploadFile } from '../services/storage/index.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const conversationAttachmentsRouter = Router();
 
@@ -62,26 +63,11 @@ function buildStoragePath(workspaceId: string, fileName: string, mime: string): 
 
 /** Authenticate caller as a workspace member. Sends 401/403 on failure. */
 async function authorizeMember(
-  req: any, res: any, config: ServerConfig, workspaceId: string,
+  req: any, res: any, _config: ServerConfig, workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId, _user_id: user.id,
-  });
-  if (memErr) { res.status(500).json({ error: 'Membership check failed' }); return null; }
-  if (!isMember) { res.status(403).json({ error: 'Not a workspace member' }); return null; }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 // ═══════════════════════════════════════════════════════════════════

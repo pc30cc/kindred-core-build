@@ -2,16 +2,9 @@
  * Phase 8C — Workspace-scoped call settings + role permission overrides.
  * All endpoints require workspace owner/admin (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 import type { CallPermissionKey, RoleSlug } from '@/lib/admin-calls-api';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export interface WorkspaceCallOverrides {
   allow_voice: boolean;
@@ -50,8 +43,7 @@ export interface WorkspaceCallSettingsResponse {
 }
 
 export async function fetchWorkspaceCallSettings(workspaceId: string): Promise<WorkspaceCallSettingsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
@@ -61,9 +53,9 @@ export async function updateWorkspaceCallSettings(
   workspaceId: string,
   patch: Partial<WorkspaceCallOverrides>,
 ): Promise<WorkspaceCallSettingsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/settings`, {credentials: 'include', 
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -82,8 +74,7 @@ export interface WorkspaceRolePermissionsResponse {
 export async function fetchWorkspaceRolePermissions(
   workspaceId: string,
 ): Promise<WorkspaceRolePermissionsResponse> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
@@ -98,9 +89,9 @@ export async function setWorkspaceRolePermission(
     granted: boolean | null;
   },
 ): Promise<{ ok: true }> {
-  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {
+  const res = await fetch(`${API_BASE}/api/workspace-calls/${workspaceId}/role-permissions`, {credentials: 'include', 
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);

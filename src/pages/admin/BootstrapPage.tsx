@@ -30,8 +30,13 @@ export default function AdminBootstrapPage() {
       } else {
         toast.error('A global admin already exists. Contact the platform admin.');
       }
-    } catch {
-      toast.error('Bootstrap failed.');
+    } catch (err: any) {
+      const messages: Record<string, string> = {
+        bootstrap_not_configured: 'Admin bootstrap is not configured for this deployment. Set INITIAL_ADMIN_EMAIL in the server environment.',
+        email_verification_required: 'Please verify your email before bootstrapping the admin account.',
+        not_authorized: 'This account is not authorized to bootstrap the platform admin.',
+      };
+      toast.error(messages[err?.message] || 'Bootstrap failed.');
     }
   };
 

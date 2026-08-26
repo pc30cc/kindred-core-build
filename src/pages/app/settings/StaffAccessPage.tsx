@@ -30,7 +30,6 @@ import {
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
-import { supabase } from '@/lib/supabase';
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -58,6 +57,24 @@ const STAFF_ROLES = [
   'viewer',
 ] as const;
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+// Member management goes through the backend (gs_session cookie +
+// service_role) rather than direct supabase.from() calls — see
+// server/routes/workspaceMembers.ts and TeamPage.tsx's equivalent helper.
+async function staffApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
 const ROLE_BADGE: Record<string, string> = {
   owner: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   admin: 'bg-primary/10 text-primary border-primary/20',
@@ -80,21 +97,8 @@ export default function StaffAccessPage() {
   const { data: allMembers = [], isLoading } = useQuery({
     queryKey: ['ws-members', wsId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_members')
-        .select('id, role, created_at, user_id')
-        .eq('workspace_id', wsId!);
-      if (error) throw error;
-      if (!data) return [];
-      const userIds = data.map((m: any) => m.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, avatar_url')
-        .in('id', userIds);
-      return data.map((m: any) => ({
-        ...m,
-        profile: profiles?.find((p: any) => p.id === m.user_id),
-      }));
+      const { members } = await staffApi<{ members: any[] }>(`/api/workspace-members?workspaceId=${wsId}`);
+      return members;
     },
     enabled: !!wsId,
   });
@@ -115,11 +119,10 @@ export default function StaffAccessPage() {
 
   const updateRole = useMutation({
     mutationFn: async ({ memberId, newRole }: { memberId: string; newRole: string }) => {
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: newRole as any })
-        .eq('id', memberId);
-      if (error) throw error;
+      await staffApi(`/api/workspace-members/${memberId}?workspaceId=${wsId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role: newRole }),
+      });
     },
     onSuccess: () => {
       toast.success(t('staffAccess.roleUpdated'));
@@ -130,8 +133,7 @@ export default function StaffAccessPage() {
 
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
-      const { error } = await supabase.from('workspace_members').delete().eq('id', memberId);
-      if (error) throw error;
+      await staffApi(`/api/workspace-members/${memberId}?workspaceId=${wsId}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       toast.success(t('staffAccess.memberRemoved'));

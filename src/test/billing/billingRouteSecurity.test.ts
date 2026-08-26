@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import http from 'node:http';
 import express from 'express';
+import cookieParser from 'cookie-parser';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
 const processWebhookEvent = vi.fn().mockResolvedValue(undefined);
@@ -106,6 +107,23 @@ vi.mock('../../../server/middleware/adminBypass.js', () => ({
   isGlobalAdmin: async () => globalAdmin,
 }));
 
+// Identity now comes from the gs_session cookie, not a Bearer JWT. The
+// `call()` helper below translates each test's `authorization: 'Bearer X'`
+// header into a `gs_session=X` cookie so every existing call site keeps
+// working unchanged. The well-known ANON_KEY/SERVICE_KEY/'broken' string
+// values are still rejected outright — same security property the old
+// mock enforced, just via "never matches a real session" instead of a
+// literal token-equality check.
+vi.mock('../../../server/services/auth/sessions.js', () => ({
+  SESSION_COOKIE_NAME: 'gs_session',
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token || token === 'ANON_KEY' || token === 'SERVICE_KEY' || token === 'broken') return null;
+    if (!authUser) return null;
+    return { sessionId: 'test-session', userId: authUser.id, email: 'test@example.com' };
+  },
+  verifyOriginForMutation: () => true,
+}));
+
 const { billingRouter, billingWebhookRouter } = await import('../../../server/routes/billing.js');
 
 // ── Test server ──────────────────────────────────────────────────────────
@@ -120,6 +138,7 @@ app.use((req, _res, next) => {
   (req as any).serverConfig = serverConfig;
   next();
 });
+app.use(cookieParser());
 app.use('/api/billing/webhook', billingWebhookRouter);
 app.use(express.json());
 app.use('/api/billing', billingRouter);
@@ -132,9 +151,12 @@ function call(
   path: string,
   opts: { body?: string; headers?: Record<string, string> } = {},
 ): Promise<{ status: number; body: string }> {
+  const headers = { ...opts.headers, connection: 'close' };
+  const authMatch = /^Bearer (.+)$/.exec(headers.authorization || '');
+  if (authMatch) headers.cookie = `gs_session=${authMatch[1]}`;
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: '127.0.0.1', port: port(), path, method, headers: opts.headers },
+      { host: '127.0.0.1', port: port(), path, method, headers },
       (res) => {
         let data = '';
         res.on('data', (c) => (data += c));

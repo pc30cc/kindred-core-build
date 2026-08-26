@@ -1,14 +1,14 @@
 /**
  * Widget Identity Hook (panel-side)
- * 
+ *
  * Fetches the per-workspace pre-chat policy and lets admins update it.
  * The actual visitor identity flow runs inside the embedded widget runtime
  * (public/widget/runtime.js) and uses the HttpOnly `dvsid` cookie issued by
  * the backend — NOT localStorage.
  */
 
-import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { API_BASE } from '@/lib/api';
 
 export interface WidgetPrechatSettings {
   workspace_id: string;
@@ -27,13 +27,10 @@ export function useWidgetPrechatSettings(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['widget-prechat-settings', workspaceId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('widget_prechat_settings')
-        .select('*')
-        .eq('workspace_id', workspaceId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data as WidgetPrechatSettings | null;
+      const res = await fetch(`${API_BASE}/api/widget-settings/${workspaceId}/prechat`, { credentials: 'include' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Load failed: ${res.status}`);
+      return json.settings as WidgetPrechatSettings | null;
     },
     enabled: !!workspaceId,
   });
@@ -43,13 +40,15 @@ export function useUpdateWidgetPrechatSettings(workspaceId: string | undefined) 
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (updates: Partial<WidgetPrechatSettings>) => {
-      const { data, error } = await supabase
-        .from('widget_prechat_settings')
-        .upsert({ workspace_id: workspaceId!, ...updates } as any, { onConflict: 'workspace_id' })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+      const res = await fetch(`${API_BASE}/api/widget-settings/${workspaceId}/prechat`, {
+        credentials: 'include',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+      return json.settings;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['widget-prechat-settings', workspaceId] }),
   });

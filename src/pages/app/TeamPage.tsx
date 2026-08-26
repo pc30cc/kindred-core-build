@@ -15,7 +15,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
-import { supabase } from '@/lib/supabase';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { toast } from '@/lib/toast';
 import {
@@ -27,6 +26,24 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+// Team/invitation management goes through the backend (gs_session cookie
+// + service_role) rather than direct supabase.from() calls — the
+// dashboard's browser session no longer carries a Supabase Auth JWT, so
+// auth.uid()-scoped RLS on a direct query would silently return/write
+// nothing. See server/routes/workspaceMembers.ts.
+async function teamApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `API error: ${res.status}`);
+  }
+  return res.json();
+}
 
 const roleColors: Record<string, string> = {
   owner: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
@@ -113,25 +130,14 @@ export default function TeamPage() {
     return (t as any)(`team.${role}`) || role;
   };
 
-  // Fetch members
+  // Fetch members (with profile + department names joined server-side)
   const { data: members = [], isLoading } = useQuery({
     queryKey: ['ws-members', wsId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_members')
-        .select('id, role, created_at, user_id')
-        .eq('workspace_id', wsId!);
-      if (error) throw error;
-      if (!data) return [];
-      const userIds = data.map(m => m.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, avatar_url')
-        .in('id', userIds);
-      return data.map(m => ({
-        ...m,
-        profile: profiles?.find(p => p.id === m.user_id),
-      }));
+      const { members } = await teamApi<{ members: any[] }>(
+        `/api/workspace-members?workspaceId=${wsId}`,
+      );
+      return members;
     },
     enabled: !!wsId,
   });
@@ -140,74 +146,32 @@ export default function TeamPage() {
   const { data: invitations = [] } = useQuery({
     queryKey: ['ws-invitations', wsId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_invitations')
-        .select('*')
-        .eq('workspace_id', wsId!)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data || [];
+      const { invitations } = await teamApi<{ invitations: any[] }>(
+        `/api/workspace-members/invitations?workspaceId=${wsId}`,
+      );
+      return invitations;
     },
     enabled: !!wsId,
   });
 
-  // Fetch all department names + per-user assignments to render the
-  // Departments column inline on the Team page.
-  const { data: deptsData } = useQuery({
-    queryKey: ['ws-departments-overview', wsId],
-    queryFn: async () => {
-      const [{ data: depts, error: e1 }, { data: assigns, error: e2 }] = await Promise.all([
-        supabase
-          .from('workspace_departments')
-          .select('id, name')
-          .eq('workspace_id', wsId!),
-        supabase
-          .from('workspace_department_members')
-          .select('user_id, department_id')
-          .eq('workspace_id', wsId!),
-      ]);
-      if (e1) throw e1;
-      if (e2) throw e2;
-      return { departments: depts ?? [], assignments: assigns ?? [] };
-    },
-    enabled: !!wsId,
-  });
-
-  const deptNameById = new Map<string, string>(
-    (deptsData?.departments ?? []).map((d: any) => [d.id, d.name]),
+  const deptsByUser = new Map<string, string[]>(
+    (members as any[]).map((m: any) => [m.user_id, m.department_names ?? []]),
   );
-  const deptsByUser = new Map<string, string[]>();
-  for (const a of deptsData?.assignments ?? []) {
-    const list = deptsByUser.get(a.user_id) ?? [];
-    const name = deptNameById.get(a.department_id);
-    if (name) list.push(name);
-    deptsByUser.set(a.user_id, list);
-  }
 
   // Generate invite
   const generateInvite = useMutation({
     mutationFn: async () => {
       const expiresAt = getExpiresAt(inviteExpiration, inviteCustomDate);
-
-      const insertData: any = {
-        workspace_id: wsId!,
-        role: inviteRole as any,
-        created_by: user!.id,
-        max_uses: 0, // Time-based, not usage-based
-        invited_email: inviteEmail.trim() || null,
-      };
-
-      if (expiresAt) {
-        insertData.expires_at = expiresAt;
-      }
-
-      const { data, error } = await supabase
-        .from('workspace_invitations')
-        .insert(insertData)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+      const { invitation } = await teamApi<{ invitation: any }>('/api/workspace-members/invitations', {
+        method: 'POST',
+        body: JSON.stringify({
+          workspaceId: wsId,
+          role: inviteRole,
+          invitedEmail: inviteEmail.trim() || null,
+          expiresAt: expiresAt || null,
+        }),
+      });
+      return invitation;
     },
     onSuccess: (data: any) => {
       const link = `${window.location.origin}/auth/invite?token=${data.token}`;
@@ -229,14 +193,11 @@ export default function TeamPage() {
   // Send invite email via self-hosted backend
   const sendInviteEmail = async (token: string, email: string, role: string) => {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token || '';
       const link = `${window.location.origin}/auth/invite?token=${token}`;
-      await fetch(`${API_BASE}/api/email/send`, {
+      await fetch(`${API_BASE}/api/email/send`, {credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           workspaceId: wsId,
@@ -254,11 +215,7 @@ export default function TeamPage() {
   // Revoke invite
   const revokeInvite = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('workspace_invitations')
-        .update({ revoked_at: new Date().toISOString() } as any)
-        .eq('id', id);
-      if (error) throw error;
+      await teamApi(`/api/workspace-members/invitations/${id}?workspaceId=${wsId}`, { method: 'PATCH' });
     },
     onSuccess: () => {
       toast.success(t('team.inviteRevoked'));
@@ -269,8 +226,7 @@ export default function TeamPage() {
   // Delete invite
   const deleteInvite = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('workspace_invitations').delete().eq('id', id);
-      if (error) throw error;
+      await teamApi(`/api/workspace-members/invitations/${id}?workspaceId=${wsId}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       toast.success(t('team.inviteDeleted'));
@@ -293,11 +249,10 @@ export default function TeamPage() {
   // Update member role
   const updateMemberRole = useMutation({
     mutationFn: async ({ memberId, newRole }: { memberId: string; newRole: string }) => {
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: newRole as any })
-        .eq('id', memberId);
-      if (error) throw error;
+      await teamApi(`/api/workspace-members/${memberId}?workspaceId=${wsId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role: newRole }),
+      });
     },
     onSuccess: () => {
       toast.success(t('team.roleUpdated'));
@@ -309,8 +264,7 @@ export default function TeamPage() {
   // Remove member
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
-      const { error } = await supabase.from('workspace_members').delete().eq('id', memberId);
-      if (error) throw error;
+      await teamApi(`/api/workspace-members/${memberId}?workspaceId=${wsId}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       toast.success(t('team.memberRemoved'));
@@ -848,26 +802,20 @@ function MemberDepartmentsDialog({
   const { data: departments = [], isLoading: loadingDepts } = useQuery({
     queryKey: ['ws-departments-list', workspaceId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_departments')
-        .select('id, name, enabled')
-        .eq('workspace_id', workspaceId)
-        .order('sort_order', { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+      const { departments } = await teamApi<{ departments: any[] }>(
+        `/api/workspace-departments/${workspaceId}`,
+      );
+      return departments ?? [];
     },
   });
 
   const { data: assignedIds = [], isLoading: loadingAssign } = useQuery({
     queryKey: ['ws-department-member-assignments', workspaceId, memberUserId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_department_members')
-        .select('department_id')
-        .eq('workspace_id', workspaceId)
-        .eq('user_id', memberUserId);
-      if (error) throw error;
-      return (data ?? []).map((r: any) => r.department_id as string);
+      const { department_ids } = await teamApi<{ department_ids: string[] }>(
+        `/api/workspace-members/user/${memberUserId}/departments?workspaceId=${workspaceId}`,
+      );
+      return department_ids ?? [];
     },
   });
 
@@ -876,33 +824,10 @@ function MemberDepartmentsDialog({
 
   const save = useMutation({
     mutationFn: async () => {
-      const next = new Set<string>(sel);
-      const prev = new Set<string>(assignedIds as string[]);
-      const toAdd: string[] = [];
-      const toRemove: string[] = [];
-      for (const id of next) if (!prev.has(id)) toAdd.push(id);
-      for (const id of prev) if (!next.has(id)) toRemove.push(id);
-
-      if (toRemove.length > 0) {
-        const { error } = await supabase
-          .from('workspace_department_members')
-          .delete()
-          .eq('workspace_id', workspaceId)
-          .eq('user_id', memberUserId)
-          .in('department_id', toRemove);
-        if (error) throw error;
-      }
-      if (toAdd.length > 0) {
-        const rows = toAdd.map(department_id => ({
-          workspace_id: workspaceId,
-          user_id: memberUserId,
-          department_id,
-        }));
-        const { error } = await supabase
-          .from('workspace_department_members')
-          .insert(rows);
-        if (error) throw error;
-      }
+      await teamApi(`/api/workspace-members/user/${memberUserId}/departments?workspaceId=${workspaceId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ department_ids: Array.from(sel) }),
+      });
     },
     onSuccess: () => {
       toast.success('Department assignments updated');

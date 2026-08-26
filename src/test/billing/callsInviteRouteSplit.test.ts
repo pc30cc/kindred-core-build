@@ -50,6 +50,15 @@ const sbMock: any = {
 };
 vi.mock("../../../server/supabase.js", () => ({ getServiceClient: () => sbMock }));
 
+vi.mock("../../../server/services/auth/sessions.js", () => ({
+  SESSION_COOKIE_NAME: "gs_session",
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    return { sessionId: "test-session", userId: "u-1", email: "test@example.com" };
+  },
+  verifyOriginForMutation: () => true,
+}));
+
 vi.mock("../../../server/services/realtime/publish.js", () => ({
   publishConversationEvent: async () => {},
 }));
@@ -81,6 +90,7 @@ function makeReqRes(body: any) {
     params: { id: "call-1" },
     query: {}, body,
     headers: { authorization: "Bearer t" },
+    cookies: { gs_session: "t" },
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined; let jsonBody: any;

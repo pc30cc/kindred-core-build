@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
+import cookieParser from 'cookie-parser';
 
 const ADMIN_TOKEN = 'admin-token';
 const USER_TOKEN = 'user-token';
@@ -23,6 +24,16 @@ vi.mock('../../../server/supabase.js', () => ({
       select: () => ({ limit: () => ({ maybeSingle: async () => ({ data: null }) }) }),
     }),
   }),
+}));
+
+vi.mock('../../../server/services/auth/sessions.js', () => ({
+  SESSION_COOKIE_NAME: 'gs_session',
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (token === ADMIN_TOKEN) return { sessionId: 'test-session', userId: 'admin-id', email: 'admin@example.com' };
+    if (token === USER_TOKEN) return { sessionId: 'test-session', userId: 'user-id', email: 'user@example.com' };
+    return null;
+  },
+  verifyOriginForMutation: () => true,
 }));
 
 const state = {
@@ -68,6 +79,7 @@ app.use((req, _res, next) => {
   };
   next();
 });
+app.use(cookieParser());
 app.use(express.json());
 app.use('/api/admin', adminRouter);
 
@@ -82,7 +94,7 @@ function call(method: string, path: string, opts: { token?: string; body?: unkno
         host: '127.0.0.1', port: port(), path, method,
         headers: {
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
-          ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+          ...(opts.token ? { authorization: `Bearer ${opts.token}`, cookie: `gs_session=${opts.token}` } : {}),
         },
       },
       (res) => {

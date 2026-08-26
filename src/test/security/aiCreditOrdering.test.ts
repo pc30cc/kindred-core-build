@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
 import express from 'express';
+import cookieParser from 'cookie-parser';
 
 let authUser: { id: string } | null = null;
 let memberOf: Record<string, string> = {};
@@ -31,6 +32,16 @@ vi.mock('../../../server/supabase.js', () => ({
 vi.mock('../../../server/middleware/adminBypass.js', () => ({
   isGlobalAdmin: async () => false,
   logGateBypass: async () => {},
+}));
+
+vi.mock('../../../server/services/auth/sessions.js', () => ({
+  SESSION_COOKIE_NAME: 'gs_session',
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    if (!authUser) return null;
+    return { sessionId: 'test-session', userId: authUser.id, email: 'test@example.com' };
+  },
+  verifyOriginForMutation: () => true,
 }));
 
 const calls: string[] = [];
@@ -92,6 +103,7 @@ app.use((req, _res, next) => {
   };
   next();
 });
+app.use(cookieParser());
 app.use(express.json());
 app.use('/api/ai', aiRouter);
 
@@ -100,6 +112,13 @@ const port = () => (server.address() as any).port;
 
 function post(path: string, body: unknown, headers: Record<string, string> = {}) {
   const payload = JSON.stringify(body);
+  const finalHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    'content-length': String(Buffer.byteLength(payload)),
+    ...headers,
+  };
+  const authMatch = /^Bearer (.+)$/.exec(finalHeaders.authorization || '');
+  if (authMatch) finalHeaders.cookie = `gs_session=${authMatch[1]}`;
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = http.request(
       {
@@ -107,11 +126,7 @@ function post(path: string, body: unknown, headers: Record<string, string> = {})
         port: port(),
         path,
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'content-length': Buffer.byteLength(payload),
-          ...headers,
-        },
+        headers: finalHeaders,
       },
       (res) => {
         let d = '';

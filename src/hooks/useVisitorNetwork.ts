@@ -8,7 +8,6 @@
  * is allowed to see.
  */
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -59,12 +58,8 @@ export function useVisitorNetwork(workspaceId: string | undefined, ref: VisitorN
     staleTime: 60_000,
     retry: false,
     queryFn: async () => {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
       const qs = new URLSearchParams({ workspace_id: workspaceId!, [param![0]]: param![1] });
-      const res = await fetch(`${API_BASE}/api/visitor-intel/network?${qs.toString()}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await fetch(`${API_BASE}/api/visitor-intel/network?${qs.toString()}`, { credentials: 'include' });
       if (!res.ok) throw new Error(`network lookup failed: ${res.status}`);
       const body = await res.json();
       return (body?.profile as VisitorNetworkProfile | null) ?? null;
@@ -79,14 +74,10 @@ export async function fetchVisitorNetworkForConversations(
 ): Promise<Record<string, VisitorNetworkProfile>> {
   const ids = Array.from(new Set(conversationIds.filter(Boolean)));
   if (!workspaceId || ids.length === 0) return {};
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
   const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+    credentials: 'include',
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     // Batched on purpose: one request per page of conversations, never one
     // per row. The server applies the IP privacy/entitlement policy.
     body: JSON.stringify({ workspace_id: workspaceId, conversation_ids: ids.slice(0, 500) }),
@@ -113,14 +104,10 @@ export function useVisitorNetworkBatchBySession(
     staleTime: 60_000,
     retry: false,
     queryFn: async () => {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
       const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+        credentials: 'include',
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: workspaceId, session_ids: ids.slice(0, 500) }),
       });
       if (!res.ok) return {};
@@ -147,14 +134,10 @@ export function useVisitorNetworkBatchByContact(
     staleTime: 60_000,
     retry: false,
     queryFn: async () => {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
       const res = await fetch(`${API_BASE}/api/visitor-intel/network/batch`, {
+        credentials: 'include',
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: workspaceId, contact_ids: ids.slice(0, 500) }),
       });
       if (!res.ok) return {};

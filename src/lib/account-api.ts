@@ -1,25 +1,16 @@
 /**
- * Account API — self-service profile, avatar, and password
- * for the currently authenticated user. Auth is the user's Supabase JWT,
- * which is fetched fresh on each call to avoid stale tokens.
+ * Account API — self-service profile, avatar, and password for the
+ * currently authenticated user. Auth is the first-party gs_session
+ * HttpOnly cookie (credentials: 'include').
  */
-import { supabase } from '@/lib/supabase';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function userAuthHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
-  return { Authorization: `Bearer ${token}` };
-}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(await userAuthHeaders()),
     ...((init?.headers as Record<string, string>) || {}),
   };
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
   return body as T;

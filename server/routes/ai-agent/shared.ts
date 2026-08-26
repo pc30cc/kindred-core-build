@@ -7,37 +7,24 @@
  */
 import type { Request, Response } from 'express';
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
-import { isGlobalAdmin } from '../../middleware/adminBypass.js';
+import { validateSessionToken, SESSION_COOKIE_NAME } from '../../services/auth/sessions.js';
+import { authorizeWorkspaceAccess } from '../../lib/workspaceAuth.js';
 
 // ─── Shared auth resolution ───
-// Resolves the current user from either the standard `Authorization: Bearer`
-// header used by the SPA, or the `sb-access-token` HTTP-only cookie fallback.
-// Mirrors the auth pattern used elsewhere in the AI Agent router so that
-// middleware (advanced-tools guard, kill switch) and per-route handlers
-// authenticate the same way.
+// Resolves the current user from the first-party gs_session HttpOnly
+// cookie (server/services/auth/sessions.ts). Mirrors the auth pattern used
+// elsewhere in the AI Agent router so that middleware (advanced-tools
+// guard, kill switch) and per-route handlers authenticate the same way.
 export async function resolveCurrentUserId(
   req: Request,
   config: ServerConfig,
 ): Promise<{ userId: string | null; reason?: 'missing' | 'invalid' }> {
-  let token: string | null = null;
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    token = authHeader.replace('Bearer ', '').trim() || null;
-  }
-  if (!token) {
-    const cookieToken =
-      (req as any).cookies?.['sb-access-token'] ||
-      (req as any).cookies?.['sb:token'] ||
-      null;
-    if (cookieToken && typeof cookieToken === 'string') token = cookieToken;
-  }
+  const token = (req as any).cookies?.[SESSION_COOKIE_NAME];
   if (!token) return { userId: null, reason: 'missing' };
   try {
-    const sb = getServiceClient(config);
-    const { data: { user }, error } = await sb.auth.getUser(token);
-    if (error || !user) return { userId: null, reason: 'invalid' };
-    return { userId: user.id };
+    const session = await validateSessionToken(config, token);
+    if (!session) return { userId: null, reason: 'invalid' };
+    return { userId: session.userId };
   } catch {
     return { userId: null, reason: 'invalid' };
   }
@@ -47,41 +34,10 @@ export async function resolveCurrentUserId(
 export async function authorizeMember(
   req: Request,
   res: Response,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; isAdmin: boolean; role: string | null } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const isAdmin = await isGlobalAdmin(config, user.id);
-  let role: string | null = null;
-  if (!isAdmin) {
-    const { data: isMember } = await sb.rpc('is_workspace_member', {
-      _workspace_id: workspaceId,
-      _user_id: user.id,
-    });
-    if (!isMember) {
-      res.status(403).json({ error: 'Not a workspace member' });
-      return null;
-    }
-    const { data: member } = await sb
-      .from('workspace_members')
-      .select('role')
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-    role = (member?.role as string) || null;
-  }
-  return { userId: user.id, isAdmin, role };
+  return authorizeWorkspaceAccess(req, res, workspaceId);
 }
 
 export function isOwnerOrAdmin(role: string | null, isGlobalAdmin: boolean): boolean {

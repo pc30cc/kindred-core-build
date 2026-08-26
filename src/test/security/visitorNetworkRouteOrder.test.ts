@@ -23,6 +23,12 @@ const CONV_ID = '44444444-4444-4444-8444-444444444444';
 const CALL_SESSION_ID = '55555555-5555-4555-8555-555555555555';
 const CALLBACK_ID = '66666666-6666-4666-8666-666666666666';
 
+vi.mock('../../../server/services/auth/sessions.js', () => ({
+  validateSessionToken: async () => ({ sessionId: 'test-session', userId: USER_ID, email: 'test@example.com' }),
+  SESSION_COOKIE_NAME: 'gs_session',
+  verifyOriginForMutation: () => true,
+}));
+
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: USER_ID } }, error: null }) },

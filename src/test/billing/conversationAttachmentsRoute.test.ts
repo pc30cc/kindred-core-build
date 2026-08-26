@@ -58,6 +58,17 @@ vi.mock("../../../server/supabase.js", () => ({
   getServiceClient: () => sbMock,
 }));
 
+vi.mock("../../../server/services/auth/sessions.js", () => ({
+  SESSION_COOKIE_NAME: "gs_session",
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token) return null;
+    const user = state.user?.data?.user;
+    if (!user) return null;
+    return { sessionId: "test-session", userId: user.id, email: "test@example.com" };
+  },
+  verifyOriginForMutation: () => true,
+}));
+
 vi.mock("../../../server/middleware/featureGating.js", () => ({
   requireLimit: () => async (_req: any, res: any, next: any) => {
     if (state.gateAllow) return next();
@@ -93,6 +104,7 @@ function makeReqRes(body: any, params: any = { id: "att-1" }) {
     params,
     query: {},
     headers: { authorization: "Bearer token-x" },
+    cookies: { gs_session: "token-x" },
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;

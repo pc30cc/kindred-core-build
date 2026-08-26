@@ -1,7 +1,7 @@
 /**
  * ACCOUNT ROUTES — self-service for the currently authenticated user.
  *
- * Auth: Supabase access token (Bearer) — verified via service client.
+ * Auth: first-party session cookie (server/lib/workspaceAuth.ts).
  * Storage: avatars are uploaded through the active workspace storage
  *   provider (BunnyCDN / S3 / local) using the existing storage service,
  *   so secrets never reach the browser.
@@ -20,23 +20,41 @@ import { uploadFile, deleteFile } from '../services/storage/index.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, maskIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
+import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { findIdentityById } from '../services/auth/identity.js';
+import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/auth/password.js';
+import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
 
 export const accountRouter = Router();
 
 // ── Auth middleware ───────────────────────────────────────────────
+// Builds a `req.authUser` shaped like the old Supabase Auth user object
+// (id/email/phone/email_confirmed_at/user_metadata.full_name) so downstream
+// handlers below didn't need individual rewrites — but every field now
+// comes from `profiles`/`user_credentials`, not `auth.users`.
 async function requireUser(req: any, res: any, next: any) {
   const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return;
+  const identity = await findIdentityById(config, userId);
+  if (!identity) {
+    return res.status(401).json({ error: 'Account not found' });
   }
-  const token = authHeader.slice(7);
-  const sb = getServiceClient(config);
-  const { data, error } = await sb.auth.getUser(token);
-  if (error || !data?.user) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-  req.authUser = data.user;
+  req.authUser = {
+    id: identity.id,
+    email: identity.email,
+    phone: identity.phone,
+    email_confirmed_at: identity.emailVerifiedAt,
+    created_at: identity.createdAt,
+    user_metadata: { full_name: identity.fullName },
+  };
+  // Cheap second read of the already-validated cookie to expose the
+  // first-party sessionId to route handlers (Active Sessions UI) without
+  // widening requireSessionUser's return type for its ~15 other callers.
+  // Never re-derived from a JWT payload — this is the same server-side
+  // validateSessionToken() every other authenticated route already trusts.
+  const session = await validateSessionToken(config, req.cookies?.[SESSION_COOKIE_NAME]);
+  req.currentSessionId = session?.sessionId ?? null;
   next();
 }
 
@@ -125,13 +143,13 @@ accountRouter.patch('/me', async (req, res) => {
       }
     }
 
-    // Phone is on auth.users — propagate via admin API
     if (parsed.data.phone !== undefined) {
-      const { error: authErr } = await sb.auth.admin.updateUserById(user.id, {
-        phone: parsed.data.phone || undefined,
-      });
-      if (authErr) {
-        return res.status(400).json({ error: authErr.message });
+      const { error: phoneErr } = await sb
+        .from('profiles')
+        .update({ phone: parsed.data.phone || null })
+        .eq('id', user.id);
+      if (phoneErr) {
+        return res.status(400).json({ error: phoneErr.message });
       }
     }
 
@@ -318,7 +336,19 @@ accountRouter.delete('/avatar', async (req, res) => {
 });
 
 // ── POST /api/account/change-password ─────────────────────────────
-// Verifies current password by attempting a password sign-in, then updates.
+// Verifies the current password against the stored Argon2id hash, then
+// writes the new one. First-party — no Supabase Auth involved.
+//
+// A session stolen before the change must not survive it: after a
+// successful write, every OTHER active first-party session for this user
+// is revoked (revoke_reason='password_changed') — the caller's own current
+// session (req.currentSessionId, set by this router's requireUser above)
+// is deliberately exempted so changing your password doesn't also log you
+// out of the tab you did it from. The write and the revocation happen
+// inside one `change_password_and_revoke_sessions` SECURITY DEFINER call
+// (database/migrations/031_change_password_revoke_sessions.sql) so a
+// failure partway through can never leave the password changed with the
+// old sessions still live.
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
   newPassword: z.string().min(8).max(255),
@@ -328,6 +358,7 @@ accountRouter.post('/change-password', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
     const user = (req as any).authUser;
+    const currentSessionId: string | null = (req as any).currentSessionId ?? null;
     const parsed = changePasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'New password must be at least 8 characters' });
@@ -337,28 +368,39 @@ accountRouter.post('/change-password', async (req, res) => {
       return res.status(400).json({ error: 'Account has no email' });
     }
 
-    // Re-auth with a throwaway anon client (does not affect current session)
-    const { createClient } = await import('@supabase/supabase-js');
-    const verifier = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { error: signInErr } = await verifier.auth.signInWithPassword({
-      email: user.email,
-      password: parsed.data.currentPassword,
-    });
-    if (signInErr) {
+    const sb = getServiceClient(config);
+    const { data: cred, error: credErr } = await sb
+      .from('user_credentials')
+      .select('password_hash')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (credErr) {
+      return res.status(500).json({ error: credErr.message });
+    }
+    if (!cred?.password_hash || !(await verifyPassword(cred.password_hash, parsed.data.currentPassword))) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
-    const sb = getServiceClient(config);
-    const { error: updErr } = await sb.auth.admin.updateUserById(user.id, {
-      password: parsed.data.newPassword,
-    });
-    if (updErr) {
-      return res.status(500).json({ error: updErr.message });
+    let newHash: string;
+    try {
+      newHash = await hashPassword(parsed.data.newPassword);
+    } catch (err) {
+      if (err instanceof InvalidPasswordError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
     }
 
-    return res.json({ success: true });
+    const { data: revokedCount, error: rpcErr } = await sb.rpc('change_password_and_revoke_sessions', {
+      _user_id: user.id,
+      _new_password_hash: newHash,
+      _except_session_id: currentSessionId,
+    });
+    if (rpcErr) {
+      return res.status(500).json({ error: rpcErr.message });
+    }
+
+    return res.json({ success: true, revoked_sessions: revokedCount ?? 0 });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to change password' });
   }
@@ -387,7 +429,12 @@ accountRouter.post('/resend-verification', async (req, res) => {
     const email: string | undefined = user?.email;
     if (!email) return res.status(400).json({ error: 'Account has no email' });
 
-    if (user?.user_metadata?.app_email_verified === true) {
+    // Canonical verification state, set by this router's own requireUser
+    // middleware from identity.emailVerifiedAt (user_credentials) — NOT
+    // `user_metadata.app_email_verified`, which this middleware never
+    // populates (dead condition: an already-verified caller could hit this
+    // every time and mint another token/email indefinitely).
+    if (user?.email_confirmed_at) {
       return res.json({ success: true, already_verified: true });
     }
 
@@ -436,24 +483,13 @@ accountRouter.post('/resend-verification', async (req, res) => {
 
 // ─── SECURITY: Active sessions + login history ───────────────────
 //
-// We read directly from Supabase's managed `auth.sessions` table via
-// service-role; the JS SDK does not expose a list endpoint for it.
-// `auth.sessions` columns we rely on:
-//   id (uuid), user_id (uuid), created_at, updated_at, refreshed_at,
-//   user_agent (text), ip (inet), not_after (timestamptz)
+// Reads the first-party `public.auth_sessions` table via service-role
+// (see server/services/auth/sessions.ts for the full table shape and
+// listActiveSessions()) — never Supabase's own `auth.sessions`, which this
+// app's users don't populate under first-party auth. Columns read:
+//   id, created_at, expires_at, ip_address, user_agent
 //
 // `login_attempts` (already in our schema) powers the recent login history.
-
-interface SessionRow {
-  id: string;
-  user_id: string;
-  created_at: string | null;
-  updated_at: string | null;
-  refreshed_at: string | null;
-  not_after: string | null;
-  user_agent: string | null;
-  ip: string | null;
-}
 
 function parseUserAgent(ua: string | null): { browser: string; os: string; device: string } {
   if (!ua) return { browser: 'Unknown', os: 'Unknown', device: 'Unknown' };
@@ -502,49 +538,39 @@ async function enrichIpForDisplay(config: ServerConfig, rawIp: string | null) {
 
 /**
  * GET /api/account/security/sessions
- * Lists every active Supabase auth session for the current user, enriched
- * with parsed UA + geo (best-effort). The current session id is computed
- * by matching the bearer token's `session_id` claim when available.
+ * Lists every active first-party session (`public.auth_sessions`, written
+ * by createSession()) for the current user, enriched with parsed UA + geo
+ * (best-effort). The current session id comes from the already-validated
+ * gs_session cookie (req.currentSessionId, set by this router's own
+ * requireUser middleware) — never from decoding a token payload.
+ *
+ * GoTrue-off closure: this used to describe/manage Supabase's own
+ * `auth.sessions` (via account_list_auth_sessions), a table this app's
+ * users never populate under first-party auth — the list was always empty
+ * or stale. It's now backed by the actual session store `requireUser`
+ * itself authenticates against.
  */
 accountRouter.get('/security/sessions', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
     const user = (req as any).authUser;
-    const sb = getServiceClient(config);
+    const currentSessionId: string | null = (req as any).currentSessionId ?? null;
 
-    const { data, error } = await sb.rpc('account_list_auth_sessions' as any, {
-      _user_id: user.id,
-    });
+    const rows = await listActiveSessions(config, user.id);
 
-    if (error) {
-      console.error('[account/security] list sessions error:', error.message);
-      return res.status(500).json({ error: 'Failed to load sessions' });
-    }
-
-    // Decode the caller token to detect the active session id (if present).
-    let currentSessionId: string | null = null;
-    try {
-      const auth = req.headers.authorization || '';
-      const tok = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-      const parts = tok.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-        if (typeof payload?.session_id === 'string') currentSessionId = payload.session_id;
-      }
-    } catch {
-      // ignore — current-session detection is purely cosmetic.
-    }
-
-    const rows = (data ?? []) as SessionRow[];
     const enriched = await Promise.all(rows.map(async (row) => {
-      const ua = parseUserAgent(row.user_agent);
-      const geo = await enrichIpForDisplay(config, row.ip);
+      const ua = parseUserAgent(row.user_agent as string | null);
+      const geo = await enrichIpForDisplay(config, row.ip_address as string | null);
       return {
         id: row.id,
         is_current: currentSessionId ? row.id === currentSessionId : false,
         created_at: row.created_at,
-        last_active_at: row.refreshed_at || row.updated_at || row.created_at,
-        not_after: row.not_after,
+        // auth_sessions is a fixed-TTL, non-sliding session store (see
+        // sessions.ts's design note) — there is no separate "last active"
+        // timestamp to report, so this intentionally mirrors created_at
+        // rather than fabricating one.
+        last_active_at: row.created_at,
+        not_after: row.expires_at,
         user_agent_raw: row.user_agent,
         browser: ua.browser,
         os: ua.os,
@@ -566,16 +592,20 @@ accountRouter.get('/security/sessions', async (req, res) => {
 
 /**
  * DELETE /api/account/security/sessions/:id
- * Revoke a single session by id (or `?all=1` to revoke every session except
- * the current one). Deletion of the row in `auth.sessions` invalidates
- * Supabase refresh tokens immediately; access tokens expire on their normal
- * 1h schedule.
+ * Revoke a single session by id (or `?all=1` to revoke every OTHER active
+ * session, keeping the caller's own current one alive).
+ *
+ * IDOR guard: revokeSession() itself has no ownership check (by design —
+ * it's a generic primitive also used by logout/password-reset/admin-action
+ * flows with their own already-verified target), so this route loads the
+ * target row first and rejects (404, not 403 — no existence leak) if it
+ * doesn't belong to the caller, before ever calling revokeSession().
  */
 accountRouter.delete('/security/sessions/:id', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
     const user = (req as any).authUser;
-    const sb = getServiceClient(config);
+    const currentSessionId: string | null = (req as any).currentSessionId ?? null;
     const sessionId = String(req.params.id || '').trim();
     const all = req.query.all === '1' || req.query.all === 'true';
 
@@ -583,27 +613,22 @@ accountRouter.delete('/security/sessions/:id', async (req, res) => {
       return res.status(400).json({ error: 'Missing session id' });
     }
 
-    // Detect current session id so "revoke all others" doesn't kick the caller.
-    let currentSessionId: string | null = null;
-    try {
-      const auth = req.headers.authorization || '';
-      const tok = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-      const parts = tok.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-        if (typeof payload?.session_id === 'string') currentSessionId = payload.session_id;
-      }
-    } catch { /* ignore */ }
-
-    const { error } = await sb.rpc('account_revoke_auth_sessions' as any, {
-      _user_id: user.id,
-      _session_id: all ? null : sessionId,
-      _all_except: all ? currentSessionId : null,
-    });
-    if (error) {
-      console.error('[account/security] revoke session error:', error.message);
-      return res.status(500).json({ error: 'Failed to revoke session' });
+    if (all) {
+      const revoked = await revokeAllSessions(config, user.id, 'logout', currentSessionId ?? undefined);
+      return res.json({ success: true, revoked });
     }
+
+    const sb = getServiceClient(config);
+    const { data: target } = await sb
+      .from('auth_sessions')
+      .select('id, user_id')
+      .eq('id', sessionId)
+      .maybeSingle();
+    if (!target || (target as any).user_id !== user.id) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    await revokeSession(config, sessionId, 'logout');
     return res.json({ success: true });
   } catch (err: any) {
     console.error('[account/security] revoke error:', err);

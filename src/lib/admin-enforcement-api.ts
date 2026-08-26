@@ -2,15 +2,8 @@
  * Phase 7.5 — Admin enforcement client.
  * All endpoints require global admin (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export type EnforcementTriggerType = 'slo_breach' | 'health_score' | 'alert_rate';
 
@@ -105,15 +98,15 @@ export interface EnforcementNormalization {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, { headers });
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return res.json();
 }
 
 async function send<T>(path: string, method: string, body?: any): Promise<T> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, {
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, {credentials: 'include', 
     method,
     headers: { ...headers, 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,

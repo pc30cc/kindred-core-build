@@ -1,19 +1,29 @@
 /**
  * Shared user + workspace authorization helpers for HTTP routes.
  *
- * The publishable (anon) key is NOT an identity: it is embedded in the
- * frontend bundle and readable by anyone. Routes that act on workspace data
- * or spend workspace resources must derive identity from a real Supabase user
- * JWT and verify workspace membership server-side before any service-role
- * (RLS-bypassing) access happens.
+ * AUTHENTICATION (this file's `requireUser`) is first-party as of the auth
+ * migration: identity is derived from the `gs_session` HttpOnly cookie
+ * (server/services/auth/sessions.ts, backed by `public.auth_sessions`), not
+ * from a Supabase Auth JWT. `sb.auth.getUser()` / GoTrue is no longer this
+ * codebase's root of trust for dashboard/application authentication —
+ * Supabase/PostgreSQL remains only as database infrastructure.
+ *
+ * AUTHORIZATION (`authorizeWorkspaceAccess` below) is unchanged: workspace
+ * membership and role are still verified server-side via the same
+ * `is_workspace_member`/`workspace_members` checks, using service_role
+ * (which bypasses RLS) — the anon key was never treated as an identity, and
+ * still isn't.
  */
 
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { validateSessionToken, verifyOriginForMutation, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 import { lookup } from 'node:dns/promises';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export type WorkspaceAuth = { userId: string; isAdmin: boolean; role: string | null };
 
@@ -21,30 +31,62 @@ export function serverConfigOf(req: any): ServerConfig {
   return (req as any).serverConfig as ServerConfig;
 }
 
-/** Resolves the caller from the Bearer JWT. Writes 401 and returns null on failure. */
+/**
+ * Resolves the caller from the first-party session cookie. Writes 401 and
+ * returns null on failure — missing cookie, unknown/expired/revoked
+ * session, all indistinguishable to the caller (no information about
+ * *why* auth failed is ever leaked here).
+ *
+ * CSRF: for state-changing methods, also requires `verifyOriginForMutation`
+ * to pass. This is the single choke point essentially every authenticated
+ * dashboard route already goes through (directly, or via
+ * `authorizeWorkspaceAccess`/`requirePlatformAdmin` below, which both call
+ * this), so wiring the check here — rather than per-route — is what
+ * actually makes it apply everywhere instead of existing only as unit-
+ * tested, never-called dead code. SameSite=Lax (sessions.ts) is the primary
+ * defense; this is the explicit defense-in-depth layer for SameSite=None
+ * deployments and non-preflighted request shapes.
+ *
+ * DISABLED-ACCOUNT ENFORCEMENT — DELIBERATELY NOT CHECKED HERE. This
+ * function validates the SESSION (exists, unrevoked, unexpired) but does
+ * not independently re-check user_credentials.status on every request.
+ * That is a conscious choice, not an oversight:
+ *   - POST /api/admin/block-user revokes every active session for the
+ *     target atomically WITH the status flip (admin_set_user_block_status,
+ *     database/migrations/034) — a session that existed at block time is
+ *     provably gone by the time that call returns, via the exact same
+ *     `revoked_at IS NULL` check this function already performs
+ *     (validateSessionToken, services/auth/sessions.ts). No separate
+ *     status lookup is needed to catch that case.
+ *   - POST /api/auth/login independently checks `identity.status ===
+ *     'disabled'` before ever minting a session, so a disabled account
+ *     cannot acquire a NEW valid session through the normal login path.
+ *   - The one session-creation path that bypasses login — admin
+ *     impersonation (GET /api/auth/impersonate) — is separately gated: it
+ *     rejects a disabled target before calling createSession() (see that
+ *     route's own comment).
+ * Given those three, the only remaining gap is a session minted by some
+ * FUTURE code path that neither goes through login nor gets swept by a
+ * block — and closing that hypothetical by joining user_credentials.status
+ * into this function would add a query to literally every authenticated
+ * request in the app for a case that does not currently exist. That cost
+ * was judged not worth paying here; if a new session-issuing path is ever
+ * added, it must perform its own status check the way impersonation now
+ * does, rather than relying on this function to catch it.
+ */
 export async function requireUser(req: any, res: any): Promise<string | null> {
   const config = serverConfigOf(req);
-  const authHeader = req.headers?.authorization;
-  if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
+  const token = req.cookies?.[SESSION_COOKIE_NAME];
+  const session = await validateSessionToken(config, token);
+  if (!session) {
+    res.status(401).json({ error: 'Not authenticated' });
     return null;
   }
-  const token = authHeader.slice('Bearer '.length).trim();
-  if (!token || token === config.supabaseAnonKey || token === config.supabaseServiceRoleKey) {
-    res.status(401).json({ error: 'Invalid token' });
+  if (MUTATING_METHODS.has(req.method) && !verifyOriginForMutation(req, config.corsOrigins)) {
+    res.status(403).json({ error: 'Origin not allowed' });
     return null;
   }
-  try {
-    const { data, error } = await getServiceClient(config).auth.getUser(token);
-    if (error || !data?.user) {
-      res.status(401).json({ error: 'Invalid token' });
-      return null;
-    }
-    return data.user.id;
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
+  return session.userId;
 }
 
 /**

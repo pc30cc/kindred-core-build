@@ -3,15 +3,7 @@
  *   POST /api/operator-activity/heartbeat
  *   GET  /api/operator-activity/:workspaceId/stats?days=
  */
-import { supabase } from '@/lib/supabase';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
-  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-}
 
 export interface OperatorActivityRow {
   user_id: string;
@@ -46,7 +38,7 @@ export interface OperatorActivityStats {
 export async function fetchOperatorActivity(workspaceId: string, days: number): Promise<OperatorActivityStats> {
   const res = await fetch(
     `${API_BASE}/api/operator-activity/${workspaceId}/stats?days=${days}`,
-    { headers: await authHeaders() },
+    { credentials: 'include' },
   );
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
@@ -55,8 +47,9 @@ export async function fetchOperatorActivity(workspaceId: string, days: number): 
 
 export async function sendOperatorHeartbeat(workspaceId: string): Promise<void> {
   await fetch(`${API_BASE}/api/operator-activity/heartbeat`, {
+    credentials: 'include',
     method: 'POST',
-    headers: await authHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspace_id: workspaceId }),
   }).catch(() => undefined);
 }

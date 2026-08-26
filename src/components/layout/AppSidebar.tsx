@@ -28,7 +28,6 @@ import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialo
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
 import { toast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabase';
 import { useBranding } from '@/hooks/useBranding';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useInboxCounts } from '@/hooks/useConversations';
@@ -105,18 +104,17 @@ export function AppSidebar() {
     aiAgentCaps.auto_answer_enabled === true;
 
   // Primary domain for the active workspace (display under the workspace name).
+  // Backed by GET /api/workspaces/:workspaceId/primary-domain — direct
+  // supabase.from('workspace_domains') relied on RLS scoped to auth.uid(),
+  // which is NULL without a Supabase Auth session.
   const { data: wsPrimaryDomain } = useQuery({
     queryKey: ['workspace-primary-domain', workspace?.id],
     enabled: !!workspace,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('workspace_domains')
-        .select('domain, is_primary')
-        .eq('workspace_id', workspace!.id)
-        .order('is_primary', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data?.domain ?? null;
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/workspaces/${workspace!.id}/primary-domain`, { credentials: 'include' });
+      if (!res.ok) return null;
+      const { domain } = await res.json();
+      return domain as string | null;
     },
     staleTime: 60_000,
   });

@@ -21,7 +21,13 @@ import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
+import { adminSecurityRouter } from './adminSecurity.js';
+import { adminManagementRouter } from './adminManagement.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
+import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { findIdentityById } from '../services/auth/identity.js';
+import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
+import { issueImpersonationToken } from '../services/auth/impersonation.js';
 
 export const adminRouter = Router();
 
@@ -32,7 +38,7 @@ export const adminRouter = Router();
  * Callers MUST handle a null result (multi-domain deploys without a
  * configured app base must not silently link visitors to localhost).
  */
-async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise<string | null> {
+export async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise<string | null> {
   const sb = getServiceClient(config);
   const { data: domains } = await sb
     .from('platform_domains')
@@ -59,31 +65,9 @@ async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise<string
 
 // Middleware: verify caller is a global admin
 async function requireAdmin(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-
-  // Check admin role
-  const { data: isAdmin } = await sb.rpc('has_role', {
-    _user_id: user.id,
-    _role: 'admin',
-  });
-
-  if (!isAdmin) {
-    return res.status(403).json({ error: 'Not authorized' });
-  }
-
-  (req as any).adminUser = user;
+  const userId = await requirePlatformAdmin(req, res);
+  if (!userId) return;
+  (req as any).adminUser = { id: userId };
   next();
 }
 
@@ -91,6 +75,13 @@ adminRouter.use(requireAdmin);
 
 // Widget diagnostics (server-side URL test for super admin)
 adminRouter.use('/widget', adminWidgetRouter);
+
+// Security dashboard — audit events / IP blocklist (super admin only)
+adminRouter.use('/security', adminSecurityRouter);
+
+// Users / workspaces / roles / feature flags / audit logs / provider &
+// runtime config (super admin only)
+adminRouter.use('/management', adminManagementRouter);
 
 // Widget templates registry (super admin only)
 
@@ -184,12 +175,27 @@ adminRouter.post('/change-password', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const { error } = await sb.auth.admin.updateUserById(userId, {
-      password: newPassword,
-    });
+    let passwordHash: string;
+    try {
+      passwordHash = await hashPassword(newPassword);
+    } catch (err) {
+      if (err instanceof InvalidPasswordError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
+    }
 
+    // Password write + full session revocation (the old password, and any
+    // session it protected, must stop working everywhere immediately) in
+    // one atomic service_role-only call — a DB failure partway through
+    // must never leave the password changed with old sessions still live.
+    // Also covers a migrated user with no user_credentials row yet.
+    const { error } = await sb.rpc('admin_set_password_and_revoke_sessions', {
+      _user_id: userId,
+      _new_password_hash: passwordHash,
+    });
     if (error) {
-      return res.status(400).json({ error: error.message });
+      return res.status(500).json({ error: error.message });
     }
 
     res.json({ success: true });
@@ -210,12 +216,16 @@ adminRouter.post('/block-user', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const { error } = await sb.auth.admin.updateUserById(userId, {
-      ban_duration: blocked ? '876600h' : 'none', // ~100 years or unban
+    // Status flip + (when blocking) full session revocation in one atomic
+    // service_role-only call — a DB failure partway through must never
+    // leave the account marked disabled with a session still usable.
+    // Unblocking does not revoke sessions (see 034's own comment).
+    const { error } = await sb.rpc('admin_set_user_block_status', {
+      _user_id: userId,
+      _blocked: blocked,
     });
-
     if (error) {
-      return res.status(400).json({ error: error.message });
+      return res.status(500).json({ error: error.message });
     }
 
     res.json({ success: true, blocked });
@@ -235,26 +245,36 @@ adminRouter.post('/user-status', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const { data: { user }, error } = await sb.auth.admin.getUserById(userId);
-
-    if (error || !user) {
-      return res.status(400).json({ error: error?.message || 'User not found' });
+    const identity = await findIdentityById(config, userId);
+    if (!identity) {
+      return res.status(400).json({ error: 'User not found' });
     }
+    const { data: cred } = await sb
+      .from('user_credentials')
+      .select('last_login_at')
+      .eq('user_id', userId)
+      .maybeSingle();
 
     res.json({
-      id: user.id,
-      email: user.email,
-      email_confirmed_at: user.email_confirmed_at,
-      banned_until: user.banned_until,
-      last_sign_in_at: user.last_sign_in_at,
-      created_at: user.created_at,
+      id: identity.id,
+      email: identity.email,
+      email_confirmed_at: identity.emailVerifiedAt,
+      // Frontend checks `banned_until && new Date(banned_until) > now()`.
+      // We track "disabled" as a status flag, not a duration, so a
+      // far-future sentinel timestamp is the equivalent signal.
+      banned_until: identity.status === 'disabled' ? '9999-12-31T00:00:00.000Z' : null,
+      last_sign_in_at: cred?.last_login_at ?? null,
+      created_at: identity.createdAt,
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to get user status' });
   }
 });
 
-// ─── Impersonate User (generate magic link) ──────────────────────
+// ─── Impersonate User ("login as user") ──────────────────────────
+// Issues a one-time, 60s-lived token redeemed by GET /api/auth/impersonate,
+// which sets a real session cookie for the target user. Replaces the old
+// Supabase Auth magic-link flow (see server/services/auth/impersonation.ts).
 const impersonateSchema = z.object({
   userId: z.string().uuid(),
 });
@@ -263,25 +283,12 @@ adminRouter.post('/impersonate', async (req, res) => {
   try {
     const { userId } = impersonateSchema.parse(req.body);
     const config: ServerConfig = (req as any).serverConfig;
-    const sb = getServiceClient(config);
 
-    // Get user email
-    const { data: { user }, error: userErr } = await sb.auth.admin.getUserById(userId);
-    if (userErr || !user?.email) {
-      return res.status(400).json({ error: userErr?.message || 'User not found' });
+    const identity = await findIdentityById(config, userId);
+    if (!identity) {
+      return res.status(400).json({ error: 'User not found' });
     }
 
-    // Generate a magic link for the user
-    const { data, error } = await sb.auth.admin.generateLink({
-      type: 'magiclink',
-      email: user.email,
-    });
-
-    if (error || !data) {
-      return res.status(400).json({ error: error?.message || 'Failed to generate link' });
-    }
-
-    // Build the verification URL using the hashed_token
     const redirectBase = await resolveAppBaseUrl(config, req);
     if (!redirectBase) {
       return res.status(500).json({
@@ -289,9 +296,12 @@ adminRouter.post('/impersonate', async (req, res) => {
         message: 'Configure platform_domains.app_base_url or APP_BASE_URL before impersonating.',
       });
     }
-    const verifyUrl = `${config.supabaseUrl}/auth/v1/verify?token=${data.properties.hashed_token}&type=magiclink&redirect_to=${encodeURIComponent(redirectBase + '/app')}`;
 
-    res.json({ url: verifyUrl });
+    const adminUserId = (req as any).adminUser?.id as string;
+    const rawToken = await issueImpersonationToken(config, userId, adminUserId);
+    const url = `${redirectBase}/api/auth/impersonate?token=${encodeURIComponent(rawToken)}`;
+
+    res.json({ url });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to impersonate user' });
   }
@@ -362,20 +372,39 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const patch: Record<string, unknown> = {};
     for (const key of ['full_name', 'company_name', 'website_domain', 'preferred_locale'] as const) {
       if (key in body) patch[key] = (body as any)[key] || null;
     }
 
-    if (body.email) {
-      const nextEmail = body.email.toLowerCase();
-      const { error: authErr } = await sb.auth.admin.updateUserById(userId, { email: nextEmail });
-      if (authErr) return res.status(400).json({ error: authErr.message });
-      patch.email = nextEmail;
+    if (Object.keys(patch).length > 0) {
+      patch.updated_at = new Date().toISOString();
+      const { error } = await sb.from('profiles').update(patch).eq('id', userId);
+      if (error) return res.status(500).json({ error: error.message });
     }
 
-    const { error } = await sb.from('profiles').update(patch).eq('id', userId);
-    if (error) return res.status(500).json({ error: error.message });
+    // The canonical login email is an identity-boundary change, not an
+    // ordinary field edit: it must invalidate everything issued against the
+    // OLD address (unused reset/verify tokens, verified-state, sessions —
+    // see admin_change_user_email, database/migrations/035) atomically, so
+    // it runs through its own RPC rather than the plain field update above.
+    if (body.email) {
+      const { data, error } = await sb.rpc('admin_change_user_email', {
+        _user_id: userId,
+        _new_email: body.email,
+      });
+      if (error) {
+        // Postgres 23505 = unique_violation: the normalized new email
+        // already belongs to another profile (profiles_email_normalized_
+        // unique_idx, 032/036) — a clean 409, not a raw DB error leak.
+        if ((error as any).code === '23505') {
+          return res.status(409).json({ error: 'An account with this email already exists' });
+        }
+        return res.status(500).json({ error: error.message });
+      }
+      const result = Array.isArray(data) ? data[0] : data;
+      return res.json({ success: true, email_changed: !!result?.changed });
+    }
 
     res.json({ success: true });
   } catch (err: any) {
@@ -391,9 +420,10 @@ adminRouter.post('/users/:userId/email-verification', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
-    const { error } = verified
-      ? await sb.auth.admin.updateUserById(userId, { email_confirm: true })
-      : await sb.auth.admin.updateUserById(userId, { email_confirm: false } as any);
+    const { error } = await sb.from('user_credentials').upsert(
+      { user_id: userId, email_verified_at: verified ? new Date().toISOString() : null },
+      { onConflict: 'user_id' },
+    );
     if (error) return res.status(400).json({ error: error.message });
 
     res.json({ success: true, verified });

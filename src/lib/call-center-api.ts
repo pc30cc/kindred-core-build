@@ -2,15 +2,8 @@
  * Call Center — workspace + admin client API.
  * All endpoints require a Supabase auth bearer token.
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 /** CC-2H Phase 7 — Friendly messages for known transient/infra errors. */
 const FRIENDLY_API_ERRORS: Record<string, string> = {
@@ -19,11 +12,10 @@ const FRIENDLY_API_ERRORS: Record<string, string> = {
 };
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(await authHeaders()),
       ...(init?.headers || {}),
     },
   });
@@ -559,11 +551,10 @@ export const callCenterApi = {
   ): Promise<{ blob: Blob; included: number; excluded: number; filename: string }> => {
     const res = await fetch(
       `${API_BASE}/api/call-center/calls/${encodeURIComponent(callId)}/recordings/archive?workspaceId=${encodeURIComponent(workspaceId)}`,
-      {
+      {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(await authHeaders()),
         },
         body: JSON.stringify({ workspaceId, recording_ids: recordingIds }),
       },
@@ -601,11 +592,10 @@ export const callCenterApi = {
   ): Promise<{ blob: Blob; included: number; excluded: number; calls: number; filename: string }> => {
     const res = await fetch(
       `${API_BASE}/api/call-center/workspaces/recordings/archive?workspaceId=${encodeURIComponent(workspaceId)}`,
-      {
+      {credentials: 'include', 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(await authHeaders()),
         },
         body: JSON.stringify({ workspaceId, items }),
       },

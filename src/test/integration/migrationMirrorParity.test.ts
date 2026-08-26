@@ -45,6 +45,33 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/014_core_security_definer_acl_lockdown.sql',
     hosted: 'supabase/migrations/20260803150000_core_security_definer_acl_lockdown.sql',
   },
+  {
+    label: '024 — first-party user_credentials table (auth migration Phase 3/4)',
+    selfHost: 'database/migrations/024_user_credentials.sql',
+    hosted: 'supabase/migrations/20260819120000_user_credentials.sql',
+  },
+  {
+    label: '027 — profiles.phone column (auth migration account.ts follow-up)',
+    selfHost: 'database/migrations/027_profiles_phone.sql',
+    hosted: 'supabase/migrations/20260819140000_profiles_phone.sql',
+  },
+  {
+    label: '028 — admin_impersonation_tokens table (auth migration admin impersonation)',
+    selfHost: 'database/migrations/028_admin_impersonation_tokens.sql',
+    hosted: 'supabase/migrations/20260819150000_admin_impersonation_tokens.sql',
+  },
+  {
+    label: '029 — legacy email-verification backfill (GoTrue cutover closure)',
+    selfHost: 'database/migrations/029_backfill_legacy_email_verification.sql',
+    hosted: 'supabase/migrations/20260819160000_backfill_legacy_email_verification.sql',
+  },
+  // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
+  // (repoint identity-root FKs to profiles) are deliberately NOT registered
+  // here: the two chains' starting schemas differ (self-host creates 3 tables from
+  // scratch for 025 vs. hosted's single ADD COLUMN; self-host covers 6
+  // FK-bearing tables for 026 vs. hosted's 11, since hosted has later
+  // features self-host's bootstrap chain never received), so the SQL is
+  // intentionally asymmetric, not a drift bug.
 ];
 
 /** Strips line comments, block comments and collapses whitespace. */

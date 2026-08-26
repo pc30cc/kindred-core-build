@@ -42,20 +42,10 @@ export class KnowledgeBaseApiError extends Error {
   }
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const { supabase } = await import('@/integrations/supabase/client');
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/knowledge-base${path}`, {
+  const res = await fetch(`${API_BASE}/api/knowledge-base${path}`, {credentials: 'include', 
     ...init,
-    headers: { ...(await authHeaders()), ...(init?.headers || {}) },
+    headers: { ...({}), ...(init?.headers || {}) },
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw new KnowledgeBaseApiError(res.status, body);

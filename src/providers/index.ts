@@ -1,4 +1,4 @@
-export { supabaseAuthProvider } from './supabase/auth';
+export { selfHostedAuthProvider } from './selfHosted/auth';
 export { supabaseDatabaseProvider } from './supabase/database';
 export { supabaseRealtimeProvider } from './supabase/realtime';
 export { createApiEmailProvider } from './email/api';

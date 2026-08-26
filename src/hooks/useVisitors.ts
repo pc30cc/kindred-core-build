@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import type { VisitorSession, VisitorPresence } from '@/types/models';
 import {
@@ -24,18 +23,24 @@ function useLiveRefreshMs(workspaceId: string | undefined): number {
   return Math.max(2_000, cfg.data?.presence?.live_refresh_ms ?? 5_000);
 }
 
+/**
+ * Both hooks below reuse the already-authenticated `/api/visitor-intel/live`
+ * endpoint (`fetchLiveVisitors`) instead of querying `visitor_presence` /
+ * `visitor_sessions` directly — those tables' RLS requires `auth.uid()`,
+ * which the browser's Supabase client no longer carries (first-party auth
+ * uses the `gs_session` cookie). Field names are adapted to match what each
+ * caller (OverviewPage.tsx) already expects.
+ */
 export function useOnlineVisitors(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['online-visitors', workspaceId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('visitor_presence')
-        .select('*, visitor_sessions(*)')
-        .eq('workspace_id', workspaceId!)
-        .in('status', ['online', 'idle'])
-        .order('updated_at', { ascending: false });
-      if (error) throw error;
-      return data as (VisitorPresence & { visitor_sessions: VisitorSession })[];
+      const { items } = await fetchLiveVisitors(workspaceId!, false);
+      return items.map((i) => ({
+        status: i.status,
+        updated_at: i.last_activity_at,
+        visitor_sessions: { id: i.id, started_at: i.started_at },
+      })) as unknown as (VisitorPresence & { visitor_sessions: VisitorSession })[];
     },
     enabled: !!workspaceId,
     refetchInterval: 10000, // Poll every 10s
@@ -46,14 +51,12 @@ export function useVisitorSessions(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['visitor-sessions', workspaceId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('visitor_sessions')
-        .select('*')
-        .eq('workspace_id', workspaceId!)
-        .order('last_seen_at', { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return data as VisitorSession[];
+      const { items } = await fetchLiveVisitors(workspaceId!, true);
+      return items.map((i) => ({
+        id: i.id,
+        started_at: i.started_at,
+        last_seen_at: i.last_activity_at,
+      })) as unknown as VisitorSession[];
     },
     enabled: !!workspaceId,
   });

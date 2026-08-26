@@ -36,7 +36,7 @@ export default function ResetPasswordPage() {
       toast.error(t('auth.passwordsMismatch'));
       return;
     }
-    if (password.length < 6) {
+    if (password.length < 8) {
       toast.error(t('auth.passwordMinLength'));
       return;
     }

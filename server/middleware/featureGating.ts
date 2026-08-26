@@ -9,6 +9,7 @@ import {
   parseEntitlementResponse,
   parseNumericEntitlementResponse,
   isUnreadableEntitlementReason,
+  isCheckWorkspaceEntitlementFunctionMissing,
 } from '../services/billing/entitlementParse.js';
 
 interface EntitlementResult {
@@ -55,9 +56,9 @@ export async function checkEntitlementFromDB(
   serviceRoleKey: string,
   workspaceId: string,
   feature: string,
-  opts: { numeric?: boolean } = {}
+  opts: { numeric?: boolean; selfHostBillingUnlimited?: boolean } = {}
 ): Promise<EntitlementResult> {
-  const key = `${cacheKey(workspaceId, feature)}:${opts.numeric ? 'num' : 'bool'}`;
+  const key = `${cacheKey(workspaceId, feature)}:${opts.numeric ? 'num' : 'bool'}:${opts.selfHostBillingUnlimited ? 'shu' : 'std'}`;
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
@@ -67,6 +68,37 @@ export async function checkEntitlementFromDB(
       _workspace_id: workspaceId,
       _feature: feature,
     });
+
+    // Self-host-billing-unlimited is a TWO-part condition, both required:
+    //   1. `opts.selfHostBillingUnlimited` — an explicit, server-only,
+    //      request-uncontrollable deployment-policy flag
+    //      (ServerConfig.selfHostBillingUnlimited, SELF_HOST_BILLING_MODE=
+    //      unlimited, defaults false/fail-closed when unset — see
+    //      server/config.ts's own doc comment).
+    //   2. The RPC error precisely names check_workspace_entitlement as
+    //      absent (isCheckWorkspaceEntitlementFunctionMissing).
+    // Neither alone is sufficient. In particular, PostgREST PGRST202 can
+    // also mean a stale schema-cache entry on a deployment where the
+    // function DOES exist (per PostgREST's own docs) — condition 2 alone
+    // would let a transient hosted schema-cache hiccup silently bypass
+    // billing. Requiring the operator to have ALSO explicitly declared
+    // "this deployment intentionally has no billing subsystem" closes that:
+    // no hosted deployment sets SELF_HOST_BILLING_MODE=unlimited, so this
+    // branch is structurally unreachable there regardless of what error
+    // PostgREST returns. Every other RPC failure — including PGRST202/42883
+    // on a deployment WITHOUT the flag set — falls through to the existing
+    // fail-closed "unavailable" path below, unchanged.
+    if (error && opts.selfHostBillingUnlimited && isCheckWorkspaceEntitlementFunctionMissing(error)) {
+      const result: EntitlementResult = {
+        allowed: true,
+        limit: -1,
+        limitValid: true,
+        plan: 'self-host-unlimited',
+        reason: 'self_host_billing_schema_absent',
+      };
+      cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
+      return result;
+    }
 
     const parsed = opts.numeric
       ? parseNumericEntitlementResponse(data, error)
@@ -203,7 +235,9 @@ export function requireFeature(feature: string) {
       return res.status(400).json({ error: 'Missing workspaceId for feature check' });
     }
 
-    const result = await checkEntitlementFromDB(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, feature);
+    const result = await checkEntitlementFromDB(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, feature, {
+      selfHostBillingUnlimited: sb.config.selfHostBillingUnlimited === true,
+    });
 
     // Phase 6-S5-R7.3 §2 — an UNREADABLE entitlement is a retryable outage,
     // not a plan denial. Answering 403 "upgrade required" sends the customer
@@ -347,7 +381,7 @@ export function requireLimit(
       sb.config.supabaseServiceRoleKey,
       workspaceId,
       feature,
-      { numeric: true },
+      { numeric: true, selfHostBillingUnlimited: sb.config.selfHostBillingUnlimited === true },
     );
 
     if (isUnreadableEntitlementReason(result.reason)) {

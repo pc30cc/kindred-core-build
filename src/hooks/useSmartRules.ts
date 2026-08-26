@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase';
-import { supabase as authSupabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   smartRuleSchema,
@@ -10,19 +9,14 @@ import {
 
 const TABLE = 'widget_smart_rules';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await authSupabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /** Server-side publish boundary — never write status:'active' directly. */
 async function publishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
-  const headers = await authHeaders();
   const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/publish`, {
-    method: 'POST', headers,
+    credentials: 'include',
+    method: 'POST',
+    headers: JSON_HEADERS,
   });
   const json = await res.json();
   if (!res.ok) {
@@ -34,9 +28,10 @@ async function publishSmartRule(workspaceId: string, ruleId: string): Promise<Sm
 }
 
 async function unpublishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
-  const headers = await authHeaders();
   const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/unpublish`, {
-    method: 'POST', headers,
+    credentials: 'include',
+    method: 'POST',
+    headers: JSON_HEADERS,
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || `Unpublish failed: ${res.status}`);

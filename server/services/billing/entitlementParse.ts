@@ -77,6 +77,70 @@ export function isUnreadableEntitlementReason(reason: string | undefined): boole
   );
 }
 
+/** The one RPC that may legitimately be absent on a self-host install with no billing/plans subsystem. */
+const CHECK_WORKSPACE_ENTITLEMENT_FN = 'check_workspace_entitlement';
+
+/**
+ * EXACT missing-function detection for `check_workspace_entitlement`,
+ * mirroring `isPlatformSettingsTableMissing`'s (server/services/ai-agent/
+ * platformSettings.ts) precision for the reciprocal case: a MISSING relation
+ * there, a MISSING function here.
+ *
+ * Self-host ships with no billing/plans schema at all (no billing_plans,
+ * workspace_subscriptions, or check_workspace_entitlement — see
+ * database/migrations/039_account_workspace_provisioning.sql's own note on
+ * this). A deployment in that shape cannot have a paid-tier restriction to
+ * enforce, so callers use this as HALF of a two-part condition for treating
+ * the RPC's absence as an explicit "no billing subsystem installed"
+ * deployment fact, distinct from every other RPC failure.
+ *
+ * IMPORTANT — this function is NOT by itself sufficient proof of deployment
+ * type, and callers MUST NOT treat it as such. PostgREST's own docs note
+ * PGRST202 ("could not find the function in the schema cache") can also mean
+ * a stale schema-cache entry or an argument-signature mismatch on a
+ * deployment where the function genuinely exists — not only outright
+ * absence. server/middleware/featureGating.ts's checkEntitlementFromDB only
+ * acts on this signal when ALSO gated by an explicit, server-only,
+ * request-uncontrollable deployment flag
+ * (ServerConfig.selfHostBillingUnlimited /
+ * SELF_HOST_BILLING_MODE=unlimited, default false/fail-closed) — no hosted
+ * deployment sets that flag, so a transient hosted schema-cache hiccup can
+ * never reach this branch regardless of what error PostgREST returns.
+ *
+ * Returns true ONLY when the database/PostgREST reports that
+ * public.check_workspace_entitlement itself does not exist (or plausibly
+ * doesn't — see above). A timeout, permission error, or any other RPC
+ * failure returns false and MUST still fail closed via
+ * isUnreadableEntitlementReason.
+ */
+export function isCheckWorkspaceEntitlementFunctionMissing(error: {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+}): boolean {
+  const code = String(error?.code || '');
+  // 42883 = undefined_function (raw Postgres), PGRST202 = PostgREST
+  // "could not find the function ... in the schema cache".
+  if (code !== '42883' && code !== 'PGRST202') return false;
+
+  const haystack = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase();
+  if (!haystack.trim()) return false;
+
+  const named = new RegExp(
+    `(^|[^a-z0-9_])(public\\.)?${CHECK_WORKSPACE_ENTITLEMENT_FN}([^a-z0-9_]|$)`,
+  ).test(haystack);
+  if (!named) return false;
+
+  if (/permission denied/.test(haystack)) return false;
+
+  return (
+    /does not exist/.test(haystack) ||
+    /could not find the function/.test(haystack) ||
+    /schema cache/.test(haystack)
+  );
+}
+
 /** Canonical internal reason for an `allowed:true` payload with no usable limit. */
 export const INVALID_ENTITLEMENT_LIMIT = 'invalid_entitlement_limit';
 

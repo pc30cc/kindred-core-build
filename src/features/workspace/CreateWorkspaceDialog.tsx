@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api';
 import { Label } from '@/components/ui/label';
 import { Building2, Globe, Loader2 } from 'lucide-react';
 import { useCreateWorkspace, useAccount } from '@/hooks/useWorkspace';
@@ -32,11 +32,8 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
       });
 
       // Fetch the new workspace slug and navigate directly to it
-      const { data: newWs } = await supabase
-        .from('workspaces')
-        .select('slug')
-        .eq('id', newWsId)
-        .single();
+      const res = await fetch(`${API_BASE}/api/workspaces/${newWsId}`, { credentials: 'include' });
+      const newWs = res.ok ? await res.json() : null;
 
       toast.success('Workspace created successfully');
       setName('');
@@ -45,7 +42,13 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
 
       navigate(newWs?.slug ? `/app/w/${newWs.slug}` : '/app');
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to create workspace');
+      if (err?.message === 'email_verification_required') {
+        toast.error('Please verify your email before creating a workspace', {
+          description: 'Check your inbox for the verification link we sent when you signed up.',
+        });
+      } else {
+        toast.error(err?.message || 'Failed to create workspace');
+      }
     }
   };
 

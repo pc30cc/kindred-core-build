@@ -2,23 +2,15 @@
  * User availability API — self-hosted Express endpoint.
  * Always sends a fresh Supabase JWT to avoid stale tokens.
  */
-import { supabase } from '@/lib/supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
-  return { Authorization: `Bearer ${token}` };
-}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(await authHeaders()),
     ...((init?.headers as Record<string, string>) || {}),
   };
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
   return body as T;

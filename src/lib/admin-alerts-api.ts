@@ -2,15 +2,8 @@
  * Phase 4 — Admin alerting client.
  * All endpoints require global admin (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export interface AlertRule {
   id: string;
@@ -75,8 +68,8 @@ export interface WebhookConfig {
 }
 
 export async function fetchAlertRules(): Promise<{ rules: AlertRule[] }> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/alerts/rules`, { headers });
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/alerts/rules`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load rules: ${res.status}`);
   return res.json();
 }
@@ -87,8 +80,8 @@ export async function updateAlertRule(
     Pick<AlertRule, 'enabled' | 'warn_threshold' | 'critical_threshold' | 'window_seconds' | 'min_sample'>
   >,
 ): Promise<{ rule: AlertRule }> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/alerts/rules/${id}`, {
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/alerts/rules/${id}`, {credentials: 'include', 
     method: 'PATCH',
     headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(patch),
@@ -103,25 +96,25 @@ export async function updateAlertRule(
 export async function fetchAlertEvents(
   opts: { state?: 'open' | 'resolved'; limit?: number } = {},
 ): Promise<{ events: AlertEvent[] }> {
-  const headers = await authHeader();
+  const headers = {};
   const params = new URLSearchParams();
   if (opts.state) params.set('state', opts.state);
   if (opts.limit) params.set('limit', String(opts.limit));
-  const res = await fetch(`${API_BASE}/api/admin/alerts/events?${params}`, { headers });
+  const res = await fetch(`${API_BASE}/api/admin/alerts/events?${params}`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load events: ${res.status}`);
   return res.json();
 }
 
 export async function fetchActiveAlerts(): Promise<{ active: ActiveAlert[] }> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/alerts/active`, { headers });
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/alerts/active`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load active alerts: ${res.status}`);
   return res.json();
 }
 
 export async function evaluateAlertsNow(): Promise<{ ok: boolean; result: { evaluated: number; state_changes: number; ran_at: string } }> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/alerts/evaluate`, {
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/alerts/evaluate`, {credentials: 'include', 
     method: 'POST',
     headers,
   });
@@ -130,8 +123,8 @@ export async function evaluateAlertsNow(): Promise<{ ok: boolean; result: { eval
 }
 
 export async function fetchAlertWebhookConfig(): Promise<WebhookConfig> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/alerts/webhook`, { headers });
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/alerts/webhook`, {credentials: 'include', headers });
   if (!res.ok) throw new Error(`Failed to load webhook config: ${res.status}`);
   return res.json();
 }
@@ -141,8 +134,8 @@ export async function updateAlertWebhookConfig(input: {
   webhook_url: string | null;
   webhook_secret?: string | null;
 }): Promise<{ ok: boolean }> {
-  const headers = await authHeader();
-  const res = await fetch(`${API_BASE}/api/admin/alerts/webhook`, {
+  const headers = {};
+  const res = await fetch(`${API_BASE}/api/admin/alerts/webhook`, {credentials: 'include', 
     method: 'PUT',
     headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(input),

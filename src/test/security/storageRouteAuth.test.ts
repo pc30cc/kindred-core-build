@@ -50,6 +50,25 @@ const sbMock = {
 
 vi.mock("../../../server/supabase.js", () => ({ getServiceClient: () => sbMock }));
 
+// Identity now comes from the gs_session cookie (server/lib/workspaceAuth.ts
+// → server/services/auth/sessions.ts), not a Bearer JWT. This mock preserves
+// the exact security property the "anon/service key rejected" tests below
+// check: those specific well-known string values can never resolve to a
+// session — same as in production, where they'd simply never match a real
+// auth_sessions.token_hash row. Everything else routes through the same
+// `state.user` toggle the old auth.getUser mock used, so beforeEach/test
+// bodies that flip state.user to simulate "no/invalid identity" keep working.
+vi.mock("../../../server/services/auth/sessions.js", () => ({
+  SESSION_COOKIE_NAME: "gs_session",
+  validateSessionToken: async (_config: unknown, token: string | undefined) => {
+    if (!token || token === ANON_KEY || token === SERVICE_KEY) return null;
+    const user = state.user.data.user;
+    if (!user) return null;
+    return { sessionId: "test-session", userId: user.id, email: "test@example.com" };
+  },
+  verifyOriginForMutation: () => true,
+}));
+
 vi.mock("../../../server/middleware/featureGating.js", () => ({
   requireLimit: () => async (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
@@ -100,6 +119,7 @@ function makeReqRes(opts: {
   if (opts.token !== null && opts.token !== undefined) headers.authorization = `Bearer ${opts.token}`;
   const req = {
     headers,
+    cookies: opts.token !== null && opts.token !== undefined ? { gs_session: opts.token } : {},
     body: opts.body ?? {},
     query: opts.query ?? {},
     params: opts.params ?? {},

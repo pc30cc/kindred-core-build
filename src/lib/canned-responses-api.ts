@@ -9,7 +9,6 @@
  * them. Expansion happens in the composer at insertion time.
  */
 
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -71,15 +70,6 @@ export const CANNED_VARIABLES = [
 ] as const;
 export type CannedVariable = (typeof CANNED_VARIABLES)[number];
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
-
 async function parse<T>(res: Response, fallback: string): Promise<T> {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((json as any)?.error || `${fallback}: ${res.status}`);
@@ -99,16 +89,16 @@ export const cannedResponsesApi = {
     });
     if (params.q) search.set('q', params.q);
     if (params.limit) search.set('limit', String(params.limit));
-    const res = await fetch(`${API_BASE}/api/canned-responses?${search.toString()}`, {
-      headers: await authHeaders(),
+    const res = await fetch(`${API_BASE}/api/canned-responses?${search.toString()}`, {credentials: 'include', 
     });
     return parse<CannedListResponse>(res, 'Canned responses load failed');
   },
 
   async create(input: CannedCreateInput): Promise<CannedResponse> {
     const res = await fetch(`${API_BASE}/api/canned-responses`, {
+      credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
     const json = await parse<{ ok: true; item: CannedResponse }>(res, 'Create failed');
@@ -117,8 +107,9 @@ export const cannedResponsesApi = {
 
   async update(id: string, input: CannedUpdateInput): Promise<CannedResponse> {
     const res = await fetch(`${API_BASE}/api/canned-responses/${encodeURIComponent(id)}`, {
+      credentials: 'include',
       method: 'PATCH',
-      headers: await authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
     const json = await parse<{ ok: true; item: CannedResponse }>(res, 'Update failed');
@@ -129,7 +120,7 @@ export const cannedResponsesApi = {
     const url =
       `${API_BASE}/api/canned-responses/${encodeURIComponent(id)}` +
       `?workspace_id=${encodeURIComponent(workspace_id)}`;
-    const res = await fetch(url, { method: 'DELETE', headers: await authHeaders() });
+    const res = await fetch(url, {credentials: 'include', method: 'DELETE', headers: {} });
     await parse<{ ok: true }>(res, 'Delete failed');
   },
 
@@ -144,8 +135,9 @@ export const cannedResponsesApi = {
     const res = await fetch(
       `${API_BASE}/api/canned-responses/${encodeURIComponent(id)}/track-use`,
       {
+        credentials: 'include',
         method: 'POST',
-        headers: await authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id }),
       },
     );

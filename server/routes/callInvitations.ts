@@ -6,8 +6,8 @@
  *   GET  /api/call-invitations/:id          read invitation status
  *   GET  /api/call-invitations?conversation_id=...  list per conversation
  *
- * Auth: bearer Supabase JWT + workspace membership. All writes go through
- * the service-role-backed invitations service.
+ * Auth: first-party session cookie + workspace membership. All writes go
+ * through the service-role-backed invitations service.
  */
 import { Router } from 'express';
 import { z } from 'zod';
@@ -23,27 +23,18 @@ import {
   INVITE_TTL_MAX_SECONDS,
 } from '../services/calls/invitations.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
+import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 
 export const callInvitationsRouter = Router();
 
 async function requireAuth(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'missing_authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data, error } = await sb.auth.getUser(token);
-  if (error || !data?.user) {
-    res.status(401).json({ error: 'invalid_token' });
-    return null;
-  }
-  return { userId: data.user.id };
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return null;
+  return { userId };
 }
 
 async function assertWorkspaceMember(

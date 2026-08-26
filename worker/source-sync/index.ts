@@ -44,6 +44,7 @@ function buildConfig(): ServerConfig {
     corsOrigins: [],
     rateLimitWindowMs: 60_000,
     rateLimitMax: 100,
+    selfHostBillingUnlimited: false,
   };
 }
 

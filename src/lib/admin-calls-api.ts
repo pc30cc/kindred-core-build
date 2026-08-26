@@ -2,15 +2,8 @@
  * Phase 8A — Admin client for the Voice/Video control plane.
  * All endpoints require global admin (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export type CallProviderId =
   | 'livekit'
@@ -73,8 +66,7 @@ export interface CallControlPlaneResponse {
 }
 
 export async function fetchCallControlPlane(): Promise<CallControlPlaneResponse> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/control-plane`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/admin/calls/control-plane`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
@@ -94,8 +86,7 @@ export interface PlatformCallbackSummary {
 }
 
 export async function fetchPlatformCallbackSummary(): Promise<PlatformCallbackSummary> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/callbacks/summary`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/admin/calls/callbacks/summary`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
@@ -120,8 +111,7 @@ export interface UpcomingCallbacksResponse {
 }
 
 export async function fetchUpcomingCallbacks(): Promise<UpcomingCallbacksResponse> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/callbacks/upcoming`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/admin/calls/callbacks/upcoming`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
@@ -130,9 +120,9 @@ export async function fetchUpcomingCallbacks(): Promise<UpcomingCallbacksRespons
 export async function updateCallControlPlane(
   patch: Partial<CallControlPlane>,
 ): Promise<CallControlPlaneResponse> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/control-plane`, {
+  const res = await fetch(`${API_BASE}/api/admin/calls/control-plane`, {credentials: 'include', 
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -142,9 +132,9 @@ export async function updateCallControlPlane(
 export async function updateRtcEndpoints(
   patch: Partial<CallNetworkBundle>,
 ): Promise<{ ok: boolean }> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/rtc-endpoints`, {
+  const res = await fetch(`${API_BASE}/api/admin/calls/rtc-endpoints`, {credentials: 'include', 
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -182,8 +172,7 @@ export interface AgoraConfigPatch {
 }
 
 export async function fetchAgoraConfig(): Promise<{ agora: AgoraConfigPublicView }> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/agora`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/admin/calls/agora`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
@@ -192,9 +181,9 @@ export async function fetchAgoraConfig(): Promise<{ agora: AgoraConfigPublicView
 export async function updateAgoraConfig(
   patch: AgoraConfigPatch,
 ): Promise<{ agora: AgoraConfigPublicView }> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/agora`, {
+  const res = await fetch(`${API_BASE}/api/admin/calls/agora`, {credentials: 'include', 
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -223,8 +212,7 @@ export interface RolePermissionMatrixResponse {
 }
 
 export async function fetchPlatformRolePermissions(): Promise<RolePermissionMatrixResponse> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/role-permissions`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/admin/calls/role-permissions`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
@@ -235,9 +223,9 @@ export async function updatePlatformRolePermission(input: {
   permission_key: CallPermissionKey;
   granted: boolean;
 }): Promise<{ ok: true }> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/role-permissions`, {
+  const res = await fetch(`${API_BASE}/api/admin/calls/role-permissions`, {credentials: 'include', 
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -316,8 +304,7 @@ async function parseError(res: Response): Promise<string> {
 }
 
 export async function fetchLiveKitConfig(): Promise<{ livekit: LiveKitConfigPublicView }> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/livekit`, {
-    headers: await authHeader(),
+  const res = await fetch(`${API_BASE}/api/admin/calls/livekit`, {credentials: 'include', 
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
@@ -326,9 +313,9 @@ export async function fetchLiveKitConfig(): Promise<{ livekit: LiveKitConfigPubl
 export async function updateLiveKitConfig(
   patch: LiveKitConfigPatch,
 ): Promise<{ livekit: LiveKitConfigPublicView }> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/livekit`, {
+  const res = await fetch(`${API_BASE}/api/admin/calls/livekit`, {credentials: 'include', 
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -350,9 +337,9 @@ export interface LiveKitTestResult {
  * so the UI can render either outcome inline.
  */
 export async function testLiveKitConnection(): Promise<LiveKitTestResult> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/livekit/test`, {
+  const res = await fetch(`${API_BASE}/api/admin/calls/livekit/test`, {credentials: 'include', 
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
   });
   try {
     return (await res.json()) as LiveKitTestResult;
@@ -413,7 +400,7 @@ export async function fetchAdminRecordings(
   if (params.limit != null) qs.set('limit', String(params.limit));
   if (params.offset != null) qs.set('offset', String(params.offset));
   const url = `${API_BASE}/api/admin/calls/recordings${qs.toString() ? `?${qs.toString()}` : ''}`;
-  const res = await fetch(url, { headers: await authHeader() });
+  const res = await fetch(url, {credentials: 'include', headers: {} });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     throw new Error(`Failed to load recordings (${res.status}): ${detail || res.statusText}`);
@@ -428,9 +415,9 @@ export async function setAdminRecordingLegalHold(
 ): Promise<{ id: string; legal_hold: boolean }> {
   const res = await fetch(
     `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/legal-hold`,
-    {
+    {credentials: 'include', 
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled, ...(reason ? { reason } : {}) }),
     },
   );
@@ -459,9 +446,9 @@ export async function bulkSetAdminRecordingLegalHold(
   enabled: boolean,
   reason?: string,
 ): Promise<BulkLegalHoldResult> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/recordings/legal-hold/bulk`, {
+  const res = await fetch(`${API_BASE}/api/admin/calls/recordings/legal-hold/bulk`, {credentials: 'include', 
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids, enabled, ...(reason ? { reason } : {}) }),
   });
   if (!res.ok) {
@@ -493,8 +480,7 @@ export async function fetchAdminRecordingBlob(
   id: string,
   disposition: 'inline' | 'attachment' = 'inline',
 ): Promise<{ blob: Blob; contentType: string; filename: string | null }> {
-  const res = await fetch(adminRecordingFileUrl(id, disposition), {
-    headers: await authHeader(),
+  const res = await fetch(adminRecordingFileUrl(id, disposition), {credentials: 'include', 
   });
   if (!res.ok) {
     let detail = '';
@@ -543,9 +529,9 @@ export async function mintAdminRecordingPlaybackToken(
 ): Promise<AdminRecordingPlaybackToken> {
   const res = await fetch(
     `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/playback-token`,
-    {
+    {credentials: 'include', 
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ disposition }),
     },
   );
@@ -592,9 +578,9 @@ export async function setAdminRecordingRetentionOverride(
 ): Promise<RetentionOverrideResult> {
   const res = await fetch(
     `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/retention-override`,
-    {
+    {credentials: 'include', 
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     },
   );
@@ -637,9 +623,9 @@ export async function restoreAdminRecordingRetention(
 ): Promise<RetentionRestoreResult> {
   const res = await fetch(
     `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/retention-restore`,
-    {
+    {credentials: 'include', 
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reason ? { reason } : {}),
     },
   );
@@ -684,9 +670,9 @@ export async function adoptAdminRecordingRetention(
 ): Promise<RetentionAdoptResult> {
   const res = await fetch(
     `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/retention-adopt`,
-    {
+    {credentials: 'include', 
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reason ? { reason } : {}),
     },
   );

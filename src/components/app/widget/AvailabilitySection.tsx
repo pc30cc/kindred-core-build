@@ -320,16 +320,10 @@ export function AvailabilitySection({
     setTesting(true);
     try {
       const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || window.location.origin;
-      const { supabase } = await import('@/lib/supabase');
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
       const res = await fetch(`${apiBase}/api/widget/admin/test-offline-email`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: workspaceId, to: testEmail, locale: activeLocale }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

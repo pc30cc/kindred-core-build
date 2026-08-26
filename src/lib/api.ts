@@ -12,7 +12,7 @@ if (!API_BASE && import.meta.env.PROD) {
 
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -24,18 +24,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.error || `API error: ${res.status}`);
   }
   return res.json();
-}
-
-/**
- * Real end-user identity for routes that authorize per user + workspace
- * (storage, AI, CDN, email and billing routes). The publishable anon key is NOT an
- * identity and is rejected by those routes.
- */
-async function userAuthHeaders(): Promise<Record<string, string>> {
-  const { supabase } = await import('@/integrations/supabase/client');
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // ─── Widget ──────────────────────────────────────────────────────
@@ -108,7 +96,6 @@ export async function aiComplete(data: {
     latencyMs: number;
   }>('/api/ai/complete', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
@@ -126,7 +113,6 @@ export async function aiTestConnection(data: {
     error?: string;
   }>('/api/ai/test', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
@@ -139,7 +125,6 @@ export async function aiGetConfig(workspaceId: string) {
     maxTokens?: number;
     temperature?: number;
   }>(`/api/ai/config/${workspaceId}`, {
-    headers: await userAuthHeaders(),
   });
 }
 
@@ -158,7 +143,6 @@ export async function storageUpload(data: {
     error?: string;
   }>('/api/storage/upload', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
@@ -166,7 +150,6 @@ export async function storageUpload(data: {
 export async function storageDelete(data: { workspaceId: string; fileKey: string }) {
   return request<{ success: boolean; error?: string }>('/api/storage/delete', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
@@ -174,7 +157,6 @@ export async function storageDelete(data: { workspaceId: string; fileKey: string
 export async function storageGetUrl(workspaceId: string, fileKey: string) {
   const params = new URLSearchParams({ workspaceId, fileKey });
   return request<{ url: string | null }>(`/api/storage/url?${params}`, {
-    headers: await userAuthHeaders(),
   });
 }
 
@@ -196,7 +178,6 @@ export async function storageTestConnection(data: {
     error?: string;
   }>('/api/storage/test', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
@@ -210,7 +191,6 @@ export async function storageGetConfig(workspaceId: string) {
     cdnUrl?: string;
     maxFileSizeMB?: number;
   }>(`/api/storage/config/${workspaceId}`, {
-    headers: await userAuthHeaders(),
   });
 }
 
@@ -223,7 +203,6 @@ export async function cdnPurge(data: { workspaceId: string; paths?: string[] }) 
     error?: string;
   }>('/api/cdn/purge', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
@@ -252,7 +231,6 @@ export async function cdnTestConnection(data: {
     details?: string;
   }>('/api/cdn/test', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
@@ -263,14 +241,12 @@ export async function cdnGetConfig(workspaceId: string) {
     provider?: string;
     domain?: string;
   }>(`/api/cdn/config/${workspaceId}`, {
-    headers: await userAuthHeaders(),
   });
 }
 
 export async function cdnGetAssetUrl(workspaceId: string, path: string) {
   return request<{ url: string }>('/api/cdn/asset-url', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify({ workspaceId, path }),
   });
 }
@@ -282,11 +258,11 @@ export async function cdnGetAssetUrl(workspaceId: string, path: string) {
 export async function billingGetPlans(locale?: string) {
   const params = new URLSearchParams();
   if (locale) params.set('locale', locale);
-  return request<{ plans: any[] }>(`/api/billing/plans?${params}`, { headers: await userAuthHeaders() });
+  return request<{ plans: any[] }>(`/api/billing/plans?${params}`);
 }
 
 export async function billingGetStatus(workspaceId: string) {
-  return request<{ subscription: any; payments: any[] }>(`/api/billing/status/${workspaceId}`, { headers: await userAuthHeaders() });
+  return request<{ subscription: any; payments: any[] }>(`/api/billing/status/${workspaceId}`);
 }
 
 export async function billingCheckout(data: {
@@ -301,36 +277,36 @@ export async function billingCheckout(data: {
   phone?: string;
 }) {
   return request<{ success: boolean; paymentUrl: string; sessionId?: string }>('/api/billing/checkout', {
-    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify(data),
+    method: 'POST', body: JSON.stringify(data),
   });
 }
 
 export async function billingCancel(workspaceId: string) {
   return request<{ success: boolean }>('/api/billing/subscription/cancel', {
-    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ workspaceId }),
+    method: 'POST', body: JSON.stringify({ workspaceId }),
   });
 }
 
 export async function billingResume(workspaceId: string) {
   return request<{ success: boolean }>('/api/billing/subscription/resume', {
-    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ workspaceId }),
+    method: 'POST', body: JSON.stringify({ workspaceId }),
   });
 }
 
 export async function billingGetPortal(workspaceId: string, returnUrl: string) {
   return request<{ url: string }>('/api/billing/portal', {
-    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ workspaceId, returnUrl }),
+    method: 'POST', body: JSON.stringify({ workspaceId, returnUrl }),
   });
 }
 
 export async function billingTest(provider: string, config: Record<string, unknown>) {
   return request<{ success: boolean; latencyMs: number; error?: string }>('/api/billing/test', {
-    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify({ provider, config }),
+    method: 'POST', body: JSON.stringify({ provider, config }),
   });
 }
 
 export async function billingGetEvents(workspaceId: string) {
-  return request<{ events: any[] }>(`/api/billing/events/${workspaceId}`, { headers: await userAuthHeaders() });
+  return request<{ events: any[] }>(`/api/billing/events/${workspaceId}`);
 }
 
 export async function billingAdminOverview() {
@@ -340,19 +316,19 @@ export async function billingAdminOverview() {
     recentPayments: any[];
     recentEvents: any[];
     plans: any[];
-  }>('/api/billing/admin/overview', { headers: await userAuthHeaders() });
+  }>('/api/billing/admin/overview');
 }
 
 export async function billingAdminGrant(data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) {
   return request<{ subscription: any }>('/api/billing/admin/grant', {
-    method: 'POST', headers: await userAuthHeaders(), body: JSON.stringify(data),
+    method: 'POST', body: JSON.stringify(data),
   });
 }
 
 export async function billingEntitlement(workspaceId: string, feature: string) {
   return request<{ allowed: boolean; limit?: number; used?: number }>(
     `/api/billing/entitlement?workspaceId=${workspaceId}&feature=${feature}`,
-    { headers: await userAuthHeaders() }
+    undefined
   );
 }
 
@@ -364,17 +340,9 @@ export function checkHealth() {
 
 // ─── Admin User Management ──────────────────────────────────────
 
-async function getAdminAuthHeaders(): Promise<Record<string, string>> {
-  const { supabase } = await import('@/lib/supabase');
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token || '';
-  return { 'Authorization': `Bearer ${token}` };
-}
-
 export async function adminSendResetLink(email: string) {
   return request<{ success: boolean }>('/api/admin/send-reset-link', {
     method: 'POST',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ email }),
   });
 }
@@ -382,7 +350,6 @@ export async function adminSendResetLink(email: string) {
 export async function adminChangePassword(userId: string, newPassword: string) {
   return request<{ success: boolean }>('/api/admin/change-password', {
     method: 'POST',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ userId, newPassword }),
   });
 }
@@ -390,7 +357,6 @@ export async function adminChangePassword(userId: string, newPassword: string) {
 export async function adminBlockUser(userId: string, blocked: boolean) {
   return request<{ success: boolean; blocked: boolean }>('/api/admin/block-user', {
     method: 'POST',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ userId, blocked }),
   });
 }
@@ -405,7 +371,6 @@ export async function adminGetUserStatus(userId: string) {
     created_at: string;
   }>('/api/admin/user-status', {
     method: 'POST',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ userId }),
   });
 }
@@ -413,7 +378,6 @@ export async function adminGetUserStatus(userId: string) {
 export async function adminDeleteUserAvatar(userId: string) {
   return request<{ success: boolean }>(`/api/admin/users/${userId}/avatar`, {
     method: 'DELETE',
-    headers: await getAdminAuthHeaders(),
   });
 }
 
@@ -429,7 +393,6 @@ export interface AdminUserProfilePatch {
 export async function adminUpdateUserProfile(userId: string, patch: AdminUserProfilePatch) {
   return request<{ success: boolean }>(`/api/admin/users/${userId}/profile`, {
     method: 'PATCH',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify(patch),
   });
 }
@@ -437,7 +400,6 @@ export async function adminUpdateUserProfile(userId: string, patch: AdminUserPro
 export async function adminSetUserEmailVerified(userId: string, verified: boolean) {
   return request<{ success: boolean; verified: boolean }>(`/api/admin/users/${userId}/email-verification`, {
     method: 'POST',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ verified }),
   });
 }
@@ -445,7 +407,6 @@ export async function adminSetUserEmailVerified(userId: string, verified: boolea
 export async function adminSetUserPhone(userId: string, phone: string, country = 'IR') {
   return request<{ success: boolean; phone: string; country: string }>(`/api/admin/users/${userId}/phone`, {
     method: 'PUT',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ phone, country }),
   });
 }
@@ -453,7 +414,6 @@ export async function adminSetUserPhone(userId: string, phone: string, country =
 export async function adminRemoveUserPhone(userId: string) {
   return request<{ success: boolean }>(`/api/admin/users/${userId}/phone`, {
     method: 'DELETE',
-    headers: await getAdminAuthHeaders(),
   });
 }
 
@@ -489,7 +449,6 @@ export interface AdminUserBilling {
 
 export async function adminGetUserBilling(userId: string, limit = 100) {
   return request<AdminUserBilling>(`/api/admin/users/${userId}/billing?limit=${limit}`, {
-    headers: await getAdminAuthHeaders(),
   });
 }
 
@@ -524,7 +483,7 @@ export async function adminGetUserMessages(userId: string, limit = 50) {
   try {
     return await request<{ emails: AdminUserEmailLog[]; sms: AdminUserSmsLog[] }>(
       `/api/admin/users/${userId}/messages?limit=${limit}`,
-      { headers: await getAdminAuthHeaders() },
+      undefined,
     );
   } catch {
     // Fallback: read email logs straight from the database (global admins have
@@ -552,7 +511,6 @@ export async function adminGetUserMessages(userId: string, limit = 50) {
 export async function adminImpersonateUser(userId: string) {
   return request<{ url: string }>('/api/admin/impersonate', {
     method: 'POST',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ userId }),
   });
 }
@@ -613,7 +571,6 @@ export interface AdminSmsTestResult {
 
 export async function adminGetSmsProvider() {
   return request<AdminSmsProviderInfo>('/api/admin/providers/sms', {
-    headers: await getAdminAuthHeaders(),
   });
 }
 
@@ -637,7 +594,6 @@ export type AdminSmsProviderSavePayload =
 export async function adminSaveSmsProvider(payload: AdminSmsProviderSavePayload) {
   return request<AdminSmsProviderInfo>('/api/admin/providers/sms', {
     method: 'PUT',
-    headers: await getAdminAuthHeaders(),
     body: JSON.stringify(payload),
   });
 }
@@ -645,14 +601,12 @@ export async function adminSaveSmsProvider(payload: AdminSmsProviderSavePayload)
 export async function adminDeleteSmsProvider() {
   return request<AdminSmsProviderInfo>('/api/admin/providers/sms', {
     method: 'DELETE',
-    headers: await getAdminAuthHeaders(),
   });
 }
 
 export async function adminTestSmsProvider() {
   return request<AdminSmsTestResult>('/api/admin/providers/sms/test', {
     method: 'POST',
-    headers: await getAdminAuthHeaders(),
   });
 }
 
@@ -705,7 +659,6 @@ export async function getPhoneVerificationStatus(ctx: PhoneVerificationContext) 
   if (ctx.workspaceId) params.set('workspaceId', ctx.workspaceId);
   if (ctx.workspaceSlug) params.set('workspaceSlug', ctx.workspaceSlug);
   return request<PhoneVerificationStatus>(`/api/phone-verification/status?${params}`, {
-    headers: await userAuthHeaders(),
   });
 }
 
@@ -714,7 +667,6 @@ export async function startPhoneVerification(
 ) {
   return request<PhoneChallenge>('/api/phone-verification/start', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(input),
   });
 }
@@ -722,7 +674,6 @@ export async function startPhoneVerification(
 export async function resendPhoneVerification(ctx: PhoneVerificationContext) {
   return request<PhoneChallenge>('/api/phone-verification/resend', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(ctx),
   });
 }
@@ -732,7 +683,6 @@ export async function checkPhoneVerification(
 ) {
   return request<PhoneCheckResult>('/api/phone-verification/check', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(input),
   });
 }
@@ -743,7 +693,6 @@ export async function cancelPhoneVerification(
 ) {
   return request<{ success: true; cancelled: number }>('/api/phone-verification/cancel', {
     method: 'POST',
-    headers: await userAuthHeaders(),
     body: JSON.stringify(input),
   });
 }
@@ -769,14 +718,13 @@ export interface AdminPhoneVerification {
 
 export async function adminGetUserPhoneVerification(userId: string) {
   return request<AdminPhoneVerification>(`/api/admin/users/${userId}/phone-verification`, {
-    headers: await getAdminAuthHeaders(),
   });
 }
 
 export async function adminResendUserPhoneVerification(userId: string) {
   return request<{ success: true; phoneMasked: string; expiresInSeconds: number; resendAfterSeconds: number }>(
     `/api/admin/users/${userId}/phone-verification/resend`,
-    { method: 'POST', headers: await getAdminAuthHeaders() },
+    { method: 'POST' },
   );
 }
 
@@ -789,7 +737,7 @@ export async function adminManualVerifyUserPhone(userId: string, reason: string)
     alreadyVerified?: boolean;
   }>(
     `/api/admin/users/${userId}/phone-verification/manual-verify`,
-    { method: 'POST', headers: await getAdminAuthHeaders(), body: JSON.stringify({ reason }) },
+    { method: 'POST', body: JSON.stringify({ reason }) },
   );
 }
 
@@ -819,9 +767,9 @@ export class ResendVerificationError extends Error {
  * provider — no Supabase built-in mail involved.
  */
 export async function resendMyVerificationEmail(locale?: string): Promise<ResendVerificationResult> {
-  const res = await fetch(`${API_BASE}/api/account/resend-verification`, {
+  const res = await fetch(`${API_BASE}/api/account/resend-verification`, {credentials: 'include', 
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await userAuthHeaders()) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ locale: locale || 'en' }),
   });
   const body = await res.json().catch(() => ({} as any));

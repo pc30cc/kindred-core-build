@@ -4,21 +4,11 @@
  * which inserts the message AND publishes to Centrifugo (if active) so
  * the visitor widget receives it live.
  *
- * Auth: Bearer = Supabase user access token (same pattern as
- * realtime-admin-api.ts).
+ * Auth: first-party gs_session HttpOnly cookie (credentials: 'include').
  */
-import { supabase } from '@/integrations/supabase/client';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-async function authHeaders(): Promise<Record<string, string>> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  return session?.access_token
-    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 export interface SendMessageResult {
   ok: boolean;
@@ -57,9 +47,9 @@ export const conversationsApi = {
     metadata?: Record<string, unknown>;
     attachment_id?: string | null;
   }): Promise<SendMessageResult> {
-    const res = await fetch(`${API_BASE}/api/conversations/send-message`, {
+    const res = await fetch(`${API_BASE}/api/conversations/send-message`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -76,9 +66,9 @@ export const conversationsApi = {
     conversation_id: string;
   }): Promise<void> {
     try {
-      await fetch(`${API_BASE}/api/conversations/typing`, {
+      await fetch(`${API_BASE}/api/conversations/typing`, {credentials: 'include', 
         method: 'POST',
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify(payload),
       });
     } catch {
@@ -96,9 +86,9 @@ export const conversationsApi = {
     conversation_id: string | null;
     file: File;
   }): Promise<OperatorAttachmentInit> {
-    const res = await fetch(`${API_BASE}/api/conversation-attachments/init`, {
+    const res = await fetch(`${API_BASE}/api/conversation-attachments/init`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({
         workspace_id: payload.workspace_id,
         conversation_id: payload.conversation_id,
@@ -139,9 +129,9 @@ export const conversationsApi = {
 
     const res = await fetch(
       `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}/upload`,
-      {
+      {credentials: 'include', 
         method: 'POST',
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify({ workspace_id: payload.workspace_id, data: b64 }),
       },
     );
@@ -157,7 +147,7 @@ export const conversationsApi = {
   }): Promise<void> {
     await fetch(
       `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}?workspace_id=${encodeURIComponent(payload.workspace_id)}`,
-      { method: 'DELETE', headers: await authHeaders() },
+      {credentials: 'include', method: 'DELETE', headers: JSON_HEADERS },
     );
   },
 
@@ -171,9 +161,9 @@ export const conversationsApi = {
     workspace_id: string;
     visitor_session_id: string;
   }): Promise<{ ok: boolean; conversation_id: string; created: boolean }> {
-    const res = await fetch(`${API_BASE}/api/conversations/start-from-visitor`, {
+    const res = await fetch(`${API_BASE}/api/conversations/start-from-visitor`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -214,9 +204,9 @@ export const conversationsApi = {
     const { workspace_id, conversation_id, ...rest } = payload;
     const res = await fetch(
       `${API_BASE}/api/conversations/${encodeURIComponent(conversation_id)}`,
-      {
+      {credentials: 'include', 
         method: 'PATCH',
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify({ workspace_id, ...rest }),
       },
     );
@@ -230,9 +220,9 @@ export const conversationsApi = {
    * Soft routing only — does not block the visitor.
    */
   async markSpam(payload: { workspace_id: string; conversation_id: string }) {
-    const res = await fetch(`${API_BASE}/api/conversations/spam`, {
+    const res = await fetch(`${API_BASE}/api/conversations/spam`, {credentials: 'include', 
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -242,13 +232,79 @@ export const conversationsApi = {
 
   /** Clear the spam flag (and the contact's flag, if any). */
   async unmarkSpam(payload: { workspace_id: string; conversation_id: string }) {
-    const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {
+    const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {credentials: 'include',
       method: 'POST',
-      headers: await authHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(payload),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Unmark spam failed: ${res.status}`);
     return json as { ok: true; conversation_ids: string[]; contact_id: string | null };
+  },
+
+  // ─── Inbox list + counts ──────────────────────────────────────
+  // See server/routes/conversations.ts (GET /) — replaces the previous
+  // direct supabase.from('conversations') read in useConversations.ts.
+  async list(params: {
+    workspace_id: string;
+    queue?: 'main' | 'automated' | 'spam';
+    status?: string;
+    needsHuman?: boolean;
+    assignedToMe?: string | null;
+  }): Promise<{ conversations: any[] }> {
+    const q = new URLSearchParams({ workspace_id: params.workspace_id });
+    if (params.queue) q.set('queue', params.queue);
+    if (params.status) q.set('status', params.status);
+    if (params.needsHuman) q.set('needs_human', 'true');
+    if (params.assignedToMe) q.set('assigned_to_me', params.assignedToMe);
+    const res = await fetch(`${API_BASE}/api/conversations?${q}`, { credentials: 'include', headers: JSON_HEADERS });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `List failed: ${res.status}`);
+    return json;
+  },
+
+  async getInboxCounts(workspaceId: string): Promise<{ main: number; automated: number; needs_human: number; spam: number }> {
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-counts?workspace_id=${encodeURIComponent(workspaceId)}`, { credentials: 'include', headers: JSON_HEADERS });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Counts failed: ${res.status}`);
+    return json;
+  },
+
+  async getInboxTabCounts(workspaceId: string): Promise<Record<string, number>> {
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-tab-counts?workspace_id=${encodeURIComponent(workspaceId)}`, { credentials: 'include', headers: JSON_HEADERS });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Tab counts failed: ${res.status}`);
+    return json;
+  },
+
+  /** Thread for one conversation, enriched with attachment + sender identity. */
+  async getMessages(conversationId: string): Promise<{ messages: any[] }> {
+    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, { credentials: 'include', headers: JSON_HEADERS });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Messages failed: ${res.status}`);
+    return json;
+  },
+
+  /** Mark every unseen visitor message in a conversation as seen. */
+  async markSeen(conversationId: string): Promise<{ ok: boolean; count: number }> {
+    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/seen`, {credentials: 'include',
+      method: 'POST',
+      headers: JSON_HEADERS,
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Mark seen failed: ${res.status}`);
+    return json;
+  },
+
+  /** Delete every conversation (and its messages) in a workspace. Owner/admin only. */
+  async deleteAll(workspaceId: string): Promise<{ deleted: number }> {
+    const res = await fetch(`${API_BASE}/api/conversations`, {credentials: 'include',
+      method: 'DELETE',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Delete all failed: ${res.status}`);
+    return json;
   },
 };

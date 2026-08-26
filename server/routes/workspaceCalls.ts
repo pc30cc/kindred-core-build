@@ -22,6 +22,7 @@ import {
   ALL_CALL_PERMISSIONS,
   invalidatePermissionCache,
 } from '../services/calls/permissions.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const workspaceCallsRouter = Router();
 
@@ -32,31 +33,9 @@ async function requireWorkspaceAdmin(
   res: any,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const config: ServerConfig = req.serverConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(
-    authHeader.replace('Bearer ', ''),
-  );
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-  if (!member || !['owner', 'admin'].includes(String(member.role))) {
-    res.status(403).json({ error: 'workspace_admin_required' });
-    return null;
-  }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 // GET /api/workspace-calls/:workspaceId/settings

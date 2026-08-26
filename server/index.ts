@@ -15,7 +15,10 @@ import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
+import { workspacesRouter } from './routes/workspaces.js';
 import { workspaceMembersRouter } from './routes/workspaceMembers.js';
+import { widgetSettingsRouter } from './routes/widgetSettings.js';
+import { workspaceIntegrationsRouter } from './routes/workspaceIntegrations.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
@@ -24,6 +27,7 @@ import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { phoneVerificationRouter } from './routes/phoneVerification.js';
 import { adminRouter } from './routes/admin.js';
+import { adminBootstrapRouter } from './routes/adminBootstrap.js';
 import { realtimeRouter } from './routes/realtime.js';
 import { mapGeoRouter } from './routes/mapGeo.js';
 import { conversationsRouter } from './routes/conversations.js';
@@ -69,7 +73,6 @@ import { invalidateManifestCache, getManifestDiagnostics } from './services/widg
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
-  authRateLimiter,
   emailRateLimiter,
   widgetRateLimiter,
   visitorRateLimiter,
@@ -192,8 +195,37 @@ for (const dir of CALL_WIDGET_VENDOR_SOURCES) {
   );
 }
 
+// SECURITY: `credentials: true` below means every response to an allowed
+// origin carries `Access-Control-Allow-Credentials: true`, so the cookie-
+// authenticated dashboard session rides along on cross-origin requests from
+// that origin. `CORS_ORIGINS` unset (the `*` default, see config.ts) used
+// to be handled by passing `origin: true` to the `cors` package, which
+// reflects the REQUEST'S Origin verbatim (the only way to combine a
+// wildcard with credentials — browsers refuse literal `*` alongside
+// Allow-Credentials) — i.e. by default this server trusted every origin on
+// the internet with a real, cookie-carrying session, for both accidental
+// (default-configured) and deliberately unsafe (`CORS_ORIGINS=*`, as this
+// repo's own .env.docker.example previously suggested) deployments alike.
+//
+// Fixed to fail closed: an unconfigured/wildcarded corsOrigins now disables
+// cross-origin CORS entirely (`origin: false` — no Access-Control-Allow-*
+// headers at all). This costs nothing for the documented, intended
+// same-origin reverse-proxy topology (SELF_HOST_GUIDE.md) — browsers never
+// consult CORS headers for same-origin requests in the first place — and it
+// requires any deployment that genuinely needs cross-origin browser calls
+// (e.g. local dev, Vite :5173 talking to Express :3001) to say so
+// explicitly via CORS_ORIGINS, as server/.env.example already documents.
+if (config.corsOrigins.length === 1 && config.corsOrigins[0] === '*') {
+  console.warn(
+    '[security] CORS_ORIGINS is not set (or set to "*"). Cross-origin ' +
+    'browser requests with credentials are now REJECTED by default — set ' +
+    'CORS_ORIGINS to your frontend origin(s) if the frontend is served ' +
+    'from a different origin than this API. Same-origin deployments are ' +
+    'unaffected.'
+  );
+}
 const appCors = cors({
-  origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
+  origin: config.corsOrigins.length === 1 && config.corsOrigins[0] === '*' ? false : config.corsOrigins,
   credentials: true,
 });
 
@@ -254,8 +286,11 @@ app.use('/api/', abuseDetectionMiddleware());
 // Health (no rate limit)
 app.use('/api/health', healthRouter);
 
-// Auth security (brute force + captcha) — strict rate limit
-app.use('/api/auth', authRateLimiter, authSecurityRouter);
+// Auth security (brute force + captcha). The strict 5/min limiter is applied
+// per-route inside authSecurityRouter (login/signup/etc.), NOT blanket here —
+// GET /api/auth/session is read-only and called on every page load/tab, so it
+// must not share a budget with security-sensitive mutating actions.
+app.use('/api/auth', authSecurityRouter);
 
 // Auth email — verification & reset via configured provider
 app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
@@ -308,7 +343,10 @@ app.use('/api/account', accountRouter);
 
 // Canonical server-owned workspace seat-creation boundary.
 // See docs/MAX_AGENTS_POLICY.md and server/routes/workspaceMembers.ts.
+app.use('/api/workspaces', workspacesRouter);
 app.use('/api/workspace-members', workspaceMembersRouter);
+app.use('/api/widget-settings', widgetSettingsRouter);
+app.use('/api/workspace-integrations', workspaceIntegrationsRouter);
 
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);
@@ -331,6 +369,7 @@ app.use('/api/phone-verification', phoneVerificationRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
+app.use('/api/admin-status', adminRateLimiter, adminBootstrapRouter);
 
 // Tokenized super-admin recording playback (read-only). Not under
 // /api/admin because native <audio>/<video> elements cannot attach a

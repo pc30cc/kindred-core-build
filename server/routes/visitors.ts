@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
   resolveIpVisibilityPolicy,
   resolveNetworkProfile,
@@ -30,44 +31,19 @@ export const visitorRouter = Router();
 export const visitorsAdminRouter = Router();
 
 // ============================================
-// Auth helper for operator-side reads.
-// Same pattern used in conversations.ts / cannedResponses.ts:
-// Bearer = Supabase user access token; verify workspace membership via RPC.
+// Auth helper for operator-side reads. Delegates to the central first-party
+// session-cookie helper (server/lib/workspaceAuth.ts) — identity no longer
+// comes from a Supabase Auth Bearer token.
 // ============================================
 async function authorizeWorkspaceMember(
   req: Request,
   res: Response,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; role: string | null } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  // Resolve workspace role for IP-exposure decisions.
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-  return { userId: user.id, role: (member?.role as string | null) ?? null };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId, role: auth.role };
 }
 
 // ============================================
@@ -636,6 +612,59 @@ visitorsAdminRouter.get('/network', async (req: Request, res: Response) => {
     return res.json({ profile });
   } catch (err) {
     console.error('[visitors.network] failed:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitor-intel/presence-by-conversation?workspace_id=&conversation_id=
+ *
+ * Latest visitor_presence row for the visitor session linked to a
+ * conversation. Replaces a direct browser `supabase.from('visitor_presence')`
+ * read — that table's RLS requires `auth.uid()`, which the browser client no
+ * longer carries under first-party (`gs_session`) auth.
+ */
+visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  const conversationId = (req.query.conversation_id as string) || '';
+  if (!workspaceId || !conversationId) {
+    return res.status(400).json({ error: 'workspace_id and conversation_id required' });
+  }
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+  try {
+    const { data: conv, error: convErr } = await sb
+      .from('conversations')
+      .select('visitor_session_id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (convErr) throw convErr;
+    const sessionId = (conv as any)?.visitor_session_id as string | null;
+    if (!sessionId) {
+      return res.json({ status: 'unknown', current_page: null, updated_at: null });
+    }
+    const { data: presence, error: pErr } = await sb
+      .from('visitor_presence')
+      .select('status, current_page, updated_at')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_session_id', sessionId)
+      .maybeSingle();
+    if (pErr) throw pErr;
+    if (!presence) {
+      return res.json({ status: 'unknown', current_page: null, updated_at: null });
+    }
+    return res.json({
+      status: (presence as any).status,
+      current_page: (presence as any).current_page ?? null,
+      updated_at: (presence as any).updated_at ?? null,
+    });
+  } catch (err) {
+    console.error('[visitors.presence-by-conversation] failed:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });

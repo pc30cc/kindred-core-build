@@ -1,15 +1,8 @@
 /**
  * Phase 8H Completion — Workspace department management client.
  */
-import { supabase } from '@/integrations/supabase/client';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export interface Department {
   id: string;
@@ -65,12 +58,11 @@ export interface DepartmentDiagnostics {
 }
 
 async function jsonFetch(path: string, init?: RequestInit) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
     ...init,
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
-      ...(await authHeader()),
     },
   });
   if (!res.ok) {

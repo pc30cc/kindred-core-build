@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import { routeParam } from '../lib/routeParams.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
   publishConversationEvent,
   buildMessageEnvelope,
@@ -2837,22 +2838,8 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
   }
   const { workspace_id, to, locale } = parsed.data;
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'missing_authorization' });
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user } = {} as any, error: userErr } = await sb.auth.getUser(token);
-  if (userErr || !user) {
-    return res.status(401).json({ error: 'invalid_token' });
-  }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspace_id,
-    _user_id: user.id,
-  });
-  if (memErr) return res.status(500).json({ error: 'membership_check_failed' });
-  if (!isMember) return res.status(403).json({ error: 'forbidden' });
+  const auth = await authorizeWorkspaceAccess(req, res, workspace_id);
+  if (!auth) return;
 
   try {
     await sendEmail(config, {

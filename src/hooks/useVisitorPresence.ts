@@ -5,14 +5,15 @@
  * a given conversation. Polled every 10s so it stays correct even when the
  * realtime transport is unavailable. Polling-safe by design.
  *
- *   conversations.visitor_session_id ──► visitor_sessions.id
- *                                       └─► visitor_presence.visitor_session_id
+ * Routed through the authenticated backend (`/api/visitor-intel/presence-by-conversation`)
+ * rather than a direct `supabase.from()` read — visitor_presence's RLS
+ * requires `auth.uid()`, which the browser no longer carries.
  *
  * The query is intentionally tolerant: returns null when no session is
  * linked yet (e.g. anonymous conversations created via API).
  */
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api';
 import type { VisitorPresence } from '@/types/models';
 
 export interface VisitorPresenceInfo {
@@ -30,37 +31,24 @@ export function useVisitorPresenceForConversation(
     enabled: !!workspaceId && !!conversationId,
     refetchInterval: 10_000,
     queryFn: async () => {
-      const { data: conv, error: convErr } = await supabase
-        .from('conversations')
-        .select('visitor_session_id')
-        .eq('id', conversationId!)
-        .maybeSingle();
-      if (convErr) throw convErr;
-      const sessionId = conv?.visitor_session_id;
-      if (!sessionId) {
-        return { status: 'unknown', current_page: null, updated_at: null };
-      }
-      const { data: presence, error: pErr } = await supabase
-        .from('visitor_presence')
-        .select('status, current_page, updated_at')
-        .eq('workspace_id', workspaceId!)
-        .eq('visitor_session_id', sessionId)
-        .maybeSingle();
-      if (pErr) throw pErr;
-      if (!presence) {
-        return { status: 'unknown', current_page: null, updated_at: null };
+      const params = new URLSearchParams({ workspace_id: workspaceId!, conversation_id: conversationId! });
+      const res = await fetch(`${API_BASE}/api/visitor-intel/presence-by-conversation?${params}`, {
+        credentials: 'include',
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `Presence load failed: ${res.status}`);
+      if (body.status === 'unknown' || !body.updated_at) {
+        return { status: 'unknown', current_page: body.current_page ?? null, updated_at: null };
       }
       // Auto-degrade to "offline" if the row is stale (last update > 90s ago).
       // Heartbeat cadence is roughly every 30s, so 90s is a safe threshold.
-      const ts = presence.updated_at ? new Date(presence.updated_at).getTime() : 0;
+      const ts = new Date(body.updated_at).getTime();
       const stale = Date.now() - ts > 90_000;
-      const effective: VisitorPresenceInfo['status'] = stale
-        ? 'offline'
-        : (presence.status as VisitorPresence['status']);
+      const effective: VisitorPresenceInfo['status'] = stale ? 'offline' : body.status;
       return {
         status: effective,
-        current_page: presence.current_page ?? null,
-        updated_at: presence.updated_at ?? null,
+        current_page: body.current_page ?? null,
+        updated_at: body.updated_at ?? null,
       };
     },
   });

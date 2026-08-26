@@ -48,6 +48,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const cannedResponsesRouter = Router();
 
@@ -97,41 +98,16 @@ const updateSchema = z
 
 const trackUseSchema = z.object({ workspace_id: z.string().uuid() });
 
-// ─── Auth helper ───────────────────────────────────────────────────
+// ─── Auth helper — delegates to the central first-party session helper ──
 async function authorizeMember(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const {
-    data: { user },
-    error,
-  } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (memErr) {
-    res.status(500).json({ error: 'Membership check failed' });
-    return null;
-  }
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 async function isAdminOrOwner(

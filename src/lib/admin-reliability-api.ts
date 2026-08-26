@@ -2,15 +2,7 @@
  * Phase 7 — Admin reliability / SLA / business / workspace-health client.
  * All endpoints require global admin (server-enforced).
  */
-import { supabase } from '@/integrations/supabase/client';
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export type Range = '1h' | '24h' | '7d' | '30d';
 
@@ -61,22 +53,19 @@ export interface SloDefinition {
 }
 
 export async function fetchSla(range: Range = '24h', scope_type = 'platform') {
-  const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/sla?range=${range}&scope_type=${scope_type}`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/sla?range=${range}&scope_type=${scope_type}`, { credentials: 'include' });
   if (!r.ok) throw new Error(`SLA load failed: ${r.status}`);
   return r.json() as Promise<{ range: Range; summary: SlaSummary; rows: any[] }>;
 }
 
 export async function fetchBusinessMetrics(range: Range = '24h') {
-  const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/business?range=${range}`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/business?range=${range}`, { credentials: 'include' });
   if (!r.ok) throw new Error(`Business metrics load failed: ${r.status}`);
   return r.json() as Promise<{ range: Range; summary: BusinessSummary; rows: any[] }>;
 }
 
 export async function fetchWorkspaceHealth() {
-  const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/workspace-health`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/workspace-health`, { credentials: 'include' });
   if (!r.ok) throw new Error(`Workspace health load failed: ${r.status}`);
   return r.json() as Promise<{
     counts: { healthy: number; warning: number; at_risk: number };
@@ -87,8 +76,7 @@ export async function fetchWorkspaceHealth() {
 }
 
 export async function fetchSlos() {
-  const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/slos`, { headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/slos`, { credentials: 'include' });
   if (!r.ok) throw new Error(`SLOs load failed: ${r.status}`);
   return r.json() as Promise<{ slos: SloDefinition[] }>;
 }
@@ -97,10 +85,10 @@ export async function updateSlo(
   id: string,
   patch: Partial<Pick<SloDefinition, 'target_value' | 'window_seconds' | 'enabled'>>,
 ) {
-  const headers = await authHeader();
   const r = await fetch(`${API_BASE}/api/admin/reliability/slos/${id}`, {
+    credentials: 'include',
     method: 'PATCH',
-    headers: { ...headers, 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch),
   });
   if (!r.ok) throw new Error(`SLO update failed: ${r.status}`);
@@ -108,8 +96,7 @@ export async function updateSlo(
 }
 
 export async function triggerReliabilityRollup() {
-  const headers = await authHeader();
-  const r = await fetch(`${API_BASE}/api/admin/reliability/rollup`, { method: 'POST', headers });
+  const r = await fetch(`${API_BASE}/api/admin/reliability/rollup`, { credentials: 'include', method: 'POST' });
   if (!r.ok) throw new Error(`Rollup failed: ${r.status}`);
   return r.json();
 }

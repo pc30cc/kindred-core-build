@@ -18,11 +18,11 @@
  *   GET    /api/conversations/:id/timeline
  *
  * ─── AUTH MODEL ────────────────────────────────────────────────────
- * Bearer = Supabase user access token. We resolve the user, verify
- * workspace membership via `is_workspace_member`, then perform DB
- * operations through the service-role client. RLS on both tables also
- * enforces membership defensively, so a misrouted request from a non-
- * member would still be denied at the database layer.
+ * Identity = first-party session cookie (server/lib/workspaceAuth.ts). We
+ * resolve the user, verify workspace membership via `is_workspace_member`,
+ * then perform DB operations through the service-role client. RLS on both
+ * tables also enforces membership defensively, so a misrouted request from
+ * a non-member would still be denied at the database layer.
  *
  * ─── TIMELINE EVENT CONTRACT ───────────────────────────────────────
  * Every event row returned has:
@@ -53,41 +53,20 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const conversationNotesRouter = Router({ mergeParams: true });
 
-// ─── Auth helper (mirrors conversations.ts pattern) ────────────────
+// ─── Auth helper — delegates to the central first-party session helper ──
 async function authorizeMember(
   req: any,
   res: any,
-  config: ServerConfig,
+  _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing authorization' });
-    return null;
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) {
-    res.status(401).json({ error: 'Invalid token' });
-    return null;
-  }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (memErr) {
-    res.status(500).json({ error: 'Membership check failed' });
-    return null;
-  }
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  return { userId: user.id };
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return null;
+  return { userId: auth.userId };
 }
 
 /**

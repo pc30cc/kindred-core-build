@@ -216,7 +216,20 @@ export default function LoginPage() {
                 })}
               </div>
 
+              {setupRequired && (
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3" role="alert">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">{t('auth.passwordSetupRequiredTitle')}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{t('auth.passwordSetupRequiredDesc')}</p>
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="w-full rounded-lg">
+                    <Link to={forgotHref}>{t('auth.setPasswordAction')}</Link>
+                  </Button>
+                </div>
+              )}
+
               <Button
+
                 type="submit"
                 className="w-full h-12 text-base font-semibold gap-2 rounded-xl shadow-sm hover:shadow-md transition-shadow"
                 disabled={loading}

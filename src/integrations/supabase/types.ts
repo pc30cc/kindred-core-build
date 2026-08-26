@@ -103,6 +103,51 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_impersonation_tokens: {
+        Row: {
+          created_at: string
+          created_by: string
+          expires_at: string
+          id: string
+          target_user_id: string
+          token_hash: string
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expires_at: string
+          id?: string
+          target_user_id: string
+          token_hash: string
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          id?: string
+          target_user_id?: string
+          token_hash?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_impersonation_tokens_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_impersonation_tokens_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_action_claims: {
         Row: {
           action_name: string
@@ -8564,6 +8609,14 @@ export type Database = {
         }[]
       }
       business_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      change_password_and_revoke_sessions: {
+        Args: {
+          _except_session_id?: string
+          _new_password_hash: string
+          _user_id: string
+        }
+        Returns: number
+      }
       check_channel_access: {
         Args: { _channel_key: string; _workspace_id: string }
         Returns: Json

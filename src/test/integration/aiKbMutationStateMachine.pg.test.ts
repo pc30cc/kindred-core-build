@@ -27,10 +27,13 @@ const REVIEWER = '0000eeee-0000-4000-8000-0000000000ff';
 
 suite('AI-KB generated-article mutations (PostgreSQL)', () => {
   type PgClient = {
-    query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
+    // `rowCount` mirrors the real `pg` QueryResult so this local shape stays
+    // assignable to the shared PgQueryable used by pgMigrationChain helpers.
+    query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
     connect(): Promise<unknown>;
     end(): Promise<unknown>;
   };
+
   /** Loose shapes: these rows/JSON payloads come straight from PostgreSQL. */
   type Row = { id: string; slug: string | null; [k: string]: unknown };
   type Rpc = {

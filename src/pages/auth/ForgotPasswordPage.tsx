@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,10 @@ import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import { sendResetEmail } from '@/lib/auth-email-api';
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState('');
+  const [params] = useSearchParams();
+  // Prefilled when the user arrives from the login page's
+  // "password setup required" path (migrated account, no first-party password).
+  const [email, setEmail] = useState(() => (params.get('email') || '').trim().toLowerCase());
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const { t, locale, dir } = useTranslation();

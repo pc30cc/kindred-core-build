@@ -8509,25 +8509,45 @@ export type Database = {
         Returns: number
       }
       activate_auto_actions: { Args: never; Returns: Json }
+      admin_change_user_email: {
+        Args: { _new_email: string; _user_id: string }
+        Returns: {
+          changed: boolean
+          new_email: string
+          old_email: string
+          sessions_revoked: number
+        }[]
+      }
       admin_count_profiles:
         | { Args: never; Returns: number }
         | {
-            Args: { _phone_status?: string; _search?: string }
+            Args: {
+              _actor_user_id: string
+              _phone_status?: string
+              _search?: string
+            }
             Returns: number
           }
       admin_count_workspaces:
         | { Args: never; Returns: number }
         | {
-            Args: { _phone_status?: string; _search?: string }
+            Args: {
+              _actor_user_id: string
+              _phone_status?: string
+              _search?: string
+            }
             Returns: number
           }
       admin_delete_workspace: {
-        Args: { _workspace_id: string }
+        Args: { _actor_user_id: string; _workspace_id: string }
         Returns: boolean
       }
-      admin_get_user_detail: { Args: { _user_id: string }; Returns: Json }
+      admin_get_user_detail: {
+        Args: { _actor_user_id: string; _user_id: string }
+        Returns: Json
+      }
       admin_get_workspace_detail: {
-        Args: { _workspace_id: string }
+        Args: { _actor_user_id: string; _workspace_id: string }
         Returns: Json
       }
       admin_list_login_attempts: {
@@ -8537,8 +8557,10 @@ export type Database = {
       admin_list_profiles:
         | {
             Args: {
+              _actor_user_id: string
               _limit?: number
               _offset?: number
+              _phone_status?: string
               _search?: string
               _sort?: string
             }
@@ -8548,7 +8570,6 @@ export type Database = {
             Args: {
               _limit?: number
               _offset?: number
-              _phone_status?: string
               _search?: string
               _sort?: string
             }
@@ -8556,6 +8577,17 @@ export type Database = {
           }
       admin_list_realtime_audit: { Args: { _limit?: number }; Returns: Json }
       admin_list_workspaces:
+        | {
+            Args: {
+              _actor_user_id: string
+              _limit?: number
+              _offset?: number
+              _phone_status?: string
+              _search?: string
+              _sort?: string
+            }
+            Returns: Json
+          }
         | {
             Args: { _limit?: number; _offset?: number }
             Returns: {
@@ -8569,26 +8601,15 @@ export type Database = {
               updated_at: string
             }[]
           }
-        | {
-            Args: {
-              _limit?: number
-              _offset?: number
-              _search?: string
-              _sort?: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              _limit?: number
-              _offset?: number
-              _phone_status?: string
-              _search?: string
-              _sort?: string
-            }
-            Returns: Json
-          }
       admin_security_stats: { Args: never; Returns: Json }
+      admin_set_password_and_revoke_sessions: {
+        Args: { _new_password_hash: string; _user_id: string }
+        Returns: number
+      }
+      admin_set_user_block_status: {
+        Args: { _blocked: boolean; _user_id: string }
+        Returns: number
+      }
       advance_entitlement_fanout: {
         Args: {
           _claim_token: string

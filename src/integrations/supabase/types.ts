@@ -2432,6 +2432,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "audit_logs_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "audit_logs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -2483,6 +2490,7 @@ export type Database = {
           expires_at: string
           id: string
           ip_address: string | null
+          revoke_reason: string | null
           revoked_at: string | null
           token_hash: string
           user_agent: string | null
@@ -2494,6 +2502,7 @@ export type Database = {
           expires_at: string
           id?: string
           ip_address?: string | null
+          revoke_reason?: string | null
           revoked_at?: string | null
           token_hash: string
           user_agent?: string | null
@@ -2505,6 +2514,7 @@ export type Database = {
           expires_at?: string
           id?: string
           ip_address?: string | null
+          revoke_reason?: string | null
           revoked_at?: string | null
           token_hash?: string
           user_agent?: string | null
@@ -3832,6 +3842,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "canned_responses_created_by_profiles_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "canned_responses_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -4197,6 +4214,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "conversations_assigned_to_profiles_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "conversations_contact_id_fkey"
             columns: ["contact_id"]
@@ -5227,7 +5251,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "phone_verification_challenges_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       plan_change_log: {
         Row: {
@@ -6410,6 +6442,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "user_availability_prefs_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "user_availability_prefs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -6588,6 +6627,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "user_notification_prefs_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "user_notification_prefs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -6633,7 +6679,15 @@ export type Database = {
           verification_method?: string | null
           verified_by_admin_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "user_phone_verifications_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -6651,7 +6705,15 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "user_roles_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       visitor_geo_cache: {
         Row: {
@@ -8003,6 +8065,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "workspace_members_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "workspace_members_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -8315,6 +8384,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspaces_owner_id_profiles_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

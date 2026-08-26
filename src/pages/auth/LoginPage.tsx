@@ -177,7 +177,8 @@ export default function LoginPage() {
                     {t('auth.password')}
                   </Label>
                   <Link
-                    to="/auth/forgot-password"
+                    to={forgotHref}
+
                     className="text-xs text-primary hover:underline font-medium"
                   >
                     {t('auth.forgotPassword')}

@@ -151,7 +151,7 @@ function call(
   path: string,
   opts: { body?: string; headers?: Record<string, string> } = {},
 ): Promise<{ status: number; body: string }> {
-  const headers = { ...opts.headers, connection: 'close' };
+  const headers: Record<string, string> = { ...opts.headers, connection: 'close' };
   const authMatch = /^Bearer (.+)$/.exec(headers.authorization || '');
   if (authMatch) headers.cookie = `gs_session=${authMatch[1]}`;
   return new Promise((resolve, reject) => {

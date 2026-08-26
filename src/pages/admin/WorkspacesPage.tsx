@@ -483,37 +483,11 @@ function InfoRow({ label, value, color }: { label: string; value: string | null 
 
 /* ─── Member Detail Dialog ─── */
 function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => void }) {
-  const { data: profile, isLoading } = useQuery({
-    queryKey: ['admin-member-profile', member?.user_id],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_list_profiles', {
-        _limit: 1,
-        _offset: 0,
-      });
-      if (error) throw error;
-      // Filter to find the specific user
-      const all = data as any[];
-      return all.find((p: any) => p.id === member?.user_id) || null;
-    },
-    enabled: !!member?.user_id,
-  });
+  // Admin profile reads go through the backend admin API (service-role only).
+  // The admin_* RPCs are no longer callable from the browser.
+  const { data: detail } = useAdminUserDetail(member?.user_id ?? null);
+  const p = detail?.profile;
 
-  // Fetch full profile directly
-  const { data: fullProfile } = useQuery({
-    queryKey: ['admin-member-full-profile', member?.user_id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', member!.user_id)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!member?.user_id,
-  });
-
-  const p = fullProfile;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);

@@ -32,17 +32,34 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState<string | null>(null);
+  const [setupRequired, setSetupRequired] = useState(false);
   const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const brandName = useMemo(() => brand?.platform_name || '', [brand]);
   const brandLetter = useMemo(() => brandName.charAt(0) || '', [brandName]);
 
+  const forgotHref = useMemo(
+    () => (emailValid ? `/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}` : '/auth/forgot-password'),
+    [email, emailValid],
+  );
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setSetupRequired(false);
     try {
       const { error } = await signIn({ email, password });
       if (error) {
+        // Migrated account with no first-party password yet — the backend
+        // answers 403 { passwordSetupRequired: true }. Surface the real
+        // remediation instead of a bare "login failed" toast.
+        if ((error as Error & { passwordSetupRequired?: boolean }).passwordSetupRequired) {
+          setSetupRequired(true);
+          toast.error(t('auth.passwordSetupRequiredTitle'), {
+            description: t('auth.passwordSetupRequiredDesc'),
+          });
+          return;
+        }
         toast.error(t('auth.loginFailed'), { description: error.message });
         return;
       }
@@ -54,6 +71,7 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
 
   const fieldShell = (args: {
     id: string;

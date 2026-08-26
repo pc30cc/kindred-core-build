@@ -103,6 +103,51 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_impersonation_tokens: {
+        Row: {
+          created_at: string
+          created_by: string
+          expires_at: string
+          id: string
+          target_user_id: string
+          token_hash: string
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expires_at: string
+          id?: string
+          target_user_id: string
+          token_hash: string
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          id?: string
+          target_user_id?: string
+          token_hash?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_impersonation_tokens_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_impersonation_tokens_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_action_claims: {
         Row: {
           action_name: string
@@ -2432,6 +2477,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "audit_logs_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "audit_logs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -2483,6 +2535,7 @@ export type Database = {
           expires_at: string
           id: string
           ip_address: string | null
+          revoke_reason: string | null
           revoked_at: string | null
           token_hash: string
           user_agent: string | null
@@ -2494,6 +2547,7 @@ export type Database = {
           expires_at: string
           id?: string
           ip_address?: string | null
+          revoke_reason?: string | null
           revoked_at?: string | null
           token_hash: string
           user_agent?: string | null
@@ -2505,6 +2559,7 @@ export type Database = {
           expires_at?: string
           id?: string
           ip_address?: string | null
+          revoke_reason?: string | null
           revoked_at?: string | null
           token_hash?: string
           user_agent?: string | null
@@ -3832,6 +3887,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "canned_responses_created_by_profiles_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "canned_responses_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -4197,6 +4259,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "conversations_assigned_to_profiles_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "conversations_contact_id_fkey"
             columns: ["contact_id"]
@@ -5227,7 +5296,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "phone_verification_challenges_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       plan_change_log: {
         Row: {
@@ -6410,6 +6487,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "user_availability_prefs_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "user_availability_prefs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -6588,6 +6672,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "user_notification_prefs_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "user_notification_prefs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -6633,7 +6724,15 @@ export type Database = {
           verification_method?: string | null
           verified_by_admin_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "user_phone_verifications_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -6651,7 +6750,15 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "user_roles_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       visitor_geo_cache: {
         Row: {
@@ -8003,6 +8110,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "workspace_members_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "workspace_members_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
@@ -8317,6 +8431,13 @@ export type Database = {
             referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "workspaces_owner_id_profiles_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
@@ -8388,25 +8509,45 @@ export type Database = {
         Returns: number
       }
       activate_auto_actions: { Args: never; Returns: Json }
+      admin_change_user_email: {
+        Args: { _new_email: string; _user_id: string }
+        Returns: {
+          changed: boolean
+          new_email: string
+          old_email: string
+          sessions_revoked: number
+        }[]
+      }
       admin_count_profiles:
         | { Args: never; Returns: number }
         | {
-            Args: { _phone_status?: string; _search?: string }
+            Args: {
+              _actor_user_id: string
+              _phone_status?: string
+              _search?: string
+            }
             Returns: number
           }
       admin_count_workspaces:
         | { Args: never; Returns: number }
         | {
-            Args: { _phone_status?: string; _search?: string }
+            Args: {
+              _actor_user_id: string
+              _phone_status?: string
+              _search?: string
+            }
             Returns: number
           }
       admin_delete_workspace: {
-        Args: { _workspace_id: string }
+        Args: { _actor_user_id: string; _workspace_id: string }
         Returns: boolean
       }
-      admin_get_user_detail: { Args: { _user_id: string }; Returns: Json }
+      admin_get_user_detail: {
+        Args: { _actor_user_id: string; _user_id: string }
+        Returns: Json
+      }
       admin_get_workspace_detail: {
-        Args: { _workspace_id: string }
+        Args: { _actor_user_id: string; _workspace_id: string }
         Returns: Json
       }
       admin_list_login_attempts: {
@@ -8416,8 +8557,10 @@ export type Database = {
       admin_list_profiles:
         | {
             Args: {
+              _actor_user_id: string
               _limit?: number
               _offset?: number
+              _phone_status?: string
               _search?: string
               _sort?: string
             }
@@ -8427,7 +8570,6 @@ export type Database = {
             Args: {
               _limit?: number
               _offset?: number
-              _phone_status?: string
               _search?: string
               _sort?: string
             }
@@ -8435,6 +8577,17 @@ export type Database = {
           }
       admin_list_realtime_audit: { Args: { _limit?: number }; Returns: Json }
       admin_list_workspaces:
+        | {
+            Args: {
+              _actor_user_id: string
+              _limit?: number
+              _offset?: number
+              _phone_status?: string
+              _search?: string
+              _sort?: string
+            }
+            Returns: Json
+          }
         | {
             Args: { _limit?: number; _offset?: number }
             Returns: {
@@ -8448,26 +8601,15 @@ export type Database = {
               updated_at: string
             }[]
           }
-        | {
-            Args: {
-              _limit?: number
-              _offset?: number
-              _search?: string
-              _sort?: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              _limit?: number
-              _offset?: number
-              _phone_status?: string
-              _search?: string
-              _sort?: string
-            }
-            Returns: Json
-          }
       admin_security_stats: { Args: never; Returns: Json }
+      admin_set_password_and_revoke_sessions: {
+        Args: { _new_password_hash: string; _user_id: string }
+        Returns: number
+      }
+      admin_set_user_block_status: {
+        Args: { _blocked: boolean; _user_id: string }
+        Returns: number
+      }
       advance_entitlement_fanout: {
         Args: {
           _claim_token: string
@@ -8488,6 +8630,14 @@ export type Database = {
         }[]
       }
       business_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      change_password_and_revoke_sessions: {
+        Args: {
+          _except_session_id?: string
+          _new_password_hash: string
+          _user_id: string
+        }
+        Returns: number
+      }
       check_channel_access: {
         Args: { _channel_key: string; _workspace_id: string }
         Returns: Json

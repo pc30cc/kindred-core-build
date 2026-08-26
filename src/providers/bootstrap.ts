@@ -75,13 +75,22 @@ export function bootstrapProviders(): void {
   providerRegistry.register('database', 'supabase', supabaseDatabaseProvider, {
     priority: 0,
     healthCheck: async () => {
+      // Must be a check the BROWSER is actually allowed to make: the admin_*
+      // RPCs are service_role-only now, so probing one from here would report
+      // the database as broken for every non-admin (and never surface a real
+      // outage, since the provider returns errors instead of throwing).
       try {
-        await supabaseDatabaseProvider.rpc('admin_count_profiles');
-        return 'healthy';
+        const { error } = await supabaseDatabaseProvider.query({
+          table: 'app_runtime_config',
+          select: 'key',
+          limit: 1,
+        });
+        return error ? 'degraded' : 'healthy';
       } catch {
         return 'degraded';
       }
     },
+
     meta: { vendor: 'supabase', builtIn: true },
   });
 

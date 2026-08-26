@@ -22,6 +22,14 @@ export function resolveApiBase(raw?: string | null): string {
   return value.replace(/\/+$/, '');
 }
 
-export const API_BASE = resolveApiBase(
-  (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL,
-);
+const viteEnv = (import.meta as unknown as {
+  env?: Record<string, string | boolean | undefined>;
+}).env;
+
+// During local/Lovable preview, route API requests through Vite's same-origin
+// proxy. Preview hosts are intentionally not added to production CORS because
+// they are temporary and unpredictable. Production builds continue to use the
+// explicitly configured public API origin.
+export const API_BASE = viteEnv?.DEV
+  ? ''
+  : resolveApiBase(typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL : undefined);

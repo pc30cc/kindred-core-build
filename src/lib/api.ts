@@ -4,11 +4,11 @@
  * No Lovable Cloud dependency.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+// Same-origin (`''`) when VITE_API_BASE_URL is not configured at build time —
+// the frontend nginx `/api/` proxy (BACKEND_URL) then handles the request.
+import { API_BASE } from './apiBase';
 
-if (!API_BASE && import.meta.env.PROD) {
-  console.error('[API] VITE_API_BASE_URL is not set. API calls will fail.');
-}
+
 
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

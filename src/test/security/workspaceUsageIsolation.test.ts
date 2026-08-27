@@ -20,8 +20,14 @@ function fakeClient() {
     from(table: string) {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
+      let projection: string[] | null = null;
+      const project = (r: Row) =>
+        projection ? Object.fromEntries(projection.map((c) => [c, r[c]])) : r;
       const builder: any = {
-        select: () => builder,
+        select(cols?: string) {
+          if (cols && cols !== '*') projection = cols.split(',').map((c) => c.trim());
+          return builder;
+        },
         eq(col: string, val: any) { filters.push((r: Row) => r[col] === val); return builder; },
         is(col: string, val: null) { filters.push((r: Row) => r[col] === val); return builder; },
         gte: () => builder,
@@ -29,10 +35,10 @@ function fakeClient() {
         limit: () => builder,
         maybeSingle: async () => {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
-          return { data: matched[0] ?? null, error: null };
+          return { data: matched[0] ? project(matched[0]) : null, error: null };
         },
         then(resolve: any) {
-          const matched = rows.filter((r) => filters.every((f) => f(r)));
+          const matched = rows.filter((r) => filters.every((f) => f(r))).map(project);
           return resolve({ data: matched, error: null });
         },
       };

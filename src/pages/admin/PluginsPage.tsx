@@ -78,7 +78,7 @@ export default function AdminPluginsPage() {
                   <span className="font-medium capitalize">{item.id}</span>
                   <Badge variant="outline">v{item.version}</Badge>
                 </div>
-                <Badge variant="secondary">{t(`plugins.category.${item.category}`)}</Badge>
+                <Badge variant="secondary">{t(`plugins.category.${item.category}` as never)}</Badge>
               </div>
 
               <div className="space-y-2 border-t pt-3">

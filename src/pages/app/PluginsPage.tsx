@@ -62,15 +62,18 @@ export default function PluginsPage() {
     return [...map.entries()];
   }, [data]);
 
+  // Only shipped plugins have localized copy; everything else falls back to
+  // its registry id so a newly added "coming soon" entry never renders a raw
+  // translation key.
   function localizedName(item: PluginCatalogItem) {
     const key = `plugins.${item.id}.name`;
-    const label = t(key);
+    const label = t(key as never);
     return label === key ? item.id : label;
   }
 
   function localizedDescription(item: PluginCatalogItem) {
     const key = `plugins.${item.id}.description`;
-    const label = t(key);
+    const label = t(key as never);
     return label === key ? '' : label;
   }
 
@@ -91,7 +94,7 @@ export default function PluginsPage() {
         grouped.map(([category, items]) => (
           <section key={category} className="space-y-3">
             <h2 className="text-sm font-medium text-muted-foreground">
-              {t(`plugins.category.${category}`)}
+              {t(`plugins.category.${category}` as never)}
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {items.map((item) => {

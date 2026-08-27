@@ -132,11 +132,13 @@ export async function processInboundMessage(
   const sb = getServiceClient(config);
 
   // 1. Idempotency gate — insert first, process only if we won the race.
+  //    Column names below MUST match public.channel_inbound_events exactly.
   const { error: dedupeError } = await sb.from('channel_inbound_events').insert({
     integration_id: input.integrationId,
     workspace_id: input.workspaceId,
     provider: input.provider,
-    provider_event_id: input.providerEventId,
+    external_event_id: input.providerEventId,
+    payload: {},
     status: 'processing',
   });
   if (dedupeError) {
@@ -150,7 +152,7 @@ export async function processInboundMessage(
       .from('channel_inbound_events')
       .update({ status, processed_at: new Date().toISOString(), ...detail })
       .eq('integration_id', input.integrationId)
-      .eq('provider_event_id', input.providerEventId);
+      .eq('external_event_id', input.providerEventId);
   };
 
   try {
@@ -184,6 +186,8 @@ export async function processInboundMessage(
           channel_chat_id: input.externalChatId,
           channel_user_id: input.externalUserId,
           channel_message_id: input.providerEventId,
+          // Guard for the outbound outbox trigger: never echo inbound back.
+          channel_inbound: 'true',
           attachments: input.attachments?.length ? input.attachments : undefined,
         },
       })

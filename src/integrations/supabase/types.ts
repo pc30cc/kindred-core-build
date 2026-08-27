@@ -3945,33 +3945,48 @@ export type Database = {
       }
       channel_inbound_events: {
         Row: {
+          contact_id: string | null
+          conversation_id: string | null
           created_at: string
           external_event_id: string
           id: string
           integration_id: string
+          last_error: string | null
+          message_id: string | null
           payload: Json
           processed_at: string | null
           provider: string
+          status: string
           workspace_id: string
         }
         Insert: {
+          contact_id?: string | null
+          conversation_id?: string | null
           created_at?: string
           external_event_id: string
           id?: string
           integration_id: string
-          payload: Json
+          last_error?: string | null
+          message_id?: string | null
+          payload?: Json
           processed_at?: string | null
           provider: string
+          status?: string
           workspace_id: string
         }
         Update: {
+          contact_id?: string | null
+          conversation_id?: string | null
           created_at?: string
           external_event_id?: string
           id?: string
           integration_id?: string
+          last_error?: string | null
+          message_id?: string | null
           payload?: Json
           processed_at?: string | null
           provider?: string
+          status?: string
           workspace_id?: string
         }
         Relationships: [

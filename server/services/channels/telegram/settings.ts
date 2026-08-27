@@ -46,7 +46,11 @@ export type TelegramSettings = {
     photoUrl: string;
   };
   locales: Record<TelegramLocale, TelegramLocaleMessages>;
+  /** Legacy flat labels (English surface) — kept for backwards compatibility. */
   commands: Record<TelegramCommandKey, string>;
+  /** Per-locale command labels; what the bot actually shows to a user. */
+  commandLocales: Record<TelegramLocale, Record<TelegramCommandKey, string>>;
+
   handlingMode: TelegramHandlingMode;
 };
 

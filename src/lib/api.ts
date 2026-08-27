@@ -375,6 +375,14 @@ export async function adminGetUserStatus(userId: string) {
   });
 }
 
+/** Hard-delete a user and every trace of their data (platform admin only). */
+export async function adminDeleteUser(userId: string) {
+  return request<{ success: boolean; summary: unknown; storageFailures: number }>(
+    `/api/admin/management/users/${userId}`,
+    { method: 'DELETE' },
+  );
+}
+
 export async function adminDeleteUserAvatar(userId: string) {
   return request<{ success: boolean }>(`/api/admin/users/${userId}/avatar`, {
     method: 'DELETE',

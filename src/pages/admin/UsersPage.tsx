@@ -29,6 +29,7 @@ import {
   adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
   adminUpdateUserProfile, adminSetUserEmailVerified,
   adminGetUserPhoneVerification, adminSetUserPhone, adminRemoveUserPhone,
+  adminDeleteUser,
 } from '@/lib/api';
 import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -235,6 +236,9 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [impersonateLoading, setImpersonateLoading] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [blockConfirm, setBlockConfirm] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteTyped, setDeleteTyped] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [avatarConfirm, setAvatarConfirm] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
@@ -378,6 +382,23 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     }
   };
 
+  const handleDeleteUser = async () => {
+    setDeleteLoading(true);
+    try {
+      await adminDeleteUser(userId);
+      toast.success(t('admin.users.deleteUserSuccess'));
+      setDeleteDialog(false);
+      qc.invalidateQueries({ queryKey: ['admin-profiles'] });
+      qc.invalidateQueries({ queryKey: ['admin-profile-count'] });
+      qc.invalidateQueries({ queryKey: ['admin-workspaces'] });
+      onBack();
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.deleteUserFailed'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const handleToggleEmailVerified = async (next: boolean) => {
     setEmailVerifyLoading(true);
     try {
@@ -513,8 +534,47 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           {impersonateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
           {t('admin.users.loginAsUser')}
         </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="gap-2 ms-auto"
+          onClick={() => { setDeleteTyped(''); setDeleteDialog(true); }}
+          disabled={deleteLoading}
+        >
+          {deleteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+          {t('admin.users.deleteUser')}
+        </Button>
       </div>
       </Card>
+
+      <AlertDialog open={deleteDialog} onOpenChange={(v) => { setDeleteDialog(v); if (!v) setDeleteTyped(''); }}>
+        <AlertDialogContent dir={dir} className={dir === 'rtl' ? 'text-right' : undefined}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">{t('admin.users.deleteUserConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('admin.users.deleteUserConfirmDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">{t('admin.users.deleteUserTypeToConfirm')}</label>
+            <Input
+              value={deleteTyped}
+              onChange={(e) => setDeleteTyped(e.target.value)}
+              placeholder={p.email || ''}
+              autoComplete="off"
+              dir="ltr"
+            />
+          </div>
+          <AlertDialogFooter className={dir === 'rtl' ? 'sm:flex-row-reverse sm:justify-start' : undefined}>
+            <AlertDialogCancel disabled={deleteLoading}>{t('admin.users.cancelAction')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeleteUser(); }}
+              disabled={deleteLoading || deleteTyped.trim().toLowerCase() !== (p.email || '').toLowerCase()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('admin.users.deleteUser')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={resetConfirm} onOpenChange={setResetConfirm}>
         <AlertDialogContent dir={dir} className={dir === 'rtl' ? 'text-right' : undefined}>

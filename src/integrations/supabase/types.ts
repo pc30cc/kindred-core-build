@@ -8538,6 +8538,10 @@ export type Database = {
             }
             Returns: number
           }
+      admin_delete_user: {
+        Args: { _actor_user_id: string; _user_id: string }
+        Returns: Json
+      }
       admin_delete_workspace: {
         Args: { _actor_user_id: string; _workspace_id: string }
         Returns: boolean

@@ -182,7 +182,12 @@ function PlanFormDialog({
         return;
       }
       const warns = v.issues.filter((i) => i.level === 'warning');
-      if (warns.length) toast.warning(`${warns.length} warning(s) — saving anyway`);
+      if (warns.length) {
+        toast.warning(`${warns.length} کلید ناشناخته در این پلن هست (ذخیره انجام می‌شود)`, {
+          description: warns.map((w) => w.key).join('، '),
+        });
+      }
+
     } catch (e: any) {
       // Validation endpoint failure is non-fatal
       console.warn('Validation skipped:', e?.message);

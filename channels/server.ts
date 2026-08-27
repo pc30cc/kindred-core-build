@@ -18,6 +18,7 @@
 
 import express from 'express';
 import { deriveChannelWebhookSecret, safeSecretEqual } from '../shared/channels/webhookSecret.js';
+import { classifyCoreResponse } from './delivery.js';
 
 const PORT = parseInt(process.env.CHANNELS_PORT || process.env.PORT || '3011', 10);
 const SIGNING_KEY = (process.env.CHANNELS_WEBHOOK_SIGNING_KEY || '').trim();
@@ -47,31 +48,6 @@ for (const forbidden of ['SUPABASE_SERVICE_ROLE_KEY', 'PLUGIN_SECRETS_MASTER_KEY
     );
     process.exit(1);
   }
-}
-
-/**
- * Core error codes that mean "this update will NEVER be deliverable".
- * Retrying them only makes Telegram hammer a dead endpoint, so they are
- * acknowledged. Anything else is treated as transient.
- */
-const PERMANENT_CORE_CODES = new Set([
-  'unknown_integration',
-  'integration_disconnected',
-  'invalid_payload',
-]);
-
-export function classifyCoreResponse(
-  status: number,
-  errorCode: string | null,
-): 'ack' | 'retry' {
-  if (status >= 200 && status < 300) return 'ack';
-  if (status >= 500) return 'retry';
-  if (status === 401 || status === 403 || status === 404) {
-    // Auth/config problems on OUR side must be visible as retries, except the
-    // explicitly classified "unknown integration" case.
-    return errorCode && PERMANENT_CORE_CODES.has(errorCode) ? 'ack' : 'retry';
-  }
-  return errorCode && PERMANENT_CORE_CODES.has(errorCode) ? 'ack' : 'retry';
 }
 
 const app = express();

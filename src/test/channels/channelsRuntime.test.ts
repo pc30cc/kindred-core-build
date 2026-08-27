@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { classifyCoreResponse } from '../../../channels/server.js';
+import { classifyCoreResponse } from '../../../channels/delivery.js';
 
 describe('gateway delivery classification', () => {
   it('acknowledges successful ingest', () => {

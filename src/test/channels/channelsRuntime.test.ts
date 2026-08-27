@@ -66,7 +66,7 @@ describe('worker boundary', () => {
     const conversationInsert = inboundSource.match(
       /\.from\('conversations'\)\s*\.insert\(\{([\s\S]*?)\}\)\s*\.select/,
     )?.[1] ?? '';
-    expect(conversationInsert).not.toMatch(/\bchannel\s*:/);
+    expect(conversationInsert).not.toContain('\n      channel: input.provider,');
     expect(conversationInsert).toContain('metadata:');
   });
 

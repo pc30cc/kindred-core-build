@@ -12,7 +12,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
-import { checkModuleAccess } from '../middleware/featureGating.js';
+import { checkChannelAccess, checkModuleAccess } from '../middleware/featureGating.js';
 import { PLUGIN_REGISTRY, getPluginDefinition } from '../plugins/registry.js';
 import {
   getInstallation,
@@ -63,6 +63,40 @@ async function requireManager(req: any, res: any, workspaceId: string) {
   return auth;
 }
 
+/**
+ * Plan gate for a plugin.
+ *
+ * Channel plugins (Telegram, and the upcoming WhatsApp/SMS/Instagram) are sold
+ * as plan CHANNELS, so they must be checked with `check_channel_access` — the
+ * same key the Super Admin Plans screen toggles. Only non-channel plugins fall
+ * back to a module entitlement.
+ */
+async function isPluginAllowedByPlan(
+  config: ReturnType<typeof serverConfigOf>,
+  def: { planChannelKey: string | null; planModuleKey: string | null },
+  workspaceId: string,
+): Promise<boolean> {
+  if (def.planChannelKey) {
+    const entitlement = await checkChannelAccess(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      workspaceId,
+      def.planChannelKey,
+    );
+    return entitlement.allowed === true;
+  }
+  if (def.planModuleKey) {
+    const entitlement = await checkModuleAccess(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      workspaceId,
+      def.planModuleKey,
+    );
+    return entitlement.allowed === true;
+  }
+  return true;
+}
+
 /** A plugin is usable only when platform state AND the plan both allow it. */
 async function resolveAvailability(req: any, workspaceId: string, pluginId: string) {
   const config = serverConfigOf(req);
@@ -74,15 +108,8 @@ async function resolveAvailability(req: any, workspaceId: string, pluginId: stri
   if (state.maintenance_mode) return { ok: false as const, reason: 'maintenance_mode' };
   if (!state.installable || !def.workspaceInstallable) return { ok: false as const, reason: 'not_installable' };
 
-  if (def.planModuleKey) {
-    const entitlement = await checkModuleAccess(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      def.planModuleKey,
-    );
-    if (!entitlement.allowed) return { ok: false as const, reason: 'plan_locked' };
-  }
+  const planAllowed = await isPluginAllowedByPlan(config, def, workspaceId);
+  if (!planAllowed) return { ok: false as const, reason: 'plan_locked' };
   return { ok: true as const, def, state };
 }
 
@@ -110,16 +137,7 @@ pluginsRouter.get('/catalog', async (req: any, res) => {
       }).map(async (def) => {
         const state = stateById.get(def.id)!;
         const entry = toCatalogEntry(def, state);
-        let planAllowed = true;
-        if (def.planModuleKey) {
-          const entitlement = await checkModuleAccess(
-            config.supabaseUrl,
-            config.supabaseServiceRoleKey,
-            workspaceId,
-            def.planModuleKey,
-          );
-          planAllowed = entitlement.allowed;
-        }
+        const planAllowed = await isPluginAllowedByPlan(config, def, workspaceId);
         const installation = installedById.get(def.id) ?? null;
         return {
           ...entry,

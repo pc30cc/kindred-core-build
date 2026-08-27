@@ -210,6 +210,7 @@ export function toCatalogEntry(def: PluginDefinition, state: PluginPlatformState
     supportsAI: def.supportsAI,
     supportsMedia: def.supportsMedia,
     planModuleKey: def.planModuleKey,
+    planChannelKey: def.planChannelKey,
     enabled: state.enabled,
     marketplaceVisible: state.marketplace_visible,
     installable: state.installable && def.workspaceInstallable && state.enabled,

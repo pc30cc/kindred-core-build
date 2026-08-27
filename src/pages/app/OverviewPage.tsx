@@ -9,6 +9,7 @@ import { useOnlineVisitors, useVisitorSessions } from '@/hooks/useVisitors';
 import { useKBArticles } from '@/hooks/useKnowledgeBase';
 import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWorkspacePlan } from '@/hooks/usePlans';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';

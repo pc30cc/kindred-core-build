@@ -50,7 +50,10 @@ export default function ResetPasswordPage() {
       }
       await resetPasswordWithToken(token, password);
       toast.success(t('auth.passwordChanged'));
-      navigate('/auth/login');
+      setLoading(false);
+      navigate('/auth/login', { replace: true });
+      return;
+
     } catch (err: any) {
       toast.error(t('auth.error'), { description: err?.message });
     }

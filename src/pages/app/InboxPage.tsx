@@ -199,6 +199,7 @@ export default function InboxPage() {
   const { t, dir, locale } = useTranslation();
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
+  const { data: wsBranding } = useBranding(workspace?.id);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { slug: wsSlug } = useParams();

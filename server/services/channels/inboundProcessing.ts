@@ -1,0 +1,236 @@
+/**
+ * CANONICAL inbound processing for every channel plugin.
+ *
+ * This is the ONLY place a channel message becomes business data. The Gateway
+ * never writes canonical rows and the Worker never writes them directly — the
+ * worker calls Core, and Core runs this. That keeps Inbox, contacts, AI Agent
+ * and analytics identical for widget and channel traffic.
+ *
+ * Idempotency: keyed on (integration_id, provider_event_id) via
+ * `channel_inbound_events`. A replayed provider delivery is a no-op.
+ */
+
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
+import { recordConversationEvent } from '../conversationEvents.js';
+import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publish.js';
+import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
+import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
+import { anonCodeFrom } from '../widget/anonymousContact.js';
+
+export type NormalizedInboundMessage = {
+  provider: string;
+  workspaceId: string;
+  integrationId: string;
+  /** Stable per-provider event id used for deduplication. */
+  providerEventId: string;
+  /** Provider-side conversation/chat id. */
+  externalChatId: string;
+  externalUserId: string | null;
+  senderName: string | null;
+  senderUsername: string | null;
+  senderLanguage: string | null;
+  text: string;
+  attachments?: Array<{ fileId: string; kind: string; fileName?: string | null; mimeType?: string | null; size?: number | null }>;
+  sentAt: string | null;
+};
+
+export type InboundResult = {
+  status: 'processed' | 'duplicate' | 'ignored';
+  conversationId?: string;
+  messageId?: string;
+  contactId?: string;
+};
+
+/** Contact resolution is keyed on the provider identity, not on the text. */
+async function ensureChannelContact(
+  sb: any,
+  input: NormalizedInboundMessage,
+): Promise<string | null> {
+  const identityKey = `${input.provider}:${input.externalUserId ?? input.externalChatId}`;
+
+  const { data: existing } = await sb
+    .from('contacts')
+    .select('id')
+    .eq('workspace_id', input.workspaceId)
+    .contains('metadata', { channel_identity: identityKey })
+    .limit(1)
+    .maybeSingle();
+  if (existing?.id) return existing.id as string;
+
+  const buildPayload = (visitorCode: string | null) => ({
+    workspace_id: input.workspaceId,
+    name: input.senderName || (input.senderUsername ? `@${input.senderUsername}` : null),
+    visitor_code: visitorCode,
+    metadata: {
+      source: input.provider,
+      channel: input.provider,
+      channel_identity: identityKey,
+      channel_user_id: input.externalUserId,
+      channel_username: input.senderUsername,
+      channel_language: input.senderLanguage,
+      anonymous: !input.senderName,
+      anon_code: anonCodeFrom(identityKey),
+    },
+  });
+
+  const { data: created, error } = await insertContactWithVisitorCode(sb, buildPayload, 'id');
+  if (error) {
+    console.error('[channels] contact creation failed:', error.message);
+    return null;
+  }
+  return (created as any)?.id ?? null;
+}
+
+async function ensureChannelConversation(
+  sb: any,
+  input: NormalizedInboundMessage,
+  contactId: string | null,
+): Promise<{ id: string; created: boolean } | null> {
+  const threadKey = `${input.provider}:${input.integrationId}:${input.externalChatId}`;
+
+  const { data: open } = await sb
+    .from('conversations')
+    .select('id')
+    .eq('workspace_id', input.workspaceId)
+    .contains('metadata', { channel_thread_key: threadKey })
+    .in('status', ['open', 'pending'])
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (open?.id) return { id: open.id as string, created: false };
+
+  const { data: conv, error } = await sb
+    .from('conversations')
+    .insert({
+      workspace_id: input.workspaceId,
+      contact_id: contactId,
+      status: 'open',
+      channel: input.provider,
+      subject: null,
+      metadata: {
+        channel: input.provider,
+        channel_thread_key: threadKey,
+        channel_integration_id: input.integrationId,
+        channel_chat_id: input.externalChatId,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+  if (error) {
+    console.error('[channels] conversation creation failed:', error.message);
+    return null;
+  }
+  return { id: (conv as any).id as string, created: true };
+}
+
+export async function processInboundMessage(
+  config: ServerConfig,
+  input: NormalizedInboundMessage,
+): Promise<InboundResult> {
+  const sb = getServiceClient(config);
+
+  // 1. Idempotency gate — insert first, process only if we won the race.
+  const { error: dedupeError } = await sb.from('channel_inbound_events').insert({
+    integration_id: input.integrationId,
+    workspace_id: input.workspaceId,
+    provider: input.provider,
+    provider_event_id: input.providerEventId,
+    status: 'processing',
+  });
+  if (dedupeError) {
+    // Unique violation ⇒ already ingested. Any other error is fatal.
+    if ((dedupeError as any).code === '23505') return { status: 'duplicate' };
+    throw new Error(`inbound dedupe failed: ${dedupeError.message}`);
+  }
+
+  const finish = async (status: string, detail: Record<string, unknown> = {}) => {
+    await sb
+      .from('channel_inbound_events')
+      .update({ status, processed_at: new Date().toISOString(), ...detail })
+      .eq('integration_id', input.integrationId)
+      .eq('provider_event_id', input.providerEventId);
+  };
+
+  try {
+    const contactId = await ensureChannelContact(sb, input);
+    const conversation = await ensureChannelConversation(sb, input, contactId);
+    if (!conversation) {
+      await finish('failed', { last_error: 'conversation_creation_failed' });
+      return { status: 'ignored' };
+    }
+
+    if (conversation.created) {
+      void recordConversationEvent(config, {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        eventType: 'created',
+        actorType: 'visitor',
+        actorId: null,
+        payload: { source: input.provider },
+      });
+    }
+
+    const { data: insertedMsg, error: msgError } = await sb
+      .from('conversation_messages')
+      .insert({
+        conversation_id: conversation.id,
+        body: input.text,
+        sender_type: 'contact',
+        metadata: {
+          source: input.provider,
+          channel: input.provider,
+          channel_chat_id: input.externalChatId,
+          channel_user_id: input.externalUserId,
+          channel_message_id: input.providerEventId,
+          attachments: input.attachments?.length ? input.attachments : undefined,
+        },
+      })
+      .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
+      .single();
+    if (msgError) throw new Error(`message insert failed: ${msgError.message}`);
+
+    await sb
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString(), contact_id: contactId })
+      .eq('id', conversation.id);
+
+    // Inbox realtime — identical envelope to widget traffic.
+    publishConversationEvent(
+      config,
+      input.workspaceId,
+      conversation.id,
+      buildMessageEnvelope(insertedMsg as any),
+    ).catch(() => {});
+
+    // AI Agent runs through the SAME entry point as the widget, so mode,
+    // human-takeover blocking and safety gates behave identically.
+    if (input.text.trim()) {
+      void maybeRunAiAssistantAfterVisitorMessage(config, {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        visitorMessageId: (insertedMsg as any).id,
+        question: input.text,
+        locale: input.senderLanguage || undefined,
+      }).catch((e: any) => console.warn('[channels] AI engine error:', e?.message || e));
+    }
+
+    await finish('processed', {
+      conversation_id: conversation.id,
+      contact_id: contactId,
+      message_id: (insertedMsg as any).id,
+    });
+
+    return {
+      status: 'processed',
+      conversationId: conversation.id,
+      messageId: (insertedMsg as any).id,
+      contactId: contactId ?? undefined,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await finish('failed', { last_error: message.slice(0, 500) });
+    throw err;
+  }
+}

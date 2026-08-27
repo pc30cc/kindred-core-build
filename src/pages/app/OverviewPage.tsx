@@ -395,12 +395,12 @@ export default function OverviewPage() {
                       className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                     >
                       <ContactAvatar
-                        name={c.contacts?.name}
+                        name={name}
                         email={c.contacts?.email}
                         avatarUrl={c.contacts?.avatar_url}
-                        os={c.visitor_os}
-                        device={c.visitor_device}
-                        countryCode={c.visitor_country_code}
+                        os={c.visitor_os ?? c.visitor_network?.device?.os}
+                        device={c.visitor_device ?? c.visitor_network?.device?.device}
+                        countryCode={c.visitor_country_code ?? c.visitor_network?.geo?.country_code}
                         size="sm"
                       />
                       <div className="min-w-0 flex-1">

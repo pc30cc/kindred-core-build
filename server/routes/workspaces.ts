@@ -33,6 +33,8 @@ import { requireUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
 import { isEmailVerified } from '../services/auth/identity.js';
+import { checkEntitlementFromDB } from '../middleware/featureGating.js';
+import { getCapability } from '../services/billing/capabilityRegistry.js';
 
 export const workspacesRouter = Router();
 

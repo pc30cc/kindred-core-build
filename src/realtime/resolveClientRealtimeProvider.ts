@@ -20,7 +20,6 @@
  * re-negotiate or re-open sockets.
  */
 
-import { supabase } from '@/lib/supabase';
 import type {
   ClientRealtimeProvider,
   RealtimeNegotiation,
@@ -50,14 +49,16 @@ export function invalidateClientRealtimeCache(workspaceId?: string): void {
 
 async function fetchWorkspaceOverride(workspaceId: string): Promise<RealtimeVendor | null> {
   try {
-    const { data } = await supabase
-      .from('provider_configs')
-      .select('provider_name, is_active')
-      .eq('workspace_id', workspaceId)
-      .eq('provider_type', 'realtime')
-      .eq('is_active', true)
-      .maybeSingle();
-    const name = (data as any)?.provider_name as string | undefined;
+    // Workspace realtime override comes from the first-party backend
+    // (workspace-member gated, non-secret selection metadata only).
+    const res = await fetch(`${API_BASE}/api/workspaces/${workspaceId}/provider-selection`, {
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      overrides?: Array<{ provider_type: string; provider_name: string }>;
+    };
+    const name = body.overrides?.find(o => o.provider_type === 'realtime')?.provider_name;
     if (!name) return null;
     return SUPPORTED_VENDORS.includes(name as RealtimeVendor) ? (name as RealtimeVendor) : null;
   } catch {

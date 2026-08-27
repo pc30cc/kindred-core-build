@@ -27,7 +27,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { supabase } from '@/integrations/supabase/client';
+import { adminFetch } from '@/hooks/useAdmin';
 import { toast } from '@/hooks/use-toast';
 
 type Provider = 'local' | 's3' | 'cloudflare_r2' | 'minio' | 'do_spaces' | 'bunny_storage';
@@ -89,13 +89,11 @@ export function PrivacyExportStorageCard() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from('app_runtime_config')
-        .select('value')
-        .eq('key', 'privacy_export_storage')
-        .maybeSingle();
-      if (data?.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
-        const v = data.value as Record<string, unknown>;
+      const loaded = await adminFetch<{ value: unknown }>(
+        '/api/admin/management/runtime-config/privacy_export_storage',
+      ).catch(() => ({ value: null }));
+      if (loaded.value && typeof loaded.value === 'object' && !Array.isArray(loaded.value)) {
+        const v = loaded.value as Record<string, unknown>;
         setValue({
           provider: (v.provider as Provider) || 'local',
           config: (v.config as Record<string, string | undefined>) || {},
@@ -108,17 +106,21 @@ export function PrivacyExportStorageCard() {
 
   const onSave = async () => {
     setSaving(true);
-    const { error } = await supabase
-      .from('app_runtime_config')
-      .upsert(
-        { key: 'privacy_export_storage', value: value as any, updated_at: new Date().toISOString() },
-        { onConflict: 'key' },
-      );
-    setSaving(false);
-    if (error) {
-      toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
+    try {
+      await adminFetch('/api/admin/management/runtime-config/privacy_export_storage', {
+        method: 'PUT',
+        body: JSON.stringify({ value }),
+      });
+    } catch (err) {
+      setSaving(false);
+      toast({
+        title: 'Save failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
       return;
     }
+    setSaving(false);
     toast({ title: 'Privacy export storage updated' });
   };
 

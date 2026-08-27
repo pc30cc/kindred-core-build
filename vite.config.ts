@@ -31,6 +31,21 @@ export default defineConfig(({ mode }) => {
                 // SameSite=None; Secure for the dev proxy ONLY; production
                 // keeps its stricter Lax cookie untouched.
                 configure: (proxy: any) => {
+                  // The backend also runs a CSRF origin check on every
+                  // mutating request (POST/PUT/PATCH/DELETE) against
+                  // CORS_ORIGINS. The preview's lovableproject.com origin is
+                  // not in that list, so POSTs like
+                  // /api/visitor-intel/network/batch came back
+                  // 403 "Origin not allowed" while GETs worked. Present the
+                  // proxied request as coming from the app origin the API
+                  // already trusts — dev proxy ONLY, production untouched.
+                  const trustedOrigin =
+                    env.VITE_PREVIEW_PROXY_ORIGIN?.trim() ||
+                    apiTarget.replace('://api.', '://app.');
+                  proxy.on('proxyReq', (proxyReq: any) => {
+                    proxyReq.setHeader('origin', trustedOrigin);
+                    proxyReq.setHeader('referer', `${trustedOrigin}/`);
+                  });
                   proxy.on('proxyRes', (proxyRes: any) => {
                     const setCookie = proxyRes.headers['set-cookie'];
                     if (!Array.isArray(setCookie)) return;
@@ -41,6 +56,7 @@ export default defineConfig(({ mode }) => {
                     });
                   });
                 },
+
               },
             },
           }

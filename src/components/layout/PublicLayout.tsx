@@ -8,7 +8,7 @@ import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Button } from '@/components/ui/button';
 import { Menu, X } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export function PublicLayout() {
   const { t } = useTranslation();

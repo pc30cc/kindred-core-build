@@ -69,12 +69,16 @@ export function WorkspaceRedirect() {
           await refetch();
         } catch (err: any) {
           console.error('Auto-provision failed:', err);
-          setError(
-            err?.message === 'email_verification_required'
-              ? 'Please verify your email before creating a workspace. Check your inbox for the verification link.'
-              : err?.message || 'Failed to create workspace',
-          );
+          const raw = String(err?.message || '');
+          if (raw === 'email_verification_required') {
+            setError(t('workspaceRedirect.emailVerificationRequired'));
+          } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
+            setError(t('workspaceRedirect.connectionFailed'));
+          } else {
+            setError(raw || t('workspaceRedirect.createFailed'));
+          }
         } finally {
+
           setProvisioning(false);
         }
       })();

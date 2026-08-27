@@ -14,7 +14,7 @@
       // so the first paint does not flash a placeholder.
       (function () {
         try {
-          var l = localStorage.getItem('gs_locale') || document.documentElement.lang || 'en';
+          var l = localStorage.getItem('app-locale') || document.documentElement.lang || 'en';
           var t = localStorage.getItem('gs_title:' + l) || localStorage.getItem('gs_title:en');
           if (t) document.title = t;
         } catch (e) {}

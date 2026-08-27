@@ -55,8 +55,21 @@ export default function ResetPasswordPage() {
       return;
 
     } catch (err: any) {
-      toast.error(t('auth.error'), { description: err?.message });
+      // The backend answers "Invalid or expired token" for links that are
+      // expired, already used, or superseded by a newer reset email. Show
+      // that in the user's own language instead of the raw English string.
+      const raw = String(err?.message || '');
+      const expired = /invalid or expired token/i.test(raw);
+      const description = expired
+        ? locale === 'fa'
+          ? 'این لینک منقضی یا قبلاً استفاده شده است. لطفاً دوباره درخواست بازیابی رمز بدهید.'
+          : locale === 'tr'
+          ? 'Bu bağlantının süresi dolmuş veya daha önce kullanılmış. Lütfen yeni bir sıfırlama bağlantısı isteyin.'
+          : 'This link has expired or was already used. Please request a new reset link.'
+        : raw;
+      toast.error(t('auth.error'), { description });
     }
+
 
     setLoading(false);
   };

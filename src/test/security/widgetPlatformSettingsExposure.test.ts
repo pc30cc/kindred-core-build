@@ -34,6 +34,14 @@ function selfhostSql(): string {
     .join('\n');
 }
 
+function hostedSql(): string {
+  return readdirSync(HOSTED_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => readFileSync(join(HOSTED_DIR, f), 'utf8'))
+    .join('\n');
+}
+
 function lastGetterBody(sql: string): string {
   const parts = sql.split(/CREATE OR REPLACE FUNCTION public\.get_widget_platform_settings\(\)/);
   expect(parts.length).toBeGreaterThan(1);
@@ -68,14 +76,68 @@ describe('widget_platform_settings — anon exposure', () => {
     expect(/DROP POLICY/i.test(policyOps[policyOps.length - 1])).toBe(true);
   });
 
+  it('self-host chain never leaves authenticated with table SELECT', () => {
+    const sql = selfhostSql();
+    const privLines = sql
+      .split('\n')
+      .filter(
+        (l) =>
+          /public\.widget_platform_settings/.test(l) &&
+          !/ON FUNCTION/i.test(l) &&
+          /authenticated/.test(l) &&
+          /GRANT|REVOKE/i.test(l),
+      );
+
+    expect(privLines.length).toBeGreaterThan(0);
+    expect(/^\s*REVOKE/i.test(privLines[privLines.length - 1])).toBe(true);
+  });
+
+  it('self-host chain leaves no authenticated raw read policy in place', () => {
+    const sql = selfhostSql();
+    const policyOps = sql
+      .split(/;\s*\n/)
+      .filter((s) => /"Authenticated can read widget platform settings"/.test(s));
+    expect(policyOps.length).toBeGreaterThan(0);
+    expect(/DROP POLICY/i.test(policyOps[policyOps.length - 1])).toBe(true);
+  });
+
+  it('self-host chain keeps service_role full raw-table access', () => {
+    expect(selfhostSql()).toMatch(
+      /GRANT ALL\s+ON public\.widget_platform_settings TO service_role/,
+    );
+  });
+
+  it('hosted chain never leaves anon or authenticated with raw table SELECT', () => {
+    const sql = hostedSql();
+    for (const role of ['anon', 'authenticated']) {
+      const privLines = sql
+        .split('\n')
+        .filter(
+          (l) =>
+            /public\.widget_platform_settings/.test(l) &&
+            !/ON FUNCTION/i.test(l) &&
+            new RegExp(`\\b${role}\\b`).test(l) &&
+            /GRANT|REVOKE/i.test(l),
+        );
+      expect(privLines.length).toBeGreaterThan(0);
+      expect(/^\s*REVOKE/i.test(privLines[privLines.length - 1])).toBe(true);
+    }
+  });
+
+  it('hosted chain leaves no raw read policy for anon or authenticated', () => {
+    const sql = hostedSql();
+    for (const name of [
+      'Anon can read widget platform settings',
+      'Authenticated can read widget platform settings',
+    ]) {
+      const policyOps = sql.split(/;\s*\n/).filter((s) => s.includes(`"${name}"`));
+      expect(policyOps.length).toBeGreaterThan(0);
+      expect(/DROP POLICY/i.test(policyOps[policyOps.length - 1])).toBe(true);
+    }
+  });
+
   it('public getter is a sanitized allowlist, never to_jsonb(s.*)', () => {
-    for (const body of [lastGetterBody(selfhostSql()), lastGetterBody(
-      readdirSync(HOSTED_DIR)
-        .filter((f) => f.endsWith('.sql'))
-        .sort()
-        .map((f) => readFileSync(join(HOSTED_DIR, f), 'utf8'))
-        .join('\n'),
-    )]) {
+    for (const body of [lastGetterBody(selfhostSql()), lastGetterBody(hostedSql())]) {
       expect(body).not.toMatch(/to_jsonb\s*\(\s*s\.\*\s*\)/);
       expect(body).toMatch(/jsonb_build_object/);
       for (const field of SECRET_FIELDS) expect(body).not.toContain(field);
@@ -89,6 +151,12 @@ describe('widget_platform_settings — anon exposure', () => {
     );
     expect(sql).toMatch(
       /GRANT EXECUTE ON FUNCTION public\.get_widget_platform_settings\(\) TO anon/,
+    );
+    expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.get_widget_platform_settings\(\) TO authenticated/,
+    );
+    expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.get_widget_platform_settings\(\) TO service_role/,
     );
   });
 

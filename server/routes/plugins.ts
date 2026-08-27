@@ -12,7 +12,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
-import { checkModuleAccess } from '../middleware/featureGating.js';
+import { checkChannelAccess, checkModuleAccess } from '../middleware/featureGating.js';
 import { PLUGIN_REGISTRY, getPluginDefinition } from '../plugins/registry.js';
 import {
   getInstallation,

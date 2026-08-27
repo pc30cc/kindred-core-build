@@ -44,7 +44,26 @@ export default function OverviewPage() {
   const { data: articles } = useKBArticles(workspace?.id);
   const { data: contacts } = useContacts(workspace?.id);
   const { data: teamData, isPending: teamPending } = useTeamPresence(workspace?.id);
-  const team = teamData?.presence ?? [];
+  const { data: members, isPending: membersPending } = useWorkspaceMembers(workspace?.id);
+  // Presence only carries availability; identity comes from the member directory.
+  const memberById = useMemo(() => {
+    const m = new Map<string, { full_name: string | null; email: string | null; avatar_url: string | null }>();
+    for (const x of members ?? []) m.set(x.user_id, x);
+    return m;
+  }, [members]);
+  const team = useMemo(
+    () =>
+      (teamData?.presence ?? []).map((p: any) => {
+        const prof = memberById.get(p.user_id);
+        return {
+          ...p,
+          full_name: p.full_name ?? prof?.full_name ?? null,
+          email: p.email ?? prof?.email ?? null,
+          avatar_url: p.avatar_url ?? prof?.avatar_url ?? null,
+        };
+      }),
+    [teamData, memberById],
+  );
   const { data: planData } = useWorkspacePlan(workspace?.id);
 
   const tr = t as unknown as (k: string) => string;

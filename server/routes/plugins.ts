@@ -228,11 +228,24 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
   try {
     const config = serverConfigOf(req);
     if (!pluginCryptoReady(config)) {
-      return res.status(503).json({ error: 'Credential encryption is not configured on this server' });
+      return res.status(503).json({
+        error: 'telegram_connect_failed',
+        reason: 'encryption_not_configured',
+        details: 'PLUGIN_SECRETS_MASTER_KEY is not set on this server',
+      });
     }
-    if (!config.channelsWebhookSigningKey || !config.publicChannelsBaseUrl) {
-      return res.status(503).json({ error: 'Channels runtime is not configured on this server' });
+    const missingChannelEnv = [
+      config.channelsWebhookSigningKey ? null : 'CHANNELS_WEBHOOK_SIGNING_KEY',
+      config.publicChannelsBaseUrl ? null : 'PUBLIC_CHANNELS_BASE_URL',
+    ].filter(Boolean);
+    if (missingChannelEnv.length) {
+      return res.status(503).json({
+        error: 'telegram_connect_failed',
+        reason: 'channels_not_configured',
+        details: `Missing server configuration: ${missingChannelEnv.join(', ')}`,
+      });
     }
+
 
     const availability = await resolveAvailability(req, workspaceId, 'telegram');
     if (!availability.ok) return res.status(403).json({ error: 'Plugin unavailable', reason: availability.reason });

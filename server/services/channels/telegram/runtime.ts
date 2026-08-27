@@ -15,11 +15,14 @@ import {
   commandKeyFromText,
   messageKeyForCommand,
   parseTelegramSettings,
+  resolveCommandLabel,
   resolveLocalizedMessage,
   resolveTelegramHandlingMode,
   type TelegramCommandKey,
   type TelegramSettings,
 } from './settings.js';
+import { getPlatformAllowedLocales } from '../../platformRegion.js';
+
 
 export type TelegramInboundFlowResult = {
   /** Whether the shared AI entry point in inboundProcessing.ts may run. */

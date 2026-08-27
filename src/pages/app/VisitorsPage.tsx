@@ -386,11 +386,14 @@ export default function VisitorsPage() {
                         )}
                       >
                         <div className="relative shrink-0">
-                          <OsAvatar
+                          <ContactAvatar
+                            name={name}
+                            email={v.contact?.email}
+                            avatarUrl={v.contact?.avatar_url}
                             os={v.os}
                             device={v.device}
-                            className="w-9 h-9"
-                            iconClassName="w-4 h-4"
+                            countryCode={v.geo?.country_code}
+                            size="sm"
                           />
                           <span
                             className={cn(

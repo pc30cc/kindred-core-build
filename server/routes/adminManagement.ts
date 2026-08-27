@@ -193,9 +193,9 @@ adminManagementRouter.delete('/users/:userId', async (req, res) => {
     workspace_id: null,
     user_id: actorId,
     action: 'admin.user.deleted',
-    resource_type: 'user',
-    resource_id: userId,
-    metadata: { summary: data, storage_failures: storageFailures.length },
+    entity_type: 'user',
+    entity_id: userId,
+    new_value: { summary: data, storage_failures: storageFailures.length },
   } as any);
 
   return res.json({ success: true, summary: data, storageFailures: storageFailures.length });

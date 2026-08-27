@@ -26,6 +26,10 @@ type DayKey = (typeof DAY_KEYS)[number];
 export interface OperatorPresence {
   user_id: string;
   state: 'online' | 'offline';
+  /** Identity fields, filled from `profiles` so UIs can render name + avatar. */
+  full_name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
   reason:
     | 'force_offline'
     | 'available_when_using_app'
@@ -146,9 +150,27 @@ export async function listWorkspacePresence(
   const byUser = new Map<string, RawPrefs>();
   for (const r of (prefRows || []) as any[]) byUser.set(r.user_id, r);
 
+  // Identity for UI rendering (name + avatar). Never fails the presence call.
+  const profileById = new Map<string, { full_name: string | null; email: string | null; avatar_url: string | null }>();
+  const { data: profileRows } = await sb
+    .from('profiles')
+    .select('id, full_name, email, avatar_url')
+    .in('id', ids);
+  for (const p of (profileRows || []) as any[]) {
+    profileById.set(p.id, { full_name: p.full_name ?? null, email: p.email ?? null, avatar_url: p.avatar_url ?? null });
+  }
+
   return ids.map((id: string) => {
     const { state, reason } = computeOperatorState(byUser.get(id) || null, now);
-    return { user_id: id, state, reason };
+    const prof = profileById.get(id);
+    return {
+      user_id: id,
+      state,
+      reason,
+      full_name: prof?.full_name ?? null,
+      email: prof?.email ?? null,
+      avatar_url: prof?.avatar_url ?? null,
+    };
   });
 }
 

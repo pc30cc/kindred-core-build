@@ -73,6 +73,9 @@ export interface OperatorPresence {
   user_id: string;
   state: OperatorState;
   reason: string;
+  full_name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface TeamPresenceResponse {

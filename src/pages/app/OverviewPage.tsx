@@ -9,6 +9,7 @@ import { useOnlineVisitors, useVisitorSessions } from '@/hooks/useVisitors';
 import { useKBArticles } from '@/hooks/useKnowledgeBase';
 import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWorkspacePlan } from '@/hooks/usePlans';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
@@ -43,7 +44,26 @@ export default function OverviewPage() {
   const { data: articles } = useKBArticles(workspace?.id);
   const { data: contacts } = useContacts(workspace?.id);
   const { data: teamData, isPending: teamPending } = useTeamPresence(workspace?.id);
-  const team = teamData?.presence ?? [];
+  const { data: members, isPending: membersPending } = useWorkspaceMembers(workspace?.id);
+  // Presence only carries availability; identity comes from the member directory.
+  const memberById = useMemo(() => {
+    const m = new Map<string, { full_name: string | null; email: string | null; avatar_url: string | null }>();
+    for (const x of members ?? []) m.set(x.user_id, x);
+    return m;
+  }, [members]);
+  const team = useMemo(
+    () =>
+      (teamData?.presence ?? []).map((p: any) => {
+        const prof = memberById.get(p.user_id);
+        return {
+          ...p,
+          full_name: p.full_name ?? prof?.full_name ?? null,
+          email: p.email ?? prof?.email ?? null,
+          avatar_url: p.avatar_url ?? prof?.avatar_url ?? null,
+        };
+      }),
+    [teamData, memberById],
+  );
   const { data: planData } = useWorkspacePlan(workspace?.id);
 
   const tr = t as unknown as (k: string) => string;
@@ -449,7 +469,7 @@ export default function OverviewPage() {
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>
           </div>
-          {teamPending ? (
+          {teamPending || membersPending ? (
             <IdentityListSkeleton rows={4} avatarClassName="h-8 w-8" rowClassName="px-5 py-2.5" />
           ) : team.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-muted-foreground">{tr('dashboard.noTeam')}</div>

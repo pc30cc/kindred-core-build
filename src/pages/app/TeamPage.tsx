@@ -124,7 +124,7 @@ export default function TeamPage() {
   const wsId = workspace?.id;
 
   // Live operator presence (online/offline dot + label).
-  const { data: presenceData } = useTeamPresence(wsId);
+  const { data: presenceData, isPending: presencePending } = useTeamPresence(wsId);
   const presenceByUser = presenceMap(presenceData?.presence);
 
   const getRoleLabel = (role: string) => {

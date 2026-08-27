@@ -446,26 +446,31 @@ export default function OverviewPage() {
             <ul className="max-h-[280px] divide-y divide-border/60 overflow-y-auto">
               {team.slice(0, 8).map((m: any) => {
                 const st = m.state || m.status || 'offline';
-                const dot =
-                  st === 'online' ? 'bg-success' : st === 'away' || st === 'idle' ? 'bg-warning' : 'bg-muted-foreground/40';
                 const label = m.full_name || m.name || m.email || '—';
+                const presence: 'online' | 'idle' | 'offline' =
+                  st === 'online' ? 'online' : st === 'away' || st === 'idle' ? 'idle' : 'offline';
+                const stLabel =
+                  presence === 'online'
+                    ? tr('dashboard.statusOnline')
+                    : presence === 'idle'
+                    ? tr('dashboard.statusAway')
+                    : tr('dashboard.statusOffline');
                 return (
                   <li key={m.user_id || label} className="flex items-center gap-3 px-5 py-2.5">
-                    <div className="relative">
-                      <Avatar className="h-8 w-8">
-                        {m.avatar_url ? <AvatarImage src={m.avatar_url} alt={label} /> : null}
-                        <AvatarFallback className="bg-muted text-[11px] font-semibold">
-                          {String(label).charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className={`absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-card ${dot}`} />
-                    </div>
+                    <ContactAvatar
+                      name={m.full_name || m.name}
+                      email={m.email}
+                      avatarUrl={m.avatar_url}
+                      size="sm"
+                      presence={presence}
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-foreground">{label}</p>
-                      <p className="truncate text-[11px] capitalize text-muted-foreground">{st}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">{stLabel}</p>
                     </div>
                   </li>
                 );
+
               })}
             </ul>
           )}

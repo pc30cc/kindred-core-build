@@ -151,19 +151,40 @@ async function ensureCoreAuthReady(): Promise<boolean> {
       console.error(`[channels-worker] paused before claiming jobs: ${reason}`);
       return false;
     }
+    const info = (await response.json().catch(() => ({}))) as {
+      service?: string;
+      build?: string | null;
+      routes?: string[];
+    };
+    const routes = Array.isArray(info.routes) ? info.routes : [];
+    const requiredRoutes = [
+      'POST /process-inbound',
+      'POST /outbound-result',
+      'POST /heartbeat',
+      'POST /profile-sync',
+      'POST /webhook-repair',
+    ];
+    const missingRoutes = requiredRoutes.filter((route) => !routes.includes(route));
+
+    // Authentication alone is not readiness. An older Core can expose
+    // /ready while lacking the handlers this worker needs. Fail closed before
+    // claiming anything so valid jobs never consume retries against a stale
+    // or incorrectly routed Core deployment.
+    if (info.service !== 'core-internal-channels' || missingRoutes.length > 0) {
+      coreAuthReady = false;
+      const reason = info.service !== 'core-internal-channels'
+        ? `CORE_INTERNAL_BASE_URL does not point at the Channels Core service (service=${info.service ?? 'unknown'})`
+        : routes.length === 0
+          ? 'Core readiness response has no route contract; redeploy Core with the current build'
+          : `Core is missing required routes: ${missingRoutes.join(', ')}; redeploy Core with the current build`;
+      console.error(`[channels-worker] paused before claiming jobs: ${reason} (build=${info.build ?? 'unknown'})`);
+      return false;
+    }
+
     if (!coreAuthReady) {
-      // Print the build + contract Core advertises: the fastest way to spot a
-      // Core that authenticates fine but predates the routes this worker calls.
-      const info = (await response.json().catch(() => ({}))) as { build?: string | null; routes?: string[] };
-      const routes = Array.isArray(info.routes) ? info.routes : [];
       console.log(
-        `[channels-worker] Core authentication verified; queue processing enabled (build=${info.build ?? 'unknown'})`,
+        `[channels-worker] Core authentication and route contract verified; queue processing enabled (build=${info.build ?? 'unknown'})`,
       );
-      if (routes.length && !routes.includes('POST /process-inbound')) {
-        console.error(
-          '[channels-worker] Core does not advertise POST /process-inbound — redeploy Core with the current build before inbound messages can be processed',
-        );
-      }
     }
     coreAuthReady = true;
     return true;

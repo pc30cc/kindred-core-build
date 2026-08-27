@@ -217,6 +217,12 @@ export const adminPluginsApi = {
 
   channelsHealth: () => jsonFetch<ChannelsHealth>('/api/plugins/admin/channels/health'),
 
+  retryChannelJobs: (jobIds: string[]) =>
+    jsonFetch<{ ok: true; requeued: number }>('/api/plugins/admin/channels/jobs/retry', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: jobIds }),
+    }),
+
   forceDisconnect: (integrationId: string) =>
     jsonFetch<{ ok: true }>(
       `/api/plugins/admin/channels/integrations/${encodeURIComponent(integrationId)}/disconnect`,

@@ -603,6 +603,47 @@ adminPluginsRouter.get('/channels/health', async (req: any, res) => {
   }
 });
 
+const retryChannelJobsSchema = z.object({
+  job_ids: z.array(z.string().uuid()).min(1).max(100),
+});
+
+/**
+ * Requeue selected dead-letter jobs after the underlying runtime issue is
+ * repaired. This is deliberately admin-triggered and bounded; a deploy must
+ * never replay failed provider events implicitly.
+ */
+adminPluginsRouter.post('/channels/jobs/retry', async (req: any, res) => {
+  const parsed = retryChannelJobsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+
+  try {
+    const sb = getServiceClient(serverConfigOf(req));
+    const { data, error } = await sb
+      .from('channel_jobs')
+      .update({
+        status: 'pending',
+        attempt_count: 0,
+        available_at: new Date().toISOString(),
+        claim_token: null,
+        claim_expires_at: null,
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', parsed.data.job_ids)
+      .eq('status', 'failed')
+      .select('id');
+    if (error) throw new Error(error.message);
+
+    console.info(
+      `[plugins] platform admin ${req.platformAdminId} requeued ${(data ?? []).length} channel jobs`,
+    );
+    res.json({ ok: true, requeued: (data ?? []).length });
+  } catch (err) {
+    console.error('[plugins] admin channel job retry failed:', err);
+    res.status(500).json({ error: 'Failed to retry channel jobs' });
+  }
+});
+
 /**
  * Emergency stop: force-disconnects one integration (removes the provider
  * webhook and the credential). Kept admin-only and explicitly audited.

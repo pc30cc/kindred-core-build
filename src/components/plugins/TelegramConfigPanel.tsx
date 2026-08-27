@@ -30,6 +30,7 @@ import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
 import { pluginsApi } from '@/lib/plugins-api';
 import { formatDateTime } from '@/lib/date';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   AlertCircle,
   CheckCircle2,
@@ -41,6 +42,9 @@ import {
 } from 'lucide-react';
 
 export type TelegramPanelSection = 'connection' | 'branding' | 'messages';
+
+/** Locales the Telegram bot copy can ever be authored in. */
+const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
 
 /** Maps machine reasons from the API to localized, actionable copy. */
 function connectErrorKey(code: string | null | undefined): string {
@@ -459,13 +463,15 @@ export function TelegramConfigPanel({
 
       <Separator />
 
-      <div className="flex flex-wrap gap-2">
-        {(['en', 'fa', 'tr'] as const).map((l) => (
-          <Button key={l} type="button" size="sm" variant={locale === l ? 'default' : 'outline'} onClick={() => setLocale(l)}>
-            {t(`plugins.telegram.locale.${l}` as never)}
-          </Button>
-        ))}
-      </div>
+      {editableLocales.length > 1 ? (
+        <div className="flex flex-wrap gap-2">
+          {editableLocales.map((l) => (
+            <Button key={l} type="button" size="sm" variant={locale === l ? 'default' : 'outline'} onClick={() => setLocale(l)}>
+              {t(`plugins.telegram.locale.${l}` as never)}
+            </Button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="space-y-3" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
         {(['welcome', 'help', 'offline', 'handoff', 'fallback'] as const).map((key) => (

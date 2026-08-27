@@ -4,11 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.png" type="image/png" />
-    <title>Platform</title>
-    <meta name="description" content="Self-hosted platform" />
+    <title></title>
+    <meta name="description" content="" />
 
-    <meta property="og:title" content="Platform" />
-    <meta property="og:description" content="Self-hosted platform" />
+    <meta property="og:title" content="" />
+    <meta property="og:description" content="" />
+    <script>
+      // Restore the last known branded title (from platform_branding_localized)
+      // so the first paint does not flash a placeholder.
+      (function () {
+        try {
+          var l = localStorage.getItem('gs_locale') || document.documentElement.lang || 'en';
+          var t = localStorage.getItem('gs_title:' + l) || localStorage.getItem('gs_title:en');
+          if (t) document.title = t;
+        } catch (e) {}
+      })();
+    </script>
     <meta property="og:type" content="website" />
 
     <meta name="twitter:card" content="summary_large_image" />

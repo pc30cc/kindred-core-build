@@ -557,7 +557,16 @@ export default function ContactDetailPage() {
           </div>
         </div>
       </div>
+
+      <ContactEditDialog
+        open={editing}
+        onOpenChange={setEditing}
+        contact={contact}
+        saving={updateMutation.isPending}
+        onSave={handleSave}
+      />
     </div>
+
   );
 }
 

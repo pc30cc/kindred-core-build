@@ -28,6 +28,8 @@ import {
   getCompanyFromMetadata, getLocalizedLocation,
 } from '@/features/contacts/utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
+import { ContactEditDialog, type ContactEditValues } from '@/features/contacts/ContactEditDialog';
+
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { useContactIp } from '@/hooks/useContactIp';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';

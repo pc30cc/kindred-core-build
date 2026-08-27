@@ -16,7 +16,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { Loader2, Palette, Type, Link2, Save, Eye, Mail, Plus, Pencil, Trash2, Settings2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { adminFetch } from '@/hooks/useAdmin';
 import {
   usePlatformBranding,
   useUpdatePlatformBranding,
@@ -210,9 +210,8 @@ function SettingsSection() {
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform_settings'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('platform_settings').select('*').limit(1).maybeSingle();
-      if (error) throw error;
-      return data;
+      const body = await adminFetch<{ settings: any }>('/api/admin/management/platform-settings');
+      return body.settings;
     },
   });
   const upsert = useUpsertPlatformBrandingLocalized();
@@ -273,7 +272,6 @@ function SettingsSection() {
   };
 
   const handleSaveSettings = async () => {
-    const { data: existing } = await supabase.from('platform_settings').select('id').limit(1).maybeSingle();
     const payload = {
       default_locale: defaultLocale,
       active_locales: activeLocales,
@@ -284,14 +282,15 @@ function SettingsSection() {
       maintenance_mode: maintenanceMode,
       maintenance_message: maintenanceMessage || null,
       locale_billing_providers: localeBillingProviders,
-      updated_at: new Date().toISOString(),
     };
-    if (existing) {
-      const { error } = await supabase.from('platform_settings').update(payload).eq('id', existing.id);
-      if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    } else {
-      const { error } = await supabase.from('platform_settings').insert(payload);
-      if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    try {
+      await adminFetch('/api/admin/management/platform-settings', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      toast({ title: 'Error', description: e instanceof Error ? e.message : 'Save failed', variant: 'destructive' });
+      return;
     }
     qc.invalidateQueries({ queryKey: ['platform_settings'] });
     qc.invalidateQueries({ queryKey: ['platform_region_settings'] });
@@ -662,9 +661,8 @@ function EmailSettingsSection() {
   const { data: emailSettings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform-email-settings'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('email_settings').select('*').is('workspace_id', null).maybeSingle();
-      if (error) throw error;
-      return data;
+      const body = await adminFetch<{ settings: any }>('/api/admin/management/email-settings');
+      return body.settings;
     },
   });
 
@@ -685,13 +683,10 @@ function EmailSettingsSection() {
 
   const saveSettings = useMutation({
     mutationFn: async () => {
-      if (emailSettings?.id) {
-        const { error } = await supabase.from('email_settings').update({ ...settingsForm, updated_at: new Date().toISOString() }).eq('id', emailSettings.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('email_settings').insert({ ...settingsForm, workspace_id: null });
-        if (error) throw error;
-      }
+      await adminFetch('/api/admin/management/email-settings', {
+        method: 'PUT',
+        body: JSON.stringify(settingsForm),
+      });
     },
     onSuccess: () => { toast({ title: 'Email settings saved' }); setSettingsDirty(false); qc.invalidateQueries({ queryKey: ['platform-email-settings'] }); },
     onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
@@ -701,9 +696,8 @@ function EmailSettingsSection() {
   const { data: emailLocalized } = useQuery({
     queryKey: ['platform-email-settings-localized'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('email_settings_localized').select('*').is('workspace_id', null).order('locale');
-      if (error) throw error;
-      return data ?? [];
+      const body = await adminFetch<{ rows: any[] }>('/api/admin/management/email-settings-localized');
+      return body.rows ?? [];
     },
   });
 
@@ -723,17 +717,11 @@ function EmailSettingsSection() {
   const saveEmailLocale = useMutation({
     mutationFn: async (locale: string) => {
       const row = emailLocaleForms[locale];
-      const { id, created_at, updated_at, ...rest } = row || {};
-      const payload = { ...rest, locale, workspace_id: null, updated_at: new Date().toISOString() };
-
-      const { data: existing } = await supabase.from('email_settings_localized').select('id').is('workspace_id', null).eq('locale', locale).maybeSingle();
-      if (existing) {
-        const { error } = await supabase.from('email_settings_localized').update(payload).eq('id', existing.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('email_settings_localized').insert(payload);
-        if (error) throw error;
-      }
+      const { id, created_at, updated_at, workspace_id, ...rest } = row || {};
+      await adminFetch('/api/admin/management/email-settings-localized', {
+        method: 'PUT',
+        body: JSON.stringify({ ...rest, locale }),
+      });
     },
     onSuccess: () => { toast({ title: 'Email locale saved' }); qc.invalidateQueries({ queryKey: ['platform-email-settings-localized'] }); },
     onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),

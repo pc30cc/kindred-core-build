@@ -814,3 +814,29 @@ accountRouter.delete('/workspace-icon', async (req, res) => {
     return res.status(500).json({ error: err?.message || 'Failed to remove workspace icon' });
   }
 });
+// ── Global provider defaults (non-secret selection metadata) ────────────
+// Replaces the browser-direct `app_runtime_config` SELECT in
+// src/providers/sync.ts. Only `default_<type>_provider` keys are exposed,
+// and only the provider NAME — never the stored config/credentials.
+accountRouter.get('/provider-defaults', async (req: any, res) => {
+  const userId = await requireSessionUser(req, res);
+  if (!userId) return;
+  const config: ServerConfig = req.serverConfig;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('app_runtime_config')
+    .select('key, value')
+    .like('key', 'default_%_provider');
+  if (error) return res.status(500).json({ error: error.message });
+  const defaults: Record<string, string> = {};
+  for (const row of (data ?? []) as Array<{ key: string; value: any }>) {
+    const match = row.key.match(/^default_(\w+)_provider$/);
+    if (!match) continue;
+    // Auth is never DB-switchable — first-party gs_session auth is the sole
+    // identity system; never surface a `default_auth_provider` row.
+    if (match[1] === 'auth') continue;
+    const name = row.value?.provider_name;
+    if (typeof name === 'string' && name) defaults[match[1]] = name;
+  }
+  return res.json({ defaults });
+});

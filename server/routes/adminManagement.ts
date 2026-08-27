@@ -399,3 +399,218 @@ adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// GOTRUE CUTOVER: dashboard operations that previously ran browser-direct
+// against Supabase and depended on `authenticated`/auth.uid() RLS. They
+// now run here behind requirePlatformAdmin + service_role.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Platform settings (single row) ─────────────────────────────────────
+adminManagementRouter.get('/platform-settings', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('platform_settings').select('*').limit(1).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ settings: data });
+});
+
+const platformSettingsSchema = z.object({
+  default_locale: z.string().min(2).max(10).optional(),
+  active_locales: z.array(z.string().min(2).max(10)).min(1).optional(),
+  timezone: z.string().min(1).max(100).optional(),
+  site_mode: z.string().min(1).max(50).optional(),
+  region_mode: z.string().min(1).max(50).optional(),
+  region_currency: z.string().max(20).nullable().optional(),
+  maintenance_mode: z.boolean().optional(),
+  maintenance_message: z.string().max(2000).nullable().optional(),
+  locale_billing_providers: z.record(z.string()).optional(),
+});
+
+adminManagementRouter.put('/platform-settings', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = platformSettingsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const payload = { ...parsed.data, updated_at: new Date().toISOString() };
+  const { data: existing } = await sb.from('platform_settings').select('id').limit(1).maybeSingle();
+  const q = existing
+    ? sb.from('platform_settings').update(payload).eq('id', (existing as { id: string }).id)
+    : sb.from('platform_settings').insert(payload as any);
+  const { error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
+
+// ── Global email settings (workspace_id IS NULL) ───────────────────────
+adminManagementRouter.get('/email-settings', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('email_settings').select('*').is('workspace_id', null).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ settings: data });
+});
+
+const emailSettingsSchema = z.object({
+  sender_email: z.string().max(255).default(''),
+  reply_to_email: z.string().max(255).default(''),
+  email_logo_url: z.string().max(2000).default(''),
+  email_footer_text: z.string().max(4000).default(''),
+});
+
+adminManagementRouter.put('/email-settings', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = emailSettingsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data: existing } = await sb.from('email_settings').select('id').is('workspace_id', null).maybeSingle();
+  const { error } = existing
+    ? await sb
+        .from('email_settings')
+        .update({ ...parsed.data, updated_at: new Date().toISOString() })
+        .eq('id', (existing as { id: string }).id)
+    : await sb.from('email_settings').insert({ ...parsed.data, workspace_id: null } as any);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
+
+// ── Global localized email settings (workspace_id IS NULL) ─────────────
+adminManagementRouter.get('/email-settings-localized', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb
+    .from('email_settings_localized')
+    .select('*')
+    .is('workspace_id', null)
+    .order('locale');
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ rows: data ?? [] });
+});
+
+const emailSettingsLocalizedSchema = z.object({
+  locale: z.string().min(2).max(10),
+  sender_name: z.string().max(255).nullable().optional(),
+  footer_text: z.string().max(4000).nullable().optional(),
+  support_contact_label: z.string().max(255).nullable().optional(),
+});
+
+adminManagementRouter.put('/email-settings-localized', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = emailSettingsLocalizedSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const payload = { ...parsed.data, workspace_id: null, updated_at: new Date().toISOString() };
+  const { data: existing } = await sb
+    .from('email_settings_localized')
+    .select('id')
+    .is('workspace_id', null)
+    .eq('locale', parsed.data.locale)
+    .maybeSingle();
+  const { error } = existing
+    ? await sb.from('email_settings_localized').update(payload).eq('id', (existing as { id: string }).id)
+    : await sb.from('email_settings_localized').insert(payload as any);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
+
+// ── Feature flag toggle (platform-wide rows only) ──────────────────────
+const featureFlagUpdateSchema = z.object({ enabled: z.boolean() });
+
+adminManagementRouter.patch('/feature-flags/:id', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = featureFlagUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb
+    .from('feature_flags')
+    .update({ enabled: parsed.data.enabled })
+    .eq('id', req.params.id)
+    .is('workspace_id', null)
+    .select('*')
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'Flag not found' });
+  return res.json({ flag: data });
+});
+
+// ── All workspace domains (platform-wide directory) ────────────────────
+adminManagementRouter.get('/domains', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb
+    .from('workspace_domains')
+    .select('*, workspaces(name)')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ domains: data ?? [] });
+});
+
+// ── Login attempts for an email (security forensics) ───────────────────
+const loginAttemptsSchema = z.object({
+  email: z.string().min(3).max(320),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+adminManagementRouter.get('/login-attempts', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = loginAttemptsSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb
+    .from('login_attempts')
+    .select('*')
+    .ilike('email', parsed.data.email)
+    .order('created_at', { ascending: false })
+    .limit(parsed.data.limit);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ attempts: data ?? [] });
+});
+
+// ── Runtime config writes (admin-only keys) ────────────────────────────
+const RUNTIME_CONFIG_KEY_RE = /^[a-z0-9_]{3,80}$/;
+
+adminManagementRouter.get('/runtime-config/:key', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  if (!RUNTIME_CONFIG_KEY_RE.test(req.params.key)) return res.status(400).json({ error: 'Invalid key' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb
+    .from('app_runtime_config')
+    .select('key, value')
+    .eq('key', req.params.key)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ value: (data as { value?: unknown } | null)?.value ?? null });
+});
+
+adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  if (!RUNTIME_CONFIG_KEY_RE.test(req.params.key)) return res.status(400).json({ error: 'Invalid key' });
+  const body = req.body as { value?: unknown };
+  if (body?.value === undefined || body.value === null || typeof body.value !== 'object') {
+    return res.status(400).json({ error: 'Invalid input' });
+  }
+  // The auth provider is never DB-switchable — first-party gs_session auth
+  // is the sole identity system (see src/providers/sync.ts).
+  if (req.params.key === 'default_auth_provider') {
+    return res.status(400).json({ error: 'The auth provider cannot be changed at runtime.' });
+  }
+  const sb = getServiceClient(serverConfigOf(req));
+  const { error } = await sb
+    .from('app_runtime_config')
+    .upsert(
+      { key: req.params.key, value: body.value as any, updated_at: new Date().toISOString() },
+      { onConflict: 'key' },
+    );
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});
+
+adminManagementRouter.delete('/runtime-config/:key', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  if (!RUNTIME_CONFIG_KEY_RE.test(req.params.key)) return res.status(400).json({ error: 'Invalid key' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const { error } = await sb.from('app_runtime_config').delete().eq('key', req.params.key);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ success: true });
+});

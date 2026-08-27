@@ -488,32 +488,14 @@ export interface AdminUserSmsLog {
 }
 
 export async function adminGetUserMessages(userId: string, limit = 50) {
-  try {
-    return await request<{ emails: AdminUserEmailLog[]; sms: AdminUserSmsLog[] }>(
-      `/api/admin/users/${userId}/messages?limit=${limit}`,
-      undefined,
-    );
-  } catch {
-    // Fallback: read email logs straight from the database (global admins have
-    // a read policy on `email_logs`). SMS logs are service-role only, so they
-    // stay empty until the API route is reachable.
-    const { supabase } = await import('@/lib/supabase');
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('email')
-      .eq('id', userId)
-      .maybeSingle();
-    const email = (profile as any)?.email?.trim().toLowerCase();
-    if (!email) return { emails: [], sms: [] };
-    const { data, error } = await supabase
-      .from('email_logs')
-      .select('id, template_slug, recipient_email, subject, status, provider_name, error_message, metadata, created_at, sent_at')
-      .ilike('recipient_email', email)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-    if (error) throw error;
-    return { emails: (data ?? []) as AdminUserEmailLog[], sms: [] as AdminUserSmsLog[] };
-  }
+  // Email/SMS logs are platform-admin data: the only path is the first-party
+  // admin API (session-authenticated, service_role-backed). There is no
+  // browser-direct Supabase fallback — that used to depend on an
+  // `authenticated`/auth.uid() RLS policy that no longer applies.
+  return request<{ emails: AdminUserEmailLog[]; sms: AdminUserSmsLog[] }>(
+    `/api/admin/users/${userId}/messages?limit=${limit}`,
+    undefined,
+  );
 }
 
 export async function adminImpersonateUser(userId: string) {

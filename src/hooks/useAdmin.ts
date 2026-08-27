@@ -2,7 +2,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
 
-async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
+export async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     ...options,

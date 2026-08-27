@@ -80,27 +80,29 @@ export function AdminAuthStatusCard() {
         </CardContent>
       </Card>
 
-      <Card className="border-amber-500/30 bg-amber-500/5">
+      <Card className="border-emerald-500/30 bg-emerald-500/5">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2 text-amber-600 dark:text-amber-400">
+          <CardTitle className="text-sm flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
             <History className="h-4 w-4" />
-            GoTrue cutover readiness
+            GoTrue cutover
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400">
-            Legacy runtime dependency remains
+          <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-600 dark:text-emerald-400">
+            No runtime dependency
           </Badge>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            GoTrue is not used for identity, and no <code>/auth/v1</code> request is made at
-            runtime — but the browser Supabase client still has session persistence and token
-            auto-refresh enabled, and a small set of admin/settings screens still read or write
-            Supabase tables through RLS policies scoped to <code>auth.uid()</code>. Those screens
-            run as the anonymous role today and must be moved behind the first-party backend
-            before Supabase Auth can be switched off at the project level.
+            The dashboard no longer needs a Supabase Auth JWT. Every admin and workspace
+            operation that previously relied on <code>auth.uid()</code> RLS now runs through
+            narrow first-party Express endpoints authorized by the <code>gs_session</code>
+            cookie, and the browser Supabase client has session persistence, token
+            auto-refresh and URL session detection all disabled. No <code>/auth/v1</code>
+            request is made at runtime, so Supabase Auth can be switched off at the project
+            level.
           </p>
         </CardContent>
       </Card>
+
     </div>
   );
 }

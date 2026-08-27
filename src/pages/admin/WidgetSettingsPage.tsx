@@ -41,7 +41,7 @@ function policyBadge(p: PreChatPolicy | FeatureLockMode) {
 }
 
 export default function AdminWidgetSettingsPage() {
-  const { data: settings, isLoading } = useWidgetPlatformSettings();
+  const { data: settings, isLoading, error, refetch, isFetching } = useWidgetPlatformSettings();
   const updateMut = useUpdateWidgetPlatformSettings();
 
   // Voice / video gates live in the dedicated Voice & Video Center to avoid
@@ -51,15 +51,32 @@ export default function AdminWidgetSettingsPage() {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
   }
 
-  if (!settings) {
+  if (error || !settings) {
     return (
       <Card>
-        <CardContent className="p-6">
-          <p className="text-sm text-destructive">No platform widget settings row found. Please re-run the migration.</p>
+        <CardContent className="p-6 space-y-3">
+          <p className="text-sm font-medium text-destructive">
+            Could not load platform widget settings.
+          </p>
+          <p className="text-xs text-muted-foreground break-all whitespace-pre-wrap">
+            {error instanceof Error
+              ? error.message
+              : 'The backend returned no settings row and could not create one.'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Self-host checklist: (1) the backend must run with the Supabase service_role key,
+            (2) apply database/migrations/044_widget_platform_settings.sql and
+            046_widget_platform_settings_backend_only.sql, (3) confirm you are signed in as a
+            platform admin.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? 'Retrying…' : 'Retry'}
+          </Button>
         </CardContent>
       </Card>
     );
   }
+
 
   const update = (patch: Partial<typeof settings>) => {
     updateMut.mutate(

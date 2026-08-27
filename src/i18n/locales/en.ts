@@ -4092,7 +4092,8 @@ const en = {
       error: {
         duplicateBot: 'This bot is already connected to another workspace. Use a different bot.',
         invalidToken: 'Telegram rejected this token. Check it in @BotFather and try again.',
-        notConfigured: 'The channels runtime is not configured on this server yet.',
+        notConfigured: 'The channels runtime is not configured on this server yet. Set CHANNELS_WEBHOOK_SIGNING_KEY and PUBLIC_CHANNELS_BASE_URL.',
+        encryptionNotConfigured: 'Credential encryption (PLUGIN_SECRETS_MASTER_KEY) is not configured on this server, so the bot token cannot be stored.',
         webhookRejected: 'Telegram refused to register the webhook URL. Make sure it is publicly reachable over HTTPS.',
         verificationFailed: 'The webhook was registered but could not be verified. Try repairing it.',
       },

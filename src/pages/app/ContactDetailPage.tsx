@@ -307,14 +307,9 @@ export default function ContactDetailPage() {
                 <TabsContent value="overview" className="mt-4">
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-4">
-                      {editing ? (
-                        <>
-                          <Field label={t('contacts.name')}><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} /></Field>
-                          <Field label={t('contacts.email')}><Input type="email" dir="ltr" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></Field>
-                          <Field label={t('contacts.phone')}><Input dir="ltr" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></Field>
-                        </>
-                      ) : (
+                      {(
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
                           <Row icon={UserIcon} label={t('contacts.name')} value={getDisplayName(contact, t, networkProfile?.geo, locale)} />
                           <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
                           <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />

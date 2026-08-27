@@ -15,6 +15,9 @@ import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
 import { useTranslation } from '@/i18n';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { IdentityRowSkeleton } from '@/components/common/IdentitySkeleton';
+import { contactDisplayName } from '@/lib/contact-display';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];

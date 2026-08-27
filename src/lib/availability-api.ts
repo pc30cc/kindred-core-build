@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * User availability API — self-hosted Express endpoint.
  * Always sends a fresh Supabase JWT to avoid stale tokens.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {

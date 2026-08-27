@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import {
   smartRuleSchema,
   validateSmartRuleForPublish,
@@ -8,7 +9,7 @@ import {
 } from '@/lib/widget/smartRules';
 
 const TABLE = 'widget_smart_rules';
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /** Server-side publish boundary — never write status:'active' directly. */

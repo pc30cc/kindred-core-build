@@ -66,8 +66,9 @@ import {
   setOperatorMessageSoundEnabled,
 } from '@/features/notifications/operatorMessageSound';
 import { Volume2, VolumeX } from 'lucide-react';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'application/pdf', 'text/plain',

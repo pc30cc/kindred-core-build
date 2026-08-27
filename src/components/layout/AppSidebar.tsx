@@ -36,6 +36,7 @@ import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 /** Colorful icon chip shared by every sidebar entry. */
 function NavChip({
@@ -111,7 +112,7 @@ export function AppSidebar() {
     queryKey: ['workspace-primary-domain', workspace?.id],
     enabled: !!workspace,
     queryFn: async () => {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/workspaces/${workspace!.id}/primary-domain`, { credentials: 'include' });
+      const res = await fetch(`${RESOLVED_API_BASE}/api/workspaces/${workspace!.id}/primary-domain`, { credentials: 'include' });
       if (!res.ok) return null;
       const { domain } = await res.json();
       return domain as string | null;

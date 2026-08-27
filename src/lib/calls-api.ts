@@ -1,3 +1,4 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 8B - Operator-side calls API client.
  *
@@ -5,7 +6,7 @@
  * returns server-minted LiveKit JWT + dynamic TURN credentials. URLs
  * always come from the resolver - never hardcoded here.
  */
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(API_BASE + path, {

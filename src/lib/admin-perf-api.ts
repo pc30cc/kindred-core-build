@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 5A — Admin performance API client.
  * All endpoints require global admin (server-enforced).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 export type PerfRange = '1h' | '24h';
 

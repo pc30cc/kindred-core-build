@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 6A — Realtime control-plane admin client.
  * Talks to the self-hosted Express backend (NEVER edge functions).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 export type RealtimeProviderId =
   | 'centrifugo'

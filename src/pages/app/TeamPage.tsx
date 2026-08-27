@@ -24,8 +24,9 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 // Team/invitation management goes through the backend (gs_session cookie
 // + service_role) rather than direct supabase.from() calls — the

@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Super-admin Global Advanced Routing API client.
  * All endpoints require global admin role (server-enforced).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 export interface GlobalAdvancedRoutingPolicy {
   owner_fallback_enabled: boolean;

@@ -3,8 +3,9 @@
  * All I/O goes through the self-hosted Express API (/api/team-chat).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

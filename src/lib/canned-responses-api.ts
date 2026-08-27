@@ -1,3 +1,4 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 6 — Canned responses API client.
  *
@@ -10,7 +11,7 @@
  */
 
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 export type CannedLocale = 'en' | 'fa' | 'tr';
 

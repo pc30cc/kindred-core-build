@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Operator activity API — self-hosted Express endpoints.
  *   POST /api/operator-activity/heartbeat
  *   GET  /api/operator-activity/:workspaceId/stats?days=
  */
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 export interface OperatorActivityRow {
   user_id: string;

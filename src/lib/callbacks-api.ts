@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 8D — Callback request API client (operator-side).
  * Visitor-side callback creation flows through the widget runtime.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 export type CallbackChannel = 'audio' | 'video';
 export type CallbackStatus =

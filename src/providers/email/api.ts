@@ -5,8 +5,9 @@
 // ============================================
 
 import type { EmailProvider, EmailMessage } from '@/types/providers';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 /**
  * Creates an EmailProvider that routes through the self-hosted backend API.

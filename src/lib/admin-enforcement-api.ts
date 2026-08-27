@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 7.5 — Admin enforcement client.
  * All endpoints require global admin (server-enforced).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 export type EnforcementTriggerType = 'slo_breach' | 'health_score' | 'alert_rate';
 

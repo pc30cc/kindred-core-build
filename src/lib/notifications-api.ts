@@ -1,8 +1,9 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Notification preferences API — self-hosted Express endpoint.
  * Auth is the first-party gs_session HttpOnly cookie (credentials: 'include').
  */
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {

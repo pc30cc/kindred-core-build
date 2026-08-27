@@ -1,3 +1,4 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 export type WidgetUrlTestKind =
   | 'loader'
   | 'manifest'
@@ -21,7 +22,7 @@ export interface WidgetUrlTestResult {
 function apiBase(): string {
   // Backend lives at the same origin in the standard self-host deployment.
   // This call goes through the platform admin API only — never embedded code.
-  return import.meta.env.VITE_API_BASE_URL || window.location.origin;
+  return RESOLVED_API_BASE || window.location.origin;
 }
 
 export async function testWidgetUrl(input: {

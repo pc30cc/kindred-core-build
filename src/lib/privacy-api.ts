@@ -1,8 +1,9 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Privacy API client. Auth is the first-party gs_session HttpOnly cookie
  * (credentials: 'include').
  */
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 export type PrivacyAction = 'export' | 'delete';
 export type PrivacySubjectType = 'contact' | 'visitor' | 'user';

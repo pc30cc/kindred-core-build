@@ -388,13 +388,10 @@ export default function TeamPage() {
                   const isOwner = m.role === 'owner';
                   const isCurrentUser = m.user_id === user?.id;
                   const presence = presenceByUser.get(m.user_id);
-                  const state = presence?.state;
-                  const isOnline = state === 'online';
-                  const isAway = state === 'away' || state === 'idle';
+                  // Presence is a binary online/offline signal server-side.
+                  const isOnline = presence?.state === 'online';
                   const statusLabel = isOnline
                     ? t('dashboard.statusOnline')
-                    : isAway
-                    ? t('dashboard.statusAway')
                     : t('dashboard.statusOffline');
                   return (
                     <div key={m.id} className="flex items-center gap-4 px-6 py-4 hover:bg-muted/40 transition-colors">

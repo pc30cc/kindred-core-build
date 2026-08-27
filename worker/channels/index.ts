@@ -23,6 +23,8 @@ import {
   claimChannelJobs,
   completeChannelJob,
   failChannelJob,
+  releaseChannelJob,
+
   isChannelJobType,
   recordAttempt,
   type ChannelJob,

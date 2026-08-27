@@ -120,6 +120,24 @@ interface RecoveryEmailOptions {
   locale?: string;
 }
 
+/**
+ * Localized "valid for N hours" label used inside auth email templates.
+ * The templates only interpolate {{expiry_time}}, so the string itself must
+ * already be in the recipient's language — otherwise Persian/Turkish emails
+ * show an English duration.
+ */
+function expiryLabel(locale: string | undefined, hours: number): string {
+  switch ((locale || 'en').slice(0, 2)) {
+    case 'fa':
+      return `${hours} ساعت`;
+    case 'tr':
+      return `${hours} saat`;
+    default:
+      return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+}
+
+
 export async function issueVerificationEmail(
   config: ServerConfig,
   options: VerificationEmailOptions,

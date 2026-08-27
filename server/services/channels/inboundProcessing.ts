@@ -87,7 +87,7 @@ async function ensureChannelConversation(
   sb: any,
   input: NormalizedInboundMessage,
   contactId: string | null,
-): Promise<{ id: string; created: boolean } | null> {
+): Promise<{ id: string; created: boolean }> {
   const threadKey = `${input.provider}:${input.integrationId}:${input.externalChatId}`;
 
   const { data: open } = await sb
@@ -107,7 +107,6 @@ async function ensureChannelConversation(
       workspace_id: input.workspaceId,
       contact_id: contactId,
       status: 'open',
-      channel: input.provider,
       subject: null,
       metadata: {
         channel: input.provider,
@@ -121,7 +120,7 @@ async function ensureChannelConversation(
     .single();
   if (error) {
     console.error('[channels] conversation creation failed:', error.message);
-    return null;
+    throw new Error(`conversation creation failed: ${error.message}`);
   }
   return { id: (conv as any).id as string, created: true };
 }
@@ -143,9 +142,29 @@ export async function processInboundMessage(
     status: 'processing',
   });
   if (dedupeError) {
-    // Unique violation ⇒ already ingested. Any other error is fatal.
-    if ((dedupeError as any).code === '23505') return { status: 'duplicate' };
-    throw new Error(`inbound dedupe failed: ${dedupeError.message}`);
+    // A processed event is a true duplicate. A previously failed event must
+    // be reclaimable after its underlying defect is repaired; otherwise the
+    // queue retry would be acknowledged while the message remains lost.
+    if ((dedupeError as any).code === '23505') {
+      const { data: existing, error: existingError } = await sb
+        .from('channel_inbound_events')
+        .select('status')
+        .eq('integration_id', input.integrationId)
+        .eq('external_event_id', input.providerEventId)
+        .maybeSingle();
+      if (existingError) throw new Error(`inbound dedupe lookup failed: ${existingError.message}`);
+      if ((existing as any)?.status !== 'failed') return { status: 'duplicate' };
+
+      const { error: reclaimError } = await sb
+        .from('channel_inbound_events')
+        .update({ status: 'processing', last_error: null, processed_at: null })
+        .eq('integration_id', input.integrationId)
+        .eq('external_event_id', input.providerEventId)
+        .eq('status', 'failed');
+      if (reclaimError) throw new Error(`inbound retry claim failed: ${reclaimError.message}`);
+    } else {
+      throw new Error(`inbound dedupe failed: ${dedupeError.message}`);
+    }
   }
 
   const finish = async (status: string, detail: Record<string, unknown> = {}) => {
@@ -159,10 +178,6 @@ export async function processInboundMessage(
   try {
     const contactId = await ensureChannelContact(sb, input);
     const conversation = await ensureChannelConversation(sb, input, contactId);
-    if (!conversation) {
-      await finish('failed', { last_error: 'conversation_creation_failed' });
-      return { status: 'ignored' };
-    }
 
     if (conversation.created) {
       void recordConversationEvent(config, {

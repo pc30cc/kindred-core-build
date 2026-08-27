@@ -11,6 +11,7 @@ import {
   publishConversationEvent,
   buildMessageEnvelope,
 } from '../realtime/publish.js';
+import { ensureOutboundIntent } from '../channels/outbound.js';
 import type { AgentSettings } from './settings.js';
 
 export interface InsertAiMessageInput {
@@ -74,6 +75,21 @@ export async function insertAiMessage(
     .from('conversations')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', input.conversationId);
+
+  // The DB trigger is the crash-safe primary path. Reconcile here as a
+  // compatibility backstop for deployments whose channel trigger has not yet
+  // been migrated to accept sender_type='ai'. The message-id unique index
+  // keeps this idempotent when the trigger already created the job.
+  try {
+    await ensureOutboundIntent(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      messageId: row.id,
+      body: input.body,
+    });
+  } catch (e: any) {
+    console.warn('[ai-agent] outbound reconciliation failed:', e?.message || e);
+  }
 
   // Realtime fan-out: same envelope as operator messages.
   try {

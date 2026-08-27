@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useBranding } from '@/hooks/useBranding';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, useInboxTabCounts, type InboxQueue } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
@@ -199,6 +200,7 @@ export default function InboxPage() {
   const { t, dir, locale } = useTranslation();
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
+  const { data: wsBranding } = useBranding(workspace?.id);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { slug: wsSlug } = useParams();
@@ -1415,9 +1417,18 @@ export default function InboxPage() {
       )}>
         {!selected ? (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-background px-6 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
-              <MessageCircle className="h-8 w-8 text-primary-foreground" />
-            </div>
+            {wsBranding?.logo_url ? (
+              <img
+                src={wsBranding.logo_url}
+                alt={workspace?.name || 'workspace logo'}
+                className="w-16 h-16 mb-4 rounded-2xl object-contain bg-card p-2 border border-border"
+                style={{ boxShadow: 'var(--shadow-glow)' }}
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
+                <MessageCircle className="h-8 w-8 text-primary-foreground" />
+              </div>
+            )}
             <h2 className="text-lg font-semibold text-foreground">{workspace?.name || t('nav.inbox') || 'Inbox'}</h2>
             <p className="text-sm text-muted-foreground mt-1 max-w-xs">
               {t('inbox.selectConversation') || 'Select a conversation to start replying'}

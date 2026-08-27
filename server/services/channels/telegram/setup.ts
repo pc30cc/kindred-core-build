@@ -262,8 +262,13 @@ export async function disconnectTelegramBot(
   // Local acceptance is invalidated regardless of the provider outcome:
   // the credential is destroyed and the integration can no longer ingest.
   await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => {});
+  await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_PENDING_KEY).catch(() => {});
 
   if (!integration) return { integration: false, webhookRemoved, webhookError };
+
+  // Disconnect RELEASES bot ownership so another workspace may legitimately
+  // claim the same bot. Re-connecting later must win the reservation again.
+  await releaseProviderAccount(config, integration.id).catch(() => {});
 
   await updateIntegration(config, integration.id, {
     status: 'disconnected',
@@ -272,6 +277,7 @@ export async function disconnectTelegramBot(
     last_error_code: webhookError ? 'webhook_delete_failed' : null,
     last_error_at: webhookError ? new Date().toISOString() : null,
   });
+
 
   return { integration: true, webhookRemoved, webhookError };
 }

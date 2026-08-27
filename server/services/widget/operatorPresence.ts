@@ -26,6 +26,10 @@ type DayKey = (typeof DAY_KEYS)[number];
 export interface OperatorPresence {
   user_id: string;
   state: 'online' | 'offline';
+  /** Identity fields, filled from `profiles` so UIs can render name + avatar. */
+  full_name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
   reason:
     | 'force_offline'
     | 'available_when_using_app'

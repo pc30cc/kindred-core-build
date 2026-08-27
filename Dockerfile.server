@@ -2,6 +2,15 @@
 FROM node:20-alpine
 WORKDIR /app
 
+# Build identity — stamped in so /internal/channels/ready and
+# /internal/channels/auth-diagnostic can PROVE which commit answered a
+# request instead of reporting build=unknown forever. Pass --build-arg
+# APP_VERSION=$(git rev-parse --short HEAD) (docker-compose.yml and
+# COOLIFY_DEPLOY.md do this); falls back to "unknown" only if the builder
+# genuinely never supplied one.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=${APP_VERSION}
+
 # Copy and install server dependencies
 COPY server/package.json server/package-lock.json* ./
 RUN npm install

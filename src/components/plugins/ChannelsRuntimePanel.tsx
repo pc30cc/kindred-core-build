@@ -72,7 +72,7 @@ export function ChannelsRuntimePanel() {
     onSuccess: (result) => {
       toast({
         title: t('plugins.runtime.requeued'),
-        description: t('plugins.runtime.requeuedCount', { count: result.requeued }),
+        description: t('plugins.runtime.requeuedCount', { count: String(result.requeued) }),
       });
       qc.invalidateQueries({ queryKey: ['admin', 'channels', 'health'] });
     },

@@ -254,10 +254,36 @@ internalChannelsRouter.get('/health', async (req: any, res) => {
   }
 });
 
+/**
+ * The contract this Core build actually serves. Exposed on the diagnostic and
+ * readiness endpoints so a caller that gets a 404 can PROVE whether it is
+ * talking to a stale Core deployment (or an entirely different service)
+ * instead of guessing. No secrets, no data — just handler names.
+ */
+export const INTERNAL_CHANNEL_ROUTES = [
+  'POST /ingest',
+  'POST /process-inbound',
+  'POST /outbound-result',
+  'POST /heartbeat',
+  'POST /profile-sync',
+  'POST /webhook-repair',
+  'GET /health',
+  'GET /ready',
+] as const;
+
+const CORE_BUILD =
+  process.env.APP_VERSION || process.env.GIT_SHA || process.env.SOURCE_COMMIT || null;
+
 /** GET /ready — used by the Gateway's readiness probe. No secrets. */
 internalChannelsRouter.get('/ready', (_req, res) => {
-  res.json({ ok: true, service: 'core-internal-channels' });
+  res.json({
+    ok: true,
+    service: 'core-internal-channels',
+    build: CORE_BUILD,
+    routes: INTERNAL_CHANNEL_ROUTES,
+  });
 });
+
 
 /**
  * POST /profile-sync — the Worker asks Core to push bot branding to the

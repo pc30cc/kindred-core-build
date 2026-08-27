@@ -37,7 +37,7 @@ import {
   getCompanyFromMetadata, getLocalizedLocation, getScoreFromMetadata,
   exportContactsToCSV, downloadFile,
 } from '@/features/contacts/utils';
-import { isAnonymousContact } from '@/lib/contact-display';
+
 import { useVisitorNetworkBatchByContact } from '@/hooks/useVisitorNetwork';
 
 type SortKey = 'name' | 'email' | 'company' | 'last_active' | 'score';

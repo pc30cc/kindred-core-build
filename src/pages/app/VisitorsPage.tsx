@@ -23,7 +23,7 @@ import {
   Search, Eye, Globe2, Users, FileText, Monitor, MapPin,
   RefreshCcw, AlertTriangle, Wifi, MessageSquare, X, Flame,
 } from 'lucide-react';
-import { OsAvatar } from '@/components/visitors/OsIcon';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { localizedCountryName } from '@/lib/geo/countryLocalization';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 import { contactDisplayName } from '@/lib/contact-display';

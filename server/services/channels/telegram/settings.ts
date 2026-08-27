@@ -81,12 +81,28 @@ function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
   }
 }
 
-const DEFAULT_COMMANDS: Record<TelegramCommandKey, string> = {
-  start: 'Start the conversation',
-  help: 'Show available commands',
-  human: 'Talk to a human teammate',
-  new: 'Start a new conversation',
+const DEFAULT_COMMANDS_BY_LOCALE: Record<TelegramLocale, Record<TelegramCommandKey, string>> = {
+  en: {
+    start: 'Start the conversation',
+    help: 'Show available commands',
+    human: 'Talk to a human teammate',
+    new: 'Start a new conversation',
+  },
+  fa: {
+    start: 'شروع گفتگو',
+    help: 'نمایش دستورهای موجود',
+    human: 'گفتگو با همکار انسانی',
+    new: 'شروع گفتگوی تازه',
+  },
+  tr: {
+    start: 'Görüşmeyi başlat',
+    help: 'Komutları göster',
+    human: 'Bir temsilciyle konuş',
+    new: 'Yeni görüşme başlat',
+  },
 };
+
+const DEFAULT_COMMANDS: Record<TelegramCommandKey, string> = { ...DEFAULT_COMMANDS_BY_LOCALE.en };
 
 export function defaultTelegramSettings(): TelegramSettings {
   return {
@@ -97,9 +113,15 @@ export function defaultTelegramSettings(): TelegramSettings {
       tr: defaultLocaleMessages('tr'),
     },
     commands: { ...DEFAULT_COMMANDS },
+    commandLocales: {
+      en: { ...DEFAULT_COMMANDS_BY_LOCALE.en },
+      fa: { ...DEFAULT_COMMANDS_BY_LOCALE.fa },
+      tr: { ...DEFAULT_COMMANDS_BY_LOCALE.tr },
+    },
     handlingMode: 'human_only',
   };
 }
+
 
 function str(value: unknown, max: number, fallback: string): string {
   return typeof value === 'string' ? value.slice(0, max) : fallback;

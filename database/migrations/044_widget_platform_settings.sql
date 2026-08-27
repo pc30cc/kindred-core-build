@@ -99,9 +99,10 @@ CREATE TRIGGER trg_widget_platform_settings_touch
   BEFORE UPDATE ON public.widget_platform_settings
   FOR EACH ROW EXECUTE FUNCTION public.widget_platform_settings_touch();
 
--- Grants: reads are needed by the widget runtime path; writes go through the
--- first-party backend using the service role only.
-GRANT SELECT ON public.widget_platform_settings TO anon;
+-- Grants: this row holds secrets (alert_webhook_secret) and admin-only
+-- metadata (admin_notes, alert_webhook_url, updated_by). NO anon access.
+-- All reads/writes go through the first-party backend with service_role.
+REVOKE ALL   ON public.widget_platform_settings FROM anon;
 GRANT SELECT ON public.widget_platform_settings TO authenticated;
 GRANT ALL    ON public.widget_platform_settings TO service_role;
 
@@ -111,20 +112,37 @@ DROP POLICY IF EXISTS "Authenticated can read widget platform settings" ON publi
 CREATE POLICY "Authenticated can read widget platform settings"
   ON public.widget_platform_settings FOR SELECT TO authenticated USING (true);
 
+-- Never expose the full row to anon.
 DROP POLICY IF EXISTS "Anon can read widget platform settings" ON public.widget_platform_settings;
-CREATE POLICY "Anon can read widget platform settings"
-  ON public.widget_platform_settings FOR SELECT TO anon USING (true);
 
 -- Seed the singleton row (no-op when one already exists).
 INSERT INTO public.widget_platform_settings DEFAULT VALUES
 ON CONFLICT DO NOTHING;
 
 -- Helper RPC used by widget runtime paths.
+-- SANITIZED: explicit allowlist of non-secret runtime fields only.
+-- MUST NOT use to_jsonb(s.*) — the row contains alert_webhook_secret.
 CREATE OR REPLACE FUNCTION public.get_widget_platform_settings()
 RETURNS jsonb
 LANGUAGE sql
 STABLE SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT to_jsonb(s.*) FROM public.widget_platform_settings s LIMIT 1;
+  SELECT jsonb_build_object(
+    'max_message_length', s.max_message_length,
+    'rate_limit_messages_per_minute', s.rate_limit_messages_per_minute,
+    'default_welcome_message', s.default_welcome_message,
+    'realtime_reconnect_jitter_pct', s.realtime_reconnect_jitter_pct,
+    'realtime_pending_max', s.realtime_pending_max,
+    'realtime_message_dedupe_enabled', s.realtime_message_dedupe_enabled,
+    'realtime_message_dedupe_window', s.realtime_message_dedupe_window
+  )
+  FROM public.widget_platform_settings s
+  LIMIT 1;
 $$;
+
+REVOKE ALL ON FUNCTION public.get_widget_platform_settings() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_widget_platform_settings() TO anon;
+GRANT EXECUTE ON FUNCTION public.get_widget_platform_settings() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_widget_platform_settings() TO service_role;
+

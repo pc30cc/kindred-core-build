@@ -100,6 +100,7 @@ export async function handleTelegramInboundFlow(
   input: NormalizedInboundMessage,
   conversationId: string,
 ): Promise<TelegramInboundFlowResult> {
+  const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, input.senderLanguage);
   try {
     const installation = await getInstallation(config, input.workspaceId, 'telegram');
     const settings = parseTelegramSettings(installation?.settings);
@@ -107,16 +108,17 @@ export async function handleTelegramInboundFlow(
     const aiAllowed = mode === 'ai_first';
 
     const command = commandKeyFromText(input.text);
-    if (!command || !installation) return { aiAllowed, handled: false };
+    if (!command || !installation) return { aiAllowed, handled: false, locale };
 
-    const replyText = renderCommandReply(settings, command, input.senderLanguage);
+    const replyText = renderCommandReply(settings, command, locale, fallbackLocale);
     const sent = await sendTelegramReply(config, installation.id, input.externalChatId, replyText, settings);
     void conversationId; // command replies do not need the conversation row, only the chat id
-    return { aiAllowed, handled: sent };
+    return { aiAllowed, handled: sent, locale };
   } catch (err) {
     console.warn('[telegram] inbound flow error:', err instanceof Error ? err.message : err);
-    return { aiAllowed: false, handled: false };
+    return { aiAllowed: false, handled: false, locale };
   }
+
 }
 
 async function sendTelegramReply(

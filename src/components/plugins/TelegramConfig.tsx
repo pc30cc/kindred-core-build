@@ -79,6 +79,16 @@ export function TelegramConfig({
   const [botName, setBotName] = useState('');
   const [shortDescription, setShortDescription] = useState('');
   const [description, setDescription] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [handlingMode, setHandlingMode] = useState<'human_only' | 'ai_first'>('human_only');
+  const [locale, setLocale] = useState<'en' | 'fa' | 'tr'>('en');
+  const [locales, setLocales] = useState<Record<'en' | 'fa' | 'tr', { welcome: string; help: string; offline: string; handoff: string; fallback: string }>>({
+    en: { welcome: '', help: '', offline: '', handoff: '', fallback: '' },
+    fa: { welcome: '', help: '', offline: '', handoff: '', fallback: '' },
+    tr: { welcome: '', help: '', offline: '', handoff: '', fallback: '' },
+  });
+  const [commands, setCommands] = useState({ start: '', help: '', human: '', new: '' });
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const { data: status, isLoading } = useQuery({
     queryKey: ['plugins', 'telegram', 'status', workspaceId],
@@ -87,6 +97,19 @@ export function TelegramConfig({
   });
 
   const integration = status?.integration ?? null;
+
+  useEffect(() => {
+    if (!status?.settings || settingsLoaded) return;
+    const s = status.settings;
+    setPhotoUrl(s.profile.photoUrl);
+    setHandlingMode(s.handlingMode);
+    setLocales(s.locales);
+    setCommands(s.commands);
+    if (!botName) setBotName(s.profile.name || botName);
+    if (!shortDescription) setShortDescription(s.profile.shortDescription);
+    if (!description) setDescription(s.profile.description);
+    setSettingsLoaded(true);
+  }, [status?.settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (integration?.botName && !botName) setBotName(integration.botName);
@@ -142,12 +165,29 @@ export function TelegramConfig({
       toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
   });
 
+  const saveSettings = useMutation({
+    mutationFn: () =>
+      pluginsApi.updateSettings(workspaceId, 'telegram', {
+        profile: { name: botName.trim(), shortDescription: shortDescription.trim(), description: description.trim(), photoUrl: photoUrl.trim() },
+        locales,
+        commands,
+        handlingMode,
+      }),
+    onSuccess: () => {
+      toast({ title: t('plugins.telegram.settingsSaved') });
+      refresh();
+    },
+    onError: (err: any) =>
+      toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
+  });
+
   const applyProfile = useMutation({
     mutationFn: () =>
       pluginsApi.telegramProfile(workspaceId, {
         name: botName.trim() || undefined,
         short_description: shortDescription.trim() || undefined,
         description: description.trim() || undefined,
+        commands: Object.entries(commands).map(([command, description]) => ({ command, description })),
       }),
     onSuccess: () => {
       toast({ title: t('plugins.telegram.brandingApplied') });
@@ -322,6 +362,71 @@ export function TelegramConfig({
                   >
                     {applyProfile.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
                     {t('plugins.telegram.applyBranding')}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {status?.hasToken && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <Label htmlFor="telegram-photo-url">{t('plugins.telegram.photoUrl')}</Label>
+                  <Input id="telegram-photo-url" dir="ltr" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">{t('plugins.telegram.photoUrlHint')}</p>
+
+                  <Label>{t('plugins.telegram.handlingMode')}</Label>
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" variant={handlingMode === 'human_only' ? 'default' : 'outline'} onClick={() => setHandlingMode('human_only')}>
+                      {t('plugins.telegram.handlingModeHumanOnly')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={handlingMode === 'ai_first' ? 'default' : 'outline'}
+                      disabled={status?.aiAvailable === false}
+                      onClick={() => setHandlingMode('ai_first')}
+                    >
+                      {t('plugins.telegram.handlingModeAiFirst')}
+                    </Button>
+                  </div>
+                  {status?.aiAvailable === false && (
+                    <p className="text-xs text-muted-foreground">{t('plugins.telegram.aiUnavailable')}</p>
+                  )}
+
+                  <div className="flex gap-2">
+                    {(['en', 'fa', 'tr'] as const).map((l) => (
+                      <Button key={l} type="button" size="sm" variant={locale === l ? 'default' : 'outline'} onClick={() => setLocale(l)}>
+                        {t(`plugins.telegram.locale.${l}` as never)}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="space-y-2" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
+                    {(['welcome', 'help', 'offline', 'handoff', 'fallback'] as const).map((key) => (
+                      <div key={key} className="space-y-1">
+                        <Label>{t(`plugins.telegram.message.${key}` as never)}</Label>
+                        <Textarea
+                          rows={2}
+                          value={locales[locale][key]}
+                          onChange={(e) => setLocales((prev) => ({ ...prev, [locale]: { ...prev[locale], [key]: e.target.value } }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <Label>{t('plugins.telegram.commandsTitle')}</Label>
+                  <div className="space-y-2">
+                    {(['start', 'help', 'human', 'new'] as const).map((key) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <Badge variant="outline" dir="ltr">/{key}</Badge>
+                        <Input value={commands[key]} onChange={(e) => setCommands((prev) => ({ ...prev, [key]: e.target.value }))} />
+                      </div>
+                    ))}
+                  </div>
+
+                  <Button type="button" size="sm" disabled={saveSettings.isPending} onClick={() => saveSettings.mutate()}>
+                    {saveSettings.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+                    {t('plugins.telegram.saveSettings')}
                   </Button>
                 </div>
               </>

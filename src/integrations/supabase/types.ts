@@ -9089,6 +9089,14 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      claim_channel_provider_account: {
+        Args: {
+          _external_account_id: string
+          _integration_id: string
+          _provider: string
+        }
+        Returns: string
+      }
       claim_conversation: {
         Args: {
           p_conversation_id: string
@@ -9446,6 +9454,10 @@ export type Database = {
           _raw_domain: string
           _workspace_id: string
         }
+        Returns: undefined
+      }
+      release_channel_provider_account: {
+        Args: { _integration_id: string }
         Returns: undefined
       }
       resolve_privacy_subject: {

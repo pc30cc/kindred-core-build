@@ -57,10 +57,27 @@ export interface PluginCatalogItem {
   installationId: string | null;
 }
 
+export type TelegramLocale = 'en' | 'fa' | 'tr';
+export type TelegramHandlingMode = 'human_only' | 'ai_first';
+export interface TelegramLocaleMessages {
+  welcome: string;
+  help: string;
+  offline: string;
+  handoff: string;
+  fallback: string;
+}
+export interface TelegramSettings {
+  profile: { name: string; shortDescription: string; description: string; photoUrl: string };
+  locales: Record<TelegramLocale, TelegramLocaleMessages>;
+  commands: { start: string; help: string; human: string; new: string };
+  handlingMode: TelegramHandlingMode;
+}
+
 export interface TelegramStatus {
   installed: boolean;
   status?: string;
-  settings?: Record<string, unknown>;
+  settings?: TelegramSettings;
+  aiAvailable?: boolean;
   hasToken?: boolean;
   integration?: {
     status: string;

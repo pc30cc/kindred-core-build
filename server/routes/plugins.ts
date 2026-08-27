@@ -46,6 +46,7 @@ import {
   repairTelegramWebhook,
   telegramDiagnostics,
 } from '../services/channels/telegram/setup.js';
+import { parseTelegramSettings, sanitizeTelegramSettingsForSave, resolveTelegramHandlingMode } from '../services/channels/telegram/settings.js';
 import { getServiceClient } from '../supabase.js';
 import { queueMetrics } from '../services/channels/jobs.js';
 
@@ -305,10 +306,16 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
       return res.json({ installed: false });
     }
     const integration = await getIntegrationForInstallation(config, installation.id);
+    const telegramSettings = parseTelegramSettings(installation.settings);
+    const { aiAvailable } = await resolveTelegramHandlingMode(config, workspaceId, telegramSettings.handlingMode);
     res.json({
       installed: true,
       status: installation.status,
-      settings: installation.settings ?? {},
+      // Merged with defaults so the UI never has to guess at missing keys.
+      // `bot_token` never lives in this object — it is stored separately,
+      // encrypted, and never read back (see `hasToken` below).
+      settings: telegramSettings,
+      aiAvailable,
       hasToken: await hasPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY),
       integration: integration
         ? {
@@ -460,8 +467,18 @@ pluginsRouter.put('/settings', async (req: any, res) => {
     if (!installation) return res.status(404).json({ error: 'Plugin is not installed' });
     // Settings never carry credentials.
     delete (settings as any).bot_token;
-    await updateInstallationSettings(config, installation.id, settings);
-    res.json({ ok: true });
+
+    let toPersist: Record<string, unknown> = settings;
+    if (pluginId === 'telegram') {
+      // Deep-merge onto the existing (already-defaulted) settings so a
+      // partial save (e.g. only the `fa` locale) never wipes other locales,
+      // and downgrade ai_first → human_only when the AI entitlement is gone.
+      const merged = parseTelegramSettings({ ...parseTelegramSettings(installation.settings), ...settings });
+      toPersist = await sanitizeTelegramSettingsForSave(config, workspaceId, merged);
+    }
+
+    await updateInstallationSettings(config, installation.id, toPersist);
+    res.json({ ok: true, settings: pluginId === 'telegram' ? toPersist : undefined });
   } catch (err) {
     console.error('[plugins] settings update failed:', err);
     res.status(500).json({ error: 'Failed to update plugin settings' });

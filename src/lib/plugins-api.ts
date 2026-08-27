@@ -66,10 +66,12 @@ export interface TelegramLocaleMessages {
   handoff: string;
   fallback: string;
 }
+export type TelegramCommandLabels = { start: string; help: string; human: string; new: string };
 export interface TelegramSettings {
   profile: { name: string; shortDescription: string; description: string; photoUrl: string };
   locales: Record<TelegramLocale, TelegramLocaleMessages>;
-  commands: { start: string; help: string; human: string; new: string };
+  commands: TelegramCommandLabels;
+  commandLocales: Record<TelegramLocale, TelegramCommandLabels>;
   handlingMode: TelegramHandlingMode;
 }
 
@@ -78,7 +80,14 @@ export interface TelegramStatus {
   status?: string;
   settings?: TelegramSettings;
   aiAvailable?: boolean;
+  aiAgent?: {
+    platformAllowed: boolean;
+    platformReason: string | null;
+    agentEnabled: boolean;
+    agentMode: string | null;
+  } | null;
   hasToken?: boolean;
+
   integration?: {
     status: string;
     botUsername: string | null;

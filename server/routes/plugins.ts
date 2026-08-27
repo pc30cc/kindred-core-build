@@ -12,6 +12,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
+import { redactSecrets } from '../lib/redactSecrets.js';
 import { checkChannelAccess, checkModuleAccess } from '../middleware/featureGating.js';
 import { PLUGIN_REGISTRY, getPluginDefinition } from '../plugins/registry.js';
 import {
@@ -228,11 +229,24 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
   try {
     const config = serverConfigOf(req);
     if (!pluginCryptoReady(config)) {
-      return res.status(503).json({ error: 'Credential encryption is not configured on this server' });
+      return res.status(503).json({
+        error: 'telegram_connect_failed',
+        reason: 'encryption_not_configured',
+        details: 'PLUGIN_SECRETS_MASTER_KEY is not set on this server',
+      });
     }
-    if (!config.channelsWebhookSigningKey || !config.publicChannelsBaseUrl) {
-      return res.status(503).json({ error: 'Channels runtime is not configured on this server' });
+    const missingChannelEnv = [
+      config.channelsWebhookSigningKey ? null : 'CHANNELS_WEBHOOK_SIGNING_KEY',
+      config.publicChannelsBaseUrl ? null : 'PUBLIC_CHANNELS_BASE_URL',
+    ].filter(Boolean);
+    if (missingChannelEnv.length) {
+      return res.status(503).json({
+        error: 'telegram_connect_failed',
+        reason: 'channels_not_configured',
+        details: `Missing server configuration: ${missingChannelEnv.join(', ')}`,
+      });
     }
+
 
     const availability = await resolveAvailability(req, workspaceId, 'telegram');
     if (!availability.ok) return res.status(403).json({ error: 'Plugin unavailable', reason: availability.reason });
@@ -263,13 +277,19 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
   } catch (err) {
     if (err instanceof TelegramConnectError) {
       const status = err.code === 'duplicate_bot' ? 409 : err.code === 'not_configured' ? 503 : 502;
-      console.error(`[plugins] telegram connect failed: ${err.code}`);
-      return res.status(status).json({ error: 'telegram_connect_failed', reason: err.code });
+      console.error(`[plugins] telegram connect failed: ${err.code}: ${err.message}`);
+      // `message` is already token-redacted by the setup service.
+      return res
+        .status(status)
+        .json({ error: 'telegram_connect_failed', reason: err.code, details: err.message });
     }
-    const message = err instanceof Error ? err.message : 'unknown error';
+    const message = redactSecrets(err instanceof Error ? err.message : 'unknown error') ?? 'unknown error';
     console.error('[plugins] telegram connect failed:', message);
-    res.status(502).json({ error: 'telegram_connect_failed', reason: 'unexpected_error' });
+    res
+      .status(502)
+      .json({ error: 'telegram_connect_failed', reason: 'unexpected_error', details: message });
   }
+
 });
 
 pluginsRouter.get('/telegram/status', async (req: any, res) => {

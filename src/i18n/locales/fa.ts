@@ -4079,7 +4079,8 @@ const fa: TranslationKeys = {
       error: {
         duplicateBot: 'این ربات قبلاً به فضای کاری دیگری متصل شده است. از ربات دیگری استفاده کنید.',
         invalidToken: 'تلگرام این توکن را نپذیرفت. آن را در @BotFather بررسی کنید و دوباره تلاش کنید.',
-        notConfigured: 'زیرساخت کانال‌ها هنوز روی این سرور پیکربندی نشده است.',
+        notConfigured: 'زیرساخت کانال‌ها هنوز روی این سرور پیکربندی نشده است. متغیرهای CHANNELS_WEBHOOK_SIGNING_KEY و PUBLIC_CHANNELS_BASE_URL را تنظیم کنید.',
+        encryptionNotConfigured: 'کلید رمزنگاری اعتبارنامه‌ها (PLUGIN_SECRETS_MASTER_KEY) روی سرور تنظیم نشده است؛ تا تنظیم نشود توکن ذخیره نمی‌شود.',
         webhookRejected: 'تلگرام ثبت آدرس وب‌هوک را نپذیرفت. مطمئن شوید این آدرس با HTTPS از اینترنت در دسترس است.',
         verificationFailed: 'وب‌هوک ثبت شد اما تأیید نشد. گزینه ترمیم وب‌هوک را امتحان کنید.',
       },

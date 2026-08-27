@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   getDisplayName, timeAgo,
   getCompanyFromMetadata, getLocalizedLocation, getScoreFromMetadata,
@@ -122,7 +123,14 @@ export default function ContactsPage() {
     () => filtered.slice(0, 500).map((c) => c.id),
     [filtered],
   );
-  const { data: networkByContact } = useVisitorNetworkBatchByContact(workspace?.id, visibleContactIds);
+  const { data: networkByContact, isPending: networkPending } = useVisitorNetworkBatchByContact(
+    workspace?.id,
+    visibleContactIds,
+  );
+  // Identity (avatar + name + location) is derived from the geo/device profile.
+  // Rendering rows before that batch resolves makes names and avatars visibly
+  // swap on every load, so hold those cells in a skeleton until it settles.
+  const identityLoading = visibleContactIds.length > 0 && networkPending;
 
 
   const toggleSort = (key: SortKey) => {
@@ -437,17 +445,26 @@ export default function ContactsPage() {
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-2.5">
-                        <ContactAvatar
-                          name={name}
-                          email={c.email}
-                          avatarUrl={c.avatar_url}
-                          os={net?.device?.os}
-                          device={net?.device?.device}
-                          countryCode={net?.geo?.country_code}
-                          countryName={net?.geo?.country}
-                          size="sm"
-                        />
-                        <span className="font-medium text-foreground truncate">{name}</span>
+                        {identityLoading ? (
+                          <>
+                            <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+                            <Skeleton className="h-4 w-32" />
+                          </>
+                        ) : (
+                          <>
+                            <ContactAvatar
+                              name={name}
+                              email={c.email}
+                              avatarUrl={c.avatar_url}
+                              os={net?.device?.os}
+                              device={net?.device?.device}
+                              countryCode={net?.geo?.country_code}
+                              countryName={net?.geo?.country}
+                              size="sm"
+                            />
+                            <span className="font-medium text-foreground truncate">{name}</span>
+                          </>
+                        )}
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
@@ -455,7 +472,9 @@ export default function ContactsPage() {
                       <SourceBadge info={channels?.[c.id]} t={t} />
                     </td>
                     <td className="p-3 text-muted-foreground">
-                      {loc.label ? (
+                      {identityLoading ? (
+                        <Skeleton className="h-4 w-24" />
+                      ) : loc.label ? (
                         <div className="flex items-center gap-1.5">
                           {loc.flag && <span>{loc.flag}</span>}
                           <span className="truncate">{loc.label}</span>
@@ -464,6 +483,7 @@ export default function ContactsPage() {
                         <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>
                       )}
                     </td>
+
                     <td className="p-3 text-muted-foreground">
                       {company || <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>}
                     </td>

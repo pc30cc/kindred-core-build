@@ -144,7 +144,7 @@ app.post('/hooks/telegram/:publicIntegrationId', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${CORE_INTERNAL_SECRET}`,
+        ...coreAuthHeaders(),
       },
       body: JSON.stringify({
         provider: 'telegram',

@@ -4074,6 +4074,7 @@ const tr: TranslationKeys = {
       handlingModeHumanOnly: 'Yalnızca operatörler',
       handlingModeAiFirst: 'Önce yapay zekâ asistanı',
       aiUnavailable: 'Yapay zekâ asistanı mevcut planınızda bulunmuyor.',
+      aiAgentInactive: 'Yapay zekâ asistanı bu çalışma alanı için kapalı — botun yanıt verebilmesi için AI Asistan ayarlarından açın.',
       commandsTitle: 'Bot komutları',
       commandsHint: 'Bu etiketler Telegram komut menüsünde ve hızlı yanıt düğmelerinde görünür.',
       connectFirst: 'Bu ayarları açmak için önce bir bot jetonu bağlayın.',

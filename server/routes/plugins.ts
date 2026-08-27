@@ -47,6 +47,9 @@ import {
   telegramDiagnostics,
 } from '../services/channels/telegram/setup.js';
 import { parseTelegramSettings, sanitizeTelegramSettingsForSave, resolveTelegramHandlingMode } from '../services/channels/telegram/settings.js';
+import { isAutoAnswerAllowedForWorkspace } from '../services/ai-agent/platformGuards.js';
+import { getOrCreateSettings } from '../services/ai-agent/settings.js';
+
 import { getServiceClient } from '../supabase.js';
 import { queueMetrics } from '../services/channels/jobs.js';
 
@@ -308,6 +311,25 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
     const integration = await getIntegrationForInstallation(config, installation.id);
     const telegramSettings = parseTelegramSettings(installation.settings);
     const { aiAvailable } = await resolveTelegramHandlingMode(config, workspaceId, telegramSettings.handlingMode);
+    // Why an "enabled" AI can still stay silent: the assistant is gated by the
+    // platform kill switch and by the workspace AI Agent mode, independently of
+    // the Telegram handling mode. Surface both so the operator sees the cause.
+    const aiAgentDiagnostics = await (async () => {
+      try {
+        const [platformGate, agentSettings] = await Promise.all([
+          isAutoAnswerAllowedForWorkspace(config, workspaceId),
+          getOrCreateSettings(config, workspaceId),
+        ]);
+        return {
+          platformAllowed: platformGate.allowed === true,
+          platformReason: platformGate.allowed === true ? null : (platformGate as any).reason,
+          agentEnabled: !!(agentSettings as any)?.enabled && (agentSettings as any)?.mode !== 'off',
+          agentMode: (agentSettings as any)?.mode ?? null,
+        };
+      } catch {
+        return null;
+      }
+    })();
     res.json({
       installed: true,
       status: installation.status,
@@ -316,7 +338,9 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
       // encrypted, and never read back (see `hasToken` below).
       settings: telegramSettings,
       aiAvailable,
+      aiAgent: aiAgentDiagnostics,
       hasToken: await hasPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY),
+
       integration: integration
         ? {
             status: integration.status,

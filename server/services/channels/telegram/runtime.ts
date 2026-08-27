@@ -15,18 +15,40 @@ import {
   commandKeyFromText,
   messageKeyForCommand,
   parseTelegramSettings,
+  resolveCommandLabel,
   resolveLocalizedMessage,
   resolveTelegramHandlingMode,
   type TelegramCommandKey,
   type TelegramSettings,
 } from './settings.js';
+import { getPlatformAllowedLocales } from '../../platformRegion.js';
+
 
 export type TelegramInboundFlowResult = {
   /** Whether the shared AI entry point in inboundProcessing.ts may run. */
   aiAllowed: boolean;
   /** Whether a command was recognized and replied to directly. */
   handled: boolean;
+  /** Locale every outbound reply (including AI) must speak. */
+  locale: string | null;
 };
+
+/**
+ * The language the bot must answer in: the Telegram user's language when the
+ * platform actually offers it, otherwise the platform's primary locale.
+ * A Persian-only deployment therefore never replies in English just because
+ * Telegram reported `language_code: en`.
+ */
+export async function resolveTelegramReplyLocale(
+  config: ServerConfig,
+  senderLanguage: string | null | undefined,
+): Promise<{ locale: string; fallbackLocale: string }> {
+  const allowed = await getPlatformAllowedLocales(config).catch(() => ['en']);
+  const fallbackLocale = allowed[0] || 'en';
+  const normalized = (senderLanguage || '').toLowerCase().split('-')[0];
+  return { locale: allowed.includes(normalized) ? normalized : fallbackLocale, fallbackLocale };
+}
+
 
 /** Telegram HTML parse-mode escaping — applied to every value we interpolate. */
 export function escapeHtml(text: string): string {
@@ -56,11 +78,15 @@ export function renderCommandReply(
   settings: TelegramSettings,
   command: TelegramCommandKey,
   locale: string | null | undefined,
+  fallbackLocale?: string | null,
 ): string {
-  const body = escapeHtml(resolveLocalizedMessage(settings, locale, messageKeyForCommand(command)));
-  const title = escapeHtml(settings.commands[command] || '').trim();
+  const body = escapeHtml(
+    resolveLocalizedMessage(settings, locale, messageKeyForCommand(command), fallbackLocale),
+  );
+  const title = escapeHtml(resolveCommandLabel(settings, locale, command, fallbackLocale) || '').trim();
   return title ? `<b>${title}</b>\n\n${body}` : body;
 }
+
 
 /**
  * Resolves the workspace's Telegram settings, replies to /start /help
@@ -74,6 +100,7 @@ export async function handleTelegramInboundFlow(
   input: NormalizedInboundMessage,
   conversationId: string,
 ): Promise<TelegramInboundFlowResult> {
+  const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, input.senderLanguage);
   try {
     const installation = await getInstallation(config, input.workspaceId, 'telegram');
     const settings = parseTelegramSettings(installation?.settings);
@@ -81,16 +108,17 @@ export async function handleTelegramInboundFlow(
     const aiAllowed = mode === 'ai_first';
 
     const command = commandKeyFromText(input.text);
-    if (!command || !installation) return { aiAllowed, handled: false };
+    if (!command || !installation) return { aiAllowed, handled: false, locale };
 
-    const replyText = renderCommandReply(settings, command, input.senderLanguage);
+    const replyText = renderCommandReply(settings, command, locale, fallbackLocale);
     const sent = await sendTelegramReply(config, installation.id, input.externalChatId, replyText, settings);
     void conversationId; // command replies do not need the conversation row, only the chat id
-    return { aiAllowed, handled: sent };
+    return { aiAllowed, handled: sent, locale };
   } catch (err) {
     console.warn('[telegram] inbound flow error:', err instanceof Error ? err.message : err);
-    return { aiAllowed: false, handled: false };
+    return { aiAllowed: false, handled: false, locale };
   }
+
 }
 
 async function sendTelegramReply(

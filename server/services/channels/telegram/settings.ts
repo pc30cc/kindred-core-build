@@ -46,7 +46,11 @@ export type TelegramSettings = {
     photoUrl: string;
   };
   locales: Record<TelegramLocale, TelegramLocaleMessages>;
+  /** Legacy flat labels (English surface) — kept for backwards compatibility. */
   commands: Record<TelegramCommandKey, string>;
+  /** Per-locale command labels; what the bot actually shows to a user. */
+  commandLocales: Record<TelegramLocale, Record<TelegramCommandKey, string>>;
+
   handlingMode: TelegramHandlingMode;
 };
 
@@ -81,12 +85,28 @@ function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
   }
 }
 
-const DEFAULT_COMMANDS: Record<TelegramCommandKey, string> = {
-  start: 'Start the conversation',
-  help: 'Show available commands',
-  human: 'Talk to a human teammate',
-  new: 'Start a new conversation',
+const DEFAULT_COMMANDS_BY_LOCALE: Record<TelegramLocale, Record<TelegramCommandKey, string>> = {
+  en: {
+    start: 'Start the conversation',
+    help: 'Show available commands',
+    human: 'Talk to a human teammate',
+    new: 'Start a new conversation',
+  },
+  fa: {
+    start: 'شروع گفتگو',
+    help: 'نمایش دستورهای موجود',
+    human: 'گفتگو با همکار انسانی',
+    new: 'شروع گفتگوی تازه',
+  },
+  tr: {
+    start: 'Görüşmeyi başlat',
+    help: 'Komutları göster',
+    human: 'Bir temsilciyle konuş',
+    new: 'Yeni görüşme başlat',
+  },
 };
+
+const DEFAULT_COMMANDS: Record<TelegramCommandKey, string> = { ...DEFAULT_COMMANDS_BY_LOCALE.en };
 
 export function defaultTelegramSettings(): TelegramSettings {
   return {
@@ -97,9 +117,15 @@ export function defaultTelegramSettings(): TelegramSettings {
       tr: defaultLocaleMessages('tr'),
     },
     commands: { ...DEFAULT_COMMANDS },
+    commandLocales: {
+      en: { ...DEFAULT_COMMANDS_BY_LOCALE.en },
+      fa: { ...DEFAULT_COMMANDS_BY_LOCALE.fa },
+      tr: { ...DEFAULT_COMMANDS_BY_LOCALE.tr },
+    },
     handlingMode: 'human_only',
   };
 }
+
 
 function str(value: unknown, max: number, fallback: string): string {
   return typeof value === 'string' ? value.slice(0, max) : fallback;
@@ -143,9 +169,24 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
     commands[key] = str(commandsInput[key], 256, DEFAULT_COMMANDS[key]);
   }
 
+  // Per-locale labels: authored values win; otherwise the localized default.
+  // The legacy flat labels only ever seed English, so a Persian deployment
+  // can never inherit an English command description by accident.
+  const commandLocalesInput = (input.commandLocales ?? {}) as Record<string, unknown>;
+  const commandLocales = {} as Record<TelegramLocale, Record<TelegramCommandKey, string>>;
+  for (const locale of TELEGRAM_LOCALES) {
+    const localeInput = (commandLocalesInput[locale] ?? {}) as Record<string, unknown>;
+    const base = locale === 'en' ? commands : DEFAULT_COMMANDS_BY_LOCALE[locale];
+    commandLocales[locale] = {} as Record<TelegramCommandKey, string>;
+    for (const key of TELEGRAM_COMMAND_KEYS) {
+      commandLocales[locale][key] = str(localeInput[key], 256, base[key]);
+    }
+  }
+
   const handlingMode: TelegramHandlingMode = input.handlingMode === 'ai_first' ? 'ai_first' : 'human_only';
 
-  return { profile, locales, commands, handlingMode };
+  return { profile, locales, commands, commandLocales, handlingMode };
+
 }
 
 /**
@@ -189,19 +230,22 @@ export async function sanitizeTelegramSettingsForSave(
 
 /**
  * Locale fallback chain used for every outbound Telegram string:
- * requested locale → English → a hardcoded default (never empty).
+ * requested locale → platform fallback locale → English → hardcoded default.
  */
 export function resolveLocalizedMessage(
   settings: TelegramSettings,
   locale: string | null | undefined,
   key: keyof TelegramLocaleMessages,
+  fallbackLocale?: string | null,
 ): string {
-  const normalized = normalizeLocale(locale);
-  const fromLocale = normalized ? settings.locales[normalized]?.[key] : undefined;
-  if (fromLocale && fromLocale.trim()) return fromLocale;
-  const fromEnglish = settings.locales.en?.[key];
-  if (fromEnglish && fromEnglish.trim()) return fromEnglish;
-  return defaultLocaleMessages('en')[key];
+  const chain = [normalizeLocale(locale), normalizeLocale(fallbackLocale), 'en' as TelegramLocale];
+  for (const candidate of chain) {
+    if (!candidate) continue;
+    const value = settings.locales[candidate]?.[key];
+    if (value && value.trim()) return value;
+  }
+  const fallback = normalizeLocale(fallbackLocale) || 'en';
+  return defaultLocaleMessages(fallback)[key];
 }
 
 export function normalizeLocale(locale: string | null | undefined): TelegramLocale | null {
@@ -219,13 +263,38 @@ export function commandKeyFromText(text: string): TelegramCommandKey | null {
   return match[1].toLowerCase() as TelegramCommandKey;
 }
 
+/**
+ * Command label for a locale: authored per-locale text → platform fallback
+ * locale → legacy flat label → localized default. Never English-by-accident.
+ */
+export function resolveCommandLabel(
+  settings: TelegramSettings,
+  locale: string | null | undefined,
+  key: TelegramCommandKey,
+  fallbackLocale?: string | null,
+): string {
+  const chain = [normalizeLocale(locale), normalizeLocale(fallbackLocale)];
+  for (const candidate of chain) {
+    if (!candidate) continue;
+    const value = settings.commandLocales?.[candidate]?.[key];
+    if (value && value.trim()) return value;
+  }
+  const preferred = normalizeLocale(locale) || normalizeLocale(fallbackLocale) || 'en';
+  if (preferred === 'en' && settings.commands[key]?.trim()) return settings.commands[key];
+  return DEFAULT_COMMANDS_BY_LOCALE[preferred][key];
+}
+
 /** Builds the setMyCommands payload from configured descriptions. */
-export function buildTelegramCommandList(settings: TelegramSettings): { command: string; description: string }[] {
+export function buildTelegramCommandList(
+  settings: TelegramSettings,
+  locale?: string | null,
+): { command: string; description: string }[] {
   return TELEGRAM_COMMAND_KEYS.map((key) => ({
     command: key,
-    description: settings.commands[key] || DEFAULT_COMMANDS[key],
+    description: resolveCommandLabel(settings, locale, key),
   }));
 }
+
 
 /** Maps a recognized command to the localized reply key it should send. */
 export function messageKeyForCommand(command: TelegramCommandKey): keyof TelegramLocaleMessages {

@@ -378,6 +378,19 @@ async function processBatch(): Promise<number> {
       await recordAttempt(sb, job.id, job.attempt_count, 'succeeded', { latencyMs: Date.now() - startedAt });
     } catch (err) {
       const message = redactToken(err instanceof Error ? err.message : String(err));
+
+      // Deployment-level failure: requeue without spending a retry and stop
+      // draining the batch, so a stale Core cannot destroy the whole queue.
+      if (isInfrastructureError(err)) {
+        await releaseChannelJob(sb, job, message);
+        await recordAttempt(sb, job.id, job.attempt_count, 'retrying', {
+          errorMessage: message,
+          latencyMs: Date.now() - startedAt,
+        });
+        console.error(`[channels-worker] job ${job.id} (${job.job_type}) requeued without penalty: ${message}`);
+        break;
+      }
+
       const telegramError = err instanceof TelegramApiError ? err : null;
       const permanent =
         (err as any)?.permanent === true || (telegramError ? !telegramError.retryable : false);
@@ -393,6 +406,7 @@ async function processBatch(): Promise<number> {
       });
       console.error(`[channels-worker] job ${job.id} (${job.job_type}) ${outcome}: ${message}`);
     }
+
   }
 
   return jobs.length;

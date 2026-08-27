@@ -41,17 +41,27 @@ function connectErrorKey(code: string | null | undefined): string {
     case 'duplicate_bot':
       return 'plugins.telegram.error.duplicateBot';
     case 'invalid_token':
+    case 'get_me_failed':
       return 'plugins.telegram.error.invalidToken';
     case 'not_configured':
+    case 'channels_not_configured':
       return 'plugins.telegram.error.notConfigured';
+    case 'encryption_not_configured':
+    case 'credential_store_failed':
+      return 'plugins.telegram.error.encryptionNotConfigured';
     case 'webhook_rejected':
+    case 'set_webhook_failed':
       return 'plugins.telegram.error.webhookRejected';
     case 'verification_failed':
+    case 'get_webhook_info_failed':
+    case 'webhook_url_mismatch':
+    case 'webhook_provider_error':
       return 'plugins.telegram.error.verificationFailed';
     default:
       return 'plugins.telegram.connectFailed';
   }
 }
+
 
 export function TelegramConfig({
   workspaceId,

@@ -99,6 +99,13 @@ export function TelegramConfig({
       }),
   });
 
+  const runDiagnostics = useMutation({
+    mutationFn: () => pluginsApi.telegramDiagnostics(workspaceId),
+    onSuccess: (data) => setDiagnostics(data),
+    onError: (err: any) =>
+      toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
+  });
+
   const reconnect = useMutation({
     mutationFn: () => pluginsApi.telegramReconnect(workspaceId),
     onSuccess: () => {
@@ -313,7 +320,7 @@ export function TelegramConfig({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={runDiagnosticsDisabled(status?.hasToken)}
+                  disabled={runDiagnostics.isPending || !status?.hasToken}
                   onClick={() => runDiagnostics.mutate()}
                 >
                   {runDiagnostics.isPending ? (
@@ -374,10 +381,6 @@ export function TelegramConfig({
       </DialogContent>
     </Dialog>
   );
-
-  function runDiagnosticsDisabled(hasToken?: boolean) {
-    return runDiagnostics.isPending || !hasToken;
-  }
 }
 
 export default TelegramConfig;

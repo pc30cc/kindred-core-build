@@ -448,7 +448,9 @@ export default function OverviewPage() {
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>
           </div>
-          {team.length === 0 ? (
+          {teamPending ? (
+            <IdentityListSkeleton rows={4} avatarClassName="h-8 w-8" rowClassName="px-5 py-2.5" />
+          ) : team.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-muted-foreground">{tr('dashboard.noTeam')}</div>
           ) : (
             <ul className="max-h-[280px] divide-y divide-border/60 overflow-y-auto">

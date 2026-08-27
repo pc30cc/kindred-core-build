@@ -23,6 +23,12 @@ COPY server/ .
 COPY src/lib/widget/smartEngine.ts /src/lib/widget/smartEngine.ts
 COPY src/lib/widget/smartRules.ts /src/lib/widget/smartRules.ts
 
+# Cross-cutting pure modules shared with the Channels Gateway. Server code is
+# copied to /app (WORKDIR), so relative imports like `../shared/...` from
+# /app/config.ts resolve to /shared — same sibling-layout reason as /src above.
+COPY shared /shared
+
+
 # Standalone Call Widget static assets — served by the API origin so
 # legacy/install snippets pointing at the API base keep working
 # (see server/index.ts static mounts under /call-widget).

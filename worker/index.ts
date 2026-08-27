@@ -18,12 +18,25 @@ const RAW_KIND = (process.env.WORKER_KIND || 'intelligence').trim().toLowerCase(
 // dedicated container with WORKER_KIND=file-ingest for production isolation,
 // or WORKER_KIND=source-sync to handle both website and file ingestion.
 // 'regression-runner' (E10) polls ai_agent_regression_batches and schedules.
-const ALLOWED = new Set(['intelligence', 'source-sync', 'file-ingest', 'regression-runner', 'all']);
+// 'channels' polls public.channel_jobs for plugin channel traffic (Telegram
+// inbound/outbound). It is intentionally a SEPARATE kind so channel volume
+// can never starve AI workers, and vice versa.
+const ALLOWED = new Set([
+  'intelligence',
+  'source-sync',
+  'file-ingest',
+  'regression-runner',
+  'channels',
+  'all',
+]);
 
 if (!ALLOWED.has(RAW_KIND)) {
-  console.error(`[worker] invalid WORKER_KIND="${RAW_KIND}". Allowed: intelligence | source-sync | all`);
+  console.error(
+    `[worker] invalid WORKER_KIND="${RAW_KIND}". Allowed: ${[...ALLOWED].join(' | ')}`,
+  );
   process.exit(1);
 }
+
 
 console.log('[worker] starting', { kind: RAW_KIND });
 
@@ -40,6 +53,11 @@ async function main() {
     const mod = await import('./regression-runner/index.js');
     mod.startRegressionWorker?.();
   }
+  if (RAW_KIND === 'channels' || RAW_KIND === 'all') {
+    const mod = await import('./channels/index.js');
+    mod.startChannelsWorker?.();
+  }
+
   if (RAW_KIND === 'all') {
     console.warn('[worker] WORKER_KIND=all is allowed but not recommended for production isolation');
   }

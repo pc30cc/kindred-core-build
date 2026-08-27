@@ -44,6 +44,7 @@ import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-ag
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 
 export const conversationsRouter = Router();
 
@@ -229,6 +230,17 @@ conversationsRouter.post('/send-message', async (req, res) => {
       .from('conversations')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', parsed.data.conversation_id);
+
+    // Channel bridge: if this conversation came from a plugin channel
+    // (Telegram, …), queue durable delivery back to the provider. No-op for
+    // widget conversations.
+    void dispatchOutboundIfChannelConversation(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      messageId: inserted.id,
+      body: messageBody,
+    });
+
 
     // Enrich envelope with public-safe attachment metadata so the visitor
     // widget renders the file via its proxy route. Same shape as visitor flow.

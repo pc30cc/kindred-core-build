@@ -14,6 +14,7 @@ import {
   AlertCircle, Check, Ban, Lock,
   PhoneCall,
   PanelLeftClose, PanelLeftOpen,
+  Plug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -239,6 +240,7 @@ export function AppSidebar() {
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
     { key: 'widget', path: '/widget', icon: Package, accent: 'violet' },
+    { key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' },
     { key: 'settings', path: '/settings/general', icon: Settings, accent: 'indigo' },
   ] as const;
 

@@ -54,14 +54,28 @@ const QUERY_KEY = ['widget-platform-settings'] as const;
 export function useWidgetPlatformSettings() {
   return useQuery({
     queryKey: QUERY_KEY,
+    retry: 1,
     queryFn: async () => {
       const res = await fetch(`${API_BASE}/api/widget-settings/platform/config`, { credentials: 'include' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `Load failed: ${res.status}`);
-      return json.settings as WidgetPlatformSettings | null;
+      const raw = await res.text();
+      let json: any = null;
+      try {
+        json = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error(
+          `Unexpected response from ${API_BASE}/api/widget-settings/platform/config (HTTP ${res.status}). ` +
+            `Body: ${raw.slice(0, 160)}`,
+        );
+      }
+      if (!res.ok) {
+        const detail = [json?.error, json?.detail, json?.hint].filter(Boolean).join(' — ');
+        throw new Error(detail || `Load failed: HTTP ${res.status}`);
+      }
+      return (json?.settings ?? null) as WidgetPlatformSettings | null;
     },
   });
 }
+
 
 export function useUpdateWidgetPlatformSettings() {
   const qc = useQueryClient();

@@ -19,7 +19,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
-import { PluginLogsTable } from '@/components/plugins/PluginLogsTable';
 import { ArrowLeft, ArrowRight, Lock, Plug, Trash2, Wrench } from 'lucide-react';
 
 export default function PluginDetailPage() {
@@ -157,7 +156,6 @@ export default function PluginDetailPage() {
             <TabsTrigger value="connection">{t('plugins.tab.connection')}</TabsTrigger>
             <TabsTrigger value="branding">{t('plugins.tab.branding')}</TabsTrigger>
             <TabsTrigger value="messages">{t('plugins.tab.messages')}</TabsTrigger>
-            <TabsTrigger value="logs">{t('plugins.tab.logs')}</TabsTrigger>
           </TabsList>
           <TabsContent value="connection">
             <TelegramConfigPanel workspaceId={workspaceId} section="connection" />
@@ -168,9 +166,8 @@ export default function PluginDetailPage() {
           <TabsContent value="messages">
             <TelegramConfigPanel workspaceId={workspaceId} section="messages" />
           </TabsContent>
-          <TabsContent value="logs">
-            <PluginLogsTable pluginId={pluginId} workspaceId={workspaceId} scope="workspace" />
-          </TabsContent>
+
+
         </Tabs>
       ) : (
         !blocked && (

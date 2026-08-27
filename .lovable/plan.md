@@ -237,6 +237,14 @@ lifecycle.
   tests, "Core down ⇒ no false ack" test, atomic-claim and two-replica tests,
   retry/backoff and max-attempt tests, mocked-Telegram suite, cross-workspace
   isolation, i18n parity, secret-leak static audit.
+- Webhook-secret derivation tests: (1) same key + same integration id yields the
+  same secret; (2) different integration ids yield different secrets;
+  (3) a different signing key yields a different secret; (4) a wrong webhook
+  header is rejected; (5) the correct header is accepted; (6) the Gateway
+  verifies with no DB access at all; (7) the Gateway has neither
+  `SUPABASE_SERVICE_ROLE_KEY` nor `PLUGIN_SECRETS_MASTER_KEY`; (8)
+  `CORE_INTERNAL_SECRET` is rejected as the webhook signing key at startup.
+
 - Remote-deployment contract test: no import path lets the Gateway call Core
   runtime functions or vice versa; no in-memory queues, same-process callbacks
   or localhost assumptions. Only pure shared modules/types are permitted across

@@ -16,6 +16,13 @@ import {
 } from '../../lib/pluginCrypto.js';
 
 export const TELEGRAM_BOT_TOKEN_KEY = 'telegram_bot_token';
+/**
+ * Staging slot for an atomic credential replacement. A new token lives here
+ * for the duration of the connect lifecycle and is PROMOTED to
+ * TELEGRAM_BOT_TOKEN_KEY only after full provider verification, so a failed
+ * "Replace token" can never destroy a working credential.
+ */
+export const TELEGRAM_BOT_TOKEN_PENDING_KEY = 'telegram_bot_token_pending';
 
 export function pluginCryptoReady(config: ServerConfig): boolean {
   return isPluginCryptoConfigured(config.pluginSecretsMasterKey);

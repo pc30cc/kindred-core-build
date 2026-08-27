@@ -36,6 +36,14 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - TRUSTED_PROXY_IPS=${TRUSTED_PROXY_IPS:-}
+      # ── Plugin Platform / Channels (Telegram) ──────────────────────
+      # Core needs all four to connect a bot and to serve the internal API.
+      - PLUGIN_SECRETS_MASTER_KEY=${PLUGIN_SECRETS_MASTER_KEY:-}
+      - CHANNELS_WEBHOOK_SIGNING_KEY=${CHANNELS_WEBHOOK_SIGNING_KEY:-}
+      - CORE_INTERNAL_SECRET=${CORE_INTERNAL_SECRET:-}
+      # Public HTTPS origin of the channels-gateway service (what Telegram calls).
+      - PUBLIC_CHANNELS_BASE_URL=${PUBLIC_CHANNELS_BASE_URL:-}
+      - CHANNELS_INTERNAL_BASE_URL=${CHANNELS_INTERNAL_BASE_URL:-http://channels-gateway:3011}
       # Centrifugo bootstrap defaults (optional — admin can also configure via UI).
       # When set, the backend can pre-populate the realtime provider config on first run.
       - CENTRIFUGO_WS_URL=${CENTRIFUGO_WS_URL:-ws://localhost:8000/connection/websocket}
@@ -84,6 +92,50 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # ─────────────────────────────────────────────────────────────────
+  # Channels Gateway — public webhook ingress for Telegram.
+  # PUBLIC_CHANNELS_BASE_URL must resolve to THIS service over HTTPS.
+  # Holds no database access and no credentials by design.
+  # ─────────────────────────────────────────────────────────────────
+  channels-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.channels
+    ports:
+      - "${CHANNELS_PORT:-3011}:3011"
+    environment:
+      - CHANNELS_PORT=3011
+      - CHANNELS_WEBHOOK_SIGNING_KEY=${CHANNELS_WEBHOOK_SIGNING_KEY:-}
+      - CORE_INTERNAL_SECRET=${CORE_INTERNAL_SECRET:-}
+      - CORE_INTERNAL_BASE_URL=${CORE_INTERNAL_BASE_URL:-http://backend:3001}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3011/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────────────
+  # Channels Worker — drains channel_jobs (inbound + outbound delivery).
+  # Without it, messages are queued but never delivered.
+  # ─────────────────────────────────────────────────────────────────
+  channels-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - WORKER_KIND=channels
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - CORE_INTERNAL_BASE_URL=${CORE_INTERNAL_BASE_URL:-http://backend:3001}
+      - CORE_INTERNAL_SECRET=${CORE_INTERNAL_SECRET:-}
+      - PLUGIN_SECRETS_MASTER_KEY=${PLUGIN_SECRETS_MASTER_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
 
 volumes:
   geoip-data:

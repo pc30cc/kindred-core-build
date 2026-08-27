@@ -4083,7 +4083,8 @@ const tr: TranslationKeys = {
       error: {
         duplicateBot: 'Bu bot başka bir çalışma alanına bağlı. Farklı bir bot kullanın.',
         invalidToken: 'Telegram bu tokenı reddetti. @BotFather üzerinden kontrol edip tekrar deneyin.',
-        notConfigured: 'Kanal altyapısı bu sunucuda henüz yapılandırılmadı.',
+        notConfigured: 'Kanal altyapısı bu sunucuda henüz yapılandırılmadı. CHANNELS_WEBHOOK_SIGNING_KEY ve PUBLIC_CHANNELS_BASE_URL değerlerini ayarlayın.',
+        encryptionNotConfigured: 'Kimlik bilgisi şifrelemesi (PLUGIN_SECRETS_MASTER_KEY) bu sunucuda yapılandırılmadı; bot tokenı saklanamaz.',
         webhookRejected: 'Telegram webhook adresini kaydetmedi. Adresin HTTPS ile herkese açık olduğundan emin olun.',
         verificationFailed: 'Webhook kaydedildi ancak doğrulanamadı. Onarmayı deneyin.',
       },

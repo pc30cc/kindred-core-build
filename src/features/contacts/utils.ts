@@ -2,6 +2,7 @@ import type { Contact } from '@/types/models';
 import { formatRelative } from '@/lib/date';
 import { contactDisplayName, type ContactDisplayT, type DisplayGeoInfo } from '@/lib/contact-display';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
+import { flagEmoji } from '@/hooks/useVisitorNetwork';
 
 export function getInitials(name?: string | null, email?: string | null): string {
   if (name && name.trim()) {

@@ -159,6 +159,34 @@ async function ensureCoreAuthReady(): Promise<boolean> {
   }
 }
 
+/**
+ * Marks failures that are the DEPLOYMENT's fault, not the job's: Core missing
+ * the route (stale build / wrong service) or rejecting the credential. These
+ * must never consume a job's retry budget.
+ */
+type InfrastructureError = Error & { infrastructure: true };
+
+function isInfrastructureError(err: unknown): err is InfrastructureError {
+  return !!err && (err as any).infrastructure === true;
+}
+
+/** Asks Core which build answered and which internal routes it serves. */
+async function describeCore(): Promise<string> {
+  try {
+    const response = await fetch(`${coreBaseUrl}/internal/channels/auth-diagnostic`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return `diagnostic HTTP ${response.status}`;
+    const info = (await response.json()) as { service?: string; build?: string | null; routes?: string[] };
+    if (info?.service !== 'core-internal-channels') {
+      return 'the URL does not point at Core — another service answered';
+    }
+    return `Core build=${info.build ?? 'unknown'} serves ${Array.isArray(info.routes) ? info.routes.length : 0} internal routes`;
+  } catch {
+    return 'diagnostic endpoint unreachable';
+  }
+}
+
 async function coreCall(path: string, body: unknown): Promise<any> {
   const response = await fetch(`${coreBaseUrl}${path}`, {
     method: 'POST',
@@ -167,10 +195,24 @@ async function coreCall(path: string, body: unknown): Promise<any> {
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
+
+    // 404 on a route this worker knows exists in the codebase means the Core
+    // it is talking to is an OLDER deployment (or not Core at all). 401/503
+    // mean the trust boundary broke mid-flight. Both are deployment problems.
+    if (response.status === 404 || response.status === 401 || response.status === 503) {
+      coreAuthReady = false;
+      const explanation =
+        response.status === 404
+          ? `Core at ${coreBaseUrl} does not expose ${path} — redeploy Core with the current build, or point CORE_INTERNAL_BASE_URL at the Core service (${await describeCore()})`
+          : `Core rejected the internal credential on ${path} (HTTP ${response.status})`;
+      throw Object.assign(new Error(explanation), { infrastructure: true } as const);
+    }
+
     throw new Error(`core ${path} failed [${response.status}]: ${detail}`);
   }
   return response.json();
 }
+
 
 
 /** Resolves a provider credential for an integration. Read-only, server-side. */

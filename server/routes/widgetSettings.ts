@@ -127,8 +127,20 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
     .limit(1)
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ settings: data });
+  if (data) return res.json({ settings: data });
+
+  // Self-host installs may have the table without the seeded singleton row
+  // (or the row was deleted). Create it on demand — the table enforces a
+  // singleton unique index, so concurrent seeds are safe.
+  const seed = await sb.from('widget_platform_settings').insert({}).select().single();
+  if (seed.error) {
+    const retry = await sb.from('widget_platform_settings').select('*').limit(1).maybeSingle();
+    if (retry.data) return res.json({ settings: retry.data });
+    return res.status(500).json({ error: seed.error.message });
+  }
+  return res.json({ settings: seed.data });
 });
+
 
 widgetSettingsRouter.patch('/platform/config', async (req, res) => {
   const config = serverConfigOf(req);

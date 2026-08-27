@@ -1,6 +1,9 @@
 // Server environment contract
 // All sensitive values come from server env, never from frontend
 
+import { assertDistinctSigningKey } from '../shared/channels/webhookSecret.js';
+
+
 export interface ServerConfig {
   port: number;
   supabaseUrl: string;
@@ -37,6 +40,32 @@ export interface ServerConfig {
    * condition.
    */
   selfHostBillingUnlimited: boolean;
+
+  // ── Channels runtime (Plugin Platform) ──────────────────────────────
+  /**
+   * Dedicated server-to-server secret for the Core ↔ Channels boundary.
+   * NEVER the service-role key, the auth/JWT secret, the plugin master key
+   * or a provider token. Unset ⇒ /internal/channels/* fails closed (503).
+   */
+  coreInternalSecret?: string;
+  /**
+   * HMAC key used to DERIVE each integration's provider webhook secret.
+   * Present in Core and the Channels Gateway; never in the worker or browser.
+   */
+  channelsWebhookSigningKey?: string;
+  /**
+   * Canonical public HTTPS origin of the Channels Gateway. Core builds the
+   * provider webhook URL from this value only — never from Host,
+   * X-Forwarded-Host or Origin.
+   */
+  publicChannelsBaseUrl?: string;
+  /** Internal address Core uses to reach the gateway (health probes). */
+  channelsInternalBaseUrl?: string;
+  /**
+   * Master key for plugin credential encryption (AES-256-GCM).
+   * Core: yes. Channels Worker: yes. Gateway: no. Frontend: no.
+   */
+  pluginSecretsMasterKey?: string;
 }
 
 export function loadConfig(): ServerConfig {
@@ -46,15 +75,58 @@ export function loadConfig(): ServerConfig {
     return val;
   };
 
+  const optional = (key: string): string | undefined => process.env[key]?.trim() || undefined;
+
+  const coreInternalSecret = optional('CORE_INTERNAL_SECRET');
+  const channelsWebhookSigningKey = optional('CHANNELS_WEBHOOK_SIGNING_KEY');
+  const pluginSecretsMasterKey = optional('PLUGIN_SECRETS_MASTER_KEY');
+
+  // Startup guard: these three must be distinct from each other and from the
+  // service-role key. A shared value collapses three security boundaries.
+  const serviceRoleKey = required('SUPABASE_SERVICE_ROLE_KEY');
+  assertDistinctSigningKey(channelsWebhookSigningKey, [
+    coreInternalSecret,
+    pluginSecretsMasterKey,
+    serviceRoleKey,
+    process.env.SESSION_SECRET,
+    process.env.JWT_SECRET,
+  ]);
+  if (coreInternalSecret && coreInternalSecret === pluginSecretsMasterKey) {
+    throw new Error('CORE_INTERNAL_SECRET must not reuse PLUGIN_SECRETS_MASTER_KEY');
+  }
+  if (coreInternalSecret && coreInternalSecret === serviceRoleKey) {
+    throw new Error('CORE_INTERNAL_SECRET must not reuse SUPABASE_SERVICE_ROLE_KEY');
+  }
+  if (pluginSecretsMasterKey && pluginSecretsMasterKey === serviceRoleKey) {
+    throw new Error('PLUGIN_SECRETS_MASTER_KEY must not reuse SUPABASE_SERVICE_ROLE_KEY');
+  }
+
   return {
     port: parseInt(process.env.PORT || '3001', 10),
     supabaseUrl: required('SUPABASE_URL'),
     supabaseAnonKey: required('SUPABASE_ANON_KEY'),
-    supabaseServiceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
+    supabaseServiceRoleKey: serviceRoleKey,
     corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map(s => s.trim()),
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
     rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
     initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase() || undefined,
     selfHostBillingUnlimited: process.env.SELF_HOST_BILLING_MODE === 'unlimited',
+    coreInternalSecret,
+    channelsWebhookSigningKey,
+    publicChannelsBaseUrl: normalizeBaseUrl(optional('PUBLIC_CHANNELS_BASE_URL')),
+    channelsInternalBaseUrl: normalizeBaseUrl(optional('CHANNELS_INTERNAL_BASE_URL')),
+    pluginSecretsMasterKey,
   };
 }
+
+/** Strips a trailing slash; returns undefined for unparseable values. */
+export function normalizeBaseUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`.replace(/\/+$/, '');
+  } catch {
+    return undefined;
+  }
+}
+

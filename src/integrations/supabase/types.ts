@@ -3902,6 +3902,261 @@ export type Database = {
           },
         ]
       }
+      channel_delivery_attempts: {
+        Row: {
+          attempt: number
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          id: string
+          job_id: string
+          latency_ms: number | null
+          status: string
+        }
+        Insert: {
+          attempt: number
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          job_id: string
+          latency_ms?: number | null
+          status: string
+        }
+        Update: {
+          attempt?: number
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          job_id?: string
+          latency_ms?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_delivery_attempts_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "channel_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channel_inbound_events: {
+        Row: {
+          created_at: string
+          external_event_id: string
+          id: string
+          integration_id: string
+          payload: Json
+          processed_at: string | null
+          provider: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          external_event_id: string
+          id?: string
+          integration_id: string
+          payload: Json
+          processed_at?: string | null
+          provider: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          external_event_id?: string
+          id?: string
+          integration_id?: string
+          payload?: Json
+          processed_at?: string | null
+          provider?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_inbound_events_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "channel_integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channel_integrations: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          external_account_id: string | null
+          id: string
+          installation_id: string
+          last_error_at: string | null
+          last_error_code: string | null
+          last_inbound_at: string | null
+          last_outbound_at: string | null
+          metadata: Json
+          provider: string
+          public_integration_id: string
+          status: string
+          updated_at: string
+          username: string | null
+          webhook_registered_at: string | null
+          webhook_verified_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          external_account_id?: string | null
+          id?: string
+          installation_id: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          metadata?: Json
+          provider: string
+          public_integration_id: string
+          status?: string
+          updated_at?: string
+          username?: string | null
+          webhook_registered_at?: string | null
+          webhook_verified_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          external_account_id?: string | null
+          id?: string
+          installation_id?: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          metadata?: Json
+          provider?: string
+          public_integration_id?: string
+          status?: string
+          updated_at?: string
+          username?: string | null
+          webhook_registered_at?: string | null
+          webhook_verified_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_integrations_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_plugin_installations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "channel_integrations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channel_jobs: {
+        Row: {
+          attempt_count: number
+          available_at: string
+          claim_expires_at: string | null
+          claim_token: string | null
+          created_at: string
+          id: string
+          integration_id: string | null
+          job_type: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          max_attempts: number
+          payload: Json
+          provider: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          available_at?: string
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          created_at?: string
+          id?: string
+          integration_id?: string | null
+          job_type: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          payload?: Json
+          provider: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          attempt_count?: number
+          available_at?: string
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          created_at?: string
+          id?: string
+          integration_id?: string | null
+          job_type?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          payload?: Json
+          provider?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_jobs_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "channel_integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channel_worker_heartbeats: {
+        Row: {
+          code_version: string | null
+          last_seen_at: string
+          metadata: Json
+          started_at: string
+          worker_id: string
+          worker_kind: string
+        }
+        Insert: {
+          code_version?: string | null
+          last_seen_at?: string
+          metadata?: Json
+          started_at?: string
+          worker_id: string
+          worker_kind: string
+        }
+        Update: {
+          code_version?: string | null
+          last_seen_at?: string
+          metadata?: Json
+          started_at?: string
+          worker_id?: string
+          worker_kind?: string
+        }
+        Relationships: []
+      }
       contact_verifications: {
         Row: {
           attempts: number
@@ -5791,6 +6046,104 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      plugin_platform_state: {
+        Row: {
+          created_at: string
+          defaults: Json
+          enabled: boolean
+          featured: boolean
+          installable: boolean
+          maintenance_mode: boolean
+          marketplace_visible: boolean
+          plugin_id: string
+          policy: Json
+          rollout_status: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          defaults?: Json
+          enabled?: boolean
+          featured?: boolean
+          installable?: boolean
+          maintenance_mode?: boolean
+          marketplace_visible?: boolean
+          plugin_id: string
+          policy?: Json
+          rollout_status?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          defaults?: Json
+          enabled?: boolean
+          featured?: boolean
+          installable?: boolean
+          maintenance_mode?: boolean
+          marketplace_visible?: boolean
+          plugin_id?: string
+          policy?: Json
+          rollout_status?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      plugin_secrets: {
+        Row: {
+          algorithm: string
+          auth_tag: string
+          ciphertext: string
+          created_at: string
+          fingerprint: string | null
+          id: string
+          installation_id: string
+          key_version: number
+          nonce: string
+          secret_key: string
+          updated_at: string
+        }
+        Insert: {
+          algorithm?: string
+          auth_tag: string
+          ciphertext: string
+          created_at?: string
+          fingerprint?: string | null
+          id?: string
+          installation_id: string
+          key_version?: number
+          nonce: string
+          secret_key: string
+          updated_at?: string
+        }
+        Update: {
+          algorithm?: string
+          auth_tag?: string
+          ciphertext?: string
+          created_at?: string
+          fingerprint?: string | null
+          id?: string
+          installation_id?: string
+          key_version?: number
+          nonce?: string
+          secret_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plugin_secrets_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_plugin_installations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       privacy_jobs: {
         Row: {
@@ -8163,6 +8516,53 @@ export type Database = {
           },
         ]
       }
+      workspace_plugin_installations: {
+        Row: {
+          created_at: string
+          id: string
+          installed_at: string
+          installed_by: string | null
+          instance_key: string
+          plugin_id: string
+          settings: Json
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          installed_at?: string
+          installed_by?: string | null
+          instance_key?: string
+          plugin_id: string
+          settings?: Json
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          installed_at?: string
+          installed_by?: string | null
+          instance_key?: string
+          plugin_id?: string
+          settings?: Json
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_plugin_installations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_provider_settings: {
         Row: {
           config: Json
@@ -8653,6 +9053,26 @@ export type Database = {
       check_workspace_entitlement: {
         Args: { _feature: string; _workspace_id: string }
         Returns: Json
+      }
+      claim_channel_jobs: {
+        Args: {
+          _job_types?: string[]
+          _lease_seconds?: number
+          _limit?: number
+          _worker_id: string
+        }
+        Returns: {
+          attempt_count: number
+          claim_expires_at: string
+          claim_token: string
+          id: string
+          integration_id: string
+          job_type: string
+          max_attempts: number
+          payload: Json
+          provider: string
+          workspace_id: string
+        }[]
       }
       claim_conversation: {
         Args: {

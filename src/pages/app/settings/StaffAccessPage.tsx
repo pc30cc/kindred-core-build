@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { InviteMemberDialog } from './TeamDepartmentsPage';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 /**
  * Internal/staff role identifiers. These map 1:1 to the existing role
@@ -57,7 +58,7 @@ const STAFF_ROLES = [
   'viewer',
 ] as const;
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 // Member management goes through the backend (gs_session cookie +
 // service_role) rather than direct supabase.from() calls — see

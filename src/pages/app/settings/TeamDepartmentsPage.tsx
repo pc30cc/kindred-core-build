@@ -40,7 +40,7 @@ import {
   type Department,
 } from '@/lib/workspace-departments-api';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 // Team/member management goes through the backend (gs_session cookie +
 // service_role) rather than direct supabase.from() calls — the dashboard's
@@ -70,6 +70,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 /**
  * Customer-facing roles are stored in `workspace_members.role` but are
@@ -823,7 +824,7 @@ export function InviteMemberDialog({
     mode === 'customer' ? DEFAULT_CUSTOMER_FACING_ROLE : staffRoles[0],
   );
   const [link, setLink] = useState('');
-  const API_BASE = import.meta.env.VITE_API_BASE_URL;
+  const API_BASE = RESOLVED_API_BASE;
 
   const create = useMutation({
     mutationFn: async () => {

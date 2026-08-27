@@ -1,3 +1,4 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 9 — Operator-side Call Invitations client.
  *
@@ -5,7 +6,7 @@
  * conventions used by calls-api.ts. Token + workspace membership checks
  * happen server-side; this module only forwards the operator's session.
  */
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(API_BASE + path, {

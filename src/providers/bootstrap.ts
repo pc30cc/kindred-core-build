@@ -9,6 +9,7 @@ import { selfHostedAuthProvider } from './selfHosted/auth';
 import { supabaseDatabaseProvider } from './supabase/database';
 import { supabaseRealtimeProvider } from './supabase/realtime';
 import { createApiEmailProvider } from './email/api';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import {
   stubEmailProvider,
   stubAIProvider,
@@ -47,7 +48,7 @@ export function bootstrapProviders(): void {
     priority: 0,
     healthCheck: async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_BASE_URL;
+        const API_BASE = RESOLVED_API_BASE;
         const res = await fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' });
         return res.ok || res.status === 401 ? 'healthy' : 'down';
       } catch {
@@ -107,7 +108,7 @@ export function bootstrapProviders(): void {
     priority: 5,
     healthCheck: async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_BASE_URL;
+        const API_BASE = RESOLVED_API_BASE;
         const res = await fetch(`${API_BASE}/api/email/health`);
         return res.ok ? 'healthy' : 'down';
       } catch {

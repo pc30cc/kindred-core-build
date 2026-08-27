@@ -6,11 +6,15 @@ import { Navigate } from 'react-router-dom';
 import { useWorkspaces, useAccount, useCreateWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
+import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Building2, LogOut, RefreshCw, HeadsetIcon, Loader2 } from 'lucide-react';
+import { Building2, LogOut, RefreshCw, HeadsetIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+// Same-origin in dev/preview (Vite proxy), configured origin in production.
+// Using import.meta.env directly here bypassed that and produced blocked
+// cross-origin calls in the preview.
+import { API_BASE } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 export function WorkspaceRedirect() {
   const { data: workspaces, isLoading, refetch } = useWorkspaces();
@@ -18,9 +22,11 @@ export function WorkspaceRedirect() {
   const { data: profile } = useProfile();
   const { signOut, user } = useAuth();
   const createWorkspace = useCreateWorkspace();
+  const { t, dir } = useTranslation();
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attempted = useRef(false);
+
 
   // Auto-provision workspace if user has account but no workspaces
   useEffect(() => {
@@ -63,12 +69,16 @@ export function WorkspaceRedirect() {
           await refetch();
         } catch (err: any) {
           console.error('Auto-provision failed:', err);
-          setError(
-            err?.message === 'email_verification_required'
-              ? 'Please verify your email before creating a workspace. Check your inbox for the verification link.'
-              : err?.message || 'Failed to create workspace',
-          );
+          const raw = String(err?.message || '');
+          if (raw === 'email_verification_required') {
+            setError(t('workspaceRedirect.emailVerificationRequired'));
+          } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
+            setError(t('workspaceRedirect.connectionFailed'));
+          } else {
+            setError(raw || t('workspaceRedirect.createFailed'));
+          }
         } finally {
+
           setProvisioning(false);
         }
       })();
@@ -77,7 +87,7 @@ export function WorkspaceRedirect() {
 
   if (isLoading || accountLoading || provisioning) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div dir={dir} className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
             <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -85,7 +95,7 @@ export function WorkspaceRedirect() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            {provisioning ? 'Setting up your workspace…' : 'Loading workspaces…'}
+            {provisioning ? t('workspaceRedirect.provisioning') : t('workspaceRedirect.loading')}
           </p>
         </div>
       </div>
@@ -97,7 +107,7 @@ export function WorkspaceRedirect() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div dir={dir} className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md text-center space-y-6">
         <div className="mx-auto w-20 h-20 rounded-2xl bg-muted flex items-center justify-center">
           <Building2 className="h-10 w-10 text-muted-foreground/60" />
@@ -105,12 +115,12 @@ export function WorkspaceRedirect() {
 
         <div className="space-y-2">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            No workspace found
+            {t('workspaceRedirect.title')}
           </h1>
           <p className="text-muted-foreground text-sm leading-relaxed max-w-sm mx-auto">
             {error
-              ? `Something went wrong: ${error}`
-              : "It looks like your account doesn't have a workspace yet. Try refreshing or contact support."}
+              ? t('workspaceRedirect.errorPrefix', { message: error })
+              : t('workspaceRedirect.description')}
           </p>
         </div>
 
@@ -121,7 +131,7 @@ export function WorkspaceRedirect() {
             className="w-full sm:w-auto gap-2"
           >
             <RefreshCw className="h-4 w-4" />
-            Try again
+            {t('workspaceRedirect.tryAgain')}
           </Button>
           <Button
             variant="outline"
@@ -129,17 +139,18 @@ export function WorkspaceRedirect() {
             className="w-full sm:w-auto gap-2"
           >
             <LogOut className="h-4 w-4" />
-            Sign out
+            {t('workspaceRedirect.signOut')}
           </Button>
         </div>
 
         <div className="pt-4 border-t border-border">
           <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
             <HeadsetIcon className="h-3.5 w-3.5" />
-            Need help? Contact your administrator.
+            {t('workspaceRedirect.help')}
           </p>
         </div>
       </div>
     </div>
   );
 }
+

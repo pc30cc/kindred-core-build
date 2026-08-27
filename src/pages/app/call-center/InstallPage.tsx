@@ -8,6 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import { Copy, AlertCircle, CheckCircle2, Plus, Trash2, Activity, Code2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
   return (
@@ -35,7 +36,7 @@ export default function InstallPage() {
   const { data } = useCallCenterSettings(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const update = useUpdateCallCenterSettings(workspace?.id);
-  const apiBase = (import.meta.env.VITE_API_BASE_URL as string) || window.location.origin;
+  const apiBase = (RESOLVED_API_BASE as string) || window.location.origin;
   // Widget asset base may live on a different origin (e.g. CDN/frontend
   // host) than the API. Falls back to the API origin for single-host setups.
   const widgetAssetBase =

@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Call Center — workspace + admin client API.
  * All endpoints require a Supabase auth bearer token.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 /** CC-2H Phase 7 — Friendly messages for known transient/infra errors. */
 const FRIENDLY_API_ERRORS: Record<string, string> = {

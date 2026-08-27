@@ -1,3 +1,4 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Conversations API client — backend-mediated agent reply send.
  * Calls POST /api/conversations/send-message on the self-hosted backend,
@@ -6,7 +7,7 @@
  *
  * Auth: first-party gs_session HttpOnly cookie (credentials: 'include').
  */
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 

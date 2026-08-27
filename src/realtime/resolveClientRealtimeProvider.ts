@@ -30,8 +30,9 @@ import { CentrifugoClientProvider } from './providers/centrifugo';
 import { SupabaseRealtimeClientProvider } from './providers/supabase';
 import { PollingClientProvider } from './providers/polling';
 import { rtDebug, rtWarn } from './debug';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+const API_BASE = (RESOLVED_API_BASE as string | undefined) || '';
 
 const SUPPORTED_VENDORS: RealtimeVendor[] = ['centrifugo', 'supabase'];
 

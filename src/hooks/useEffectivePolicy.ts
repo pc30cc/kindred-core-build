@@ -12,8 +12,9 @@ import {
 } from '@/lib/effective-policy-api';
 import { invalidateClientRealtimeCache } from '@/realtime/resolveClientRealtimeProvider';
 import { setEffectivePolicySnapshot } from '@/realtime/policySnapshot';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+const API_BASE = (RESOLVED_API_BASE as string | undefined) || '';
 const POLL_MS = 30_000;
 
 async function fetchPolicy(workspaceId: string): Promise<EffectivePolicySnapshot | null> {

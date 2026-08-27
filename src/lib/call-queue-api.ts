@@ -1,9 +1,10 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Phase 8C — Operator-side call queue API client.
  * All endpoints require workspace membership (server-enforced).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 export type QueueChannel = 'audio' | 'video';
 export type QueueState =

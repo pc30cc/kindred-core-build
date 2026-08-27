@@ -1,10 +1,11 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Admin Realtime API client.
  * Talks to the self-hosted Express backend (NEVER edge functions).
  * Auth: Bearer (Supabase user access token).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 export interface RealtimeAdminConfig {
   vendor: 'centrifugo' | 'polling_builtin' | 'disabled';

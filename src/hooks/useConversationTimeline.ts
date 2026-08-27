@@ -8,8 +8,9 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = RESOLVED_API_BASE || '';
 
 export type TimelineEventType =
   | 'created' | 'identified'

@@ -1,8 +1,9 @@
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Workspace operational alerts — read-only, server-derived.
  * Backed by the self-hosted Express endpoint /api/workspace-alerts/:workspaceId.
  */
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = RESOLVED_API_BASE;
 
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 

@@ -19,7 +19,9 @@
     "worker": "tsx worker/index.ts",
     "worker:intelligence": "WORKER_KIND=intelligence tsx worker/index.ts",
     "worker:source-sync": "WORKER_KIND=source-sync tsx worker/index.ts",
+    "worker:channels": "WORKER_KIND=channels tsx worker/index.ts",
     "worker:all": "WORKER_KIND=all tsx worker/index.ts",
+    "channels:gateway": "tsx channels/server.ts",
     "worker:intelligence:legacy": "tsx worker/intelligence/index.ts",
     "lint:baseline": "node scripts/lint-baseline.mjs",
     "lint:baseline:update": "node scripts/lint-baseline.mjs --update"

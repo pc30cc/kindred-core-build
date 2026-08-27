@@ -33,6 +33,7 @@ RUN npm ci --omit=dev || npm install --omit=dev
 
 # Worker code + the small slice of server code it imports.
 COPY worker ./worker
+COPY shared ./shared
 COPY server ./server
 COPY tsconfig.json ./
 COPY tsconfig.server.json ./

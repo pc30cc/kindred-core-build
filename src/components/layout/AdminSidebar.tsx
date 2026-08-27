@@ -4,6 +4,7 @@ import {
   Flag, Palette, Globe, FileText, CreditCard, Shield,
   Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
+
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -24,6 +25,7 @@ const adminNav = [
   { key: 'system', path: '/admin/system', icon: Server },
   { key: 'observability', path: '/admin/observability', icon: Activity },
   { key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },
+  { key: 'plugins', path: '/admin/plugins', icon: Plug },
   { key: 'branding', path: '/admin/branding', icon: Palette },
   { key: 'domains', path: '/admin/domains', icon: Globe },
   { key: 'auditLogs', path: '/admin/audit-logs', icon: FileText },

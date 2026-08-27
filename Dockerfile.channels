@@ -1,0 +1,38 @@
+# ── Channels Gateway ───────────────────────────────────────────────
+# Public webhook ingress for channel plugins (Telegram today).
+#
+# This image is intentionally minimal. It contains NO database client and is
+# started with NO database or credential env vars — it verifies the derived
+# webhook secret and forwards to Core's authenticated internal API.
+#
+# Required env:
+#   CHANNELS_WEBHOOK_SIGNING_KEY   HMAC key used to derive per-integration secrets
+#   CORE_INTERNAL_SECRET           shared secret for the Core internal API
+#   CORE_INTERNAL_BASE_URL         e.g. http://core-api:3001
+# Optional env:
+#   CHANNELS_PORT                  default 3011
+#
+# MUST NOT be provided (the process exits if they are):
+#   SUPABASE_SERVICE_ROLE_KEY, PLUGIN_SECRETS_MASTER_KEY
+#
+# Build from repo root:
+#   docker build -f Dockerfile.channels -t growth-suite-channels .
+
+FROM node:20-alpine
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev || npm install --omit=dev
+
+# Gateway entry point + the pure shared secret-derivation module.
+COPY channels ./channels
+COPY shared ./shared
+COPY tsconfig.json ./
+COPY tsconfig.server.json ./
+
+ENV NODE_ENV=production
+ENV CHANNELS_PORT=3011
+EXPOSE 3011
+
+RUN test -f node_modules/tsx/dist/cli.mjs || (echo "❌ tsx not installed" && exit 1)
+CMD ["node", "node_modules/tsx/dist/cli.mjs", "channels/server.ts"]

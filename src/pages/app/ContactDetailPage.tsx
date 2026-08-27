@@ -535,11 +535,8 @@ export default function ContactDetailPage() {
                 <TabsContent value="tags" className="mt-4">
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-3">
-                      {editing ? (
-                        <Field label={t('contacts.tagsComma')}>
-                          <Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} />
-                        </Field>
-                      ) : (contact.tags ?? []).length ? (
+                      {(contact.tags ?? []).length ? (
+
                         <div className="flex flex-wrap gap-2">
                           {(contact.tags ?? []).map((tag) => (
                             <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>

@@ -130,4 +130,10 @@ describe('callers send both transports', () => {
     expect(worker).toContain('/internal/channels/auth-diagnostic');
     expect(worker).toContain('fingerprint_matches');
   });
+
+  it('worker refuses to claim jobs unless Core advertises the required route contract', () => {
+    expect(worker).toContain("'POST /process-inbound'");
+    expect(worker).toContain('missingRoutes.length > 0');
+    expect(worker).toContain('paused before claiming jobs');
+  });
 });

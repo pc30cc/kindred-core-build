@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { formatDateTime } from '@/lib/date';
 import { adminPluginsApi, type ChannelIntegrationRow } from '@/lib/plugins-api';
-import { Activity, AlertTriangle, PlugZap, ServerCog } from 'lucide-react';
+import { Activity, AlertTriangle, PlugZap, RotateCcw, ServerCog } from 'lucide-react';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   connected: 'default',
@@ -67,6 +67,19 @@ export function ChannelsRuntimePanel() {
       toast({ variant: 'destructive', title: t('plugins.admin.saveFailed'), description: err?.message }),
   });
 
+  const retryJobs = useMutation({
+    mutationFn: (jobIds: string[]) => adminPluginsApi.retryChannelJobs(jobIds),
+    onSuccess: (result) => {
+      toast({
+        title: t('plugins.runtime.requeued'),
+        description: t('plugins.runtime.requeuedCount', { count: result.requeued }),
+      });
+      qc.invalidateQueries({ queryKey: ['admin', 'channels', 'health'] });
+    },
+    onError: (err: any) =>
+      toast({ variant: 'destructive', title: t('plugins.runtime.retryFailed'), description: err?.message }),
+  });
+
   const queue = health.data?.queue;
   const staleWorkers = (health.data?.workers ?? []).filter((w) => !w.alive).length;
 
@@ -110,21 +123,46 @@ export function ChannelsRuntimePanel() {
 
       {!!health.data?.deadLetters?.length && (
         <Card className="p-4">
-          <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
-            <AlertTriangle className="h-4 w-4 text-destructive" />
-            {t('plugins.runtime.deadLetters')}
-          </h3>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              {t('plugins.runtime.deadLetters')}
+            </h3>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={retryJobs.isPending}
+              onClick={() => retryJobs.mutate(health.data?.deadLetters.map((job) => job.id) ?? [])}
+            >
+              <RotateCcw className="me-2 h-4 w-4" />
+              {t('plugins.runtime.retryAll')}
+            </Button>
+          </div>
           <div className="space-y-2">
             {health.data.deadLetters.map((job) => (
-              <div key={job.id} className="rounded-lg border p-2 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{job.job_type}</Badge>
-                  <span className="text-muted-foreground">
-                    {t('plugins.runtime.attempts')}: {job.attempt_count}
-                  </span>
-                  <span className="text-muted-foreground">{formatDateTime(job.updated_at)}</span>
+              <div key={job.id} className="flex items-start justify-between gap-3 rounded-lg border p-2 text-xs">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{job.job_type}</Badge>
+                    <span className="text-muted-foreground">
+                      {t('plugins.runtime.attempts')}: {job.attempt_count}
+                    </span>
+                    <span className="text-muted-foreground">{formatDateTime(job.updated_at)}</span>
+                  </div>
+                  {job.last_error && <p className="mt-1 break-all text-destructive">{job.last_error}</p>}
                 </div>
-                {job.last_error && <p className="mt-1 break-all text-destructive">{job.last_error}</p>}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  title={t('plugins.runtime.retryOne')}
+                  disabled={retryJobs.isPending}
+                  onClick={() => retryJobs.mutate([job.id])}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
               </div>
             ))}
           </div>

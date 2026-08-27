@@ -6,11 +6,15 @@ import { Navigate } from 'react-router-dom';
 import { useWorkspaces, useAccount, useCreateWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
+import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Building2, LogOut, RefreshCw, HeadsetIcon, Loader2 } from 'lucide-react';
+import { Building2, LogOut, RefreshCw, HeadsetIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+// Same-origin in dev/preview (Vite proxy), configured origin in production.
+// Using import.meta.env directly here bypassed that and produced blocked
+// cross-origin calls in the preview.
+import { API_BASE } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 export function WorkspaceRedirect() {
   const { data: workspaces, isLoading, refetch } = useWorkspaces();

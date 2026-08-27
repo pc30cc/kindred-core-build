@@ -56,11 +56,15 @@ export function renderCommandReply(
   settings: TelegramSettings,
   command: TelegramCommandKey,
   locale: string | null | undefined,
+  fallbackLocale?: string | null,
 ): string {
-  const body = escapeHtml(resolveLocalizedMessage(settings, locale, messageKeyForCommand(command)));
-  const title = escapeHtml(settings.commands[command] || '').trim();
+  const body = escapeHtml(
+    resolveLocalizedMessage(settings, locale, messageKeyForCommand(command), fallbackLocale),
+  );
+  const title = escapeHtml(resolveCommandLabel(settings, locale, command, fallbackLocale) || '').trim();
   return title ? `<b>${title}</b>\n\n${body}` : body;
 }
+
 
 /**
  * Resolves the workspace's Telegram settings, replies to /start /help

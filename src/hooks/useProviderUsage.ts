@@ -1,5 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/apiBase';
+
+/**
+ * Usage reads go through workspace-scoped first-party endpoints
+ * (`/api/workspaces/:id/usage/*`). The browser never queries
+ * `ai_usage_logs`/`storage_usage_logs` directly: workspace isolation is
+ * enforced server-side from the `gs_session` principal.
+ */
+async function usageFetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((body as any).error || `Request failed: ${res.status}`);
+  return body as T;
+}
 
 export interface AIUsageLog {
   id: string;
@@ -20,21 +33,12 @@ export function useAIUsageLogs(workspaceId?: string, limit = 50) {
   return useQuery({
     queryKey: ['ai-usage-logs', workspaceId, limit],
     queryFn: async () => {
-      let query = supabase
-        .from('ai_usage_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (workspaceId) {
-        query = query.eq('workspace_id', workspaceId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data as AIUsageLog[];
+      const body = await usageFetch<{ logs: AIUsageLog[] }>(
+        `/api/workspaces/${workspaceId}/usage/ai?limit=${limit}`,
+      );
+      return body.logs;
     },
-    enabled: !!workspaceId || true, // Admin can view all
+    enabled: !!workspaceId,
   });
 }
 
@@ -42,19 +46,11 @@ export function useAIUsageStats(workspaceId?: string) {
   return useQuery({
     queryKey: ['ai-usage-stats', workspaceId],
     queryFn: async () => {
-      let query = supabase
-        .from('ai_usage_logs')
-        .select('*')
-        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-
-      if (workspaceId) {
-        query = query.eq('workspace_id', workspaceId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const logs = data || [];
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const body = await usageFetch<{ logs: AIUsageLog[] }>(
+        `/api/workspaces/${workspaceId}/usage/ai?limit=500&since=${encodeURIComponent(since)}`,
+      );
+      const logs = body.logs || [];
       return {
         totalRequests: logs.length,
         successfulRequests: logs.filter(l => l.success).length,
@@ -69,6 +65,7 @@ export function useAIUsageStats(workspaceId?: string) {
         }, {} as Record<string, number>),
       };
     },
+    enabled: !!workspaceId,
     refetchInterval: 30_000,
   });
 }
@@ -90,19 +87,11 @@ export function useStorageUsageLogs(workspaceId?: string, limit = 50) {
   return useQuery({
     queryKey: ['storage-usage-logs', workspaceId, limit],
     queryFn: async () => {
-      let query = supabase
-        .from('storage_usage_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (workspaceId) {
-        query = query.eq('workspace_id', workspaceId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data as StorageUsageLog[];
+      const body = await usageFetch<{ logs: StorageUsageLog[] }>(
+        `/api/workspaces/${workspaceId}/usage/storage?limit=${limit}`,
+      );
+      return body.logs;
     },
+    enabled: !!workspaceId,
   });
 }

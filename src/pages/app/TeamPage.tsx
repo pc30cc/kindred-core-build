@@ -400,7 +400,7 @@ export default function TeamPage() {
                         email={m.profile?.email}
                         avatarUrl={m.profile?.avatar_url}
                         size="md"
-                        presence={isOnline ? 'online' : isAway ? 'idle' : 'offline'}
+                        presence={isOnline ? 'online' : 'offline'}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">

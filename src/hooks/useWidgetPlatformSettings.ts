@@ -51,20 +51,45 @@ export interface WidgetPlatformSettings {
 
 const QUERY_KEY = ['widget-platform-settings'] as const;
 
+const PLATFORM_PATH = '/api/widget-settings/platform/config';
+
+/**
+ * Self-host resilience: when the bundle was built with a cross-origin
+ * `VITE_API_BASE_URL` that the browser cannot reach (DNS, mixed content, or a
+ * CORS allowlist that omits the admin origin), `fetch` rejects with a bare
+ * `TypeError: Failed to fetch` and no diagnostics. In that case we retry the
+ * SAME-ORIGIN path, which the standard nginx `/api/` proxy forwards to Express.
+ */
+async function fetchPlatform(init?: RequestInit): Promise<Response> {
+  const bases = API_BASE ? [API_BASE, ''] : [''];
+  let lastError: unknown = null;
+  for (const base of bases) {
+    try {
+      return await fetch(`${base}${PLATFORM_PATH}`, { credentials: 'include', ...init });
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  const tried = bases.map((b) => `${b || window.location.origin}${PLATFORM_PATH}`).join(', ');
+  throw new Error(
+    `Network request failed (${(lastError as Error)?.message || 'Failed to fetch'}). Tried: ${tried}. ` +
+      `Check that the backend is reachable from the browser (nginx /api/ proxy or VITE_API_BASE_URL + CORS_ORIGINS).`,
+  );
+}
+
 export function useWidgetPlatformSettings() {
   return useQuery({
     queryKey: QUERY_KEY,
     retry: 1,
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/widget-settings/platform/config`, { credentials: 'include' });
+      const res = await fetchPlatform();
       const raw = await res.text();
       let json: any = null;
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {
         throw new Error(
-          `Unexpected response from ${API_BASE}/api/widget-settings/platform/config (HTTP ${res.status}). ` +
-            `Body: ${raw.slice(0, 160)}`,
+          `Unexpected response from ${PLATFORM_PATH} (HTTP ${res.status}). Body: ${raw.slice(0, 160)}`,
         );
       }
       if (!res.ok) {
@@ -81,16 +106,22 @@ export function useUpdateWidgetPlatformSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<WidgetPlatformSettings> }) => {
-      const res = await fetch(`${API_BASE}/api/widget-settings/platform/config`, {
-        credentials: 'include',
+      const res = await fetchPlatform({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, ...updates }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
-      return json.settings;
+      const raw = await res.text();
+      let json: any = null;
+      try {
+        json = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error(`Unexpected response (HTTP ${res.status}). Body: ${raw.slice(0, 160)}`);
+      }
+      if (!res.ok) throw new Error(json?.error || `Update failed: ${res.status}`);
+      return json?.settings;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
   });
 }
+

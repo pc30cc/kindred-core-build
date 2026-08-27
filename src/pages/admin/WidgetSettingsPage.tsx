@@ -64,11 +64,14 @@ export default function AdminWidgetSettingsPage() {
               : 'The backend returned no settings row and could not create one.'}
           </p>
           <p className="text-xs text-muted-foreground">
-            Self-host checklist: (1) the backend must run with the Supabase service_role key,
-            (2) apply database/migrations/044_widget_platform_settings.sql and
-            046_widget_platform_settings_backend_only.sql, (3) confirm you are signed in as a
+            Self-host checklist: (1) the browser must reach the backend — nginx must proxy
+            <code className="mx-1">/api/</code>to Express (BACKEND_URL), or set VITE_API_BASE_URL at
+            build time plus CORS_ORIGINS on the server, (2) the backend must run with the Supabase
+            service_role key, (3) apply database/migrations/044_widget_platform_settings.sql and
+            046_widget_platform_settings_backend_only.sql, (4) confirm you are signed in as a
             platform admin.
           </p>
+
           <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
             {isFetching ? 'Retrying…' : 'Retry'}
           </Button>

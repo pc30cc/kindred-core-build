@@ -143,15 +143,31 @@ async function ensureCoreAuthReady(): Promise<boolean> {
       if (response.status === 401 || response.status === 503) {
         const body = (await response.json().catch(() => ({}))) as { reason?: string };
         reason = await explainAuthFailure(body?.reason ?? null);
+      } else if (response.status === 404) {
+        reason = `Core at ${coreBaseUrl} has no /internal/channels/ready route — it is a stale deployment or not Core (${await describeCore()})`;
       } else {
         reason = `Core readiness returned HTTP ${response.status}`;
       }
       console.error(`[channels-worker] paused before claiming jobs: ${reason}`);
       return false;
     }
-    if (!coreAuthReady) console.log('[channels-worker] Core authentication verified; queue processing enabled');
+    if (!coreAuthReady) {
+      // Print the build + contract Core advertises: the fastest way to spot a
+      // Core that authenticates fine but predates the routes this worker calls.
+      const info = (await response.json().catch(() => ({}))) as { build?: string | null; routes?: string[] };
+      const routes = Array.isArray(info.routes) ? info.routes : [];
+      console.log(
+        `[channels-worker] Core authentication verified; queue processing enabled (build=${info.build ?? 'unknown'})`,
+      );
+      if (routes.length && !routes.includes('POST /process-inbound')) {
+        console.error(
+          '[channels-worker] Core does not advertise POST /process-inbound — redeploy Core with the current build before inbound messages can be processed',
+        );
+      }
+    }
     coreAuthReady = true;
     return true;
+
   } catch {
     coreAuthReady = false;
     console.error('[channels-worker] paused before claiming jobs: Core is unreachable');

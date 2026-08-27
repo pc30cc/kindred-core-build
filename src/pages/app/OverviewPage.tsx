@@ -12,7 +12,8 @@ import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspacePlan } from '@/hooks/usePlans';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { contactDisplayName } from '@/lib/contact-display';
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as ReTooltip, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
@@ -22,6 +23,11 @@ import {
 } from 'lucide-react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
+
+/** English placeholder subjects persisted by the widget/AI — localized in the UI. */
+const PLACEHOLDER_SUBJECTS = new Set([
+  'new conversation', 'new chat', 'untitled conversation', 'untitled', '[attachment]',
+]);
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
@@ -373,25 +379,35 @@ export default function OverviewPage() {
           ) : (
             <ul className="divide-y divide-border/60">
               {recent.map((c: any) => {
-                const name = c.contacts?.name || c.visitor_name || tr('inbox.visitor');
+                const name = c.contacts
+                  ? contactDisplayName(c.contacts, c.contact_id ?? c.id, t as any, c.visitor_network?.geo, locale)
+                  : (c.visitor_name || tr('contacts.conversationUntitled'));
+                const rawPreview = (c.last_message_preview || c.subject || '').trim();
+                const preview = PLACEHOLDER_SUBJECTS.has(rawPreview.toLowerCase())
+                  ? tr('contacts.conversationUntitled')
+                  : (rawPreview || '—');
                 return (
                   <li key={c.id}>
                     <Link
                       to={wsPath(`/inbox?c=${c.id}`)}
                       className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                     >
-                      <Avatar className="h-9 w-9 ring-2 ring-sky-500/15">
-                        {c.contacts?.avatar_url ? <AvatarImage src={c.contacts.avatar_url} alt={name} /> : null}
-                        <AvatarFallback className="bg-gradient-to-br from-sky-500 to-blue-500 text-[11px] font-semibold text-white">
-                          {String(name).charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+                      <ContactAvatar
+                        name={c.contacts?.name}
+                        email={c.contacts?.email}
+                        avatarUrl={c.contacts?.avatar_url}
+                        os={c.visitor_os}
+                        device={c.visitor_device}
+                        countryCode={c.visitor_country_code}
+                        size="sm"
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{name}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {c.last_message_preview || c.subject || '—'}
+                          {preview}
                         </p>
                       </div>
+
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
                           c.status === 'open'
@@ -436,26 +452,31 @@ export default function OverviewPage() {
             <ul className="max-h-[280px] divide-y divide-border/60 overflow-y-auto">
               {team.slice(0, 8).map((m: any) => {
                 const st = m.state || m.status || 'offline';
-                const dot =
-                  st === 'online' ? 'bg-success' : st === 'away' || st === 'idle' ? 'bg-warning' : 'bg-muted-foreground/40';
                 const label = m.full_name || m.name || m.email || '—';
+                const presence: 'online' | 'idle' | 'offline' =
+                  st === 'online' ? 'online' : st === 'away' || st === 'idle' ? 'idle' : 'offline';
+                const stLabel =
+                  presence === 'online'
+                    ? tr('dashboard.statusOnline')
+                    : presence === 'idle'
+                    ? tr('dashboard.statusAway')
+                    : tr('dashboard.statusOffline');
                 return (
                   <li key={m.user_id || label} className="flex items-center gap-3 px-5 py-2.5">
-                    <div className="relative">
-                      <Avatar className="h-8 w-8">
-                        {m.avatar_url ? <AvatarImage src={m.avatar_url} alt={label} /> : null}
-                        <AvatarFallback className="bg-muted text-[11px] font-semibold">
-                          {String(label).charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className={`absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-card ${dot}`} />
-                    </div>
+                    <ContactAvatar
+                      name={m.full_name || m.name}
+                      email={m.email}
+                      avatarUrl={m.avatar_url}
+                      size="sm"
+                      presence={presence}
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-foreground">{label}</p>
-                      <p className="truncate text-[11px] capitalize text-muted-foreground">{st}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">{stLabel}</p>
                     </div>
                   </li>
                 );
+
               })}
             </ul>
           )}

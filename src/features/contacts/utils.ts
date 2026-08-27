@@ -2,6 +2,7 @@ import type { Contact } from '@/types/models';
 import { formatRelative } from '@/lib/date';
 import { contactDisplayName, type ContactDisplayT, type DisplayGeoInfo } from '@/lib/contact-display';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
+import { flagEmoji } from '@/hooks/useVisitorNetwork';
 
 export function getInitials(name?: string | null, email?: string | null): string {
   if (name && name.trim()) {
@@ -72,8 +73,12 @@ export function getLocalizedLocation(
     { city: geo.city, country_code: geo.country_code, region: geo.region, country: meta.country ?? null },
     locale,
   );
-  return { label, flag: meta.flag ?? null };
+  // metadata.country_flag is only written once a visitor identifies, so fall
+  // back to deriving the flag from whichever country code we actually have.
+  const flag = meta.flag ?? (flagEmoji(geo.country_code) || null);
+  return { label, flag };
 }
+
 
 /** Locale-aware relative time (Persian/Turkish/English follow the active UI locale). */
 export function timeAgo(dateStr?: string | null): string {

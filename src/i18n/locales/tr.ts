@@ -1268,7 +1268,22 @@ const tr: TranslationKeys = {
     },
   },
 
+  workspaceRedirect: {
+    loading: 'Çalışma alanları yükleniyor…',
+    provisioning: 'Çalışma alanınız hazırlanıyor…',
+    title: 'Çalışma alanı bulunamadı',
+    description: 'Hesabınıza henüz bir çalışma alanı tanımlanmamış görünüyor. Tekrar deneyin veya destek ile iletişime geçin.',
+    errorPrefix: 'Bir sorun oluştu: {{message}}',
+    emailVerificationRequired: 'Çalışma alanı oluşturmadan önce e-postanızı doğrulayın. Doğrulama bağlantısı için gelen kutunuzu kontrol edin.',
+    createFailed: 'Çalışma alanı oluşturulamadı',
+    connectionFailed: 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.',
+    tryAgain: 'Tekrar dene',
+    signOut: 'Çıkış yap',
+    help: 'Yardım mı lazım? Yöneticinizle iletişime geçin.',
+  },
+
   workspaceInfo: {
+
     title: 'Çalışma alanı bilgileri',
     subtitle: 'Çalışma alanı bilgilerinizi yapılandırın. Bu bilgiler, çalışma alanınızın kullanıcılara nasıl göründüğünü belirler.',
     autoSaved: 'Otomatik olarak kaydedildi',

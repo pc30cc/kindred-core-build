@@ -1276,7 +1276,22 @@ const en = {
     },
   },
 
+  workspaceRedirect: {
+    loading: 'Loading workspaces…',
+    provisioning: 'Setting up your workspace…',
+    title: 'No workspace found',
+    description: "It looks like your account doesn't have a workspace yet. Try refreshing or contact support.",
+    errorPrefix: 'Something went wrong: {{message}}',
+    emailVerificationRequired: 'Please verify your email before creating a workspace. Check your inbox for the verification link.',
+    createFailed: 'Failed to create workspace',
+    connectionFailed: 'Could not reach the server. Check your connection and try again.',
+    tryAgain: 'Try again',
+    signOut: 'Sign out',
+    help: 'Need help? Contact your administrator.',
+  },
+
   workspaceInfo: {
+
     title: 'Workspace information',
     subtitle: 'Configure your workspace information. This defines how your workspace appears to your users.',
     autoSaved: 'Automatically saved',

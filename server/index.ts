@@ -355,6 +355,18 @@ app.use('/api/billing', billingRouter);
 // Plans & Feature Gating
 app.use('/api/plans', plansRouter);
 
+// Plugin Platform — workspace marketplace + Super Admin controls.
+// Both surfaces authorize inside the router before any service-role query.
+app.use('/api/plugins/admin', adminRateLimiter, adminPluginsRouter);
+app.use('/api/plugins', pluginsRouter);
+
+// Core ↔ Channels internal API. NOT under /api: it is a server-to-server
+// boundary authenticated with CORE_INTERNAL_SECRET and must never be exposed
+// to browsers or included in the public CORS surface.
+app.use('/internal/channels', internalChannelsRouter);
+
+
+
 // Phone verification (account-level OTP). Auth is enforced per route.
 app.use('/api/phone-verification', phoneVerificationRouter);
 

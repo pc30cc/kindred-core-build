@@ -255,10 +255,18 @@ export async function processInboundMessage(
     // vs entitlement-gated ai_first) is resolved here too.
     let aiAllowed = true;
     let telegramCommandHandled = false;
+    let replyLocale: string | null = input.senderLanguage;
     if (input.provider === 'telegram') {
       const flow = await handleTelegramInboundFlow(config, input, conversation.id);
       aiAllowed = flow.aiAllowed;
       telegramCommandHandled = flow.handled;
+      replyLocale = flow.locale;
+      console.log('[channels] telegram ai gate', {
+        workspaceId: input.workspaceId,
+        aiAllowed,
+        commandHandled: telegramCommandHandled,
+        locale: replyLocale,
+      });
     }
 
     // AI Agent runs through the SAME entry point as the widget, so mode,
@@ -271,9 +279,14 @@ export async function processInboundMessage(
         conversationId: conversation.id,
         visitorMessageId: (insertedMsg as any).id,
         question: input.text,
-        locale: input.senderLanguage || undefined,
-      }).catch((e: any) => console.warn('[channels] AI engine error:', e?.message || e));
+        locale: replyLocale || undefined,
+      })
+        .then((r: any) => {
+          if (input.provider === 'telegram') console.log('[channels] telegram ai result', r);
+        })
+        .catch((e: any) => console.warn('[channels] AI engine error:', e?.message || e));
     }
+
 
     await finish('processed', {
       conversation_id: conversation.id,

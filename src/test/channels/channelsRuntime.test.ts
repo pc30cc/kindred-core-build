@@ -40,6 +40,10 @@ describe('gateway delivery classification', () => {
 
 describe('worker boundary', () => {
   const workerSource = readFileSync(resolve(process.cwd(), 'worker/channels/index.ts'), 'utf8');
+  const inboundSource = readFileSync(
+    resolve(process.cwd(), 'server/services/channels/inboundProcessing.ts'),
+    'utf8',
+  );
 
   it('never writes canonical business tables', () => {
     const canonicalTables = ['contacts', 'conversations', 'conversation_messages', 'contact_channels'];
@@ -56,5 +60,18 @@ describe('worker boundary', () => {
 
   it('reports delivery outcomes through Core, not by direct message updates', () => {
     expect(workerSource).toContain('/internal/channels/outbound-result');
+  });
+
+  it('keeps the conversation insert aligned with the deployed schema', () => {
+    const conversationInsert = inboundSource.match(
+      /\.from\('conversations'\)\s*\.insert\(\{([\s\S]*?)\}\)\s*\.select/,
+    )?.[1] ?? '';
+    expect(conversationInsert).not.toMatch(/\bchannel\s*:/);
+    expect(conversationInsert).toContain('metadata:');
+  });
+
+  it('does not acknowledge conversation creation failures as ignored', () => {
+    expect(inboundSource).not.toContain("last_error: 'conversation_creation_failed'");
+    expect(inboundSource).toContain('throw new Error(`conversation creation failed:');
   });
 });

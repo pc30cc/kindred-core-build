@@ -394,10 +394,17 @@ export default function CallsPage() {
   }), [allCalls, type, search]);
 
   // ONE batched network read for the whole page (list rows + detail sheet).
-  const { data: networkBySession } = useVisitorNetworkBatchBySession(
-    workspace?.id,
-    useMemo(() => filtered.map((c) => (c as any).visitor_session_id ?? null), [filtered]),
+  const sessionIds = useMemo(
+    () => filtered.map((c) => (c as any).visitor_session_id ?? null),
+    [filtered],
   );
+  const { data: networkBySession, isPending: networkPending } = useVisitorNetworkBatchBySession(
+    workspace?.id,
+    sessionIds,
+  );
+  // Identity (avatar + name) depends on that profile — hold it in a skeleton
+  // until it settles so rows never swap identity after paint.
+  const identityLoading = networkPending && sessionIds.some(Boolean);
   // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
   useGeoEnrichmentRealtime(workspace?.id);
   const detailProfile = (detail as any)?.call?.visitor_session_id

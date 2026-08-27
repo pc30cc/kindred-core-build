@@ -60,7 +60,13 @@ internalChannelsRouter.get('/auth-diagnostic', (req: any, res) => {
     fingerprint_matches: expected && presentedFingerprint
       ? internalSecretFingerprint(expected) === presentedFingerprint
       : null,
+    // Proves which Core build answered, so a 404 on an existing route can be
+    // attributed to a stale deployment rather than a code defect.
+    service: 'core-internal-channels',
+    build: CORE_BUILD,
+    routes: INTERNAL_CHANNEL_ROUTES,
   });
+
 });
 
 internalChannelsRouter.use((req, res, next) => {

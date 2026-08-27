@@ -373,25 +373,35 @@ export default function OverviewPage() {
           ) : (
             <ul className="divide-y divide-border/60">
               {recent.map((c: any) => {
-                const name = c.contacts?.name || c.visitor_name || tr('inbox.visitor');
+                const name = c.contacts
+                  ? contactDisplayName(c.contacts, c.contact_id ?? c.id, t as any, c.visitor_network?.geo, locale)
+                  : (c.visitor_name || tr('contacts.conversationUntitled'));
+                const rawPreview = (c.last_message_preview || c.subject || '').trim();
+                const preview = PLACEHOLDER_SUBJECTS.has(rawPreview.toLowerCase())
+                  ? tr('contacts.conversationUntitled')
+                  : (rawPreview || '—');
                 return (
                   <li key={c.id}>
                     <Link
                       to={wsPath(`/inbox?c=${c.id}`)}
                       className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                     >
-                      <Avatar className="h-9 w-9 ring-2 ring-sky-500/15">
-                        {c.contacts?.avatar_url ? <AvatarImage src={c.contacts.avatar_url} alt={name} /> : null}
-                        <AvatarFallback className="bg-gradient-to-br from-sky-500 to-blue-500 text-[11px] font-semibold text-white">
-                          {String(name).charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+                      <ContactAvatar
+                        name={c.contacts?.name}
+                        email={c.contacts?.email}
+                        avatarUrl={c.contacts?.avatar_url}
+                        os={c.visitor_os}
+                        device={c.visitor_device}
+                        countryCode={c.visitor_country_code}
+                        size="sm"
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{name}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {c.last_message_preview || c.subject || '—'}
+                          {preview}
                         </p>
                       </div>
+
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
                           c.status === 'open'

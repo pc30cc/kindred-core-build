@@ -19,7 +19,12 @@
 export function resolveApiBase(raw?: string | null): string {
   const value = typeof raw === 'string' ? raw.trim() : '';
   if (!value || value === 'undefined' || value === 'null') return '';
-  return value.replace(/\/+$/, '');
+  // Every client path already starts with `/api`. Operators commonly paste
+  // `https://api.example.com/api` into VITE_API_BASE_URL; retaining that
+  // suffix silently creates `/api/api/...`, which reaches Express but falls
+  // through to its generic 404 response. Accept both forms and keep the
+  // public configuration forgiving.
+  return value.replace(/\/+$/, '').replace(/\/api$/i, '');
 }
 
 const viteEnv = (import.meta as unknown as {

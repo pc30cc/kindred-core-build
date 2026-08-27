@@ -63,13 +63,21 @@ const PLATFORM_PATH = '/api/widget-settings/platform/config';
 async function fetchPlatform(init?: RequestInit): Promise<Response> {
   const bases = API_BASE ? [API_BASE, ''] : [''];
   let lastError: unknown = null;
+  let lastResponse: Response | null = null;
   for (const base of bases) {
     try {
-      return await fetch(`${base}${PLATFORM_PATH}`, { credentials: 'include', ...init });
+      const response = await fetch(`${base}${PLATFORM_PATH}`, { credentials: 'include', ...init });
+      lastResponse = response;
+      // A configured API host can point at a stale backend release while the
+      // same-origin nginx proxy already targets the current Express service.
+      // Retry only a route-level 404; auth/database errors must be surfaced
+      // unchanged and mutations must never be replayed for other failures.
+      if (response.status !== 404 || base === bases[bases.length - 1]) return response;
     } catch (err) {
       lastError = err;
     }
   }
+  if (lastResponse) return lastResponse;
   const tried = bases.map((b) => `${b || window.location.origin}${PLATFORM_PATH}`).join(', ');
   throw new Error(
     `Network request failed (${(lastError as Error)?.message || 'Failed to fetch'}). Tried: ${tried}. ` +
@@ -94,6 +102,12 @@ export function useWidgetPlatformSettings() {
       }
       if (!res.ok) {
         const detail = [json?.error, json?.detail, json?.hint].filter(Boolean).join(' — ');
+        if (res.status === 404 && json?.error === 'Not found') {
+          throw new Error(
+            'The connected Express backend does not contain the widget platform settings route. ' +
+              'Redeploy/rebuild the backend from the same source version as the frontend, then retry.',
+          );
+        }
         throw new Error(detail || `Load failed: HTTP ${res.status}`);
       }
       return (json?.settings ?? null) as WidgetPlatformSettings | null;

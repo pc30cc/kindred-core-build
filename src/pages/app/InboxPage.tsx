@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useBranding } from '@/hooks/useBranding';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, useInboxTabCounts, type InboxQueue } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';

@@ -100,20 +100,19 @@ CREATE TRIGGER trg_widget_platform_settings_touch
   FOR EACH ROW EXECUTE FUNCTION public.widget_platform_settings_touch();
 
 -- Grants: this row holds secrets (alert_webhook_secret) and admin-only
--- metadata (admin_notes, alert_webhook_url, updated_by). NO anon access.
--- All reads/writes go through the first-party backend with service_role.
-REVOKE ALL   ON public.widget_platform_settings FROM anon;
-GRANT SELECT ON public.widget_platform_settings TO authenticated;
-GRANT ALL    ON public.widget_platform_settings TO service_role;
+-- metadata (admin_notes, alert_webhook_url, updated_by). Raw-table access is
+-- BACKEND_ADMIN_ONLY: no anon, no authenticated. All reads/writes go through
+-- the first-party backend with service_role; the browser uses the sanitized
+-- get_widget_platform_settings() RPC instead.
+REVOKE ALL ON public.widget_platform_settings FROM anon;
+REVOKE ALL ON public.widget_platform_settings FROM authenticated;
+GRANT ALL  ON public.widget_platform_settings TO service_role;
 
 ALTER TABLE public.widget_platform_settings ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Authenticated can read widget platform settings" ON public.widget_platform_settings;
-CREATE POLICY "Authenticated can read widget platform settings"
-  ON public.widget_platform_settings FOR SELECT TO authenticated USING (true);
-
--- Never expose the full row to anon.
+-- Never expose the raw row to browser roles.
 DROP POLICY IF EXISTS "Anon can read widget platform settings" ON public.widget_platform_settings;
+DROP POLICY IF EXISTS "Authenticated can read widget platform settings" ON public.widget_platform_settings;
 
 -- Seed the singleton row (no-op when one already exists).
 INSERT INTO public.widget_platform_settings DEFAULT VALUES

@@ -72,8 +72,12 @@ export function getLocalizedLocation(
     { city: geo.city, country_code: geo.country_code, region: geo.region, country: meta.country ?? null },
     locale,
   );
-  return { label, flag: meta.flag ?? null };
+  // metadata.country_flag is only written once a visitor identifies, so fall
+  // back to deriving the flag from whichever country code we actually have.
+  const flag = meta.flag ?? (flagEmoji(geo.country_code) || null);
+  return { label, flag };
 }
+
 
 /** Locale-aware relative time (Persian/Turkish/English follow the active UI locale). */
 export function timeAgo(dateStr?: string | null): string {

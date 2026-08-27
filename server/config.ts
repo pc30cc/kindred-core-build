@@ -1,6 +1,9 @@
 // Server environment contract
 // All sensitive values come from server env, never from frontend
 
+import { assertDistinctSigningKey } from '../shared/channels/webhookSecret.js';
+
+
 export interface ServerConfig {
   port: number;
   supabaseUrl: string;

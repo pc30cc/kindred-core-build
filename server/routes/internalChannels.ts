@@ -12,7 +12,11 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireInternalService } from '../lib/internalAuth.js';
+import {
+  INTERNAL_SECRET_HEADER,
+  internalSecretFingerprint,
+  requireInternalService,
+} from '../lib/internalAuth.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -30,10 +34,40 @@ import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize
 
 export const internalChannelsRouter = Router();
 
+/**
+ * GET /auth-diagnostic — deliberately UNAUTHENTICATED, mounted before the
+ * guard below.
+ *
+ * When the Gateway or Worker cannot authenticate, the 401 alone cannot tell
+ * an operator whether the secret differs or a reverse proxy swallowed the
+ * credential. This endpoint answers exactly that, and nothing else:
+ *   - whether Core has a secret configured at all,
+ *   - which credential headers actually survived the proxy hop,
+ *   - whether the caller's NON-REVERSIBLE fingerprint matches Core's.
+ *
+ * No secret, and no part of one, is ever returned: the caller sends a
+ * truncated salted SHA-256 and receives a boolean.
+ */
+internalChannelsRouter.get('/auth-diagnostic', (req: any, res) => {
+  const expected = serverConfigOf(req)?.coreInternalSecret;
+  const presentedFingerprint =
+    typeof req.query?.fingerprint === 'string' ? req.query.fingerprint.trim() : '';
+
+  res.json({
+    configured: !!expected,
+    saw_authorization_header: typeof req.headers?.authorization === 'string',
+    saw_internal_secret_header: typeof req.headers?.[INTERNAL_SECRET_HEADER] === 'string',
+    fingerprint_matches: expected && presentedFingerprint
+      ? internalSecretFingerprint(expected) === presentedFingerprint
+      : null,
+  });
+});
+
 internalChannelsRouter.use((req, res, next) => {
   if (!requireInternalService(req, res)) return;
   next();
 });
+
 
 /**
  * POST /ingest — durable capture of a verified provider webhook.

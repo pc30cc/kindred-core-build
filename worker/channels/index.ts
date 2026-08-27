@@ -17,6 +17,7 @@
  * never placed in job payloads.
  */
 
+import { createHash } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   claimChannelJobs,
@@ -58,6 +59,66 @@ let masterKey: string;
 let coreAuthReady = false;
 let lastCoreAuthCheckAt = 0;
 
+/** Non-reversible fingerprint — mirrors server/lib/internalAuth.ts exactly. */
+function secretFingerprint(secret: string): string {
+  return createHash('sha256').update(`core-internal-secret:${secret}`).digest('hex').slice(0, 12);
+}
+
+/**
+ * Credential headers for every Core call.
+ *
+ * The SAME value is sent twice on purpose: reverse proxies in front of Core
+ * (Traefik/Coolify and friends) frequently consume or rewrite `Authorization`,
+ * which made a perfectly matching secret look like a mismatch. The dedicated
+ * header survives those hops.
+ */
+function coreAuthHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${coreSecret}`,
+    'X-Core-Internal-Secret': coreSecret,
+  };
+}
+
+/**
+ * Ask Core's unauthenticated diagnostic endpoint WHY authentication failed,
+ * so the operator is told the actual cause instead of a guess.
+ */
+async function explainAuthFailure(reason: string | null): Promise<string> {
+  if (reason === 'not_configured') {
+    return 'Core has no CORE_INTERNAL_SECRET configured — set it on the Core service and redeploy it';
+  }
+
+  try {
+    const url = `${coreBaseUrl}/internal/channels/auth-diagnostic?fingerprint=${secretFingerprint(coreSecret)}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) {
+      return `Core rejected the internal credential (diagnostic unavailable, HTTP ${response.status})`;
+    }
+    const info = (await response.json()) as {
+      configured?: boolean;
+      saw_authorization_header?: boolean;
+      saw_internal_secret_header?: boolean;
+      fingerprint_matches?: boolean | null;
+    };
+
+    if (info.configured === false) {
+      return 'Core has no CORE_INTERNAL_SECRET configured — set it on the Core service and redeploy it';
+    }
+    if (info.fingerprint_matches === true) {
+      // Values are identical, so the credential is being lost in transit.
+      return info.saw_authorization_header === false && info.saw_internal_secret_header === false
+        ? 'CORE_INTERNAL_SECRET matches Core, but the proxy in front of Core strips BOTH credential headers — allow Authorization and X-Core-Internal-Secret through, or point CORE_INTERNAL_BASE_URL at Core directly'
+        : 'CORE_INTERNAL_SECRET matches Core, but the request is still rejected — check that CORE_INTERNAL_BASE_URL points at Core itself and not another service';
+    }
+    if (info.fingerprint_matches === false) {
+      return 'CORE_INTERNAL_SECRET differs from the value configured on Core — copy Core\'s exact value into the Worker and redeploy';
+    }
+    return 'Core rejected the internal credential and returned no fingerprint verdict';
+  } catch {
+    return 'Core rejected the internal credential and its diagnostic endpoint is unreachable';
+  }
+}
+
 /**
  * Validate the Worker → Core trust boundary before claiming queue jobs.
  * This prevents a mismatched deployment secret from exhausting retries and
@@ -71,14 +132,18 @@ async function ensureCoreAuthReady(): Promise<boolean> {
 
   try {
     const response = await fetch(`${coreBaseUrl}/internal/channels/ready`, {
-      headers: { Authorization: `Bearer ${coreSecret}` },
+      headers: coreAuthHeaders(),
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) {
       coreAuthReady = false;
-      const reason = response.status === 401
-        ? 'CORE_INTERNAL_SECRET does not match Core'
-        : `Core readiness returned HTTP ${response.status}`;
+      let reason: string;
+      if (response.status === 401 || response.status === 503) {
+        const body = (await response.json().catch(() => ({}))) as { reason?: string };
+        reason = await explainAuthFailure(body?.reason ?? null);
+      } else {
+        reason = `Core readiness returned HTTP ${response.status}`;
+      }
       console.error(`[channels-worker] paused before claiming jobs: ${reason}`);
       return false;
     }
@@ -95,7 +160,7 @@ async function ensureCoreAuthReady(): Promise<boolean> {
 async function coreCall(path: string, body: unknown): Promise<any> {
   const response = await fetch(`${coreBaseUrl}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${coreSecret}` },
+    headers: { 'Content-Type': 'application/json', ...coreAuthHeaders() },
     body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -104,6 +169,7 @@ async function coreCall(path: string, body: unknown): Promise<any> {
   }
   return response.json();
 }
+
 
 /** Resolves a provider credential for an integration. Read-only, server-side. */
 async function resolveIntegrationToken(integrationId: string, secretKey: string): Promise<string> {

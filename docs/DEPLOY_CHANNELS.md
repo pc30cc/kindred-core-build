@@ -56,10 +56,31 @@ The Gateway **exits on boot** if `SUPABASE_SERVICE_ROLE_KEY` or
 
 `CORE_INTERNAL_SECRET` is one shared value, not three independently generated
 values. Copy the exact same value (with no quotes or trailing whitespace) into
-Core, Gateway and Worker, then redeploy all three services. A Worker log such as
-`process-inbound failed [401]` proves that the Worker's value differs from the
-Core value. New Worker builds verify this boundary before claiming jobs, so a
-bad secret pauses processing instead of exhausting job retries.
+Core, Gateway and Worker, then redeploy all three services.
+
+A 401 on the internal boundary has **two different causes**, and the Worker now
+names which one it hit instead of guessing:
+
+- `CORE_INTERNAL_SECRET differs from the value configured on Core` — the values
+  really are different. Copy Core's exact value and redeploy the Worker.
+- `matches Core, but the proxy in front of Core strips BOTH credential headers`
+  — the secret is correct and the reverse proxy is eating the credential.
+  Callers send it twice (`Authorization: Bearer` and `X-Core-Internal-Secret`);
+  allow at least one of those headers through the proxy, or point
+  `CORE_INTERNAL_BASE_URL` at Core directly (e.g. `http://core-api:3001`)
+  instead of routing through the public domain.
+
+To inspect the boundary by hand — the endpoint is unauthenticated and returns
+no secret, only booleans:
+
+```bash
+curl -s "https://api.example.com/internal/channels/auth-diagnostic"
+# {"configured":true,"saw_authorization_header":false,...}
+```
+
+`configured:false` means Core itself has no secret set. `saw_authorization_header:false`
+on a request that sent one proves the proxy is stripping it.
+
 
 ## Docker Compose (single host)
 

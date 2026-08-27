@@ -24,6 +24,11 @@ import {
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
 
+/** English placeholder subjects persisted by the widget/AI — localized in the UI. */
+const PLACEHOLDER_SUBJECTS = new Set([
+  'new conversation', 'new chat', 'untitled conversation', 'untitled', '[attachment]',
+]);
+
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
   const workspace = useCurrentWorkspace();

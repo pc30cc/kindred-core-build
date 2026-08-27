@@ -29,7 +29,26 @@ export type TelegramInboundFlowResult = {
   aiAllowed: boolean;
   /** Whether a command was recognized and replied to directly. */
   handled: boolean;
+  /** Locale every outbound reply (including AI) must speak. */
+  locale: string | null;
 };
+
+/**
+ * The language the bot must answer in: the Telegram user's language when the
+ * platform actually offers it, otherwise the platform's primary locale.
+ * A Persian-only deployment therefore never replies in English just because
+ * Telegram reported `language_code: en`.
+ */
+export async function resolveTelegramReplyLocale(
+  config: ServerConfig,
+  senderLanguage: string | null | undefined,
+): Promise<{ locale: string; fallbackLocale: string }> {
+  const allowed = await getPlatformAllowedLocales(config).catch(() => ['en']);
+  const fallbackLocale = allowed[0] || 'en';
+  const normalized = (senderLanguage || '').toLowerCase().split('-')[0];
+  return { locale: allowed.includes(normalized) ? normalized : fallbackLocale, fallbackLocale };
+}
+
 
 /** Telegram HTML parse-mode escaping — applied to every value we interpolate. */
 export function escapeHtml(text: string): string {

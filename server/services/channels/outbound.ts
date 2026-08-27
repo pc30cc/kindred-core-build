@@ -37,12 +37,12 @@ export async function ensureOutboundIntent(
 
   const { data: conversation } = await sb
     .from('conversations')
-    .select('metadata, channel')
+    .select('metadata')
     .eq('id', input.conversationId)
     .maybeSingle();
 
   const metadata = ((conversation as any)?.metadata ?? {}) as Record<string, unknown>;
-  const provider = String((conversation as any)?.channel ?? metadata.channel ?? '');
+  const provider = String(metadata.channel ?? '');
   const jobType = OUTBOUND_JOB_BY_PROVIDER[provider];
   if (!jobType) return 'not_a_channel_conversation';
 

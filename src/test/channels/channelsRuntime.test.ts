@@ -44,6 +44,18 @@ describe('worker boundary', () => {
     resolve(process.cwd(), 'server/services/channels/inboundProcessing.ts'),
     'utf8',
   );
+  const outboundSource = readFileSync(
+    resolve(process.cwd(), 'server/services/channels/outbound.ts'),
+    'utf8',
+  );
+  const aiResponderSource = readFileSync(
+    resolve(process.cwd(), 'server/services/ai-agent/responder.ts'),
+    'utf8',
+  );
+  const outboundMigrationSource = readFileSync(
+    resolve(process.cwd(), 'database/migrations/051_fix_channel_ai_outbox.sql'),
+    'utf8',
+  );
 
   it('never writes canonical business tables', () => {
     const canonicalTables = ['contacts', 'conversations', 'conversation_messages', 'contact_channels'];
@@ -73,5 +85,21 @@ describe('worker boundary', () => {
   it('does not acknowledge conversation creation failures as ignored', () => {
     expect(inboundSource).not.toContain("last_error: 'conversation_creation_failed'");
     expect(inboundSource).toContain('throw new Error(`conversation creation failed:');
+  });
+
+  it('does not query the removed conversations.channel column', () => {
+    expect(outboundSource).not.toContain(".select('metadata, channel')");
+    expect(outboundSource).toContain(".select('metadata')");
+  });
+
+  it('reconciles AI replies with the channel outbox', () => {
+    expect(aiResponderSource).toContain('await ensureOutboundIntent(config, {');
+    expect(aiResponderSource).toContain('messageId: row.id');
+  });
+
+  it('enqueues agent, bot, and AI replies from conversation metadata', () => {
+    expect(outboundMigrationSource).toContain("NOT IN ('agent', 'bot', 'ai')");
+    expect(outboundMigrationSource).toContain("COALESCE(c_metadata->>'channel', '') <> 'telegram'");
+    expect(outboundMigrationSource).not.toMatch(/SELECT\s+workspace_id,\s*channel,/);
   });
 });

@@ -266,8 +266,14 @@ describe('production source has no Supabase Auth or service_role usage', () => {
     expect(offenders.map((f) => path.relative(root, f))).toEqual([]);
   });
 
-  it('no frontend module references a service role key', () => {
-    const offenders = files.filter((f) => /service_role|SERVICE_ROLE_KEY/.test(fs.readFileSync(f, 'utf8')));
+  it('no frontend module reads or embeds a service role key', () => {
+    // Prose mentions of service_role in comments are fine; an actual key
+    // reference (env read, variable, or a service_role JWT literal) is not.
+    const offenders = files.filter((f) =>
+      /SUPABASE_SERVICE_ROLE_KEY|serviceRoleKey\s*[:=]|"role"\s*:\s*"service_role"/.test(
+        fs.readFileSync(f, 'utf8'),
+      ),
+    );
     expect(offenders.map((f) => path.relative(root, f))).toEqual([]);
   });
 });

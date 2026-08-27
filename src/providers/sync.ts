@@ -4,7 +4,7 @@
 // and applies them to the ProviderRegistry at runtime.
 // ============================================
 
-import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/apiBase';
 import { providerRegistry, type ProviderTypeKey, PROVIDER_TYPE_KEYS } from './registry';
 
 // Track fallback usage for observability
@@ -42,59 +42,62 @@ export function logFallback(
 }
 
 /**
- * Load global default provider settings from app_runtime_config
+ * All provider metadata now comes from first-party Express endpoints:
+ *  - GET  /api/account/provider-defaults          (authenticated read)
+ *  - GET  /api/workspaces/:id/provider-selection  (workspace member read)
+ *  - PUT/DELETE /api/admin/management/runtime-config/:key (platform admin)
+ * The browser never reads `app_runtime_config`/`provider_configs` directly,
+ * and provider credentials never leave the backend.
+ */
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((body as any).error || `Request failed: ${res.status}`);
+  return body as T;
+}
+
+/**
+ * Load global default provider settings
  * and workspace overrides from provider_configs, then apply to registry.
  */
 export async function syncProvidersFromDB(workspaceId?: string): Promise<void> {
   try {
-    // 1. Load global defaults from app_runtime_config
-    const { data: globalConfigs } = await supabase
-      .from('app_runtime_config')
-      .select('key, value')
-      .like('key', 'default_%_provider');
+    // 1. Load global defaults (non-secret provider names only)
+    const { defaults } = await apiFetch<{ defaults: Record<string, string> }>(
+      '/api/account/provider-defaults',
+    );
 
-    if (globalConfigs) {
-      for (const row of globalConfigs) {
-        const match = row.key.match(/^default_(\w+)_provider$/);
-        if (!match) continue;
-        const type = match[1] as ProviderTypeKey;
-        if (!PROVIDER_TYPE_KEYS.includes(type)) continue;
-        // Auth is never DB-switchable. First-party gs_session auth
-        // (server/routes/auth.ts) is the sole identity system; a
-        // `default_auth_provider` row must never be able to flip the
-        // active provider here, however it came to exist.
-        if (type === 'auth') continue;
-
-        const value = row.value as { provider_name?: string } | null;
-        if (value?.provider_name) {
-          const registered = providerRegistry.getProviders(type);
-          const exists = registered.some(p => p.name === value.provider_name);
-          if (exists) {
-            providerRegistry.setActive(type, value.provider_name);
-          }
-        }
+    for (const [rawType, providerName] of Object.entries(defaults ?? {})) {
+      const type = rawType as ProviderTypeKey;
+      if (!PROVIDER_TYPE_KEYS.includes(type)) continue;
+      // Auth is never DB-switchable. First-party gs_session auth
+      // (server/routes/auth.ts) is the sole identity system.
+      if (type === 'auth') continue;
+      const registered = providerRegistry.getProviders(type);
+      if (registered.some(p => p.name === providerName)) {
+        providerRegistry.setActive(type, providerName);
       }
     }
 
     // 2. Load workspace-level overrides
     if (workspaceId) {
-      const { data: wsConfigs } = await supabase
-        .from('provider_configs')
-        .select('provider_type, provider_name, is_active')
-        .eq('workspace_id', workspaceId)
-        .eq('is_active', true);
+      const { overrides } = await apiFetch<{
+        overrides: Array<{ provider_type: string; provider_name: string; is_active: boolean }>;
+      }>(`/api/workspaces/${workspaceId}/provider-selection`);
 
-      if (wsConfigs) {
-        for (const row of wsConfigs) {
-          const type = row.provider_type as ProviderTypeKey;
-          if (!PROVIDER_TYPE_KEYS.includes(type)) continue;
-          providerRegistry.setWorkspaceOverride(workspaceId, type, row.provider_name);
-        }
+      for (const row of overrides ?? []) {
+        const type = row.provider_type as ProviderTypeKey;
+        if (!PROVIDER_TYPE_KEYS.includes(type)) continue;
+        providerRegistry.setWorkspaceOverride(workspaceId, type, row.provider_name);
       }
     }
 
     console.info('[ProviderSync] DB sync complete', {
-      globalDefaults: globalConfigs?.length ?? 0,
+      globalDefaults: Object.keys(defaults ?? {}).length,
       workspaceOverrides: workspaceId ? 'loaded' : 'skipped',
     });
   } catch (err) {
@@ -119,15 +122,17 @@ export async function setGlobalDefaultProvider(
   const key = `default_${type}_provider`;
   const value = { provider_name: providerName, config: config || {} };
 
-  const { error } = await supabase
-    .from('app_runtime_config')
-    .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-
-  if (!error) {
-    providerRegistry.setActive(type, providerName);
+  try {
+    await apiFetch(`/api/admin/management/runtime-config/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err : new Error('Failed to save provider default') };
   }
 
-  return { error: error ? new Error(error.message) : null };
+  providerRegistry.setActive(type, providerName);
+  return { error: null };
 }
 
 /**
@@ -137,17 +142,15 @@ export async function removeGlobalDefaultProvider(
   type: ProviderTypeKey
 ): Promise<{ error: Error | null }> {
   const key = `default_${type}_provider`;
-  const { error } = await supabase
-    .from('app_runtime_config')
-    .delete()
-    .eq('key', key);
-
-  if (!error) {
-    // Clear active, registry will fall back to priority-based resolution
-    providerRegistry.clearActive(type);
+  try {
+    await apiFetch(`/api/admin/management/runtime-config/${key}`, { method: 'DELETE' });
+  } catch (err) {
+    return { error: err instanceof Error ? err : new Error('Failed to remove provider default') };
   }
 
-  return { error: error ? new Error(error.message) : null };
+  // Clear active, registry will fall back to priority-based resolution
+  providerRegistry.clearActive(type);
+  return { error: null };
 }
 
 /**
@@ -157,13 +160,14 @@ export async function getGlobalDefaultProvider(
   type: ProviderTypeKey
 ): Promise<{ provider_name: string; config: Record<string, unknown> } | null> {
   const key = `default_${type}_provider`;
-  const { data } = await supabase
-    .from('app_runtime_config')
-    .select('value')
-    .eq('key', key)
-    .maybeSingle();
-
-  return data?.value as { provider_name: string; config: Record<string, unknown> } | null;
+  try {
+    const { value } = await apiFetch<{ value: unknown }>(
+      `/api/admin/management/runtime-config/${key}`,
+    );
+    return (value as { provider_name: string; config: Record<string, unknown> } | null) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -172,20 +176,16 @@ export async function getGlobalDefaultProvider(
 export async function getAllGlobalDefaults(): Promise<
   Record<string, { provider_name: string; config: Record<string, unknown> }>
 > {
-  const { data } = await supabase
-    .from('app_runtime_config')
-    .select('key, value')
-    .like('key', 'default_%_provider');
-
   const result: Record<string, { provider_name: string; config: Record<string, unknown> }> = {};
-  if (data) {
-    for (const row of data) {
-      const match = row.key.match(/^default_(\w+)_provider$/);
-      if (match) {
-        const type = match[1];
-        result[type] = row.value as { provider_name: string; config: Record<string, unknown> };
-      }
+  try {
+    const { defaults } = await apiFetch<{ defaults: Record<string, string> }>(
+      '/api/account/provider-defaults',
+    );
+    for (const [type, provider_name] of Object.entries(defaults ?? {})) {
+      result[type] = { provider_name, config: {} };
     }
+  } catch {
+    /* registry falls back to priority-based resolution */
   }
   return result;
 }

@@ -102,7 +102,7 @@ export interface ChannelIntegrationRow {
 export interface ChannelsHealth {
   queue: {
     pending: number;
-    processing: number;
+    running: number;
     failed: number;
     oldestPendingAgeSeconds: number | null;
   };

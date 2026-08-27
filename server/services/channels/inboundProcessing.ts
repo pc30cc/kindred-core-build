@@ -15,6 +15,7 @@ import { getServiceClient } from '../../supabase.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publish.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
+import { handleTelegramInboundFlow } from './telegram/runtime.js';
 import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
 import { anonCodeFrom } from '../widget/anonymousContact.js';
 
@@ -234,9 +235,22 @@ export async function processInboundMessage(
       buildMessageEnvelope(insertedMsg as any),
     ).catch(() => {});
 
+    // Telegram-specific: slash commands (/start /help /human /new) get an
+    // inline reply and never reach the AI; the handling-mode gate (human_only
+    // vs entitlement-gated ai_first) is resolved here too.
+    let aiAllowed = true;
+    let telegramCommandHandled = false;
+    if (input.provider === 'telegram') {
+      const flow = await handleTelegramInboundFlow(config, input, conversation.id);
+      aiAllowed = flow.aiAllowed;
+      telegramCommandHandled = flow.handled;
+    }
+
     // AI Agent runs through the SAME entry point as the widget, so mode,
-    // human-takeover blocking and safety gates behave identically.
-    if (input.text.trim()) {
+    // human-takeover blocking and safety gates behave identically. Telegram
+    // additionally requires ai_first (entitlement-gated) mode and skips this
+    // for recognized slash commands, which are already answered above.
+    if (aiAllowed && !telegramCommandHandled && input.text.trim()) {
       void maybeRunAiAssistantAfterVisitorMessage(config, {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,

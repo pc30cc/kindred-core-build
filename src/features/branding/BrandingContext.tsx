@@ -24,14 +24,10 @@ export function BrandingProvider({
 }) {
   const platformName = branding?.platform_name || 'Platform';
 
-  // Drive document title from branding
-  useEffect(() => {
-    if (branding?.meta_title) {
-      document.title = branding.meta_title;
-    } else if (branding?.platform_name) {
-      document.title = branding.platform_name;
-    }
-  }, [branding?.meta_title, branding?.platform_name]);
+  // NOTE: the browser title is owned exclusively by PlatformBrandingGate
+  // (platform_branding_localized). Workspace branding must not overwrite it.
+
+
 
   // Drive favicon from branding
   useEffect(() => {

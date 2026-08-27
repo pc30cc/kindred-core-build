@@ -8,7 +8,7 @@ import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { Button } from '@/components/ui/button';
 import { Menu, X } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export function PublicLayout() {
   const { t } = useTranslation();
@@ -17,14 +17,9 @@ export function PublicLayout() {
   const { branding, platformName } = usePublicBranding();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Drive browser title from branding for public pages
-  useEffect(() => {
-    if (branding?.meta_title) {
-      document.title = branding.meta_title;
-    } else if (branding?.platform_name) {
-      document.title = branding.platform_name;
-    }
-  }, [branding]);
+  // Browser title is owned exclusively by PlatformBrandingGate
+  // (platform_branding_localized) — no local overrides here.
+
 
   const navLinks = [
     { label: t('public.features'), path: '/features' },

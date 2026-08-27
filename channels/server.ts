@@ -60,6 +60,20 @@ app.get('/health', (_req, res) => {
 });
 
 /**
+ * Credential headers for Core.
+ *
+ * The same value is deliberately sent twice: proxies in front of Core often
+ * consume or rewrite `Authorization`, which makes a correct secret look
+ * mismatched. `X-Core-Internal-Secret` survives those hops.
+ */
+function coreAuthHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${CORE_INTERNAL_SECRET}`,
+    'X-Core-Internal-Secret': CORE_INTERNAL_SECRET,
+  };
+}
+
+/**
  * Readiness: configuration present AND Core internal API reachable with our
  * shared secret. Never echoes the secret, the URL credentials or Core bodies.
  */
@@ -73,11 +87,18 @@ app.get('/ready', async (_req, res) => {
   const timer = setTimeout(() => controller.abort(), READY_TIMEOUT_MS);
   try {
     const response = await fetch(`${CORE_INTERNAL_BASE_URL}/internal/channels/ready`, {
-      headers: { Authorization: `Bearer ${CORE_INTERNAL_SECRET}` },
+      headers: coreAuthHeaders(),
       signal: controller.signal,
     });
     if (!response.ok) {
-      return res.status(503).json({ ready: false, reason: `core_status_${response.status}` });
+      // Surface Core's machine-readable cause so "missing credential"
+      // (proxy stripped the header) is never mistaken for a wrong secret.
+      const body = (await response.json().catch(() => ({}))) as { reason?: string };
+      return res.status(503).json({
+        ready: false,
+        reason: `core_status_${response.status}`,
+        cause: typeof body?.reason === 'string' ? body.reason : null,
+      });
     }
     return res.json({ ready: true, service: 'channels-gateway', core: 'reachable' });
   } catch {
@@ -86,6 +107,7 @@ app.get('/ready', async (_req, res) => {
     clearTimeout(timer);
   }
 });
+
 
 /**
  * POST /hooks/telegram/:publicIntegrationId

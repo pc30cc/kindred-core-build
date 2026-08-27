@@ -21,7 +21,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
-import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -200,7 +199,6 @@ export default function InboxPage() {
   const { t, dir, locale } = useTranslation();
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
-  const { platformName } = useBrandingContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { slug: wsSlug } = useParams();
@@ -1420,7 +1418,7 @@ export default function InboxPage() {
             <div className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
               <MessageCircle className="h-8 w-8 text-primary-foreground" />
             </div>
-            <h2 className="text-lg font-semibold text-foreground">{platformName || 'Inbox'}</h2>
+            <h2 className="text-lg font-semibold text-foreground">{workspace?.name || t('nav.inbox') || 'Inbox'}</h2>
             <p className="text-sm text-muted-foreground mt-1 max-w-xs">
               {t('inbox.selectConversation') || 'Select a conversation to start replying'}
             </p>

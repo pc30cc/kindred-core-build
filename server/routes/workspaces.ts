@@ -143,6 +143,73 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   return res.json({ ok: true });
 });
 
+// ── Workspace capacity (max_workspaces) ──────────────────────────────────
+// `max_workspaces` is an ACCOUNT-level cap (see usageResolvers.ts's
+// KNOWN_UNSUPPORTED note): it is enforced at workspace creation, not as a
+// per-workspace usage counter. The effective cap for an account is the
+// most generous cap among its workspaces' plans, so a single upgraded
+// workspace lifts the account.
+interface WorkspaceCapacity {
+  used: number;
+  limit: number | null; // null = unlimited
+  canCreate: boolean;
+  plan: string | null;
+}
+
+async function resolveWorkspaceCapacity(
+  config: ServerConfig,
+  accountId: string,
+): Promise<WorkspaceCapacity> {
+  const sb = getServiceClient(config);
+  const { data: rows } = await sb
+    .from('workspaces')
+    .select('id')
+    .eq('account_id', accountId);
+  const ids = (rows || []).map((r: any) => r.id as string);
+  const used = ids.length;
+
+  const registryDefault = getCapability('max_workspaces')?.defaultValue;
+  let limit: number | null = typeof registryDefault === 'number' ? registryDefault : 1;
+  let plan: string | null = null;
+  let unlimited = false;
+
+  for (const id of ids) {
+    const ent = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      id,
+      'max_workspaces',
+      { numeric: true, selfHostBillingUnlimited: (config as any).selfHostBillingUnlimited },
+    );
+    if (ent.plan && !plan) plan = ent.plan;
+    if (!ent.limitValid || typeof ent.limit !== 'number') continue;
+    if (ent.limit < 0) { unlimited = true; break; }
+    if (limit !== null && ent.limit > limit) limit = ent.limit;
+  }
+
+  if (unlimited) return { used, limit: null, canCreate: true, plan };
+  return { used, limit, canCreate: limit === null || used < limit, plan };
+}
+
+// ── GET /api/workspaces/capacity — can the caller create another one? ────
+workspacesRouter.get('/capacity', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const userId = await requireUser(req, res);
+  if (!userId) return;
+
+  const sb = getServiceClient(config);
+  const { data: membership } = await sb
+    .from('account_members')
+    .select('account_id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle();
+  if (!membership?.account_id) return res.status(404).json({ error: 'No account found' });
+
+  const capacity = await resolveWorkspaceCapacity(config, membership.account_id);
+  return res.json(capacity);
+});
+
 // ── POST /api/workspaces — create a workspace within the caller's account ─
 const createWorkspaceSchema = z.object({
   accountId: z.string().uuid(),
@@ -167,6 +234,20 @@ workspacesRouter.post('/', async (req, res) => {
     return res.status(403).json({ error: 'email_verification_required' });
   }
 
+  // Plan cap — enforced server-side so the UI gate can never be the only
+  // thing standing between a client and an over-quota workspace.
+  const capacity = await resolveWorkspaceCapacity(config, parsed.data.accountId);
+  if (!capacity.canCreate) {
+    return res.status(403).json({
+      error: 'workspace_limit_reached',
+      feature: 'max_workspaces',
+      limit: capacity.limit,
+      used: capacity.used,
+      plan: capacity.plan,
+      upgrade_required: true,
+    });
+  }
+
   const sb = getServiceClient(config);
   // `create_workspace_atomic` is SECURITY DEFINER but takes `_user_id`
   // explicitly rather than reading auth.uid() — it does its own
@@ -180,6 +261,7 @@ workspacesRouter.post('/', async (req, res) => {
     _user_id: userId,
   });
   if (error) return res.status(400).json({ error: error.message });
+
 
   return res.json({ workspaceId: data as string });
 });

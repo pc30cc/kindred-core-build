@@ -21,7 +21,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
-import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -200,7 +199,6 @@ export default function InboxPage() {
   const { t, dir, locale } = useTranslation();
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
-  const { platformName } = useBrandingContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { slug: wsSlug } = useParams();

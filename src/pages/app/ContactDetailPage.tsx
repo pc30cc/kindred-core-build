@@ -211,55 +211,45 @@ export default function ContactDetailPage() {
             <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatRelative(contact.updated_at)}</span>
           )}
         </div>
-        {!editing ? (
-          <>
-            {canEdit ? (
-              <Button size="sm" variant="outline" onClick={startEdit} className="gap-1.5">
-                <Edit3 className="w-3.5 h-3.5" />{t('contacts.edit')}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 opacity-60"
-                onClick={() => navigate(billingHref)}
-                title={t('contacts.featureLockedDesc')}
-              >
-                <Lock className="w-3.5 h-3.5" />{t('contacts.edit')}
-              </Button>
-            )}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
-                  <Trash2 className="w-3.5 h-3.5" />{t('contacts.delete')}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent dir={dir}>
-                <AlertDialogHeader className="text-start sm:text-start">
-                  <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
-                  <AlertDialogDescription className="text-start">
-                    {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo, locale) })}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter className="sm:justify-start gap-2">
-                  <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    {t('contacts.delete')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </>
-        ) : (
-          <>
-            <Button size="sm" variant="outline" onClick={() => setEditing(false)} className="gap-1.5">
-              <X className="w-3.5 h-3.5" />{t('contacts.cancel')}
+        <>
+          {canEdit ? (
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)} className="gap-1.5">
+              <Edit3 className="w-3.5 h-3.5" />{t('contacts.edit')}
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} className="gap-1.5">
-              {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5" />{t('contacts.save')}</>}
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 opacity-60"
+              onClick={() => navigate(billingHref)}
+              title={t('contacts.featureLockedDesc')}
+            >
+              <Lock className="w-3.5 h-3.5" />{t('contacts.edit')}
             </Button>
-          </>
-        )}
+          )}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
+                <Trash2 className="w-3.5 h-3.5" />{t('contacts.delete')}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent dir={dir}>
+              <AlertDialogHeader className="text-start sm:text-start">
+                <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
+                <AlertDialogDescription className="text-start">
+                  {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo, locale) })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="sm:justify-start gap-2">
+                <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  {t('contacts.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+
       </div>
 
       <div className="flex-1 overflow-auto">

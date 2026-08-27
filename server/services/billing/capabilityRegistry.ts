@@ -217,6 +217,32 @@ export interface PlanValidationIssue {
   message: string;
 }
 
+/**
+ * Legacy plan keys that predate the capability registry. They are still
+ * stored on plan rows (external billing/reporting may read them) but no
+ * code path resolves them through the registry, so they must NOT be
+ * reported as drift every time an admin saves a plan.
+ */
+export const LEGACY_PLAN_KEYS = new Set<string>([
+  // entitlements
+  'advanced_analytics',
+  'ai_enabled',
+  // limits
+  'ai_kb_max_articles',
+  'ai_kb_max_chars',
+  'ai_kb_monthly_credits',
+  'ai_requests_monthly',
+  'conversations_monthly',
+  'kb_articles',
+  'storage_mb',
+  'team_members',
+  'contacts',
+  'agents',
+  'ai_credits',
+  'conversations',
+  'file_storage_mb',
+]);
+
 export function validatePlanPayload(payload: {
   entitlements?: Record<string, unknown>;
   limits?: Record<string, unknown>;
@@ -225,13 +251,20 @@ export function validatePlanPayload(payload: {
   const ent = payload.entitlements || {};
   const lim = payload.limits || {};
 
+
   for (const [key, value] of Object.entries(ent)) {
     const def = BY_KEY.get(key);
+    const legacy = LEGACY_PLAN_KEYS.has(key);
     if (!def) {
-      issues.push({ level: 'warning', key, message: `Unknown entitlement key '${key}' (not in registry)` });
+      if (!legacy) {
+        issues.push({ level: 'warning', key, message: `Unknown entitlement key '${key}' (not in registry)` });
+      }
+      if (typeof value !== 'boolean') {
+        issues.push({ level: 'error', key, message: `Entitlement '${key}' must be boolean` });
+      }
       continue;
     }
-    if (def.type === 'limit') {
+    if (def.type === 'limit' && !legacy) {
       issues.push({ level: 'warning', key, message: `Key '${key}' is a limit; expected in 'limits' not 'entitlements'` });
     }
     if (typeof value !== 'boolean') {
@@ -241,13 +274,20 @@ export function validatePlanPayload(payload: {
 
   for (const [key, value] of Object.entries(lim)) {
     const def = BY_KEY.get(key);
+    const legacy = LEGACY_PLAN_KEYS.has(key);
     if (!def) {
-      issues.push({ level: 'warning', key, message: `Unknown limit key '${key}' (not in registry)` });
+      if (!legacy) {
+        issues.push({ level: 'warning', key, message: `Unknown limit key '${key}' (not in registry)` });
+      }
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        issues.push({ level: 'error', key, message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
+      }
       continue;
     }
-    if (def.type !== 'limit') {
+    if (def.type !== 'limit' && !legacy) {
       issues.push({ level: 'warning', key, message: `Key '${key}' is not a 'limit' in registry (type=${def.type})` });
     }
+
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       issues.push({ level: 'error', key, message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
     }

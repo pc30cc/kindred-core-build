@@ -87,13 +87,10 @@ async function loadHardening(): Promise<ClientHardeningSettings> {
   if (hardeningInflight) return hardeningInflight;
   hardeningInflight = (async () => {
     try {
-      const { data } = await supabase
-        .from('widget_platform_settings')
-        .select(
-          'realtime_reconnect_jitter_pct, realtime_pending_max, realtime_message_dedupe_enabled, realtime_message_dedupe_window',
-        )
-        .limit(1)
-        .maybeSingle();
+      // Sanitized RPC — the raw table holds secrets (alert_webhook_secret)
+      // and is not readable by anon/browser clients.
+      const { data: raw } = await supabase.rpc('get_widget_platform_settings');
+      const data = (raw ?? null) as Record<string, unknown> | null;
       const value: ClientHardeningSettings = data
         ? {
             reconnectJitterPct: clampInt(data.realtime_reconnect_jitter_pct, 0, 50, 20),
@@ -102,6 +99,7 @@ async function loadHardening(): Promise<ClientHardeningSettings> {
             messageDedupeWindow: clampInt(data.realtime_message_dedupe_window, 16, 4096, 200),
           }
         : HARDENING_DEFAULTS;
+
       hardeningCache = value;
       return value;
     } catch {

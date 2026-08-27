@@ -96,6 +96,19 @@ export function TelegramConfigPanel({
   const [commands, setCommands] = useState({ start: '', help: '', human: '', new: '' });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
+  // Only the languages this deployment actually speaks may be edited. On a
+  // single-language platform we show that one language's fields with no picker.
+  const { allowedLocales } = usePlatformRegion();
+  const editableLocales = (() => {
+    const scoped = TELEGRAM_LOCALES.filter((l) => (allowedLocales as string[]).includes(l));
+    return scoped.length ? scoped : (['en'] as const as unknown as typeof TELEGRAM_LOCALES);
+  })();
+
+  useEffect(() => {
+    if (!editableLocales.includes(locale)) setLocale(editableLocales[0]);
+  }, [editableLocales.join(','), locale]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
   const { data: status, isLoading } = useQuery({
     queryKey: ['plugins', 'telegram', 'status', workspaceId],
     queryFn: () => pluginsApi.telegramStatus(workspaceId),

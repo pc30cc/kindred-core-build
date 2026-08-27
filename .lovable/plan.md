@@ -108,10 +108,42 @@ installation services, `/api/plugins` and `/api/admin/plugins` routes.
 - New `channels/` service (`server.ts`, `config.ts`, `routes/`,
   `providers/telegram/`) with `Dockerfile.channels`, `GET /health`,
   `GET /ready`, and `POST /webhooks/telegram/:publicIntegrationId`.
-  Its only secret is `CORE_INTERNAL_SECRET`; the rest of its config is public
-  runtime data (`CHANNELS_PORT`, `CORE_INTERNAL_BASE_URL`,
-  `PUBLIC_CHANNELS_BASE_URL`). It holds no Supabase client, no master key, no
-  bot token.
+  Its only secrets are `CORE_INTERNAL_SECRET` and
+  `CHANNELS_WEBHOOK_SIGNING_KEY`; the rest of its config is public runtime data
+  (`CHANNELS_PORT`, `CORE_INTERNAL_BASE_URL`, `PUBLIC_CHANNELS_BASE_URL`).
+  It holds no Supabase client, no database access of any kind, no plugin
+  encryption master key, and no bot token.
+
+### Derived per-integration Telegram webhook secret
+
+The Gateway must verify `X-Telegram-Bot-Api-Secret-Token` without any DB
+lookup, so the secret is **derived**, not stored:
+
+```text
+telegramWebhookSecret =
+  base64url(HMAC-SHA256(CHANNELS_WEBHOOK_SIGNING_KEY,
+                        `telegram:${publicIntegrationId}`))
+```
+
+- A dedicated env secret `CHANNELS_WEBHOOK_SIGNING_KEY` is introduced. It never
+  reuses `CORE_INTERNAL_SECRET`, `PLUGIN_SECRETS_MASTER_KEY`,
+  `SUPABASE_SERVICE_ROLE_KEY`, Auth/JWT secrets, or a Telegram bot token — a
+  startup check rejects a value equal to any of those.
+- Deployment boundary: **Core YES**, **Gateway YES**, **Worker NO**,
+  **Frontend NO**.
+- Core derives the value when calling `setWebhook(..., secret_token)`. The
+  Gateway independently derives the same value from the public integration id
+  in the URL and compares in constant time. The derived secret is never stored
+  in plaintext in the database.
+- `publicIntegrationId` is public; without the signing key it yields nothing —
+  HMAC-SHA256 makes the secret non-derivable from the id alone.
+- Rotating `CHANNELS_WEBHOOK_SIGNING_KEY` invalidates every registered Telegram
+  webhook and **requires re-registration**. This is documented, and the
+  `telegram_webhook_repair` job re-registers affected integrations after a
+  controlled rotation.
+- The signing key, the derived secret and the raw webhook header value are
+  never logged.
+
 - New `worker/channels/` kind wired into the existing dispatcher
   (`WORKER_KIND=channels`, optional `CHANNEL_JOB_TYPES` filter that defaults to
   all supported types). Default kind stays `intelligence`; existing kinds are

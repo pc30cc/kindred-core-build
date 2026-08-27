@@ -9,12 +9,13 @@ The same codebase supports multiple domains via environment variables.
 
 ```
 Browser → https://example.com (Frontend / Nginx)
-Browser → https://api.example.com (Backend / Express)
+        → /api/* same-origin proxy → https://api.example.com (Backend / Express)
+Browser → https://api.example.com (Backend / Express, optional direct API calls)
 ```
 
-- **Frontend**: Static SPA served by Nginx. Calls backend via `VITE_API_BASE_URL`.
+- **Frontend**: Static SPA served by Nginx. Its `/api/` location proxies to Express.
 - **Backend**: Express API. Accepts requests from frontend origin(s) via CORS.
-- **No internal proxy.** Frontend and backend are fully independent services.
+- **Canonical runtime contract**: `BACKEND_URL` is a bare backend origin. Never append `/api`.
 
 ---
 
@@ -36,6 +37,21 @@ Browser → https://api.example.com (Backend / Express)
 | `VITE_API_BASE_URL` | `https://api.example.com` | ✅ |
 
 > ⚠️ These are **build-time** variables. You must rebuild after changing them.
+
+### Runtime Environment Variable (set on the frontend service)
+
+| Variable | Example | Required |
+|---|---|---|
+| `BACKEND_URL` | `https://api.example.com` | ✅ |
+
+`BACKEND_URL` must be a bare origin. The frontend nginx template appends
+`/api/` itself. The container entrypoint defensively normalizes an accidental
+trailing `/api`, so neither accepted input can generate `/api/api/`:
+
+```text
+https://api.example.com     → https://api.example.com/api/...
+https://api.example.com/api → https://api.example.com/api/...
+```
 
 ---
 

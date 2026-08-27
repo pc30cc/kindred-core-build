@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { useCreateWorkspace, useAccount } from '@/hooks/useWorkspace';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { useWorkspaceCapacity, type WorkspaceCapacity } from './useWorkspaceCapacity';
 
 interface CreateWorkspaceDialogProps {
   open: boolean;
@@ -20,18 +21,9 @@ interface CreateWorkspaceDialogProps {
   upgradeHref?: string;
 }
 
-interface Capacity {
-  used: number;
-  limit: number | null;
-  canCreate: boolean;
-  plan: string | null;
-}
-
 export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: CreateWorkspaceDialogProps) {
   const [name, setName] = useState('');
   const [domain, setDomain] = useState('');
-  const [capacity, setCapacity] = useState<Capacity | null>(null);
-  const [capacityLoading, setCapacityLoading] = useState(false);
   const navigate = useNavigate();
   const { data: account } = useAccount();
   const createWorkspace = useCreateWorkspace();
@@ -39,17 +31,9 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
 
   // Plan capacity is resolved server-side (max_workspaces is an
   // account-level cap enforced at creation), so the dialog only mirrors it.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setCapacityLoading(true);
-    fetch(`${API_BASE}/api/workspaces/capacity`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled && d) setCapacity(d as Capacity); })
-      .catch(() => undefined)
-      .finally(() => { if (!cancelled) setCapacityLoading(false); });
-    return () => { cancelled = true; };
-  }, [open]);
+  const { data: fetchedCapacity, isLoading: capacityLoading } = useWorkspaceCapacity(open);
+  const [override, setOverride] = useState<WorkspaceCapacity | null>(null);
+  const capacity = override ?? fetchedCapacity ?? null;
 
   const locked = capacity ? !capacity.canCreate : false;
 
@@ -79,7 +63,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
           description: t('workspaceCreate.verifyRequiredDesc'),
         });
       } else if (msg.includes('workspace_limit_reached')) {
-        setCapacity((c) => (c ? { ...c, canCreate: false } : c));
+        setOverride(capacity ? { ...capacity, canCreate: false } : null);
         toast.error(t('workspaceCreate.limitTitle'));
       } else {
         toast.error(msg || t('workspaceCreate.failed'));

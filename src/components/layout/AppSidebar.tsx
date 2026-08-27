@@ -25,6 +25,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
+import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
 import { toast } from '@/hooks/use-toast';
@@ -122,6 +123,8 @@ export function AppSidebar() {
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
+  const [wsLimitNotice, setWsLimitNotice] = useState(false);
+  const { data: wsCapacity, isLoading: wsCapacityLoading } = useWorkspaceCapacity(wsMenuOpen);
   const [collapsed, setCollapsed] = useState<boolean>(
     () => localStorage.getItem('sidebar_collapsed') === '1',
   );
@@ -320,8 +323,42 @@ export function AppSidebar() {
             })}
 
             <div className="border-t border-border mt-1.5 pt-1.5">
+              {wsLimitNotice ? (
+                <div className="mx-1 my-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <Lock className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+                    <div className="text-start min-w-0">
+                      <p className="text-[12px] font-semibold text-destructive">{t('workspaceCreate.limitTitle')}</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                        {t('workspaceCreate.limitDesc')
+                          .replace('{limit}', wsCapacity?.limit == null ? t('workspaceCreate.unlimited') : String(wsCapacity.limit))
+                          .replace('{used}', String(wsCapacity?.used ?? 0))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      className="text-[11px] px-2 py-1 rounded-md hover:bg-accent text-muted-foreground"
+                      onClick={() => setWsLimitNotice(false)}
+                    >
+                      {t('workspaceCreate.cancel')}
+                    </button>
+                    <button
+                      className="text-[11px] px-2.5 py-1 rounded-md bg-primary text-primary-foreground hover:opacity-90"
+                      onClick={() => { setWsLimitNotice(false); setWsMenuOpen(false); navigate(wsPath('/billing')); }}
+                    >
+                      {t('workspaceCreate.upgrade')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <button
-                onClick={() => { setWsMenuOpen(false); setCreateWsOpen(true); }}
+                disabled={wsCapacityLoading}
+                onClick={() => {
+                  if (wsCapacity && !wsCapacity.canCreate) { setWsLimitNotice(true); return; }
+                  setWsMenuOpen(false);
+                  setCreateWsOpen(true);
+                }}
                 className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
               >
                 <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -329,8 +366,12 @@ export function AppSidebar() {
                 </div>
                 <div className="text-start">
                   <p className="text-[13px] font-medium">{t('workspaceCreate.menuAction')}</p>
+                  {wsCapacity?.limit != null && (
+                    <p className="text-[11px] text-muted-foreground tabular-nums">{wsCapacity.used} / {wsCapacity.limit}</p>
+                  )}
                 </div>
               </button>
+              )}
 
               <RouterLink
                 to={wsPath('/team')}

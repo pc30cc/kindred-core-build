@@ -36,12 +36,12 @@ export default function OverviewPage() {
   const { user } = useAuth();
   const wsPath = useWorkspacePath();
 
-  const { data: conversations } = useConversations(workspace?.id);
+  const { data: conversations, isPending: conversationsPending } = useConversations(workspace?.id);
   const { data: visitors } = useOnlineVisitors(workspace?.id);
   const { data: sessions } = useVisitorSessions(workspace?.id);
   const { data: articles } = useKBArticles(workspace?.id);
   const { data: contacts } = useContacts(workspace?.id);
-  const { data: teamData } = useTeamPresence(workspace?.id);
+  const { data: teamData, isPending: teamPending } = useTeamPresence(workspace?.id);
   const team = teamData?.presence ?? [];
   const { data: planData } = useWorkspacePlan(workspace?.id);
 

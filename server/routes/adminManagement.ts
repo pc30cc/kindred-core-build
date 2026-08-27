@@ -23,6 +23,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { deleteFile } from '../services/storage/index.js';
 
 export const adminManagementRouter = Router();
 

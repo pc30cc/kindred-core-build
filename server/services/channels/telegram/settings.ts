@@ -169,9 +169,24 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
     commands[key] = str(commandsInput[key], 256, DEFAULT_COMMANDS[key]);
   }
 
+  // Per-locale labels: authored values win; otherwise the localized default.
+  // The legacy flat labels only ever seed English, so a Persian deployment
+  // can never inherit an English command description by accident.
+  const commandLocalesInput = (input.commandLocales ?? {}) as Record<string, unknown>;
+  const commandLocales = {} as Record<TelegramLocale, Record<TelegramCommandKey, string>>;
+  for (const locale of TELEGRAM_LOCALES) {
+    const localeInput = (commandLocalesInput[locale] ?? {}) as Record<string, unknown>;
+    const base = locale === 'en' ? commands : DEFAULT_COMMANDS_BY_LOCALE[locale];
+    commandLocales[locale] = {} as Record<TelegramCommandKey, string>;
+    for (const key of TELEGRAM_COMMAND_KEYS) {
+      commandLocales[locale][key] = str(localeInput[key], 256, base[key]);
+    }
+  }
+
   const handlingMode: TelegramHandlingMode = input.handlingMode === 'ai_first' ? 'ai_first' : 'human_only';
 
-  return { profile, locales, commands, handlingMode };
+  return { profile, locales, commands, commandLocales, handlingMode };
+
 }
 
 /**

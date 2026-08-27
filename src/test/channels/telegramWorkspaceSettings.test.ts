@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const moduleAccess = vi.fn(async () => ({ allowed: true }) as any);
 
-vi.mock('../../../server/services/billing/entitlements.js', async (importOriginal) => {
+vi.mock('../../../server/middleware/featureGating.js', async (importOriginal) => {
   const actual = await importOriginal<any>().catch(() => ({}));
   return { ...actual, checkModuleAccess: (...args: any[]) => moduleAccess(...(args as [])) };
 });

@@ -433,35 +433,50 @@ export function TelegramConfigPanel({
     );
   }
 
+  const aiAvailable = status?.aiAvailable !== false;
+  const aiAgent = status?.aiAgent ?? null;
+  const aiSilent =
+    aiAvailable && handlingMode === 'ai_first' && aiAgent
+      ? !aiAgent.platformAllowed || !aiAgent.agentEnabled
+      : false;
+
   return (
     <Card className="space-y-4 p-4">
-      <div className="space-y-2">
-        <Label>{t('plugins.telegram.handlingMode')}</Label>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={handlingMode === 'human_only' ? 'default' : 'outline'}
-            onClick={() => setHandlingMode('human_only')}
-          >
-            {t('plugins.telegram.handlingModeHumanOnly')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={handlingMode === 'ai_first' ? 'default' : 'outline'}
-            disabled={status?.aiAvailable === false}
-            onClick={() => setHandlingMode('ai_first')}
-          >
-            {t('plugins.telegram.handlingModeAiFirst')}
-          </Button>
-        </div>
-        {status?.aiAvailable === false && (
-          <p className="text-xs text-muted-foreground">{t('plugins.telegram.aiUnavailable')}</p>
-        )}
-      </div>
+      {/* The AI mode only exists when the workspace plan carries the AI
+          assistant — otherwise the choice is hidden, not merely disabled. */}
+      {aiAvailable && (
+        <>
+          <div className="space-y-2">
+            <Label>{t('plugins.telegram.handlingMode')}</Label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={handlingMode === 'human_only' ? 'default' : 'outline'}
+                onClick={() => setHandlingMode('human_only')}
+              >
+                {t('plugins.telegram.handlingModeHumanOnly')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={handlingMode === 'ai_first' ? 'default' : 'outline'}
+                onClick={() => setHandlingMode('ai_first')}
+              >
+                {t('plugins.telegram.handlingModeAiFirst')}
+              </Button>
+            </div>
+            {aiSilent && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-600">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {t('plugins.telegram.aiAgentInactive')}
+              </p>
+            )}
+          </div>
 
-      <Separator />
+          <Separator />
+        </>
+      )}
 
       {editableLocales.length > 1 ? (
         <div className="flex flex-wrap gap-2">
@@ -490,16 +505,22 @@ export function TelegramConfigPanel({
 
       <Separator />
 
-      <div className="space-y-2">
+      <div className="space-y-2" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
         <Label>{t('plugins.telegram.commandsTitle')}</Label>
         <p className="text-xs text-muted-foreground">{t('plugins.telegram.commandsHint')}</p>
         {(['start', 'help', 'human', 'new'] as const).map((key) => (
           <div key={key} className="flex items-center gap-2">
             <Badge variant="outline" dir="ltr">/{key}</Badge>
-            <Input value={commands[key]} onChange={(e) => setCommands((prev) => ({ ...prev, [key]: e.target.value }))} />
+            <Input
+              value={commandLocales[locale][key]}
+              onChange={(e) =>
+                setCommandLocales((prev) => ({ ...prev, [locale]: { ...prev[locale], [key]: e.target.value } }))
+              }
+            />
           </div>
         ))}
       </div>
+
 
       <div className="flex justify-end">
         <Button type="button" disabled={saveSettings.isPending} onClick={() => saveSettings.mutate()}>

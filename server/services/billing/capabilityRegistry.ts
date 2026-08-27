@@ -254,11 +254,17 @@ export function validatePlanPayload(payload: {
 
   for (const [key, value] of Object.entries(ent)) {
     const def = BY_KEY.get(key);
+    const legacy = LEGACY_PLAN_KEYS.has(key);
     if (!def) {
-      issues.push({ level: 'warning', key, message: `Unknown entitlement key '${key}' (not in registry)` });
+      if (!legacy) {
+        issues.push({ level: 'warning', key, message: `Unknown entitlement key '${key}' (not in registry)` });
+      }
+      if (typeof value !== 'boolean') {
+        issues.push({ level: 'error', key, message: `Entitlement '${key}' must be boolean` });
+      }
       continue;
     }
-    if (def.type === 'limit') {
+    if (def.type === 'limit' && !legacy) {
       issues.push({ level: 'warning', key, message: `Key '${key}' is a limit; expected in 'limits' not 'entitlements'` });
     }
     if (typeof value !== 'boolean') {
@@ -268,13 +274,20 @@ export function validatePlanPayload(payload: {
 
   for (const [key, value] of Object.entries(lim)) {
     const def = BY_KEY.get(key);
+    const legacy = LEGACY_PLAN_KEYS.has(key);
     if (!def) {
-      issues.push({ level: 'warning', key, message: `Unknown limit key '${key}' (not in registry)` });
+      if (!legacy) {
+        issues.push({ level: 'warning', key, message: `Unknown limit key '${key}' (not in registry)` });
+      }
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        issues.push({ level: 'error', key, message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
+      }
       continue;
     }
-    if (def.type !== 'limit') {
+    if (def.type !== 'limit' && !legacy) {
       issues.push({ level: 'warning', key, message: `Key '${key}' is not a 'limit' in registry (type=${def.type})` });
     }
+
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       issues.push({ level: 'error', key, message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
     }

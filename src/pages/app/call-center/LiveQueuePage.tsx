@@ -624,9 +624,14 @@ export default function LiveQueuePage() {
                 <div className="p-3 ps-3.5">
                   <div className="flex items-start gap-2.5">
                     <div className="relative">
-                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary flex items-center justify-center text-sm font-semibold ring-1 ring-primary/15">
-                        {initial}
-                      </div>
+                      <ContactAvatar
+                        name={name}
+                        email={c?.visitor_email}
+                        os={net?.device?.os}
+                        device={net?.device?.device}
+                        countryCode={net?.geo?.country_code}
+                        size="sm"
+                      />
                       <div className={cn(
                         'absolute -bottom-0.5 -end-0.5 h-4 w-4 rounded-full flex items-center justify-center ring-2 ring-card',
                         isVideo ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',

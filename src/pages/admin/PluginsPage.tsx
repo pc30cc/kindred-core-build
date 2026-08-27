@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { adminPluginsApi, type AdminPluginItem, type PluginRolloutStatus } from '@/lib/plugins-api';
+import { ChannelsRuntimePanel } from '@/components/plugins/ChannelsRuntimePanel';
 
 const ROLLOUT_OPTIONS: PluginRolloutStatus[] = ['hidden', 'coming_soon', 'beta', 'public'];
 
@@ -112,6 +113,8 @@ export default function AdminPluginsPage() {
           ))}
         </div>
       )}
+
+      <ChannelsRuntimePanel />
     </div>
   );
 }

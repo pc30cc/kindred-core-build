@@ -361,9 +361,15 @@ export default function VisitorsPage() {
               >
                 {filtered.map(v => {
                   const isSelected = selectedId === v.id;
-                  const name = v.contact
-                    ? contactDisplayName(v.contact, v.contact.id, t, v.geo, locale)
-                    : t('visitors.unknownVisitor');
+                  // Identity is resolved exactly like Inbox/Contacts: never the
+                  // generic "unknown visitor" label — a stable, geo-aware code.
+                  const name = contactDisplayName(
+                    v.contact ?? null,
+                    v.contact?.id ?? v.id,
+                    t,
+                    v.geo,
+                    locale,
+                  );
                   const loc = localizedLocationLabel(v.geo, locale) || t('visitors.unknownLocation');
                   return (
                     <li key={v.id}>

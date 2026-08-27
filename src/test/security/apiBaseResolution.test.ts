@@ -29,6 +29,15 @@ describe('resolveApiBase', () => {
       'https://api.example.com/api/auth-email/send-reset',
     );
   });
+
+  it('accepts an API base configured with a trailing /api path', () => {
+    expect(`${resolveApiBase('https://api.example.com/api')}/api/auth/login`).toBe(
+      'https://api.example.com/api/auth/login',
+    );
+    expect(`${resolveApiBase('https://api.example.com/api/')}/api/widget-settings/platform/config`).toBe(
+      'https://api.example.com/api/widget-settings/platform/config',
+    );
+  });
 });
 
 describe('auth email API transport', () => {

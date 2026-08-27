@@ -28,6 +28,8 @@ import {
   getCompanyFromMetadata, getLocalizedLocation,
 } from '@/features/contacts/utils';
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
+import { ContactEditDialog, type ContactEditValues } from '@/features/contacts/ContactEditDialog';
+
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { useContactIp } from '@/hooks/useContactIp';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
@@ -106,30 +108,21 @@ export default function ContactDetailPage() {
   const canEdit = ents?.features?.contact_edit?.value !== false;
 
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', tags: '' });
 
-  const startEdit = () => {
-    if (!contact) return;
-    setForm({
-      name: contact.name ?? '',
-      email: contact.email ?? '',
-      phone: contact.phone ?? '',
-      notes: (contact as any).notes ?? '',
-      tags: (contact.tags ?? []).join(', '),
-    });
-    setEditing(true);
-  };
-
-  const handleSave = async () => {
+  const handleSave = async (values: ContactEditValues) => {
     if (!contact) return;
     try {
+      const meta = { ...((contact.metadata ?? {}) as Record<string, unknown>) };
+      if (values.company.trim()) meta.company = values.company.trim();
+      else { delete meta.company; delete (meta as any).org; delete (meta as any).organization; }
       await updateMutation.mutateAsync({
         id: contact.id,
-        name: form.name || null,
-        email: form.email || null,
-        phone: form.phone || null,
-        notes: form.notes || null,
-        tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        name: values.name || null,
+        email: values.email || null,
+        phone: values.phone || null,
+        notes: values.notes || null,
+        tags: values.tags,
+        metadata: meta,
       } as any);
       toast({ title: t('contacts.toastUpdated') });
       setEditing(false);
@@ -137,6 +130,7 @@ export default function ContactDetailPage() {
       toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
+
 
   const handleDelete = async () => {
     if (!contact) return;
@@ -219,55 +213,45 @@ export default function ContactDetailPage() {
             <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatRelative(contact.updated_at)}</span>
           )}
         </div>
-        {!editing ? (
-          <>
-            {canEdit ? (
-              <Button size="sm" variant="outline" onClick={startEdit} className="gap-1.5">
-                <Edit3 className="w-3.5 h-3.5" />{t('contacts.edit')}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 opacity-60"
-                onClick={() => navigate(billingHref)}
-                title={t('contacts.featureLockedDesc')}
-              >
-                <Lock className="w-3.5 h-3.5" />{t('contacts.edit')}
-              </Button>
-            )}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
-                  <Trash2 className="w-3.5 h-3.5" />{t('contacts.delete')}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent dir={dir}>
-                <AlertDialogHeader className="text-start sm:text-start">
-                  <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
-                  <AlertDialogDescription className="text-start">
-                    {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo, locale) })}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter className="sm:justify-start gap-2">
-                  <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    {t('contacts.delete')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </>
-        ) : (
-          <>
-            <Button size="sm" variant="outline" onClick={() => setEditing(false)} className="gap-1.5">
-              <X className="w-3.5 h-3.5" />{t('contacts.cancel')}
+        <>
+          {canEdit ? (
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)} className="gap-1.5">
+              <Edit3 className="w-3.5 h-3.5" />{t('contacts.edit')}
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} className="gap-1.5">
-              {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5" />{t('contacts.save')}</>}
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 opacity-60"
+              onClick={() => navigate(billingHref)}
+              title={t('contacts.featureLockedDesc')}
+            >
+              <Lock className="w-3.5 h-3.5" />{t('contacts.edit')}
             </Button>
-          </>
-        )}
+          )}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
+                <Trash2 className="w-3.5 h-3.5" />{t('contacts.delete')}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent dir={dir}>
+              <AlertDialogHeader className="text-start sm:text-start">
+                <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
+                <AlertDialogDescription className="text-start">
+                  {t('contacts.deleteOneDesc', { name: getDisplayName(contact, t, networkProfile?.geo, locale) })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="sm:justify-start gap-2">
+                <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  {t('contacts.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -325,14 +309,9 @@ export default function ContactDetailPage() {
                 <TabsContent value="overview" className="mt-4">
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-4">
-                      {editing ? (
-                        <>
-                          <Field label={t('contacts.name')}><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} /></Field>
-                          <Field label={t('contacts.email')}><Input type="email" dir="ltr" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></Field>
-                          <Field label={t('contacts.phone')}><Input dir="ltr" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></Field>
-                        </>
-                      ) : (
+                      {(
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
                           <Row icon={UserIcon} label={t('contacts.name')} value={getDisplayName(contact, t, networkProfile?.geo, locale)} />
                           <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
                           <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
@@ -525,27 +504,20 @@ export default function ContactDetailPage() {
                 <TabsContent value="notes" className="mt-4">
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-3">
-                      {editing ? (
-                        <Field label={t('contacts.notes')}>
-                          <Textarea rows={8} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />
-                        </Field>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <StickyNote className="w-3.5 h-3.5" />
+                        <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
+                      </div>
+                      {(contact as any).notes ? (
+                        <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
+                          {(contact as any).notes}
+                        </p>
                       ) : (
-                        <>
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <StickyNote className="w-3.5 h-3.5" />
-                            <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
-                          </div>
-                          {(contact as any).notes ? (
-                            <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
-                              {(contact as any).notes}
-                            </p>
-                          ) : (
-                            <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
-                              {t('contacts.notesEmpty')}
-                            </p>
-                          )}
-                        </>
+                        <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
+                          {t('contacts.notesEmpty')}
+                        </p>
                       )}
+
                     </CardContent>
                   </Card>
                 </TabsContent>
@@ -553,11 +525,8 @@ export default function ContactDetailPage() {
                 <TabsContent value="tags" className="mt-4">
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-3">
-                      {editing ? (
-                        <Field label={t('contacts.tagsComma')}>
-                          <Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} />
-                        </Field>
-                      ) : (contact.tags ?? []).length ? (
+                      {(contact.tags ?? []).length ? (
+
                         <div className="flex flex-wrap gap-2">
                           {(contact.tags ?? []).map((tag) => (
                             <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
@@ -590,7 +559,16 @@ export default function ContactDetailPage() {
           </div>
         </div>
       </div>
+
+      <ContactEditDialog
+        open={editing}
+        onOpenChange={setEditing}
+        contact={contact}
+        saving={updateMutation.isPending}
+        onSave={handleSave}
+      />
     </div>
+
   );
 }
 

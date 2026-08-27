@@ -507,27 +507,20 @@ export default function ContactDetailPage() {
                 <TabsContent value="notes" className="mt-4">
                   <Card className="border-border/70">
                     <CardContent className="p-5 space-y-3">
-                      {editing ? (
-                        <Field label={t('contacts.notes')}>
-                          <Textarea rows={8} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />
-                        </Field>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <StickyNote className="w-3.5 h-3.5" />
+                        <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
+                      </div>
+                      {(contact as any).notes ? (
+                        <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
+                          {(contact as any).notes}
+                        </p>
                       ) : (
-                        <>
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <StickyNote className="w-3.5 h-3.5" />
-                            <p className="text-[11px] uppercase tracking-wide font-semibold">{t('contacts.notesTitle')}</p>
-                          </div>
-                          {(contact as any).notes ? (
-                            <p className="whitespace-pre-wrap text-foreground leading-7 rounded-lg bg-secondary/50 p-4">
-                              {(contact as any).notes}
-                            </p>
-                          ) : (
-                            <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
-                              {t('contacts.notesEmpty')}
-                            </p>
-                          )}
-                        </>
+                        <p className="text-muted-foreground text-sm rounded-lg border border-dashed border-border p-4">
+                          {t('contacts.notesEmpty')}
+                        </p>
                       )}
+
                     </CardContent>
                   </Card>
                 </TabsContent>

@@ -371,7 +371,9 @@ export default function OverviewPage() {
               {tr('dashboard.viewAll')}
             </Link>
           </div>
-          {recent.length === 0 ? (
+          {conversationsPending ? (
+            <IdentityListSkeleton rows={5} avatarClassName="h-8 w-8" />
+          ) : recent.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-5 py-12 text-center">
               <MessageSquare className="h-7 w-7 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">{tr('dashboard.noConversations')}</p>

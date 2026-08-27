@@ -273,6 +273,11 @@ Canonical inbound path:
 
 Gateway has SUPABASE_SERVICE_ROLE_KEY:        MUST BE NO
 Gateway has PLUGIN_SECRETS_MASTER_KEY:        MUST BE NO
+Gateway has CHANNELS_WEBHOOK_SIGNING_KEY:     YES
+Core has CHANNELS_WEBHOOK_SIGNING_KEY:        YES
+Worker has CHANNELS_WEBHOOK_SIGNING_KEY:      NO
+Gateway DB access:                            MUST BE NO
+Webhook verification requires DB lookup:      MUST BE NO
 Channels Worker has plugin decryption:        YES
 Core owns canonical conversations:            YES
 Hosted/self-host migration parity:            REQUIRED

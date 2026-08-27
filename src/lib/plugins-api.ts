@@ -117,6 +117,18 @@ export interface ChannelIntegrationRow {
   created_at: string;
 }
 
+export interface PluginLogEntry {
+  id: string;
+  kind: 'job' | 'inbound';
+  provider: string;
+  type: string;
+  status: string;
+  attempts: number | null;
+  error: string | null;
+  workspaceId: string | null;
+  at: string;
+}
+
 export interface ChannelsHealth {
   queue: {
     pending: number;
@@ -128,6 +140,7 @@ export interface ChannelsHealth {
   workersAlive: number;
   deadLetters: { id: string; provider: string; job_type: string; attempt_count: number; last_error: string | null; updated_at: string }[];
 }
+
 
 export const pluginsApi = {
   catalog: (workspaceId: string) =>
@@ -182,6 +195,11 @@ export const pluginsApi = {
       body: JSON.stringify({ workspace_id: workspaceId, ...patch }),
     }),
 
+  logs: (workspaceId: string, pluginId: string) =>
+    jsonFetch<{ items: PluginLogEntry[] }>(
+      `/api/plugins/logs?workspace_id=${encodeURIComponent(workspaceId)}&plugin_id=${encodeURIComponent(pluginId)}`,
+    ),
+
   updateSettings: (workspaceId: string, pluginId: string, settings: Record<string, unknown>) =>
     jsonFetch<{ ok: true }>('/api/plugins/settings', {
       method: 'PUT',
@@ -214,6 +232,9 @@ export const adminPluginsApi = {
 
   channelIntegrations: () =>
     jsonFetch<{ items: ChannelIntegrationRow[] }>('/api/plugins/admin/channels/integrations'),
+
+  logs: (pluginId: string) =>
+    jsonFetch<{ items: PluginLogEntry[] }>(`/api/plugins/admin/${encodeURIComponent(pluginId)}/logs`),
 
   channelsHealth: () => jsonFetch<ChannelsHealth>('/api/plugins/admin/channels/health'),
 

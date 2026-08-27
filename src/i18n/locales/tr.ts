@@ -4040,6 +4040,7 @@ const tr: TranslationKeys = {
     },
     action: {
       configure: 'Yapılandır',
+      details: 'Ayrıntılar',
       install: 'Kur',
       uninstall: 'Kaldır',
       connect: 'Bağlan',
@@ -4052,6 +4053,20 @@ const tr: TranslationKeys = {
       copy: 'Kopyala',
       copied: 'Kopyalandı',
     },
+    tab: {
+      connection: 'Bağlantı',
+      branding: 'Bot markası',
+      messages: 'Mesajlar ve komutlar',
+      logs: 'Etkinlik günlüğü',
+      policy: 'Kullanılabilirlik',
+      runtime: 'Çalışma zamanı',
+    },
+    logs: {
+      title: 'Son etkinlik',
+      refresh: 'Yenile',
+      empty: 'Henüz kayıtlı etkinlik yok.',
+    },
+    noSettings: 'Bu eklentinin henüz ayarı yok.',
     telegram: {
       photoUrl: 'Bot fotoğrafı URL’si',
       photoUrlHint: 'Herkese açık bir HTTPS görsel adresi. Telegram, markalama uygulanırken bunu indirir.',
@@ -4060,6 +4075,8 @@ const tr: TranslationKeys = {
       handlingModeAiFirst: 'Önce yapay zekâ asistanı',
       aiUnavailable: 'Yapay zekâ asistanı mevcut planınızda bulunmuyor.',
       commandsTitle: 'Bot komutları',
+      commandsHint: 'Bu etiketler Telegram komut menüsünde ve hızlı yanıt düğmelerinde görünür.',
+      connectFirst: 'Bu ayarları açmak için önce bir bot jetonu bağlayın.',
       saveSettings: 'Ayarları kaydet',
       settingsSaved: 'Telegram ayarları kaydedildi.',
       locale: { en: 'İngilizce', fa: 'Farsça', tr: 'Türkçe' },
@@ -4148,6 +4165,7 @@ const tr: TranslationKeys = {
       sortOrder: 'Sıralama',
       saved: 'Eklenti güncellendi.',
       saveFailed: 'Eklenti güncellenemedi.',
+      openDetail: 'Eklentiyi aç',
     },
   },
 };

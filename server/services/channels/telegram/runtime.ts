@@ -10,13 +10,15 @@ import type { NormalizedInboundMessage } from '../inboundProcessing.js';
 import { getInstallation } from '../../plugins/state.js';
 import { TELEGRAM_BOT_TOKEN_KEY, readPluginSecret } from '../../plugins/secrets.js';
 import { getIntegrationForInstallation } from '../integrations.js';
-import { sendMessage } from './client.js';
+import { sendChatAction, sendMessage } from './client.js';
 import {
   commandKeyFromText,
   messageKeyForCommand,
   parseTelegramSettings,
   resolveLocalizedMessage,
   resolveTelegramHandlingMode,
+  type TelegramCommandKey,
+  type TelegramSettings,
 } from './settings.js';
 
 export type TelegramInboundFlowResult = {
@@ -25,6 +27,40 @@ export type TelegramInboundFlowResult = {
   /** Whether a command was recognized and replied to directly. */
   handled: boolean;
 };
+
+/** Telegram HTML parse-mode escaping — applied to every value we interpolate. */
+export function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Persistent quick-reply keyboard. The buttons send the literal slash
+ * commands, so they flow through exactly the same recognition path as typed
+ * commands — no callback_query handling, nothing that can silently break.
+ */
+export function buildCommandKeyboard(settings: TelegramSettings) {
+  void settings;
+  return {
+    keyboard: [[{ text: '/help' }, { text: '/human' }], [{ text: '/new' }]],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: '…',
+  };
+}
+
+/**
+ * Renders a command reply as light HTML: a bold title line followed by the
+ * operator-authored body. Authored text is escaped, never trusted as markup.
+ */
+export function renderCommandReply(
+  settings: TelegramSettings,
+  command: TelegramCommandKey,
+  locale: string | null | undefined,
+): string {
+  const body = escapeHtml(resolveLocalizedMessage(settings, locale, messageKeyForCommand(command)));
+  const title = escapeHtml(settings.commands[command] || '').trim();
+  return title ? `<b>${title}</b>\n\n${body}` : body;
+}
 
 /**
  * Resolves the workspace's Telegram settings, replies to /start /help
@@ -47,8 +83,8 @@ export async function handleTelegramInboundFlow(
     const command = commandKeyFromText(input.text);
     if (!command || !installation) return { aiAllowed, handled: false };
 
-    const replyText = resolveLocalizedMessage(settings, input.senderLanguage, messageKeyForCommand(command));
-    const sent = await sendTelegramReply(config, installation.id, input.externalChatId, replyText);
+    const replyText = renderCommandReply(settings, command, input.senderLanguage);
+    const sent = await sendTelegramReply(config, installation.id, input.externalChatId, replyText, settings);
     void conversationId; // command replies do not need the conversation row, only the chat id
     return { aiAllowed, handled: sent };
   } catch (err) {
@@ -62,11 +98,18 @@ async function sendTelegramReply(
   installationId: string,
   chatId: string,
   text: string,
+  settings: TelegramSettings,
 ): Promise<boolean> {
   const token = await readPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY);
   if (!token) return false;
   const integration = await getIntegrationForInstallation(config, installationId);
   if (!integration) return false;
-  await sendMessage(token, { chatId, text });
+  await sendChatAction(token, chatId, 'typing').catch(() => undefined);
+  await sendMessage(token, {
+    chatId,
+    text,
+    parseMode: 'HTML',
+    replyMarkup: buildCommandKeyboard(settings),
+  });
   return true;
 }

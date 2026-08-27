@@ -38,6 +38,7 @@ import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
 import WidgetPage from "@/pages/app/WidgetPage";
 import PluginsPage from "@/pages/app/PluginsPage";
+import PluginDetailPage from "@/pages/app/PluginDetailPage";
 import { PlanLockedOverlay } from "@/components/plan/PlanLockedOverlay";
 // AI Agent (Phase 1 foundation)
 import { AiAgentLayout } from "@/components/layout/AiAgentLayout";
@@ -104,6 +105,7 @@ import AdminAuditLogsPage from "@/pages/admin/AuditLogsPage";
 import AdminBillingPage from "@/pages/admin/BillingPage";
 import AdminPlansPage from "@/pages/admin/PlansPage";
 import AdminPluginsPage from "@/pages/admin/PluginsPage";
+import AdminPluginDetailPage from "@/pages/admin/PluginDetailPage";
 import AdminSecurityPage from "@/pages/admin/SecurityPage";
 import AdminDatabasePage from "@/pages/admin/DatabasePage";
 import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
@@ -213,6 +215,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/billing" element={<AdminBillingPage />} />
                 <Route path="/admin/plans" element={<AdminPlansPage />} />
                 <Route path="/admin/plugins" element={<AdminPluginsPage />} />
+                <Route path="/admin/plugins/:pluginId" element={<AdminPluginDetailPage />} />
                 <Route path="/admin/database" element={<AdminDatabasePage />} />
                 <Route path="/admin/security" element={<AdminSecurityPage />} />
               </Route>
@@ -231,6 +234,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="visitors" element={<PlanLockedOverlay moduleKey="visitor_tracking"><VisitorsPage /></PlanLockedOverlay>} />
                 <Route path="widget" element={<WidgetPage />} />
                 <Route path="plugins" element={<PluginsPage />} />
+                <Route path="plugins/:pluginId" element={<PluginDetailPage />} />
                 <Route path="email" element={<EmailPage />} />
                 <Route path="billing" element={<BillingPage />} />
                 {/* Phase 6-S5-R4 — Knowledge Base is a CORE workspace product.

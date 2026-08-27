@@ -485,7 +485,86 @@ pluginsRouter.put('/settings', async (req: any, res) => {
   }
 });
 
+// ── Activity log (workspace surface) ──────────────────────────────────
+
+/** Shapes a job row into a provider-neutral, credential-free log entry. */
+function jobLogEntry(row: any) {
+  return {
+    id: row.id,
+    kind: 'job' as const,
+    provider: row.provider,
+    type: row.job_type,
+    status: row.status,
+    attempts: row.attempt_count,
+    error: row.last_error ? redactSecrets(String(row.last_error)).slice(0, 500) : null,
+    workspaceId: row.workspace_id ?? null,
+    at: row.updated_at ?? row.created_at,
+  };
+}
+
+/** Inbound events never expose the raw provider payload (PII + tokens). */
+function inboundLogEntry(row: any) {
+  return {
+    id: row.id,
+    kind: 'inbound' as const,
+    provider: row.provider,
+    type: 'inbound_event',
+    status: row.status,
+    attempts: null as number | null,
+    error: row.last_error ? redactSecrets(String(row.last_error)).slice(0, 500) : null,
+    workspaceId: row.workspace_id ?? null,
+    at: row.processed_at ?? row.created_at,
+  };
+}
+
+/**
+ * Recent channel activity for ONE workspace + plugin. Read-only and
+ * deliberately payload-free: operators need status and failure reasons, not
+ * message contents, on an observability screen.
+ */
+pluginsRouter.get('/logs', async (req: any, res) => {
+  const workspaceId = String(req.query.workspace_id || '');
+  const pluginId = String(req.query.plugin_id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(workspaceId) || !getPluginDefinition(pluginId)) {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+
+  const auth = await requireManager(req, res, workspaceId);
+  if (!auth) return;
+
+  try {
+    const sb = getServiceClient(serverConfigOf(req));
+    const [jobs, inbound] = await Promise.all([
+      sb
+        .from('channel_jobs')
+        .select('id,provider,job_type,status,attempt_count,last_error,created_at,updated_at,workspace_id')
+        .eq('workspace_id', workspaceId)
+        .eq('provider', pluginId)
+        .order('updated_at', { ascending: false })
+        .limit(60),
+      sb
+        .from('channel_inbound_events')
+        .select('id,provider,status,last_error,created_at,processed_at,workspace_id')
+        .eq('workspace_id', workspaceId)
+        .eq('provider', pluginId)
+        .order('created_at', { ascending: false })
+        .limit(60),
+    ]);
+    if (jobs.error) throw new Error(jobs.error.message);
+    if (inbound.error) throw new Error(inbound.error.message);
+
+    const items = [...(jobs.data ?? []).map(jobLogEntry), ...(inbound.data ?? []).map(inboundLogEntry)]
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+      .slice(0, 100);
+    res.json({ items });
+  } catch (err) {
+    console.error('[plugins] workspace logs failed:', err);
+    res.status(500).json({ error: 'Failed to load plugin logs' });
+  }
+});
+
 // ── Super Admin surface ───────────────────────────────────────────────
+
 
 export const adminPluginsRouter = Router();
 
@@ -665,5 +744,42 @@ adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', asyn
   } catch (err) {
     console.error('[plugins] admin force disconnect failed:', err);
     res.status(502).json({ error: 'Failed to disconnect integration' });
+  }
+});
+
+/**
+ * Platform-wide activity for ONE plugin. Same payload-free contract as the
+ * workspace surface, plus the workspace id so an admin can correlate.
+ */
+adminPluginsRouter.get('/:pluginId/logs', async (req: any, res) => {
+  const pluginId = String(req.params.pluginId);
+  if (!getPluginDefinition(pluginId)) return res.status(404).json({ error: 'Unknown plugin' });
+
+  try {
+    const sb = getServiceClient(serverConfigOf(req));
+    const [jobs, inbound] = await Promise.all([
+      sb
+        .from('channel_jobs')
+        .select('id,provider,job_type,status,attempt_count,last_error,created_at,updated_at,workspace_id')
+        .eq('provider', pluginId)
+        .order('updated_at', { ascending: false })
+        .limit(100),
+      sb
+        .from('channel_inbound_events')
+        .select('id,provider,status,last_error,created_at,processed_at,workspace_id')
+        .eq('provider', pluginId)
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ]);
+    if (jobs.error) throw new Error(jobs.error.message);
+    if (inbound.error) throw new Error(inbound.error.message);
+
+    const items = [...(jobs.data ?? []).map(jobLogEntry), ...(inbound.data ?? []).map(inboundLogEntry)]
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+      .slice(0, 150);
+    res.json({ items });
+  } catch (err) {
+    console.error('[plugins] admin logs failed:', err);
+    res.status(500).json({ error: 'Failed to load plugin logs' });
   }
 });

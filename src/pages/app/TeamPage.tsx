@@ -16,6 +16,8 @@ import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { IdentityListSkeleton } from '@/components/common/IdentitySkeleton';
 import { toast } from '@/lib/toast';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,

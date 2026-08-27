@@ -125,6 +125,38 @@ export async function completeChannelJob(sb: SupabaseClient, job: ChannelJob): P
 }
 
 /**
+ * Put a claimed job back on the queue WITHOUT consuming a retry.
+ *
+ * Used only for failures that are provably not the job's fault — Core
+ * unreachable, Core rejecting the internal credential, or Core missing the
+ * route entirely (stale deployment). Burning `attempt_count` on those would
+ * permanently fail perfectly valid inbound messages while an operator is
+ * still fixing the deployment.
+ */
+export async function releaseChannelJob(
+  sb: SupabaseClient,
+  job: ChannelJob,
+  errorMessage: string,
+  delaySeconds = 30,
+): Promise<'released'> {
+  const { error } = await sb
+    .from('channel_jobs')
+    .update({
+      status: 'pending',
+      attempt_count: Math.max(0, job.attempt_count - 1),
+      available_at: new Date(Date.now() + delaySeconds * 1000).toISOString(),
+      claim_token: null,
+      claim_expires_at: null,
+      last_error: errorMessage.slice(0, 1000),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', job.id)
+    .eq('claim_token', job.claim_token);
+  if (error) throw new Error(`channel job release failed: ${error.message}`);
+  return 'released';
+}
+
+/**
  * Retry or permanently fail. Honours an explicit `retryAfterSeconds`
  * (Telegram 429) over the computed backoff.
  */

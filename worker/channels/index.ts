@@ -23,6 +23,8 @@ import {
   claimChannelJobs,
   completeChannelJob,
   failChannelJob,
+  releaseChannelJob,
+
   isChannelJobType,
   recordAttempt,
   type ChannelJob,
@@ -141,19 +143,63 @@ async function ensureCoreAuthReady(): Promise<boolean> {
       if (response.status === 401 || response.status === 503) {
         const body = (await response.json().catch(() => ({}))) as { reason?: string };
         reason = await explainAuthFailure(body?.reason ?? null);
+      } else if (response.status === 404) {
+        reason = `Core at ${coreBaseUrl} has no /internal/channels/ready route — it is a stale deployment or not Core (${await describeCore()})`;
       } else {
         reason = `Core readiness returned HTTP ${response.status}`;
       }
       console.error(`[channels-worker] paused before claiming jobs: ${reason}`);
       return false;
     }
-    if (!coreAuthReady) console.log('[channels-worker] Core authentication verified; queue processing enabled');
+    if (!coreAuthReady) {
+      // Print the build + contract Core advertises: the fastest way to spot a
+      // Core that authenticates fine but predates the routes this worker calls.
+      const info = (await response.json().catch(() => ({}))) as { build?: string | null; routes?: string[] };
+      const routes = Array.isArray(info.routes) ? info.routes : [];
+      console.log(
+        `[channels-worker] Core authentication verified; queue processing enabled (build=${info.build ?? 'unknown'})`,
+      );
+      if (routes.length && !routes.includes('POST /process-inbound')) {
+        console.error(
+          '[channels-worker] Core does not advertise POST /process-inbound — redeploy Core with the current build before inbound messages can be processed',
+        );
+      }
+    }
     coreAuthReady = true;
     return true;
+
   } catch {
     coreAuthReady = false;
     console.error('[channels-worker] paused before claiming jobs: Core is unreachable');
     return false;
+  }
+}
+
+/**
+ * Marks failures that are the DEPLOYMENT's fault, not the job's: Core missing
+ * the route (stale build / wrong service) or rejecting the credential. These
+ * must never consume a job's retry budget.
+ */
+type InfrastructureError = Error & { infrastructure: true };
+
+function isInfrastructureError(err: unknown): err is InfrastructureError {
+  return !!err && (err as any).infrastructure === true;
+}
+
+/** Asks Core which build answered and which internal routes it serves. */
+async function describeCore(): Promise<string> {
+  try {
+    const response = await fetch(`${coreBaseUrl}/internal/channels/auth-diagnostic`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return `diagnostic HTTP ${response.status}`;
+    const info = (await response.json()) as { service?: string; build?: string | null; routes?: string[] };
+    if (info?.service !== 'core-internal-channels') {
+      return 'the URL does not point at Core — another service answered';
+    }
+    return `Core build=${info.build ?? 'unknown'} serves ${Array.isArray(info.routes) ? info.routes.length : 0} internal routes`;
+  } catch {
+    return 'diagnostic endpoint unreachable';
   }
 }
 
@@ -165,10 +211,24 @@ async function coreCall(path: string, body: unknown): Promise<any> {
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
+
+    // 404 on a route this worker knows exists in the codebase means the Core
+    // it is talking to is an OLDER deployment (or not Core at all). 401/503
+    // mean the trust boundary broke mid-flight. Both are deployment problems.
+    if (response.status === 404 || response.status === 401 || response.status === 503) {
+      coreAuthReady = false;
+      const explanation =
+        response.status === 404
+          ? `Core at ${coreBaseUrl} does not expose ${path} — redeploy Core with the current build, or point CORE_INTERNAL_BASE_URL at the Core service (${await describeCore()})`
+          : `Core rejected the internal credential on ${path} (HTTP ${response.status})`;
+      throw Object.assign(new Error(explanation), { infrastructure: true } as const);
+    }
+
     throw new Error(`core ${path} failed [${response.status}]: ${detail}`);
   }
   return response.json();
 }
+
 
 
 /** Resolves a provider credential for an integration. Read-only, server-side. */
@@ -334,6 +394,19 @@ async function processBatch(): Promise<number> {
       await recordAttempt(sb, job.id, job.attempt_count, 'succeeded', { latencyMs: Date.now() - startedAt });
     } catch (err) {
       const message = redactToken(err instanceof Error ? err.message : String(err));
+
+      // Deployment-level failure: requeue without spending a retry and stop
+      // draining the batch, so a stale Core cannot destroy the whole queue.
+      if (isInfrastructureError(err)) {
+        await releaseChannelJob(sb, job, message);
+        await recordAttempt(sb, job.id, job.attempt_count, 'retrying', {
+          errorMessage: message,
+          latencyMs: Date.now() - startedAt,
+        });
+        console.error(`[channels-worker] job ${job.id} (${job.job_type}) requeued without penalty: ${message}`);
+        break;
+      }
+
       const telegramError = err instanceof TelegramApiError ? err : null;
       const permanent =
         (err as any)?.permanent === true || (telegramError ? !telegramError.retryable : false);
@@ -349,6 +422,7 @@ async function processBatch(): Promise<number> {
       });
       console.error(`[channels-worker] job ${job.id} (${job.job_type}) ${outcome}: ${message}`);
     }
+
   }
 
   return jobs.length;

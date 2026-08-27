@@ -42,29 +42,40 @@ const LEGACY_LIMIT_KEYS = [
 ] as const;
 
 describe("legacy plan keys — soft backward compatibility", () => {
-  it("legacy entitlement keys validate as warnings, not errors", () => {
+  it("known legacy entitlement keys validate silently (no warning, no error)", () => {
     const ent = Object.fromEntries(
       LEGACY_ENTITLEMENT_KEYS.map((k) => [k, true]),
     );
     const result = validatePlanPayload({ entitlements: ent });
     expect(result.valid).toBe(true);
     for (const k of LEGACY_ENTITLEMENT_KEYS) {
-      const issue = result.issues.find((i) => i.key === k);
-      expect(issue, `expected warning for legacy entitlement '${k}'`).toBeDefined();
-      expect(issue!.level).toBe("warning");
+      expect(
+        result.issues.find((i) => i.key === k),
+        `legacy entitlement '${k}' must not raise an issue`,
+      ).toBeUndefined();
     }
   });
 
-  it("legacy limit keys validate as warnings, not errors", () => {
+  it("known legacy limit keys validate silently (no warning, no error)", () => {
     const lim = Object.fromEntries(LEGACY_LIMIT_KEYS.map((k) => [k, 123]));
     const result = validatePlanPayload({ limits: lim });
     expect(result.valid).toBe(true);
     for (const k of LEGACY_LIMIT_KEYS) {
-      const issue = result.issues.find((i) => i.key === k);
-      expect(issue, `expected warning for legacy limit '${k}'`).toBeDefined();
-      expect(issue!.level).toBe("warning");
+      expect(
+        result.issues.find((i) => i.key === k),
+        `legacy limit '${k}' must not raise an issue`,
+      ).toBeUndefined();
     }
   });
+
+  it("genuinely unknown keys still warn", () => {
+    const result = validatePlanPayload({ limits: { totally_made_up_key: 1 } });
+    expect(result.valid).toBe(true);
+    const issue = result.issues.find((i) => i.key === "totally_made_up_key");
+    expect(issue).toBeDefined();
+    expect(issue!.level).toBe("warning");
+  });
+
 
   it("legacy keys are not in the registry (no accidental rename collision)", () => {
     // Note: the string 'contacts' is intentionally excluded — it is a

@@ -19,6 +19,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
+      args:
+        # Stamped into the image so /internal/channels/ready no longer
+        # reports build=unknown — lets the Channels Worker prove whether a
+        # 404 means a stale Core container vs. a real route regression.
+        APP_VERSION: ${APP_VERSION:-local-dev}
     ports:
       - "${BACKEND_PORT:-3001}:3001"
     environment:

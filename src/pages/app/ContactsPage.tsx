@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   getDisplayName, timeAgo,
   getCompanyFromMetadata, getLocalizedLocation, getScoreFromMetadata,

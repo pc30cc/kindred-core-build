@@ -133,6 +133,73 @@ adminManagementRouter.delete('/users/:userId/roles/:role', async (req, res) => {
   return res.json({ success: true });
 });
 
+/**
+ * Hard-delete a user: every workspace they own (with all its data), every
+ * row across the schema that points at them, their stored files, and the
+ * profile itself. Storage objects are removed first (best-effort) because
+ * the DB purge destroys the rows that carry the object keys.
+ */
+adminManagementRouter.delete('/users/:userId', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const userId = req.params.userId;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+
+  if (userId === actorId) {
+    return res.status(400).json({ error: 'Cannot delete your own account' });
+  }
+
+  // 1. Collect storage objects belonging to the user's owned workspaces.
+  const storageFailures: string[] = [];
+  try {
+    const { data: owned } = await sb.from('workspaces').select('id').eq('owner_id', userId);
+    const workspaceIds = (owned ?? []).map((w: any) => w.id as string);
+    if (workspaceIds.length > 0) {
+      const keyed: Array<{ workspaceId: string; key: string }> = [];
+      const collect = async (table: string, column: string) => {
+        const { data } = await sb.from(table).select(`workspace_id, ${column}`).in('workspace_id', workspaceIds).limit(5000);
+        for (const row of (data ?? []) as any[]) {
+          const key = row?.[column];
+          if (typeof key === 'string' && key) keyed.push({ workspaceId: row.workspace_id, key });
+        }
+      };
+      await collect('conversation_attachments', 'storage_path');
+      await collect('call_recordings', 'storage_path');
+      await collect('privacy_jobs', 'artifact_storage_key');
+
+      for (const item of keyed) {
+        try {
+          const result = await deleteFile(config, item.workspaceId, item.key);
+          if (!result.success) storageFailures.push(item.key);
+        } catch {
+          storageFailures.push(item.key);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('[admin] storage purge failed for user', userId, err?.message);
+  }
+
+  // 2. Purge the database.
+  const { data, error } = await sb.rpc('admin_delete_user', {
+    _actor_user_id: actorId,
+    _user_id: userId,
+  });
+  if (error) return res.status(400).json({ error: error.message });
+
+  await sb.from('audit_logs').insert({
+    workspace_id: null,
+    user_id: actorId,
+    action: 'admin.user.deleted',
+    resource_type: 'user',
+    resource_id: userId,
+    metadata: { summary: data, storage_failures: storageFailures.length },
+  } as any);
+
+  return res.json({ success: true, summary: data, storageFailures: storageFailures.length });
+});
+
 // ── Workspaces ──────────────────────────────────────────────────────────
 const listWorkspacesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),

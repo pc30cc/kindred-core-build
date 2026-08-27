@@ -389,7 +389,10 @@ pluginsRouter.post('/telegram/profile', async (req: any, res) => {
       name: parsed.data.name,
       shortDescription: parsed.data.short_description,
       description: parsed.data.description,
-      commands: parsed.data.commands,
+      commands: parsed.data.commands?.map((c) => ({
+        command: String(c.command),
+        description: String(c.description),
+      })),
     });
     res.json({ ok: true, ...result });
   } catch (err) {

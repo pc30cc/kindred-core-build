@@ -39,6 +39,12 @@ export type PluginDefinition = {
   supportsWebhook: boolean;
   /** Entitlement module key checked through the existing capability registry. */
   planModuleKey: string | null;
+  /**
+   * Channel entitlement key (capability registry group `ns`, e.g. `telegram`).
+   * Channel plugins are sold as plan channels, NOT as modules, so this is what
+   * the Plans screen actually toggles — gate on it when present.
+   */
+  planChannelKey: string | null;
 };
 
 const comingSoon = (
@@ -60,6 +66,7 @@ const comingSoon = (
   supportsMedia: false,
   supportsWebhook: false,
   planModuleKey: null,
+  planChannelKey: null,
   ...overrides,
 });
 
@@ -86,7 +93,8 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
     supportsAI: true,
     supportsMedia: true,
     supportsWebhook: true,
-    planModuleKey: 'plugins_telegram',
+    planModuleKey: null,
+    planChannelKey: 'telegram',
   },
   comingSoon('whatsapp', 'channels'),
   comingSoon('instagram', 'channels'),

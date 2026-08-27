@@ -177,11 +177,6 @@ export function ContactAvatar({
           <span className="leading-none drop-shadow-sm">{initials}</span>
         )}
       </div>
-      {presence !== 'none' && (
-        <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-card p-[1.5px] shadow-sm">
-          <PresenceDot state={presence} size={PRESENCE_PX[size]} />
-        </span>
-      )}
       {flag && (
         <span
           title={countryName || countryCode || undefined}

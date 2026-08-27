@@ -30,6 +30,7 @@ import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
 import { pluginsApi } from '@/lib/plugins-api';
 import { formatDateTime } from '@/lib/date';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   AlertCircle,
   CheckCircle2,
@@ -41,6 +42,9 @@ import {
 } from 'lucide-react';
 
 export type TelegramPanelSection = 'connection' | 'branding' | 'messages';
+
+/** Locales the Telegram bot copy can ever be authored in. */
+const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
 
 /** Maps machine reasons from the API to localized, actionable copy. */
 function connectErrorKey(code: string | null | undefined): string {
@@ -95,6 +99,19 @@ export function TelegramConfigPanel({
   const [locales, setLocales] = useState(EMPTY_LOCALES);
   const [commands, setCommands] = useState({ start: '', help: '', human: '', new: '' });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Only the languages this deployment actually speaks may be edited. On a
+  // single-language platform we show that one language's fields with no picker.
+  const { allowedLocales } = usePlatformRegion();
+  const editableLocales = (() => {
+    const scoped = TELEGRAM_LOCALES.filter((l) => (allowedLocales as string[]).includes(l));
+    return scoped.length ? scoped : (['en'] as const as unknown as typeof TELEGRAM_LOCALES);
+  })();
+
+  useEffect(() => {
+    if (!editableLocales.includes(locale)) setLocale(editableLocales[0]);
+  }, [editableLocales.join(','), locale]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const { data: status, isLoading } = useQuery({
     queryKey: ['plugins', 'telegram', 'status', workspaceId],
@@ -446,13 +463,15 @@ export function TelegramConfigPanel({
 
       <Separator />
 
-      <div className="flex flex-wrap gap-2">
-        {(['en', 'fa', 'tr'] as const).map((l) => (
-          <Button key={l} type="button" size="sm" variant={locale === l ? 'default' : 'outline'} onClick={() => setLocale(l)}>
-            {t(`plugins.telegram.locale.${l}` as never)}
-          </Button>
-        ))}
-      </div>
+      {editableLocales.length > 1 ? (
+        <div className="flex flex-wrap gap-2">
+          {editableLocales.map((l) => (
+            <Button key={l} type="button" size="sm" variant={locale === l ? 'default' : 'outline'} onClick={() => setLocale(l)}>
+              {t(`plugins.telegram.locale.${l}` as never)}
+            </Button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="space-y-3" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
         {(['welcome', 'help', 'offline', 'handoff', 'fallback'] as const).map((key) => (

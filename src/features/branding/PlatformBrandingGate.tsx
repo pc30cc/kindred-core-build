@@ -53,9 +53,16 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // Find locale-specific row, fallback to 'en'
     const locRow = localized.find(r => r.locale === locale) ?? localized.find(r => r.locale === 'en');
 
-    // Set document title
-    const title = locRow?.meta_title || locRow?.platform_name || 'Platform';
-    document.title = title;
+    // Single source of truth for the browser title: platform_branding_localized
+    const title = locRow?.meta_title || locRow?.platform_name || '';
+    if (title) {
+      document.title = title;
+      try {
+        localStorage.setItem(`gs_title:${locale}`, title);
+      } catch {
+        /* storage unavailable */
+      }
+    }
 
     // Set meta description
     if (locRow?.meta_description) {

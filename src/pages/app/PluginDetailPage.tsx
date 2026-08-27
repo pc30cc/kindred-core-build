@@ -168,9 +168,8 @@ export default function PluginDetailPage() {
           <TabsContent value="messages">
             <TelegramConfigPanel workspaceId={workspaceId} section="messages" />
           </TabsContent>
-          <TabsContent value="logs">
-            <PluginLogsTable pluginId={pluginId} workspaceId={workspaceId} scope="workspace" />
           </TabsContent>
+
         </Tabs>
       ) : (
         !blocked && (

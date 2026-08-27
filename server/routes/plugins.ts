@@ -283,7 +283,7 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
         .status(status)
         .json({ error: 'telegram_connect_failed', reason: err.code, details: err.message });
     }
-    const message = redactSecrets(err instanceof Error ? err.message : 'unknown error');
+    const message = redactSecrets(err instanceof Error ? err.message : 'unknown error') ?? 'unknown error';
     console.error('[plugins] telegram connect failed:', message);
     res
       .status(502)

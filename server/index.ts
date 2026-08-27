@@ -71,6 +71,7 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
+import { isPublicWidgetApiPath } from './lib/routePrefix.js';
 import {
   ipBlockMiddleware,
   emailRateLimiter,
@@ -230,21 +231,8 @@ const appCors = cors({
 });
 
 // Public widget-facing routes manage their own dynamic CORS via widgetCorsMiddleware.
-// /api/realtime/connect and /api/realtime/subscribe are also public widget routes
-// (called from arbitrary customer origins) — admin routes under /api/realtime/admin
-// still need the standard appCors and are handled below.
-const PUBLIC_WIDGET_REALTIME_PATHS = new Set([
-  '/api/realtime/connect',
-  '/api/realtime/subscribe',
-]);
-
 app.use((req, res, next) => {
-  if (
-    req.path.startsWith('/api/widget') ||
-    req.path.startsWith('/api/call-widget') ||
-    req.path.startsWith('/api/visitors') ||
-    PUBLIC_WIDGET_REALTIME_PATHS.has(req.path)
-  ) {
+  if (isPublicWidgetApiPath(req.path)) {
     return next();
   }
   return appCors(req, res, next);

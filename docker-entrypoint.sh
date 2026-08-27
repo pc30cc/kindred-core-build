@@ -15,6 +15,26 @@ set -eu
 TEMPLATE_PATH="/etc/nginx/templates/default.conf.template"
 OUTPUT_PATH="/etc/nginx/conf.d/default.conf"
 
+# The nginx template appends /api/ to this value. Accept the common accidental
+# ".../api" form, but canonicalize it to a bare backend origin first so nginx
+# can never proxy requests to /api/api/....
+normalize_backend_url() {
+  normalized="${1%/}"
+  while [ "${normalized%/}" != "$normalized" ]; do
+    normalized="${normalized%/}"
+  done
+  case "$normalized" in
+    */api) normalized="${normalized%/api}" ;;
+  esac
+  printf '%s\n' "$normalized"
+}
+
+# Test hook: exercises the exact production normalization without starting nginx.
+if [ "${1:-}" = "--normalize-backend-url" ]; then
+  normalize_backend_url "${2:-}"
+  exit 0
+fi
+
 # ── 1. Validate required env vars ────────────────────────────────────
 missing=""
 for var in BACKEND_URL; do
@@ -31,8 +51,9 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-# Strip trailing slash from BACKEND_URL to avoid double slashes in proxy_pass
-BACKEND_URL="${BACKEND_URL%/}"
+# Canonical deployment contract: BACKEND_URL is a bare origin. Normalize a
+# trailing /api defensively because the nginx template adds that path itself.
+BACKEND_URL="$(normalize_backend_url "$BACKEND_URL")"
 export BACKEND_URL
 
 # ── 2. Verify template exists ────────────────────────────────────────

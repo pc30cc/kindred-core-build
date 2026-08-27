@@ -174,25 +174,48 @@ export async function updateIntegration(
 }
 
 /**
- * Binds a provider account id to this integration. The partial unique index
- * `channel_integrations_account_unique` makes the "one bot ↔ one workspace"
- * rule a DATABASE invariant, so two concurrent connects cannot both win.
+ * Reserves a provider account for this integration BEFORE any provider-side
+ * mutation happens.
+ *
+ * The DB is the only arbiter: `claim_channel_provider_account` takes a row
+ * lock and relies on the partial unique index
+ * `channel_integrations_account_unique` (now covering EVERY row that still
+ * holds an account id, disconnected included — disconnect releases ownership
+ * by nulling the column). Two concurrent connects of the same bot therefore
+ * cannot both win, and a workspace whose bot was taken over by another
+ * workspace is rejected before setWebhook is ever called.
  */
 export async function claimProviderAccount(
   config: ServerConfig,
   integration: ChannelIntegration,
   externalAccountId: string,
-): Promise<void> {
+): Promise<'claimed' | 'owned'> {
   const sb = getServiceClient(config);
-  const { error } = await sb
-    .from('channel_integrations')
-    .update({ external_account_id: externalAccountId, updated_at: new Date().toISOString() })
-    .eq('id', integration.id);
+  const { data, error } = await sb.rpc('claim_channel_provider_account', {
+    _integration_id: integration.id,
+    _provider: integration.provider,
+    _external_account_id: externalAccountId,
+  });
   if (error) {
     if ((error as any).code === '23505') throw new DuplicateProviderAccountError(integration.provider);
     throw new Error(`provider account claim failed: ${error.message}`);
   }
+  const outcome = String(data ?? '');
+  if (outcome === 'conflict') throw new DuplicateProviderAccountError(integration.provider);
+  if (outcome === 'missing') throw new Error('provider account claim failed: integration missing');
+  return outcome === 'owned' ? 'owned' : 'claimed';
 }
+
+/** Releases ownership so another workspace may legitimately claim the bot. */
+export async function releaseProviderAccount(
+  config: ServerConfig,
+  integrationId: string,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { error } = await sb.rpc('release_channel_provider_account', { _integration_id: integrationId });
+  if (error) throw new Error(`provider account release failed: ${error.message}`);
+}
+
 
 /** Marks an integration as failed without ever storing provider credentials. */
 export async function markIntegrationError(

@@ -473,3 +473,70 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/domains/:domainId/primary`, async
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
 });
+
+// ── Provider usage logs (workspace-scoped) ───────────────────────────────
+// Replaces browser-direct reads of `ai_usage_logs`/`storage_usage_logs`
+// (src/hooks/useProviderUsage.ts), which relied on `authenticated` RLS.
+// Workspace isolation is enforced server-side: the caller can only read the
+// workspace in the path, and only after authorizeWorkspaceAccess passes.
+const usageQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(50),
+  since: z.string().datetime().optional(),
+});
+
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/usage/ai`, async (req: WorkspaceIdRequest, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const parsed = usageQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(config);
+  let q = sb
+    .from('ai_usage_logs')
+    .select('*')
+    .eq('workspace_id', req.params.workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(parsed.data.limit);
+  if (parsed.data.since) q = q.gte('created_at', parsed.data.since);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ logs: data ?? [] });
+});
+
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/usage/storage`, async (req: WorkspaceIdRequest, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const parsed = usageQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(config);
+  let q = sb
+    .from('storage_usage_logs')
+    .select('*')
+    .eq('workspace_id', req.params.workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(parsed.data.limit);
+  if (parsed.data.since) q = q.gte('created_at', parsed.data.since);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ logs: data ?? [] });
+});
+
+// ── Non-secret provider selection metadata (workspace-scoped) ────────────
+// Replaces browser-direct `provider_configs` SELECTs (src/providers/sync.ts,
+// src/realtime/resolveClientRealtimeProvider.ts). Only the vendor selection
+// fields are returned — the `config` column (credentials/secrets) never
+// leaves the backend.
+workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/provider-selection`, async (req: WorkspaceIdRequest, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('provider_configs')
+    .select('provider_type, provider_name, is_active')
+    .eq('workspace_id', req.params.workspaceId)
+    .eq('is_active', true);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ overrides: data ?? [] });
+});

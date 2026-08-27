@@ -33,9 +33,11 @@ import { decryptPluginSecret } from '../../server/lib/pluginCrypto.js';
 import {
   TelegramApiError,
   redactToken,
+  sendChatAction,
   sendMedia,
   sendMessage,
 } from '../../server/services/channels/telegram/client.js';
+
 
 const WORKER_ID = `channels-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_POLL_INTERVAL_MS || '1500', 10);
@@ -324,8 +326,12 @@ async function handleJob(job: ChannelJob): Promise<void> {
       if (!chatId || !text.trim()) return; // nothing deliverable
 
       const token = await resolveIntegrationToken(job.integration_id, 'telegram_bot_token');
+      // Native "typing…" bubble right before the reply lands. Best-effort:
+      // a failure here must never block or retry the actual delivery.
+      await sendChatAction(token, chatId, 'typing').catch(() => undefined);
       try {
         const sent = await sendMessage(token, { chatId, text });
+
         await reportOutbound(job, messageId, 'sent', sent.message_id, null);
       } catch (err) {
         if (err instanceof TelegramApiError && !err.retryable) {

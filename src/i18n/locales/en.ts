@@ -4049,6 +4049,7 @@ const en = {
     },
     action: {
       configure: 'Configure',
+      details: 'Details',
       install: 'Install',
       uninstall: 'Uninstall',
       connect: 'Connect',
@@ -4061,6 +4062,20 @@ const en = {
       copy: 'Copy',
       copied: 'Copied',
     },
+    tab: {
+      connection: 'Connection',
+      branding: 'Bot branding',
+      messages: 'Messages & commands',
+      logs: 'Activity log',
+      policy: 'Availability',
+      runtime: 'Runtime',
+    },
+    logs: {
+      title: 'Recent activity',
+      refresh: 'Refresh',
+      empty: 'No activity recorded yet.',
+    },
+    noSettings: 'This plugin has no settings yet.',
     telegram: {
       photoUrl: 'Bot photo URL',
       photoUrlHint: 'A public HTTPS image URL. Telegram fetches it when you apply branding.',
@@ -4069,6 +4084,8 @@ const en = {
       handlingModeAiFirst: 'AI assistant first',
       aiUnavailable: 'The AI assistant is not available on your current plan.',
       commandsTitle: 'Bot commands',
+      commandsHint: 'These labels appear in the Telegram command menu and as quick-reply buttons.',
+      connectFirst: 'Connect a bot token first to unlock these settings.',
       saveSettings: 'Save settings',
       settingsSaved: 'Telegram settings saved.',
       locale: { en: 'English', fa: 'Persian', tr: 'Turkish' },
@@ -4157,6 +4174,7 @@ const en = {
       sortOrder: 'Sort order',
       saved: 'Plugin updated.',
       saveFailed: 'Could not update the plugin.',
+      openDetail: 'Open plugin',
     },
   },
 };

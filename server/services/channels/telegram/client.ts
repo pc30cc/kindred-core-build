@@ -133,15 +133,38 @@ export async function getWebhookInfo(botToken: string): Promise<TelegramWebhookI
 
 export async function sendMessage(
   botToken: string,
-  input: { chatId: number | string; text: string; replyToMessageId?: number },
+  input: {
+    chatId: number | string;
+    text: string;
+    replyToMessageId?: number;
+    /** Telegram formatting mode. Only pass it for text we generated ourselves. */
+    parseMode?: 'HTML' | 'MarkdownV2';
+    /** Inline / reply keyboard payload, already shaped for the Bot API. */
+    replyMarkup?: Record<string, unknown>;
+  },
 ): Promise<{ message_id: number }> {
   return callTelegram(botToken, 'sendMessage', {
     chat_id: input.chatId,
     text: input.text,
     reply_to_message_id: input.replyToMessageId,
+    parse_mode: input.parseMode,
+    reply_markup: input.replyMarkup,
     disable_web_page_preview: true,
   });
 }
+
+/**
+ * Shows the native "typing…" bubble. Best-effort only: a failure here must
+ * never block the actual reply, so callers should ignore rejections.
+ */
+export async function sendChatAction(
+  botToken: string,
+  chatId: number | string,
+  action: 'typing' | 'upload_photo' | 'upload_document' = 'typing',
+): Promise<void> {
+  await callTelegram(botToken, 'sendChatAction', { chat_id: chatId, action });
+}
+
 
 export async function getFile(botToken: string, fileId: string): Promise<{ file_path: string; file_size?: number }> {
   return callTelegram(botToken, 'getFile', { file_id: fileId });

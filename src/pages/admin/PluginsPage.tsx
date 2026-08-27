@@ -16,6 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from '@/hooks/use-toast';
 import { adminPluginsApi, type AdminPluginItem, type PluginRolloutStatus } from '@/lib/plugins-api';
 import { ChannelsRuntimePanel } from '@/components/plugins/ChannelsRuntimePanel';
+import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Settings2 } from 'lucide-react';
 
 const ROLLOUT_OPTIONS: PluginRolloutStatus[] = ['hidden', 'coming_soon', 'beta', 'public'];
 
@@ -109,6 +112,13 @@ export default function AdminPluginsPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <Button asChild variant="outline" size="sm" className="w-full">
+                <Link to={`/admin/plugins/${item.id}`}>
+                  <Settings2 className="me-1.5 h-4 w-4" />
+                  {t('plugins.admin.openDetail')}
+                </Link>
+              </Button>
             </Card>
           ))}
         </div>

@@ -6,7 +6,7 @@
  * see what an upgrade unlocks, but the actions are disabled.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useTranslation } from '@/i18n';
@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { pluginsApi, type PluginCatalogItem } from '@/lib/plugins-api';
-import { TelegramConfig } from '@/components/plugins/TelegramConfig';
+import { Link, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Lock, Plug, Settings2, Trash2, Wrench } from 'lucide-react';
 
@@ -34,7 +34,7 @@ export default function PluginsPage() {
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id ?? '';
   const qc = useQueryClient();
-  const [telegramOpen, setTelegramOpen] = useState(false);
+  const { slug = '' } = useParams();
 
   const { data, isLoading } = useQuery({
     queryKey: ['plugins', 'catalog', workspaceId],
@@ -148,13 +148,11 @@ export default function PluginsPage() {
                           {t('plugins.action.uninstall')}
                         </Button>
                       )}
-                      <Button
-                        size="sm"
-                        disabled={blocked || item.id !== 'telegram'}
-                        onClick={() => item.id === 'telegram' && setTelegramOpen(true)}
-                      >
-                        <Settings2 className="me-1.5 h-4 w-4" />
-                        {item.installed ? t('plugins.action.configure') : t('plugins.action.install')}
+                      <Button asChild size="sm" disabled={comingSoon}>
+                        <Link to={`/app/w/${slug}/plugins/${item.id}`}>
+                          <Settings2 className="me-1.5 h-4 w-4" />
+                          {item.installed ? t('plugins.action.configure') : t('plugins.action.details')}
+                        </Link>
                       </Button>
                     </div>
                   </Card>
@@ -165,9 +163,6 @@ export default function PluginsPage() {
         ))
       )}
 
-      {workspaceId && (
-        <TelegramConfig workspaceId={workspaceId} open={telegramOpen} onOpenChange={setTelegramOpen} />
-      )}
     </div>
   );
 }

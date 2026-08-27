@@ -4036,6 +4036,7 @@ const fa: TranslationKeys = {
     },
     action: {
       configure: 'پیکربندی',
+      details: 'جزئیات',
       install: 'نصب',
       uninstall: 'حذف نصب',
       connect: 'اتصال',
@@ -4048,6 +4049,20 @@ const fa: TranslationKeys = {
       copy: 'کپی',
       copied: 'کپی شد',
     },
+    tab: {
+      connection: 'اتصال',
+      branding: 'برندینگ ربات',
+      messages: 'پیام‌ها و دستورها',
+      logs: 'گزارش فعالیت',
+      policy: 'دسترسی',
+      runtime: 'اجرا',
+    },
+    logs: {
+      title: 'فعالیت اخیر',
+      refresh: 'بازخوانی',
+      empty: 'هنوز فعالیتی ثبت نشده است.',
+    },
+    noSettings: 'این افزونه هنوز تنظیماتی ندارد.',
     telegram: {
       photoUrl: 'نشانی تصویر ربات',
       photoUrlHint: 'یک نشانی تصویر عمومی با HTTPS. تلگرام هنگام اعمال برندینگ آن را دریافت می‌کند.',
@@ -4056,6 +4071,8 @@ const fa: TranslationKeys = {
       handlingModeAiFirst: 'ابتدا دستیار هوش مصنوعی',
       aiUnavailable: 'دستیار هوش مصنوعی در پلن فعلی شما موجود نیست.',
       commandsTitle: 'دستورهای ربات',
+      commandsHint: 'این عنوان‌ها در منوی دستورهای تلگرام و به‌عنوان دکمه‌های پاسخ سریع نمایش داده می‌شوند.',
+      connectFirst: 'برای باز شدن این تنظیمات، ابتدا توکن ربات را متصل کنید.',
       saveSettings: 'ذخیره تنظیمات',
       settingsSaved: 'تنظیمات تلگرام ذخیره شد.',
       locale: { en: 'انگلیسی', fa: 'فارسی', tr: 'ترکی' },
@@ -4144,6 +4161,7 @@ const fa: TranslationKeys = {
       sortOrder: 'ترتیب نمایش',
       saved: 'افزونه به‌روزرسانی شد.',
       saveFailed: 'به‌روزرسانی افزونه انجام نشد.',
+      openDetail: 'باز کردن افزونه',
     },
   },
 };

@@ -1,8 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
-import { useAdminFeatureFlags } from '@/hooks/useAdmin';
-import { supabase } from '@/lib/supabase';
+import { useAdminFeatureFlags, adminFetch } from '@/hooks/useAdmin';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
 
@@ -11,11 +10,12 @@ export default function AdminFeatureFlagsPage() {
   const qc = useQueryClient();
 
   const toggleFlag = async (id: string, enabled: boolean) => {
-    const { error } = await supabase
-      .from('feature_flags')
-      .update({ enabled })
-      .eq('id', id);
-    if (error) {
+    try {
+      await adminFetch(`/api/admin/management/feature-flags/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      });
+    } catch {
       toast.error('Failed to update flag');
       return;
     }

@@ -1,19 +1,15 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/lib/supabase';
+import { adminFetch } from '@/hooks/useAdmin';
 import { useQuery } from '@tanstack/react-query';
 
 export default function AdminDomainsPage() {
   const { data: domains, isLoading } = useQuery({
     queryKey: ['admin-all-domains'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_domains')
-        .select('*, workspaces(name)')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data;
+      const body = await adminFetch<{ domains: any[] }>('/api/admin/management/domains');
+      return body.domains;
     },
   });
 

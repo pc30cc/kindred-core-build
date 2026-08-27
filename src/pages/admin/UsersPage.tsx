@@ -17,11 +17,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   useAdminProfiles, useAdminProfileCount, useAdminUserDetail,
-  useAdminUserRoles, useAssignRole, useRemoveRole,
-} from '@/hooks/useAdmin';
+  useAdminUserRoles, useAssignRole, useRemoveRole, adminFetch } from '@/hooks/useAdmin';
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
-import { supabase } from '@/lib/supabase';
 import { formatMoney } from '@/lib/region';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
@@ -1016,12 +1014,10 @@ function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () 
   const { data: logs, isLoading } = useQuery({
     queryKey: ['admin-login-logs', email],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_list_login_attempts', {
-        _email: email,
-        _limit: 50,
-      });
-      if (error) throw error;
-      return data as Array<{
+      const body = await adminFetch<{ attempts: any[] }>(
+        `/api/admin/management/login-attempts?email=${encodeURIComponent(email)}&limit=50`,
+      );
+      return body.attempts as Array<{
         id: string;
         email: string;
         ip_address: string;

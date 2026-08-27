@@ -113,19 +113,17 @@ export default function ContactsPage() {
     return list;
   }, [contacts, search, filterTag, filterHasEmail, filterHasPhone, sortBy, sortDir]);
 
-  // Anonymous contacts don't have geo written into metadata.city until
-  // identityMerge runs (that only happens once they self-identify), so the
-  // Inbox and Contacts would otherwise show different city+code labels for
-  // the same still-anonymous visitor. Reuse the SAME canonical network-
-  // profile resolver Inbox already uses (via visitor_sessions.contact_id) —
-  // scoped to only the anonymous rows actually on screen, never one request
-  // per row. Named contacts don't need this: their name wins regardless of
-  // city, so skipping them keeps the batch small.
-  const anonymousContactIds = useMemo(
-    () => filtered.filter((c) => isAnonymousContact(c)).map((c) => c.id),
+  // Geo lives on visitor_sessions (the canonical source Inbox reads);
+  // metadata.city is only written once a visitor self-identifies, so the list
+  // showed no location for most rows while the detail page (which resolves
+  // the session profile) did. Resolve the SAME network profile for every row
+  // on screen — one batched request, never one per row.
+  const visibleContactIds = useMemo(
+    () => filtered.slice(0, 500).map((c) => c.id),
     [filtered],
   );
-  const { data: networkByContact } = useVisitorNetworkBatchByContact(workspace?.id, anonymousContactIds);
+  const { data: networkByContact } = useVisitorNetworkBatchByContact(workspace?.id, visibleContactIds);
+
 
   const toggleSort = (key: SortKey) => {
     if (sortBy === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));

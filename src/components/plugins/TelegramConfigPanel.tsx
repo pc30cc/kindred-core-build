@@ -98,6 +98,11 @@ export function TelegramConfigPanel({
   const [locale, setLocale] = useState<'en' | 'fa' | 'tr'>('en');
   const [locales, setLocales] = useState(EMPTY_LOCALES);
   const [commands, setCommands] = useState({ start: '', help: '', human: '', new: '' });
+  const [commandLocales, setCommandLocales] = useState<Record<'en' | 'fa' | 'tr', { start: string; help: string; human: string; new: string }>>({
+    en: { start: '', help: '', human: '', new: '' },
+    fa: { start: '', help: '', human: '', new: '' },
+    tr: { start: '', help: '', human: '', new: '' },
+  });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Only the languages this deployment actually speaks may be edited. On a
@@ -128,6 +133,7 @@ export function TelegramConfigPanel({
     setHandlingMode(s.handlingMode);
     setLocales(s.locales);
     setCommands(s.commands);
+    if (s.commandLocales) setCommandLocales(s.commandLocales);
     setBotName((prev) => prev || s.profile.name);
     setShortDescription((prev) => prev || s.profile.shortDescription);
     setDescription((prev) => prev || s.profile.description);
@@ -198,9 +204,14 @@ export function TelegramConfigPanel({
         },
         locales,
         commands,
+        commandLocales,
         handlingMode,
       }),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      // The server may downgrade ai_first when the entitlement is gone —
+      // reflect the effective mode instead of the requested one.
+      const effective = data?.settings?.handlingMode;
+      if (effective === 'human_only' || effective === 'ai_first') setHandlingMode(effective);
       toast({ title: t('plugins.telegram.settingsSaved') });
       refresh();
     },
@@ -214,7 +225,12 @@ export function TelegramConfigPanel({
         name: botName.trim() || undefined,
         short_description: shortDescription.trim() || undefined,
         description: description.trim() || undefined,
-        commands: Object.entries(commands).map(([command, desc]) => ({ command, description: desc })),
+        // Telegram stores one command list per bot: publish the labels of the
+        // platform's primary language, which is what its users actually read.
+        commands: Object.entries(commandLocales[editableLocales[0]] ?? commands).map(([command, desc]) => ({
+          command,
+          description: desc,
+        })),
       }),
     onSuccess: () => {
       toast({ title: t('plugins.telegram.brandingApplied') });

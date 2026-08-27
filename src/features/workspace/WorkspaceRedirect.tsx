@@ -22,9 +22,11 @@ export function WorkspaceRedirect() {
   const { data: profile } = useProfile();
   const { signOut, user } = useAuth();
   const createWorkspace = useCreateWorkspace();
+  const { t, dir } = useTranslation();
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attempted = useRef(false);
+
 
   // Auto-provision workspace if user has account but no workspaces
   useEffect(() => {

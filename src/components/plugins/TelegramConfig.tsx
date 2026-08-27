@@ -105,8 +105,12 @@ export function TelegramConfig({
       toast({
         variant: 'destructive',
         title: t(connectErrorKey(err?.code) as never),
-        description: err?.code === 'duplicate_bot' ? undefined : err?.message,
+        description:
+          err?.code === 'duplicate_bot'
+            ? undefined
+            : [err?.message, err?.code ? `(${err.code})` : null].filter(Boolean).join(' '),
       }),
+
   });
 
   const runDiagnostics = useMutation({

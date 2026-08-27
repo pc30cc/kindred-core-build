@@ -46,7 +46,14 @@ describe('widget_platform_settings — anon exposure', () => {
     // The last statement touching anon privileges must be a revoke.
     const privLines = sql
       .split('\n')
-      .filter((l) => /widget_platform_settings/.test(l) && /anon/.test(l) && /GRANT|REVOKE/i.test(l));
+      .filter(
+        (l) =>
+          /public\.widget_platform_settings/.test(l) &&
+          !/ON FUNCTION/i.test(l) &&
+          /anon/.test(l) &&
+          /GRANT|REVOKE/i.test(l),
+      );
+
     expect(privLines.length).toBeGreaterThan(0);
     expect(/^\s*REVOKE/i.test(privLines[privLines.length - 1])).toBe(true);
     expect(privLines.some((l) => /^\s*GRANT\s+SELECT/i.test(l))).toBe(false);

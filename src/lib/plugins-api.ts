@@ -43,6 +43,7 @@ export interface PluginCatalogItem {
   supportsAI: boolean;
   supportsMedia: boolean;
   planModuleKey: string | null;
+  planChannelKey: string | null;
   enabled: boolean;
   marketplaceVisible: boolean;
   installable: boolean;

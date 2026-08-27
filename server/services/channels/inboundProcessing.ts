@@ -200,6 +200,32 @@ export async function processInboundMessage(
       .update({ updated_at: new Date().toISOString(), contact_id: contactId })
       .eq('id', conversation.id);
 
+    // Media persistence — provider-specific, best-effort, non-fatal. A
+    // failure here must never lose the already-inserted text message.
+    if (input.provider === 'telegram' && input.attachments?.length) {
+      try {
+        const { ingestTelegramMedia } = await import('./telegram/mediaIngest.js');
+        const outcomes = await ingestTelegramMedia(config, {
+          workspaceId: input.workspaceId,
+          integrationId: input.integrationId,
+          conversationId: conversation.id,
+          messageId: (insertedMsg as any).id,
+          attachments: input.attachments,
+        });
+        await sb
+          .from('conversation_messages')
+          .update({
+            metadata: {
+              ...(insertedMsg as any).metadata,
+              attachments: outcomes,
+            },
+          })
+          .eq('id', (insertedMsg as any).id);
+      } catch (mediaErr: any) {
+        console.warn('[channels] telegram media ingest error:', mediaErr?.message || mediaErr);
+      }
+    }
+
     // Inbox realtime — identical envelope to widget traffic.
     publishConversationEvent(
       config,

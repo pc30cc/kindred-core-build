@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useI18n } from '@/i18n';
-import type { Contact } from '@/hooks/useContacts';
+import type { Contact } from '@/types/models';
 
 export type ContactEditValues = {
   name: string;

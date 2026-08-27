@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { classifyCoreResponse } from '../../../channels/delivery.js';
 
 describe('gateway delivery classification', () => {
@@ -38,7 +39,7 @@ describe('gateway delivery classification', () => {
 });
 
 describe('worker boundary', () => {
-  const workerSource = readFileSync(new URL('../../../worker/channels/index.ts', import.meta.url), 'utf8');
+  const workerSource = readFileSync(resolve(process.cwd(), 'worker/channels/index.ts'), 'utf8');
 
   it('never writes canonical business tables', () => {
     const canonicalTables = ['contacts', 'conversations', 'conversation_messages', 'contact_channels'];

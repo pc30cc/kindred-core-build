@@ -89,6 +89,7 @@ export default function LoginPage() {
         : 'border-border ring-primary/15';
     return (
       <div
+        dir="ltr"
         className={cn(
           'group relative flex items-center h-12 rounded-xl border bg-background transition-all duration-200',
           'shadow-sm hover:border-foreground/20',
@@ -96,6 +97,7 @@ export default function LoginPage() {
           ringClass,
         )}
       >
+
         <span
           className={cn(
             'flex items-center justify-center w-12 h-full shrink-0 text-muted-foreground transition-colors',

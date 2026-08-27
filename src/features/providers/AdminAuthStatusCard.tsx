@@ -69,17 +69,39 @@ export function AdminAuthStatusCard() {
             Legacy Supabase Auth
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <Badge variant="outline" className="text-[10px] mb-2">Removed</Badge>
+        <CardContent className="space-y-2">
+          <Badge variant="outline" className="text-[10px]">Login provider removed</Badge>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            The legacy Supabase Auth provider has been removed from the application's runtime
-            source entirely — it is no longer selectable, registered, or reachable by any code
-            path. Auth0, Clerk, and Firebase Auth are shown elsewhere in this admin area as
-            historical configuration entries only — none of them are wired to login, signup, or
-            session validation.
+            The legacy Supabase Auth provider is no longer selectable or registered: login,
+            signup, password reset and session validation never touch GoTrue. Auth0, Clerk and
+            Firebase Auth appear elsewhere in this admin area as historical configuration
+            entries only.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="border-amber-500/30 bg-amber-500/5">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2 text-amber-600 dark:text-amber-400">
+            <History className="h-4 w-4" />
+            GoTrue cutover readiness
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400">
+            Legacy runtime dependency remains
+          </Badge>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            GoTrue is not used for identity, and no <code>/auth/v1</code> request is made at
+            runtime — but the browser Supabase client still has session persistence and token
+            auto-refresh enabled, and a small set of admin/settings screens still read or write
+            Supabase tables through RLS policies scoped to <code>auth.uid()</code>. Those screens
+            run as the anonymous role today and must be moved behind the first-party backend
+            before Supabase Auth can be switched off at the project level.
           </p>
         </CardContent>
       </Card>
     </div>
   );
 }
+

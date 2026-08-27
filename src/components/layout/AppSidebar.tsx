@@ -328,7 +328,7 @@ export function AppSidebar() {
                   <Plus className="h-3.5 w-3.5 text-primary" />
                 </div>
                 <div className="text-start">
-                  <p className="text-[13px] font-medium">Create a new workspace</p>
+                  <p className="text-[13px] font-medium">{t('workspaceCreate.menuAction')}</p>
                 </div>
               </button>
 
@@ -541,7 +541,7 @@ export function AppSidebar() {
       </div>
 
     </aside>
-    <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} />
+    <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} upgradeHref={wsPath('/billing')} />
     </>
   );
 }

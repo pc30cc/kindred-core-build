@@ -47,6 +47,9 @@ import {
   telegramDiagnostics,
 } from '../services/channels/telegram/setup.js';
 import { parseTelegramSettings, sanitizeTelegramSettingsForSave, resolveTelegramHandlingMode } from '../services/channels/telegram/settings.js';
+import { isAutoAnswerAllowedForWorkspace } from '../services/ai-agent/platformGuards.js';
+import { getOrCreateSettings } from '../services/ai-agent/settings.js';
+
 import { getServiceClient } from '../supabase.js';
 import { queueMetrics } from '../services/channels/jobs.js';
 

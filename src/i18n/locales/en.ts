@@ -4083,6 +4083,7 @@ const en = {
       handlingModeHumanOnly: 'Operators only',
       handlingModeAiFirst: 'AI assistant first',
       aiUnavailable: 'The AI assistant is not available on your current plan.',
+      aiAgentInactive: 'The AI assistant is turned off for this workspace — enable it in AI Assistant settings so the bot can reply.',
       commandsTitle: 'Bot commands',
       commandsHint: 'These labels appear in the Telegram command menu and as quick-reply buttons.',
       connectFirst: 'Connect a bot token first to unlock these settings.',

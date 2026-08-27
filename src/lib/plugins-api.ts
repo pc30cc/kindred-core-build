@@ -64,11 +64,51 @@ export interface TelegramStatus {
   integration?: {
     status: string;
     botUsername: string | null;
+    botName: string | null;
     webhookRegisteredAt: string | null;
+    webhookVerifiedAt: string | null;
     lastInboundAt: string | null;
-    lastError: string | null;
+    lastOutboundAt: string | null;
+    lastErrorCode: string | null;
+    lastErrorAt: string | null;
     webhookUrl: string | null;
   } | null;
+}
+
+export interface TelegramProfilePatch {
+  name?: string;
+  short_description?: string;
+  description?: string;
+  commands?: { command: string; description: string }[];
+}
+
+export interface ChannelIntegrationRow {
+  id: string;
+  workspace_id: string;
+  provider: string;
+  status: string;
+  username: string | null;
+  display_name: string | null;
+  external_account_id: string | null;
+  webhook_registered_at: string | null;
+  webhook_verified_at: string | null;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  last_error_code: string | null;
+  last_error_at: string | null;
+  created_at: string;
+}
+
+export interface ChannelsHealth {
+  queue: {
+    pending: number;
+    processing: number;
+    failed: number;
+    oldestPendingAgeSeconds: number | null;
+  };
+  workers: { worker_id: string; worker_kind: string; last_seen_at: string; code_version: string | null; alive: boolean }[];
+  workersAlive: number;
+  deadLetters: { id: string; provider: string; job_type: string; attempt_count: number; last_error: string | null; updated_at: string }[];
 }
 
 export const pluginsApi = {
@@ -106,6 +146,24 @@ export const pluginsApi = {
       body: JSON.stringify({ workspace_id: workspaceId }),
     }),
 
+  telegramReconnect: (workspaceId: string) =>
+    jsonFetch<{ ok: true }>('/api/plugins/telegram/reconnect', {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    }),
+
+  telegramDisconnect: (workspaceId: string) =>
+    jsonFetch<{ ok: true }>('/api/plugins/telegram/disconnect', {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    }),
+
+  telegramProfile: (workspaceId: string, patch: TelegramProfilePatch) =>
+    jsonFetch<{ ok: true }>('/api/plugins/telegram/profile', {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: workspaceId, ...patch }),
+    }),
+
   updateSettings: (workspaceId: string, pluginId: string, settings: Record<string, unknown>) =>
     jsonFetch<{ ok: true }>('/api/plugins/settings', {
       method: 'PUT',
@@ -135,4 +193,15 @@ export const adminPluginsApi = {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
+
+  channelIntegrations: () =>
+    jsonFetch<{ items: ChannelIntegrationRow[] }>('/api/plugins/admin/channels/integrations'),
+
+  channelsHealth: () => jsonFetch<ChannelsHealth>('/api/plugins/admin/channels/health'),
+
+  forceDisconnect: (integrationId: string) =>
+    jsonFetch<{ ok: true }>(
+      `/api/plugins/admin/channels/integrations/${encodeURIComponent(integrationId)}/disconnect`,
+      { method: 'POST' },
+    ),
 };

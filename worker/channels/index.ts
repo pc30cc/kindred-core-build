@@ -39,6 +39,7 @@ const POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_POLL_INTERVAL_MS || '1500
 const BATCH_SIZE = parseInt(process.env.CHANNELS_BATCH_SIZE || '10', 10);
 const LEASE_SECONDS = parseInt(process.env.CHANNELS_LEASE_SECONDS || '120', 10);
 const HEARTBEAT_INTERVAL_MS = parseInt(process.env.CHANNELS_HEARTBEAT_MS || '15000', 10);
+const CORE_AUTH_RECHECK_MS = parseInt(process.env.CHANNELS_CORE_AUTH_RECHECK_MS || '15000', 10);
 const CODE_VERSION = process.env.APP_VERSION || process.env.GIT_SHA || null;
 
 function requireEnv(name: string): string {
@@ -54,6 +55,42 @@ let sb: SupabaseClient;
 let coreBaseUrl: string;
 let coreSecret: string;
 let masterKey: string;
+let coreAuthReady = false;
+let lastCoreAuthCheckAt = 0;
+
+/**
+ * Validate the Worker → Core trust boundary before claiming queue jobs.
+ * This prevents a mismatched deployment secret from exhausting retries and
+ * permanently failing otherwise healthy inbound messages.
+ */
+async function ensureCoreAuthReady(): Promise<boolean> {
+  const now = Date.now();
+  if (coreAuthReady && now - lastCoreAuthCheckAt < CORE_AUTH_RECHECK_MS) return true;
+  if (!coreAuthReady && now - lastCoreAuthCheckAt < CORE_AUTH_RECHECK_MS) return false;
+  lastCoreAuthCheckAt = now;
+
+  try {
+    const response = await fetch(`${coreBaseUrl}/internal/channels/ready`, {
+      headers: { Authorization: `Bearer ${coreSecret}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      coreAuthReady = false;
+      const reason = response.status === 401
+        ? 'CORE_INTERNAL_SECRET does not match Core'
+        : `Core readiness returned HTTP ${response.status}`;
+      console.error(`[channels-worker] paused before claiming jobs: ${reason}`);
+      return false;
+    }
+    if (!coreAuthReady) console.log('[channels-worker] Core authentication verified; queue processing enabled');
+    coreAuthReady = true;
+    return true;
+  } catch {
+    coreAuthReady = false;
+    console.error('[channels-worker] paused before claiming jobs: Core is unreachable');
+    return false;
+  }
+}
 
 async function coreCall(path: string, body: unknown): Promise<any> {
   const response = await fetch(`${coreBaseUrl}${path}`, {
@@ -220,6 +257,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
 }
 
 async function processBatch(): Promise<number> {
+  if (!(await ensureCoreAuthReady())) return 0;
   const jobs = await claimChannelJobs(sb, WORKER_ID, BATCH_SIZE, LEASE_SECONDS, null);
 
   for (const job of jobs) {

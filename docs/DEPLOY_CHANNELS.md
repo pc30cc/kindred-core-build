@@ -54,6 +54,13 @@ The Gateway **exits on boot** if `SUPABASE_SERVICE_ROLE_KEY` or
 5. In the workspace UI: **disconnect and reconnect** the Telegram bot so
    `setWebhook` is re-registered against the now-reachable URL.
 
+`CORE_INTERNAL_SECRET` is one shared value, not three independently generated
+values. Copy the exact same value (with no quotes or trailing whitespace) into
+Core, Gateway and Worker, then redeploy all three services. A Worker log such as
+`process-inbound failed [401]` proves that the Worker's value differs from the
+Core value. New Worker builds verify this boundary before claiming jobs, so a
+bad secret pauses processing instead of exhausting job retries.
+
 ## Docker Compose (single host)
 
 `docker-compose.yml` now contains `channels-gateway` and `channels-worker`.
@@ -71,5 +78,9 @@ curl -s https://channels.example.com/ready    # {"ready":true,"core":"reachable"
 - `{"ready":false,"reason":"core_unreachable"}` → fix `CORE_INTERNAL_BASE_URL`.
 - `{"ready":false,"reason":"core_status_401"}` → `CORE_INTERNAL_SECRET` differs
   between Core and Gateway.
+- Worker `paused before claiming jobs: CORE_INTERNAL_SECRET does not match Core`
+  → copy Core's exact value to the Worker and redeploy it. Jobs already marked
+  `failed` need to be requeued after authentication is repaired; merely
+  restarting the Worker only resumes pending/retrying jobs.
 - Opening the webhook path in a browser returns `404`/`401` — that is correct;
   it only accepts `POST` with Telegram's secret header.

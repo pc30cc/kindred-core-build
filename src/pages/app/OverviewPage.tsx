@@ -14,6 +14,7 @@ import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { contactDisplayName } from '@/lib/contact-display';
+import { IdentityListSkeleton } from '@/components/common/IdentitySkeleton';
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as ReTooltip, XAxis, YAxis, CartesianGrid,
 } from 'recharts';

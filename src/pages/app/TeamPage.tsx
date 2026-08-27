@@ -16,6 +16,8 @@ import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { IdentityListSkeleton } from '@/components/common/IdentitySkeleton';
 import { toast } from '@/lib/toast';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
@@ -124,7 +126,7 @@ export default function TeamPage() {
   const wsId = workspace?.id;
 
   // Live operator presence (online/offline dot + label).
-  const { data: presenceData } = useTeamPresence(wsId);
+  const { data: presenceData, isPending: presencePending } = useTeamPresence(wsId);
   const presenceByUser = presenceMap(presenceData?.presence);
 
   const getRoleLabel = (role: string) => {
@@ -378,33 +380,28 @@ export default function TeamPage() {
               </div>
             </div>
 
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              </div>
+            {isLoading || presencePending ? (
+              <IdentityListSkeleton rows={5} avatarClassName="h-10 w-10" rowClassName="px-6 py-4" />
             ) : (
               <div className="divide-y divide-border/60">
                 {filteredMembers.map((m: any) => {
                   const isOwner = m.role === 'owner';
                   const isCurrentUser = m.user_id === user?.id;
                   const presence = presenceByUser.get(m.user_id);
+                  // Presence is a binary online/offline signal server-side.
                   const isOnline = presence?.state === 'online';
+                  const statusLabel = isOnline
+                    ? t('dashboard.statusOnline')
+                    : t('dashboard.statusOffline');
                   return (
                     <div key={m.id} className="flex items-center gap-4 px-6 py-4 hover:bg-muted/40 transition-colors">
-                      <div className="relative shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <span className="text-sm font-semibold text-primary">
-                            {(m.profile?.full_name || m.profile?.email || '?').charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <span
-                          aria-hidden
-                          title={isOnline ? 'Online' : 'Offline'}
-                          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-background ${
-                            isOnline ? 'bg-emerald-500' : 'bg-muted-foreground/40'
-                          }`}
-                        />
-                      </div>
+                      <ContactAvatar
+                        name={m.profile?.full_name}
+                        email={m.profile?.email}
+                        avatarUrl={m.profile?.avatar_url}
+                        size="md"
+                        presence={isOnline ? 'online' : 'offline'}
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium truncate">{m.profile?.full_name || t('team.noName')}</span>
@@ -414,7 +411,7 @@ export default function TeamPage() {
                         <div className="flex items-center gap-1.5">
                           <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
                           <span className={`text-[10px] font-medium ${isOnline ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-                            • {isOnline ? 'Online' : 'Offline'}
+                            • {statusLabel}
                           </span>
                         </div>
                       </div>

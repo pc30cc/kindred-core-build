@@ -14,6 +14,7 @@ import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { contactDisplayName } from '@/lib/contact-display';
+import { IdentityListSkeleton } from '@/components/common/IdentitySkeleton';
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as ReTooltip, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
@@ -36,12 +37,12 @@ export default function OverviewPage() {
   const { user } = useAuth();
   const wsPath = useWorkspacePath();
 
-  const { data: conversations } = useConversations(workspace?.id);
+  const { data: conversations, isPending: conversationsPending } = useConversations(workspace?.id);
   const { data: visitors } = useOnlineVisitors(workspace?.id);
   const { data: sessions } = useVisitorSessions(workspace?.id);
   const { data: articles } = useKBArticles(workspace?.id);
   const { data: contacts } = useContacts(workspace?.id);
-  const { data: teamData } = useTeamPresence(workspace?.id);
+  const { data: teamData, isPending: teamPending } = useTeamPresence(workspace?.id);
   const team = teamData?.presence ?? [];
   const { data: planData } = useWorkspacePlan(workspace?.id);
 
@@ -371,7 +372,9 @@ export default function OverviewPage() {
               {tr('dashboard.viewAll')}
             </Link>
           </div>
-          {recent.length === 0 ? (
+          {conversationsPending ? (
+            <IdentityListSkeleton rows={5} avatarClassName="h-8 w-8" />
+          ) : recent.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-5 py-12 text-center">
               <MessageSquare className="h-7 w-7 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">{tr('dashboard.noConversations')}</p>
@@ -393,12 +396,12 @@ export default function OverviewPage() {
                       className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                     >
                       <ContactAvatar
-                        name={c.contacts?.name}
+                        name={name}
                         email={c.contacts?.email}
                         avatarUrl={c.contacts?.avatar_url}
-                        os={c.visitor_os}
-                        device={c.visitor_device}
-                        countryCode={c.visitor_country_code}
+                        os={c.visitor_os ?? c.visitor_network?.device?.os}
+                        device={c.visitor_device ?? c.visitor_network?.device?.device}
+                        countryCode={c.visitor_country_code ?? c.visitor_network?.geo?.country_code}
                         size="sm"
                       />
                       <div className="min-w-0 flex-1">
@@ -446,7 +449,9 @@ export default function OverviewPage() {
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>
           </div>
-          {team.length === 0 ? (
+          {teamPending ? (
+            <IdentityListSkeleton rows={4} avatarClassName="h-8 w-8" rowClassName="px-5 py-2.5" />
+          ) : team.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-muted-foreground">{tr('dashboard.noTeam')}</div>
           ) : (
             <ul className="max-h-[280px] divide-y divide-border/60 overflow-y-auto">

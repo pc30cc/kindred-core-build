@@ -15,6 +15,9 @@ import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
 import { useTranslation } from '@/i18n';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { IdentityRowSkeleton } from '@/components/common/IdentitySkeleton';
+import { contactDisplayName } from '@/lib/contact-display';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];
@@ -394,10 +397,17 @@ export default function CallsPage() {
   }), [allCalls, type, search]);
 
   // ONE batched network read for the whole page (list rows + detail sheet).
-  const { data: networkBySession } = useVisitorNetworkBatchBySession(
-    workspace?.id,
-    useMemo(() => filtered.map((c) => (c as any).visitor_session_id ?? null), [filtered]),
+  const sessionIds = useMemo(
+    () => filtered.map((c) => (c as any).visitor_session_id ?? null),
+    [filtered],
   );
+  const { data: networkBySession, isPending: networkPending } = useVisitorNetworkBatchBySession(
+    workspace?.id,
+    sessionIds,
+  );
+  // Identity (avatar + name) depends on that profile — hold it in a skeleton
+  // until it settles so rows never swap identity after paint.
+  const identityLoading = networkPending && sessionIds.some(Boolean);
   // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
   useGeoEnrichmentRealtime(workspace?.id);
   const detailProfile = (detail as any)?.call?.visitor_session_id
@@ -543,8 +553,22 @@ export default function CallsPage() {
           </thead>
           <tbody>
             {filtered.map((c) => {
-              const display = c.visitor_name || c.visitor_email || c.visitor_phone || t('callCenter.common.anonymous');
-              const initials = display.slice(0, 1).toUpperCase();
+              const net = (c as any).visitor_session_id
+                ? networkBySession?.[(c as any).visitor_session_id] ?? null
+                : null;
+              // Same identity rule as Inbox / Contacts / Visitors: a stable,
+              // geo-aware visitor label instead of a generic "anonymous".
+              const display =
+                c.visitor_name ||
+                c.visitor_email ||
+                c.visitor_phone ||
+                contactDisplayName(
+                  null,
+                  (c as any).contact_id ?? (c as any).visitor_session_id ?? c.id,
+                  t as any,
+                  net?.geo,
+                  locale,
+                );
               return (
               <tr key={c.id} onClick={() => setSelected(c.id)} className="border-b cursor-pointer hover:bg-muted/40">
                 <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
@@ -556,21 +580,28 @@ export default function CallsPage() {
                   />
                 </td>
                 <td className="py-2 px-3">
+                  {identityLoading ? (
+                    <IdentityRowSkeleton lines={2} avatarClassName="h-7 w-7" />
+                  ) : (
                   <div className="flex items-center gap-2">
-                    <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">{initials}</div>
+                    <ContactAvatar
+                      name={display}
+                      email={c.visitor_email}
+                      os={net?.device?.os}
+                      device={net?.device?.device}
+                      countryCode={net?.geo?.country_code}
+                      size="xs"
+                    />
                     <div className="min-w-0">
                       <div className="font-medium truncate">{display}</div>
                       <VisitorNetworkInline
-                        profile={
-                          (c as any).visitor_session_id
-                            ? networkBySession?.[(c as any).visitor_session_id] ?? null
-                            : null
-                        }
+                        profile={net}
                         t={t as any}
                         locale={locale}
                       />
                     </div>
                   </div>
+                  )}
                 </td>
                 <td className="py-2 px-3">
                   <span className="inline-flex items-center gap-1 text-xs">

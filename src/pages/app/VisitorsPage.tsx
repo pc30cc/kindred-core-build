@@ -23,7 +23,7 @@ import {
   Search, Eye, Globe2, Users, FileText, Monitor, MapPin,
   RefreshCcw, AlertTriangle, Wifi, MessageSquare, X, Flame,
 } from 'lucide-react';
-import { OsAvatar } from '@/components/visitors/OsIcon';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { localizedCountryName } from '@/lib/geo/countryLocalization';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 import { contactDisplayName } from '@/lib/contact-display';
@@ -361,9 +361,15 @@ export default function VisitorsPage() {
               >
                 {filtered.map(v => {
                   const isSelected = selectedId === v.id;
-                  const name = v.contact
-                    ? contactDisplayName(v.contact, v.contact.id, t, v.geo, locale)
-                    : t('visitors.unknownVisitor');
+                  // Identity is resolved exactly like Inbox/Contacts: never the
+                  // generic "unknown visitor" label — a stable, geo-aware code.
+                  const name = contactDisplayName(
+                    v.contact ?? null,
+                    v.contact?.id ?? v.id,
+                    t,
+                    v.geo,
+                    locale,
+                  );
                   const loc = localizedLocationLabel(v.geo, locale) || t('visitors.unknownLocation');
                   return (
                     <li key={v.id}>
@@ -380,11 +386,14 @@ export default function VisitorsPage() {
                         )}
                       >
                         <div className="relative shrink-0">
-                          <OsAvatar
+                          <ContactAvatar
+                            name={name}
+                            email={v.contact?.email}
+                            avatarUrl={v.contact?.avatar_url}
                             os={v.os}
                             device={v.device}
-                            className="w-9 h-9"
-                            iconClassName="w-4 h-4"
+                            countryCode={v.geo?.country_code}
+                            size="sm"
                           />
                           <span
                             className={cn(

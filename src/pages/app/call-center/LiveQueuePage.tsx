@@ -25,6 +25,8 @@ import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 import OperatorMediaConsole, { type OperatorConnectInfo } from '@/components/call-center/OperatorMediaConsole';
 import { useTranslation } from '@/i18n';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { contactDisplayName } from '@/lib/contact-display';
 
 function RecordingBadge({ rec, meta }: { rec?: any; meta?: any }) {
   const state = meta?.state as string | undefined;
@@ -591,8 +593,19 @@ export default function LiveQueuePage() {
             const waitSec = Math.floor((Date.now() - new Date(q.created_at).getTime()) / 1000);
             const slaPct = Math.min(100, (waitSec / 180) * 100);
             const isVideo = q.channel === 'video' || c?.call_type === 'video';
-            const name = c?.visitor_name || c?.visitor_email || c?.visitor_phone || t('callCenter.common.anonymous');
-            const initial = name.slice(0, 1).toUpperCase();
+            const net = c?.visitor_session_id ? networkBySession?.[c.visitor_session_id] ?? null : null;
+            // Same identity rule as the rest of the app: stable, geo-aware label.
+            const name =
+              c?.visitor_name ||
+              c?.visitor_email ||
+              c?.visitor_phone ||
+              contactDisplayName(
+                null,
+                c?.contact_id ?? c?.visitor_session_id ?? q.call_session_id,
+                t as any,
+                net?.geo,
+                locale,
+              );
             return (
               <div
                 key={q.id}
@@ -613,9 +626,14 @@ export default function LiveQueuePage() {
                 <div className="p-3 ps-3.5">
                   <div className="flex items-start gap-2.5">
                     <div className="relative">
-                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary flex items-center justify-center text-sm font-semibold ring-1 ring-primary/15">
-                        {initial}
-                      </div>
+                      <ContactAvatar
+                        name={name}
+                        email={c?.visitor_email}
+                        os={net?.device?.os}
+                        device={net?.device?.device}
+                        countryCode={net?.geo?.country_code}
+                        size="sm"
+                      />
                       <div className={cn(
                         'absolute -bottom-0.5 -end-0.5 h-4 w-4 rounded-full flex items-center justify-center ring-2 ring-card',
                         isVideo ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',

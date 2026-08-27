@@ -27,7 +27,8 @@ function res() {
   return out;
 }
 
-function req(headers: Record<string, string>, secret: string | undefined = SECRET) {
+function req(headers: Record<string, string>, ...secretOverride: [string | undefined] | []) {
+  const secret = secretOverride.length ? secretOverride[0] : SECRET;
   return { headers, serverConfig: { coreInternalSecret: secret } } as any;
 }
 

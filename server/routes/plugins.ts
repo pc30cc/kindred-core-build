@@ -30,15 +30,23 @@ import {
   deletePluginSecret,
   hasPluginSecret,
   pluginCryptoReady,
-  storePluginSecret,
 } from '../services/plugins/secrets.js';
 import {
   buildWebhookUrl,
   createIntegration,
+  getIntegrationById,
   getIntegrationForInstallation,
-  updateIntegration,
 } from '../services/channels/integrations.js';
-import { connectTelegramBot, disconnectTelegramBot, telegramDiagnostics } from '../services/channels/telegram/setup.js';
+import {
+  TelegramConnectError,
+  applyTelegramProfile,
+  connectTelegramBot,
+  disconnectTelegramBot,
+  repairTelegramWebhook,
+  telegramDiagnostics,
+} from '../services/channels/telegram/setup.js';
+import { getServiceClient } from '../supabase.js';
+import { queueMetrics } from '../services/channels/jobs.js';
 
 export const pluginsRouter = Router();
 
@@ -218,8 +226,6 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
       await setInstallationStatus(config, installation.id, 'installed');
     }
 
-    await storePluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY, botToken);
-
     const integration =
       (await getIntegrationForInstallation(config, installation.id)) ??
       (await createIntegration(config, {
@@ -233,12 +239,18 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
       ok: true,
       hasToken: true,
       bot: result.bot,
-      webhookUrl: buildWebhookUrl(config, 'telegram', integration.public_integration_id),
+      verifiedAt: result.verifiedAt,
+      webhookUrl: result.webhookUrl,
     });
   } catch (err) {
+    if (err instanceof TelegramConnectError) {
+      const status = err.code === 'duplicate_bot' ? 409 : err.code === 'not_configured' ? 503 : 502;
+      console.error(`[plugins] telegram connect failed: ${err.code}`);
+      return res.status(status).json({ error: 'telegram_connect_failed', reason: err.code });
+    }
     const message = err instanceof Error ? err.message : 'unknown error';
     console.error('[plugins] telegram connect failed:', message);
-    res.status(502).json({ error: 'Failed to connect Telegram bot', details: message });
+    res.status(502).json({ error: 'telegram_connect_failed', reason: 'unexpected_error' });
   }
 });
 
@@ -263,10 +275,14 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
       integration: integration
         ? {
             status: integration.status,
-            botUsername: integration.external_account_name,
+            botUsername: integration.username,
+            botName: integration.display_name,
             webhookRegisteredAt: integration.webhook_registered_at,
+            webhookVerifiedAt: integration.webhook_verified_at,
             lastInboundAt: integration.last_inbound_at,
-            lastError: integration.last_error,
+            lastOutboundAt: integration.last_outbound_at,
+            lastErrorCode: integration.last_error_code,
+            lastErrorAt: integration.last_error_at,
             webhookUrl: config.publicChannelsBaseUrl
               ? buildWebhookUrl(config, 'telegram', integration.public_integration_id)
               : null,
@@ -294,6 +310,92 @@ pluginsRouter.post('/telegram/diagnostics', async (req: any, res) => {
     const message = err instanceof Error ? err.message : 'unknown error';
     console.error('[plugins] telegram diagnostics failed:', message);
     res.status(502).json({ error: 'Diagnostics failed', details: message });
+  }
+});
+
+/**
+ * Reconnect / repair: re-registers the webhook with the SAME stored
+ * credential. Used when diagnostics report drift (wrong URL, provider-side
+ * reset) without asking the operator to paste the token again.
+ */
+pluginsRouter.post('/telegram/reconnect', async (req: any, res) => {
+  const workspaceId = String(req.body?.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await requireManager(req, res, workspaceId);
+  if (!auth) return;
+
+  try {
+    const config = serverConfigOf(req);
+    const installation = await getInstallation(config, workspaceId, 'telegram');
+    if (!installation) return res.status(404).json({ error: 'not_installed' });
+
+    const result = await repairTelegramWebhook(config, installation.id);
+    if (!result.repaired) return res.status(502).json({ error: 'repair_failed', reason: result.reason });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[plugins] telegram reconnect failed:', err);
+    res.status(502).json({ error: 'repair_failed', reason: 'unexpected_error' });
+  }
+});
+
+/**
+ * Disconnect: removes the provider webhook and the stored credential but
+ * KEEPS the installation and all conversation history.
+ */
+pluginsRouter.post('/telegram/disconnect', async (req: any, res) => {
+  const workspaceId = String(req.body?.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await requireManager(req, res, workspaceId);
+  if (!auth) return;
+
+  try {
+    const config = serverConfigOf(req);
+    const installation = await getInstallation(config, workspaceId, 'telegram');
+    if (!installation) return res.json({ ok: true });
+
+    await disconnectTelegramBot(config, installation.id);
+    await deletePluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[plugins] telegram disconnect failed:', err);
+    res.status(502).json({ error: 'disconnect_failed' });
+  }
+});
+
+/** Bot branding: name, descriptions and the /command menu. */
+const telegramProfileSchema = z.object({
+  workspace_id: z.string().uuid(),
+  name: z.string().min(1).max(64).optional(),
+  short_description: z.string().max(120).optional(),
+  description: z.string().max(512).optional(),
+  commands: z
+    .array(z.object({ command: z.string().min(1).max(32), description: z.string().min(1).max(256) }))
+    .max(100)
+    .optional(),
+});
+
+pluginsRouter.post('/telegram/profile', async (req: any, res) => {
+  const parsed = telegramProfileSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_profile' });
+  const auth = await requireManager(req, res, parsed.data.workspace_id);
+  if (!auth) return;
+
+  try {
+    const config = serverConfigOf(req);
+    const installation = await getInstallation(config, parsed.data.workspace_id, 'telegram');
+    if (!installation) return res.status(404).json({ error: 'not_installed' });
+
+    const result = await applyTelegramProfile(config, installation.id, {
+      name: parsed.data.name,
+      shortDescription: parsed.data.short_description,
+      description: parsed.data.description,
+      commands: parsed.data.commands,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    console.error('[plugins] telegram profile failed:', message);
+    res.status(502).json({ error: 'profile_update_failed' });
   }
 });
 
@@ -376,5 +478,93 @@ adminPluginsRouter.patch('/:pluginId', async (req: any, res) => {
   } catch (err) {
     console.error('[plugins] admin update failed:', err);
     res.status(500).json({ error: 'Failed to update plugin state' });
+  }
+});
+
+
+// ── Super Admin: runtime observability & intervention ─────────────────
+
+/**
+ * Every channel integration across all workspaces, with the operational
+ * fields the runtime panel needs. Credentials are never included.
+ */
+adminPluginsRouter.get('/channels/integrations', async (req: any, res) => {
+  try {
+    const sb = getServiceClient(serverConfigOf(req));
+    const { data, error } = await sb
+      .from('channel_integrations')
+      .select(
+        'id,workspace_id,installation_id,provider,status,username,display_name,external_account_id,' +
+          'webhook_registered_at,webhook_verified_at,last_inbound_at,last_outbound_at,last_error_code,last_error_at,created_at',
+      )
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    res.json({ items: data ?? [] });
+  } catch (err) {
+    console.error('[plugins] admin integrations failed:', err);
+    res.status(500).json({ error: 'Failed to load integrations' });
+  }
+});
+
+/** Queue depth, lag, dead-letter count and worker liveness. */
+adminPluginsRouter.get('/channels/health', async (req: any, res) => {
+  try {
+    const sb = getServiceClient(serverConfigOf(req));
+    const staleBefore = new Date(Date.now() - 60_000).toISOString();
+
+    const [metrics, heartbeats, failures] = await Promise.all([
+      queueMetrics(sb),
+      sb
+        .from('channel_worker_heartbeats')
+        .select('worker_id,worker_kind,last_seen_at,code_version')
+        .order('last_seen_at', { ascending: false })
+        .limit(50),
+      sb
+        .from('channel_jobs')
+        .select('id,provider,job_type,attempt_count,last_error,updated_at')
+        .eq('status', 'failed')
+        .order('updated_at', { ascending: false })
+        .limit(20),
+    ]);
+
+    const workers = (heartbeats.data ?? []).map((w: any) => ({
+      ...w,
+      alive: w.last_seen_at > staleBefore,
+    }));
+
+    res.json({
+      queue: metrics,
+      workers,
+      workersAlive: workers.filter((w: any) => w.alive).length,
+      deadLetters: failures.data ?? [],
+    });
+  } catch (err) {
+    console.error('[plugins] admin channels health failed:', err);
+    res.status(500).json({ error: 'Failed to load channels health' });
+  }
+});
+
+/**
+ * Emergency stop: force-disconnects one integration (removes the provider
+ * webhook and the credential). Kept admin-only and explicitly audited.
+ */
+adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', async (req: any, res) => {
+  const integrationId = String(req.params.integrationId || '');
+  try {
+    const config = serverConfigOf(req);
+    const integration = await getIntegrationById(config, integrationId);
+    if (!integration) return res.status(404).json({ error: 'Unknown integration' });
+    if (integration.provider !== 'telegram') return res.status(400).json({ error: 'Unsupported provider' });
+
+    await disconnectTelegramBot(config, integration.installation_id);
+    await deletePluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_KEY);
+    console.warn(
+      `[plugins] platform admin ${req.platformAdminId} force-disconnected integration ${integrationId}`,
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[plugins] admin force disconnect failed:', err);
+    res.status(502).json({ error: 'Failed to disconnect integration' });
   }
 });

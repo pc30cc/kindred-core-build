@@ -168,3 +168,63 @@ export async function downloadFile(
   }
   return buffer;
 }
+
+// ── Bot branding / commands (APPLY ON DEMAND ONLY) ────────────────────
+
+export type TelegramCommand = { command: string; description: string };
+
+export async function setMyName(botToken: string, name: string): Promise<void> {
+  await callTelegram(botToken, 'setMyName', { name: name.slice(0, 64) });
+}
+
+export async function setMyShortDescription(botToken: string, shortDescription: string): Promise<void> {
+  await callTelegram(botToken, 'setMyShortDescription', {
+    short_description: shortDescription.slice(0, 120),
+  });
+}
+
+export async function setMyDescription(botToken: string, description: string): Promise<void> {
+  await callTelegram(botToken, 'setMyDescription', { description: description.slice(0, 512) });
+}
+
+export async function setMyCommands(botToken: string, commands: TelegramCommand[]): Promise<void> {
+  await callTelegram(botToken, 'setMyCommands', {
+    commands: commands.slice(0, 20).map((c) => ({
+      command: c.command.replace(/^\//, '').slice(0, 32),
+      description: c.description.slice(0, 256),
+    })),
+  });
+}
+
+// ── Outbound media ────────────────────────────────────────────────────
+
+/** Maps an attachment kind to the Telegram send method + payload field. */
+const MEDIA_METHODS: Record<string, { method: string; field: string }> = {
+  photo: { method: 'sendPhoto', field: 'photo' },
+  image: { method: 'sendPhoto', field: 'photo' },
+  video: { method: 'sendVideo', field: 'video' },
+  audio: { method: 'sendAudio', field: 'audio' },
+  voice: { method: 'sendVoice', field: 'voice' },
+  document: { method: 'sendDocument', field: 'document' },
+};
+
+export function telegramMediaMethod(kind: string | null | undefined) {
+  return MEDIA_METHODS[String(kind ?? '').toLowerCase()] ?? MEDIA_METHODS.document;
+}
+
+/**
+ * Sends a media attachment by PUBLIC URL. The URL is fetched by Telegram, so
+ * it must never carry credentials — Core passes a signed, expiring storage
+ * URL, never a raw service key.
+ */
+export async function sendMedia(
+  botToken: string,
+  input: { chatId: number | string; kind: string; url: string; caption?: string | null },
+): Promise<{ message_id: number }> {
+  const { method, field } = telegramMediaMethod(input.kind);
+  return callTelegram(botToken, method, {
+    chat_id: input.chatId,
+    [field]: input.url,
+    caption: input.caption ? input.caption.slice(0, 1024) : undefined,
+  });
+}

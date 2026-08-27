@@ -11,8 +11,9 @@
  *   - No PLUGIN_SECRETS_MASTER_KEY, no bot tokens, no decryption.
  *   - No business logic: it never creates contacts, conversations or messages.
  *
- * It scales horizontally and can be restarted at any time; durability lives
- * in Core's Postgres queue, not here.
+ * DELIVERY SEMANTICS: only explicitly classified PERMANENT conditions are
+ * acknowledged with 200. Everything else — transport failures, Core 5xx,
+ * misconfiguration, unclassified 4xx — returns non-2xx so Telegram retries.
  */
 
 import express from 'express';
@@ -24,6 +25,7 @@ const CORE_INTERNAL_SECRET = (process.env.CORE_INTERNAL_SECRET || '').trim();
 const CORE_INTERNAL_BASE_URL = (process.env.CORE_INTERNAL_BASE_URL || '').trim().replace(/\/+$/, '');
 const MAX_BODY_BYTES = 1_048_576; // Telegram updates are small; cap hard.
 const FORWARD_TIMEOUT_MS = 10_000;
+const READY_TIMEOUT_MS = 3_000;
 
 // Fail fast and loudly: a gateway without these cannot be secure.
 for (const [name, value] of [
@@ -47,6 +49,31 @@ for (const forbidden of ['SUPABASE_SERVICE_ROLE_KEY', 'PLUGIN_SECRETS_MASTER_KEY
   }
 }
 
+/**
+ * Core error codes that mean "this update will NEVER be deliverable".
+ * Retrying them only makes Telegram hammer a dead endpoint, so they are
+ * acknowledged. Anything else is treated as transient.
+ */
+const PERMANENT_CORE_CODES = new Set([
+  'unknown_integration',
+  'integration_disconnected',
+  'invalid_payload',
+]);
+
+export function classifyCoreResponse(
+  status: number,
+  errorCode: string | null,
+): 'ack' | 'retry' {
+  if (status >= 200 && status < 300) return 'ack';
+  if (status >= 500) return 'retry';
+  if (status === 401 || status === 403 || status === 404) {
+    // Auth/config problems on OUR side must be visible as retries, except the
+    // explicitly classified "unknown integration" case.
+    return errorCode && PERMANENT_CORE_CODES.has(errorCode) ? 'ack' : 'retry';
+  }
+  return errorCode && PERMANENT_CORE_CODES.has(errorCode) ? 'ack' : 'retry';
+}
+
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', true);
@@ -54,6 +81,34 @@ app.use(express.json({ limit: MAX_BODY_BYTES }));
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'channels-gateway', ts: new Date().toISOString() });
+});
+
+/**
+ * Readiness: configuration present AND Core internal API reachable with our
+ * shared secret. Never echoes the secret, the URL credentials or Core bodies.
+ */
+app.get('/ready', async (_req, res) => {
+  const configured = !!SIGNING_KEY && !!CORE_INTERNAL_SECRET && !!CORE_INTERNAL_BASE_URL;
+  if (!configured) {
+    return res.status(503).json({ ready: false, reason: 'not_configured' });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), READY_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${CORE_INTERNAL_BASE_URL}/internal/channels/ready`, {
+      headers: { Authorization: `Bearer ${CORE_INTERNAL_SECRET}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return res.status(503).json({ ready: false, reason: `core_status_${response.status}` });
+    }
+    return res.json({ ready: true, service: 'channels-gateway', core: 'reachable' });
+  } catch {
+    return res.status(503).json({ ready: false, reason: 'core_unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
 });
 
 /**
@@ -66,21 +121,22 @@ app.get('/health', (_req, res) => {
 app.post('/hooks/telegram/:publicIntegrationId', async (req, res) => {
   const publicIntegrationId = String(req.params.publicIntegrationId || '');
   if (!publicIntegrationId || publicIntegrationId.length > 128) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
   let expected: string;
   try {
     expected = deriveChannelWebhookSecret(SIGNING_KEY, 'telegram', publicIntegrationId);
   } catch {
-    return res.status(503).json({ error: 'Gateway not configured' });
+    // Misconfiguration is NOT the provider's fault: retryable.
+    return res.status(503).json({ error: 'gateway_not_configured' });
   }
 
   const presented = req.header('X-Telegram-Bot-Api-Secret-Token');
   if (!safeSecretEqual(presented, expected)) {
     // Do not log the presented value.
     console.warn('[channels-gateway] rejected telegram webhook: secret mismatch');
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
   const controller = new AbortController();
@@ -101,25 +157,42 @@ app.post('/hooks/telegram/:publicIntegrationId', async (req, res) => {
       signal: controller.signal,
     });
 
+    // Read ONLY a machine error code; raw Core bodies are never logged or
+    // returned, so internal details cannot leak through the gateway.
+    let errorCode: string | null = null;
     if (!response.ok) {
-      const detail = (await response.text()).slice(0, 300);
-      console.error(`[channels-gateway] core ingest failed [${response.status}]: ${detail}`);
-      // 5xx tells Telegram to retry; 4xx from Core means the update is not
-      // deliverable and retrying will not help.
-      return res.status(response.status >= 500 ? 502 : 200).json({ ok: response.status < 500 });
+      try {
+        const parsed = (await response.json()) as { error?: unknown };
+        errorCode = typeof parsed?.error === 'string' ? parsed.error.slice(0, 64) : null;
+      } catch {
+        errorCode = null;
+      }
     }
 
-    return res.status(200).json({ ok: true });
+    const decision = classifyCoreResponse(response.status, errorCode);
+    if (decision === 'ack') {
+      return res.status(200).json({ ok: true });
+    }
+
+    console.error(
+      `[channels-gateway] core ingest not acknowledged (status=${response.status} code=${errorCode ?? 'none'})`,
+    );
+    return res.status(502).json({ error: 'ingest_unavailable' });
   } catch (err) {
-    console.error('[channels-gateway] core ingest transport error:', (err as Error).message);
-    return res.status(502).json({ ok: false });
+    const reason = (err as Error).name === 'AbortError' ? 'timeout' : 'transport_error';
+    console.error(`[channels-gateway] core ingest ${reason}`);
+    return res.status(502).json({ error: 'ingest_unavailable' });
   } finally {
     clearTimeout(timer);
   }
 });
 
-app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 
-app.listen(PORT, () => {
-  console.log(`[channels-gateway] listening on :${PORT} → core ${CORE_INTERNAL_BASE_URL}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`[channels-gateway] listening on :${PORT} → core ${CORE_INTERNAL_BASE_URL}`);
+  });
+}
+
+export default app;

@@ -3,12 +3,18 @@
  *
  * Claims `channel_jobs` with an expiring lease and executes them:
  *   inbound  → hands the raw update to Core's internal processing endpoint
- *              (Core owns every canonical write)
- *   outbound → decrypts the integration credential and calls the provider
+ *   outbound → decrypts the integration credential, calls the provider, then
+ *              reports the outcome BACK TO CORE
+ *
+ * LOCKED BOUNDARY — the worker MUST NOT write canonical business tables
+ * (contacts, conversations, conversation_messages, inbox/AI state). Core owns
+ * every canonical write; the worker only touches dedicated channel runtime
+ * tables (channel_jobs, channel_delivery_attempts, channel_worker_heartbeats)
+ * plus read-only credential resolution.
  *
  * Crash-safe: a lost lease expires and the job is re-claimed. Every attempt is
- * recorded in `channel_delivery_attempts`, so retries are observable rather
- * than silent. Bot tokens are never logged and never placed in job payloads.
+ * recorded in `channel_delivery_attempts`. Bot tokens are never logged and
+ * never placed in job payloads.
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -16,16 +22,24 @@ import {
   claimChannelJobs,
   completeChannelJob,
   failChannelJob,
+  isChannelJobType,
   recordAttempt,
   type ChannelJob,
 } from '../../server/services/channels/jobs.js';
 import { decryptPluginSecret } from '../../server/lib/pluginCrypto.js';
-import { TelegramApiError, redactToken, sendMessage } from '../../server/services/channels/telegram/client.js';
+import {
+  TelegramApiError,
+  redactToken,
+  sendMedia,
+  sendMessage,
+} from '../../server/services/channels/telegram/client.js';
 
 const WORKER_ID = `channels-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_POLL_INTERVAL_MS || '1500', 10);
 const BATCH_SIZE = parseInt(process.env.CHANNELS_BATCH_SIZE || '10', 10);
 const LEASE_SECONDS = parseInt(process.env.CHANNELS_LEASE_SECONDS || '120', 10);
+const HEARTBEAT_INTERVAL_MS = parseInt(process.env.CHANNELS_HEARTBEAT_MS || '15000', 10);
+const CODE_VERSION = process.env.APP_VERSION || process.env.GIT_SHA || null;
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -54,7 +68,7 @@ async function coreCall(path: string, body: unknown): Promise<any> {
   return response.json();
 }
 
-/** Resolves a provider credential for an integration. Server-side only. */
+/** Resolves a provider credential for an integration. Read-only, server-side. */
 async function resolveIntegrationToken(integrationId: string, secretKey: string): Promise<string> {
   const { data: integration, error } = await sb
     .from('channel_integrations')
@@ -62,8 +76,10 @@ async function resolveIntegrationToken(integrationId: string, secretKey: string)
     .eq('id', integrationId)
     .maybeSingle();
   if (error) throw new Error(`integration lookup failed: ${error.message}`);
-  if (!integration) throw new Error('integration not found');
-  if ((integration as any).status === 'revoked') throw new Error('integration revoked');
+  if (!integration) throw Object.assign(new Error('integration not found'), { permanent: true });
+  if ((integration as any).status === 'disconnected') {
+    throw Object.assign(new Error('integration disconnected'), { permanent: true });
+  }
 
   const { data: secret, error: secretError } = await sb
     .from('plugin_secrets')
@@ -72,51 +88,134 @@ async function resolveIntegrationToken(integrationId: string, secretKey: string)
     .eq('secret_key', secretKey)
     .maybeSingle();
   if (secretError) throw new Error(`credential lookup failed: ${secretError.message}`);
-  if (!secret) throw new Error('credential missing');
+  if (!secret) throw Object.assign(new Error('credential missing'), { permanent: true });
 
   return decryptPluginSecret(secret as any, masterKey);
 }
 
+/** Reports a delivery outcome to Core, which owns the canonical message row. */
+async function reportOutbound(
+  job: ChannelJob,
+  messageId: string | null,
+  outcome: 'sent' | 'failed',
+  externalMessageId: number | string | null,
+  errorCode: string | null,
+): Promise<void> {
+  if (!messageId || !job.integration_id) return;
+  await coreCall('/internal/channels/outbound-result', {
+    provider: 'telegram',
+    integration_id: job.integration_id,
+    workspace_id: job.workspace_id,
+    message_id: messageId,
+    outcome,
+    external_message_id: externalMessageId,
+    error_code: errorCode,
+  });
+}
+
 async function handleJob(job: ChannelJob): Promise<void> {
+  const payload = (job.payload ?? {}) as any;
+
   switch (job.job_type) {
-    case 'telegram_inbound_event': {
+    // ── Inbound ───────────────────────────────────────────────────────
+    case 'telegram_inbound_event':
+    case 'telegram_inbound_media': {
+      // Media arrives inside the same update envelope; Core normalizes both
+      // and owns attachment persistence, so the worker only forwards.
       await coreCall('/internal/channels/process-inbound', {
         provider: 'telegram',
         integration_id: job.integration_id,
         workspace_id: job.workspace_id,
-        update: (job.payload as any).update ?? {},
+        update: payload.update ?? {},
       });
       return;
     }
 
+    // ── Outbound text ─────────────────────────────────────────────────
     case 'telegram_outbound_message': {
-      if (!job.integration_id) throw new Error('outbound job without integration');
-      const payload = job.payload as any;
+      if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
       const text = String(payload.text ?? '').slice(0, 4096);
-      if (!chatId || !text.trim()) return; // nothing deliverable; treat as done
+      const messageId: string | null = payload.message_id ?? null;
+      if (!chatId || !text.trim()) return; // nothing deliverable
 
       const token = await resolveIntegrationToken(job.integration_id, 'telegram_bot_token');
-      const sent = await sendMessage(token, { chatId, text });
-
-      if (payload.message_id) {
-        await sb
-          .from('conversation_messages')
-          .update({
-            metadata: {
-              ...(payload.metadata ?? {}),
-              channel_delivery: 'sent',
-              channel_message_id: sent.message_id,
-            },
-          })
-          .eq('id', payload.message_id);
+      try {
+        const sent = await sendMessage(token, { chatId, text });
+        await reportOutbound(job, messageId, 'sent', sent.message_id, null);
+      } catch (err) {
+        if (err instanceof TelegramApiError && !err.retryable) {
+          await reportOutbound(job, messageId, 'failed', null, `telegram_${err.httpStatus}`);
+        }
+        throw err;
       }
       return;
     }
 
-    default:
-      // Unknown types must not spin: fail permanently on first attempt.
-      throw Object.assign(new Error(`unsupported job type: ${job.job_type}`), { permanent: true });
+    // ── Outbound media ────────────────────────────────────────────────
+    case 'telegram_outbound_media': {
+      if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
+      const chatId = payload.chat_id;
+      const messageId: string | null = payload.message_id ?? null;
+      const attachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
+      if (!chatId || attachments.length === 0) return;
+
+      const token = await resolveIntegrationToken(job.integration_id, 'telegram_bot_token');
+      try {
+        let last: { message_id: number } | null = null;
+        for (const [index, attachment] of attachments.entries()) {
+          const url = String(attachment?.url ?? attachment?.public_url ?? '');
+          if (!/^https:\/\//i.test(url)) continue; // never send an unsafe URL
+          last = await sendMedia(token, {
+            chatId,
+            kind: String(attachment?.kind ?? 'document'),
+            url,
+            caption: index === 0 ? String(payload.text ?? '') || null : null,
+          });
+        }
+        await reportOutbound(job, messageId, 'sent', last?.message_id ?? null, null);
+      } catch (err) {
+        if (err instanceof TelegramApiError && !err.retryable) {
+          await reportOutbound(job, messageId, 'failed', null, `telegram_${err.httpStatus}`);
+        }
+        throw err;
+      }
+      return;
+    }
+
+    // ── Maintenance jobs (Core performs the privileged work) ──────────
+    case 'telegram_profile_sync': {
+      await coreCall('/internal/channels/profile-sync', {
+        provider: 'telegram',
+        integration_id: job.integration_id,
+        workspace_id: job.workspace_id,
+        profile: payload.profile ?? {},
+      });
+      return;
+    }
+
+    case 'telegram_webhook_repair': {
+      await coreCall('/internal/channels/webhook-repair', {
+        provider: 'telegram',
+        integration_id: job.integration_id,
+        workspace_id: job.workspace_id,
+      });
+      return;
+    }
+
+    default: {
+      // Never silently drop an APPROVED job type; only truly unknown types
+      // fail permanently on the first attempt.
+      const jobType = job.job_type as string;
+      throw Object.assign(
+        new Error(
+          isChannelJobType(jobType)
+            ? `approved job type has no handler: ${jobType}`
+            : `unsupported job type: ${jobType}`,
+        ),
+        { permanent: true },
+      );
+    }
   }
 }
 
@@ -136,12 +235,7 @@ async function processBatch(): Promise<number> {
         (err as any)?.permanent === true || (telegramError ? !telegramError.retryable : false);
 
       const outcome = permanent
-        ? await failChannelJob(
-            sb,
-            { ...job, attempt_count: job.max_attempts },
-            message,
-            null,
-          )
+        ? await failChannelJob(sb, { ...job, attempt_count: job.max_attempts }, message, null)
         : await failChannelJob(sb, job, message, telegramError?.retryAfterSeconds ?? null);
 
       await recordAttempt(sb, job.id, job.attempt_count, outcome === 'failed' ? 'failed' : 'retrying', {
@@ -156,6 +250,21 @@ async function processBatch(): Promise<number> {
   return jobs.length;
 }
 
+/** Liveness for the Super Admin runtime health panel. */
+async function writeHeartbeat(): Promise<void> {
+  const { error } = await sb.from('channel_worker_heartbeats').upsert(
+    {
+      worker_id: WORKER_ID,
+      worker_kind: 'channels',
+      last_seen_at: new Date().toISOString(),
+      code_version: CODE_VERSION,
+      metadata: { batch: BATCH_SIZE, poll_ms: POLL_INTERVAL_MS },
+    },
+    { onConflict: 'worker_id' },
+  );
+  if (error) console.warn('[channels-worker] heartbeat failed:', error.message);
+}
+
 export function startChannelsWorker(): void {
   const supabaseUrl = requireEnv('SUPABASE_URL');
   const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
@@ -168,6 +277,12 @@ export function startChannelsWorker(): void {
   console.log('[channels-worker] started', { workerId: WORKER_ID, batch: BATCH_SIZE });
 
   let stopping = false;
+
+  void writeHeartbeat();
+  const heartbeat = setInterval(() => {
+    if (!stopping) void writeHeartbeat();
+  }, Math.max(HEARTBEAT_INTERVAL_MS, 5000));
+
   const loop = async () => {
     while (!stopping) {
       let processed = 0;
@@ -183,6 +298,7 @@ export function startChannelsWorker(): void {
 
   const shutdown = () => {
     stopping = true;
+    clearInterval(heartbeat);
     console.log('[channels-worker] shutting down');
   };
   process.on('SIGTERM', shutdown);

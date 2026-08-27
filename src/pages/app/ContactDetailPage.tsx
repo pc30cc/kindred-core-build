@@ -106,30 +106,21 @@ export default function ContactDetailPage() {
   const canEdit = ents?.features?.contact_edit?.value !== false;
 
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', tags: '' });
 
-  const startEdit = () => {
-    if (!contact) return;
-    setForm({
-      name: contact.name ?? '',
-      email: contact.email ?? '',
-      phone: contact.phone ?? '',
-      notes: (contact as any).notes ?? '',
-      tags: (contact.tags ?? []).join(', '),
-    });
-    setEditing(true);
-  };
-
-  const handleSave = async () => {
+  const handleSave = async (values: ContactEditValues) => {
     if (!contact) return;
     try {
+      const meta = { ...((contact.metadata ?? {}) as Record<string, unknown>) };
+      if (values.company.trim()) meta.company = values.company.trim();
+      else { delete meta.company; delete (meta as any).org; delete (meta as any).organization; }
       await updateMutation.mutateAsync({
         id: contact.id,
-        name: form.name || null,
-        email: form.email || null,
-        phone: form.phone || null,
-        notes: form.notes || null,
-        tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        name: values.name || null,
+        email: values.email || null,
+        phone: values.phone || null,
+        notes: values.notes || null,
+        tags: values.tags,
+        metadata: meta,
       } as any);
       toast({ title: t('contacts.toastUpdated') });
       setEditing(false);
@@ -137,6 +128,7 @@ export default function ContactDetailPage() {
       toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
   };
+
 
   const handleDelete = async () => {
     if (!contact) return;

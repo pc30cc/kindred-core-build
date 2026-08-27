@@ -185,7 +185,7 @@ export async function issueVerificationEmail(
         brand: brandName,
         action_url: verifyUrl,
         email: options.email,
-        expiry_time: '24 hours',
+        expiry_time: expiryLabel(options.locale, 24),
         year: new Date().getFullYear().toString(),
         support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
       },
@@ -223,7 +223,7 @@ export async function issueRecoveryEmail(
     // Generate and store custom reset token
     const rawToken = generateToken();
     const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
 
     const { error: tokenInsertError } = await sb.from('auth_reset_tokens').insert({
       user_id: options.userId,
@@ -255,7 +255,7 @@ export async function issueRecoveryEmail(
         brand: brandName,
         action_url: resetUrl,
         email: options.email,
-        expiry_time: '1 hour',
+        expiry_time: expiryLabel(options.locale, 24),
         year: new Date().getFullYear().toString(),
         support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
       },

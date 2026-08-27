@@ -10,7 +10,6 @@
  */
 import { cn } from '@/lib/utils';
 import { OsIcon } from '@/components/visitors/OsIcon';
-import { PresenceDot } from '@/components/inbox/PresenceIndicator';
 
 /** OS brand identity used when a contact has no picture but we know the device. */
 type OsKind = 'apple' | 'windows' | 'linux' | 'android' | null;
@@ -101,10 +100,6 @@ const SIZE_PX: Record<NonNullable<ContactAvatarProps['size']>, { box: string; px
   sm: { box: 'w-9 h-9',   px: 36, text: 'text-[12px]', dot: 'w-2.5 h-2.5', flag: 15 },
   md: { box: 'w-10 h-10', px: 40, text: 'text-[13px]', dot: 'w-3 h-3',     flag: 16 },
   lg: { box: 'w-12 h-12', px: 48, text: 'text-[15px]', dot: 'w-3.5 h-3.5', flag: 18 },
-};
-
-const PRESENCE_PX: Record<NonNullable<ContactAvatarProps['size']>, number> = {
-  xs: 9, sm: 11, md: 12, lg: 14,
 };
 
 export function ContactAvatar({

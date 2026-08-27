@@ -25,6 +25,8 @@ import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 import OperatorMediaConsole, { type OperatorConnectInfo } from '@/components/call-center/OperatorMediaConsole';
 import { useTranslation } from '@/i18n';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { contactDisplayName } from '@/lib/contact-display';
 
 function RecordingBadge({ rec, meta }: { rec?: any; meta?: any }) {
   const state = meta?.state as string | undefined;

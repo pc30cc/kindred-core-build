@@ -23,10 +23,29 @@ export default defineConfig(({ mode }) => {
                 changeOrigin: true,
                 secure: true,
                 cookieDomainRewrite: '',
+                // The Lovable preview renders the app inside a cross-site
+                // iframe. The backend issues `gs_session` as SameSite=Lax,
+                // and browsers never send a Lax cookie from a third-party
+                // frame — so login succeeded while every following request
+                // came back 401 "Not authenticated". Re-stamp the cookie as
+                // SameSite=None; Secure for the dev proxy ONLY; production
+                // keeps its stricter Lax cookie untouched.
+                configure: (proxy: any) => {
+                  proxy.on('proxyRes', (proxyRes: any) => {
+                    const setCookie = proxyRes.headers['set-cookie'];
+                    if (!Array.isArray(setCookie)) return;
+                    proxyRes.headers['set-cookie'] = setCookie.map((cookie: string) => {
+                      let next = cookie.replace(/;\s*SameSite=(Lax|Strict|None)/gi, '');
+                      if (!/;\s*Secure/i.test(next)) next += '; Secure';
+                      return `${next}; SameSite=None`;
+                    });
+                  });
+                },
               },
             },
           }
         : {}),
+
     },
     plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
     resolve: {

@@ -122,7 +122,14 @@ export default function ContactsPage() {
     () => filtered.slice(0, 500).map((c) => c.id),
     [filtered],
   );
-  const { data: networkByContact } = useVisitorNetworkBatchByContact(workspace?.id, visibleContactIds);
+  const { data: networkByContact, isPending: networkPending } = useVisitorNetworkBatchByContact(
+    workspace?.id,
+    visibleContactIds,
+  );
+  // Identity (avatar + name + location) is derived from the geo/device profile.
+  // Rendering rows before that batch resolves makes names and avatars visibly
+  // swap on every load, so hold those cells in a skeleton until it settles.
+  const identityLoading = visibleContactIds.length > 0 && networkPending;
 
 
   const toggleSort = (key: SortKey) => {

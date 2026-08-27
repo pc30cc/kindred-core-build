@@ -121,12 +121,26 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
   const config = serverConfigOf(req);
   if (!(await requirePlatformAdmin(req, res))) return;
   const sb = getServiceClient(config);
+
+  const fail = (stage: string, error: any) =>
+    res.status(500).json({
+      error: `widget_platform_settings ${stage} failed: ${error?.message || 'unknown error'}`,
+      detail: error?.details || undefined,
+      hint:
+        error?.code === '42P01'
+          ? 'Table public.widget_platform_settings is missing — run database/migrations/044_widget_platform_settings.sql (and 046) against your database.'
+          : error?.code === '42501'
+            ? 'Permission denied — the backend must use the Supabase service_role key (SUPABASE_SERVICE_ROLE_KEY).'
+            : error?.hint || undefined,
+      code: error?.code || undefined,
+    });
+
   const { data, error } = await sb
     .from('widget_platform_settings')
     .select('*')
     .limit(1)
     .maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return fail('read', error);
   if (data) return res.json({ settings: data });
 
   // Self-host installs may have the table without the seeded singleton row
@@ -136,10 +150,11 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
   if (seed.error) {
     const retry = await sb.from('widget_platform_settings').select('*').limit(1).maybeSingle();
     if (retry.data) return res.json({ settings: retry.data });
-    return res.status(500).json({ error: seed.error.message });
+    return fail('seed', seed.error);
   }
   return res.json({ settings: seed.data });
 });
+
 
 
 widgetSettingsRouter.patch('/platform/config', async (req, res) => {

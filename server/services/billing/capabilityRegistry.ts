@@ -217,6 +217,32 @@ export interface PlanValidationIssue {
   message: string;
 }
 
+/**
+ * Legacy plan keys that predate the capability registry. They are still
+ * stored on plan rows (external billing/reporting may read them) but no
+ * code path resolves them through the registry, so they must NOT be
+ * reported as drift every time an admin saves a plan.
+ */
+export const LEGACY_PLAN_KEYS = new Set<string>([
+  // entitlements
+  'advanced_analytics',
+  'ai_enabled',
+  // limits
+  'ai_kb_max_articles',
+  'ai_kb_max_chars',
+  'ai_kb_monthly_credits',
+  'ai_requests_monthly',
+  'conversations_monthly',
+  'kb_articles',
+  'storage_mb',
+  'team_members',
+  'contacts',
+  'agents',
+  'ai_credits',
+  'conversations',
+  'file_storage_mb',
+]);
+
 export function validatePlanPayload(payload: {
   entitlements?: Record<string, unknown>;
   limits?: Record<string, unknown>;
@@ -224,6 +250,7 @@ export function validatePlanPayload(payload: {
   const issues: PlanValidationIssue[] = [];
   const ent = payload.entitlements || {};
   const lim = payload.limits || {};
+
 
   for (const [key, value] of Object.entries(ent)) {
     const def = BY_KEY.get(key);

@@ -124,6 +124,7 @@ export function AppSidebar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
   const [wsLimitNotice, setWsLimitNotice] = useState(false);
+  const { data: wsCapacity, isLoading: wsCapacityLoading } = useWorkspaceCapacity(wsMenuOpen);
   const [collapsed, setCollapsed] = useState<boolean>(
     () => localStorage.getItem('sidebar_collapsed') === '1',
   );

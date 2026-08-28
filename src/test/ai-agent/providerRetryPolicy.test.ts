@@ -65,7 +65,7 @@ describe('Retry-After handling', () => {
 describe('runtime defaults', () => {
   it('keeps the realtime wall-clock budget bounded', async () => {
     const src = await import('node:fs').then((fs) =>
-      fs.readFileSync('server/services/ai/index.ts', 'utf8'));
+      fs.readFileSync('runtime/ai/providers/executor.ts', 'utf8'));
     expect(src).toContain("readBoundedEnvInt('AI_HTTP_TIMEOUT_MS', 12000, 1000, 60000)");
     expect(src).toContain("readBoundedEnvInt('AI_RETRY_ATTEMPTS', 2, 1, 5)");
     expect(src).toContain("readBoundedEnvInt('AI_TOTAL_BUDGET_MS', 28000, 1000, 120000)");

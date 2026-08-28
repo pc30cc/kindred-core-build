@@ -66,6 +66,18 @@ export interface ServerConfig {
    * Core: yes. Channels Worker: yes. Gateway: no. Frontend: no.
    */
   pluginSecretsMasterKey?: string;
+
+  // ── AI Runtime (Provider Network Isolation) ─────────────────────────
+  /**
+   * Base URL of the AI Runtime service (ai-runtime/server.ts), deployed on a
+   * network that can reach AI providers. Core NEVER contacts a provider
+   * directly; every completion/test/embedding call goes here.
+   * Unset → all AI features fail with `runtime_not_configured` (fail-closed,
+   * never a silent local provider call).
+   */
+  aiRuntimeBaseUrl?: string;
+  /** Shared server-to-server secret for the Core ⇄ AI Runtime boundary. */
+  aiRuntimeInternalSecret?: string;
 }
 
 export function loadConfig(): ServerConfig {
@@ -80,6 +92,7 @@ export function loadConfig(): ServerConfig {
   const coreInternalSecret = optional('CORE_INTERNAL_SECRET');
   const channelsWebhookSigningKey = optional('CHANNELS_WEBHOOK_SIGNING_KEY');
   const pluginSecretsMasterKey = optional('PLUGIN_SECRETS_MASTER_KEY');
+  const aiRuntimeInternalSecret = optional('AI_RUNTIME_INTERNAL_SECRET');
 
   // Startup guard: these three must be distinct from each other and from the
   // service-role key. A shared value collapses three security boundaries.
@@ -100,6 +113,20 @@ export function loadConfig(): ServerConfig {
   if (pluginSecretsMasterKey && pluginSecretsMasterKey === serviceRoleKey) {
     throw new Error('PLUGIN_SECRETS_MASTER_KEY must not reuse SUPABASE_SERVICE_ROLE_KEY');
   }
+  // The AI runtime lives OUTSIDE the trusted network. Its secret must never be
+  // a credential that also unlocks the database or another internal boundary.
+  if (aiRuntimeInternalSecret) {
+    for (const [name, other] of [
+      ['SUPABASE_SERVICE_ROLE_KEY', serviceRoleKey],
+      ['CORE_INTERNAL_SECRET', coreInternalSecret],
+      ['PLUGIN_SECRETS_MASTER_KEY', pluginSecretsMasterKey],
+      ['CHANNELS_WEBHOOK_SIGNING_KEY', channelsWebhookSigningKey],
+    ] as const) {
+      if (other && aiRuntimeInternalSecret === other) {
+        throw new Error(`AI_RUNTIME_INTERNAL_SECRET must not reuse ${name}`);
+      }
+    }
+  }
 
   return {
     port: parseInt(process.env.PORT || '3001', 10),
@@ -116,6 +143,8 @@ export function loadConfig(): ServerConfig {
     publicChannelsBaseUrl: normalizeBaseUrl(optional('PUBLIC_CHANNELS_BASE_URL')),
     channelsInternalBaseUrl: normalizeBaseUrl(optional('CHANNELS_INTERNAL_BASE_URL')),
     pluginSecretsMasterKey,
+    aiRuntimeBaseUrl: normalizeBaseUrl(optional('AI_RUNTIME_URL')),
+    aiRuntimeInternalSecret,
   };
 }
 

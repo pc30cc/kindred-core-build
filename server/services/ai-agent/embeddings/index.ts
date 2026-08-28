@@ -9,7 +9,7 @@ import type { ServerConfig } from '../../../config.js';
 import { resolveAIConfig } from '../../ai/index.js';
 import type { EmbeddingProvider } from './provider.js';
 import { noopEmbeddingProvider } from './noop.js';
-import { buildOpenAIEmbeddingProvider, isOpenAICompatible, PROVIDER_BASE_URLS } from './openai.js';
+import { buildOpenAIEmbeddingProvider, isOpenAICompatible } from './openai.js';
 
 export type { EmbeddingProvider } from './provider.js';
 export { EMBED_BATCH_SIZE, EMBED_MAX_CHARS, clipForEmbedding } from './provider.js';
@@ -25,11 +25,11 @@ export async function resolveEmbeddingProvider(
     const ai = await resolveAIConfig(config, workspaceId);
     if (!ai || !ai.apiKey) return noopEmbeddingProvider;
     if (!isOpenAICompatible(ai.provider)) return noopEmbeddingProvider;
-    const baseUrl = ai.baseUrl || PROVIDER_BASE_URLS[ai.provider] || PROVIDER_BASE_URLS.openai;
-    return buildOpenAIEmbeddingProvider({
+    // No endpoint default here: the AI Runtime owns the provider catalog.
+    return buildOpenAIEmbeddingProvider(config, {
       provider: ai.provider,
       apiKey: ai.apiKey,
-      baseUrl,
+      baseUrl: ai.baseUrl,
       model: DEFAULT_EMBEDDING_MODEL,
       orgId: ai.orgId,
       dimensions: DEFAULT_DIMENSIONS,
@@ -39,6 +39,7 @@ export async function resolveEmbeddingProvider(
     return noopEmbeddingProvider;
   }
 }
+
 
 export function isUsableEmbeddingProvider(p: EmbeddingProvider): boolean {
   return p.name !== 'noop';

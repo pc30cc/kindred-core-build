@@ -6,7 +6,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { executeAICompletion, testAIConnection, resolveAIConfig } from '../services/ai/index.js';
+import { executeAICompletion, resolveAIConfig } from '../services/ai/index.js';
+import { runtimeTestConnection, AiRuntimeError } from '../services/ai/runtimeClient.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { checkModuleAccess, deductAICredits, incrementUsage } from '../middleware/featureGating.js';
 import {
@@ -14,7 +15,7 @@ import {
   requirePlatformAdmin,
   checkOutboundUrl,
 } from '../lib/workspaceAuth.js';
-import { createSafeTestFetch, providerHostPolicy } from '../lib/safeTestTransport.js';
+
 
 export const aiRouter = Router();
 
@@ -154,18 +155,20 @@ const testSchema = z.object({
  */
 aiRouter.post('/test', async (req, res) => {
   try {
+    const config: ServerConfig = (req as any).serverConfig;
     // Provider connection testing is a platform-admin operation: it makes the
-    // server issue an outbound request with operator-supplied parameters.
+    // AI Runtime issue an outbound request with operator-supplied parameters.
     if (!(await requirePlatformAdmin(req, res))) return;
+
 
     const parsed = testSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input' });
     }
 
-    // SSRF guard: syntactic checks + DNS resolution of every answer (fail-closed).
-    // The connection itself then runs through the pinned transport below, so
-    // this pre-check cannot be bypassed by DNS rebinding or redirects.
+    // SSRF pre-check in Core (fail-closed) on the operator-supplied endpoint.
+    // The connection itself is made by the AI Runtime, which re-validates and
+    // pins DNS inside its own transport — Core never opens the socket.
     if (parsed.data.baseUrl) {
       const urlCheck = await checkOutboundUrl(parsed.data.baseUrl);
       if (!urlCheck.ok) {
@@ -173,27 +176,26 @@ aiRouter.post('/test', async (req, res) => {
       }
     }
 
-    // Validation, DNS pinning and redirect handling all live in one boundary.
-    const safeFetch = createSafeTestFetch({
-      isHostAllowed: providerHostPolicy(parsed.data.provider),
+    const result = await runtimeTestConnection(config, {
+      provider: parsed.data.provider,
+      apiKey: parsed.data.apiKey,
+      model: parsed.data.model || 'gpt-4o-mini',
+      baseUrl: parsed.data.baseUrl,
+      orgId: parsed.data.orgId,
     });
-
-    const result = await testAIConnection(
-      {
-        provider: parsed.data.provider,
-        apiKey: parsed.data.apiKey,
-        model: parsed.data.model || 'gpt-4o-mini',
-        baseUrl: parsed.data.baseUrl,
-        orgId: parsed.data.orgId,
-      },
-      { fetchImpl: safeFetch },
-    );
 
     return res.json(result);
   } catch (err: any) {
+    // A runtime-boundary failure is surfaced verbatim (with its stable code) so
+    // operators see "AI runtime not configured/unreachable" instead of a
+    // misleading "provider rejected your key".
+    if (err instanceof AiRuntimeError) {
+      return res.status(502).json({ success: false, error: err.message, code: err.code });
+    }
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 /**
  * GET /api/ai/config/:workspaceId — Get resolved AI provider info.

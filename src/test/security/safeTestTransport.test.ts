@@ -10,7 +10,7 @@ const {
   providerHostPolicy,
   OFFICIAL_AI_PROVIDER_HOSTS,
   MAX_TEST_REDIRECTS,
-} = await import('../../../server/lib/safeTestTransport.js');
+} = await import('../../../runtime/ai/providers/safeTransport.js');
 
 const { isBlockedIpAddress } = await import('../../../server/lib/workspaceAuth.js');
 

@@ -11,7 +11,7 @@ process.env.AI_HTTP_TIMEOUT_MS = '1000';
 process.env.AI_RETRY_ATTEMPTS = '2';
 process.env.AI_TOTAL_BUDGET_MS = '1500';
 
-const mod = await import('../../../server/services/ai/index.js');
+const mod = await import('../../../runtime/ai/providers/executor.js');
 const { requestJsonWithRetry, testAIConnection } = mod;
 
 /** Response whose body never finishes unless the abort signal fires. */

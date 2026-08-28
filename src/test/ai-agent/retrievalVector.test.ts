@@ -18,7 +18,15 @@ vi.mock('../../../server/services/ai/index.js', () => ({
 
 const { retrieveHybridSources } = await import('../../../server/services/ai-agent/retrievalHybrid.js');
 
-const CONFIG = { supabaseUrl: 'x', supabaseAnonKey: 'y', supabaseServiceRoleKey: 'z' } as any;
+// Embeddings now leave Core through the AI Runtime, so the stubbed HTTP
+// boundary is the runtime's /internal/ai/embed endpoint, not the provider.
+const CONFIG = {
+  supabaseUrl: 'x',
+  supabaseAnonKey: 'y',
+  supabaseServiceRoleKey: 'z',
+  aiRuntimeBaseUrl: 'https://ai-runtime.test',
+  aiRuntimeInternalSecret: 'runtime-secret',
+} as any;
 const WS = 'ws-1';
 
 function q(overrides: Record<string, any> = {}) {
@@ -73,7 +81,7 @@ describe('vector-success path', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({ data: [{ embedding: [1, 0, 0] }] }),
+        json: async () => ({ ok: true, vectors: [[1, 0, 0]] }),
       })) as any,
     );
     // business_profile is used here (rather than file/web_page) specifically
@@ -110,7 +118,7 @@ describe('vector-success path', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({ data: [{ embedding: [0, 1, 0] }] }),
+        json: async () => ({ ok: true, vectors: [[0, 1, 0]] }),
       })) as any,
     );
     fakeSb = makeFakeSupabase(makeRetrievalTables({

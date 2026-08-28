@@ -285,6 +285,43 @@ export async function processInboundMessage(
       }
     }
 
+    // Telegram-specific: slash commands (/start /help /human /new) get an
+    // inline reply and never reach the AI; the handling-mode gate (human_only
+    // vs entitlement-gated ai_first) is resolved here too.
+    let aiAllowed = true;
+    let telegramCommandHandled = false;
+    let replyLocale: string | null = input.senderLanguage;
+    let menuCommand: string | null = null;
+    if (input.provider === 'telegram') {
+      const flow = await handleTelegramInboundFlow(config, input, conversation.id);
+      aiAllowed = flow.aiAllowed;
+      telegramCommandHandled = flow.handled;
+      replyLocale = flow.locale;
+      menuCommand = flow.command ?? null;
+      console.log('[channels] telegram ai gate', {
+        workspaceId: input.workspaceId,
+        aiAllowed,
+        commandHandled: telegramCommandHandled,
+        locale: replyLocale,
+      });
+    }
+
+    // Menu/command taps are navigation, not conversation content. They are
+    // flagged so the Inbox can render them as a compact activity strip
+    // instead of mixing them into the visitor's real messages.
+    if (menuCommand) {
+      const nextMeta = {
+        ...(((insertedMsg as any).metadata as Record<string, unknown>) || {}),
+        channel_menu_command: menuCommand,
+        channel_menu_event: 'true',
+      };
+      (insertedMsg as any).metadata = nextMeta;
+      await sb
+        .from('conversation_messages')
+        .update({ metadata: nextMeta })
+        .eq('id', (insertedMsg as any).id);
+    }
+
     // Inbox realtime — identical envelope to widget traffic.
     publishConversationEvent(
       config,
@@ -293,24 +330,6 @@ export async function processInboundMessage(
       buildMessageEnvelope(insertedMsg as any),
     ).catch(() => {});
 
-    // Telegram-specific: slash commands (/start /help /human /new) get an
-    // inline reply and never reach the AI; the handling-mode gate (human_only
-    // vs entitlement-gated ai_first) is resolved here too.
-    let aiAllowed = true;
-    let telegramCommandHandled = false;
-    let replyLocale: string | null = input.senderLanguage;
-    if (input.provider === 'telegram') {
-      const flow = await handleTelegramInboundFlow(config, input, conversation.id);
-      aiAllowed = flow.aiAllowed;
-      telegramCommandHandled = flow.handled;
-      replyLocale = flow.locale;
-      console.log('[channels] telegram ai gate', {
-        workspaceId: input.workspaceId,
-        aiAllowed,
-        commandHandled: telegramCommandHandled,
-        locale: replyLocale,
-      });
-    }
 
     // AI Agent runs through the SAME entry point as the widget, so mode,
     // human-takeover blocking and safety gates behave identically. Telegram

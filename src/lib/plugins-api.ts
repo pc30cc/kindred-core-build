@@ -61,15 +61,26 @@ export type TelegramLocale = 'en' | 'fa' | 'tr';
 export type TelegramHandlingMode = 'human_only' | 'ai_first';
 export interface TelegramLocaleMessages {
   welcome: string;
-  help: string;
   offline: string;
-  handoff: string;
   fallback: string;
+  menuTitle: string;
+  menuHint: string;
+  back: string;
+  faqTitle: string;
+  faqHint: string;
+  faqEmpty: string;
+  guidesTitle: string;
+  guidesHint: string;
+  guidesEmpty: string;
+  prev: string;
+  next: string;
+  deptTitle: string;
+  deptHint: string;
+  deptConfirmed: string;
+  deptChange: string;
 }
 export type TelegramCommandLabels = {
   start: string;
-  help: string;
-  human: string;
   new: string;
   faq: string;
   guides: string;

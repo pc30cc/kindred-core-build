@@ -46,4 +46,9 @@ ENV WORKER_KIND=intelligence
 # Use the locally installed tsx binary — no network fetch at startup.
 # Verified at build time so the image fails fast if tsx is missing.
 RUN test -f node_modules/tsx/dist/cli.mjs || (echo "❌ tsx not installed" && ls node_modules/.bin | head && exit 1)
+# Coolify (and other orchestrators) inspect .State.Health — a worker has no
+# HTTP port, so health = "the worker process is still running".
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD pgrep -f "worker/index.ts" > /dev/null || exit 1
+
 CMD ["node", "node_modules/tsx/dist/cli.mjs", "worker/index.ts"]

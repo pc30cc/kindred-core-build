@@ -75,13 +75,10 @@ async function maybeSendOfflineScreen(
   },
 ): Promise<boolean> {
   const { settings } = args;
-  if (settings.menu?.offlineNoticeEnabled === false && settings.menu?.lockWhenOffline !== true) return false;
+  const locked = settings.menu?.lockWhenOffline === true;
+  if (settings.menu?.offlineNoticeEnabled === false && !locked) return false;
 
-  const availability = await resolveAvailability(config, {
-    workspaceId: args.workspaceId,
-    locale: args.locale,
-  }).catch(() => null);
-  if (!availability || availability.state !== 'offline') return false;
+  if (!(await isWorkspaceUnreachable(config, args.workspaceId, args.locale))) return false;
 
   const sb = getServiceClient(config);
   const { data } = await sb
@@ -91,11 +88,12 @@ async function maybeSendOfflineScreen(
     .maybeSingle();
   const meta = (((data as any)?.metadata as Record<string, unknown>) || {});
   const lastAt = Date.parse(String(meta.telegram_offline_notice_at || '')) || 0;
-  if (Date.now() - lastAt < OFFLINE_NOTICE_COOLDOWN_MS) return false;
+  // A locked bot must always answer — silence would look like a broken bot.
+  const cooldown = locked ? OFFLINE_LOCK_COOLDOWN_MS : OFFLINE_NOTICE_COOLDOWN_MS;
+  if (Date.now() - lastAt < cooldown) return false;
 
-  const screen = buildOfflineScreen(settings, args.locale, args.fallbackLocale, {
-    locked: settings.menu?.lockWhenOffline === true,
-  });
+  const screen = buildOfflineScreen(settings, args.locale, args.fallbackLocale, { locked });
+
   const sent = await sendTelegramScreen(config, args.installationId, args.chatId, screen);
   if (sent) {
     await sb

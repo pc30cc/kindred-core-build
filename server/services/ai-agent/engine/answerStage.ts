@@ -407,6 +407,7 @@ export async function runAnswerStage(
             config, workspaceId, locale,
             availability.state === 'offline',
             pickTemplate('no_answer_handoff', locale),
+            conversationId,
           );
         const inserted = await insertAiMessage(config, {
           workspaceId,

@@ -342,6 +342,7 @@ export async function runGenerationStage(
           config, workspaceId, locale,
           availability.state === 'offline',
           pickHandoffAck(locale, display.agentName),
+          conversationId,
         );
       const inserted = await insertAiMessage(config, {
         workspaceId,

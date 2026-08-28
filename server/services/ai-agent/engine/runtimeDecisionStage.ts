@@ -210,7 +210,7 @@ export async function runRuntimeDecisionStage(
     if (!handoffAlreadyDone && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
       const display = deriveAgentDisplay(settings);
       const teamOffline = availability.state === 'offline';
-      const ack = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickHandoffAckMessage(settings, locale));
+      const ack = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickHandoffAckMessage(settings, locale), conversationId);
       const inserted = await insertAiMessage(config, {
         workspaceId,
         conversationId,

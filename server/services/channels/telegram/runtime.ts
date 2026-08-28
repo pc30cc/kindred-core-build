@@ -37,6 +37,13 @@ import {
   listHelpArticles,
   matchReplyKeyboardCommand,
 } from './menu.js';
+import {
+  applyDepartmentChoice,
+  findTelegramConversationId,
+  reopenDepartmentPicker,
+  resolveDepartmentPickerScreen,
+} from './departmentPicker.js';
+
 
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
 

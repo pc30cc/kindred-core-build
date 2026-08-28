@@ -4124,6 +4124,7 @@ const fa: TranslationKeys = {
       lastOutbound: 'آخرین پیام ارسال‌شده',
       reconnected: 'وب‌هوک با موفقیت دوباره ثبت شد.',
       reconnectFailed: 'ترمیم وب‌هوک انجام نشد.',
+      workerOffline: 'سرویس کانال‌ها (Channels Worker) در حال اجرا نیست. ابتدا این سرویس را روی سرور راه‌اندازی کنید.',
       confirmDisconnect: 'اتصال این ربات قطع شود؟ دریافت پیام‌های تلگرام متوقف می‌شود اما تاریخچه گفتگوها حفظ خواهد شد.',
       brandingTitle: 'برندینگ ربات',
       brandingName: 'نام نمایشی',

@@ -4137,6 +4137,7 @@ const en = {
       lastOutbound: 'Last message sent',
       reconnected: 'Webhook re-registered successfully.',
       reconnectFailed: 'Could not repair the webhook.',
+      workerOffline: 'The Channels Worker service is not running. Start it on your server and try again.',
       confirmDisconnect: 'Disconnect this bot? Incoming Telegram messages will stop, but your conversation history is kept.',
       brandingTitle: 'Bot branding',
       brandingName: 'Display name',

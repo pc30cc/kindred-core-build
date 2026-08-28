@@ -118,7 +118,12 @@ describe('worker boundary', () => {
   it('delivers routing system notices to channel visitors explicitly', () => {
     expect(chatRoutingSource).toContain('await dispatchOutboundIfChannelConversation(config, {');
     expect(chatRoutingSource).toContain("{ kind: 'routing_no_agent_available' }");
-    expect(chatRoutingSource).toContain("{ kind: 'routing_no_agent_available' },\n          true,");
+    expect(chatRoutingSource).toContain('!alreadyShownInChannel,');
+  });
+
+  it('never sends the offline notice twice to a Telegram visitor', () => {
+    expect(chatRoutingSource).toContain('telegramOfflineScreenJustSent');
+    expect(chatRoutingSource).toContain('telegram_offline_notice_at');
   });
 
   it('treats a handed-off Telegram conversation as having no AI responder', () => {

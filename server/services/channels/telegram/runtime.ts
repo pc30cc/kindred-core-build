@@ -113,9 +113,27 @@ export async function handleTelegramInboundFlow(
     const aiAllowed = mode === 'ai_first';
 
     const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
-    if (!command || !installation) return { aiAllowed, handled: false, locale, command: null };
+    if (!installation) return { aiAllowed, handled: false, locale, command: null };
 
+    // Department routing — a workspace with several chat departments asks the
+    // visitor once, on the first real message (or explicitly on /human), so
+    // the thread reaches the right team. Workspaces without departments are
+    // untouched: the message just lands in the shared inbox as before.
+    const wantsDepartmentPrompt = !command ? !aiAllowed : command === 'human';
+    if (wantsDepartmentPrompt) {
+      const picker = await resolveDepartmentPickerScreen(config, {
+        workspaceId: input.workspaceId,
+        conversationId,
+        locale,
+        fallbackLocale,
+        force: command === 'human',
+      });
+      if (picker) {
+        await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
+      }
+    }
 
+    if (!command) return { aiAllowed, handled: false, locale, command: null };
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
     if (command === 'faq' && isTelegramMenuEntryEnabled(settings, 'faq')) {
@@ -131,8 +149,8 @@ export async function handleTelegramInboundFlow(
     }
 
     const sent = await sendTelegramScreen(config, installation.id, input.externalChatId, screen);
-    void conversationId; // command replies do not need the conversation row, only the chat id
     return { aiAllowed, handled: sent, locale, command };
+
   } catch (err) {
     console.warn('[telegram] inbound flow error:', err instanceof Error ? err.message : err);
     return { aiAllowed: false, handled: false, locale, command: null };

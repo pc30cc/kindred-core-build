@@ -254,10 +254,14 @@ export async function processInboundMessage(
       .single();
     if (msgError) throw new Error(`message insert failed: ${msgError.message}`);
 
+    // NOTE: the conversation `updated_at` bump happens after the provider
+    // flow resolves, so pure menu navigation never re-floats the thread in
+    // the operator inbox.
     await sb
       .from('conversations')
-      .update({ updated_at: new Date().toISOString(), contact_id: contactId })
+      .update({ contact_id: contactId })
       .eq('id', conversation.id);
+
 
     // Media persistence — provider-specific, best-effort, non-fatal. A
     // failure here must never lose the already-inserted text message.

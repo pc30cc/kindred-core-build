@@ -75,6 +75,9 @@ export default function AdminPluginDetailPage() {
     ['featured', item.featured, t('plugins.admin.featured')],
   ] as const;
 
+  const aiEnabled = (item.policy as Record<string, unknown> | null)?.aiEnabled !== false;
+
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 p-4 md:p-6">
       <Button asChild variant="ghost" size="sm" className="-ms-2">

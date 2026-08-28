@@ -113,7 +113,8 @@ export async function handleTelegramInboundFlow(
     const aiAllowed = mode === 'ai_first';
 
     const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
-    if (!command || !installation) return { aiAllowed, handled: false, locale };
+    if (!command || !installation) return { aiAllowed, handled: false, locale, command: null };
+
 
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };

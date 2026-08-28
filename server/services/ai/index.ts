@@ -145,6 +145,19 @@ export async function executeAICompletionWithConfig(
   aiConfig: AIConfig,
   request: AIRequest,
 ): Promise<AIResponse> {
+  // ONE logical request → ONE runtime execution → ONE usage row. A replay of
+  // the same requestId returns the first execution's outcome (success OR
+  // failure) instead of calling the runtime and logging usage twice.
+  return withAiIdempotency(request.requestId, () =>
+    runOneCompletion(serverConfig, aiConfig, request),
+  );
+}
+
+async function runOneCompletion(
+  serverConfig: ServerConfig,
+  aiConfig: AIConfig,
+  request: AIRequest,
+): Promise<AIResponse> {
   const sb = getServiceClient(serverConfig);
   let response: AIResponse;
 
@@ -183,3 +196,4 @@ export async function executeAICompletionWithConfig(
 
   return response;
 }
+

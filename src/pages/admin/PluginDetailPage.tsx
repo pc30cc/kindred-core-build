@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from '@/hooks/use-toast';
 import { adminPluginsApi, type PluginRolloutStatus } from '@/lib/plugins-api';
 import { ChannelsRuntimePanel } from '@/components/plugins/ChannelsRuntimePanel';
+import { ChannelsWorkerStatus } from '@/components/plugins/ChannelsWorkerStatus';
 import { PluginLogsTable } from '@/components/plugins/PluginLogsTable';
 import { ArrowLeft, ArrowRight, Plug } from 'lucide-react';
 
@@ -100,6 +101,8 @@ export default function AdminPluginDetailPage() {
           </div>
         </div>
       </header>
+
+      {item.category === 'channels' && <ChannelsWorkerStatus />}
 
       <Tabs defaultValue="policy" className="space-y-4" dir={dir}>
         <TabsList>

@@ -116,6 +116,7 @@ async function ensureChannelConversation(
   sb: any,
   input: NormalizedInboundMessage,
   contactId: string | null,
+  extraMetadata: Record<string, unknown> = {},
 ): Promise<{ id: string; created: boolean }> {
   const threadKey = `${input.provider}:${input.integrationId}:${input.externalChatId}`;
 
@@ -142,6 +143,7 @@ async function ensureChannelConversation(
         channel_thread_key: threadKey,
         channel_integration_id: input.integrationId,
         channel_chat_id: input.externalChatId,
+        ...extraMetadata,
       },
       updated_at: new Date().toISOString(),
     })
@@ -153,6 +155,37 @@ async function ensureChannelConversation(
   }
   return { id: (conv as any).id as string, created: true };
 }
+
+/**
+ * Whether the AI will own this thread from its very first message. Resolved
+ * BEFORE the conversation row exists so a Telegram thread is born in the
+ * Automated queue instead of flashing through the human Inbox for the second
+ * or two the AI needs to answer.
+ */
+async function resolveInboundAiOwnership(
+  config: ServerConfig,
+  input: NormalizedInboundMessage,
+): Promise<boolean> {
+  if (input.provider !== 'telegram') return false;
+  try {
+    const [{ getInstallation }, { parseTelegramSettings, resolveTelegramHandlingMode }] = await Promise.all([
+      import('../plugins/state.js'),
+      import('./telegram/settings.js'),
+    ]);
+    const installation = await getInstallation(config, input.workspaceId, 'telegram');
+    if (!installation) return false;
+    const parsed = parseTelegramSettings(installation.settings);
+    const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode);
+    if (mode !== 'ai_first') return false;
+    const { resolveEffectiveAiMode } = await import('../ai-agent/effectiveMode.js');
+    const effective = await resolveEffectiveAiMode(config, input.workspaceId);
+    return effective.visitorFacing === true;
+  } catch (err) {
+    console.warn('[channels] ai ownership pre-check failed:', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 
 export async function processInboundMessage(
   config: ServerConfig,
@@ -220,7 +253,14 @@ export async function processInboundMessage(
         )
         .catch(() => undefined);
     }
-    const conversation = await ensureChannelConversation(sb, input, contactId);
+    const aiOwnsThread = await resolveInboundAiOwnership(config, input);
+    const conversation = await ensureChannelConversation(
+      sb,
+      input,
+      contactId,
+      aiOwnsThread ? { ai_state: 'ai_managed', managed_by_ai: true, ai_managed_by_ai: true } : {},
+    );
+
 
     if (conversation.created) {
       void recordConversationEvent(config, {

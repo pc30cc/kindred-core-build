@@ -35,7 +35,9 @@ import {
   buildMainMenu,
   escapeHtml,
   listHelpArticles,
+  matchReplyKeyboardCommand,
 } from './menu.js';
+
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
 
 

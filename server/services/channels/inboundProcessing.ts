@@ -263,12 +263,13 @@ export async function processInboundMessage(
       .eq('id', conversation.id);
 
 
-    // Media persistence — provider-specific, best-effort, non-fatal. A
-    // failure here must never lose the already-inserted text message.
+    // Media persistence — provider-specific, best-effort, non-fatal. The
+    // DOWNLOAD happens in the Channels Worker (Core performs no provider
+    // network I/O); attachments show as `pending` until it reports back.
     if (input.provider === 'telegram' && input.attachments?.length) {
       try {
-        const { ingestTelegramMedia } = await import('./telegram/mediaIngest.js');
-        const outcomes = await ingestTelegramMedia(config, {
+        const { requestTelegramMediaFetch } = await import('./telegram/mediaIngest.js');
+        const { outcomes } = await requestTelegramMediaFetch(config, {
           workspaceId: input.workspaceId,
           integrationId: input.integrationId,
           conversationId: conversation.id,
@@ -285,9 +286,10 @@ export async function processInboundMessage(
           })
           .eq('id', (insertedMsg as any).id);
       } catch (mediaErr: any) {
-        console.warn('[channels] telegram media ingest error:', mediaErr?.message || mediaErr);
+        console.warn('[channels] telegram media fetch enqueue error:', mediaErr?.message || mediaErr);
       }
     }
+
 
     // Telegram-specific: slash commands (/start /help /human /new) get an
     // inline reply and never reach the AI; the handling-mode gate (human_only

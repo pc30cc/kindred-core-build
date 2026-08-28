@@ -207,6 +207,32 @@ async function resolveAgentDisplayName(config: ServerConfig, userId: string): Pr
   }
 }
 
+async function resolveNoAgentVisitorBody(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationMetadata: Record<string, unknown>,
+): Promise<string> {
+  const fallback = "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.";
+  if (conversationMetadata.channel !== 'telegram') return fallback;
+  try {
+    const [{ getInstallation }, telegram, platformRegion] = await Promise.all([
+      import('./plugins/state.js'),
+      import('./channels/telegram/settings.js'),
+      import('./platformRegion.js'),
+    ]);
+    const installation = await getInstallation(config, workspaceId, 'telegram');
+    if (!installation) return fallback;
+    const settings = telegram.parseTelegramSettings(installation.settings);
+    const allowed = await platformRegion.getPlatformAllowedLocales(config);
+    const locale = allowed[0] || 'en';
+    const key = settings.menu.lockWhenOffline ? 'offlineLocked' : 'offlineNotice';
+    return telegram.resolveLocalizedMessage(settings, locale, key, locale);
+  } catch (err) {
+    console.warn('[chat-routing] telegram visitor notice localization failed:', err instanceof Error ? err.message : err);
+    return fallback;
+  }
+}
+
 /**
  * Visible routing-outcome messages (spec §22) — inserted as real
  * `sender_type: 'system'` conversation messages so they flow through the
@@ -384,9 +410,10 @@ export async function routeConversationToOperator(
       // Team looked online but nobody was actually eligible/available —
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
+        const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, metadata);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
-          "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+          visitorBody,
           { kind: 'routing_no_agent_available' },
         );
       }

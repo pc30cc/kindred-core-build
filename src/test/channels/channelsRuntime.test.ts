@@ -56,6 +56,18 @@ describe('worker boundary', () => {
     resolve(process.cwd(), 'database/migrations/051_fix_channel_ai_outbox.sql'),
     'utf8',
   );
+  const telegramRuntimeSource = readFileSync(
+    resolve(process.cwd(), 'server/services/channels/telegram/runtime.ts'),
+    'utf8',
+  );
+  const chatRoutingSource = readFileSync(
+    resolve(process.cwd(), 'server/services/chatRouting.ts'),
+    'utf8',
+  );
+  const providerOperationsSource = readFileSync(
+    resolve(process.cwd(), 'worker/channels/providerOperations.ts'),
+    'utf8',
+  );
 
   it('never writes canonical business tables', () => {
     const canonicalTables = ['contacts', 'conversations', 'conversation_messages', 'contact_channels'];
@@ -101,5 +113,20 @@ describe('worker boundary', () => {
     expect(outboundMigrationSource).toContain("NOT IN ('agent', 'bot', 'ai')");
     expect(outboundMigrationSource).toContain("COALESCE(c_metadata->>'channel', '') <> 'telegram'");
     expect(outboundMigrationSource).not.toMatch(/SELECT\s+workspace_id,\s*channel,/);
+  });
+
+  it('delivers routing system notices to channel visitors explicitly', () => {
+    expect(chatRoutingSource).toContain('await dispatchOutboundIfChannelConversation(config, {');
+    expect(chatRoutingSource).toContain("{ kind: 'routing_no_agent_available' }");
+  });
+
+  it('treats a handed-off Telegram conversation as having no AI responder', () => {
+    expect(telegramRuntimeSource).toContain("aiState === 'needs_human'");
+    expect(telegramRuntimeSource).toContain("const aiAllowed = mode === 'ai_first' && !waitingForHuman;");
+  });
+
+  it('retries failed Telegram screen delivery instead of acknowledging it', () => {
+    expect(providerOperationsSource).toContain("if (kind === 'answer_callback')");
+    expect(providerOperationsSource).toContain('throw err;');
   });
 });

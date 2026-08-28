@@ -234,6 +234,32 @@ async function resolveNoAgentVisitorBody(
 }
 
 /**
+ * The Telegram runtime already sends its own away/offline screen to the
+ * visitor before routing runs. Delivering the routing notice on top of it
+ * would show the SAME text twice in the bot, so the channel copy is skipped
+ * when that screen was just sent. The Inbox copy is still inserted.
+ */
+const OFFLINE_SCREEN_DEDUPE_MS = 5 * 60 * 1000;
+
+async function telegramOfflineScreenJustSent(
+  config: ServerConfig,
+  conversationId: string,
+): Promise<boolean> {
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .select('metadata')
+      .eq('id', conversationId)
+      .maybeSingle();
+    const meta = (((data as any)?.metadata as Record<string, unknown>) || {});
+    const at = Date.parse(String(meta.telegram_offline_notice_at || '')) || 0;
+    return at > 0 && Date.now() - at < OFFLINE_SCREEN_DEDUPE_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Visible routing-outcome messages (spec §22) — inserted as real
  * `sender_type: 'system'` conversation messages so they flow through the
  * exact same delivery paths (poll/history/realtime) the widget already
@@ -413,11 +439,13 @@ export async function routeConversationToOperator(
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
         const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, metadata);
+        const alreadyShownInChannel = metadata.channel === 'telegram'
+          && await telegramOfflineScreenJustSent(config, args.conversationId);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
           visitorBody,
           { kind: 'routing_no_agent_available' },
-          true,
+          !alreadyShownInChannel,
         );
       }
       await tagOutcome(

@@ -117,6 +117,26 @@ export default function AdminPluginDetailPage() {
               </div>
             ))}
 
+            {/* Master AI switch: absent policy means ON, so existing plugins
+                keep answering until an admin deliberately turns AI off. */}
+            {item.supportsAI && (
+              <div className="flex items-start justify-between gap-3 border-t pt-3">
+                <div>
+                  <Label className="text-sm font-normal">{t('plugins.admin.aiEnabled')}</Label>
+                  <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                    {t('plugins.admin.aiEnabledHint')}
+                  </p>
+                </div>
+                <Switch
+                  checked={aiEnabled}
+                  disabled={update.isPending}
+                  onCheckedChange={(v) =>
+                    update.mutate({ policy: { ...(item.policy ?? {}), aiEnabled: v } })
+                  }
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5 border-t pt-3">
               <Label className="text-xs font-normal text-muted-foreground">
                 {t('plugins.admin.rolloutStatus')}
@@ -136,6 +156,7 @@ export default function AdminPluginDetailPage() {
             </div>
           </Card>
         </TabsContent>
+
 
         <TabsContent value="runtime">
           <ChannelsRuntimePanel />

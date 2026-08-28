@@ -52,11 +52,25 @@ import {
 
 export type TelegramPanelSection = 'connection' | 'branding' | 'messages' | 'menu';
 
-type CommandKey = 'start' | 'help' | 'human' | 'new' | 'faq' | 'guides';
-const COMMAND_KEYS: CommandKey[] = ['start', 'help', 'human', 'new', 'faq', 'guides'];
+type CommandKey = 'start' | 'new' | 'faq' | 'guides';
+const COMMAND_KEYS: CommandKey[] = ['start', 'new', 'faq', 'guides'];
+
+/** Conversational replies the bot sends on its own. */
+const REPLY_KEYS = ['welcome', 'offline', 'fallback'] as const;
+/** Menu / screen chrome — every visible string is operator-authored. */
+const CHROME_KEYS = [
+  'menuTitle', 'menuHint', 'back',
+  'faqTitle', 'faqHint', 'faqEmpty',
+  'guidesTitle', 'guidesHint', 'guidesEmpty',
+  'prev', 'next',
+  'deptTitle', 'deptHint', 'deptConfirmed', 'deptChange',
+] as const;
+type MessageKey = (typeof REPLY_KEYS)[number] | (typeof CHROME_KEYS)[number];
+const emptyMessages = () =>
+  Object.fromEntries([...REPLY_KEYS, ...CHROME_KEYS].map((k) => [k, ''])) as Record<MessageKey, string>;
 type FaqItem = { question: string; answer: string };
 const EMPTY_COMMANDS: Record<CommandKey, string> = {
-  start: '', help: '', human: '', new: '', faq: '', guides: '',
+  start: '', new: '', faq: '', guides: '',
 };
 
 /** Locales the Telegram bot copy can ever be authored in. */
@@ -89,10 +103,10 @@ function connectErrorKey(code: string | null | undefined): string {
   }
 }
 
-const EMPTY_LOCALES = {
-  en: { welcome: '', help: '', offline: '', handoff: '', fallback: '' },
-  fa: { welcome: '', help: '', offline: '', handoff: '', fallback: '' },
-  tr: { welcome: '', help: '', offline: '', handoff: '', fallback: '' },
+const EMPTY_LOCALES: Record<'en' | 'fa' | 'tr', Record<MessageKey, string>> = {
+  en: emptyMessages(),
+  fa: emptyMessages(),
+  tr: emptyMessages(),
 };
 
 export function TelegramConfigPanel({
@@ -756,18 +770,41 @@ export function TelegramConfigPanel({
       ) : null}
 
       <div className="space-y-3" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
-        {(['welcome', 'help', 'offline', 'handoff', 'fallback'] as const).map((key) => (
+        <Label className="text-sm font-semibold">{t('plugins.telegram.messagesRepliesTitle')}</Label>
+        {REPLY_KEYS.map((key) => (
           <div key={key} className="space-y-1">
             <Label>{t(`plugins.telegram.message.${key}` as never)}</Label>
             <Textarea
               rows={2}
-              value={locales[locale][key]}
+              value={locales[locale][key] ?? ''}
               onChange={(e) =>
                 setLocales((prev) => ({ ...prev, [locale]: { ...prev[locale], [key]: e.target.value } }))
               }
             />
           </div>
         ))}
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
+        <div>
+          <Label className="text-sm font-semibold">{t('plugins.telegram.messagesChromeTitle')}</Label>
+          <p className="text-xs text-muted-foreground">{t('plugins.telegram.messagesChromeHint')}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {CHROME_KEYS.map((key) => (
+            <div key={key} className="space-y-1">
+              <Label className="text-xs">{t(`plugins.telegram.message.${key}` as never)}</Label>
+              <Input
+                value={locales[locale][key] ?? ''}
+                onChange={(e) =>
+                  setLocales((prev) => ({ ...prev, [locale]: { ...prev[locale], [key]: e.target.value } }))
+                }
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       <Separator />

@@ -21,6 +21,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import {
   TELEGRAM_COMMAND_ICONS,
+  resolveLocalizedMessage,
   isTelegramMenuEntryEnabled,
   normalizeLocale,
   resolveCommandLabel,
@@ -31,7 +32,7 @@ import {
 
 export const TELEGRAM_CALLBACK_PREFIX = 'tg:';
 
-/** Static chrome the operator does not author (titles, hints, navigation). */
+/** Chrome strings — ALL operator-authored per locale (see settings.ts). */
 type MenuStrings = {
   menuTitle: string;
   menuHint: string;
@@ -42,58 +43,25 @@ type MenuStrings = {
   guidesTitle: string;
   guidesHint: string;
   guidesEmpty: string;
-  readMore: string;
   prev: string;
   next: string;
 };
 
-const STRINGS: Record<TelegramLocale, MenuStrings> = {
-  en: {
-    menuTitle: '✨ Main menu',
-    menuHint: 'Pick an option below, or just type your question — we read every message.',
-    back: '⬅️ Back',
-    faqTitle: '❓ Frequently asked questions',
-    faqHint: 'Tap a question to see the answer.',
-    faqEmpty: 'No questions have been published yet. Send us your question and we will answer it.',
-    guidesTitle: '📚 Help articles',
-    guidesHint: 'Tap an article to read it here.',
-    guidesEmpty: 'No help articles have been published yet.',
-    readMore: 'Read the full article',
-    prev: '◀️ Previous',
-    next: 'Next ▶️',
-  },
-  fa: {
-    menuTitle: '✨ منوی اصلی',
-    menuHint: 'یکی از گزینه‌های زیر را انتخاب کنید، یا پرسش خود را بنویسید؛ همهٔ پیام‌ها خوانده می‌شوند.',
-    back: '⬅️ بازگشت',
-    faqTitle: '❓ سوالات متداول',
-    faqHint: 'روی هر پرسش بزنید تا پاسخ آن نمایش داده شود.',
-    faqEmpty: 'هنوز پرسشی منتشر نشده است. پرسش خود را بنویسید تا پاسخ دهیم.',
-    guidesTitle: '📚 مقالات راهنما',
-    guidesHint: 'روی هر مقاله بزنید تا همین‌جا آن را بخوانید.',
-    guidesEmpty: 'هنوز مقالهٔ راهنمایی منتشر نشده است.',
-    readMore: 'خواندن متن کامل مقاله',
-    prev: '◀️ قبلی',
-    next: 'بعدی ▶️',
-  },
-  tr: {
-    menuTitle: '✨ Ana menü',
-    menuHint: 'Aşağıdan bir seçenek seçin ya da sorunuzu yazın; her mesajı okuyoruz.',
-    back: '⬅️ Geri',
-    faqTitle: '❓ Sıkça sorulan sorular',
-    faqHint: 'Cevabı görmek için bir soruya dokunun.',
-    faqEmpty: 'Henüz yayınlanmış bir soru yok. Sorunuzu yazın, yanıtlayalım.',
-    guidesTitle: '📚 Yardım makaleleri',
-    guidesHint: 'Okumak için bir makaleye dokunun.',
-    guidesEmpty: 'Henüz yayınlanmış bir yardım makalesi yok.',
-    readMore: 'Makalenin tamamını oku',
-    prev: '◀️ Önceki',
-    next: 'Sonraki ▶️',
-  },
-};
+const CHROME_KEYS = [
+  'menuTitle', 'menuHint', 'back', 'faqTitle', 'faqHint', 'faqEmpty',
+  'guidesTitle', 'guidesHint', 'guidesEmpty', 'prev', 'next',
+] as const;
 
-export function menuStrings(locale: string | null | undefined, fallback?: string | null): MenuStrings {
-  return STRINGS[normalizeLocale(locale) || normalizeLocale(fallback) || 'en'];
+export function menuStrings(
+  settings: TelegramSettings,
+  locale: string | null | undefined,
+  fallback?: string | null,
+): MenuStrings {
+  const out = {} as MenuStrings;
+  for (const key of CHROME_KEYS) {
+    out[key] = resolveLocalizedMessage(settings, locale, key, fallback);
+  }
+  return out;
 }
 
 export function escapeHtml(text: string): string {
@@ -122,7 +90,7 @@ export function buildMainMenu(
   locale: string | null | undefined,
   fallback?: string | null,
 ): { text: string; replyMarkup: Record<string, unknown> } {
-  const s = menuStrings(locale, fallback);
+  const s = menuStrings(settings, locale, fallback);
   return {
     text: `<b>${escapeHtml(s.menuTitle)}</b>\n\n${escapeHtml(s.menuHint)}`,
     replyMarkup: buildReplyKeyboard(settings, locale, fallback),
@@ -147,11 +115,6 @@ export function buildReplyKeyboard(
   if (contentRow.length) rows.push(contentRow);
 
   const actionRow: { text: string }[] = [];
-  // "Talk to a human" is only meaningful while AI answers first — otherwise
-  // an operator is already the default recipient.
-  if (isTelegramMenuEntryEnabled(settings, 'human')) {
-    actionRow.push({ text: labelFor(settings, locale, 'human', fallback) });
-  }
   actionRow.push({ text: labelFor(settings, locale, 'new', fallback) });
   rows.push(actionRow);
 
@@ -159,7 +122,7 @@ export function buildReplyKeyboard(
     keyboard: rows,
     resize_keyboard: true,
     is_persistent: true,
-    input_field_placeholder: menuStrings(locale, fallback).menuHint.slice(0, 64),
+    input_field_placeholder: menuStrings(settings, locale, fallback).menuHint.slice(0, 64),
   };
 }
 
@@ -182,7 +145,7 @@ export function matchReplyKeyboardCommand(
 ): TelegramCommandKey | null {
   const needle = normalizeLabel(String(text ?? ''));
   if (!needle) return null;
-  const keys: TelegramCommandKey[] = ['guides', 'faq', 'human', 'new', 'start'];
+  const keys: TelegramCommandKey[] = ['guides', 'faq', 'new', 'start'];
   for (const key of keys) {
     if (!isTelegramMenuEntryEnabled(settings, key)) continue;
     for (const locale of ['fa', 'en', 'tr'] as TelegramLocale[]) {
@@ -194,8 +157,12 @@ export function matchReplyKeyboardCommand(
 
 
 /** A single "back to main menu" keyboard, used under every leaf screen. */
-export function backKeyboard(locale: string | null | undefined, fallback?: string | null) {
-  return { inline_keyboard: [[{ text: menuStrings(locale, fallback).back, callback_data: 'tg:menu' }]] };
+export function backKeyboard(
+  settings: TelegramSettings,
+  locale: string | null | undefined,
+  fallback?: string | null,
+) {
+  return { inline_keyboard: [[{ text: menuStrings(settings, locale, fallback).back, callback_data: 'tg:menu' }]] };
 }
 
 // ── FAQ ───────────────────────────────────────────────────────────────
@@ -210,12 +177,12 @@ export function buildFaqList(
   locale: string | null | undefined,
   fallback?: string | null,
 ) {
-  const s = menuStrings(locale, fallback);
+  const s = menuStrings(settings, locale, fallback);
   const items = faqItems(settings, locale, fallback);
   if (!items.length) {
     return {
       text: `<b>${escapeHtml(s.faqTitle)}</b>\n\n${escapeHtml(s.faqEmpty)}`,
-      replyMarkup: backKeyboard(locale, fallback),
+      replyMarkup: backKeyboard(settings, locale, fallback),
     };
   }
   const rows: Button[][] = items.map((item, index) => [
@@ -248,7 +215,7 @@ export function buildFaqAnswer(
   index: number,
   fallback?: string | null,
 ) {
-  const s = menuStrings(locale, fallback);
+  const s = menuStrings(settings, locale, fallback);
   const item = faqItems(settings, locale, fallback)[index];
   if (!item) return buildFaqList(settings, locale, fallback);
   return {
@@ -326,16 +293,17 @@ export function articleToTelegramText(article: HelpArticle): string {
 }
 
 export function buildArticleList(
+  settings: TelegramSettings,
   articles: HelpArticle[],
   page: number,
   locale: string | null | undefined,
   fallback?: string | null,
 ) {
-  const s = menuStrings(locale, fallback);
+  const s = menuStrings(settings, locale, fallback);
   if (!articles.length) {
     return {
       text: `<b>${escapeHtml(s.guidesTitle)}</b>\n\n${escapeHtml(s.guidesEmpty)}`,
-      replyMarkup: backKeyboard(locale, fallback),
+      replyMarkup: backKeyboard(settings, locale, fallback),
     };
   }
   const pages = Math.max(1, Math.ceil(articles.length / ARTICLES_PER_PAGE));
@@ -362,11 +330,12 @@ export function buildArticleList(
 }
 
 export function buildArticleView(
+  settings: TelegramSettings,
   article: HelpArticle,
   locale: string | null | undefined,
   fallback?: string | null,
 ) {
-  const s = menuStrings(locale, fallback);
+  const s = menuStrings(settings, locale, fallback);
   return {
     text: articleToTelegramText(article),
     replyMarkup: {

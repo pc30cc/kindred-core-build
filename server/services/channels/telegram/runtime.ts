@@ -132,11 +132,12 @@ export async function handleTelegramInboundFlow(
 
     const sent = await sendTelegramScreen(config, installation.id, input.externalChatId, screen);
     void conversationId; // command replies do not need the conversation row, only the chat id
-    return { aiAllowed, handled: sent, locale };
+    return { aiAllowed, handled: sent, locale, command };
   } catch (err) {
     console.warn('[telegram] inbound flow error:', err instanceof Error ? err.message : err);
-    return { aiAllowed: false, handled: false, locale };
+    return { aiAllowed: false, handled: false, locale, command: null };
   }
+
 
 }
 

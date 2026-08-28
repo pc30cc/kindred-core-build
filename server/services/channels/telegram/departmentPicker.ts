@@ -21,50 +21,37 @@ import {
   resolveWidgetVisibleDepartments,
   type VisibleDepartment,
 } from '../../calls/departments.js';
-import { normalizeLocale, type TelegramLocale } from './settings.js';
+import { resolveLocalizedMessage, type TelegramSettings } from './settings.js';
 import { escapeHtml } from './menu.js';
 
-type PickerStrings = {
-  title: string;
-  hint: string;
-  confirmed: (name: string) => string;
-  changed: string;
-};
+type PickerStrings = { title: string; hint: string; confirmed: (name: string) => string; changed: string };
 
-const STRINGS: Record<TelegramLocale, PickerStrings> = {
-  en: {
-    title: '🗂 Which team can help you?',
-    hint: 'Pick the department that fits your request — we will connect you with the right teammate. You can keep writing in the meantime.',
-    confirmed: (name) => `✅ Connected to <b>${escapeHtml(name)}</b>. A teammate from this department will reply here shortly.`,
-    changed: 'Change department',
-  },
-  fa: {
-    title: '🗂 کدام بخش می‌تواند کمکتان کند؟',
-    hint: 'بخش مرتبط با درخواست خود را انتخاب کنید تا به همکار مناسب وصل شوید. در همین حین هم می‌توانید بنویسید.',
-    confirmed: (name) => `✅ به بخش <b>${escapeHtml(name)}</b> وصل شدید. همکاران این بخش به‌زودی همین‌جا پاسخ می‌دهند.`,
-    changed: 'تغییر بخش',
-  },
-  tr: {
-    title: '🗂 Hangi ekip yardımcı olabilir?',
-    hint: 'Talebinize uygun departmanı seçin; sizi doğru ekip arkadaşına bağlayalım. Bu sırada yazmaya devam edebilirsiniz.',
-    confirmed: (name) => `✅ <b>${escapeHtml(name)}</b> departmanına bağlandınız. Bu departmandan bir temsilci kısa süre içinde yanıtlayacak.`,
-    changed: 'Departmanı değiştir',
-  },
-};
-
-function strings(locale?: string | null, fallback?: string | null): PickerStrings {
-  return STRINGS[normalizeLocale(locale) || normalizeLocale(fallback) || 'en'];
+/** Every picker string is operator-authored per locale (plugin settings). */
+function strings(
+  settings: TelegramSettings,
+  locale?: string | null,
+  fallback?: string | null,
+): PickerStrings {
+  const get = (key: 'deptTitle' | 'deptHint' | 'deptConfirmed' | 'deptChange') =>
+    resolveLocalizedMessage(settings, locale, key, fallback);
+  return {
+    title: get('deptTitle'),
+    hint: get('deptHint'),
+    confirmed: (name) => get('deptConfirmed').replace('{department}', `<b>${escapeHtml(name)}</b>`),
+    changed: get('deptChange'),
+  };
 }
 
 export type TelegramScreen = { text: string; replyMarkup: Record<string, unknown> };
 
 /** Inline keyboard listing the departments, one per row (readable labels). */
 export function buildDepartmentPicker(
+  settings: TelegramSettings,
   departments: VisibleDepartment[],
   locale?: string | null,
   fallback?: string | null,
 ): TelegramScreen {
-  const s = strings(locale, fallback);
+  const s = strings(settings, locale, fallback);
   const rows = departments.map((d) => [
     { text: `🏷 ${d.name.slice(0, 48)}`, callback_data: `tg:dept:${d.id}` },
   ]);
@@ -110,18 +97,17 @@ async function patchConversationMeta(
 export async function resolveDepartmentPickerScreen(
   config: ServerConfig,
   args: {
+    settings: TelegramSettings;
     workspaceId: string;
     conversationId: string;
     locale?: string | null;
     fallbackLocale?: string | null;
-    /** Re-offer the picker even when one was already shown (e.g. /human). */
-    force?: boolean;
   },
 ): Promise<TelegramScreen | null> {
   try {
     const meta = await readConversationMeta(config, args.conversationId);
     if (meta.department_id) return null;
-    if (!args.force && meta.department_pending === 'true') return null;
+    if (meta.department_pending === 'true') return null;
 
     const visible = await resolveWidgetVisibleDepartments(config, args.workspaceId, 'chat');
     if (visible.length === 0) return null;
@@ -138,7 +124,7 @@ export async function resolveDepartmentPickerScreen(
     }
 
     await patchConversationMeta(config, args.conversationId, { department_pending: 'true' });
-    return buildDepartmentPicker(visible, args.locale, args.fallbackLocale);
+    return buildDepartmentPicker(args.settings, visible, args.locale, args.fallbackLocale);
   } catch (err) {
     console.warn('[telegram] department picker error:', err instanceof Error ? err.message : err);
     return null;
@@ -149,6 +135,7 @@ export async function resolveDepartmentPickerScreen(
 export async function assignConversationDepartment(
   config: ServerConfig,
   args: {
+    settings: TelegramSettings;
     workspaceId: string;
     conversationId: string;
     department: { id: string; name: string };
@@ -182,6 +169,7 @@ export async function assignConversationDepartment(
 export async function applyDepartmentChoice(
   config: ServerConfig,
   args: {
+    settings: TelegramSettings;
     workspaceId: string;
     conversationId: string | null;
     departmentId: string;
@@ -189,14 +177,14 @@ export async function applyDepartmentChoice(
     fallbackLocale?: string | null;
   },
 ): Promise<TelegramScreen | null> {
-  const s = strings(args.locale, args.fallbackLocale);
+  const s = strings(args.settings, args.locale, args.fallbackLocale);
   const visible = await resolveWidgetVisibleDepartments(config, args.workspaceId, 'chat').catch(
     () => [] as VisibleDepartment[],
   );
   const chosen = visible.find((d) => d.id === args.departmentId);
   if (!chosen) {
     if (!visible.length) return null;
-    return buildDepartmentPicker(visible, args.locale, args.fallbackLocale);
+    return buildDepartmentPicker(args.settings, visible, args.locale, args.fallbackLocale);
   }
   if (args.conversationId) {
     await assignConversationDepartment(config, {
@@ -216,13 +204,13 @@ export async function applyDepartmentChoice(
 /** Re-opens the picker (used by the "change department" button). */
 export async function reopenDepartmentPicker(
   config: ServerConfig,
-  args: { workspaceId: string; locale?: string | null; fallbackLocale?: string | null },
+  args: { settings: TelegramSettings; workspaceId: string; locale?: string | null; fallbackLocale?: string | null },
 ): Promise<TelegramScreen | null> {
   const visible = await resolveWidgetVisibleDepartments(config, args.workspaceId, 'chat').catch(
     () => [] as VisibleDepartment[],
   );
   if (visible.length < 2) return null;
-  return buildDepartmentPicker(visible, args.locale, args.fallbackLocale);
+  return buildDepartmentPicker(args.settings, visible, args.locale, args.fallbackLocale);
 }
 
 /** Resolves the open Telegram conversation for a chat id (callback context). */

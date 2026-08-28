@@ -214,6 +214,7 @@ export async function handleTelegramCallbackQuery(
     let screen: { text: string; replyMarkup: Record<string, unknown> } | null;
     if (payload === 'dept' || payload.startsWith('dept:')) {
       screen = await resolveDepartmentCallback(config, {
+        settings,
         workspaceId: ctx.workspaceId,
         installationId: installation.id,
         chatId: String(chatId),
@@ -270,6 +271,7 @@ export async function handleTelegramCallbackQuery(
 async function resolveDepartmentCallback(
   config: ServerConfig,
   args: {
+    settings: TelegramSettings;
     workspaceId: string;
     installationId: string;
     chatId: string;
@@ -280,6 +282,7 @@ async function resolveDepartmentCallback(
 ): Promise<{ text: string; replyMarkup: Record<string, unknown> } | null> {
   if (args.payload === 'dept') {
     return reopenDepartmentPicker(config, {
+      settings: args.settings,
       workspaceId: args.workspaceId,
       locale: args.locale,
       fallbackLocale: args.fallbackLocale,
@@ -296,6 +299,7 @@ async function resolveDepartmentCallback(
       })
     : null;
   return applyDepartmentChoice(config, {
+    settings: args.settings,
     workspaceId: args.workspaceId,
     conversationId,
     departmentId,

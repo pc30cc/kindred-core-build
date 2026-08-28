@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
 import { pluginsApi } from '@/lib/plugins-api';
@@ -34,14 +35,25 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   AlertCircle,
   CheckCircle2,
+  BookOpen,
   Copy,
+  HelpCircle,
   Loader2,
+  Plus,
+  Trash2,
   PlugZap,
   RefreshCw,
   Stethoscope,
 } from 'lucide-react';
 
-export type TelegramPanelSection = 'connection' | 'branding' | 'messages';
+export type TelegramPanelSection = 'connection' | 'branding' | 'messages' | 'menu';
+
+type CommandKey = 'start' | 'help' | 'human' | 'new' | 'faq' | 'guides';
+const COMMAND_KEYS: CommandKey[] = ['start', 'help', 'human', 'new', 'faq', 'guides'];
+type FaqItem = { question: string; answer: string };
+const EMPTY_COMMANDS: Record<CommandKey, string> = {
+  start: '', help: '', human: '', new: '', faq: '', guides: '',
+};
 
 /** Locales the Telegram bot copy can ever be authored in. */
 const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
@@ -97,12 +109,14 @@ export function TelegramConfigPanel({
   const [handlingMode, setHandlingMode] = useState<'human_only' | 'ai_first'>('human_only');
   const [locale, setLocale] = useState<'en' | 'fa' | 'tr'>('en');
   const [locales, setLocales] = useState(EMPTY_LOCALES);
-  const [commands, setCommands] = useState({ start: '', help: '', human: '', new: '' });
-  const [commandLocales, setCommandLocales] = useState<Record<'en' | 'fa' | 'tr', { start: string; help: string; human: string; new: string }>>({
-    en: { start: '', help: '', human: '', new: '' },
-    fa: { start: '', help: '', human: '', new: '' },
-    tr: { start: '', help: '', human: '', new: '' },
+  const [commands, setCommands] = useState<Record<CommandKey, string>>({ ...EMPTY_COMMANDS });
+  const [commandLocales, setCommandLocales] = useState<Record<'en' | 'fa' | 'tr', Record<CommandKey, string>>>({
+    en: { ...EMPTY_COMMANDS },
+    fa: { ...EMPTY_COMMANDS },
+    tr: { ...EMPTY_COMMANDS },
   });
+  const [menuSettings, setMenuSettings] = useState({ faqEnabled: false, guidesEnabled: false });
+  const [faq, setFaq] = useState<Record<'en' | 'fa' | 'tr', FaqItem[]>>({ en: [], fa: [], tr: [] });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Only the languages this deployment actually speaks may be edited. On a
@@ -133,7 +147,9 @@ export function TelegramConfigPanel({
     setHandlingMode(s.handlingMode);
     setLocales(s.locales);
     setCommands(s.commands);
-    if (s.commandLocales) setCommandLocales(s.commandLocales);
+    if (s.commandLocales) setCommandLocales(s.commandLocales as any);
+    if ((s as any).menu) setMenuSettings((s as any).menu);
+    if ((s as any).faq) setFaq({ en: [], fa: [], tr: [], ...(s as any).faq });
     setBotName((prev) => prev || s.profile.name);
     setShortDescription((prev) => prev || s.profile.shortDescription);
     setDescription((prev) => prev || s.profile.description);
@@ -205,6 +221,8 @@ export function TelegramConfigPanel({
         locales,
         commands,
         commandLocales,
+        menu: menuSettings,
+        faq,
         handlingMode,
       }),
     onSuccess: (data: any) => {
@@ -524,7 +542,10 @@ export function TelegramConfigPanel({
       <div className="space-y-2" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
         <Label>{t('plugins.telegram.commandsTitle')}</Label>
         <p className="text-xs text-muted-foreground">{t('plugins.telegram.commandsHint')}</p>
-        {(['start', 'help', 'human', 'new'] as const).map((key) => (
+        {COMMAND_KEYS.filter(
+          (key) =>
+            (key !== 'faq' || menuSettings.faqEnabled) && (key !== 'guides' || menuSettings.guidesEnabled),
+        ).map((key) => (
           <div key={key} className="flex items-center gap-2">
             <Badge variant="outline" dir="ltr">/{key}</Badge>
             <Input

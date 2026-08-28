@@ -1687,7 +1687,37 @@ export default function InboxPage() {
                 // operator, AI/visitor switch, or new day starts a fresh group.
                 const showAvatar = !sameSenderAsPrev;
                 const showMeta = !sameSenderAsPrev;
+                // Routing system notices are stored in English by the server;
+                // render them from metadata so they follow the app locale.
+                if (msg.sender_type === 'system' && (meta as any).kind === 'routing_agent_joined') {
+                  const name = String((meta as any).agent_name || '').trim();
+                  const tpl = name ? t('inbox.system.agentJoined') : t('inbox.system.agentJoinedGeneric');
+                  const text = tpl && !tpl.startsWith('inbox.')
+                    ? tpl.replace('{name}', name)
+                    : (name ? `${name} joined the conversation` : 'A colleague joined the conversation');
+                  return (
+                    <div key={msg.id} className="flex justify-center my-1">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
+                        <span>{text}</span>
+                      </div>
+                    </div>
+                  );
+                }
+                if (msg.sender_type === 'system' && (meta as any).kind === 'routing_no_agent_available') {
+                  const tpl = t('inbox.system.noAgentAvailable');
+                  const text = tpl && !tpl.startsWith('inbox.')
+                    ? tpl
+                    : "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.";
+                  return (
+                    <div key={msg.id} className="flex justify-center my-1">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
+                        <span>{text}</span>
+                      </div>
+                    </div>
+                  );
+                }
                 // Pass A — system call_ended summary renders as a centered
+
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};
                 if (msg.sender_type === 'system' && (meta as any).kind === 'call_ended') {

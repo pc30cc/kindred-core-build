@@ -95,20 +95,19 @@ export function AppSidebar() {
   // Fail-CLOSED: hide unless capabilities explicitly say visible.
   const callCenterVisible =
     !callCenterCapsError && !!callCenterCaps?.workspace_call_center_visible;
-  // Automated inbox is shown only when EVERY layer that gates AI replies is
-  // on. Platform kill-switch alone is not enough — workspace must also have
-  // the AI Agent surface enabled and auto-answer capability available.
+  // Automated inbox requires the AI surface to be entitled at BOTH the
+  // platform (super-admin kill-switch) and plan/workspace level. If either is
+  // off, the queue is hidden entirely — even when AI-managed threads exist.
   // Fail-CLOSED on error.
-  // Fail-CLOSED on capabilities, but never strand existing AI-managed
-  // threads: if the queue already holds conversations, the entry stays
-  // reachable so operators can still open them.
+  const aiSurfaceEntitled =
+    !aiAgentCapsError &&
+    !!aiAgentCaps &&
+    aiAgentCaps.ai_agent_enabled === true &&
+    aiAgentCaps.customer_ai_agent_visible === true;
   const automatedInboxVisible =
-    (!aiAgentCapsError &&
-      !!aiAgentCaps &&
-      aiAgentCaps.ai_agent_enabled === true &&
-      aiAgentCaps.customer_ai_agent_visible === true &&
-      aiAgentCaps.auto_answer_enabled === true) ||
-    (inboxCounts?.automated ?? 0) > 0;
+    aiSurfaceEntitled &&
+    (aiAgentCaps!.auto_answer_enabled === true || (inboxCounts?.automated ?? 0) > 0);
+
 
   // Primary domain for the active workspace (display under the workspace name).
   // Backed by GET /api/workspaces/:workspaceId/primary-domain — direct

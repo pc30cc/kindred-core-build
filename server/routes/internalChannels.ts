@@ -417,8 +417,8 @@ internalChannelsRouter.post('/operation-result', async (req: any, res) => {
           firstName: payload.first_name ?? null,
           webhookUrl: String(payload.webhook_url ?? ''),
         });
-        if (outcome.ok) return res.json({ ok: true });
-        return res.json({ ok: false, rollback: true, error: outcome.errorCode });
+        if (outcome.ok === true) return res.json({ ok: true });
+        return res.json({ ok: false, rollback: true, error: (outcome as { errorCode: string }).errorCode });
       }
       case 'disconnect': {
         await applyDisconnectResult(config, operation, {

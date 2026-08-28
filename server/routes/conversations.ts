@@ -38,6 +38,7 @@ import {
   recordAuditAndEvent,
 } from '../services/conversationEvents.js';
 import { isActionActive } from '../services/observability/autoActionsCache.js';
+import { isTelegramMenuEventsVisible } from '../services/channels/telegram/settings.js';
 import { emitLog } from '../services/observability/metrics.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
@@ -947,7 +948,17 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
-    const messages = (data || []) as any[];
+    let messages = (data || []) as any[];
+
+    // Super Admin can hide Telegram bot menu taps from operator threads.
+    if (messages.some((m) => String((m?.metadata as any)?.channel_menu_event ?? '') === 'true')) {
+      const menuVisible = await isTelegramMenuEventsVisible(config);
+      if (!menuVisible) {
+        messages = messages.filter(
+          (m) => String((m?.metadata as any)?.channel_menu_event ?? '') !== 'true',
+        );
+      }
+    }
 
     const ids = new Set<string>();
     const fromMeta = new Set<string>();

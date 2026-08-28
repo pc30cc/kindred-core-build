@@ -4194,6 +4194,8 @@ const en = {
       featured: 'Featured',
       aiEnabled: 'AI assistant for this plugin',
       aiEnabledHint: 'Master switch. When off, workspaces cannot enable AI replies on this channel and the bot never answers with AI.',
+      menuEventsVisible: 'Show bot menu taps in inbox',
+      menuEventsVisibleHint: 'When off, Telegram bot menu navigation is hidden from conversations in the operator inbox.',
       rolloutStatus: 'Rollout status',
       sortOrder: 'Sort order',
       saved: 'Plugin updated.',

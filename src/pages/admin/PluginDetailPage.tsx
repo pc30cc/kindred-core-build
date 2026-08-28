@@ -76,6 +76,7 @@ export default function AdminPluginDetailPage() {
   ] as const;
 
   const aiEnabled = (item.policy as Record<string, unknown> | null)?.aiEnabled !== false;
+  const menuEventsVisible = (item.policy as Record<string, unknown> | null)?.menuEventsVisible !== false;
 
 
   return (
@@ -135,6 +136,24 @@ export default function AdminPluginDetailPage() {
                   disabled={update.isPending}
                   onCheckedChange={(v) =>
                     update.mutate({ policy: { ...(item.policy ?? {}), aiEnabled: v } })
+                  }
+                />
+              </div>
+            )}
+
+            {item.id === 'telegram' && (
+              <div className="flex items-start justify-between gap-3 border-t pt-3">
+                <div>
+                  <Label className="text-sm font-normal">{t('plugins.admin.menuEventsVisible')}</Label>
+                  <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                    {t('plugins.admin.menuEventsVisibleHint')}
+                  </p>
+                </div>
+                <Switch
+                  checked={menuEventsVisible}
+                  disabled={update.isPending}
+                  onCheckedChange={(v) =>
+                    update.mutate({ policy: { ...(item.policy ?? {}), menuEventsVisible: v } })
                   }
                 />
               </div>

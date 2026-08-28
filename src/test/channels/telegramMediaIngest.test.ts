@@ -109,7 +109,7 @@ beforeEach(() => {
   state.gateAllow = true;
   state.uploadOk = true;
   uploadFileMock.mockClear();
-  uploadFileMock.mockImplementation(async (_config: any, req: any) =>
+  uploadFileMock.mockImplementation(async (_config: any, req: any): Promise<any> =>
     state.uploadOk
       ? { success: true, url: `https://cdn.example.com/${req.fileKey}` }
       : { success: false, error: 'disk full' },

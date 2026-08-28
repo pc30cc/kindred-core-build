@@ -105,8 +105,17 @@ export class FakeChannelsDb {
   client(): any {
     const db = this;
 
-    const selectBuilder = (table: string) => {
+    const selectBuilder = (table: string, columns?: string) => {
       const filters: Array<(row: any) => boolean> = [];
+      // PostgREST returns ONLY the selected columns. Projecting here matters:
+      // code that re-inserts a selected row (credential copy) must not carry
+      // hidden identity columns along with it.
+      const projected =
+        columns && !columns.includes('*') && !columns.includes('(')
+          ? columns.split(',').map((c) => c.trim()).filter(Boolean)
+          : null;
+      const project = (row: any) =>
+        row && projected ? Object.fromEntries(projected.map((c) => [c, row[c]])) : row;
       const api: any = {
         eq(col: string, value: unknown) {
           filters.push((row) => row[col] === value);
@@ -129,7 +138,7 @@ export class FakeChannelsDb {
           return api;
         },
         rows() {
-          return db.rowsFor(table).filter((row) => filters.every((f) => f(row)));
+          return db.rowsFor(table).filter((row) => filters.every((f) => f(row))).map(project);
         },
         async maybeSingle() {
           return { data: api.rows()[0] ?? null, error: null };
@@ -145,7 +154,8 @@ export class FakeChannelsDb {
     return {
       from(table: string) {
         return {
-          select: () => selectBuilder(table),
+          select: (columns?: string) => selectBuilder(table, columns),
+
           insert(row: any) {
             return {
               select: () => ({

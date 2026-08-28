@@ -170,6 +170,22 @@ export async function getFile(botToken: string, fileId: string): Promise<{ file_
   return callTelegram(botToken, 'getFile', { file_id: fileId });
 }
 
+/** Largest available size of the user's current profile photo, if any. */
+export async function getUserProfilePhotoFileId(
+  botToken: string,
+  userId: string | number,
+): Promise<string | null> {
+  const photos = await callTelegram<{ total_count: number; photos: Array<Array<{ file_id: string }>> }>(
+    botToken,
+    'getUserProfilePhotos',
+    { user_id: userId, limit: 1 },
+  );
+  const sizes = photos?.photos?.[0];
+  if (!Array.isArray(sizes) || sizes.length === 0) return null;
+  return sizes[sizes.length - 1]?.file_id ?? null;
+}
+
+
 export async function downloadFile(
   botToken: string,
   filePath: string,

@@ -40,12 +40,15 @@ import {
 } from '../services/channels/integrations.js';
 import {
   TelegramConnectError,
-  applyTelegramProfile,
-  connectTelegramBot,
-  disconnectTelegramBot,
-  repairTelegramWebhook,
-  telegramDiagnostics,
+  connectResultOf,
+  requestTelegramConnect,
+  requestTelegramDiagnostics,
+  requestTelegramDisconnect,
+  requestTelegramProfileSync,
+  requestTelegramWebhookRepair,
+  telegramDiagnosticsView,
 } from '../services/channels/telegram/setup.js';
+import { InFlightOperationError, awaitOperation } from '../services/channels/operations.js';
 import { parseTelegramSettings, sanitizeTelegramSettingsForSave, resolveTelegramHandlingMode } from '../services/channels/telegram/settings.js';
 import { isAutoAnswerAllowedForWorkspace } from '../services/ai-agent/platformGuards.js';
 import { getOrCreateSettings } from '../services/ai-agent/settings.js';
@@ -204,7 +207,7 @@ pluginsRouter.post('/uninstall', async (req: any, res) => {
     if (!installation) return res.json({ ok: true });
 
     // Provider-side cleanup first so no orphan webhook keeps delivering.
-    if (pluginId === 'telegram') await disconnectTelegramBot(config, installation.id);
+    if (pluginId === 'telegram') await requestTelegramDisconnect(config, installation.id, auth.userId);
 
     await deletePluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY);
     await setInstallationStatus(config, installation.id, 'uninstalled');
@@ -270,15 +273,49 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
         provider: 'telegram',
       }));
 
-    const result = await connectTelegramBot(config, integration, botToken);
+    // Core cannot reach Telegram: the handshake is executed by the Channels
+    // Worker. We wait a bounded time so the UI stays synchronous when the
+    // worker is healthy, and reports "in progress" when it is not.
+    const operation = await requestTelegramConnect(config, integration, botToken, auth.userId);
+    const settled = await awaitOperation(config, operation.id);
+
+    if (settled?.status === 'failed') {
+      const reason = settled.error_code || 'telegram_connect_failed';
+      const status = reason === 'duplicate_bot' ? 409 : reason === 'not_configured' ? 503 : 502;
+      return res.status(status).json({
+        error: 'telegram_connect_failed',
+        reason,
+        details: settled.error_message || reason,
+        operationId: operation.id,
+      });
+    }
+
+    const result = settled ? connectResultOf(settled) : null;
+    if (!result) {
+      // Queued and verifiable, but the worker has not answered yet. Never
+      // claim a connection that the provider has not confirmed.
+      return res.status(202).json({
+        ok: false,
+        pending: true,
+        operationId: operation.id,
+        reason: 'worker_pending',
+      });
+    }
+
     res.json({
       ok: true,
       hasToken: true,
       bot: result.bot,
       verifiedAt: result.verifiedAt,
       webhookUrl: result.webhookUrl,
+      operationId: operation.id,
     });
   } catch (err) {
+    if (err instanceof InFlightOperationError) {
+      return res
+        .status(409)
+        .json({ error: 'telegram_connect_failed', reason: 'operation_in_flight', details: err.message });
+    }
     if (err instanceof TelegramConnectError) {
       const status = err.code === 'duplicate_bot' ? 409 : err.code === 'not_configured' ? 503 : 502;
       console.error(`[plugins] telegram connect failed: ${err.code}: ${err.message}`);
@@ -374,7 +411,14 @@ pluginsRouter.post('/telegram/diagnostics', async (req: any, res) => {
     const config = serverConfigOf(req);
     const installation = await getInstallation(config, workspaceId, 'telegram');
     if (!installation) return res.status(404).json({ error: 'Telegram is not installed' });
-    res.json(await telegramDiagnostics(config, installation.id));
+    // Provider probe runs in the worker; Core only compares what comes back.
+    let operation = null as Awaited<ReturnType<typeof requestTelegramDiagnostics>> | null;
+    try {
+      operation = await awaitOperation(config, (await requestTelegramDiagnostics(config, installation.id)).id, 12_000);
+    } catch (probeErr) {
+      if (!(probeErr instanceof InFlightOperationError)) throw probeErr;
+    }
+    res.json(await telegramDiagnosticsView(config, installation.id, operation));
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
     console.error('[plugins] telegram diagnostics failed:', message);
@@ -398,9 +442,17 @@ pluginsRouter.post('/telegram/reconnect', async (req: any, res) => {
     const installation = await getInstallation(config, workspaceId, 'telegram');
     if (!installation) return res.status(404).json({ error: 'not_installed' });
 
-    const result = await repairTelegramWebhook(config, installation.id);
-    if (!result.repaired) return res.status(502).json({ error: 'repair_failed', reason: result.reason });
-    res.json({ ok: true });
+    const operation = await requestTelegramWebhookRepair(config, installation.id, auth.userId);
+    const settled = await awaitOperation(config, operation.id, 15_000);
+    if (!settled || settled.status === 'pending' || settled.status === 'running') {
+      return res.status(202).json({ ok: false, pending: true, operationId: operation.id });
+    }
+    if (settled.status === 'failed') {
+      return res
+        .status(502)
+        .json({ error: 'repair_failed', reason: settled.error_code || 'repair_failed', operationId: operation.id });
+    }
+    res.json({ ok: true, operationId: operation.id });
   } catch (err) {
     console.error('[plugins] telegram reconnect failed:', err);
     res.status(502).json({ error: 'repair_failed', reason: 'unexpected_error' });
@@ -422,9 +474,10 @@ pluginsRouter.post('/telegram/disconnect', async (req: any, res) => {
     const installation = await getInstallation(config, workspaceId, 'telegram');
     if (!installation) return res.json({ ok: true });
 
-    await disconnectTelegramBot(config, installation.id);
-    await deletePluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY);
-    res.json({ ok: true });
+    // Local acceptance stops immediately; the provider webhook is removed by
+    // the worker, which then triggers credential destruction in Core.
+    const { operation } = await requestTelegramDisconnect(config, installation.id, auth.userId);
+    res.json({ ok: true, operationId: operation?.id ?? null });
   } catch (err) {
     console.error('[plugins] telegram disconnect failed:', err);
     res.status(502).json({ error: 'disconnect_failed' });
@@ -454,7 +507,7 @@ pluginsRouter.post('/telegram/profile', async (req: any, res) => {
     const installation = await getInstallation(config, parsed.data.workspace_id, 'telegram');
     if (!installation) return res.status(404).json({ error: 'not_installed' });
 
-    const result = await applyTelegramProfile(config, installation.id, {
+    const operation = await requestTelegramProfileSync(config, installation.id, {
       name: parsed.data.name,
       shortDescription: parsed.data.short_description,
       description: parsed.data.description,
@@ -462,8 +515,17 @@ pluginsRouter.post('/telegram/profile', async (req: any, res) => {
         command: String(c.command),
         description: String(c.description),
       })),
-    });
-    res.json({ ok: true, ...result });
+    }, auth.userId);
+    const settled = await awaitOperation(config, operation.id, 15_000);
+    if (settled?.status === 'failed') {
+      return res
+        .status(502)
+        .json({ error: 'profile_update_failed', reason: settled.error_code, operationId: operation.id });
+    }
+    if (settled?.status !== 'succeeded') {
+      return res.status(202).json({ ok: false, pending: true, operationId: operation.id });
+    }
+    res.json({ ok: true, applied: (settled.result as any)?.applied ?? [], operationId: operation.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
     console.error('[plugins] telegram profile failed:', message);
@@ -759,8 +821,7 @@ adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', asyn
     if (!integration) return res.status(404).json({ error: 'Unknown integration' });
     if (integration.provider !== 'telegram') return res.status(400).json({ error: 'Unsupported provider' });
 
-    await disconnectTelegramBot(config, integration.installation_id);
-    await deletePluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_KEY);
+    await requestTelegramDisconnect(config, integration.installation_id, req.platformAdminId ?? null);
     console.warn(
       `[plugins] platform admin ${req.platformAdminId} force-disconnected integration ${integrationId}`,
     );

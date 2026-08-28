@@ -4145,6 +4145,60 @@ export type Database = {
           },
         ]
       }
+      channel_provider_operations: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          id: string
+          installation_id: string | null
+          integration_id: string | null
+          operation: string
+          provider: string
+          request: Json
+          requested_by: string | null
+          result: Json | null
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          installation_id?: string | null
+          integration_id?: string | null
+          operation: string
+          provider: string
+          request?: Json
+          requested_by?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          installation_id?: string | null
+          integration_id?: string | null
+          operation?: string
+          provider?: string
+          request?: Json
+          requested_by?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       channel_worker_heartbeats: {
         Row: {
           code_version: string | null

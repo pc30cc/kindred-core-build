@@ -86,7 +86,7 @@ export function parseOpenAIChatCompletion(value: unknown): OpenAIChatCompletion 
   const message = asRecord(choice?.message);
   const rawToolCalls = asArray(message?.tool_calls) || [];
   const toolCalls: ParsedToolCall[] = rawToolCalls
-    .map((entry) => {
+    .map((entry): ParsedToolCall | undefined => {
       const call = asRecord(entry);
       const fn = asRecord(call?.function);
       const name = asString(fn?.name);
@@ -125,7 +125,7 @@ export function parseAnthropicMessage(value: unknown): AnthropicMessage {
   const blocks = asArray(data?.content) || [];
   const firstBlock = asRecord(blocks[0]);
   const toolCalls: ParsedToolCall[] = blocks
-    .map((entry) => {
+    .map((entry): ParsedToolCall | undefined => {
       const block = asRecord(entry);
       if (asString(block?.type) !== 'tool_use') return undefined;
       const name = asString(block?.name);

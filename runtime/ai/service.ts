@@ -42,7 +42,9 @@ export async function handleComplete(body: any): Promise<RuntimeResult<{ respons
   }
   try {
     const response = await executeProviderCompletion(withDefaultBaseUrl(config), request);
-    return { ok: true, data: { response } };
+    // Echo the logical execution id so Core can correlate one request with one
+    // usage/accounting row even across transport replays.
+    return { ok: true, data: { response: { ...response, requestId: request.requestId } } };
   } catch (err: any) {
     return fail('provider_error', err?.message || 'provider call failed');
   }

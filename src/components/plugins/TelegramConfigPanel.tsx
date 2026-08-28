@@ -598,12 +598,15 @@ export function TelegramConfigPanel({
     );
   }
 
-  const aiAvailable = status?.aiAvailable !== false;
+  // Only an explicit `true` counts: while the status is loading — or when the
+  // Super Admin master switch is off — the AI choice must not flash into view.
+  const aiAvailable = status?.aiAvailable === true;
   const aiAgent = status?.aiAgent ?? null;
   const aiSilent =
     aiAvailable && handlingMode === 'ai_first' && aiAgent
       ? !aiAgent.platformAllowed || !aiAgent.agentEnabled
       : false;
+
 
   return (
     <Card className="space-y-4 p-4">

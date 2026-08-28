@@ -791,16 +791,27 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .from('conversation_messages')
         .select('conversation_id, body, created_at, sender_type, seen_at, metadata')
         .in('conversation_id', ids)
+        // Bot menu/button taps are navigation, not chat content — keep them
+        // out of the fetch window entirely so a visitor browsing the bot menu
+        // can never push the real last message out of the preview.
+        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
         .order('created_at', { ascending: false })
-        .limit(1000);
+        .limit(2000);
+
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
       const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
       const unreadByConv: Record<string, number> = {};
       for (const m of (msgs || []) as any[]) {
         if (!m.conversation_id) continue;
         // Channel menu/button taps are navigation, not conversation content:
-        // they must never drive the list preview or the unread badge.
-        if (String((m.metadata || {}).channel_menu_event || '') === 'true') continue;
+        // they must never drive the list preview or the unread badge. Older
+        // rows may carry the flag as a boolean, and menu taps written before
+        // the flag existed still carry `channel_menu_command`.
+        const meta = (m.metadata || {}) as Record<string, unknown>;
+        const isMenuEvent =
+          String(meta.channel_menu_event ?? '') === 'true' || !!meta.channel_menu_command;
+        if (isMenuEvent) continue;
+
         if (!lastByConv[m.conversation_id]) {
           lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, sender_type: m.sender_type };
         }

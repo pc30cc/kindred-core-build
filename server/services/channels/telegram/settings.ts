@@ -261,13 +261,11 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
   for (const locale of TELEGRAM_LOCALES) {
     const localeInput = (localesInput[locale] ?? {}) as Record<string, unknown>;
     const base = defaults.locales[locale];
-    locales[locale] = {
-      welcome: str(localeInput.welcome, 2000, base.welcome),
-      help: str(localeInput.help, 2000, base.help),
-      offline: str(localeInput.offline, 2000, base.offline),
-      handoff: str(localeInput.handoff, 2000, base.handoff),
-      fallback: str(localeInput.fallback, 2000, base.fallback),
-    };
+    const merged = {} as TelegramLocaleMessages;
+    for (const key of MESSAGE_KEYS) {
+      merged[key] = str(localeInput[key], 2000, base[key]);
+    }
+    locales[locale] = merged;
   }
 
   const commandsInput = (input.commands ?? {}) as Record<string, unknown>;

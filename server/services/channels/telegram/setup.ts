@@ -162,6 +162,11 @@ export type ConnectPreflight = {
  *
  * A workspace that lost the race is rejected here, with ZERO provider-side
  * side effects, exactly as before.
+ *
+ * BOT REPLACEMENT RULE: an integration that is live on Bot A may rotate the
+ * token of Bot A freely, but may NOT be silently repointed at Bot B — the
+ * old bot would keep a registered webhook and its conversations would be
+ * orphaned. Switching bots requires an explicit disconnect first.
  */
 export async function connectPreflight(
   config: ServerConfig,
@@ -174,16 +179,29 @@ export async function connectPreflight(
   const integration = operation.integration_id ? await getIntegrationById(config, operation.integration_id) : null;
   if (!integration) throw new TelegramConnectError('no_integration', 'integration not found');
 
+  const reject = async (code: string, message: string): Promise<never> => {
+    // Roll the attempt back here: the Worker has made no provider mutation
+    // yet, so nothing outside Core has to be undone.
+    await applyConnectFailure(config, operation, { errorCode: code, errorMessage: message }).catch(() => {});
+    throw new TelegramConnectError(code, message);
+  };
+
+  const snapshot = snapshotOf(operation);
+  const liveAccountId = snapshot.previous_account_id ?? integration.external_account_id;
+  if (snapshot.had_working_integration && liveAccountId && liveAccountId !== String(input.botId)) {
+    await reject(
+      'different_bot_requires_disconnect',
+      'This integration is connected to a different Telegram bot. Disconnect it before connecting another bot.',
+    );
+  }
+
   try {
     await claimProviderAccount(config, integration, String(input.botId));
   } catch (err) {
     if (err instanceof DuplicateProviderAccountError) {
-      throw new TelegramConnectError(
-        'duplicate_bot',
-        'This Telegram bot is already connected to another workspace',
-      );
+      await reject('duplicate_bot', 'This Telegram bot is already connected to another workspace');
     }
-    throw new TelegramConnectError(
+    await reject(
       'account_claim_failed',
       redactToken(err instanceof Error ? err.message : String(err)).slice(0, 300),
     );
@@ -199,6 +217,49 @@ export async function connectPreflight(
     hasPreviousToken: snapshotOf(operation).had_working_integration,
   };
 }
+
+/**
+ * Ingress contract for operations on an ALREADY-OWNED bot (webhook repair,
+ * reconnect). It must never run the connect preflight: ownership is already
+ * decided, there is no staged credential, and claiming the account again
+ * would corrupt a healthy integration's reservation.
+ */
+export async function providerWebhookContract(
+  config: ServerConfig,
+  input: { operationId: string },
+): Promise<{ webhookUrl: string; secretToken: string; integrationId: string }> {
+  if (!config.channelsWebhookSigningKey) {
+    throw new TelegramConnectError('not_configured', 'CHANNELS_WEBHOOK_SIGNING_KEY is not configured');
+  }
+  if (!config.publicChannelsBaseUrl) {
+    throw new TelegramConnectError('not_configured', 'PUBLIC_CHANNELS_BASE_URL is not configured');
+  }
+
+  const operation = await getOperation(config, input.operationId);
+  if (!operation) throw new TelegramConnectError('unknown_operation', 'operation not found');
+  if (operation.operation === 'connect') {
+    // Connect must go through the ownership preflight, never this shortcut.
+    throw new TelegramConnectError('invalid_operation', 'connect requires the ownership preflight');
+  }
+  const integration = operation.integration_id ? await getIntegrationById(config, operation.integration_id) : null;
+  if (!integration) throw new TelegramConnectError('no_integration', 'integration not found');
+
+  const hasToken = await hasPluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_KEY).catch(
+    () => false,
+  );
+  if (!hasToken) throw new TelegramConnectError('no_token', 'integration has no live credential');
+
+  return {
+    integrationId: integration.id,
+    webhookUrl: buildWebhookUrl(config, operation.provider, integration.public_integration_id),
+    secretToken: deriveChannelWebhookSecret(
+      config.channelsWebhookSigningKey,
+      operation.provider,
+      integration.public_integration_id,
+    ),
+  };
+}
+
 
 // ── 3. Result: Core owns every canonical write ────────────────────────
 

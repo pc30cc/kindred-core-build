@@ -32,8 +32,13 @@ import {
   applyProfileSyncResult,
   applyWebhookRepairResult,
   connectPreflight,
+  providerWebhookContract,
   TelegramConnectError,
 } from '../services/channels/telegram/setup.js';
+import {
+  CORE_INTERNAL_SERVICE_NAME,
+  INTERNAL_CHANNEL_ROUTES,
+} from '../../shared/channels/internalRoutes.js';
 import {
   completeOperation,
   getOperation,
@@ -81,7 +86,7 @@ internalChannelsRouter.get('/auth-diagnostic', (req: any, res) => {
       : null,
     // Proves which Core build answered, so a 404 on an existing route can be
     // attributed to a stale deployment rather than a code defect.
-    service: 'core-internal-channels',
+    service: CORE_INTERNAL_SERVICE_NAME,
     build: CORE_BUILD,
     routes: INTERNAL_CHANNEL_ROUTES,
   });
@@ -296,18 +301,8 @@ internalChannelsRouter.get('/health', async (req: any, res) => {
  * talking to a stale Core deployment (or an entirely different service)
  * instead of guessing. No secrets, no data — just handler names.
  */
-export const INTERNAL_CHANNEL_ROUTES = [
-  'POST /ingest',
-  'POST /process-inbound',
-  'POST /outbound-result',
-  'POST /heartbeat',
-  'GET /operations/:id',
-  'POST /connect-preflight',
-  'POST /operation-result',
-  'POST /media-ingest',
-  'GET /health',
-  'GET /ready',
-] as const;
+export { INTERNAL_CHANNEL_ROUTES };
+
 
 const CORE_BUILD =
   process.env.APP_VERSION || process.env.GIT_SHA || process.env.SOURCE_COMMIT || null;
@@ -316,7 +311,7 @@ const CORE_BUILD =
 internalChannelsRouter.get('/ready', (_req, res) => {
   res.json({
     ok: true,
-    service: 'core-internal-channels',
+    service: CORE_INTERNAL_SERVICE_NAME,
     build: CORE_BUILD,
     routes: INTERNAL_CHANNEL_ROUTES,
   });
@@ -366,12 +361,46 @@ internalChannelsRouter.post('/connect-preflight', async (req: any, res) => {
     res.json({ webhook_url: result.webhookUrl, secret_token: result.secretToken, has_previous_token: result.hasPreviousToken });
   } catch (err) {
     if (err instanceof TelegramConnectError) {
-      return res.status(err.code === 'duplicate_bot' ? 409 : 400).json({ error: err.code, details: err.message });
+      const conflict = err.code === 'duplicate_bot' || err.code === 'different_bot_requires_disconnect';
+      return res.status(conflict ? 409 : 400).json({ error: err.code, details: err.message });
     }
     console.error('[internal-channels] preflight failed:', err);
     res.status(500).json({ error: 'preflight_failed' });
   }
 });
+
+/**
+ * POST /webhook-contract — ingress contract for an ALREADY-OWNED bot.
+ *
+ * Webhook repair / reconnect must not re-run the connect preflight: ownership
+ * is settled, there is no staged credential, and re-claiming the account
+ * would corrupt a healthy reservation. This returns only the ingress URL and
+ * the derived webhook secret — never the bot credential.
+ */
+const webhookContractSchema = z.object({ operation_id: z.string().uuid() });
+
+internalChannelsRouter.post('/webhook-contract', async (req: any, res) => {
+  const parsed = webhookContractSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+
+  try {
+    const contract = await providerWebhookContract(serverConfigOf(req), {
+      operationId: parsed.data.operation_id,
+    });
+    res.json({
+      webhook_url: contract.webhookUrl,
+      secret_token: contract.secretToken,
+      integration_id: contract.integrationId,
+    });
+  } catch (err) {
+    if (err instanceof TelegramConnectError) {
+      return res.status(err.code === 'unknown_operation' ? 404 : 400).json({ error: err.code, details: err.message });
+    }
+    console.error('[internal-channels] webhook contract failed:', err);
+    res.status(500).json({ error: 'webhook_contract_failed' });
+  }
+});
+
 
 /**
  * POST /operation-result — the ONLY way a provider outcome becomes canonical

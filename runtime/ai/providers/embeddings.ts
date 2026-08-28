@@ -4,7 +4,7 @@
  * Runs ONLY inside the AI Runtime deployable — Core sends texts + a resolved
  * provider config and receives vectors back; it never contacts the provider.
  */
-import { redactSecrets } from '../../../server/lib/redactSecrets.js';
+import { redactSecrets } from '../../../shared/security/redactSecrets.js';
 import { PROVIDER_BASE_URLS, isOpenAICompatible } from './catalog.js';
 import { requestJsonWithRetry } from './executor.js';
 import { readProviderErrorMessage } from '../../../shared/ai/parse.js';

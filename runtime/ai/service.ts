@@ -10,7 +10,7 @@ import { executeProviderCompletion, testAIConnection, isSupportedProvider } from
 import { withDefaultBaseUrl, isOpenAICompatible } from './providers/catalog.js';
 import { embedTexts, type EmbedProviderConfig } from './providers/embeddings.js';
 import { createSafeTestFetch, providerHostPolicy } from './providers/safeTransport.js';
-import { redactSecrets } from '../../server/lib/redactSecrets.js';
+import { redactSecrets } from '../../shared/security/redactSecrets.js';
 import type { AIConfig, AIRequest, AIResponse, AIConnectionTestResult } from '../../shared/ai/types.js';
 import type { AiRuntimeErrorCode } from '../../shared/ai/internalRoutes.js';
 

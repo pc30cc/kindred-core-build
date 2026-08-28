@@ -10,7 +10,7 @@
  * during the Provider Network Isolation refactor.
  */
 
-import { redactSecrets } from '../../../server/lib/redactSecrets.js';
+import { redactSecrets } from '../../../shared/security/redactSecrets.js';
 import {
   readBoundedEnvInt,
   isRetryableStatus,

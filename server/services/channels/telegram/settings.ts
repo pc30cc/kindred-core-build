@@ -477,19 +477,8 @@ export function buildTelegramCommandList(
 
 
 /** Maps a recognized command to the localized reply key it should send. */
-export function messageKeyForCommand(command: TelegramCommandKey): keyof TelegramLocaleMessages {
-  switch (command) {
-    case 'start':
-      return 'welcome';
-    case 'help':
-      return 'help';
-    case 'human':
-      return 'handoff';
-    case 'new':
-      return 'welcome';
-    default:
-      return 'help';
-  }
+export function messageKeyForCommand(_command: TelegramCommandKey): keyof TelegramLocaleMessages {
+  return 'welcome';
 }
 
 export { MESSAGE_KEYS as TELEGRAM_MESSAGE_KEYS };

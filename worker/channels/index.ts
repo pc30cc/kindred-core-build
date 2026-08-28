@@ -36,7 +36,14 @@ import {
   sendChatAction,
   sendMedia,
   sendMessage,
-} from '../../server/services/channels/telegram/client.js';
+} from '../../channels/providers/telegram/client.js';
+import {
+  PermanentOperationError,
+  TOKEN_KEY,
+  executeOutboundActions,
+  executeProviderOperation,
+  type OperationContext,
+} from './providerOperations.js';
 
 
 const WORKER_ID = `channels-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -254,6 +261,50 @@ async function coreCall(path: string, body: unknown): Promise<any> {
 
 
 
+/** Authenticated GET against Core's internal boundary. */
+async function coreGet(path: string): Promise<any> {
+  const response = await fetch(`${coreBaseUrl}${path}`, { headers: coreAuthHeaders() });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    if (response.status === 404 || response.status === 401 || response.status === 503) {
+      coreAuthReady = false;
+      throw Object.assign(
+        new Error(`core ${path} unavailable [${response.status}] (${await describeCore()})`),
+        { infrastructure: true } as const,
+      );
+    }
+    throw new Error(`core ${path} failed [${response.status}]: ${detail}`);
+  }
+  return response.json();
+}
+
+/**
+ * Streams raw provider bytes to Core. This is the ONLY path by which provider
+ * media crosses the network boundary; Core validates and persists it.
+ */
+async function coreUpload(path: string, bytes: Uint8Array, contentType: string): Promise<any> {
+  const response = await fetch(`${coreBaseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType, ...coreAuthHeaders() },
+    body: Buffer.from(bytes),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(`core media-ingest failed [${response.status}]: ${detail}`);
+  }
+  return response.json();
+}
+
+/** Everything the provider executor is allowed to reach. */
+function operationContext(): OperationContext {
+  return {
+    corePost: coreCall,
+    coreGet,
+    coreUpload,
+    resolveToken: resolveIntegrationToken,
+  };
+}
+
 /** Resolves a provider credential for an integration. Read-only, server-side. */
 async function resolveIntegrationToken(integrationId: string, secretKey: string): Promise<string> {
   const { data: integration, error } = await sb
@@ -325,7 +376,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
       const messageId: string | null = payload.message_id ?? null;
       if (!chatId || !text.trim()) return; // nothing deliverable
 
-      const token = await resolveIntegrationToken(job.integration_id, 'telegram_bot_token');
+      const token = await resolveIntegrationToken(job.integration_id, TOKEN_KEY);
       // Native "typing…" bubble right before the reply lands. Best-effort:
       // a failure here must never block or retry the actual delivery.
       await sendChatAction(token, chatId, 'typing').catch(() => undefined);
@@ -350,7 +401,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
       const attachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
       if (!chatId || attachments.length === 0) return;
 
-      const token = await resolveIntegrationToken(job.integration_id, 'telegram_bot_token');
+      const token = await resolveIntegrationToken(job.integration_id, TOKEN_KEY);
       try {
         let last: { message_id: number } | null = null;
         for (const [index, attachment] of attachments.entries()) {
@@ -373,23 +424,38 @@ async function handleJob(job: ChannelJob): Promise<void> {
       return;
     }
 
-    // ── Maintenance jobs (Core performs the privileged work) ──────────
-    case 'telegram_profile_sync': {
-      await coreCall('/internal/channels/profile-sync', {
-        provider: 'telegram',
-        integration_id: job.integration_id,
-        workspace_id: job.workspace_id,
-        profile: payload.profile ?? {},
-      });
+    // ── Provider lifecycle (connect / disconnect / repair / media) ────
+    // Core is network-isolated from the provider, so ALL of this runs here
+    // and the outcome is reported back for Core to commit.
+    case 'provider_operation': {
+      const operationId = String(payload.operation_id ?? '');
+      if (!operationId) {
+        throw Object.assign(new Error('provider operation job without operation_id'), { permanent: true });
+      }
+      await executeProviderOperation(operationContext(), operationId);
       return;
     }
 
+    // ── Bot UI: menus, inline edits, callback acknowledgements ────────
+    case 'provider_outbound_action': {
+      if (!job.integration_id) throw Object.assign(new Error('action job without integration'), { permanent: true });
+      const actions: any[] = Array.isArray(payload.actions) ? payload.actions : [];
+      if (!actions.length) return;
+      await executeOutboundActions(operationContext(), job.integration_id, actions);
+      return;
+    }
+
+    // ── Legacy maintenance job types (pre-isolation deployments) ──────
+    case 'telegram_profile_sync':
     case 'telegram_webhook_repair': {
-      await coreCall('/internal/channels/webhook-repair', {
-        provider: 'telegram',
-        integration_id: job.integration_id,
-        workspace_id: job.workspace_id,
-      });
+      const operationId = String(payload.operation_id ?? '');
+      if (!operationId) {
+        throw Object.assign(
+          new Error(`${job.job_type} requires an operation_id on this build`),
+          { permanent: true },
+        );
+      }
+      await executeProviderOperation(operationContext(), operationId);
       return;
     }
 

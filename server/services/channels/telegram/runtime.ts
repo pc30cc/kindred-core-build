@@ -115,9 +115,11 @@ export async function handleTelegramInboundFlow(
   const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, input.senderLanguage);
   try {
     const installation = await getInstallation(config, input.workspaceId, 'telegram');
-    const settings = parseTelegramSettings(installation?.settings);
-    const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, settings.handlingMode);
+    const parsed = parseTelegramSettings(installation?.settings);
+    const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode);
     const aiAllowed = mode === 'ai_first';
+    // Menu visibility follows the RESOLVED mode, not the stored request.
+    const settings = { ...parsed, handlingMode: mode };
 
     const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
     if (!installation) return { aiAllowed, handled: false, locale, command: null };
@@ -143,7 +145,10 @@ export async function handleTelegramInboundFlow(
     if (!command) return { aiAllowed, handled: false, locale, command: null };
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
-    if (command === 'faq' && isTelegramMenuEntryEnabled(settings, 'faq')) {
+    if (!isTelegramMenuEntryEnabled(settings, command) && command !== 'start') {
+      // Retired or switched-off command — never a dead end, show the menu.
+      screen = buildMainMenu(settings, locale, fallbackLocale);
+    } else if (command === 'faq' && isTelegramMenuEntryEnabled(settings, 'faq')) {
       screen = buildFaqList(settings, locale, fallbackLocale);
     } else if (command === 'guides' && isTelegramMenuEntryEnabled(settings, 'guides')) {
       const articles = await listHelpArticles(config, input.workspaceId, locale, fallbackLocale).catch(() => []);
@@ -191,7 +196,9 @@ export async function handleTelegramCallbackQuery(
     await answerCallbackQuery(token, String(query.id)).catch(() => undefined);
     if (chatId === undefined || chatId === null || !messageId || !data.startsWith('tg:')) return true;
 
-    const settings = parseTelegramSettings(installation.settings);
+    const parsedSettings = parseTelegramSettings(installation.settings);
+    const { mode } = await resolveTelegramHandlingMode(config, ctx.workspaceId, parsedSettings.handlingMode);
+    const settings = { ...parsedSettings, handlingMode: mode };
     const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, query.from?.language_code);
 
     const payload = data.slice('tg:'.length);
@@ -305,7 +312,10 @@ async function resolveCallbackScreen(
 
   if (payload.startsWith('cmd:')) {
     const command = payload.slice(4) as TelegramCommandKey;
-    if (!['start', 'help', 'human', 'new'].includes(command)) return null;
+    if (!['start', 'human', 'new'].includes(command)) return null;
+    if (!isTelegramMenuEntryEnabled(settings, command)) {
+      return buildMainMenu(settings, locale, fallbackLocale);
+    }
     return renderCommandScreen(settings, command, locale, fallbackLocale);
   }
 

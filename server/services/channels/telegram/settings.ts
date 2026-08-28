@@ -276,6 +276,19 @@ export async function resolveTelegramHandlingMode(
  * deployments keep their behavior. When OFF, no workspace may enable AI on
  * Telegram and the bot never answers with AI.
  */
+/**
+ * Super Admin switch controlling whether Telegram bot menu taps are surfaced
+ * in the operator inbox. Absent means ON (existing behavior).
+ */
+export async function isTelegramMenuEventsVisible(config: ServerConfig): Promise<boolean> {
+  try {
+    const state = await getPlatformState(config, 'telegram');
+    return (state.policy as Record<string, unknown> | null)?.menuEventsVisible !== false;
+  } catch {
+    return true;
+  }
+}
+
 export async function isTelegramAiPlatformEnabled(config: ServerConfig): Promise<boolean> {
   try {
     const state = await getPlatformState(config, 'telegram');

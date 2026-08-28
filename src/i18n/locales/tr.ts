@@ -4185,6 +4185,8 @@ const tr: TranslationKeys = {
       featured: 'Öne çıkan',
       aiEnabled: 'Bu eklenti için yapay zekâ asistanı',
       aiEnabledHint: 'Ana anahtar. Kapalıyken çalışma alanları bu kanalda yapay zekâ yanıtlarını açamaz ve bot asla yapay zekâ ile yanıtlamaz.',
+      menuEventsVisible: 'Bot menü dokunuşlarını gelen kutusunda göster',
+      menuEventsVisibleHint: 'Kapalıyken Telegram bot menü gezinmesi operatör gelen kutusundaki sohbetlerde gizlenir.',
       rolloutStatus: 'Yayın durumu',
       sortOrder: 'Sıralama',
       saved: 'Eklenti güncellendi.',

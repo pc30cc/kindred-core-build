@@ -93,7 +93,26 @@ export type TelegramSettings = {
   handlingMode: TelegramHandlingMode;
 };
 
-const MESSAGE_KEYS = ['welcome', 'help', 'offline', 'handoff', 'fallback'] as const;
+const MESSAGE_KEYS = [
+  'welcome',
+  'offline',
+  'fallback',
+  'menuTitle',
+  'menuHint',
+  'back',
+  'faqTitle',
+  'faqHint',
+  'faqEmpty',
+  'guidesTitle',
+  'guidesHint',
+  'guidesEmpty',
+  'prev',
+  'next',
+  'deptTitle',
+  'deptHint',
+  'deptConfirmed',
+  'deptChange',
+] as const;
 
 
 function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
@@ -101,26 +120,65 @@ function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
     case 'fa':
       return {
         welcome: 'سلام! به پشتیبانی ما خوش آمدید. چطور می‌توانیم کمکتان کنیم؟',
-        help: 'برای شروع دوباره /start، برای صحبت با یک همکار /human و برای شروع گفتگوی تازه /new را بفرستید.',
         offline: 'همکاران ما در حال حاضر آنلاین نیستند؛ پیام شما ثبت شد و به‌زودی پاسخ داده می‌شود.',
-        handoff: 'درخواست شما به یک همکار انسانی ارجاع داده شد و به‌زودی پاسخ می‌دهد.',
-        fallback: 'متوجه پیام شما نشدیم. می‌توانید واضح‌تر بنویسید یا با دستور /human با یک همکار صحبت کنید؟',
+        fallback: 'متوجه پیام شما نشدیم. لطفاً پرسش خود را واضح‌تر بنویسید.',
+        menuTitle: '✨ منوی اصلی',
+        menuHint: 'یکی از گزینه‌های زیر را انتخاب کنید، یا پرسش خود را بنویسید؛ همهٔ پیام‌ها خوانده می‌شوند.',
+        back: '⬅️ بازگشت',
+        faqTitle: '❓ سوالات متداول',
+        faqHint: 'روی هر پرسش بزنید تا پاسخ آن نمایش داده شود.',
+        faqEmpty: 'هنوز پرسشی منتشر نشده است. پرسش خود را بنویسید تا پاسخ دهیم.',
+        guidesTitle: '📚 مقالات راهنما',
+        guidesHint: 'روی هر مقاله بزنید تا همین‌جا آن را بخوانید.',
+        guidesEmpty: 'هنوز مقالهٔ راهنمایی منتشر نشده است.',
+        prev: '◀️ قبلی',
+        next: 'بعدی ▶️',
+        deptTitle: '🗂 کدام بخش می‌تواند کمکتان کند؟',
+        deptHint: 'بخش مرتبط با درخواست خود را انتخاب کنید تا به همکار مناسب وصل شوید. در همین حین هم می‌توانید بنویسید.',
+        deptConfirmed: '✅ به بخش {department} وصل شدید. همکاران این بخش به‌زودی همین‌جا پاسخ می‌دهند.',
+        deptChange: 'تغییر بخش',
       };
     case 'tr':
       return {
         welcome: 'Merhaba! Desteğimize hoş geldiniz. Size nasıl yardımcı olabiliriz?',
-        help: 'Yeniden başlamak için /start, bir temsilciyle konuşmak için /human, yeni bir görüşme başlatmak için /new yazabilirsiniz.',
         offline: 'Ekibimiz şu anda çevrimdışı; mesajınız kaydedildi ve en kısa sürede yanıtlanacak.',
-        handoff: 'Talebiniz bir temsilciye yönlendirildi ve kısa süre içinde yanıtlanacaktır.',
-        fallback: 'Mesajınızı anlayamadık. Daha açık yazabilir veya bir temsilciyle konuşmak için /human yazabilirsiniz.',
+        fallback: 'Mesajınızı anlayamadık. Lütfen sorunuzu biraz daha açık yazın.',
+        menuTitle: '✨ Ana menü',
+        menuHint: 'Aşağıdan bir seçenek seçin ya da sorunuzu yazın; her mesajı okuyoruz.',
+        back: '⬅️ Geri',
+        faqTitle: '❓ Sıkça sorulan sorular',
+        faqHint: 'Cevabı görmek için bir soruya dokunun.',
+        faqEmpty: 'Henüz yayınlanmış bir soru yok. Sorunuzu yazın, yanıtlayalım.',
+        guidesTitle: '📚 Yardım makaleleri',
+        guidesHint: 'Okumak için bir makaleye dokunun.',
+        guidesEmpty: 'Henüz yayınlanmış bir yardım makalesi yok.',
+        prev: '◀️ Önceki',
+        next: 'Sonraki ▶️',
+        deptTitle: '🗂 Hangi ekip yardımcı olabilir?',
+        deptHint: 'Talebinize uygun departmanı seçin; sizi doğru ekip arkadaşına bağlayalım. Bu sırada yazmaya devam edebilirsiniz.',
+        deptConfirmed: '✅ {department} departmanına bağlandınız. Bu departmandan bir temsilci kısa süre içinde yanıtlayacak.',
+        deptChange: 'Departmanı değiştir',
       };
     default:
       return {
         welcome: 'Hi! Welcome to our support chat. How can we help you today?',
-        help: 'Send /start to restart, /human to talk to a teammate, or /new to start a fresh conversation.',
         offline: 'Our team is offline right now — your message was saved and will be answered soon.',
-        handoff: 'Your request has been handed off to a human teammate and will be answered shortly.',
-        fallback: "Sorry, we didn't understand that. Try rephrasing, or send /human to reach a teammate.",
+        fallback: "Sorry, we didn't understand that. Try rephrasing your question.",
+        menuTitle: '✨ Main menu',
+        menuHint: 'Pick an option below, or just type your question — we read every message.',
+        back: '⬅️ Back',
+        faqTitle: '❓ Frequently asked questions',
+        faqHint: 'Tap a question to see the answer.',
+        faqEmpty: 'No questions have been published yet. Send us your question and we will answer it.',
+        guidesTitle: '📚 Help articles',
+        guidesHint: 'Tap an article to read it here.',
+        guidesEmpty: 'No help articles have been published yet.',
+        prev: '◀️ Previous',
+        next: 'Next ▶️',
+        deptTitle: '🗂 Which team can help you?',
+        deptHint: 'Pick the department that fits your request — we will connect you with the right teammate. You can keep writing in the meantime.',
+        deptConfirmed: '✅ Connected to {department}. A teammate from this department will reply here shortly.',
+        deptChange: 'Change department',
       };
   }
 }
@@ -128,24 +186,18 @@ function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
 const DEFAULT_COMMANDS_BY_LOCALE: Record<TelegramLocale, Record<TelegramCommandKey, string>> = {
   en: {
     start: 'Start the conversation',
-    help: 'Show available commands',
-    human: 'Talk to a human teammate',
     new: 'Start a new conversation',
     faq: 'Frequently asked questions',
     guides: 'Help articles',
   },
   fa: {
     start: 'شروع گفتگو',
-    help: 'نمایش دستورهای موجود',
-    human: 'گفتگو با همکار انسانی',
     new: 'شروع گفتگوی تازه',
     faq: 'سوالات متداول',
     guides: 'مقالات راهنما',
   },
   tr: {
     start: 'Görüşmeyi başlat',
-    help: 'Komutları göster',
-    human: 'Bir temsilciyle konuş',
     new: 'Yeni görüşme başlat',
     faq: 'Sıkça sorulan sorular',
     guides: 'Yardım makaleleri',

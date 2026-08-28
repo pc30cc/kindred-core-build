@@ -135,7 +135,6 @@ export async function resolveDepartmentPickerScreen(
 export async function assignConversationDepartment(
   config: ServerConfig,
   args: {
-    settings: TelegramSettings;
     workspaceId: string;
     conversationId: string;
     department: { id: string; name: string };

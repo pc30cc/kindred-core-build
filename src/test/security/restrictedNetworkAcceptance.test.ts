@@ -216,6 +216,7 @@ describe('restricted network — Core succeeds only through the AI Runtime', () 
       apiKey: 'sk-x',
       model: 'gpt-4o-mini',
     } as any);
+    if (!result.success) console.log('TESTCONN', result);
     expect(result.success).toBe(true);
     expect(coreProviderViolations).toEqual([]);
     expect(runtimeHits).toEqual([`${RUNTIME_BASE}${AI_RUNTIME_ROUTES.test}`]);

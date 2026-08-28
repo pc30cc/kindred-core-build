@@ -113,22 +113,34 @@ const DEFAULT_COMMANDS_BY_LOCALE: Record<TelegramLocale, Record<TelegramCommandK
     help: 'Show available commands',
     human: 'Talk to a human teammate',
     new: 'Start a new conversation',
+    faq: 'Frequently asked questions',
+    guides: 'Help articles',
   },
   fa: {
     start: 'شروع گفتگو',
     help: 'نمایش دستورهای موجود',
     human: 'گفتگو با همکار انسانی',
     new: 'شروع گفتگوی تازه',
+    faq: 'سوالات متداول',
+    guides: 'مقالات راهنما',
   },
   tr: {
     start: 'Görüşmeyi başlat',
     help: 'Komutları göster',
     human: 'Bir temsilciyle konuş',
     new: 'Yeni görüşme başlat',
+    faq: 'Sıkça sorulan sorular',
+    guides: 'Yardım makaleleri',
   },
 };
 
 const DEFAULT_COMMANDS: Record<TelegramCommandKey, string> = { ...DEFAULT_COMMANDS_BY_LOCALE.en };
+
+const DEFAULT_FAQ: Record<TelegramLocale, TelegramFaqItem[]> = {
+  en: [],
+  fa: [],
+  tr: [],
+};
 
 export function defaultTelegramSettings(): TelegramSettings {
   return {
@@ -144,9 +156,12 @@ export function defaultTelegramSettings(): TelegramSettings {
       fa: { ...DEFAULT_COMMANDS_BY_LOCALE.fa },
       tr: { ...DEFAULT_COMMANDS_BY_LOCALE.tr },
     },
+    menu: { faqEnabled: false, guidesEnabled: false },
+    faq: { en: [...DEFAULT_FAQ.en], fa: [...DEFAULT_FAQ.fa], tr: [...DEFAULT_FAQ.tr] },
     handlingMode: 'human_only',
   };
 }
+
 
 
 function str(value: unknown, max: number, fallback: string): string {

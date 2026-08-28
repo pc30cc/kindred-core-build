@@ -115,11 +115,6 @@ export function buildReplyKeyboard(
   if (contentRow.length) rows.push(contentRow);
 
   const actionRow: { text: string }[] = [];
-  // "Talk to a human" is only meaningful while AI answers first — otherwise
-  // an operator is already the default recipient.
-  if (isTelegramMenuEntryEnabled(settings, 'human')) {
-    actionRow.push({ text: labelFor(settings, locale, 'human', fallback) });
-  }
   actionRow.push({ text: labelFor(settings, locale, 'new', fallback) });
   rows.push(actionRow);
 
@@ -150,7 +145,7 @@ export function matchReplyKeyboardCommand(
 ): TelegramCommandKey | null {
   const needle = normalizeLabel(String(text ?? ''));
   if (!needle) return null;
-  const keys: TelegramCommandKey[] = ['guides', 'faq', 'human', 'new', 'start'];
+  const keys: TelegramCommandKey[] = ['guides', 'faq', 'new', 'start'];
   for (const key of keys) {
     if (!isTelegramMenuEntryEnabled(settings, key)) continue;
     for (const locale of ['fa', 'en', 'tr'] as TelegramLocale[]) {
@@ -162,7 +157,11 @@ export function matchReplyKeyboardCommand(
 
 
 /** A single "back to main menu" keyboard, used under every leaf screen. */
-export function backKeyboard(locale: string | null | undefined, fallback?: string | null) {
+export function backKeyboard(
+  settings: TelegramSettings,
+  locale: string | null | undefined,
+  fallback?: string | null,
+) {
   return { inline_keyboard: [[{ text: menuStrings(settings, locale, fallback).back, callback_data: 'tg:menu' }]] };
 }
 
@@ -183,7 +182,7 @@ export function buildFaqList(
   if (!items.length) {
     return {
       text: `<b>${escapeHtml(s.faqTitle)}</b>\n\n${escapeHtml(s.faqEmpty)}`,
-      replyMarkup: backKeyboard(locale, fallback),
+      replyMarkup: backKeyboard(settings, locale, fallback),
     };
   }
   const rows: Button[][] = items.map((item, index) => [
@@ -294,6 +293,7 @@ export function articleToTelegramText(article: HelpArticle): string {
 }
 
 export function buildArticleList(
+  settings: TelegramSettings,
   articles: HelpArticle[],
   page: number,
   locale: string | null | undefined,
@@ -303,7 +303,7 @@ export function buildArticleList(
   if (!articles.length) {
     return {
       text: `<b>${escapeHtml(s.guidesTitle)}</b>\n\n${escapeHtml(s.guidesEmpty)}`,
-      replyMarkup: backKeyboard(locale, fallback),
+      replyMarkup: backKeyboard(settings, locale, fallback),
     };
   }
   const pages = Math.max(1, Math.ceil(articles.length / ARTICLES_PER_PAGE));
@@ -330,6 +330,7 @@ export function buildArticleList(
 }
 
 export function buildArticleView(
+  settings: TelegramSettings,
   article: HelpArticle,
   locale: string | null | undefined,
   fallback?: string | null,

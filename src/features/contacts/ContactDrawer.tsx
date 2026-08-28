@@ -24,6 +24,7 @@ import { getDisplayName, timeAgo, getCompanyFromMetadata, getLocalizedLocation }
 import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { formatDateTime } from '@/lib/date';
 
 interface Props {
@@ -145,6 +146,9 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                     <p className="text-xs text-muted-foreground truncate text-start">{contact.email}</p>
                   )}
                   <div className="flex flex-wrap gap-1 mt-2">
+                    {resolveChannelKey((contact as any).metadata) !== 'widget' && (
+                      <ChannelBadge channel={resolveChannelKey((contact as any).metadata)} t={t as any} size="xs" />
+                    )}
                     {(contact.tags ?? []).slice(0, 3).map((tag) => (
                       <Badge key={tag} variant="secondary" className="text-[10px] h-5">{tag}</Badge>
                     ))}
@@ -187,6 +191,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
 
               <ScrollArea dir={dir} className="flex-1">
                 <TabsContent value="info" className="p-5 space-y-4 mt-0 text-start">
+                  <ChannelIdentityCard metadata={(contact as any).metadata} t={t as any} dir={dir as any} />
                   {editing ? (
                     <div className="space-y-3">
                       <div className="space-y-1.5">

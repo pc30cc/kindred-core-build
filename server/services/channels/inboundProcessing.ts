@@ -31,6 +31,14 @@ export type NormalizedInboundMessage = {
   senderName: string | null;
   senderUsername: string | null;
   senderLanguage: string | null;
+  /** Extra provider-side identity details shown in the contact profile. */
+  senderProfile?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    isPremium?: boolean;
+    isBot?: boolean;
+    chatType?: string | null;
+  } | null;
   text: string;
   attachments?: Array<{ fileId: string; kind: string; fileName?: string | null; mimeType?: string | null; size?: number | null }>;
   sentAt: string | null;
@@ -50,26 +58,47 @@ async function ensureChannelContact(
 ): Promise<string | null> {
   const identityKey = `${input.provider}:${input.externalUserId ?? input.externalChatId}`;
 
+  const channelMetadata = {
+    source: input.provider,
+    channel: input.provider,
+    channel_identity: identityKey,
+    channel_user_id: input.externalUserId,
+    channel_chat_id: input.externalChatId,
+    channel_username: input.senderUsername,
+    channel_language: input.senderLanguage,
+    channel_first_name: input.senderProfile?.firstName ?? null,
+    channel_last_name: input.senderProfile?.lastName ?? null,
+    channel_is_premium: input.senderProfile?.isPremium ?? false,
+    channel_chat_type: input.senderProfile?.chatType ?? null,
+  };
+
   const { data: existing } = await sb
     .from('contacts')
-    .select('id')
+    .select('id, name, metadata')
     .eq('workspace_id', input.workspaceId)
     .contains('metadata', { channel_identity: identityKey })
     .limit(1)
     .maybeSingle();
-  if (existing?.id) return existing.id as string;
+  if (existing?.id) {
+    // Keep the provider-side identity fresh (renames, new @username, locale).
+    const nextName =
+      input.senderName || (input.senderUsername ? `@${input.senderUsername}` : null);
+    await sb
+      .from('contacts')
+      .update({
+        ...(nextName && nextName !== (existing as any).name ? { name: nextName } : {}),
+        metadata: { ...((existing as any).metadata || {}), ...channelMetadata },
+      })
+      .eq('id', (existing as any).id);
+    return (existing as any).id as string;
+  }
 
   const buildPayload = (visitorCode: string | null) => ({
     workspace_id: input.workspaceId,
     name: input.senderName || (input.senderUsername ? `@${input.senderUsername}` : null),
     visitor_code: visitorCode,
     metadata: {
-      source: input.provider,
-      channel: input.provider,
-      channel_identity: identityKey,
-      channel_user_id: input.externalUserId,
-      channel_username: input.senderUsername,
-      channel_language: input.senderLanguage,
+      ...channelMetadata,
       anonymous: !input.senderName,
       anon_code: anonCodeFrom(identityKey),
     },
@@ -177,6 +206,20 @@ export async function processInboundMessage(
 
   try {
     const contactId = await ensureChannelContact(sb, input);
+
+    // Profile photo sync — best-effort, never blocks message processing.
+    if (contactId && input.provider === 'telegram') {
+      void import('./telegram/avatarSync.js')
+        .then(({ syncTelegramContactAvatar }) =>
+          syncTelegramContactAvatar(config, {
+            workspaceId: input.workspaceId,
+            integrationId: input.integrationId,
+            contactId,
+            telegramUserId: input.externalUserId,
+          }),
+        )
+        .catch(() => undefined);
+    }
     const conversation = await ensureChannelConversation(sb, input, contactId);
 
     if (conversation.created) {

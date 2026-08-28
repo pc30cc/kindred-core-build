@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { ChannelBadge, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   getDisplayName, timeAgo,
@@ -469,7 +470,7 @@ export default function ContactsPage() {
                     </td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
                     <td className="p-3">
-                      <SourceBadge info={channels?.[c.id]} t={t} />
+                      <SourceBadge info={channels?.[c.id]} metadata={(c as any).metadata} t={t} />
                     </td>
                     <td className="p-3 text-muted-foreground">
                       {identityLoading ? (
@@ -599,7 +600,19 @@ function EmptyState({ t, hasContacts, onAdd, onImport }: { t: (k: any, p?: Recor
   );
 }
 
-function SourceBadge({ info, t }: { info?: { chat: boolean; call: boolean; calls: number }; t: (k: any, v?: any) => string }) {
+function SourceBadge({
+  info,
+  metadata,
+  t,
+}: {
+  info?: { chat: boolean; call: boolean; calls: number };
+  metadata?: Record<string, unknown> | null;
+  t: (k: any, v?: any) => string;
+}) {
+  // External channels (Telegram, WhatsApp, …) win: they describe the real
+  // origin more precisely than the generic chat/call derivation.
+  const channel = resolveChannelKey(metadata);
+  if (channel !== 'widget') return <ChannelBadge channel={channel} t={t as any} />;
   if (!info || (!info.chat && !info.call)) {
     return <span className="text-muted-foreground/50 italic text-xs">{t('contacts.sourceUnknown')}</span>;
   }

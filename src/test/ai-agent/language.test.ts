@@ -171,15 +171,25 @@ describe('C14 — settings.allowed_locales intersection / unsupported requested 
     expect(d.responseLanguage).toBe('en');
   });
 
-  it('falls back to the first allowed locale when the resolved response language is not in the allow-list (unsupported requested locale)', () => {
+  it('falls back to the configured widget locale (not the first allow-list entry) when the resolved response language is not allowed', () => {
     const d = decideResponseLanguage({
       visitorText: 'how do I reset my password please help me today', // -> en
       widgetLocale: 'fa',
       allowedLocales: ['tr', 'fa'], // en not allowed
     });
-    expect(d.responseLanguage).toBe('tr');
-    expect(d.source).toBe('fallback_en'); // pinned as-is: `source` stays 'fallback_en' for ANY allow-list override, not just the literal en case
+    expect(d.responseLanguage).toBe('fa');
+    expect(d.source).toBe('widget_fallback');
   });
+
+  it('falls back to the first allowed locale when nothing else is configured', () => {
+    const d = decideResponseLanguage({
+      visitorText: 'how do I reset my password please help me today', // -> en
+      allowedLocales: ['tr', 'fa'], // en not allowed, no widget/workspace locale
+    });
+    expect(d.responseLanguage).toBe('tr');
+    expect(d.source).toBe('fallback_en');
+  });
+
 
   // NOTE: the old "biases Arabic-script input to fa when fa is allowed but
   // ar is not" test that lived here has been removed. It exercised

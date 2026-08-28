@@ -98,7 +98,7 @@ describe('restricted network — POST /api/ai/complete', () => {
 
   it('surfaces a runtime failure as an error instead of falling back to a provider call from Core', async () => {
     // Runtime configured but the secret is wrong → runtime_unauthorized.
-    (app as any).set('x', 0);
+
     const badApp = express();
     badApp.use((req, _res, next) => {
       (req as any).serverConfig = restrictedServerConfig({ aiRuntimeInternalSecret: 'wrong-secret' });

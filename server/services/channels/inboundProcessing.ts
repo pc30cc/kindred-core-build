@@ -253,7 +253,14 @@ export async function processInboundMessage(
         )
         .catch(() => undefined);
     }
-    const conversation = await ensureChannelConversation(sb, input, contactId);
+    const aiOwnsThread = await resolveInboundAiOwnership(config, input);
+    const conversation = await ensureChannelConversation(
+      sb,
+      input,
+      contactId,
+      aiOwnsThread ? { ai_state: 'ai_managed', managed_by_ai: true, ai_managed_by_ai: true } : {},
+    );
+
 
     if (conversation.created) {
       void recordConversationEvent(config, {

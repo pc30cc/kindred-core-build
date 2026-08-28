@@ -1708,8 +1708,9 @@ export default function InboxPage() {
                   return (
                     <div key={msg.id} className="flex justify-center my-3">
 
-                      <div className="max-w-full overflow-x-auto">
-                        <div className="flex items-center gap-1.5 flex-nowrap px-1">
+                      <div className="max-w-full">
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap px-1">
+
                           <span className="text-[10px] text-muted-foreground/70 shrink-0">
                             {t('inbox.menuTaps') && !t('inbox.menuTaps').startsWith('inbox.')
                               ? t('inbox.menuTaps')

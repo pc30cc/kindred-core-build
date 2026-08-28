@@ -48,9 +48,37 @@ import {
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
 import { getServiceClient } from '../../../supabase.js';
 import { resolveAvailability } from '../../widget/availability.js';
+import { anyOperatorOnline } from '../../widget/operatorPresence.js';
 
 /** Away notices are rate-limited per thread so the bot never spams. */
 const OFFLINE_NOTICE_COOLDOWN_MS = 10 * 60 * 1000;
+/** When writing is closed the bot answers almost every attempt. */
+const OFFLINE_LOCK_COOLDOWN_MS = 45 * 1000;
+
+/**
+ * Is the workspace unreachable for a live human right now?
+ *
+ * Two independent signals, either of which means "nobody can answer":
+ *   1. The widget availability resolver (business hours / offline mode).
+ *      Note: with business hours DISABLED it always reports 'online', which
+ *      is why signal 2 exists.
+ *   2. Operator presence — every member force-offline / invisible / outside
+ *      their personal schedule. Workspaces with zero members fail open.
+ */
+export async function isWorkspaceUnreachable(
+  config: ServerConfig,
+  workspaceId: string,
+  locale: string,
+): Promise<boolean> {
+  const [availability, presence] = await Promise.all([
+    resolveAvailability(config, { workspaceId, locale }).catch(() => null),
+    anyOperatorOnline(config, workspaceId).catch(() => null),
+  ]);
+  if (availability?.state === 'offline') return true;
+  if (presence && presence.memberCount > 0 && !presence.anyOnline) return true;
+  return false;
+}
+
 
 /**
  * Away handling for a plain (non-command) visitor message.

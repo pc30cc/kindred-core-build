@@ -19,7 +19,12 @@ export const CHANNEL_JOB_TYPES = [
   'telegram_outbound_media',
   'telegram_profile_sync',
   'telegram_webhook_repair',
+  // Provider-network-isolated work. Everything that must touch a provider
+  // socket runs through these, executed exclusively by the Channels Worker.
+  'provider_operation',
+  'provider_outbound_action',
 ] as const;
+
 
 export type ChannelJobType = (typeof CHANNEL_JOB_TYPES)[number];
 

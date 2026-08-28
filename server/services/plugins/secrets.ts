@@ -95,3 +95,49 @@ export async function deletePluginSecret(
     .eq('secret_key', secretKey);
   if (error) throw new Error(`plugin secret delete failed: ${error.message}`);
 }
+
+/**
+ * Backup slot used during an atomic credential replacement. The LIVE token is
+ * copied here (ciphertext only, never decrypted) immediately before promotion
+ * so a failed state transition can restore it byte-for-byte.
+ */
+export const TELEGRAM_BOT_TOKEN_PREVIOUS_KEY = 'telegram_bot_token_previous';
+
+/**
+ * Moves an encrypted credential from one slot to another WITHOUT decrypting
+ * it — the ciphertext envelope is copied as-is.
+ *
+ * This is what makes credential promotion possible on a Core that must not
+ * (and, in a restricted-network deployment, cannot) do anything with the
+ * plaintext: no master-key use, no provider call, one row write.
+ *
+ * Returns false when the source slot is empty.
+ */
+export async function copyPluginSecret(
+  config: ServerConfig,
+  installationId: string,
+  fromKey: string,
+  toKey: string,
+): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('plugin_secrets')
+    .select('algorithm,nonce,ciphertext,auth_tag')
+    .eq('installation_id', installationId)
+    .eq('secret_key', fromKey)
+    .maybeSingle();
+  if (error) throw new Error(`plugin secret copy read failed: ${error.message}`);
+  if (!data) return false;
+
+  const { error: writeError } = await sb.from('plugin_secrets').upsert(
+    {
+      installation_id: installationId,
+      secret_key: toKey,
+      ...(data as Record<string, unknown>),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'installation_id,secret_key' },
+  );
+  if (writeError) throw new Error(`plugin secret copy write failed: ${writeError.message}`);
+  return true;
+}

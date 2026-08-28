@@ -13,9 +13,9 @@
 import type { ServerConfig } from '../../../config.js';
 import type { NormalizedInboundMessage } from '../inboundProcessing.js';
 import { getInstallation } from '../../plugins/state.js';
-import { TELEGRAM_BOT_TOKEN_KEY, readPluginSecret } from '../../plugins/secrets.js';
+import { TELEGRAM_BOT_TOKEN_KEY, hasPluginSecret } from '../../plugins/secrets.js';
 import { getIntegrationForInstallation } from '../integrations.js';
-import { answerCallbackQuery, editMessageText, sendChatAction, sendMessage } from './client.js';
+import { enqueueProviderActions, type ProviderAction } from '../providerActions.js';
 import {
   commandKeyFromText,
   isTelegramMenuEntryEnabled,
@@ -190,11 +190,24 @@ export async function handleTelegramCallbackQuery(
   try {
     const installation = await getInstallation(config, ctx.workspaceId, 'telegram');
     if (!installation) return true;
-    const token = await readPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY);
-    if (!token) return true;
+    if (!(await hasPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY))) return true;
+    const integration = await getIntegrationForInstallation(config, installation.id);
+    if (!integration) return true;
 
-    await answerCallbackQuery(token, String(query.id)).catch(() => undefined);
-    if (chatId === undefined || chatId === null || !messageId || !data.startsWith('tg:')) return true;
+    // Acknowledge the tap first so the button stops spinning, then render.
+    const actions: ProviderAction[] = [{ kind: 'answer_callback', callbackQueryId: String(query.id) }];
+    const flush = () =>
+      enqueueProviderActions(config, {
+        provider: 'telegram',
+        workspaceId: ctx.workspaceId,
+        integrationId: integration.id,
+        actions,
+      });
+
+    if (chatId === undefined || chatId === null || !messageId || !data.startsWith('tg:')) {
+      await flush();
+      return true;
+    }
 
     const parsedSettings = parseTelegramSettings(installation.settings);
     const { mode } = await resolveTelegramHandlingMode(config, ctx.workspaceId, parsedSettings.handlingMode);
@@ -215,36 +228,35 @@ export async function handleTelegramCallbackQuery(
     } else {
       screen = await resolveCallbackScreen(config, ctx.workspaceId, settings, data, locale, fallbackLocale);
     }
-    if (!screen) return true;
+    if (!screen) {
+      await flush();
+      return true;
+    }
     const view = screen;
 
     // A persistent reply keyboard cannot be attached to an edited message —
-    // those screens are delivered as a fresh message instead.
+    // those screens are delivered as a fresh message instead. The worker
+    // falls back to a fresh message when an old bubble refuses the edit.
     if ((view.replyMarkup as any)?.keyboard) {
-      await sendMessage(token, {
+      actions.push({
+        kind: 'send_message',
         chatId,
         text: view.text,
         parseMode: 'HTML',
         replyMarkup: view.replyMarkup,
       });
-      return true;
+    } else {
+      actions.push({
+        kind: 'edit_message',
+        chatId,
+        messageId,
+        text: view.text,
+        parseMode: 'HTML',
+        replyMarkup: view.replyMarkup,
+        sendOnEditFailure: true,
+      });
     }
-
-    await editMessageText(token, {
-      chatId,
-      messageId,
-      text: view.text,
-      parseMode: 'HTML',
-      replyMarkup: view.replyMarkup,
-    }).catch(async () => {
-      // The bubble may be too old to edit — fall back to a fresh message.
-      await sendMessage(token, {
-        chatId,
-        text: view.text,
-        parseMode: 'HTML',
-        replyMarkup: view.replyMarkup,
-      });
-    });
+    await flush();
     return true;
 
 
@@ -343,22 +355,32 @@ async function resolveCallbackScreen(
   return null;
 }
 
+/**
+ * Queues a bot screen for delivery. Core does NOT talk to Telegram: the
+ * Channels Worker picks the action up and performs the socket work.
+ */
 async function sendTelegramScreen(
   config: ServerConfig,
   installationId: string,
   chatId: string,
   screen: { text: string; replyMarkup: Record<string, unknown> },
 ): Promise<boolean> {
-  const token = await readPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY);
-  if (!token) return false;
+  if (!(await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY))) return false;
   const integration = await getIntegrationForInstallation(config, installationId);
   if (!integration) return false;
-  await sendChatAction(token, chatId, 'typing').catch(() => undefined);
-  await sendMessage(token, {
-    chatId,
-    text: screen.text,
-    parseMode: 'HTML',
-    replyMarkup: screen.replyMarkup,
+  return enqueueProviderActions(config, {
+    provider: 'telegram',
+    workspaceId: integration.workspace_id,
+    integrationId: integration.id,
+    actions: [
+      {
+        kind: 'send_message',
+        chatId,
+        text: screen.text,
+        parseMode: 'HTML',
+        replyMarkup: screen.replyMarkup,
+        typing: true,
+      },
+    ],
   });
-  return true;
 }

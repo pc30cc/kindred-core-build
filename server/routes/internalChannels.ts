@@ -10,7 +10,7 @@
  * of touching contacts / conversations / conversation_messages itself.
  */
 
-import { Router } from 'express';
+import { Router, raw } from 'express';
 import { z } from 'zod';
 import {
   INTERNAL_SECRET_HEADER,
@@ -25,9 +25,27 @@ import {
   updateIntegration,
 } from '../services/channels/integrations.js';
 import {
-  applyTelegramProfile,
-  repairTelegramWebhook,
+  applyConnectFailure,
+  applyConnectSuccess,
+  applyDiagnosticsResult,
+  applyDisconnectResult,
+  applyProfileSyncResult,
+  applyWebhookRepairResult,
+  connectPreflight,
+  TelegramConnectError,
 } from '../services/channels/telegram/setup.js';
+import {
+  completeOperation,
+  getOperation,
+  markOperationRunning,
+  type ProviderOperation,
+} from '../services/channels/operations.js';
+import {
+  persistContactAvatar,
+  persistInboundAttachment,
+  recordMediaOutcomes,
+} from '../services/channels/telegram/mediaIngest.js';
+import { markAvatarChecked } from '../services/channels/telegram/avatarSync.js';
 import { enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
@@ -283,8 +301,10 @@ export const INTERNAL_CHANNEL_ROUTES = [
   'POST /process-inbound',
   'POST /outbound-result',
   'POST /heartbeat',
-  'POST /profile-sync',
-  'POST /webhook-repair',
+  'GET /operations/:id',
+  'POST /connect-preflight',
+  'POST /operation-result',
+  'POST /media-ingest',
   'GET /health',
   'GET /ready',
 ] as const;
@@ -304,59 +324,242 @@ internalChannelsRouter.get('/ready', (_req, res) => {
 
 
 /**
- * POST /profile-sync — the Worker asks Core to push bot branding to the
- * provider. Core holds the credential; the worker never decrypts it here.
+ * ── PROVIDER OPERATION BOUNDARY ──────────────────────────────────────
+ *
+ * Core never opens a socket to a provider. The Worker fetches the operation
+ * it claimed, executes the provider calls, and reports FACTS back here; Core
+ * applies every canonical write.
  */
-const profileSyncSchema = z.object({
-  provider: z.literal('telegram'),
-  integration_id: z.string().uuid(),
-  workspace_id: z.string().uuid(),
-  profile: z.record(z.unknown()).optional(),
+
+/** GET /operations/:id — the operation record for a claimed job. No secrets. */
+internalChannelsRouter.get('/operations/:id', async (req: any, res) => {
+  try {
+    const operation = await getOperation(serverConfigOf(req), String(req.params.id));
+    if (!operation) return res.status(404).json({ error: 'unknown_operation' });
+    await markOperationRunning(serverConfigOf(req), operation.id);
+    res.json({ operation });
+  } catch (err) {
+    console.error('[internal-channels] operation read failed:', err);
+    res.status(500).json({ error: 'operation_read_failed' });
+  }
 });
 
-internalChannelsRouter.post('/profile-sync', async (req: any, res) => {
-  const parsed = profileSyncSchema.safeParse(req.body);
+/**
+ * POST /connect-preflight — ownership is decided by the DATABASE, before the
+ * Worker mutates anything on the provider. Returns the ingress URL and the
+ * derived webhook secret for this integration (never the bot credential).
+ */
+const preflightSchema = z.object({
+  operation_id: z.string().uuid(),
+  bot_id: z.union([z.string(), z.number()]),
+});
+
+internalChannelsRouter.post('/connect-preflight', async (req: any, res) => {
+  const parsed = preflightSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
   try {
-    const config = serverConfigOf(req);
-    const integration = await getIntegrationById(config, parsed.data.integration_id);
-    if (!integration) return res.status(404).json({ error: 'unknown_integration' });
-
-    const profile = (parsed.data.profile ?? {}) as any;
-    const result = await applyTelegramProfile(config, integration.installation_id, {
-      name: typeof profile.name === 'string' ? profile.name : undefined,
-      shortDescription: typeof profile.short_description === 'string' ? profile.short_description : undefined,
-      description: typeof profile.description === 'string' ? profile.description : undefined,
-      commands: Array.isArray(profile.commands) ? profile.commands : undefined,
+    const result = await connectPreflight(serverConfigOf(req), {
+      operationId: parsed.data.operation_id,
+      botId: String(parsed.data.bot_id),
     });
-    res.json({ ok: true, ...result });
+    res.json({ webhook_url: result.webhookUrl, secret_token: result.secretToken, has_previous_token: result.hasPreviousToken });
   } catch (err) {
-    console.error('[internal-channels] profile-sync failed:', err);
-    res.status(500).json({ error: 'profile_sync_failed' });
+    if (err instanceof TelegramConnectError) {
+      return res.status(err.code === 'duplicate_bot' ? 409 : 400).json({ error: err.code, details: err.message });
+    }
+    console.error('[internal-channels] preflight failed:', err);
+    res.status(500).json({ error: 'preflight_failed' });
   }
 });
 
-/** POST /webhook-repair — re-register + re-verify a drifted webhook. */
-const webhookRepairSchema = z.object({
-  provider: z.literal('telegram'),
-  integration_id: z.string().uuid(),
-  workspace_id: z.string().uuid(),
+/**
+ * POST /operation-result — the ONLY way a provider outcome becomes canonical
+ * data. The response may carry a `rollback` instruction the Worker must
+ * execute on the provider (Core cannot).
+ */
+const operationResultSchema = z.object({
+  operation_id: z.string().uuid(),
+  status: z.enum(['succeeded', 'failed']),
+  error_code: z.string().max(120).optional(),
+  error_message: z.string().max(1000).optional(),
+  result: z.record(z.unknown()).optional(),
 });
 
-internalChannelsRouter.post('/webhook-repair', async (req: any, res) => {
-  const parsed = webhookRepairSchema.safeParse(req.body);
+internalChannelsRouter.post('/operation-result', async (req: any, res) => {
+  const parsed = operationResultSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
   try {
     const config = serverConfigOf(req);
-    const integration = await getIntegrationById(config, parsed.data.integration_id);
-    if (!integration) return res.status(404).json({ error: 'unknown_integration' });
-    const result = await repairTelegramWebhook(config, integration.installation_id);
-    if (!result.repaired) return res.status(502).json({ error: 'repair_failed', reason: result.reason });
-    res.json({ ok: true });
+    const operation = await getOperation(config, parsed.data.operation_id);
+    if (!operation) return res.status(404).json({ error: 'unknown_operation' });
+    if (operation.status === 'succeeded' || operation.status === 'failed') {
+      // Duplicate report after a lease expiry — never rewrite history.
+      return res.json({ ok: true, duplicate: true });
+    }
+
+    const payload = (parsed.data.result ?? {}) as any;
+
+    if (parsed.data.status === 'failed') {
+      await applyOperationFailure(config, operation, {
+        errorCode: parsed.data.error_code || 'provider_operation_failed',
+        errorMessage: parsed.data.error_message,
+      });
+      return res.json({ ok: true });
+    }
+
+    switch (operation.operation) {
+      case 'connect': {
+        const outcome = await applyConnectSuccess(config, operation, {
+          botId: Number(payload.bot_id),
+          username: payload.username ?? null,
+          firstName: payload.first_name ?? null,
+          webhookUrl: String(payload.webhook_url ?? ''),
+        });
+        return res.json(outcome.ok ? { ok: true } : { ok: false, rollback: true, error: outcome.errorCode });
+      }
+      case 'disconnect': {
+        await applyDisconnectResult(config, operation, {
+          webhookRemoved: payload.webhook_removed === true,
+          errorCode: payload.error_code ?? null,
+          errorMessage: payload.error_message ?? null,
+        });
+        return res.json({ ok: true });
+      }
+      case 'webhook_repair': {
+        await applyWebhookRepairResult(config, operation, {
+          repaired: payload.repaired === true,
+          webhookUrl: payload.webhook_url ?? null,
+          errorCode: payload.error_code ?? null,
+          errorMessage: payload.error_message ?? null,
+        });
+        return res.json({ ok: true });
+      }
+      case 'diagnostics': {
+        await applyDiagnosticsResult(config, operation, {
+          webhookUrl: payload.webhook_url ?? null,
+          pendingUpdateCount: Number(payload.pending_update_count ?? 0),
+          lastErrorMessage: payload.last_error_message ?? null,
+          lastErrorAt: payload.last_error_at ?? null,
+        });
+        return res.json({ ok: true });
+      }
+      case 'profile_sync': {
+        await applyProfileSyncResult(config, operation, {
+          applied: Array.isArray(payload.applied) ? payload.applied.map(String) : [],
+          name: payload.name ?? null,
+        });
+        return res.json({ ok: true });
+      }
+      case 'media_fetch': {
+        const messageId = String((operation.request as any)?.message_id ?? '');
+        if (messageId && Array.isArray(payload.outcomes)) {
+          await recordMediaOutcomes(config, messageId, payload.outcomes);
+        }
+        await completeOperation(config, operation.id, { status: 'succeeded', result: {} });
+        return res.json({ ok: true });
+      }
+      case 'avatar_fetch': {
+        const contactId = String((operation.request as any)?.contact_id ?? '');
+        if (contactId && payload.no_photo === true) await markAvatarChecked(config, contactId);
+        await completeOperation(config, operation.id, { status: 'succeeded', result: {} });
+        return res.json({ ok: true });
+      }
+      default: {
+        await completeOperation(config, operation.id, { status: 'succeeded', result: payload });
+        return res.json({ ok: true });
+      }
+    }
   } catch (err) {
-    console.error('[internal-channels] webhook-repair failed:', err);
-    res.status(500).json({ error: 'webhook_repair_failed' });
+    console.error('[internal-channels] operation-result failed:', err);
+    res.status(500).json({ error: 'operation_result_failed' });
   }
 });
+
+/** Applies a provider failure to canonical state, per operation kind. */
+async function applyOperationFailure(
+  config: any,
+  operation: ProviderOperation,
+  failure: { errorCode: string; errorMessage?: string },
+): Promise<void> {
+  switch (operation.operation) {
+    case 'connect':
+      await applyConnectFailure(config, operation, failure);
+      return;
+    case 'disconnect':
+      // The credential must not outlive a disconnect even if the provider
+      // webhook could not be removed — report it honestly instead.
+      await applyDisconnectResult(config, operation, {
+        webhookRemoved: false,
+        errorCode: failure.errorCode,
+        errorMessage: failure.errorMessage ?? null,
+      });
+      return;
+    case 'webhook_repair':
+      await applyWebhookRepairResult(config, operation, {
+        repaired: false,
+        errorCode: failure.errorCode,
+        errorMessage: failure.errorMessage ?? null,
+      });
+      return;
+    default:
+      await completeOperation(config, operation.id, {
+        status: 'failed',
+        errorCode: failure.errorCode,
+        errorMessage: failure.errorMessage,
+      });
+  }
+}
+
+/**
+ * POST /media-ingest — raw provider bytes crossing the network boundary.
+ *
+ * The Worker downloaded the file (Core cannot); Core validates size/mime,
+ * enforces the storage entitlement and persists it. Metadata travels in the
+ * query string so the body stays a pure binary stream.
+ */
+internalChannelsRouter.post(
+  '/media-ingest',
+  raw({ type: '*/*', limit: '30mb' }),
+  async (req: any, res) => {
+    try {
+      const config = serverConfigOf(req);
+      const operationId = String(req.query.operation_id || '');
+      const operation = operationId ? await getOperation(config, operationId) : null;
+      if (!operation) return res.status(404).json({ error: 'unknown_operation' });
+
+      const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
+      if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
+
+      if (String(req.query.kind || '') === 'avatar') {
+        const contactId = String((operation.request as any)?.contact_id ?? '');
+        if (!contactId) return res.status(400).json({ error: 'unknown_contact' });
+        await persistContactAvatar(config, {
+          workspaceId: operation.workspace_id,
+          contactId,
+          fileKeyHint: String(req.query.file_key_hint || 'photo').replace(/[^\w.\-]+/g, '_').slice(0, 120),
+          bytes,
+        });
+        return res.json({ ok: true });
+      }
+
+      const request = (operation.request ?? {}) as any;
+      const outcome = await persistInboundAttachment(config, {
+        workspaceId: operation.workspace_id,
+        conversationId: String(request.conversation_id ?? ''),
+        messageId: String(request.message_id ?? ''),
+        fileId: String(req.query.file_id || ''),
+        kind: String(req.query.kind || 'document'),
+        fileName: req.query.file_name ? String(req.query.file_name) : null,
+        mimeType: req.query.mime_type ? String(req.query.mime_type) : null,
+        filePath: req.query.file_path ? String(req.query.file_path) : null,
+        bytes,
+      });
+      res.json({ ok: true, outcome });
+    } catch (err) {
+      console.error('[internal-channels] media-ingest failed:', err);
+      res.status(500).json({ error: 'media_ingest_failed' });
+    }
+  },
+);

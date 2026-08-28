@@ -313,7 +313,7 @@ export function normalizeLocale(locale: string | null | undefined): TelegramLoca
   return (TELEGRAM_LOCALES as readonly string[]).includes(short) ? (short as TelegramLocale) : null;
 }
 
-const COMMAND_PATTERN = /^\/(start|help|human|new)(@[\w]+)?(?:\s|$)/i;
+const COMMAND_PATTERN = /^\/(start|menu|help|human|new|faq|guides)(@[\w]+)?(?:\s|$)/i;
 
 /** Recognizes a configured slash command regardless of bot-username suffix. */
 export function commandKeyFromText(text: string): TelegramCommandKey | null {

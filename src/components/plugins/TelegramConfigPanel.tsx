@@ -146,6 +146,46 @@ export function TelegramConfigPanel({
 
   const integration = status?.integration ?? null;
 
+  /**
+   * Uploads the bot avatar through the workspace storage provider and stores
+   * the resulting URL. Telegram never receives this image (no `setMyPhoto`
+   * exists for bots) — it is our own in-product avatar.
+   */
+  async function uploadPhoto(file: File) {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      toast({ title: t('plugins.telegram.photoInvalidType'), variant: 'destructive' });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: t('plugins.telegram.photoTooLarge'), variant: 'destructive' });
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < buffer.length; i += 1) binary += String.fromCharCode(buffer[i]);
+      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+      const result = await storageUpload({
+        workspaceId,
+        fileKey: `${workspaceId}/telegram/bot-avatar-${Date.now()}.${ext}`,
+        data: btoa(binary),
+        contentType: file.type,
+      });
+      if (!result?.success || !result.url) throw new Error(result?.error || 'upload_failed');
+      setPhotoUrl(result.url);
+      toast({ title: t('plugins.telegram.photoUploaded') });
+    } catch (err) {
+      toast({
+        title: t('plugins.telegram.photoUploadFailed'),
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   useEffect(() => {
     if (!status?.settings || settingsLoaded) return;
     const s = status.settings;

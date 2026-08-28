@@ -4191,6 +4191,8 @@ const en = {
       installable: 'Installable',
       maintenanceMode: 'Maintenance mode',
       featured: 'Featured',
+      aiEnabled: 'AI assistant for this plugin',
+      aiEnabledHint: 'Master switch. When off, workspaces cannot enable AI replies on this channel and the bot never answers with AI.',
       rolloutStatus: 'Rollout status',
       sortOrder: 'Sort order',
       saved: 'Plugin updated.',

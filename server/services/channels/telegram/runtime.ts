@@ -48,7 +48,10 @@ export type TelegramInboundFlowResult = {
   handled: boolean;
   /** Locale every outbound reply (including AI) must speak. */
   locale: string | null;
+  /** The menu/slash command the visitor tapped, when recognized. */
+  command?: TelegramCommandKey | null;
 };
+
 
 /**
  * The language the bot must answer in: the Telegram user's language when the
@@ -110,7 +113,8 @@ export async function handleTelegramInboundFlow(
     const aiAllowed = mode === 'ai_first';
 
     const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
-    if (!command || !installation) return { aiAllowed, handled: false, locale };
+    if (!command || !installation) return { aiAllowed, handled: false, locale, command: null };
+
 
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
@@ -128,11 +132,12 @@ export async function handleTelegramInboundFlow(
 
     const sent = await sendTelegramScreen(config, installation.id, input.externalChatId, screen);
     void conversationId; // command replies do not need the conversation row, only the chat id
-    return { aiAllowed, handled: sent, locale };
+    return { aiAllowed, handled: sent, locale, command };
   } catch (err) {
     console.warn('[telegram] inbound flow error:', err instanceof Error ? err.message : err);
-    return { aiAllowed: false, handled: false, locale };
+    return { aiAllowed: false, handled: false, locale, command: null };
   }
+
 
 }
 

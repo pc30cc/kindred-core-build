@@ -35,7 +35,29 @@ export interface AIRequest {
   /** Optional OpenAI-compatible function tools for structured output. */
   tools?: any[];
   toolChoice?: any;
+  /**
+   * Stable id for ONE logical AI execution. Core mints it; transport-level
+   * retries/replays of the same logical request reuse it so usage accounting
+   * and credit consumption stay single-shot. Provider-internal retries inside
+   * the runtime are part of the same logical execution and never change it.
+   */
+  requestId?: string;
 }
+
+/** A model-emitted tool call, normalized across providers. */
+export interface AIToolCall {
+  id?: string;
+  name: string;
+  /** Raw JSON argument string exactly as the model emitted it. */
+  arguments: string;
+}
+
+/**
+ * Why generation stopped, normalized: 'stop' | 'length' | 'tool_calls' |
+ * 'content_filter' | 'other'. Providers' native values are mapped, unknown
+ * values collapse to 'other'.
+ */
+export type AIFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'other';
 
 export interface AIResponse {
   text: string;
@@ -45,7 +67,17 @@ export interface AIResponse {
   completionTokens: number;
   totalTokens: number;
   latencyMs: number;
+  /**
+   * Model-emitted tool calls, normalized. The AI Runtime NEVER executes an
+   * application/business tool — it only reports what the model asked for.
+   * Authorization and execution stay in Core.
+   */
+  toolCalls?: AIToolCall[];
+  finishReason?: AIFinishReason;
+  /** Echo of AIRequest.requestId, for correlating one logical execution. */
+  requestId?: string;
 }
+
 
 export interface JsonResponse {
   ok: boolean;

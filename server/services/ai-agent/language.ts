@@ -214,12 +214,27 @@ export function decideResponseLanguage(args: {
     source = 'workspace_fallback';
   }
 
-  // Honour allow-list when configured. If response not allowed, fall back
-  // to the first allowed locale rather than silently switching languages.
+  // Honour allow-list when configured. If the response language is not
+  // allowed (e.g. Persian text misread as Arabic on a fa/tr/en platform),
+  // prefer the configured widget/workspace language before blindly taking
+  // the first allowed entry — otherwise a Persian visitor could be answered
+  // in Turkish just because 'tr' happens to sort first in the allow-list.
   if (allowed.length && !allowed.includes(response)) {
-    response = allowed[0];
-    source = 'fallback_en';
+    if (widgetNorm && allowed.includes(widgetNorm)) {
+      response = widgetNorm;
+      source = 'widget_fallback';
+    } else if (wsNorm && allowed.includes(wsNorm)) {
+      response = wsNorm;
+      source = 'workspace_fallback';
+    } else if (allowed.includes('en')) {
+      response = 'en';
+      source = 'fallback_en';
+    } else {
+      response = allowed[0];
+      source = 'fallback_en';
+    }
   }
+
 
   return {
     inputLanguage,

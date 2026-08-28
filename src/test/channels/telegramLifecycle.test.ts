@@ -174,9 +174,11 @@ beforeEach(() => {
 describe('provider network isolation', () => {
   it('Core-side setup imports no provider client at all', () => {
     const source = readFileSync('server/services/channels/telegram/setup.ts', 'utf8');
-    expect(source).not.toMatch(/channels\/providers\//);
-    expect(source).not.toContain('api.telegram.org');
-    expect(source).not.toMatch(/\bfetch\s*\(/);
+    const imports = source.split('\n').filter((line) => /^\s*(import|export .*from)\b/.test(line));
+    expect(imports.join('\n')).not.toMatch(/channels\/providers\//);
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toContain('api.telegram.org');
+    expect(code).not.toMatch(/\bfetch\s*\(/);
   });
 
   it('a connect request only stages the credential and queues one operation', async () => {

@@ -1,0 +1,90 @@
+-- 052_channel_provider_operations.sql
+--
+-- PROVIDER NETWORK ISOLATION.
+--
+-- Core (which may run inside a restricted network) must never open a socket
+-- to a channel provider. Every provider-side action — connect, disconnect,
+-- webhook register/verify/repair, profile push, diagnostics, media and avatar
+-- downloads — becomes a DURABLE OPERATION executed by the Channels Worker on
+-- the unrestricted network. Core only writes intent and applies the result.
+--
+-- `channel_provider_operations` is the request/response record for those
+-- actions; `channel_jobs` remains the execution queue (one job per operation).
+--
+-- Idempotent: safe to re-run.
+
+CREATE TABLE IF NOT EXISTS public.channel_provider_operations (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider        text NOT NULL,
+  operation       text NOT NULL,
+  workspace_id    uuid NOT NULL,
+  integration_id  uuid,
+  installation_id uuid,
+  status          text NOT NULL DEFAULT 'pending',
+  -- NEVER contains a credential: the worker resolves those itself, server-side.
+  request         jsonb NOT NULL DEFAULT '{}'::jsonb,
+  result          jsonb,
+  error_code      text,
+  error_message   text,
+  requested_by    uuid,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  completed_at    timestamptz
+);
+
+DO $do$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'channel_provider_operations_status_check'
+  ) THEN
+    ALTER TABLE public.channel_provider_operations
+      ADD CONSTRAINT channel_provider_operations_status_check
+      CHECK (status IN ('pending','running','succeeded','failed'));
+  END IF;
+END
+$do$;
+
+CREATE INDEX IF NOT EXISTS channel_provider_operations_pending_idx
+  ON public.channel_provider_operations (status, created_at)
+  WHERE status IN ('pending','running');
+
+CREATE INDEX IF NOT EXISTS channel_provider_operations_integration_idx
+  ON public.channel_provider_operations (integration_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS channel_provider_operations_workspace_idx
+  ON public.channel_provider_operations (workspace_id, created_at DESC);
+
+-- Backend-only table: reached exclusively by Core and the Worker through the
+-- service role. No anon/authenticated grants — the browser never reads it
+-- directly, it goes through the authenticated /api/plugins routes.
+GRANT ALL ON public.channel_provider_operations TO service_role;
+
+ALTER TABLE public.channel_provider_operations ENABLE ROW LEVEL SECURITY;
+
+DO $do$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'channel_provider_operations'
+      AND policyname = 'channel_provider_operations_service_role'
+  ) THEN
+    CREATE POLICY channel_provider_operations_service_role
+      ON public.channel_provider_operations
+      FOR ALL
+      TO service_role
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+END
+$do$;
+
+-- One in-flight operation of a kind per integration: a double click must not
+-- queue two connects against the same bot.
+CREATE UNIQUE INDEX IF NOT EXISTS channel_provider_operations_inflight_unique
+  ON public.channel_provider_operations (integration_id, operation)
+  WHERE status IN ('pending','running') AND integration_id IS NOT NULL;
+
+-- Housekeeping: operations are an audit trail, not a queue. Keep them.
+COMMENT ON TABLE public.channel_provider_operations IS
+  'Durable provider-side operations executed by the Channels Worker. Core never performs provider network I/O.';

@@ -168,7 +168,7 @@ export function TelegramConfigPanel({
       const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
       const result = await storageUpload({
         workspaceId,
-        fileKey: `${workspaceId}/telegram/bot-avatar-${Date.now()}.${ext}`,
+        fileKey: `workspace/${workspaceId}/telegram/bot-avatar-${Date.now()}.${ext}`,
         data: btoa(binary),
         contentType: file.type,
       });

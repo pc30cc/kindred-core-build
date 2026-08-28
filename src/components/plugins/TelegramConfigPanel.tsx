@@ -188,11 +188,17 @@ export function TelegramConfigPanel({
       }),
   });
 
+  /** Worker-offline is the one failure an operator can act on directly. */
+  const failureDescription = (err: any) =>
+    err?.reason === 'channels_worker_offline' || err?.code === 'worker_offline'
+      ? t('plugins.telegram.workerOffline')
+      : err?.message;
+
   const runDiagnostics = useMutation({
     mutationFn: () => pluginsApi.telegramDiagnostics(workspaceId),
     onSuccess: (data) => setDiagnostics(data),
     onError: (err: any) =>
-      toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
+      toast({ variant: 'destructive', title: t('plugins.error.generic'), description: failureDescription(err) }),
   });
 
   const reconnect = useMutation({
@@ -203,8 +209,9 @@ export function TelegramConfigPanel({
       refresh();
     },
     onError: (err: any) =>
-      toast({ variant: 'destructive', title: t('plugins.telegram.reconnectFailed'), description: err?.message }),
+      toast({ variant: 'destructive', title: t('plugins.telegram.reconnectFailed'), description: failureDescription(err) }),
   });
+
 
   const disconnect = useMutation({
     mutationFn: () => pluginsApi.telegramDisconnect(workspaceId),

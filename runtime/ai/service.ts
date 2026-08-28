@@ -10,7 +10,7 @@ import { executeProviderCompletion, testAIConnection, isSupportedProvider } from
 import { withDefaultBaseUrl, isOpenAICompatible } from './providers/catalog.js';
 import { embedTexts, type EmbedProviderConfig } from './providers/embeddings.js';
 import { createSafeTestFetch, providerHostPolicy } from './providers/safeTransport.js';
-import { redactSecrets } from '../../server/lib/redactSecrets.js';
+import { redactSecrets } from '../../shared/security/redactSecrets.js';
 import type { AIConfig, AIRequest, AIResponse, AIConnectionTestResult } from '../../shared/ai/types.js';
 import type { AiRuntimeErrorCode } from '../../shared/ai/internalRoutes.js';
 
@@ -42,7 +42,9 @@ export async function handleComplete(body: any): Promise<RuntimeResult<{ respons
   }
   try {
     const response = await executeProviderCompletion(withDefaultBaseUrl(config), request);
-    return { ok: true, data: { response } };
+    // Echo the logical execution id so Core can correlate one request with one
+    // usage/accounting row even across transport replays.
+    return { ok: true, data: { response: { ...response, requestId: request.requestId } } };
   } catch (err: any) {
     return fail('provider_error', err?.message || 'provider call failed');
   }

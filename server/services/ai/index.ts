@@ -17,6 +17,10 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 import { runtimeComplete, AiRuntimeError } from './runtimeClient.js';
+import { withAiIdempotency } from './idempotency.js';
+
+export { withAiIdempotency, newAiRequestId, resetAiIdempotency } from './idempotency.js';
+
 
 // Pure, network-free helpers re-exported for existing Core callers and tests.
 export { readBoundedEnvInt, isRetryableStatus, parseRetryAfterMs } from '../../../shared/ai/policy.js';
@@ -145,6 +149,19 @@ export async function executeAICompletionWithConfig(
   aiConfig: AIConfig,
   request: AIRequest,
 ): Promise<AIResponse> {
+  // ONE logical request → ONE runtime execution → ONE usage row. A replay of
+  // the same requestId returns the first execution's outcome (success OR
+  // failure) instead of calling the runtime and logging usage twice.
+  return withAiIdempotency(request.requestId, () =>
+    runOneCompletion(serverConfig, aiConfig, request),
+  );
+}
+
+async function runOneCompletion(
+  serverConfig: ServerConfig,
+  aiConfig: AIConfig,
+  request: AIRequest,
+): Promise<AIResponse> {
   const sb = getServiceClient(serverConfig);
   let response: AIResponse;
 
@@ -183,3 +200,4 @@ export async function executeAICompletionWithConfig(
 
   return response;
 }
+

@@ -10,7 +10,7 @@
  * during the Provider Network Isolation refactor.
  */
 
-import { redactSecrets } from '../../../server/lib/redactSecrets.js';
+import { redactSecrets } from '../../../shared/security/redactSecrets.js';
 import {
   readBoundedEnvInt,
   isRetryableStatus,
@@ -180,6 +180,8 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
     text: parsed.text,
     model,
     provider: 'openai',
+    ...(parsed.toolCalls ? { toolCalls: parsed.toolCalls } : {}),
+    ...(parsed.finishReason ? { finishReason: parsed.finishReason } : {}),
     promptTokens: parsed.usage.promptTokens,
     completionTokens: parsed.usage.completionTokens,
     totalTokens: parsed.usage.totalTokens,
@@ -199,6 +201,15 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
     messages: [...priorMessages(req), { role: 'user', content: req.prompt }],
   };
   if (req.systemPrompt) body.system = req.systemPrompt;
+  if (req.tools?.length) {
+    // Accepts either the native Anthropic tool shape or the OpenAI function
+    // shape; the runtime only forwards declarations — it never executes a tool.
+    body.tools = req.tools.map((t: any) =>
+      t?.function
+        ? { name: t.function.name, description: t.function.description, input_schema: t.function.parameters }
+        : t,
+    );
+  }
 
   const res = await requestJsonWithRetry(`${config.baseUrl || 'https://api.anthropic.com'}/v1/messages`, {
     method: 'POST',
@@ -221,6 +232,8 @@ async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpF
     text: parsed.text,
     model,
     provider: 'anthropic',
+    ...(parsed.toolCalls ? { toolCalls: parsed.toolCalls } : {}),
+    ...(parsed.finishReason ? { finishReason: parsed.finishReason } : {}),
     promptTokens: parsed.usage.promptTokens,
     completionTokens: parsed.usage.completionTokens,
     totalTokens: parsed.usage.totalTokens,
@@ -276,6 +289,8 @@ async function callGemini(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
     text: parsed.text,
     model,
     provider: 'gemini',
+    ...(parsed.toolCalls ? { toolCalls: parsed.toolCalls } : {}),
+    ...(parsed.finishReason ? { finishReason: parsed.finishReason } : {}),
     promptTokens: parsed.usage.promptTokens,
     completionTokens: parsed.usage.completionTokens,
     totalTokens: parsed.usage.totalTokens,

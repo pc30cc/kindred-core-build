@@ -90,7 +90,7 @@ describe('restricted network — regression AI execution', () => {
     // The dry-run reached the model through the runtime.
     const runs = (fakeSb.__store['ai_agent_test_runs'] || []) as any[];
     expect(runs.length).toBe(1);
-    expect(runs[0].output_text).toBe('hello from provider');
+    expect(runs[0].actual_output).toBe('hello from provider');
 
     expect(net.runtimeHits).toEqual([`${RUNTIME_BASE}${AI_RUNTIME_ROUTES.complete}`]);
     expect(net.providerHits).toHaveLength(1);

@@ -37,6 +37,13 @@ import {
   listHelpArticles,
   matchReplyKeyboardCommand,
 } from './menu.js';
+import {
+  applyDepartmentChoice,
+  findTelegramConversationId,
+  reopenDepartmentPicker,
+  resolveDepartmentPickerScreen,
+} from './departmentPicker.js';
+
 
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
 
@@ -113,9 +120,27 @@ export async function handleTelegramInboundFlow(
     const aiAllowed = mode === 'ai_first';
 
     const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
-    if (!command || !installation) return { aiAllowed, handled: false, locale, command: null };
+    if (!installation) return { aiAllowed, handled: false, locale, command: null };
 
+    // Department routing — a workspace with several chat departments asks the
+    // visitor once, on the first real message (or explicitly on /human), so
+    // the thread reaches the right team. Workspaces without departments are
+    // untouched: the message just lands in the shared inbox as before.
+    const wantsDepartmentPrompt = !command ? !aiAllowed : command === 'human';
+    if (wantsDepartmentPrompt) {
+      const picker = await resolveDepartmentPickerScreen(config, {
+        workspaceId: input.workspaceId,
+        conversationId,
+        locale,
+        fallbackLocale,
+        force: command === 'human',
+      });
+      if (picker) {
+        await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
+      }
+    }
 
+    if (!command) return { aiAllowed, handled: false, locale, command: null };
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
     if (command === 'faq' && isTelegramMenuEntryEnabled(settings, 'faq')) {
@@ -131,8 +156,8 @@ export async function handleTelegramInboundFlow(
     }
 
     const sent = await sendTelegramScreen(config, installation.id, input.externalChatId, screen);
-    void conversationId; // command replies do not need the conversation row, only the chat id
     return { aiAllowed, handled: sent, locale, command };
+
   } catch (err) {
     console.warn('[telegram] inbound flow error:', err instanceof Error ? err.message : err);
     return { aiAllowed: false, handled: false, locale, command: null };
@@ -169,17 +194,31 @@ export async function handleTelegramCallbackQuery(
     const settings = parseTelegramSettings(installation.settings);
     const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, query.from?.language_code);
 
-    const screen = await resolveCallbackScreen(config, ctx.workspaceId, settings, data, locale, fallbackLocale);
+    const payload = data.slice('tg:'.length);
+    let screen: { text: string; replyMarkup: Record<string, unknown> } | null;
+    if (payload === 'dept' || payload.startsWith('dept:')) {
+      screen = await resolveDepartmentCallback(config, {
+        workspaceId: ctx.workspaceId,
+        installationId: installation.id,
+        chatId: String(chatId),
+        payload,
+        locale,
+        fallbackLocale,
+      });
+    } else {
+      screen = await resolveCallbackScreen(config, ctx.workspaceId, settings, data, locale, fallbackLocale);
+    }
     if (!screen) return true;
+    const view = screen;
 
     // A persistent reply keyboard cannot be attached to an edited message —
     // those screens are delivered as a fresh message instead.
-    if ((screen.replyMarkup as any)?.keyboard) {
+    if ((view.replyMarkup as any)?.keyboard) {
       await sendMessage(token, {
         chatId,
-        text: screen.text,
+        text: view.text,
         parseMode: 'HTML',
-        replyMarkup: screen.replyMarkup,
+        replyMarkup: view.replyMarkup,
       });
       return true;
     }
@@ -187,25 +226,70 @@ export async function handleTelegramCallbackQuery(
     await editMessageText(token, {
       chatId,
       messageId,
-      text: screen.text,
+      text: view.text,
       parseMode: 'HTML',
-      replyMarkup: screen.replyMarkup,
+      replyMarkup: view.replyMarkup,
     }).catch(async () => {
       // The bubble may be too old to edit — fall back to a fresh message.
       await sendMessage(token, {
         chatId,
-        text: screen.text,
+        text: view.text,
         parseMode: 'HTML',
-        replyMarkup: screen.replyMarkup,
+        replyMarkup: view.replyMarkup,
       });
     });
     return true;
+
 
   } catch (err) {
     console.warn('[telegram] callback error:', err instanceof Error ? err.message : err);
     return true;
   }
 }
+
+/**
+ * `tg:dept` (re-open picker) and `tg:dept:<id>` (choose department) taps.
+ * The conversation is resolved from the Telegram chat id so the choice is
+ * stored on the very thread the operator sees in the Inbox.
+ */
+async function resolveDepartmentCallback(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    installationId: string;
+    chatId: string;
+    payload: string;
+    locale: string;
+    fallbackLocale: string;
+  },
+): Promise<{ text: string; replyMarkup: Record<string, unknown> } | null> {
+  if (args.payload === 'dept') {
+    return reopenDepartmentPicker(config, {
+      workspaceId: args.workspaceId,
+      locale: args.locale,
+      fallbackLocale: args.fallbackLocale,
+    });
+  }
+  const departmentId = args.payload.slice('dept:'.length);
+  if (!departmentId) return null;
+  const integration = await getIntegrationForInstallation(config, args.installationId);
+  const conversationId = integration
+    ? await findTelegramConversationId(config, {
+        workspaceId: args.workspaceId,
+        integrationId: integration.id,
+        chatId: args.chatId,
+      })
+    : null;
+  return applyDepartmentChoice(config, {
+    workspaceId: args.workspaceId,
+    conversationId,
+    departmentId,
+    locale: args.locale,
+    fallbackLocale: args.fallbackLocale,
+  });
+}
+
+
 
 async function resolveCallbackScreen(
   config: ServerConfig,

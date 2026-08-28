@@ -421,6 +421,137 @@ export function TelegramConfigPanel({
     );
   }
 
+  if (section === 'menu') {
+    const items = faq[locale] ?? [];
+    const rtl = locale === 'fa';
+    return (
+      <div className="space-y-4">
+        <Card className="space-y-4 p-4">
+          <div>
+            <Label>{t('plugins.telegram.menuTitle')}</Label>
+            <p className="text-xs text-muted-foreground">{t('plugins.telegram.menuHint')}</p>
+          </div>
+
+          {([
+            ['guidesEnabled', BookOpen, 'plugins.telegram.menuGuides', 'plugins.telegram.menuGuidesHint'],
+            ['faqEnabled', HelpCircle, 'plugins.telegram.menuFaq', 'plugins.telegram.menuFaqHint'],
+          ] as const).map(([key, Icon, labelKey, hintKey]) => (
+            <div key={key} className="flex items-start justify-between gap-4 rounded-xl border p-3">
+              <div className="flex items-start gap-3">
+                <span className="rounded-lg bg-primary/10 p-2 text-primary">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-sm font-medium">{t(labelKey as never)}</p>
+                  <p className="text-xs text-muted-foreground">{t(hintKey as never)}</p>
+                </div>
+              </div>
+              <Switch
+                checked={menuSettings[key]}
+                onCheckedChange={(value) => setMenuSettings((prev) => ({ ...prev, [key]: value }))}
+              />
+            </div>
+          ))}
+        </Card>
+
+        {menuSettings.faqEnabled && (
+          <Card className="space-y-4 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>{t('plugins.telegram.faqTitle')}</Label>
+              {editableLocales.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {editableLocales.map((l) => (
+                    <Button
+                      key={l}
+                      type="button"
+                      size="sm"
+                      variant={locale === l ? 'default' : 'outline'}
+                      onClick={() => setLocale(l)}
+                    >
+                      {t(`plugins.telegram.locale.${l}` as never)}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3" dir={rtl ? 'rtl' : 'ltr'}>
+              {items.length === 0 && (
+                <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  {t('plugins.telegram.faqEmpty')}
+                </p>
+              )}
+              {items.map((item, index) => (
+                <div key={index} className="space-y-2 rounded-xl border p-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{index + 1}</Badge>
+                    <Input
+                      value={item.question}
+                      maxLength={200}
+                      placeholder={t('plugins.telegram.faqQuestion')}
+                      onChange={(e) =>
+                        setFaq((prev) => ({
+                          ...prev,
+                          [locale]: prev[locale].map((row, i) =>
+                            i === index ? { ...row, question: e.target.value } : row,
+                          ),
+                        }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive"
+                      onClick={() =>
+                        setFaq((prev) => ({ ...prev, [locale]: prev[locale].filter((_, i) => i !== index) }))
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Textarea
+                    rows={3}
+                    maxLength={3000}
+                    value={item.answer}
+                    placeholder={t('plugins.telegram.faqAnswer')}
+                    onChange={(e) =>
+                      setFaq((prev) => ({
+                        ...prev,
+                        [locale]: prev[locale].map((row, i) =>
+                          i === index ? { ...row, answer: e.target.value } : row,
+                        ),
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setFaq((prev) => ({ ...prev, [locale]: [...(prev[locale] ?? []), { question: '', answer: '' }] }))
+              }
+            >
+              <Plus className="me-2 h-4 w-4" />
+              {t('plugins.telegram.faqAdd')}
+            </Button>
+          </Card>
+        )}
+
+        <div className="flex justify-end">
+          <Button type="button" disabled={saveSettings.isPending} onClick={() => saveSettings.mutate()}>
+            {saveSettings.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+            {t('plugins.telegram.saveSettings')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (section === 'branding') {
     return (
       <Card className="space-y-4 p-4">

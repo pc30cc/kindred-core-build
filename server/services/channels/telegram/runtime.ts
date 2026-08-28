@@ -247,6 +247,50 @@ export async function handleTelegramCallbackQuery(
   }
 }
 
+/**
+ * `tg:dept` (re-open picker) and `tg:dept:<id>` (choose department) taps.
+ * The conversation is resolved from the Telegram chat id so the choice is
+ * stored on the very thread the operator sees in the Inbox.
+ */
+async function resolveDepartmentCallback(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    installationId: string;
+    chatId: string;
+    payload: string;
+    locale: string;
+    fallbackLocale: string;
+  },
+): Promise<{ text: string; replyMarkup: Record<string, unknown> } | null> {
+  if (args.payload === 'dept') {
+    return reopenDepartmentPicker(config, {
+      workspaceId: args.workspaceId,
+      locale: args.locale,
+      fallbackLocale: args.fallbackLocale,
+    });
+  }
+  const departmentId = args.payload.slice('dept:'.length);
+  if (!departmentId) return null;
+  const integration = await getIntegrationForInstallation(config, args.installationId);
+  const conversationId = integration
+    ? await findTelegramConversationId(config, {
+        workspaceId: args.workspaceId,
+        integrationId: integration.id,
+        chatId: args.chatId,
+      })
+    : null;
+  return applyDepartmentChoice(config, {
+    workspaceId: args.workspaceId,
+    conversationId,
+    departmentId,
+    locale: args.locale,
+    fallbackLocale: args.fallbackLocale,
+  });
+}
+
+
+
 async function resolveCallbackScreen(
   config: ServerConfig,
   workspaceId: string,

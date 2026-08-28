@@ -794,7 +794,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         // Bot menu/button taps are navigation, not chat content — keep them
         // out of the fetch window entirely so a visitor browsing the bot menu
         // can never push the real last message out of the preview.
-        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.not.in.(true,"true")')
+        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
         .order('created_at', { ascending: false })
         .limit(2000);
 

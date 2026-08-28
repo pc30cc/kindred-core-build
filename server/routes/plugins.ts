@@ -599,7 +599,30 @@ pluginsRouter.put('/settings', async (req: any, res) => {
     }
 
     await updateInstallationSettings(config, installation.id, toPersist);
+
+    // Telegram's NATIVE command list (the "Menu" button next to the input)
+    // lives on the provider, not in our settings row. Re-sync it on every
+    // save so retired/disabled entries disappear from the client instead of
+    // lingering until someone opens the branding form.
+    if (pluginId === 'telegram') {
+      void (async () => {
+        try {
+          const parsedSettings = parseTelegramSettings(toPersist);
+          const { fallbackLocale } = await resolveTelegramReplyLocale(config, null);
+          await requestTelegramProfileSync(config, installation.id, {
+            commands: buildTelegramCommandList(parsedSettings, fallbackLocale),
+          }, auth.userId);
+        } catch (syncErr) {
+          console.warn(
+            '[plugins] telegram command sync skipped:',
+            syncErr instanceof Error ? syncErr.message : syncErr,
+          );
+        }
+      })();
+    }
+
     res.json({ ok: true, settings: pluginId === 'telegram' ? toPersist : undefined });
+
   } catch (err) {
     console.error('[plugins] settings update failed:', err);
     res.status(500).json({ error: 'Failed to update plugin settings' });

@@ -76,8 +76,17 @@ export interface ServerConfig {
    * never a silent local provider call).
    */
   aiRuntimeBaseUrl?: string;
-  /** Shared server-to-server secret for the Core ⇄ AI Runtime boundary. */
+  /**
+   * Shared server-to-server secret for the Core ⇄ AI Runtime boundary.
+   *
+   * Related env (read where they are used, not part of ServerConfig):
+   *   AI_RUNTIME_TIMEOUT_MS  Core→Runtime wall clock, default 45000
+   *                          (bounds 1000–180000). MUST exceed the runtime's
+   *                          own AI_TOTAL_BUDGET_MS, otherwise Core aborts a
+   *                          request the runtime is still paying for.
+   */
   aiRuntimeInternalSecret?: string;
+
 }
 
 export function loadConfig(): ServerConfig {

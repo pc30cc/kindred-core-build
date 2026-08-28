@@ -156,6 +156,7 @@ export default function PluginDetailPage() {
             <TabsTrigger value="connection">{t('plugins.tab.connection')}</TabsTrigger>
             <TabsTrigger value="branding">{t('plugins.tab.branding')}</TabsTrigger>
             <TabsTrigger value="messages">{t('plugins.tab.messages')}</TabsTrigger>
+            <TabsTrigger value="menu">{t('plugins.tab.menu')}</TabsTrigger>
           </TabsList>
           <TabsContent value="connection">
             <TelegramConfigPanel workspaceId={workspaceId} section="connection" />
@@ -165,6 +166,9 @@ export default function PluginDetailPage() {
           </TabsContent>
           <TabsContent value="messages">
             <TelegramConfigPanel workspaceId={workspaceId} section="messages" />
+          </TabsContent>
+          <TabsContent value="menu">
+            <TelegramConfigPanel workspaceId={workspaceId} section="menu" />
           </TabsContent>
 
 

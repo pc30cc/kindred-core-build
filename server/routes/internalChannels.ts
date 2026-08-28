@@ -31,6 +31,7 @@ import {
 import { enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
+import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 
 export const internalChannelsRouter = Router();
 
@@ -137,6 +138,17 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
 
   try {
     const config = serverConfigOf(req);
+
+    // Inline menu taps never become conversation messages: they are UI
+    // navigation, handled and acknowledged here.
+    if (parsed.data.update?.callback_query) {
+      await handleTelegramCallbackQuery(config, {
+        workspaceId: parsed.data.workspace_id,
+        update: parsed.data.update as Record<string, any>,
+      });
+      return res.json({ status: 'menu_handled' });
+    }
+
     const normalized = normalizeTelegramUpdate(parsed.data.update, {
       workspaceId: parsed.data.workspace_id,
       integrationId: parsed.data.integration_id,

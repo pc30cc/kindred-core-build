@@ -66,14 +66,26 @@ export interface TelegramLocaleMessages {
   handoff: string;
   fallback: string;
 }
-export type TelegramCommandLabels = { start: string; help: string; human: string; new: string };
+export type TelegramCommandLabels = {
+  start: string;
+  help: string;
+  human: string;
+  new: string;
+  faq: string;
+  guides: string;
+};
+export type TelegramFaqItem = { question: string; answer: string };
 export interface TelegramSettings {
   profile: { name: string; shortDescription: string; description: string; photoUrl: string };
   locales: Record<TelegramLocale, TelegramLocaleMessages>;
   commands: TelegramCommandLabels;
   commandLocales: Record<TelegramLocale, TelegramCommandLabels>;
+  /** Optional menu entries the bot exposes (FAQ, help articles). */
+  menu: { faqEnabled: boolean; guidesEnabled: boolean };
+  faq: Record<TelegramLocale, TelegramFaqItem[]>;
   handlingMode: TelegramHandlingMode;
 }
+
 
 export interface TelegramStatus {
   installed: boolean;

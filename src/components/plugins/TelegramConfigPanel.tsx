@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
 import { pluginsApi } from '@/lib/plugins-api';
@@ -34,14 +35,25 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   AlertCircle,
   CheckCircle2,
+  BookOpen,
   Copy,
+  HelpCircle,
   Loader2,
+  Plus,
+  Trash2,
   PlugZap,
   RefreshCw,
   Stethoscope,
 } from 'lucide-react';
 
-export type TelegramPanelSection = 'connection' | 'branding' | 'messages';
+export type TelegramPanelSection = 'connection' | 'branding' | 'messages' | 'menu';
+
+type CommandKey = 'start' | 'help' | 'human' | 'new' | 'faq' | 'guides';
+const COMMAND_KEYS: CommandKey[] = ['start', 'help', 'human', 'new', 'faq', 'guides'];
+type FaqItem = { question: string; answer: string };
+const EMPTY_COMMANDS: Record<CommandKey, string> = {
+  start: '', help: '', human: '', new: '', faq: '', guides: '',
+};
 
 /** Locales the Telegram bot copy can ever be authored in. */
 const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
@@ -97,12 +109,14 @@ export function TelegramConfigPanel({
   const [handlingMode, setHandlingMode] = useState<'human_only' | 'ai_first'>('human_only');
   const [locale, setLocale] = useState<'en' | 'fa' | 'tr'>('en');
   const [locales, setLocales] = useState(EMPTY_LOCALES);
-  const [commands, setCommands] = useState({ start: '', help: '', human: '', new: '' });
-  const [commandLocales, setCommandLocales] = useState<Record<'en' | 'fa' | 'tr', { start: string; help: string; human: string; new: string }>>({
-    en: { start: '', help: '', human: '', new: '' },
-    fa: { start: '', help: '', human: '', new: '' },
-    tr: { start: '', help: '', human: '', new: '' },
+  const [commands, setCommands] = useState<Record<CommandKey, string>>({ ...EMPTY_COMMANDS });
+  const [commandLocales, setCommandLocales] = useState<Record<'en' | 'fa' | 'tr', Record<CommandKey, string>>>({
+    en: { ...EMPTY_COMMANDS },
+    fa: { ...EMPTY_COMMANDS },
+    tr: { ...EMPTY_COMMANDS },
   });
+  const [menuSettings, setMenuSettings] = useState({ faqEnabled: false, guidesEnabled: false });
+  const [faq, setFaq] = useState<Record<'en' | 'fa' | 'tr', FaqItem[]>>({ en: [], fa: [], tr: [] });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Only the languages this deployment actually speaks may be edited. On a
@@ -133,7 +147,9 @@ export function TelegramConfigPanel({
     setHandlingMode(s.handlingMode);
     setLocales(s.locales);
     setCommands(s.commands);
-    if (s.commandLocales) setCommandLocales(s.commandLocales);
+    if (s.commandLocales) setCommandLocales(s.commandLocales as any);
+    if ((s as any).menu) setMenuSettings((s as any).menu);
+    if ((s as any).faq) setFaq({ en: [], fa: [], tr: [], ...(s as any).faq });
     setBotName((prev) => prev || s.profile.name);
     setShortDescription((prev) => prev || s.profile.shortDescription);
     setDescription((prev) => prev || s.profile.description);
@@ -205,6 +221,8 @@ export function TelegramConfigPanel({
         locales,
         commands,
         commandLocales,
+        menu: menuSettings,
+        faq,
         handlingMode,
       }),
     onSuccess: (data: any) => {
@@ -403,6 +421,137 @@ export function TelegramConfigPanel({
     );
   }
 
+  if (section === 'menu') {
+    const items = faq[locale] ?? [];
+    const rtl = locale === 'fa';
+    return (
+      <div className="space-y-4">
+        <Card className="space-y-4 p-4">
+          <div>
+            <Label>{t('plugins.telegram.menuTitle')}</Label>
+            <p className="text-xs text-muted-foreground">{t('plugins.telegram.menuHint')}</p>
+          </div>
+
+          {([
+            ['guidesEnabled', BookOpen, 'plugins.telegram.menuGuides', 'plugins.telegram.menuGuidesHint'],
+            ['faqEnabled', HelpCircle, 'plugins.telegram.menuFaq', 'plugins.telegram.menuFaqHint'],
+          ] as const).map(([key, Icon, labelKey, hintKey]) => (
+            <div key={key} className="flex items-start justify-between gap-4 rounded-xl border p-3">
+              <div className="flex items-start gap-3">
+                <span className="rounded-lg bg-primary/10 p-2 text-primary">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-sm font-medium">{t(labelKey as never)}</p>
+                  <p className="text-xs text-muted-foreground">{t(hintKey as never)}</p>
+                </div>
+              </div>
+              <Switch
+                checked={menuSettings[key]}
+                onCheckedChange={(value) => setMenuSettings((prev) => ({ ...prev, [key]: value }))}
+              />
+            </div>
+          ))}
+        </Card>
+
+        {menuSettings.faqEnabled && (
+          <Card className="space-y-4 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>{t('plugins.telegram.faqTitle')}</Label>
+              {editableLocales.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {editableLocales.map((l) => (
+                    <Button
+                      key={l}
+                      type="button"
+                      size="sm"
+                      variant={locale === l ? 'default' : 'outline'}
+                      onClick={() => setLocale(l)}
+                    >
+                      {t(`plugins.telegram.locale.${l}` as never)}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3" dir={rtl ? 'rtl' : 'ltr'}>
+              {items.length === 0 && (
+                <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  {t('plugins.telegram.faqEmpty')}
+                </p>
+              )}
+              {items.map((item, index) => (
+                <div key={index} className="space-y-2 rounded-xl border p-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{index + 1}</Badge>
+                    <Input
+                      value={item.question}
+                      maxLength={200}
+                      placeholder={t('plugins.telegram.faqQuestion')}
+                      onChange={(e) =>
+                        setFaq((prev) => ({
+                          ...prev,
+                          [locale]: prev[locale].map((row, i) =>
+                            i === index ? { ...row, question: e.target.value } : row,
+                          ),
+                        }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive"
+                      onClick={() =>
+                        setFaq((prev) => ({ ...prev, [locale]: prev[locale].filter((_, i) => i !== index) }))
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Textarea
+                    rows={3}
+                    maxLength={3000}
+                    value={item.answer}
+                    placeholder={t('plugins.telegram.faqAnswer')}
+                    onChange={(e) =>
+                      setFaq((prev) => ({
+                        ...prev,
+                        [locale]: prev[locale].map((row, i) =>
+                          i === index ? { ...row, answer: e.target.value } : row,
+                        ),
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setFaq((prev) => ({ ...prev, [locale]: [...(prev[locale] ?? []), { question: '', answer: '' }] }))
+              }
+            >
+              <Plus className="me-2 h-4 w-4" />
+              {t('plugins.telegram.faqAdd')}
+            </Button>
+          </Card>
+        )}
+
+        <div className="flex justify-end">
+          <Button type="button" disabled={saveSettings.isPending} onClick={() => saveSettings.mutate()}>
+            {saveSettings.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+            {t('plugins.telegram.saveSettings')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (section === 'branding') {
     return (
       <Card className="space-y-4 p-4">
@@ -524,7 +673,10 @@ export function TelegramConfigPanel({
       <div className="space-y-2" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
         <Label>{t('plugins.telegram.commandsTitle')}</Label>
         <p className="text-xs text-muted-foreground">{t('plugins.telegram.commandsHint')}</p>
-        {(['start', 'help', 'human', 'new'] as const).map((key) => (
+        {COMMAND_KEYS.filter(
+          (key) =>
+            (key !== 'faq' || menuSettings.faqEnabled) && (key !== 'guides' || menuSettings.guidesEnabled),
+        ).map((key) => (
           <div key={key} className="flex items-center gap-2">
             <Badge variant="outline" dir="ltr">/{key}</Badge>
             <Input

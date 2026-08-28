@@ -21,8 +21,18 @@ import { checkModuleAccess } from '../../../middleware/featureGating.js';
 export const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
 export type TelegramLocale = (typeof TELEGRAM_LOCALES)[number];
 
-export const TELEGRAM_COMMAND_KEYS = ['start', 'help', 'human', 'new'] as const;
+export const TELEGRAM_COMMAND_KEYS = ['start', 'help', 'human', 'new', 'faq', 'guides'] as const;
 export type TelegramCommandKey = (typeof TELEGRAM_COMMAND_KEYS)[number];
+
+/** Emoji shown next to every menu entry — one shared visual language. */
+export const TELEGRAM_COMMAND_ICONS: Record<TelegramCommandKey, string> = {
+  start: '🏠',
+  help: 'ℹ️',
+  human: '👤',
+  new: '🆕',
+  faq: '❓',
+  guides: '📚',
+};
 
 export type TelegramLocaleMessages = {
   welcome: string;
@@ -33,6 +43,9 @@ export type TelegramLocaleMessages = {
 };
 
 export type TelegramHandlingMode = 'human_only' | 'ai_first';
+
+/** A single operator-authored FAQ entry. */
+export type TelegramFaqItem = { question: string; answer: string };
 
 /** The AI capability used elsewhere to gate the assistant. */
 export const TELEGRAM_AI_MODULE_KEY = 'ai_assistant';
@@ -50,11 +63,20 @@ export type TelegramSettings = {
   commands: Record<TelegramCommandKey, string>;
   /** Per-locale command labels; what the bot actually shows to a user. */
   commandLocales: Record<TelegramLocale, Record<TelegramCommandKey, string>>;
+  /** Which optional menu entries the bot exposes. */
+  menu: {
+    faqEnabled: boolean;
+    /** Help articles sourced from the workspace Knowledge Base. */
+    guidesEnabled: boolean;
+  };
+  /** Operator-authored FAQ, per locale. */
+  faq: Record<TelegramLocale, TelegramFaqItem[]>;
 
   handlingMode: TelegramHandlingMode;
 };
 
 const MESSAGE_KEYS = ['welcome', 'help', 'offline', 'handoff', 'fallback'] as const;
+
 
 function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
   switch (locale) {
@@ -91,22 +113,34 @@ const DEFAULT_COMMANDS_BY_LOCALE: Record<TelegramLocale, Record<TelegramCommandK
     help: 'Show available commands',
     human: 'Talk to a human teammate',
     new: 'Start a new conversation',
+    faq: 'Frequently asked questions',
+    guides: 'Help articles',
   },
   fa: {
     start: 'شروع گفتگو',
     help: 'نمایش دستورهای موجود',
     human: 'گفتگو با همکار انسانی',
     new: 'شروع گفتگوی تازه',
+    faq: 'سوالات متداول',
+    guides: 'مقالات راهنما',
   },
   tr: {
     start: 'Görüşmeyi başlat',
     help: 'Komutları göster',
     human: 'Bir temsilciyle konuş',
     new: 'Yeni görüşme başlat',
+    faq: 'Sıkça sorulan sorular',
+    guides: 'Yardım makaleleri',
   },
 };
 
 const DEFAULT_COMMANDS: Record<TelegramCommandKey, string> = { ...DEFAULT_COMMANDS_BY_LOCALE.en };
+
+const DEFAULT_FAQ: Record<TelegramLocale, TelegramFaqItem[]> = {
+  en: [],
+  fa: [],
+  tr: [],
+};
 
 export function defaultTelegramSettings(): TelegramSettings {
   return {
@@ -122,9 +156,12 @@ export function defaultTelegramSettings(): TelegramSettings {
       fa: { ...DEFAULT_COMMANDS_BY_LOCALE.fa },
       tr: { ...DEFAULT_COMMANDS_BY_LOCALE.tr },
     },
+    menu: { faqEnabled: false, guidesEnabled: false },
+    faq: { en: [...DEFAULT_FAQ.en], fa: [...DEFAULT_FAQ.fa], tr: [...DEFAULT_FAQ.tr] },
     handlingMode: 'human_only',
   };
 }
+
 
 
 function str(value: unknown, max: number, fallback: string): string {
@@ -185,7 +222,29 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
 
   const handlingMode: TelegramHandlingMode = input.handlingMode === 'ai_first' ? 'ai_first' : 'human_only';
 
-  return { profile, locales, commands, commandLocales, handlingMode };
+  const menuInput = (input.menu ?? {}) as Record<string, unknown>;
+  const menu = {
+    faqEnabled: menuInput.faqEnabled === true,
+    guidesEnabled: menuInput.guidesEnabled === true,
+  };
+
+  // FAQ entries are authored copy: capped in count and length, never markup.
+  const faqInput = (input.faq ?? {}) as Record<string, unknown>;
+  const faq = {} as Record<TelegramLocale, TelegramFaqItem[]>;
+  for (const locale of TELEGRAM_LOCALES) {
+    const list = Array.isArray(faqInput[locale]) ? (faqInput[locale] as unknown[]) : [];
+    faq[locale] = list
+      .slice(0, 30)
+      .map((raw) => {
+        const item = (raw ?? {}) as Record<string, unknown>;
+        return { question: str(item.question, 200, ''), answer: str(item.answer, 3000, '') };
+      })
+      .filter((item) => item.question.trim() && item.answer.trim());
+  }
+
+  return { profile, locales, commands, commandLocales, menu, faq, handlingMode };
+
+
 
 }
 
@@ -254,13 +313,22 @@ export function normalizeLocale(locale: string | null | undefined): TelegramLoca
   return (TELEGRAM_LOCALES as readonly string[]).includes(short) ? (short as TelegramLocale) : null;
 }
 
-const COMMAND_PATTERN = /^\/(start|help|human|new)(@[\w]+)?(?:\s|$)/i;
+const COMMAND_PATTERN = /^\/(start|menu|help|human|new|faq|guides)(@[\w]+)?(?:\s|$)/i;
 
 /** Recognizes a configured slash command regardless of bot-username suffix. */
 export function commandKeyFromText(text: string): TelegramCommandKey | null {
   const match = COMMAND_PATTERN.exec(text.trim());
   if (!match) return null;
-  return match[1].toLowerCase() as TelegramCommandKey;
+  const key = match[1].toLowerCase();
+  // `/menu` is an alias of `/start`: both open the main menu.
+  return (key === 'menu' ? 'start' : key) as TelegramCommandKey;
+}
+
+/** Whether an optional menu entry is switched on for this workspace. */
+export function isTelegramMenuEntryEnabled(settings: TelegramSettings, key: TelegramCommandKey): boolean {
+  if (key === 'faq') return settings.menu?.faqEnabled === true;
+  if (key === 'guides') return settings.menu?.guidesEnabled === true;
+  return true;
 }
 
 /**
@@ -284,12 +352,16 @@ export function resolveCommandLabel(
   return DEFAULT_COMMANDS_BY_LOCALE[preferred][key];
 }
 
-/** Builds the setMyCommands payload from configured descriptions. */
+/**
+ * Builds the setMyCommands payload. Disabled menu entries (FAQ, help
+ * articles) are omitted so Telegram's native command list never advertises
+ * something the bot will not answer.
+ */
 export function buildTelegramCommandList(
   settings: TelegramSettings,
   locale?: string | null,
 ): { command: string; description: string }[] {
-  return TELEGRAM_COMMAND_KEYS.map((key) => ({
+  return TELEGRAM_COMMAND_KEYS.filter((key) => isTelegramMenuEntryEnabled(settings, key)).map((key) => ({
     command: key,
     description: resolveCommandLabel(settings, locale, key),
   }));
@@ -307,7 +379,10 @@ export function messageKeyForCommand(command: TelegramCommandKey): keyof Telegra
       return 'handoff';
     case 'new':
       return 'welcome';
+    default:
+      return 'help';
   }
 }
 
 export { MESSAGE_KEYS as TELEGRAM_MESSAGE_KEYS };
+

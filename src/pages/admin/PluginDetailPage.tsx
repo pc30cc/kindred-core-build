@@ -76,6 +76,7 @@ export default function AdminPluginDetailPage() {
   ] as const;
 
   const aiEnabled = (item.policy as Record<string, unknown> | null)?.aiEnabled !== false;
+  const menuEventsVisible = (item.policy as Record<string, unknown> | null)?.menuEventsVisible !== false;
 
 
   return (

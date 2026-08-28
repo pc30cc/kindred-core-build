@@ -132,8 +132,11 @@ describe('callers send both transports', () => {
   });
 
   it('worker refuses to claim jobs unless Core advertises the required route contract', () => {
-    expect(worker).toContain("'POST /process-inbound'");
-    expect(worker).toContain('missingRoutes.length > 0');
+    // The contract itself is the SHARED constant, and the behaviour is covered
+    // end to end in coreWorkerContract.test.ts against the real Core router.
+    expect(worker).toContain('evaluateCoreReadiness');
     expect(worker).toContain('paused before claiming jobs');
+    expect(worker).toMatch(/if \(!verdict\.ready\)/);
   });
+
 });

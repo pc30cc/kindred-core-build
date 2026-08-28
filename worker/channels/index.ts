@@ -38,6 +38,11 @@ import {
   sendMessage,
 } from '../../channels/providers/telegram/client.js';
 import {
+  CORE_INTERNAL_SERVICE_NAME,
+  evaluateCoreReadiness,
+  type CoreReadinessPayload,
+} from '../../shared/channels/internalRoutes.js';
+import {
   PermanentOperationError,
   TOKEN_KEY,
   executeOutboundActions,
@@ -160,43 +165,30 @@ async function ensureCoreAuthReady(): Promise<boolean> {
       console.error(`[channels-worker] paused before claiming jobs: ${reason}`);
       return false;
     }
-    const info = (await response.json().catch(() => ({}))) as {
-      service?: string;
-      build?: string | null;
-      routes?: string[];
-    };
-    const routes = Array.isArray(info.routes) ? info.routes : [];
-    const requiredRoutes = [
-      'POST /process-inbound',
-      'POST /outbound-result',
-      'POST /heartbeat',
-      'POST /profile-sync',
-      'POST /webhook-repair',
-    ];
-    const missingRoutes = requiredRoutes.filter((route) => !routes.includes(route));
+    const info = (await response.json().catch(() => ({}))) as CoreReadinessPayload;
 
     // Authentication alone is not readiness. An older Core can expose
     // /ready while lacking the handlers this worker needs. Fail closed before
     // claiming anything so valid jobs never consume retries against a stale
-    // or incorrectly routed Core deployment.
-    if (info.service !== 'core-internal-channels' || missingRoutes.length > 0) {
+    // or incorrectly routed Core deployment. The required set is the SHARED
+    // contract, so Core and Worker can never drift again.
+    const verdict = evaluateCoreReadiness(info);
+    if (!verdict.ready) {
       coreAuthReady = false;
-      const reason = info.service !== 'core-internal-channels'
-        ? `CORE_INTERNAL_BASE_URL does not point at the Channels Core service (service=${info.service ?? 'unknown'})`
-        : routes.length === 0
-          ? 'Core readiness response has no route contract; redeploy Core with the current build'
-          : `Core is missing required routes: ${missingRoutes.join(', ')}; redeploy Core with the current build`;
-      console.error(`[channels-worker] paused before claiming jobs: ${reason} (build=${info.build ?? 'unknown'})`);
+      console.error(
+        `[channels-worker] paused before claiming jobs: ${verdict.reason} (build=${verdict.build ?? 'unknown'})`,
+      );
       return false;
     }
 
     if (!coreAuthReady) {
       console.log(
-        `[channels-worker] Core authentication and route contract verified; queue processing enabled (build=${info.build ?? 'unknown'})`,
+        `[channels-worker] Core authentication and route contract verified; queue processing enabled (build=${verdict.build ?? 'unknown'})`,
       );
     }
     coreAuthReady = true;
     return true;
+
 
   } catch {
     coreAuthReady = false;
@@ -224,7 +216,7 @@ async function describeCore(): Promise<string> {
     });
     if (!response.ok) return `diagnostic HTTP ${response.status}`;
     const info = (await response.json()) as { service?: string; build?: string | null; routes?: string[] };
-    if (info?.service !== 'core-internal-channels') {
+    if (info?.service !== CORE_INTERNAL_SERVICE_NAME) {
       return 'the URL does not point at Core — another service answered';
     }
     return `Core build=${info.build ?? 'unknown'} serves ${Array.isArray(info.routes) ? info.routes.length : 0} internal routes`;
@@ -520,6 +512,26 @@ async function processBatch(): Promise<number> {
 
   return jobs.length;
 }
+
+/**
+ * TEST SEAM — lets the readiness contract be exercised against a real Core
+ * router without booting the poll loop or a Supabase connection. Never called
+ * in production code paths.
+ */
+export const __channelsWorkerTesting = {
+  configure(input: { sb: any; coreBaseUrl: string; coreSecret: string; masterKey?: string }) {
+    sb = input.sb as SupabaseClient;
+    coreBaseUrl = input.coreBaseUrl.replace(/\/+$/, '');
+    coreSecret = input.coreSecret;
+    masterKey = input.masterKey ?? 'test-master-key';
+    coreAuthReady = false;
+    lastCoreAuthCheckAt = 0;
+  },
+  processBatch,
+  ensureCoreAuthReady,
+  isCoreAuthReady: () => coreAuthReady,
+};
+
 
 /** Liveness for the Super Admin runtime health panel. */
 async function writeHeartbeat(): Promise<void> {

@@ -266,14 +266,16 @@ async function runDisconnect(ctx: OperationContext, operation: ProviderOperation
 async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
   const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
-  // Core owns the ingress contract; the worker asks for the current values.
-  const preflight = await ctx.corePost('/internal/channels/connect-preflight', {
-    operation_id: operation.id,
-    bot_id: 'repair',
-  }).catch(() => null);
+  // Core owns the ingress contract. Repair/reconnect targets an ALREADY-OWNED
+  // bot, so it must use the ownership-free contract endpoint — running the
+  // connect preflight here would re-claim the account of a healthy
+  // integration and reject on the bot-replacement rule.
+  const contract = await ctx
+    .corePost('/internal/channels/webhook-contract', { operation_id: operation.id })
+    .catch(() => null);
 
-  const target = preflight?.webhook_url ?? String((operation.request as any)?.webhook_url ?? '');
-  const secret = preflight?.secret_token ?? String((operation.request as any)?.secret_token ?? '');
+  const target = contract?.webhook_url ?? String((operation.request as any)?.webhook_url ?? '');
+  const secret = contract?.secret_token ?? String((operation.request as any)?.secret_token ?? '');
   if (!target || !secret) {
     await report(ctx, operation, {
       status: 'failed',
@@ -282,6 +284,7 @@ async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperat
     });
     return;
   }
+
 
   try {
     await setWebhook(token, target, secret);

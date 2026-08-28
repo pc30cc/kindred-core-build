@@ -356,3 +356,113 @@ describe('disconnect', () => {
     expect(db.secret('inst_one', TELEGRAM_BOT_TOKEN_KEY)).toBeUndefined();
   });
 });
+
+describe('bot replacement rule', () => {
+  it('rejects repointing a connected integration at a DIFFERENT bot', async () => {
+    const one = makeIntegration('one');
+    await runWorkerConnect(one, TOKEN_A);
+    telegram.webhooks.clear();
+
+    const result = await runWorkerConnect(db.integration('int_one') as any, TOKEN_B);
+
+    expect(result.code).toBe('different_bot_requires_disconnect');
+    // Nothing was touched on the provider, and bot A stays live.
+    expect(telegram.webhooks.size).toBe(0);
+    expect(db.integration('int_one')!.status).toBe('connected');
+    expect(db.integration('int_one')!.external_account_id).toBe('111');
+    await expect(readPluginSecret(config, 'inst_one', TELEGRAM_BOT_TOKEN_KEY)).resolves.toBe(TOKEN_A);
+    expect(db.secret('inst_one', TELEGRAM_BOT_TOKEN_PENDING_KEY)).toBeUndefined();
+    // Bot B was never claimed by this workspace.
+    expect(db.integrations.filter((r) => r.external_account_id === '222')).toHaveLength(0);
+  });
+
+  it('still allows rotating the token of the SAME bot', async () => {
+    const one = makeIntegration('one');
+    await runWorkerConnect(one, TOKEN_A);
+
+    const result = await runWorkerConnect(db.integration('int_one') as any, TOKEN_A2);
+
+    expect(result.ok).toBe(true);
+    expect(db.integration('int_one')!.external_account_id).toBe('111');
+    await expect(readPluginSecret(config, 'inst_one', TELEGRAM_BOT_TOKEN_KEY)).resolves.toBe(TOKEN_A2);
+  });
+
+  it('allows a different bot after an explicit disconnect', async () => {
+    const one = makeIntegration('one');
+    await runWorkerConnect(one, TOKEN_A);
+    const { operation } = await setup.requestTelegramDisconnect(config, 'inst_one');
+    await setup.applyDisconnectResult(config, ops.get(operation!.id), { webhookRemoved: true });
+
+    const result = await runWorkerConnect(db.integration('int_one') as any, TOKEN_B);
+
+    expect(result.ok).toBe(true);
+    expect(db.integration('int_one')!.external_account_id).toBe('222');
+  });
+
+  it('does not block a first-time connect that has no live bot', async () => {
+    const fresh = makeIntegration('fresh');
+    await expect(runWorkerConnect(fresh, TOKEN_B)).resolves.toMatchObject({ ok: true });
+  });
+});
+
+describe('webhook contract for already-owned bots', () => {
+  it('returns the ingress contract without re-running ownership', async () => {
+    const one = makeIntegration('one');
+    await runWorkerConnect(one, TOKEN_A);
+
+    const operation = await setup.requestTelegramWebhookRepair(config, 'inst_one');
+    const contract = await setup.providerWebhookContract(config, { operationId: operation.id });
+
+    expect(contract.webhookUrl).toContain('/pub_one');
+    expect(contract.secretToken).toBeTruthy();
+    expect(contract.integrationId).toBe('int_one');
+    // Repair is NOT a connect: ownership and credentials are untouched.
+    expect(db.integration('int_one')!.external_account_id).toBe('111');
+    expect(db.integration('int_one')!.status).toBe('connected');
+    await expect(readPluginSecret(config, 'inst_one', TELEGRAM_BOT_TOKEN_KEY)).resolves.toBe(TOKEN_A);
+    expect(JSON.stringify(contract)).not.toContain(TOKEN_A);
+  });
+
+  it('matches exactly what a repaired webhook is verified against', async () => {
+    const one = makeIntegration('one');
+    await runWorkerConnect(one, TOKEN_A);
+    const registered = telegram.webhooks.get(TOKEN_A);
+
+    const operation = await setup.requestTelegramWebhookRepair(config, 'inst_one');
+    const contract = await setup.providerWebhookContract(config, { operationId: operation.id });
+    expect(contract.webhookUrl).toBe(registered);
+
+    await setup.applyWebhookRepairResult(config, ops.get(operation.id), {
+      repaired: true,
+      webhookUrl: contract.webhookUrl,
+    });
+    expect(ops.get(operation.id).status).toBe('succeeded');
+    expect(db.integration('int_one')!.status).toBe('connected');
+  });
+
+  it('refuses to serve the shortcut for a connect operation', async () => {
+    const one = makeIntegration('one');
+    const operation = await setup.requestTelegramConnect(config, one, TOKEN_A);
+    await expect(setup.providerWebhookContract(config, { operationId: operation.id })).rejects.toMatchObject({
+      code: 'invalid_operation',
+    });
+  });
+
+  it('rejects an integration with no live credential', async () => {
+    const one = makeIntegration('one');
+    await runWorkerConnect(one, TOKEN_A);
+    const operation = await setup.requestTelegramWebhookRepair(config, 'inst_one');
+    db.secrets = db.secrets.filter((row: any) => row.secret_key !== TELEGRAM_BOT_TOKEN_KEY);
+
+    await expect(setup.providerWebhookContract(config, { operationId: operation.id })).rejects.toMatchObject({
+      code: 'no_token',
+    });
+  });
+
+  it('rejects an unknown operation', async () => {
+    await expect(setup.providerWebhookContract(config, { operationId: 'op-missing' })).rejects.toMatchObject({
+      code: 'unknown_operation',
+    });
+  });
+});
+

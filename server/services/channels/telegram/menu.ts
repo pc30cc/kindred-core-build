@@ -146,11 +146,14 @@ export function buildReplyKeyboard(
   }
   if (contentRow.length) rows.push(contentRow);
 
-  rows.push([
-    { text: labelFor(settings, locale, 'human', fallback) },
-    { text: labelFor(settings, locale, 'new', fallback) },
-  ]);
-  rows.push([{ text: labelFor(settings, locale, 'help', fallback) }]);
+  const actionRow: { text: string }[] = [];
+  // "Talk to a human" is only meaningful while AI answers first — otherwise
+  // an operator is already the default recipient.
+  if (isTelegramMenuEntryEnabled(settings, 'human')) {
+    actionRow.push({ text: labelFor(settings, locale, 'human', fallback) });
+  }
+  actionRow.push({ text: labelFor(settings, locale, 'new', fallback) });
+  rows.push(actionRow);
 
   return {
     keyboard: rows,
@@ -179,7 +182,7 @@ export function matchReplyKeyboardCommand(
 ): TelegramCommandKey | null {
   const needle = normalizeLabel(String(text ?? ''));
   if (!needle) return null;
-  const keys: TelegramCommandKey[] = ['guides', 'faq', 'human', 'new', 'help', 'start'];
+  const keys: TelegramCommandKey[] = ['guides', 'faq', 'human', 'new', 'start'];
   for (const key of keys) {
     if (!isTelegramMenuEntryEnabled(settings, key)) continue;
     for (const locale of ['fa', 'en', 'tr'] as TelegramLocale[]) {

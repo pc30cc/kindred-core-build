@@ -359,12 +359,23 @@ export function commandKeyFromText(text: string): TelegramCommandKey | null {
   return (key === 'menu' ? 'start' : key) as TelegramCommandKey;
 }
 
-/** Whether an optional menu entry is switched on for this workspace. */
+/**
+ * Whether an optional menu entry is switched on for this workspace.
+ * - `help` (the "available commands" screen) is retired: the menu itself is
+ *   self-explanatory, so it is never advertised anywhere.
+ * - `human` only makes sense when AI answers first; when the bot is already
+ *   human-only (Super Admin master switch off, unentitled, or the workspace
+ *   chose operators-first) it is the default path and needs no button.
+ *   Callers must pass settings whose `handlingMode` is the RESOLVED mode.
+ */
 export function isTelegramMenuEntryEnabled(settings: TelegramSettings, key: TelegramCommandKey): boolean {
+  if (key === 'help') return false;
+  if (key === 'human') return settings.handlingMode === 'ai_first';
   if (key === 'faq') return settings.menu?.faqEnabled === true;
   if (key === 'guides') return settings.menu?.guidesEnabled === true;
   return true;
 }
+
 
 /**
  * Command label for a locale: authored per-locale text → platform fallback

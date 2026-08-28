@@ -155,11 +155,18 @@ describe('commands', () => {
     expect(commandKeyFromText('/unknown')).toBeNull();
   });
 
-  it('builds a complete setMyCommands payload', () => {
+  it('builds a setMyCommands payload without the retired /help entry', () => {
     const list = buildTelegramCommandList(defaultTelegramSettings());
-    expect(list.map((c) => c.command)).toEqual(['start', 'help', 'human', 'new', 'faq', 'guides']);
+    // human_only bots never advertise /human — an operator already answers.
+    expect(list.map((c) => c.command)).toEqual(['start', 'new', 'faq', 'guides']);
     expect(list.every((c) => c.description.trim().length > 0)).toBe(true);
   });
+
+  it('advertises /human only when AI answers first', () => {
+    const list = buildTelegramCommandList({ ...defaultTelegramSettings(), handlingMode: 'ai_first' });
+    expect(list.map((c) => c.command)).toEqual(['start', 'human', 'new', 'faq', 'guides']);
+  });
+
 
   it('maps commands to the right localized reply', () => {
     expect(messageKeyForCommand('start')).toBe('welcome');

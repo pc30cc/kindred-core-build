@@ -22,8 +22,9 @@ const WORKSPACE_ID = 'ws-1';
 const CRAWL_HOST = 'docs.example.com';
 
 vi.mock('../../../server/services/ai-kb/credits.js', () => ({
-  consumeAiCredits: async () => ({ ok: true, credits_used: 1, credits_limit: 100 }),
+  consumeAiCredits: async () => ({ success: true, credits_used: 1, credits_limit: 100 }),
 }));
+
 vi.mock('../../../server/middleware/adminBypass.js', () => ({
   logGateBypass: async () => {},
   isGlobalAdmin: async () => false,

@@ -144,6 +144,27 @@ export type TelegramInboundFlowResult = {
   command?: TelegramCommandKey | null;
 };
 
+async function conversationIsWaitingForHuman(
+  config: ServerConfig,
+  conversationId: string,
+): Promise<boolean> {
+  const { data, error } = await getServiceClient(config)
+    .from('conversations')
+    .select('ai_state, metadata')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[telegram] conversation ownership lookup failed:', error.message);
+    return false;
+  }
+  const metadata = (((data as any)?.metadata as Record<string, unknown>) || {});
+  const aiState = String((data as any)?.ai_state ?? metadata.ai_state ?? '');
+  return aiState === 'needs_human'
+    || metadata.ai_handoff_requested === true
+    || metadata.managed_by_ai === false
+    || metadata.ai_managed_by_ai === false;
+}
+
 
 /**
  * The language the bot must answer in: the Telegram user's language when the
@@ -199,7 +220,13 @@ export async function handleTelegramInboundFlow(
     const installation = await getInstallation(config, input.workspaceId, 'telegram');
     const parsed = parseTelegramSettings(installation?.settings);
     const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode);
-    const aiAllowed = mode === 'ai_first';
+    // The plugin may remain in ai_first while this particular conversation
+    // has already been handed to a human. In that state AI is not a live
+    // responder and must not suppress the away notice / offline lock.
+    const waitingForHuman = mode === 'ai_first'
+      ? await conversationIsWaitingForHuman(config, conversationId)
+      : false;
+    const aiAllowed = mode === 'ai_first' && !waitingForHuman;
     // Menu visibility follows the RESOLVED mode, not the stored request.
     const settings = { ...parsed, handlingMode: mode };
 
@@ -468,10 +495,16 @@ async function sendTelegramScreen(
   chatId: string,
   screen: { text: string; replyMarkup: Record<string, unknown> },
 ): Promise<boolean> {
-  if (!(await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY))) return false;
+  if (!(await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY))) {
+    console.warn('[telegram] screen not queued: credential missing');
+    return false;
+  }
   const integration = await getIntegrationForInstallation(config, installationId);
-  if (!integration) return false;
-  return enqueueProviderActions(config, {
+  if (!integration) {
+    console.warn('[telegram] screen not queued: integration missing');
+    return false;
+  }
+  const queued = await enqueueProviderActions(config, {
     provider: 'telegram',
     workspaceId: integration.workspace_id,
     integrationId: integration.id,
@@ -486,4 +519,6 @@ async function sendTelegramScreen(
       },
     ],
   });
+  if (!queued) console.warn('[telegram] screen not queued: provider action enqueue failed');
+  return queued;
 }

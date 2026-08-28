@@ -25,6 +25,7 @@ import {
 } from './calls/departments.js';
 import { listWorkspacePresence } from './widget/operatorPresence.js';
 import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
+import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -206,6 +207,32 @@ async function resolveAgentDisplayName(config: ServerConfig, userId: string): Pr
   }
 }
 
+async function resolveNoAgentVisitorBody(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationMetadata: Record<string, unknown>,
+): Promise<string> {
+  const fallback = "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.";
+  if (conversationMetadata.channel !== 'telegram') return fallback;
+  try {
+    const [{ getInstallation }, telegram, platformRegion] = await Promise.all([
+      import('./plugins/state.js'),
+      import('./channels/telegram/settings.js'),
+      import('./platformRegion.js'),
+    ]);
+    const installation = await getInstallation(config, workspaceId, 'telegram');
+    if (!installation) return fallback;
+    const settings = telegram.parseTelegramSettings(installation.settings);
+    const allowed = await platformRegion.getPlatformAllowedLocales(config);
+    const locale = allowed[0] || 'en';
+    const key = settings.menu.lockWhenOffline ? 'offlineLocked' : 'offlineNotice';
+    return telegram.resolveLocalizedMessage(settings, locale, key, locale);
+  } catch (err) {
+    console.warn('[chat-routing] telegram visitor notice localization failed:', err instanceof Error ? err.message : err);
+    return fallback;
+  }
+}
+
 /**
  * Visible routing-outcome messages (spec §22) — inserted as real
  * `sender_type: 'system'` conversation messages so they flow through the
@@ -222,6 +249,7 @@ async function insertRoutingSystemMessage(
   conversationId: string,
   body: string,
   metadata: Record<string, unknown>,
+  deliverToChannel = false,
 ): Promise<void> {
   try {
     const sb = getServiceClient(config);
@@ -231,6 +259,17 @@ async function insertRoutingSystemMessage(
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
     if (error || !msgRow) return;
+    // System messages are intentionally excluded from the database outbound
+    // trigger. Only explicitly visitor-facing routing notices cross a channel;
+    // internal events such as "agent joined" remain Inbox-only.
+    if (deliverToChannel) {
+      await dispatchOutboundIfChannelConversation(config, {
+        workspaceId,
+        conversationId,
+        messageId: msgRow.id as string,
+        body: msgRow.body as string,
+      });
+    }
     void publishConversationEvent(
       config,
       workspaceId,
@@ -373,10 +412,12 @@ export async function routeConversationToOperator(
       // Team looked online but nobody was actually eligible/available —
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
+        const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, metadata);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
-          "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+          visitorBody,
           { kind: 'routing_no_agent_available' },
+          true,
         );
       }
       await tagOutcome(

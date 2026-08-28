@@ -55,6 +55,7 @@ import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
 import { Sparkles } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { ContactDrawer } from '@/features/contacts/ContactDrawer';
 import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
@@ -1249,6 +1250,10 @@ export default function InboxPage() {
                             />
                           )}
                           <span className="truncate">{name}</span>
+                          {(() => {
+                            const ch = resolveChannelKey((conv as any)?.metadata, (conv as any)?.contacts?.metadata);
+                            return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t as any} size="xs" className="shrink-0" />;
+                          })()}
                         </span>
                         <span className={cn(
                           'text-[11px] shrink-0 tabular-nums',
@@ -1469,6 +1474,10 @@ export default function InboxPage() {
                     {conversationTitle(selected, t, locale)}
                   </button>
                   <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
+                    {(() => {
+                      const ch = resolveChannelKey((selected as any)?.metadata, (selected as any)?.contacts?.metadata);
+                      return ch === 'widget' ? null : <ChannelBadge channel={ch} t={t as any} size="xs" />;
+                    })()}
                     {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
                     {presence && presence.status !== 'unknown' && (
                       <>
@@ -2230,6 +2239,16 @@ export default function InboxPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Provider-side identity (Telegram & other channels). */}
+                <ChannelIdentityCard
+                  metadata={{
+                    ...(((selected as any)?.contacts?.metadata as Record<string, unknown>) || {}),
+                    ...(((selected as any)?.metadata?.channel ? { channel: (selected as any).metadata.channel } : {}) as Record<string, unknown>),
+                  }}
+                  t={t as any}
+                  dir={dir as any}
+                />
 
                 {/* Canonical visitor network identity (shared with Call Center
                     and the Visitors drawer — one endpoint, one policy). */}

@@ -31,6 +31,7 @@ import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyAction
 import { ContactEditDialog, type ContactEditValues } from '@/features/contacts/ContactEditDialog';
 
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { useContactIp } from '@/hooks/useContactIp';
 import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { Globe, Lock } from 'lucide-react';
@@ -263,12 +264,17 @@ export default function ContactDetailPage() {
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-3">
                   {t('contacts.contactChannels')}
                 </p>
-                <div className="mb-3">
-                  <Badge variant="secondary" className="text-[10px] gap-1">
-                    {hasCalls ? <PhoneCall className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
-                    {sourceLabel}
-                  </Badge>
+                <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                  {resolveChannelKey(contact.metadata) !== 'widget' ? (
+                    <ChannelBadge channel={resolveChannelKey(contact.metadata)} t={t as any} />
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px] gap-1">
+                      {hasCalls ? <PhoneCall className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
+                      {sourceLabel}
+                    </Badge>
+                  )}
                 </div>
+                <ChannelIdentityCard metadata={contact.metadata} t={t as any} dir={dir as any} className="mb-3" />
                 <div className="space-y-3.5">
                   <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
                   <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />

@@ -194,8 +194,22 @@ export async function handleTelegramCallbackQuery(
     const settings = parseTelegramSettings(installation.settings);
     const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, query.from?.language_code);
 
-    const screen = await resolveCallbackScreen(config, ctx.workspaceId, settings, data, locale, fallbackLocale);
+    const payload = data.slice('tg:'.length);
+    let screen: { text: string; replyMarkup: Record<string, unknown> } | null;
+    if (payload === 'dept' || payload.startsWith('dept:')) {
+      screen = await resolveDepartmentCallback(config, {
+        workspaceId: ctx.workspaceId,
+        installationId: installation.id,
+        chatId: String(chatId),
+        payload,
+        locale,
+        fallbackLocale,
+      });
+    } else {
+      screen = await resolveCallbackScreen(config, ctx.workspaceId, settings, data, locale, fallbackLocale);
+    }
     if (!screen) return true;
+
 
     // A persistent reply keyboard cannot be attached to an edited message —
     // those screens are delivered as a fresh message instead.

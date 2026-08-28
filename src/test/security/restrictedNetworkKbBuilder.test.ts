@@ -63,10 +63,14 @@ beforeEach(() => {
   });
   net = installRestrictedNetwork({
     // The crawler legitimately reaches the customer's own website from Core.
-    allowHost: (_url, host) =>
-      host === CRAWL_HOST
-        ? new Response(PAGE_HTML, { status: 200, headers: { 'content-type': 'text/html' } })
-        : undefined,
+    allowHost: (url, host) => {
+      if (host !== CRAWL_HOST) return undefined;
+      const res = new Response(PAGE_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+      // The crawler re-validates the post-redirect host via `res.url`.
+      Object.defineProperty(res, 'url', { value: url });
+      return res;
+    },
+
     providerResponse: (url) =>
       url.includes('/embeddings')
         ? defaultProviderResponse(url)

@@ -470,6 +470,12 @@ pluginsRouter.post('/telegram/reconnect', async (req: any, res) => {
     const config = serverConfigOf(req);
     const installation = await getInstallation(config, workspaceId, 'telegram');
     if (!installation) return res.status(404).json({ error: 'not_installed' });
+    if (await channelsWorkerOffline(req)) {
+      return res
+        .status(503)
+        .json({ error: 'repair_failed', reason: 'channels_worker_offline' });
+    }
+
 
     const operation = await requestTelegramWebhookRepair(config, installation.id, auth.userId);
     const settled = await awaitOperation(config, operation.id, 15_000);

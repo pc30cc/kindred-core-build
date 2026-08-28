@@ -118,6 +118,7 @@ describe('worker boundary', () => {
   it('delivers routing system notices to channel visitors explicitly', () => {
     expect(chatRoutingSource).toContain('await dispatchOutboundIfChannelConversation(config, {');
     expect(chatRoutingSource).toContain("{ kind: 'routing_no_agent_available' }");
+    expect(chatRoutingSource).toContain("{ kind: 'routing_no_agent_available' },\n          true,");
   });
 
   it('treats a handed-off Telegram conversation as having no AI responder', () => {

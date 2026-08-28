@@ -249,6 +249,7 @@ async function insertRoutingSystemMessage(
   conversationId: string,
   body: string,
   metadata: Record<string, unknown>,
+  deliverToChannel = false,
 ): Promise<void> {
   try {
     const sb = getServiceClient(config);
@@ -258,16 +259,17 @@ async function insertRoutingSystemMessage(
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
     if (error || !msgRow) return;
-    // System notices are intentionally excluded from the database outbound
-    // trigger. Reconcile them explicitly so channel visitors (Telegram today,
-    // future providers through the same adapter) receive the same routing
-    // outcome that operators see in Inbox.
-    await dispatchOutboundIfChannelConversation(config, {
-      workspaceId,
-      conversationId,
-      messageId: msgRow.id as string,
-      body: msgRow.body as string,
-    });
+    // System messages are intentionally excluded from the database outbound
+    // trigger. Only explicitly visitor-facing routing notices cross a channel;
+    // internal events such as "agent joined" remain Inbox-only.
+    if (deliverToChannel) {
+      await dispatchOutboundIfChannelConversation(config, {
+        workspaceId,
+        conversationId,
+        messageId: msgRow.id as string,
+        body: msgRow.body as string,
+      });
+    }
     void publishConversationEvent(
       config,
       workspaceId,
@@ -415,6 +417,7 @@ export async function routeConversationToOperator(
           config, args.workspaceId, args.conversationId,
           visitorBody,
           { kind: 'routing_no_agent_available' },
+          true,
         );
       }
       await tagOutcome(

@@ -593,11 +593,49 @@ export function TelegramConfigPanel({
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="telegram-photo-url">{t('plugins.telegram.photoUrl')}</Label>
-          <Input id="telegram-photo-url" dir="ltr" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+        <div className="space-y-2">
+          <Label>{t('plugins.telegram.photoUrl')}</Label>
+          <div className="flex items-center gap-3">
+            <Avatar className="h-16 w-16 border">
+              {photoUrl ? <AvatarImage src={photoUrl} alt={botName || 'bot'} /> : null}
+              <AvatarFallback><Bot className="h-6 w-6 text-muted-foreground" /></AvatarFallback>
+            </Avatar>
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) uploadPhoto(file);
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={photoUploading}
+                onClick={() => photoInputRef.current?.click()}
+              >
+                {photoUploading ? (
+                  <><Loader2 className="me-2 h-4 w-4 animate-spin" />{t('plugins.telegram.photoUploading')}</>
+                ) : (
+                  <><Upload className="me-2 h-4 w-4" />{photoUrl ? t('plugins.telegram.photoReplace') : t('plugins.telegram.photoUpload')}</>
+                )}
+              </Button>
+              {photoUrl && !photoUploading && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setPhotoUrl('')}>
+                  <Trash2 className="me-2 h-4 w-4" />
+                  {t('plugins.telegram.photoRemove')}
+                </Button>
+              )}
+            </div>
+          </div>
           <p className="text-xs text-muted-foreground">{t('plugins.telegram.photoUrlHint')}</p>
         </div>
+
 
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" disabled={applyProfile.isPending} onClick={() => applyProfile.mutate()}>

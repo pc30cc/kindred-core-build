@@ -126,6 +126,53 @@ export function buildReplyKeyboard(
   };
 }
 
+/**
+ * Away screen. Two flavours of the same surface:
+ *   - notice  → "nobody is online, your message is saved"
+ *   - locked  → writing is closed (no human, no AI); only the reading
+ *               entries (help articles / FAQ) stay on the keyboard and the
+ *               text field carries an explanatory placeholder.
+ *
+ * Telegram gives no API to literally disable the input box, so "locked" is
+ * expressed the only way the client allows: a reduced keyboard, a clear
+ * placeholder in the text field and an immediate, unmistakable reply.
+ */
+export function buildOfflineScreen(
+  settings: TelegramSettings,
+  locale: string | null | undefined,
+  fallback: string | null | undefined,
+  opts: { locked: boolean },
+): { text: string; replyMarkup: Record<string, unknown> } {
+  const body = resolveLocalizedMessage(
+    settings,
+    locale,
+    opts.locked ? 'offlineLocked' : 'offlineNotice',
+    fallback,
+  );
+  const placeholder = resolveLocalizedMessage(settings, locale, 'offlineInputHint', fallback);
+
+  const rows: { text: string }[][] = [];
+  const contentRow: { text: string }[] = [];
+  if (isTelegramMenuEntryEnabled(settings, 'guides')) {
+    contentRow.push({ text: labelFor(settings, locale, 'guides', fallback) });
+  }
+  if (isTelegramMenuEntryEnabled(settings, 'faq')) {
+    contentRow.push({ text: labelFor(settings, locale, 'faq', fallback) });
+  }
+  if (contentRow.length) rows.push(contentRow);
+  if (!opts.locked) rows.push([{ text: labelFor(settings, locale, 'new', fallback) }]);
+
+  return {
+    text: `${escapeHtml(body)}`,
+    replyMarkup: {
+      keyboard: rows,
+      resize_keyboard: true,
+      is_persistent: true,
+      input_field_placeholder: placeholder.slice(0, 64),
+    },
+  };
+}
+
 /** Normalizes a tapped keyboard label (drops icons/whitespace) for matching. */
 function normalizeLabel(text: string): string {
   return text

@@ -78,6 +78,9 @@ export interface TelegramLocaleMessages {
   deptHint: string;
   deptConfirmed: string;
   deptChange: string;
+  offlineNotice: string;
+  offlineLocked: string;
+  offlineInputHint: string;
 }
 export type TelegramCommandLabels = {
   start: string;
@@ -92,7 +95,14 @@ export interface TelegramSettings {
   commands: TelegramCommandLabels;
   commandLocales: Record<TelegramLocale, TelegramCommandLabels>;
   /** Optional menu entries the bot exposes (FAQ, help articles). */
-  menu: { faqEnabled: boolean; guidesEnabled: boolean };
+  menu: {
+    faqEnabled: boolean;
+    guidesEnabled: boolean;
+    /** Reply with the away screen when no operator is online. */
+    offlineNoticeEnabled: boolean;
+    /** Close writing while offline and the AI is not answering. */
+    lockWhenOffline: boolean;
+  };
   faq: Record<TelegramLocale, TelegramFaqItem[]>;
   handlingMode: TelegramHandlingMode;
 }

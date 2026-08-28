@@ -32,6 +32,7 @@ import {
   buildFaqAnswer,
   buildFaqList,
   buildMainMenu,
+  buildOfflineScreen,
   escapeHtml,
   listHelpArticles,
   matchReplyKeyboardCommand,
@@ -45,6 +46,65 @@ import {
 
 
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
+import { getServiceClient } from '../../../supabase.js';
+import { resolveAvailability } from '../../widget/availability.js';
+
+/** Away notices are rate-limited per thread so the bot never spams. */
+const OFFLINE_NOTICE_COOLDOWN_MS = 10 * 60 * 1000;
+
+/**
+ * Away handling for a plain (non-command) visitor message.
+ *
+ * The operator inbox already renders an "everyone is away" banner; until now
+ * the Telegram visitor saw nothing at all. This mirrors the widget behaviour
+ * on the bot: when no operator is reachable AND the AI is not answering, the
+ * visitor gets the away screen. When the workspace switched on
+ * `lockWhenOffline`, that screen also closes writing (reduced keyboard +
+ * text-field placeholder — the closest Telegram allows to a disabled input).
+ */
+async function maybeSendOfflineScreen(
+  config: ServerConfig,
+  args: {
+    settings: TelegramSettings;
+    workspaceId: string;
+    installationId: string;
+    conversationId: string;
+    chatId: string;
+    locale: string;
+    fallbackLocale: string;
+  },
+): Promise<boolean> {
+  const { settings } = args;
+  if (settings.menu?.offlineNoticeEnabled === false && settings.menu?.lockWhenOffline !== true) return false;
+
+  const availability = await resolveAvailability(config, {
+    workspaceId: args.workspaceId,
+    locale: args.locale,
+  }).catch(() => null);
+  if (!availability || availability.state !== 'offline') return false;
+
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('conversations')
+    .select('metadata')
+    .eq('id', args.conversationId)
+    .maybeSingle();
+  const meta = (((data as any)?.metadata as Record<string, unknown>) || {});
+  const lastAt = Date.parse(String(meta.telegram_offline_notice_at || '')) || 0;
+  if (Date.now() - lastAt < OFFLINE_NOTICE_COOLDOWN_MS) return false;
+
+  const screen = buildOfflineScreen(settings, args.locale, args.fallbackLocale, {
+    locked: settings.menu?.lockWhenOffline === true,
+  });
+  const sent = await sendTelegramScreen(config, args.installationId, args.chatId, screen);
+  if (sent) {
+    await sb
+      .from('conversations')
+      .update({ metadata: { ...meta, telegram_offline_notice_at: new Date().toISOString() } })
+      .eq('id', args.conversationId);
+  }
+  return sent;
+}
 
 
 export type TelegramInboundFlowResult = {
@@ -138,7 +198,22 @@ export async function handleTelegramInboundFlow(
       }
     }
 
-    if (!command) return { aiAllowed, handled: false, locale, command: null };
+    if (!command) {
+      // Nobody online and no AI to cover → tell the visitor, instead of
+      // leaving the message in a silent void.
+      if (!aiAllowed) {
+        await maybeSendOfflineScreen(config, {
+          settings,
+          workspaceId: input.workspaceId,
+          installationId: installation.id,
+          conversationId,
+          chatId: input.externalChatId,
+          locale,
+          fallbackLocale,
+        }).catch(() => false);
+      }
+      return { aiAllowed, handled: false, locale, command: null };
+    }
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
     if (!isTelegramMenuEntryEnabled(settings, command) && command !== 'start') {

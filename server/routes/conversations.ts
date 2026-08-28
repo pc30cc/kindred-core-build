@@ -791,8 +791,13 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .from('conversation_messages')
         .select('conversation_id, body, created_at, sender_type, seen_at, metadata')
         .in('conversation_id', ids)
+        // Bot menu/button taps are navigation, not chat content — keep them
+        // out of the fetch window entirely so a visitor browsing the bot menu
+        // can never push the real last message out of the preview.
+        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.not.in.(true,"true")')
         .order('created_at', { ascending: false })
-        .limit(1000);
+        .limit(2000);
+
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
       const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
       const unreadByConv: Record<string, number> = {};

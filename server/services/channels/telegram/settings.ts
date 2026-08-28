@@ -319,7 +319,16 @@ const COMMAND_PATTERN = /^\/(start|menu|help|human|new|faq|guides)(@[\w]+)?(?:\s
 export function commandKeyFromText(text: string): TelegramCommandKey | null {
   const match = COMMAND_PATTERN.exec(text.trim());
   if (!match) return null;
-  return match[1].toLowerCase() as TelegramCommandKey;
+  const key = match[1].toLowerCase();
+  // `/menu` is an alias of `/start`: both open the main menu.
+  return (key === 'menu' ? 'start' : key) as TelegramCommandKey;
+}
+
+/** Whether an optional menu entry is switched on for this workspace. */
+export function isTelegramMenuEntryEnabled(settings: TelegramSettings, key: TelegramCommandKey): boolean {
+  if (key === 'faq') return settings.menu?.faqEnabled === true;
+  if (key === 'guides') return settings.menu?.guidesEnabled === true;
+  return true;
 }
 
 /**
@@ -343,12 +352,16 @@ export function resolveCommandLabel(
   return DEFAULT_COMMANDS_BY_LOCALE[preferred][key];
 }
 
-/** Builds the setMyCommands payload from configured descriptions. */
+/**
+ * Builds the setMyCommands payload. Disabled menu entries (FAQ, help
+ * articles) are omitted so Telegram's native command list never advertises
+ * something the bot will not answer.
+ */
 export function buildTelegramCommandList(
   settings: TelegramSettings,
   locale?: string | null,
 ): { command: string; description: string }[] {
-  return TELEGRAM_COMMAND_KEYS.map((key) => ({
+  return TELEGRAM_COMMAND_KEYS.filter((key) => isTelegramMenuEntryEnabled(settings, key)).map((key) => ({
     command: key,
     description: resolveCommandLabel(settings, locale, key),
   }));
@@ -366,7 +379,10 @@ export function messageKeyForCommand(command: TelegramCommandKey): keyof Telegra
       return 'handoff';
     case 'new':
       return 'welcome';
+    default:
+      return 'help';
   }
 }
 
 export { MESSAGE_KEYS as TELEGRAM_MESSAGE_KEYS };
+

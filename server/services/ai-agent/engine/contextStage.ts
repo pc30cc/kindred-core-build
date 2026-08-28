@@ -101,8 +101,15 @@ export async function runContextStage(
   let locale = (input.locale || '').toLowerCase() || langDecision.responseLanguage || 'en';
   locale = locale.split('-')[0];
   if (allowList.length && !allowList.includes(locale)) {
-    locale = allowList[0];
+    const widgetNorm = (widgetLocale || '').toLowerCase().split('-')[0];
+    const wsNorm = (workspaceLocale || '').toLowerCase().split('-')[0];
+    locale = allowList.includes(widgetNorm)
+      ? widgetNorm
+      : allowList.includes(wsNorm)
+        ? wsNorm
+        : allowList[0];
   }
+
   const inputLanguage = langDecision.inputLanguage !== 'unknown'
     ? langDecision.inputLanguage
     : detectInputLanguage(question);

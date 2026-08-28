@@ -123,11 +123,15 @@ export function buildSystemPrompt(
   // ── Language policy ──
   const responseLang = opts.responseLanguage || locale;
   lines.push(
-    `Response language: ${responseLang} (${languageDisplayName(responseLang)}). Answer in this language unless the visitor explicitly asks for another one.`,
+    `Response language: ${responseLang} (${languageDisplayName(responseLang)}). Write the ENTIRE reply in ${languageDisplayName(responseLang)} — every sentence, greeting, button label and closing line.`,
+  );
+  lines.push(
+    `Never mix languages: do not insert words, phrases or sentences from any other language (especially not Turkish or English) into a ${languageDisplayName(responseLang)} reply. If a source is written in another language, translate its content into ${languageDisplayName(responseLang)} before using it. Only switch language if the visitor explicitly asks you to.`,
   );
   if (opts.inputLanguage && opts.inputLanguage !== 'unknown' && opts.inputLanguage !== responseLang) {
-    lines.push(`The visitor wrote in ${languageDisplayName(opts.inputLanguage)}. Understand their meaning, but reply in ${languageDisplayName(responseLang)}.`);
+    lines.push(`The visitor wrote in ${languageDisplayName(opts.inputLanguage)}. Understand their meaning, but reply only in ${languageDisplayName(responseLang)}.`);
   }
+
 
   // ── Workspace navigation context (safe links only, no factual claims) ──
   const links = opts.workspaceLinks || {};

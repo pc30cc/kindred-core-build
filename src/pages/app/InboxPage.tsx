@@ -1691,6 +1691,42 @@ export default function InboxPage() {
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};
 
+                // Channel menu taps (e.g. Telegram bot buttons) are navigation,
+                // not conversation content: consecutive taps collapse into a
+                // single horizontal strip so they never mix with real messages.
+                const isMenuEvent = (m: unknown) =>
+                  String(((m as any)?.metadata || {}).channel_menu_event || '') === 'true';
+                if (isMenuEvent(msg)) {
+                  if (prev && isMenuEvent(prev)) return null;
+                  const run: typeof rawMessages = [];
+                  for (let i = idx; i < (rawMessages?.length || 0); i++) {
+                    if (!isMenuEvent(rawMessages[i])) break;
+                    run.push(rawMessages[i]);
+                  }
+                  return (
+                    <div key={msg.id} className="flex justify-center my-1">
+                      <div className="max-w-full overflow-x-auto">
+                        <div className="flex items-center gap-1.5 flex-nowrap px-1">
+                          <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                            {t('inbox.menuTaps') && !t('inbox.menuTaps').startsWith('inbox.')
+                              ? t('inbox.menuTaps')
+                              : 'Menu'}
+                          </span>
+                          {run.map((item) => (
+                            <span
+                              key={item.id}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-muted/50 border border-border/50 text-[11px] text-muted-foreground whitespace-nowrap"
+                            >
+                              {item.body}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+
                 // Routing system notices are stored in English by the server;
                 // render them from metadata so they follow the app locale.
                 if (msg.sender_type === 'system' && (meta as any).kind === 'routing_agent_joined') {

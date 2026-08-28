@@ -17,6 +17,10 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 import { runtimeComplete, AiRuntimeError } from './runtimeClient.js';
+import { withAiIdempotency } from './idempotency.js';
+
+export { withAiIdempotency, newAiRequestId, resetAiIdempotency } from './idempotency.js';
+
 
 // Pure, network-free helpers re-exported for existing Core callers and tests.
 export { readBoundedEnvInt, isRetryableStatus, parseRetryAfterMs } from '../../../shared/ai/policy.js';

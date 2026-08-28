@@ -31,8 +31,29 @@ export async function resolveHandoffAckMessage(
   locale: string,
   isTeamOffline: boolean,
   onlineMessage: string,
+  conversationId?: string | null,
 ): Promise<string> {
-  if (!isTeamOffline) return onlineMessage;
+  // `isTeamOffline` comes from the widget availability resolver, which reports
+  // "online" whenever business hours are disabled. Operator presence is the
+  // second, authoritative signal — without it a visitor gets promised a live
+  // agent while every operator is force-offline.
+  let offline = isTeamOffline;
+  if (!offline) {
+    try {
+      const { isWorkspaceUnreachable } = await import('../../channels/telegram/runtime.js');
+      offline = await isWorkspaceUnreachable(config, workspaceId, locale);
+    } catch { /* keep the availability verdict */ }
+  }
+  if (!offline) return onlineMessage;
+
+  // Channel conversations (Telegram) speak the operator-authored offline copy
+  // from the plugin, so the visitor sees exactly one consistent away message
+  // instead of "connecting you to an agent" followed by the offline screen.
+  const channelBody = conversationId
+    ? await resolveChannelOfflineBody(config, workspaceId, conversationId, locale).catch(() => null)
+    : null;
+  if (channelBody) return channelBody;
+
   try {
     const sb = getServiceClient(config);
     const { data } = await sb
@@ -45,6 +66,35 @@ export async function resolveHandoffAckMessage(
     return pickHandoffOfflineMessage(locale, true);
   }
 }
+
+/** Telegram (and future channel) offline copy, straight from plugin settings. */
+async function resolveChannelOfflineBody(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  locale: string,
+): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle();
+  const metadata = (((data as any)?.metadata as Record<string, unknown>) || {});
+  if (metadata.channel !== 'telegram') return null;
+  const [{ getInstallation }, telegram] = await Promise.all([
+    import('../../plugins/state.js'),
+    import('../../channels/telegram/settings.js'),
+  ]);
+  const installation = await getInstallation(config, workspaceId, 'telegram');
+  if (!installation) return null;
+  const settings = telegram.parseTelegramSettings(installation.settings);
+  const key = settings.menu?.lockWhenOffline ? 'offlineLocked' : 'offlineNotice';
+  const body = telegram.resolveLocalizedMessage(settings, locale, key, locale);
+  return body && body.trim() ? body : null;
+}
+
+
 
 export function pickHandoffAck(locale: string | undefined, agentName: string): string {
   const l = (locale || 'en').toLowerCase();

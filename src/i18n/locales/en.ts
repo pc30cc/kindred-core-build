@@ -337,6 +337,7 @@ const en = {
     open: 'Open',
   },
   inbox: {
+    menuTaps: 'Bot menu',
     title: 'Inbox',
     needsHuman: 'Needs human',
     assignedToMe: 'Assigned to me',

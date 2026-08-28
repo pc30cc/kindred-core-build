@@ -339,6 +339,7 @@ const tr: TranslationKeys = {
     open: 'Aç',
   },
   inbox: {
+    menuTaps: 'Bot menüsü',
     title: 'Gelen Kutusu',
     needsHuman: 'Operatör gerekli',
     assignedToMe: 'Bana atanan',

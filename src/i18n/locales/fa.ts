@@ -339,6 +339,7 @@ const fa: TranslationKeys = {
     open: 'باز کردن',
   },
   inbox: {
+    menuTaps: 'منوی ربات',
     title: 'صندوق ورودی',
     needsHuman: 'نیازمند اپراتور',
     assignedToMe: 'ارجاع به من',

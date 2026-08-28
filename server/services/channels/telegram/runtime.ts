@@ -35,7 +35,9 @@ import {
   buildMainMenu,
   escapeHtml,
   listHelpArticles,
+  matchReplyKeyboardCommand,
 } from './menu.js';
+
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
 
 
@@ -107,8 +109,9 @@ export async function handleTelegramInboundFlow(
     const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, settings.handlingMode);
     const aiAllowed = mode === 'ai_first';
 
-    const command = commandKeyFromText(input.text);
+    const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
     if (!command || !installation) return { aiAllowed, handled: false, locale };
+
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
     if (command === 'faq' && isTelegramMenuEntryEnabled(settings, 'faq')) {
@@ -164,6 +167,18 @@ export async function handleTelegramCallbackQuery(
     const screen = await resolveCallbackScreen(config, ctx.workspaceId, settings, data, locale, fallbackLocale);
     if (!screen) return true;
 
+    // A persistent reply keyboard cannot be attached to an edited message —
+    // those screens are delivered as a fresh message instead.
+    if ((screen.replyMarkup as any)?.keyboard) {
+      await sendMessage(token, {
+        chatId,
+        text: screen.text,
+        parseMode: 'HTML',
+        replyMarkup: screen.replyMarkup,
+      });
+      return true;
+    }
+
     await editMessageText(token, {
       chatId,
       messageId,
@@ -180,6 +195,7 @@ export async function handleTelegramCallbackQuery(
       });
     });
     return true;
+
   } catch (err) {
     console.warn('[telegram] callback error:', err instanceof Error ? err.message : err);
     return true;

@@ -112,8 +112,10 @@ function labelFor(
 }
 
 /**
- * Main menu. Two compact columns for the always-on actions, one full-width
- * row per optional content entry so they read as the "content shelf".
+ * Main menu. Rendered as a PERSISTENT REPLY KEYBOARD that sits right under
+ * the Telegram text field (operator preference) — not as an inline keyboard
+ * inside the bubble. Taps arrive as plain text messages and are mapped back
+ * to a command by `matchReplyKeyboardCommand`.
  */
 export function buildMainMenu(
   settings: TelegramSettings,
@@ -121,28 +123,72 @@ export function buildMainMenu(
   fallback?: string | null,
 ): { text: string; replyMarkup: Record<string, unknown> } {
   const s = menuStrings(locale, fallback);
-  const rows: Button[][] = [];
+  return {
+    text: `<b>${escapeHtml(s.menuTitle)}</b>\n\n${escapeHtml(s.menuHint)}`,
+    replyMarkup: buildReplyKeyboard(settings, locale, fallback),
+  };
+}
 
-  const contentRow: Button[] = [];
+/** The persistent keyboard shown under the message input field. */
+export function buildReplyKeyboard(
+  settings: TelegramSettings,
+  locale: string | null | undefined,
+  fallback?: string | null,
+): Record<string, unknown> {
+  const rows: { text: string }[][] = [];
+
+  const contentRow: { text: string }[] = [];
   if (isTelegramMenuEntryEnabled(settings, 'guides')) {
-    contentRow.push({ text: labelFor(settings, locale, 'guides', fallback), callback_data: 'tg:kb' });
+    contentRow.push({ text: labelFor(settings, locale, 'guides', fallback) });
   }
   if (isTelegramMenuEntryEnabled(settings, 'faq')) {
-    contentRow.push({ text: labelFor(settings, locale, 'faq', fallback), callback_data: 'tg:faq' });
+    contentRow.push({ text: labelFor(settings, locale, 'faq', fallback) });
   }
   if (contentRow.length) rows.push(contentRow);
 
   rows.push([
-    { text: labelFor(settings, locale, 'human', fallback), callback_data: 'tg:cmd:human' },
-    { text: labelFor(settings, locale, 'new', fallback), callback_data: 'tg:cmd:new' },
+    { text: labelFor(settings, locale, 'human', fallback) },
+    { text: labelFor(settings, locale, 'new', fallback) },
   ]);
-  rows.push([{ text: labelFor(settings, locale, 'help', fallback), callback_data: 'tg:cmd:help' }]);
+  rows.push([{ text: labelFor(settings, locale, 'help', fallback) }]);
 
   return {
-    text: `<b>${escapeHtml(s.menuTitle)}</b>\n\n${escapeHtml(s.menuHint)}`,
-    replyMarkup: { inline_keyboard: rows },
+    keyboard: rows,
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: menuStrings(locale, fallback).menuHint.slice(0, 64),
   };
 }
+
+/** Normalizes a tapped keyboard label (drops icons/whitespace) for matching. */
+function normalizeLabel(text: string): string {
+  return text
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Maps a plain-text message coming from the persistent keyboard back to the
+ * command it represents, across every configured locale.
+ */
+export function matchReplyKeyboardCommand(
+  settings: TelegramSettings,
+  text: string | null | undefined,
+): TelegramCommandKey | null {
+  const needle = normalizeLabel(String(text ?? ''));
+  if (!needle) return null;
+  const keys: TelegramCommandKey[] = ['guides', 'faq', 'human', 'new', 'help', 'start'];
+  for (const key of keys) {
+    if (!isTelegramMenuEntryEnabled(settings, key)) continue;
+    for (const locale of ['fa', 'en', 'tr'] as TelegramLocale[]) {
+      if (normalizeLabel(resolveCommandLabel(settings, locale, key, locale)) === needle) return key;
+    }
+  }
+  return null;
+}
+
 
 /** A single "back to main menu" keyboard, used under every leaf screen. */
 export function backKeyboard(locale: string | null | undefined, fallback?: string | null) {

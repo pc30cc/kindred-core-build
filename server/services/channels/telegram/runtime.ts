@@ -48,9 +48,37 @@ import {
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
 import { getServiceClient } from '../../../supabase.js';
 import { resolveAvailability } from '../../widget/availability.js';
+import { anyOperatorOnline } from '../../widget/operatorPresence.js';
 
 /** Away notices are rate-limited per thread so the bot never spams. */
 const OFFLINE_NOTICE_COOLDOWN_MS = 10 * 60 * 1000;
+/** When writing is closed the bot answers almost every attempt. */
+const OFFLINE_LOCK_COOLDOWN_MS = 45 * 1000;
+
+/**
+ * Is the workspace unreachable for a live human right now?
+ *
+ * Two independent signals, either of which means "nobody can answer":
+ *   1. The widget availability resolver (business hours / offline mode).
+ *      Note: with business hours DISABLED it always reports 'online', which
+ *      is why signal 2 exists.
+ *   2. Operator presence — every member force-offline / invisible / outside
+ *      their personal schedule. Workspaces with zero members fail open.
+ */
+export async function isWorkspaceUnreachable(
+  config: ServerConfig,
+  workspaceId: string,
+  locale: string,
+): Promise<boolean> {
+  const [availability, presence] = await Promise.all([
+    resolveAvailability(config, { workspaceId, locale }).catch(() => null),
+    anyOperatorOnline(config, workspaceId).catch(() => null),
+  ]);
+  if (availability?.state === 'offline') return true;
+  if (presence && presence.memberCount > 0 && !presence.anyOnline) return true;
+  return false;
+}
+
 
 /**
  * Away handling for a plain (non-command) visitor message.
@@ -75,13 +103,10 @@ async function maybeSendOfflineScreen(
   },
 ): Promise<boolean> {
   const { settings } = args;
-  if (settings.menu?.offlineNoticeEnabled === false && settings.menu?.lockWhenOffline !== true) return false;
+  const locked = settings.menu?.lockWhenOffline === true;
+  if (settings.menu?.offlineNoticeEnabled === false && !locked) return false;
 
-  const availability = await resolveAvailability(config, {
-    workspaceId: args.workspaceId,
-    locale: args.locale,
-  }).catch(() => null);
-  if (!availability || availability.state !== 'offline') return false;
+  if (!(await isWorkspaceUnreachable(config, args.workspaceId, args.locale))) return false;
 
   const sb = getServiceClient(config);
   const { data } = await sb
@@ -91,11 +116,12 @@ async function maybeSendOfflineScreen(
     .maybeSingle();
   const meta = (((data as any)?.metadata as Record<string, unknown>) || {});
   const lastAt = Date.parse(String(meta.telegram_offline_notice_at || '')) || 0;
-  if (Date.now() - lastAt < OFFLINE_NOTICE_COOLDOWN_MS) return false;
+  // A locked bot must always answer — silence would look like a broken bot.
+  const cooldown = locked ? OFFLINE_LOCK_COOLDOWN_MS : OFFLINE_NOTICE_COOLDOWN_MS;
+  if (Date.now() - lastAt < cooldown) return false;
 
-  const screen = buildOfflineScreen(settings, args.locale, args.fallbackLocale, {
-    locked: settings.menu?.lockWhenOffline === true,
-  });
+  const screen = buildOfflineScreen(settings, args.locale, args.fallbackLocale, { locked });
+
   const sent = await sendTelegramScreen(config, args.installationId, args.chatId, screen);
   if (sent) {
     await sb
@@ -180,40 +206,42 @@ export async function handleTelegramInboundFlow(
     const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
     if (!installation) return { aiAllowed, handled: false, locale, command: null };
 
-    // Department routing — a workspace with several chat departments asks the
-    // visitor once, on the first real message (or explicitly on /human), so
-    // the thread reaches the right team. Workspaces without departments are
-    // untouched: the message just lands in the shared inbox as before.
-    const wantsDepartmentPrompt = !command && !aiAllowed;
-    if (wantsDepartmentPrompt) {
-      const picker = await resolveDepartmentPickerScreen(config, {
-        settings,
-        workspaceId: input.workspaceId,
-        conversationId,
-        locale,
-        fallbackLocale,
-      });
-      if (picker) {
-        await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
-      }
-    }
-
     if (!command) {
       // Nobody online and no AI to cover → tell the visitor, instead of
-      // leaving the message in a silent void.
-      if (!aiAllowed) {
-        await maybeSendOfflineScreen(config, {
+      // leaving the message in a silent void. Resolved BEFORE the department
+      // picker so a closed workspace never asks "which team?" first.
+      const away = !aiAllowed
+        ? await maybeSendOfflineScreen(config, {
+            settings,
+            workspaceId: input.workspaceId,
+            installationId: installation.id,
+            conversationId,
+            chatId: input.externalChatId,
+            locale,
+            fallbackLocale,
+          }).catch(() => false)
+        : false;
+
+      // Department routing — a workspace with several chat departments asks the
+      // visitor once, on the first real message, so the thread reaches the right
+      // team. Skipped while writing is closed (a locked bot must not ask).
+      const locked = settings.menu?.lockWhenOffline === true;
+      if (!aiAllowed && !(away && locked)) {
+        const picker = await resolveDepartmentPickerScreen(config, {
           settings,
           workspaceId: input.workspaceId,
-          installationId: installation.id,
           conversationId,
-          chatId: input.externalChatId,
           locale,
           fallbackLocale,
-        }).catch(() => false);
+        });
+        if (picker) {
+          await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
+        }
       }
-      return { aiAllowed, handled: false, locale, command: null };
+
+      return { aiAllowed, handled: away, locale, command: null };
     }
+
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
     if (!isTelegramMenuEntryEnabled(settings, command) && command !== 'start') {

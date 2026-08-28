@@ -190,11 +190,26 @@ async function ensureCoreAuthReady(): Promise<boolean> {
     return true;
 
 
-  } catch {
+  } catch (err: any) {
     coreAuthReady = false;
-    console.error('[channels-worker] paused before claiming jobs: Core is unreachable');
+    // Name the ACTUAL transport failure. "unreachable" alone sent operators
+    // hunting for secrets when the real cause is DNS (wrong container name /
+    // different Docker network), a refused port, or a timeout.
+    const code = err?.cause?.code || err?.code || err?.name || 'unknown';
+    const hint =
+      code === 'ENOTFOUND' || code === 'EAI_AGAIN'
+        ? 'DNS could not resolve the host — the Worker is not on the same Docker network as Core, or the container name is wrong'
+        : code === 'ECONNREFUSED'
+          ? 'the host resolved but nothing is listening on that port — check Core\'s internal port (usually 3001)'
+          : code === 'TimeoutError'
+            ? 'the connection timed out after 5s — a firewall/proxy is dropping traffic to Core'
+            : (err?.message || String(err));
+    console.error(
+      `[channels-worker] paused before claiming jobs: Core is unreachable at ${coreBaseUrl} [${code}] — ${hint}`,
+    );
     return false;
   }
+
 }
 
 /**

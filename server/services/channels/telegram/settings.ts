@@ -222,7 +222,29 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
 
   const handlingMode: TelegramHandlingMode = input.handlingMode === 'ai_first' ? 'ai_first' : 'human_only';
 
-  return { profile, locales, commands, commandLocales, handlingMode };
+  const menuInput = (input.menu ?? {}) as Record<string, unknown>;
+  const menu = {
+    faqEnabled: menuInput.faqEnabled === true,
+    guidesEnabled: menuInput.guidesEnabled === true,
+  };
+
+  // FAQ entries are authored copy: capped in count and length, never markup.
+  const faqInput = (input.faq ?? {}) as Record<string, unknown>;
+  const faq = {} as Record<TelegramLocale, TelegramFaqItem[]>;
+  for (const locale of TELEGRAM_LOCALES) {
+    const list = Array.isArray(faqInput[locale]) ? (faqInput[locale] as unknown[]) : [];
+    faq[locale] = list
+      .slice(0, 30)
+      .map((raw) => {
+        const item = (raw ?? {}) as Record<string, unknown>;
+        return { question: str(item.question, 200, ''), answer: str(item.answer, 3000, '') };
+      })
+      .filter((item) => item.question.trim() && item.answer.trim());
+  }
+
+  return { profile, locales, commands, commandLocales, menu, faq, handlingMode };
+
+
 
 }
 

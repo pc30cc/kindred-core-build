@@ -206,40 +206,42 @@ export async function handleTelegramInboundFlow(
     const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
     if (!installation) return { aiAllowed, handled: false, locale, command: null };
 
-    // Department routing — a workspace with several chat departments asks the
-    // visitor once, on the first real message (or explicitly on /human), so
-    // the thread reaches the right team. Workspaces without departments are
-    // untouched: the message just lands in the shared inbox as before.
-    const wantsDepartmentPrompt = !command && !aiAllowed;
-    if (wantsDepartmentPrompt) {
-      const picker = await resolveDepartmentPickerScreen(config, {
-        settings,
-        workspaceId: input.workspaceId,
-        conversationId,
-        locale,
-        fallbackLocale,
-      });
-      if (picker) {
-        await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
-      }
-    }
-
     if (!command) {
       // Nobody online and no AI to cover → tell the visitor, instead of
-      // leaving the message in a silent void.
-      if (!aiAllowed) {
-        await maybeSendOfflineScreen(config, {
+      // leaving the message in a silent void. Resolved BEFORE the department
+      // picker so a closed workspace never asks "which team?" first.
+      const away = !aiAllowed
+        ? await maybeSendOfflineScreen(config, {
+            settings,
+            workspaceId: input.workspaceId,
+            installationId: installation.id,
+            conversationId,
+            chatId: input.externalChatId,
+            locale,
+            fallbackLocale,
+          }).catch(() => false)
+        : false;
+
+      // Department routing — a workspace with several chat departments asks the
+      // visitor once, on the first real message, so the thread reaches the right
+      // team. Skipped while writing is closed (a locked bot must not ask).
+      const locked = settings.menu?.lockWhenOffline === true;
+      if (!aiAllowed && !(away && locked)) {
+        const picker = await resolveDepartmentPickerScreen(config, {
           settings,
           workspaceId: input.workspaceId,
-          installationId: installation.id,
           conversationId,
-          chatId: input.externalChatId,
           locale,
           fallbackLocale,
-        }).catch(() => false);
+        });
+        if (picker) {
+          await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
+        }
       }
-      return { aiAllowed, handled: false, locale, command: null };
+
+      return { aiAllowed, handled: away, locale, command: null };
     }
+
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
     if (!isTelegramMenuEntryEnabled(settings, command) && command !== 'start') {

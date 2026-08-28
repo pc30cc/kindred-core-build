@@ -1667,8 +1667,15 @@ export default function InboxPage() {
                 // Day separator — a new calendar day starts a fresh divider.
                 const dayKey = (d?: string | null) => (d ? new Date(d).toDateString() : '');
                 const showDaySeparator = !prev || dayKey(prev.created_at) !== dayKey(msg.created_at);
+                // Channel menu taps (e.g. Telegram bot buttons) are navigation,
+                // not conversation content: consecutive taps collapse into a
+                // single horizontal strip so they never mix with real messages.
+                const isMenuEvent = (m: unknown) =>
+                  String(((m as any)?.metadata || {}).channel_menu_event || '') === 'true';
                 const sameSenderAsPrev = !!prev
                   && !showDaySeparator
+                  && !isMenuEvent(prev)
+                  && !isMenuEvent(msg)
                   && senderKey(prev) === senderKey(msg);
                 const dayLabel = (() => {
                   const d = new Date(msg.created_at);
@@ -1691,11 +1698,6 @@ export default function InboxPage() {
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};
 
-                // Channel menu taps (e.g. Telegram bot buttons) are navigation,
-                // not conversation content: consecutive taps collapse into a
-                // single horizontal strip so they never mix with real messages.
-                const isMenuEvent = (m: unknown) =>
-                  String(((m as any)?.metadata || {}).channel_menu_event || '') === 'true';
                 if (isMenuEvent(msg)) {
                   if (prev && isMenuEvent(prev)) return null;
                   const run: typeof rawMessages = [];
@@ -1704,7 +1706,8 @@ export default function InboxPage() {
                     run.push(rawMessages[i]);
                   }
                   return (
-                    <div key={msg.id} className="flex justify-center my-1">
+                    <div key={msg.id} className="flex justify-center my-3">
+
                       <div className="max-w-full overflow-x-auto">
                         <div className="flex items-center gap-1.5 flex-nowrap px-1">
                           <span className="text-[10px] text-muted-foreground/70 shrink-0">

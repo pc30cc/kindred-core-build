@@ -434,6 +434,12 @@ pluginsRouter.post('/telegram/diagnostics', async (req: any, res) => {
     const config = serverConfigOf(req);
     const installation = await getInstallation(config, workspaceId, 'telegram');
     if (!installation) return res.status(404).json({ error: 'Telegram is not installed' });
+    if (await channelsWorkerOffline(req)) {
+      return res
+        .status(503)
+        .json({ error: 'worker_offline', reason: 'channels_worker_offline' });
+    }
+
     // Provider probe runs in the worker; Core only compares what comes back.
     let operation = null as Awaited<ReturnType<typeof requestTelegramDiagnostics>> | null;
     try {

@@ -16,7 +16,7 @@
  *   disconnect  — remove the provider webhook and the stored token, keep history
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,12 +24,14 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
 import { pluginsApi } from '@/lib/plugins-api';
+import { storageUpload } from '@/lib/api';
 import { formatDateTime } from '@/lib/date';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
@@ -44,6 +46,8 @@ import {
   PlugZap,
   RefreshCw,
   Stethoscope,
+  Upload,
+  Bot,
 } from 'lucide-react';
 
 export type TelegramPanelSection = 'connection' | 'branding' | 'messages' | 'menu';
@@ -106,6 +110,8 @@ export function TelegramConfigPanel({
   const [shortDescription, setShortDescription] = useState('');
   const [description, setDescription] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [handlingMode, setHandlingMode] = useState<'human_only' | 'ai_first'>('human_only');
   const [locale, setLocale] = useState<'en' | 'fa' | 'tr'>('en');
   const [locales, setLocales] = useState(EMPTY_LOCALES);
@@ -139,6 +145,46 @@ export function TelegramConfigPanel({
   });
 
   const integration = status?.integration ?? null;
+
+  /**
+   * Uploads the bot avatar through the workspace storage provider and stores
+   * the resulting URL. Telegram never receives this image (no `setMyPhoto`
+   * exists for bots) — it is our own in-product avatar.
+   */
+  async function uploadPhoto(file: File) {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      toast({ title: t('plugins.telegram.photoInvalidType'), variant: 'destructive' });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: t('plugins.telegram.photoTooLarge'), variant: 'destructive' });
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < buffer.length; i += 1) binary += String.fromCharCode(buffer[i]);
+      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+      const result = await storageUpload({
+        workspaceId,
+        fileKey: `${workspaceId}/telegram/bot-avatar-${Date.now()}.${ext}`,
+        data: btoa(binary),
+        contentType: file.type,
+      });
+      if (!result?.success || !result.url) throw new Error(result?.error || 'upload_failed');
+      setPhotoUrl(result.url);
+      toast({ title: t('plugins.telegram.photoUploaded') });
+    } catch (err) {
+      toast({
+        title: t('plugins.telegram.photoUploadFailed'),
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
 
   useEffect(() => {
     if (!status?.settings || settingsLoaded) return;
@@ -593,11 +639,49 @@ export function TelegramConfigPanel({
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="telegram-photo-url">{t('plugins.telegram.photoUrl')}</Label>
-          <Input id="telegram-photo-url" dir="ltr" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+        <div className="space-y-2">
+          <Label>{t('plugins.telegram.photoUrl')}</Label>
+          <div className="flex items-center gap-3">
+            <Avatar className="h-16 w-16 border">
+              {photoUrl ? <AvatarImage src={photoUrl} alt={botName || 'bot'} /> : null}
+              <AvatarFallback><Bot className="h-6 w-6 text-muted-foreground" /></AvatarFallback>
+            </Avatar>
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) uploadPhoto(file);
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={photoUploading}
+                onClick={() => photoInputRef.current?.click()}
+              >
+                {photoUploading ? (
+                  <><Loader2 className="me-2 h-4 w-4 animate-spin" />{t('plugins.telegram.photoUploading')}</>
+                ) : (
+                  <><Upload className="me-2 h-4 w-4" />{photoUrl ? t('plugins.telegram.photoReplace') : t('plugins.telegram.photoUpload')}</>
+                )}
+              </Button>
+              {photoUrl && !photoUploading && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setPhotoUrl('')}>
+                  <Trash2 className="me-2 h-4 w-4" />
+                  {t('plugins.telegram.photoRemove')}
+                </Button>
+              )}
+            </div>
+          </div>
           <p className="text-xs text-muted-foreground">{t('plugins.telegram.photoUrlHint')}</p>
         </div>
+
 
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" disabled={applyProfile.isPending} onClick={() => applyProfile.mutate()}>

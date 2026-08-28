@@ -64,7 +64,7 @@ vi.mock('../../../server/services/channels/operations.js', () => ({
 }));
 
 const { uploadFileMock } = vi.hoisted(() => ({
-  uploadFileMock: vi.fn(async (_config: any, req: any) => ({
+  uploadFileMock: vi.fn(async (_config: any, req: any): Promise<any> => ({
     success: true,
     url: `https://cdn.example.com/${req.fileKey}`,
   })),

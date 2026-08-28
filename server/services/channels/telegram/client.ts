@@ -251,3 +251,44 @@ export async function sendMedia(
     caption: input.caption ? input.caption.slice(0, 1024) : undefined,
   });
 }
+
+// ── Inline menu interactions ──────────────────────────────────────────
+
+/**
+ * Acknowledges a callback query. Telegram shows a spinner on the button
+ * until this returns, so it is always called — even for unknown payloads.
+ */
+export async function answerCallbackQuery(
+  botToken: string,
+  callbackQueryId: string,
+  text?: string,
+): Promise<void> {
+  await callTelegram(botToken, 'answerCallbackQuery', {
+    callback_query_id: callbackQueryId,
+    text: text ? text.slice(0, 200) : undefined,
+  });
+}
+
+/**
+ * Rewrites the message the button belongs to. Used for menu navigation so a
+ * single chat bubble morphs instead of flooding the chat with new messages.
+ */
+export async function editMessageText(
+  botToken: string,
+  input: {
+    chatId: number | string;
+    messageId: number;
+    text: string;
+    parseMode?: 'HTML' | 'MarkdownV2';
+    replyMarkup?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await callTelegram(botToken, 'editMessageText', {
+    chat_id: input.chatId,
+    message_id: input.messageId,
+    text: input.text,
+    parse_mode: input.parseMode,
+    reply_markup: input.replyMarkup,
+    disable_web_page_preview: true,
+  });
+}

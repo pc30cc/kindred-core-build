@@ -25,6 +25,7 @@ import {
 } from './calls/departments.js';
 import { listWorkspacePresence } from './widget/operatorPresence.js';
 import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
+import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -231,6 +232,16 @@ async function insertRoutingSystemMessage(
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
     if (error || !msgRow) return;
+    // System notices are intentionally excluded from the database outbound
+    // trigger. Reconcile them explicitly so channel visitors (Telegram today,
+    // future providers through the same adapter) receive the same routing
+    // outcome that operators see in Inbox.
+    await dispatchOutboundIfChannelConversation(config, {
+      workspaceId,
+      conversationId,
+      messageId: msgRow.id as string,
+      body: msgRow.body as string,
+    });
     void publishConversationEvent(
       config,
       workspaceId,

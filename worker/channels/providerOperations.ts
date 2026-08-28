@@ -474,9 +474,14 @@ export async function executeOutboundActions(
         }
       }
     } catch (err) {
-      // Bot UI is best-effort per action: a failed acknowledgement must not
-      // discard the menu screen that follows it.
-      console.warn(`[channels-worker] provider action ${kind} failed:`, fail(err).message);
+      // Callback acknowledgements are cosmetic and must not discard a screen
+      // queued after them. Message delivery is not cosmetic: propagate its
+      // failure so the durable job retries instead of being marked succeeded.
+      if (kind === 'answer_callback') {
+        console.warn(`[channels-worker] provider action ${kind} failed:`, fail(err).message);
+        continue;
+      }
+      throw err;
     }
   }
 }

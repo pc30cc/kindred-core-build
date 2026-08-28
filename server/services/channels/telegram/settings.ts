@@ -22,25 +22,42 @@ import { getPlatformState } from '../../plugins/state.js';
 export const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
 export type TelegramLocale = (typeof TELEGRAM_LOCALES)[number];
 
-export const TELEGRAM_COMMAND_KEYS = ['start', 'help', 'human', 'new', 'faq', 'guides'] as const;
+export const TELEGRAM_COMMAND_KEYS = ['start', 'new', 'faq', 'guides'] as const;
 export type TelegramCommandKey = (typeof TELEGRAM_COMMAND_KEYS)[number];
 
 /** Emoji shown next to every menu entry — one shared visual language. */
 export const TELEGRAM_COMMAND_ICONS: Record<TelegramCommandKey, string> = {
   start: '🏠',
-  help: 'ℹ️',
-  human: '👤',
   new: '🆕',
   faq: '❓',
   guides: '📚',
 };
 
+/**
+ * EVERY string the bot can send is operator-editable, per locale:
+ * conversational replies AND the menu/FAQ/help-article/department chrome.
+ * Nothing user-visible is hardcoded in the runtime anymore.
+ */
 export type TelegramLocaleMessages = {
   welcome: string;
-  help: string;
   offline: string;
-  handoff: string;
   fallback: string;
+  menuTitle: string;
+  menuHint: string;
+  back: string;
+  faqTitle: string;
+  faqHint: string;
+  faqEmpty: string;
+  guidesTitle: string;
+  guidesHint: string;
+  guidesEmpty: string;
+  prev: string;
+  next: string;
+  deptTitle: string;
+  deptHint: string;
+  /** `{department}` is replaced with the chosen department name. */
+  deptConfirmed: string;
+  deptChange: string;
 };
 
 export type TelegramHandlingMode = 'human_only' | 'ai_first';

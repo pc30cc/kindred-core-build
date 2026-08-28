@@ -384,6 +384,11 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
     selfHostBillingUnlimited: false,
+    // Provider isolation: Core/worker never calls a provider directly, it
+    // calls the AI Runtime. Without these the worker's AI calls fail with
+    // `runtime_not_configured`.
+    aiRuntimeBaseUrl: env.aiRuntimeBaseUrl,
+    aiRuntimeInternalSecret: env.aiRuntimeInternalSecret,
   };
   const jobQueue = new DbJobQueueProvider(sb);
   const snap = job.plan_snapshot || {};

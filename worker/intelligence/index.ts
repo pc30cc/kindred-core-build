@@ -35,6 +35,14 @@ export interface WorkerEnv {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   workerId: string;
+  /**
+   * AI Runtime target. The worker synthesizes its own ServerConfig for AI
+   * calls (processor.ts), so without these it would build a config with no
+   * runtime configured and every AI generation would fail with
+   * `runtime_not_configured`.
+   */
+  aiRuntimeBaseUrl?: string;
+  aiRuntimeInternalSecret?: string;
 }
 
 export function workerLog(event: string, data: Record<string, any> = {}) {
@@ -53,7 +61,13 @@ function loadEnv(): WorkerEnv {
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     throw new Error('[ai-kb worker] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
   }
-  return { supabaseUrl, supabaseServiceRoleKey, workerId: WORKER_ID };
+  return {
+    supabaseUrl,
+    supabaseServiceRoleKey,
+    workerId: WORKER_ID,
+    aiRuntimeBaseUrl: (process.env.AI_RUNTIME_URL || '').trim().replace(/\/+$/, '') || undefined,
+    aiRuntimeInternalSecret: (process.env.AI_RUNTIME_INTERNAL_SECRET || '').trim() || undefined,
+  };
 }
 
 export function createWorkerClient(env: WorkerEnv): SupabaseClient {

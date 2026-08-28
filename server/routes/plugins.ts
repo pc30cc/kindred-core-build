@@ -49,7 +49,9 @@ import {
   telegramDiagnosticsView,
 } from '../services/channels/telegram/setup.js';
 import { InFlightOperationError, awaitOperation } from '../services/channels/operations.js';
-import { parseTelegramSettings, sanitizeTelegramSettingsForSave, resolveTelegramHandlingMode } from '../services/channels/telegram/settings.js';
+import { parseTelegramSettings, sanitizeTelegramSettingsForSave, resolveTelegramHandlingMode, buildTelegramCommandList } from '../services/channels/telegram/settings.js';
+import { resolveTelegramReplyLocale } from '../services/channels/telegram/runtime.js';
+
 import { isAutoAnswerAllowedForWorkspace } from '../services/ai-agent/platformGuards.js';
 import { getOrCreateSettings } from '../services/ai-agent/settings.js';
 

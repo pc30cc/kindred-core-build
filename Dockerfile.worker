@@ -35,6 +35,8 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY worker ./worker
 COPY shared ./shared
 COPY server ./server
+# Channel provider clients (WORKER_KIND=channels imports channels/providers/*).
+COPY channels ./channels
 COPY tsconfig.json ./
 COPY tsconfig.server.json ./
 

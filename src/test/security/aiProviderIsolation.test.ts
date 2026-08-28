@@ -48,7 +48,10 @@ const PROVIDER_HOSTS = [
 const PROVIDER_DOMAIN_FRAGMENTS = [
   'openai.com',
   'anthropic.com',
-  'googleapis.com',
+  // (bare `googleapis.com` is NOT listed: Core legitimately references
+  // storage.googleapis.com for asset URLs — only the AI endpoints are banned)
+  'generativelanguage.googleapis',
+  'aiplatform.googleapis',
   'groq.com',
   'together.xyz',
   'mistral.ai',
@@ -208,7 +211,11 @@ describe('AI provider network isolation — Core cannot execute provider I/O', (
     const offenders: string[] = [];
     for (const file of coreFiles) {
       for (const mod of importedModules(readFileSync(file, 'utf8'))) {
-        if (/(^|\/)runtime\/ai\//.test(mod) || /\.\.\/runtime\//.test(mod)) {
+        // Only the TOP-LEVEL runtime/ai package (the provider executor) is
+        // banned. `server/services/ai-agent/runtime/**` is Core's own
+        // orchestration code and is unrelated.
+        const resolved = mod.startsWith('.') ? rel(join(file, '..', mod)) : mod;
+        if (/^runtime\/ai\//.test(resolved) || /(^|\/)runtime\/ai\/providers/.test(mod)) {
           offenders.push(`${rel(file)} → ${mod}`);
         }
       }

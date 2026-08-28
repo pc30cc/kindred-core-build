@@ -17,6 +17,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { checkModuleAccess } from '../../../middleware/featureGating.js';
+import { getPlatformState } from '../../plugins/state.js';
 
 export const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
 export type TelegramLocale = (typeof TELEGRAM_LOCALES)[number];
@@ -249,8 +250,8 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
 }
 
 /**
- * `ai_first` is only ever honored when the workspace holds the AI
- * entitlement. Without it Telegram silently (and safely) runs human_only —
+ * `ai_first` is only ever honored when the Super Admin master switch is on
+ * AND the workspace holds the AI entitlement. Without it Telegram silently (and safely) runs human_only —
  * the channel itself must keep working either way.
  */
 export async function resolveTelegramHandlingMode(
@@ -258,9 +259,28 @@ export async function resolveTelegramHandlingMode(
   workspaceId: string,
   requestedMode: TelegramHandlingMode,
 ): Promise<{ mode: TelegramHandlingMode; aiAvailable: boolean }> {
-  if (requestedMode !== 'ai_first') return { mode: 'human_only', aiAvailable: await hasAiEntitlement(config, workspaceId) };
-  const aiAvailable = await hasAiEntitlement(config, workspaceId);
+  const [platformEnabled, entitled] = await Promise.all([
+    isTelegramAiPlatformEnabled(config),
+    hasAiEntitlement(config, workspaceId),
+  ]);
+  const aiAvailable = platformEnabled && entitled;
+  if (requestedMode !== 'ai_first') return { mode: 'human_only', aiAvailable };
   return { mode: aiAvailable ? 'ai_first' : 'human_only', aiAvailable };
+}
+
+/**
+ * Super Admin master switch for the Telegram AI assistant, stored on the
+ * plugin platform state (`policy.aiEnabled`). Absent means ON, so existing
+ * deployments keep their behavior. When OFF, no workspace may enable AI on
+ * Telegram and the bot never answers with AI.
+ */
+export async function isTelegramAiPlatformEnabled(config: ServerConfig): Promise<boolean> {
+  try {
+    const state = await getPlatformState(config, 'telegram');
+    return (state.policy as Record<string, unknown> | null)?.aiEnabled !== false;
+  } catch {
+    return true;
+  }
 }
 
 async function hasAiEntitlement(config: ServerConfig, workspaceId: string): Promise<boolean> {

@@ -1667,8 +1667,15 @@ export default function InboxPage() {
                 // Day separator — a new calendar day starts a fresh divider.
                 const dayKey = (d?: string | null) => (d ? new Date(d).toDateString() : '');
                 const showDaySeparator = !prev || dayKey(prev.created_at) !== dayKey(msg.created_at);
+                // Channel menu taps (e.g. Telegram bot buttons) are navigation,
+                // not conversation content: consecutive taps collapse into a
+                // single horizontal strip so they never mix with real messages.
+                const isMenuEvent = (m: unknown) =>
+                  String(((m as any)?.metadata || {}).channel_menu_event || '') === 'true';
                 const sameSenderAsPrev = !!prev
                   && !showDaySeparator
+                  && !isMenuEvent(prev)
+                  && !isMenuEvent(msg)
                   && senderKey(prev) === senderKey(msg);
                 const dayLabel = (() => {
                   const d = new Date(msg.created_at);

@@ -439,11 +439,13 @@ export async function routeConversationToOperator(
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
         const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, metadata);
+        const alreadyShownInChannel = metadata.channel === 'telegram'
+          && await telegramOfflineScreenJustSent(config, args.conversationId);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
           visitorBody,
           { kind: 'routing_no_agent_available' },
-          true,
+          !alreadyShownInChannel,
         );
       }
       await tagOutcome(

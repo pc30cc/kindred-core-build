@@ -401,7 +401,30 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
   }
 });
 
+/**
+ * Provider operations are executed by the Channels Worker. When no worker has
+ * reported a heartbeat recently, the operation would sit pending until the
+ * route's await deadline and the reverse proxy would answer 502 with no
+ * explanation. Detect it up front and say so.
+ */
+async function channelsWorkerOffline(req: any): Promise<boolean> {
+  try {
+    const sb = getServiceClient(serverConfigOf(req));
+    const staleBefore = new Date(Date.now() - 120_000).toISOString();
+    const { data } = await sb
+      .from('channel_worker_heartbeats')
+      .select('worker_id,last_seen_at')
+      .gte('last_seen_at', staleBefore)
+      .limit(1);
+    return !(data && data.length > 0);
+  } catch {
+    // Never block the action on the liveness probe itself.
+    return false;
+  }
+}
+
 pluginsRouter.post('/telegram/diagnostics', async (req: any, res) => {
+
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);

@@ -1719,7 +1719,8 @@ export default function InboxPage() {
                       </div>
                     </div>
                   );
-                if (msg.sender_type === 'system' && (meta as any).kind === 'call_ended') {
+                }
+
                   const endedBy = String((meta as any).ended_by || 'system');
                   const endReason = String((meta as any).end_reason || '');
                   const dur = Number((meta as any).duration_seconds || 0);

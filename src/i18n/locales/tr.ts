@@ -4182,6 +4182,8 @@ const tr: TranslationKeys = {
       installable: 'Kurulabilir',
       maintenanceMode: 'Bakım modu',
       featured: 'Öne çıkan',
+      aiEnabled: 'Bu eklenti için yapay zekâ asistanı',
+      aiEnabledHint: 'Ana anahtar. Kapalıyken çalışma alanları bu kanalda yapay zekâ yanıtlarını açamaz ve bot asla yapay zekâ ile yanıtlamaz.',
       rolloutStatus: 'Yayın durumu',
       sortOrder: 'Sıralama',
       saved: 'Eklenti güncellendi.',

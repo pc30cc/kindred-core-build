@@ -244,6 +244,7 @@ export const adminPluginsApi = {
       featured: boolean;
       sort_order: number;
       rollout_status: PluginRolloutStatus;
+      policy: Record<string, unknown>;
     }>,
   ) =>
     jsonFetch<{ state: unknown }>(`/api/plugins/admin/${encodeURIComponent(pluginId)}`, {

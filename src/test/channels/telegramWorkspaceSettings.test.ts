@@ -15,6 +15,14 @@ vi.mock('../../../server/middleware/featureGating.js', async (importOriginal) =>
   return { ...actual, checkModuleAccess: (...args: any[]) => moduleAccess(...(args as [])) };
 });
 
+// The Super Admin master switch lives on the plugin platform state; stub it
+// so entitlement gating can be tested without a database.
+const platformPolicy = vi.fn(async () => ({ policy: {} }) as any);
+vi.mock('../../../server/services/plugins/state.js', async (importOriginal) => {
+  const actual = await importOriginal<any>().catch(() => ({}));
+  return { ...actual, getPlatformState: (...args: any[]) => platformPolicy(...(args as [])) };
+});
+
 const settings = await import('../../../server/services/channels/telegram/settings.js');
 const {
   defaultTelegramSettings,
@@ -33,6 +41,8 @@ const config: any = { supabaseUrl: 'https://x.supabase.co', supabaseServiceRoleK
 beforeEach(() => {
   moduleAccess.mockReset();
   moduleAccess.mockResolvedValue({ allowed: true } as any);
+  platformPolicy.mockReset();
+  platformPolicy.mockResolvedValue({ policy: {} } as any);
 });
 
 describe('settings parsing', () => {
@@ -73,6 +83,12 @@ describe('AI entitlement gating', () => {
   it('honors ai_first when the plan allows the AI assistant', async () => {
     const res = await resolveTelegramHandlingMode(config, 'ws1', 'ai_first');
     expect(res).toEqual({ mode: 'ai_first', aiAvailable: true });
+  });
+
+  it('downgrades ai_first to human_only when the Super Admin switch is off', async () => {
+    platformPolicy.mockResolvedValue({ policy: { aiEnabled: false } } as any);
+    const res = await resolveTelegramHandlingMode(config, 'ws1', 'ai_first');
+    expect(res).toEqual({ mode: 'human_only', aiAvailable: false });
   });
 
   it('downgrades ai_first to human_only when the plan does not include AI', async () => {
@@ -141,7 +157,7 @@ describe('commands', () => {
 
   it('builds a complete setMyCommands payload', () => {
     const list = buildTelegramCommandList(defaultTelegramSettings());
-    expect(list.map((c) => c.command)).toEqual(['start', 'help', 'human', 'new']);
+    expect(list.map((c) => c.command)).toEqual(['start', 'help', 'human', 'new', 'faq', 'guides']);
     expect(list.every((c) => c.description.trim().length > 0)).toBe(true);
   });
 

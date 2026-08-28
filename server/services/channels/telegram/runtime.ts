@@ -27,7 +27,6 @@ import {
   type TelegramSettings,
 } from './settings.js';
 import {
-  backKeyboard,
   buildArticleList,
   buildArticleView,
   buildFaqAnswer,
@@ -93,9 +92,6 @@ export function renderCommandScreen(
     resolveLocalizedMessage(settings, locale, messageKeyForCommand(command), fallbackLocale),
   );
   const menu = buildMainMenu(settings, locale, fallbackLocale);
-  if (command === 'human') {
-    return { text: body, replyMarkup: backKeyboard(locale, fallbackLocale) };
-  }
   return { text: `${body}\n\n${menu.text}`, replyMarkup: menu.replyMarkup };
 }
 
@@ -128,14 +124,14 @@ export async function handleTelegramInboundFlow(
     // visitor once, on the first real message (or explicitly on /human), so
     // the thread reaches the right team. Workspaces without departments are
     // untouched: the message just lands in the shared inbox as before.
-    const wantsDepartmentPrompt = !command ? !aiAllowed : command === 'human';
+    const wantsDepartmentPrompt = !command && !aiAllowed;
     if (wantsDepartmentPrompt) {
       const picker = await resolveDepartmentPickerScreen(config, {
+        settings,
         workspaceId: input.workspaceId,
         conversationId,
         locale,
         fallbackLocale,
-        force: command === 'human',
       });
       if (picker) {
         await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
@@ -152,7 +148,7 @@ export async function handleTelegramInboundFlow(
       screen = buildFaqList(settings, locale, fallbackLocale);
     } else if (command === 'guides' && isTelegramMenuEntryEnabled(settings, 'guides')) {
       const articles = await listHelpArticles(config, input.workspaceId, locale, fallbackLocale).catch(() => []);
-      screen = buildArticleList(articles, 0, locale, fallbackLocale);
+      screen = buildArticleList(settings, articles, 0, locale, fallbackLocale);
     } else if (command === 'faq' || command === 'guides') {
       // Switched off in the plugin settings — never a dead end, show the menu.
       screen = buildMainMenu(settings, locale, fallbackLocale);
@@ -324,7 +320,7 @@ async function resolveCallbackScreen(
 
   if (payload.startsWith('cmd:')) {
     const command = payload.slice(4) as TelegramCommandKey;
-    if (!['start', 'human', 'new'].includes(command)) return null;
+    if (!['start', 'new'].includes(command)) return null;
     if (!isTelegramMenuEntryEnabled(settings, command)) {
       return buildMainMenu(settings, locale, fallbackLocale);
     }
@@ -345,11 +341,11 @@ async function resolveCallbackScreen(
     const articles = await listHelpArticles(config, workspaceId, locale, fallbackLocale).catch(() => []);
     if (payload.startsWith('kb:a:')) {
       const article = articles.find((item) => item.id === payload.slice(5));
-      if (article) return buildArticleView(article, locale, fallbackLocale);
-      return buildArticleList(articles, 0, locale, fallbackLocale);
+      if (article) return buildArticleView(settings, article, locale, fallbackLocale);
+      return buildArticleList(settings, articles, 0, locale, fallbackLocale);
     }
     const page = payload.startsWith('kb:p:') ? Number.parseInt(payload.slice(5), 10) : 0;
-    return buildArticleList(articles, Number.isFinite(page) ? page : 0, locale, fallbackLocale);
+    return buildArticleList(settings, articles, Number.isFinite(page) ? page : 0, locale, fallbackLocale);
   }
 
   return null;

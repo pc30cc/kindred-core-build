@@ -55,6 +55,12 @@ services:
       - CENTRIFUGO_API_URL=${CENTRIFUGO_API_URL:-http://centrifugo:8000/api}
       - CENTRIFUGO_API_KEY=${CENTRIFUGO_API_KEY:-}
       - CENTRIFUGO_TOKEN_HMAC_SECRET=${CENTRIFUGO_TOKEN_HMAC_SECRET:-}
+      # ── AI Provider Isolation ──────────────────────────────────────
+      # Core NEVER calls an AI provider directly; every completion, test
+      # and embedding goes through the AI Runtime. In production this URL
+      # points at the external server (https://ai-runtime.example.com).
+      - AI_RUNTIME_URL=${AI_RUNTIME_URL:-http://ai-runtime:3021}
+      - AI_RUNTIME_INTERNAL_SECRET=${AI_RUNTIME_INTERNAL_SECRET:-}
     volumes:
       # Persistent GeoIP data volume. The backend reads the .mmdb file from
       # /app/data (configured in Super Admin → Map & Geo) and the optional
@@ -141,6 +147,32 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+
+  # ─────────────────────────────────────────────────────────────────
+  # AI Runtime — the ONLY service permitted to reach AI providers.
+  # In the split topology this container runs on the EXTERNAL server
+  # while backend/DB/frontend stay in the restricted network; here it
+  # runs locally so dev matches production wiring.
+  # Stateless: no Supabase credentials, no stored provider keys.
+  # ─────────────────────────────────────────────────────────────────
+  ai-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai
+    ports:
+      - "${AI_RUNTIME_PORT:-3021}:3021"
+    environment:
+      - AI_RUNTIME_PORT=3021
+      - AI_RUNTIME_INTERNAL_SECRET=${AI_RUNTIME_INTERNAL_SECRET:-}
+      - AI_HTTP_TIMEOUT_MS=${AI_HTTP_TIMEOUT_MS:-}
+      - AI_RETRY_ATTEMPTS=${AI_RETRY_ATTEMPTS:-}
+      - AI_TOTAL_BUDGET_MS=${AI_TOTAL_BUDGET_MS:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3021/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   geoip-data:

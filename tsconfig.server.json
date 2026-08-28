@@ -21,6 +21,6 @@
     "noEmit": true,
     "allowJs": false
   },
-  "include": ["server/**/*.ts", "worker/**/*.ts", "channels/**/*.ts", "shared/**/*.ts"],
+  "include": ["server/**/*.ts", "worker/**/*.ts", "channels/**/*.ts", "shared/**/*.ts", "runtime/**/*.ts", "ai-runtime/**/*.ts"],
   "exclude": ["server/node_modules", "server/dist", "node_modules"]
 }

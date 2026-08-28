@@ -1,0 +1,55 @@
+# ── AI Runtime Image ───────────────────────────────────────────────
+# The ONLY service in the topology that is allowed to open sockets to AI
+# providers (OpenAI, Anthropic, Gemini, OpenAI-compatible gateways...).
+#
+#   IRAN / restricted network                EXTERNAL / unrestricted network
+#   ┌──────────────────────────┐             ┌──────────────────────────┐
+#   │ frontend + backend + DB  │  ──HTTPS──▶ │ ai-runtime  ──▶ providers│
+#   └──────────────────────────┘             └──────────────────────────┘
+#
+# Deploy this image on the EXTERNAL server. Core (backend) needs no provider
+# egress at all: it only calls AI_RUNTIME_URL.
+#
+# Required env:
+#   AI_RUNTIME_INTERNAL_SECRET   shared secret; must equal Core's value and
+#                                must NOT equal CORE_INTERNAL_SECRET.
+# Optional env:
+#   AI_RUNTIME_PORT              default 3021
+#   AI_HTTP_TIMEOUT_MS / AI_RETRY_ATTEMPTS / AI_TOTAL_BUDGET_MS
+#
+# MUST NOT be set (the process refuses to start if they are):
+#   SUPABASE_SERVICE_ROLE_KEY, PLUGIN_SECRETS_MASTER_KEY, SESSION_SECRET
+# The runtime is stateless: no database, no long-lived provider credentials.
+# Provider config travels inline, per request, from Core.
+#
+# Build from repo root:
+#   docker build -f Dockerfile.ai -t growth-suite-ai-runtime .
+# Run:
+#   docker run --rm -p 3021:3021 \
+#     -e AI_RUNTIME_INTERNAL_SECRET=... growth-suite-ai-runtime
+
+FROM node:20-alpine
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev || npm install --omit=dev
+
+# Only the isolated runtime code and the shared contracts it needs.
+# Note the absence of `server/` — the runtime has no access to Core code,
+# Core config, or Core's database client.
+COPY ai-runtime ./ai-runtime
+COPY runtime ./runtime
+COPY shared ./shared
+COPY tsconfig.json ./
+COPY tsconfig.server.json ./
+
+ENV NODE_ENV=production
+ENV AI_RUNTIME_PORT=3021
+EXPOSE 3021
+
+RUN test -f node_modules/tsx/dist/cli.mjs || (echo "❌ tsx not installed" && exit 1)
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget --spider -q http://localhost:3021/health || exit 1
+
+CMD ["node", "node_modules/tsx/dist/cli.mjs", "ai-runtime/server.ts"]

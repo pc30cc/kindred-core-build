@@ -19,7 +19,6 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { validateSessionToken, verifyOriginForMutation, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
-import { lookup } from 'node:dns/promises';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -156,157 +155,16 @@ export async function requirePlatformAdmin(req: any, res: any): Promise<string |
   return userId;
 }
 
-/**
- * SSRF guard for operator-supplied provider base URLs.
- * Only https (or http on an explicitly allow-listed host) to a public host is
- * permitted; private/loopback/link-local/metadata targets are rejected.
- */
-const PRIVATE_HOST_RE =
-  /^(localhost|.*\.localhost|.*\.local|.*\.internal|metadata|metadata\.google\.internal)$/i;
-
-/** Lowercases and strips a trailing FQDN dot so `evil.internal.` cannot bypass the host rules. */
-export function normalizeHostname(host: string): string {
-  return host.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
-}
-
-/** True when the hostname itself is a forbidden internal/metadata name. */
-export function isBlockedHostname(host: string): boolean {
-  return PRIVATE_HOST_RE.test(normalizeHostname(host));
-}
-
-function isPrivateIpv4(host: string): boolean {
-  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!m) return false;
-  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true; // 192.0.0.0/24, TEST-NET-1
-  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18.0.0/15
-  if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2
-  if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3
-  return false;
-}
-
-/** Extracts a dotted IPv4 from an IPv4-mapped IPv6 literal, hex or dotted form. */
-/**
- * Reads the first 16-bit group of an IPv6 address, supporting the compressed
- * `::` form. Returns null for malformed input (callers must fail closed).
- */
-export function ipv6First16Bits(addr: string): number | null {
-  const host = addr.toLowerCase().replace(/%.*$/, '').replace(/^\[|\]$/g, '');
-  if (!host.includes(':')) return null;
-  const doubleColons = host.split('::').length - 1;
-  if (doubleColons > 1) return null;
-  const head = host.split('::')[0];
-  // `::xxxx` (leading compression) means the first group is zero.
-  if (head === '') return 0;
-  const first = head.split(':')[0];
-  if (!/^[0-9a-f]{1,4}$/.test(first)) return null;
-  return parseInt(first, 16);
-}
-
-/** True for fe80::/10 (link-local), covering fe80 … febf. */
-export function isIpv6LinkLocal(addr: string): boolean {
-  const first = ipv6First16Bits(addr);
-  if (first === null) return false;
-  return (first & 0xffc0) === 0xfe80;
-}
-
-function mappedIpv4(host: string): string | null {
-  const dotted = host.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
-  if (dotted) return dotted[1];
-  const hex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-  if (hex) {
-    const hi = parseInt(hex[1], 16);
-    const lo = parseInt(hex[2], 16);
-    return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
-  }
-  return null;
-}
-
-export function isSafeOutboundUrl(raw: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (u.protocol !== 'https:') return false;
-  if (u.username || u.password) return false;
-  if (u.port && !(Number(u.port) > 0 && Number(u.port) <= 65535)) return false;
-  const host = normalizeHostname(u.hostname);
-  if (!host) return false;
-  if (isBlockedHostname(host)) return false;
-  if (isPrivateIpv4(host)) return false;
-  // IPv4-mapped / IPv4-compatible IPv6 literals (e.g. ::ffff:127.0.0.1)
-  const mapped = mappedIpv4(host);
-  if (mapped && isPrivateIpv4(mapped)) return false;
-  // IPv6 loopback / unique-local / link-local
-  if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/i.test(host) || isIpv6LinkLocal(host)) return false;
-  if (/^ff[0-9a-f]{2}:/i.test(host)) return false; // IPv6 multicast
-  return true;
-}
-
-/** True when an IPv4 literal is reserved/multicast/broadcast-sensitive. */
-function isBlockedIpv4(host: string): boolean {
-  if (isPrivateIpv4(host)) return true;
-  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!m) return false;
-  const a = Number(m[1]);
-  if (a >= 224) return true; // multicast + reserved + broadcast
-  return false;
-}
-
-function isBlockedIpv6(addr: string): boolean {
-  const host = addr.toLowerCase().replace(/%.*$/, '');
-  if (host === '::1' || host === '::') return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // unique-local
-  if (isIpv6LinkLocal(host)) return true; // fe80::/10
-  if (/^ff[0-9a-f]{2}:/.test(host)) return true; // multicast
-  const mapped = mappedIpv4(host);
-  if (mapped) return isBlockedIpv4(mapped);
-  return false;
-}
-
-/** Shared address gate: true when this resolved address must never be connected to. */
-export function isBlockedIpAddress(address: string, family: number): boolean {
-  return family === 6 || address.includes(':')
-    ? isBlockedIpv6(address)
-    : isBlockedIpv4(address);
-}
-
-export type OutboundUrlCheck = { ok: true } | { ok: false; reason: string };
-
-/**
- * Full SSRF pre-flight: syntactic checks plus DNS resolution of every answer.
- * Fail-closed — DNS errors and any private/loopback/link-local/metadata answer
- * reject the URL.
- */
-export async function checkOutboundUrl(raw: string): Promise<OutboundUrlCheck> {
-  if (!isSafeOutboundUrl(raw)) return { ok: false, reason: 'unsafe_url' };
-  const host = normalizeHostname(new URL(raw).hostname);
-
-  // IP literals are already validated syntactically above.
-  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
-    return isBlockedIpv4(host) ? { ok: false, reason: 'private_ip' } : { ok: true };
-  }
-  if (host.includes(':')) {
-    return isBlockedIpv6(host) ? { ok: false, reason: 'private_ip' } : { ok: true };
-  }
-
-  let answers: Array<{ address: string; family: number }>;
-  try {
-    answers = await lookup(host, { all: true });
-  } catch {
-    return { ok: false, reason: 'dns_failure' };
-  }
-  if (!answers || answers.length === 0) return { ok: false, reason: 'dns_failure' };
-  for (const a of answers) {
-    const blocked = a.family === 6 ? isBlockedIpv6(a.address) : isBlockedIpv4(a.address);
-    if (blocked) return { ok: false, reason: 'private_ip' };
-  }
-  return { ok: true };
-}
+// SSRF guards moved to shared/net/hostGuard.ts so the AI Runtime and Channels
+// Worker (separate deployables) can enforce the exact same policy. Re-exported
+// here so existing Core imports keep working.
+export {
+  normalizeHostname,
+  isBlockedHostname,
+  ipv6First16Bits,
+  isIpv6LinkLocal,
+  isSafeOutboundUrl,
+  isBlockedIpAddress,
+  checkOutboundUrl,
+} from '../../shared/net/hostGuard.js';
+export type { OutboundUrlCheck } from '../../shared/net/hostGuard.js';

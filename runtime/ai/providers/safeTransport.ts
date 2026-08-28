@@ -12,7 +12,7 @@ import https from 'node:https';
 import type { IncomingMessage } from 'node:http';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
-import { isBlockedHostname, isBlockedIpAddress, normalizeHostname } from './workspaceAuth.js';
+import { isBlockedHostname, isBlockedIpAddress, normalizeHostname } from '../../../shared/net/hostGuard.js';
 
 export type SafeTransportReason =
   | 'unsafe_scheme'

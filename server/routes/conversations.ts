@@ -789,7 +789,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     if (ids.length > 0) {
       const { data: msgs } = await sb
         .from('conversation_messages')
-        .select('conversation_id, body, created_at, sender_type, seen_at')
+        .select('conversation_id, body, created_at, sender_type, seen_at, metadata')
         .in('conversation_id', ids)
         .order('created_at', { ascending: false })
         .limit(1000);
@@ -798,9 +798,13 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       const unreadByConv: Record<string, number> = {};
       for (const m of (msgs || []) as any[]) {
         if (!m.conversation_id) continue;
+        // Channel menu/button taps are navigation, not conversation content:
+        // they must never drive the list preview or the unread badge.
+        if (String((m.metadata || {}).channel_menu_event || '') === 'true') continue;
         if (!lastByConv[m.conversation_id]) {
           lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, sender_type: m.sender_type };
         }
+
         if (m.sender_type !== 'contact') continue;
         if (!byConv[m.conversation_id]) {
           byConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, seen_at: m.seen_at ?? null };

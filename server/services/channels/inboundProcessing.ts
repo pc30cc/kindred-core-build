@@ -254,10 +254,14 @@ export async function processInboundMessage(
       .single();
     if (msgError) throw new Error(`message insert failed: ${msgError.message}`);
 
+    // NOTE: the conversation `updated_at` bump happens after the provider
+    // flow resolves, so pure menu navigation never re-floats the thread in
+    // the operator inbox.
     await sb
       .from('conversations')
-      .update({ updated_at: new Date().toISOString(), contact_id: contactId })
+      .update({ contact_id: contactId })
       .eq('id', conversation.id);
+
 
     // Media persistence — provider-specific, best-effort, non-fatal. A
     // failure here must never lose the already-inserted text message.
@@ -307,28 +311,40 @@ export async function processInboundMessage(
     }
 
     // Menu/command taps are navigation, not conversation content. They are
-    // flagged so the Inbox can render them as a compact activity strip
-    // instead of mixing them into the visitor's real messages.
+    // flagged (and pre-marked as seen) so they never raise an unread badge,
+    // never re-float the thread, and never notify the operator — the Inbox
+    // only renders them as a compact activity strip once the thread is open.
     if (menuCommand) {
       const nextMeta = {
         ...(((insertedMsg as any).metadata as Record<string, unknown>) || {}),
         channel_menu_command: menuCommand,
         channel_menu_event: 'true',
       };
+      const seenAt = new Date().toISOString();
       (insertedMsg as any).metadata = nextMeta;
+      (insertedMsg as any).seen_at = seenAt;
       await sb
         .from('conversation_messages')
-        .update({ metadata: nextMeta })
+        .update({ metadata: nextMeta, seen_at: seenAt })
         .eq('id', (insertedMsg as any).id);
+    } else {
+      await sb
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', conversation.id);
     }
 
-    // Inbox realtime — identical envelope to widget traffic.
-    publishConversationEvent(
-      config,
-      input.workspaceId,
-      conversation.id,
-      buildMessageEnvelope(insertedMsg as any),
-    ).catch(() => {});
+    // Inbox realtime — identical envelope to widget traffic. Menu taps stay
+    // silent: no realtime ping, no operator notification.
+    if (!menuCommand) {
+      publishConversationEvent(
+        config,
+        input.workspaceId,
+        conversation.id,
+        buildMessageEnvelope(insertedMsg as any),
+      ).catch(() => {});
+    }
+
 
 
     // AI Agent runs through the SAME entry point as the widget, so mode,

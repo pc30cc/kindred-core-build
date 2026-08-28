@@ -1,29 +1,23 @@
 /**
- * Behavioral tests for real inbound Telegram media persistence.
+ * Inbound Telegram media — CORE SIDE behaviour after provider isolation.
  *
- * Mocks: Supabase service client, the Telegram HTTP client (getFile /
- * downloadFile), the storage pipeline (uploadFile / resolveStorageConfig)
- * and the storage_gb entitlement gate. No network, no DB.
+ * Core no longer downloads anything: the worker fetches the bytes and hands
+ * them over. These tests pin the two halves Core still owns:
+ *
+ *  1. `requestTelegramMediaFetch` only ENQUEUES — it must never open a socket
+ *     and must never place a credential in the job/operation payload;
+ *  2. `persistInboundAttachment` keeps every guarantee the old in-Core
+ *     download had: size cap, mime allow-list, the shared storage_gb
+ *     entitlement gate, canonical row lifecycle, and redacted failures.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const state: {
-  installationId: string;
-  secret: string | null;
   attachmentRows: any[];
-  uploadCalls: any[];
+  operations: any[];
   gateAllow: boolean;
-  fileInfo: Record<string, { file_path: string; file_size?: number }>;
-  fileBytes: Record<string, Uint8Array>;
-} = {
-  installationId: 'install-1',
-  secret: '123456:AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKK',
-  attachmentRows: [],
-  uploadCalls: [],
-  gateAllow: true,
-  fileInfo: {},
-  fileBytes: {},
-};
+  uploadOk: boolean;
+} = { attachmentRows: [], operations: [], gateAllow: true, uploadOk: true };
 
 const sbMock = {
   from: (table: string) => {
@@ -32,20 +26,7 @@ const sbMock = {
       eq: () => builder,
       order: () => builder,
       limit: () => builder,
-      maybeSingle: async () => {
-        if (table === 'channel_integrations') {
-          return { data: { id: 'integ-1', installation_id: state.installationId, provider: 'telegram' }, error: null };
-        }
-        if (table === 'provider_configs') return { data: null, error: null };
-        if (table === 'app_runtime_config') return { data: null, error: null };
-        return { data: null, error: null };
-      },
-      single: async () => {
-        if (table === 'channel_integrations') {
-          return { data: { id: 'integ-1', installation_id: state.installationId, provider: 'telegram' }, error: null };
-        }
-        return { data: null, error: null };
-      },
+      maybeSingle: async () => ({ data: null, error: null }),
       insert: (payload: any) => ({
         select: () => ({
           single: async () => {
@@ -72,46 +53,26 @@ const sbMock = {
   },
 };
 
-vi.mock('../../../server/supabase.js', () => ({
-  getServiceClient: () => sbMock,
-}));
+vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => sbMock }));
 
-vi.mock('../../../server/services/channels/integrations.js', () => ({
-  getIntegrationById: async () => ({ id: 'integ-1', installation_id: state.installationId, provider: 'telegram' }),
-}));
-
-vi.mock('../../../server/services/plugins/secrets.js', () => ({
-  TELEGRAM_BOT_TOKEN_KEY: 'telegram_bot_token',
-  readPluginSecret: async () => state.secret,
-}));
-
-vi.mock('../../../server/services/channels/telegram/client.js', () => ({
-  redactToken: (text: string) => text.replace(/\d{6,}:[A-Za-z0-9_-]{20,}/g, '[REDACTED_BOT_TOKEN]'),
-  getFile: async (_token: string, fileId: string) => {
-    const info = state.fileInfo[fileId];
-    if (!info) throw new Error('no such file');
-    return info;
-  },
-  downloadFile: async (token: string, filePath: string, maxBytes: number) => {
-    // Prove the token is used to build the request internally but never
-    // returned/leaked to the caller — the mock intentionally does NOT
-    // embed it in anything handed back.
-    expect(token).toBe(state.secret);
-    const bytes = state.fileBytes[filePath];
-    if (!bytes) throw new Error('no bytes');
-    if (bytes.byteLength > maxBytes) throw new Error('Telegram file exceeds allowed size');
-    return bytes;
+vi.mock('../../../server/services/channels/operations.js', () => ({
+  requestProviderOperation: async (_config: any, input: any) => {
+    const operation = { id: `op-${state.operations.length + 1}`, ...input };
+    state.operations.push(operation);
+    return operation;
   },
 }));
 
 const { uploadFileMock } = vi.hoisted(() => ({
-  uploadFileMock: vi.fn(async (_config: any, req: any) => {
-    return { success: true, url: `https://cdn.example.com/${req.fileKey}` };
-  }),
+  uploadFileMock: vi.fn(async (_config: any, req: any) => ({
+    success: true,
+    url: `https://cdn.example.com/${req.fileKey}`,
+  })),
 }));
 vi.mock('../../../server/services/storage/index.js', () => ({
   uploadFile: uploadFileMock,
   resolveStorageConfig: async () => ({ provider: 'local', localPath: '/tmp/storage' }),
+  getFileUrlWithConfig: (_c: any, key: string) => `https://cdn.example.com/${key}`,
 }));
 
 vi.mock('../../../server/middleware/featureGating.js', () => ({
@@ -124,213 +85,167 @@ vi.mock('../../../server/services/billing/usageResolvers.js', () => ({
   usageFnForLimit: () => () => 0,
 }));
 
-const { ingestTelegramMedia } = await import('../../../server/services/channels/telegram/mediaIngest.js');
+const { requestTelegramMediaFetch, persistInboundAttachment, HARD_MAX_BYTES } = await import(
+  '../../../server/services/channels/telegram/mediaIngest.js'
+);
 
 const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const TOKEN = '123456:AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKK';
 
-function makeBytes(size: number): Uint8Array {
-  return new Uint8Array(size).fill(1);
+const baseInput = {
+  workspaceId: 'ws-1',
+  integrationId: 'integ-1',
+  conversationId: 'conv-1',
+  messageId: 'msg-1',
+};
+
+function bytes(size: number): Buffer {
+  return Buffer.alloc(size, 1);
 }
 
 beforeEach(() => {
-  state.installationId = 'install-1';
-  state.secret = '123456:AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKK';
   state.attachmentRows = [];
-  state.uploadCalls = [];
+  state.operations = [];
   state.gateAllow = true;
-  state.fileInfo = {};
-  state.fileBytes = {};
+  state.uploadOk = true;
   uploadFileMock.mockClear();
+  uploadFileMock.mockImplementation(async (_config: any, req: any) =>
+    state.uploadOk
+      ? { success: true, url: `https://cdn.example.com/${req.fileKey}` }
+      : { success: false, error: 'disk full' },
+  );
 });
 
-const baseInput = {
-  workspaceId: '11111111-1111-1111-1111-111111111111',
-  integrationId: 'integ-1',
-  conversationId: '22222222-2222-2222-2222-222222222222',
-  messageId: '33333333-3333-3333-3333-333333333333',
-};
-
-describe('ingestTelegramMedia', () => {
-  it('persists an inbound photo through the canonical storage pipeline', async () => {
-    state.fileInfo['photo-file-id'] = { file_path: 'photos/file_1.jpg', file_size: 1000 };
-    state.fileBytes['photos/file_1.jpg'] = makeBytes(1000);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
+describe('requestTelegramMediaFetch (no provider I/O in Core)', () => {
+  it('queues one operation and reports the attachments as pending', async () => {
+    const { outcomes, operation } = await requestTelegramMediaFetch(CONFIG, {
       ...baseInput,
-      attachments: [{ fileId: 'photo-file-id', kind: 'photo', size: 1000 }],
+      attachments: [{ fileId: 'f1', kind: 'photo', size: 100 }],
     });
 
-    expect(outcomes).toHaveLength(1);
-    expect(outcomes[0].status).toBe('stored');
-    expect(outcomes[0].mimeType).toBe('image/jpeg');
-    expect(uploadFileMock).toHaveBeenCalledTimes(1);
-    expect(state.attachmentRows).toHaveLength(1);
-    expect(state.attachmentRows[0].status).toBe('uploaded');
-    expect(state.attachmentRows[0].conversation_id).toBe(baseInput.conversationId);
-    expect(state.attachmentRows[0].message_id).toBe(baseInput.messageId);
-    expect(state.attachmentRows[0].storage_path).toMatch(
-      new RegExp(`^workspace/${baseInput.workspaceId}/attachments/`),
-    );
+    expect(operation?.operation).toBe('media_fetch');
+    expect(outcomes).toEqual([{ fileId: 'f1', kind: 'photo', status: 'pending' }]);
+    expect(state.attachmentRows).toHaveLength(0); // nothing persisted yet
   });
 
-  it('persists an inbound document through the canonical storage pipeline', async () => {
-    state.fileInfo['doc-file-id'] = { file_path: 'documents/report.pdf', file_size: 2000 };
-    state.fileBytes['documents/report.pdf'] = makeBytes(2000);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
+  it('never puts a credential in the operation payload', async () => {
+    await requestTelegramMediaFetch(CONFIG, {
       ...baseInput,
-      attachments: [{ fileId: 'doc-file-id', kind: 'document', fileName: 'report.pdf', mimeType: 'application/pdf', size: 2000 }],
+      attachments: [{ fileId: 'f1', kind: 'document', fileName: 'a.pdf', mimeType: 'application/pdf' }],
     });
-
-    expect(outcomes[0].status).toBe('stored');
-    expect(outcomes[0].fileName).toBe('report.pdf');
-    expect(state.attachmentRows[0].mime_type).toBe('application/pdf');
+    expect(JSON.stringify(state.operations)).not.toContain(TOKEN);
+    expect(JSON.stringify(state.operations)).not.toContain('bot');
   });
 
-  it('persists an inbound voice note through the canonical storage pipeline', async () => {
-    state.fileInfo['voice-file-id'] = { file_path: 'voice/note.oga', file_size: 500 };
-    state.fileBytes['voice/note.oga'] = makeBytes(500);
+  it('does nothing at all when there are no attachments', async () => {
+    const { operation, outcomes } = await requestTelegramMediaFetch(CONFIG, { ...baseInput, attachments: [] });
+    expect(operation).toBeNull();
+    expect(outcomes).toEqual([]);
+  });
+});
 
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'voice-file-id', kind: 'voice', mimeType: 'audio/ogg', size: 500 }],
+describe('persistInboundAttachment (Core owns validation + storage)', () => {
+  it('stores an allowed file and finalizes the canonical row', async () => {
+    const outcome = await persistInboundAttachment(CONFIG, {
+      workspaceId: 'ws-1',
+      conversationId: 'conv-1',
+      messageId: 'msg-1',
+      fileId: 'f1',
+      kind: 'photo',
+      filePath: 'photos/a.jpg',
+      mimeType: 'image/jpeg',
+      bytes: bytes(1024),
     });
 
-    expect(outcomes[0].status).toBe('stored');
-    expect(state.attachmentRows[0].mime_type).toBe('audio/ogg');
+    expect(outcome.status).toBe('stored');
+    expect(outcome.mimeType).toBe('image/jpeg');
+    expect(outcome.sizeBytes).toBe(1024);
+    const row = state.attachmentRows[0];
+    expect(row.status).toBe('uploaded');
+    expect(row.uploaded_by_type).toBe('contact');
+    expect(row.storage_path).toContain('workspace/ws-1/attachments/');
   });
 
-  it('persists an inbound audio file through the canonical storage pipeline', async () => {
-    state.fileInfo['audio-file-id'] = { file_path: 'audio/song.mp3', file_size: 700 };
-    state.fileBytes['audio/song.mp3'] = makeBytes(700);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'audio-file-id', kind: 'audio', mimeType: 'audio/mpeg', fileName: 'song.mp3', size: 700 }],
+  it('rejects a disallowed mime type without touching storage', async () => {
+    const outcome = await persistInboundAttachment(CONFIG, {
+      workspaceId: 'ws-1',
+      conversationId: 'conv-1',
+      messageId: 'msg-1',
+      fileId: 'f1',
+      kind: 'document',
+      fileName: 'evil.exe',
+      mimeType: 'application/x-msdownload',
+      bytes: bytes(10),
     });
 
-    expect(outcomes[0].status).toBe('stored');
-    expect(state.attachmentRows[0].mime_type).toBe('audio/mpeg');
-  });
-
-  it('persists an inbound video through the canonical storage pipeline', async () => {
-    state.fileInfo['video-file-id'] = { file_path: 'video/clip.mp4', file_size: 3000 };
-    state.fileBytes['video/clip.mp4'] = makeBytes(3000);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'video-file-id', kind: 'video', mimeType: 'video/mp4', size: 3000 }],
-    });
-
-    expect(outcomes[0].status).toBe('stored');
-    expect(state.attachmentRows[0].mime_type).toBe('video/mp4');
-  });
-
-  it('rejects oversized files without ever calling the storage pipeline', async () => {
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'huge-file-id', kind: 'document', size: 26 * 1024 * 1024 }],
-    });
-
-    expect(outcomes[0].status).toBe('failed');
-    expect(outcomes[0].error).toMatch(/file_too_large/);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.error).toContain('mime_type_not_allowed');
     expect(uploadFileMock).not.toHaveBeenCalled();
     expect(state.attachmentRows).toHaveLength(0);
   });
 
-  it('rejects oversized files reported only by getFile (declared size lied)', async () => {
-    state.fileInfo['sneaky-file-id'] = { file_path: 'documents/big.pdf', file_size: 30 * 1024 * 1024 };
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'sneaky-file-id', kind: 'document', mimeType: 'application/pdf', size: 1000 }],
+  it('rejects a file above the hard size cap', async () => {
+    const outcome = await persistInboundAttachment(CONFIG, {
+      workspaceId: 'ws-1',
+      conversationId: 'conv-1',
+      messageId: 'msg-1',
+      fileId: 'f1',
+      kind: 'document',
+      mimeType: 'application/pdf',
+      bytes: bytes(HARD_MAX_BYTES + 1),
     });
 
-    expect(outcomes[0].status).toBe('failed');
-    expect(outcomes[0].error).toMatch(/file_too_large/);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.error).toContain('file_too_large');
     expect(uploadFileMock).not.toHaveBeenCalled();
   });
 
-  it('rejects disallowed mime types', async () => {
-    state.fileInfo['exe-file-id'] = { file_path: 'documents/tool.exe', file_size: 100 };
-    state.fileBytes['documents/tool.exe'] = makeBytes(100);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'exe-file-id', kind: 'document', mimeType: 'application/x-msdownload', size: 100 }],
-    });
-
-    expect(outcomes[0].status).toBe('failed');
-    expect(outcomes[0].error).toMatch(/mime_type_not_allowed/);
-    expect(uploadFileMock).not.toHaveBeenCalled();
-  });
-
-  it('does not fail the whole batch when one attachment fails and another succeeds', async () => {
-    state.fileInfo['ok-file-id'] = { file_path: 'photos/ok.jpg', file_size: 100 };
-    state.fileBytes['photos/ok.jpg'] = makeBytes(100);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [
-        { fileId: 'missing-file-id', kind: 'document', size: 10 },
-        { fileId: 'ok-file-id', kind: 'photo', size: 100 },
-      ],
-    });
-
-    expect(outcomes).toHaveLength(2);
-    expect(outcomes[0].status).toBe('failed');
-    expect(outcomes[1].status).toBe('stored');
-  });
-
-  it('is blocked by the storage_gb entitlement gate exactly like the HTTP upload routes', async () => {
+  it('honours the SHARED storage_gb entitlement gate', async () => {
     state.gateAllow = false;
-    state.fileInfo['gated-file-id'] = { file_path: 'photos/gated.jpg', file_size: 100 };
-    state.fileBytes['photos/gated.jpg'] = makeBytes(100);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'gated-file-id', kind: 'photo', size: 100 }],
+    const outcome = await persistInboundAttachment(CONFIG, {
+      workspaceId: 'ws-1',
+      conversationId: 'conv-1',
+      messageId: 'msg-1',
+      fileId: 'f1',
+      kind: 'photo',
+      mimeType: 'image/png',
+      bytes: bytes(10),
     });
 
-    expect(outcomes[0].status).toBe('failed');
-    expect(outcomes[0].error).toMatch(/storage_gb/);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.error).toContain('storage_gb');
     expect(uploadFileMock).not.toHaveBeenCalled();
   });
 
-  it('never leaks the bot token anywhere in stored rows, outcomes, or upload payloads', async () => {
-    state.fileInfo['tok-file-id'] = { file_path: 'photos/tok.jpg', file_size: 100 };
-    state.fileBytes['photos/tok.jpg'] = makeBytes(100);
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'tok-file-id', kind: 'photo', size: 100 }],
+  it('marks the row failed when the upload itself fails', async () => {
+    state.uploadOk = false;
+    const outcome = await persistInboundAttachment(CONFIG, {
+      workspaceId: 'ws-1',
+      conversationId: 'conv-1',
+      messageId: 'msg-1',
+      fileId: 'f1',
+      kind: 'photo',
+      mimeType: 'image/png',
+      bytes: bytes(10),
     });
 
-    const token = state.secret!;
-    const haystacks = [
-      JSON.stringify(outcomes),
-      JSON.stringify(state.attachmentRows),
-      JSON.stringify(uploadFileMock.mock.calls),
-    ];
-    for (const h of haystacks) {
-      expect(h).not.toContain(token);
-      expect(h).not.toContain('api.telegram.org');
-    }
-    // The resulting "URL" (upload result) must never embed the token either.
-    const result = await uploadFileMock.mock.results[0]?.value;
-    expect(JSON.stringify(result)).not.toContain(token);
+    expect(outcome.status).toBe('failed');
+    expect(state.attachmentRows[0].status).toBe('failed');
   });
 
-  it('fails all attachments (redacted) and never downloads when the token cannot be resolved', async () => {
-    state.secret = null;
-
-    const outcomes = await ingestTelegramMedia(CONFIG, {
-      ...baseInput,
-      attachments: [{ fileId: 'x', kind: 'photo', size: 100 }],
+  it('never leaks a bot token into a row or an outcome', async () => {
+    const outcome = await persistInboundAttachment(CONFIG, {
+      workspaceId: 'ws-1',
+      conversationId: 'conv-1',
+      messageId: 'msg-1',
+      fileId: 'f1',
+      kind: 'photo',
+      fileName: `${TOKEN}.jpg`,
+      mimeType: 'image/jpeg',
+      bytes: bytes(10),
     });
 
-    expect(outcomes[0].status).toBe('failed');
-    expect(outcomes[0].error).toBe('bot_token_not_configured');
-    expect(uploadFileMock).not.toHaveBeenCalled();
+    const dump = JSON.stringify({ outcome, rows: state.attachmentRows });
+    expect(dump).not.toContain(TOKEN);
   });
 });

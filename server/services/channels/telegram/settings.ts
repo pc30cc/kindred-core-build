@@ -21,8 +21,18 @@ import { checkModuleAccess } from '../../../middleware/featureGating.js';
 export const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
 export type TelegramLocale = (typeof TELEGRAM_LOCALES)[number];
 
-export const TELEGRAM_COMMAND_KEYS = ['start', 'help', 'human', 'new'] as const;
+export const TELEGRAM_COMMAND_KEYS = ['start', 'help', 'human', 'new', 'faq', 'guides'] as const;
 export type TelegramCommandKey = (typeof TELEGRAM_COMMAND_KEYS)[number];
+
+/** Emoji shown next to every menu entry — one shared visual language. */
+export const TELEGRAM_COMMAND_ICONS: Record<TelegramCommandKey, string> = {
+  start: '🏠',
+  help: 'ℹ️',
+  human: '👤',
+  new: '🆕',
+  faq: '❓',
+  guides: '📚',
+};
 
 export type TelegramLocaleMessages = {
   welcome: string;
@@ -33,6 +43,9 @@ export type TelegramLocaleMessages = {
 };
 
 export type TelegramHandlingMode = 'human_only' | 'ai_first';
+
+/** A single operator-authored FAQ entry. */
+export type TelegramFaqItem = { question: string; answer: string };
 
 /** The AI capability used elsewhere to gate the assistant. */
 export const TELEGRAM_AI_MODULE_KEY = 'ai_assistant';
@@ -50,11 +63,20 @@ export type TelegramSettings = {
   commands: Record<TelegramCommandKey, string>;
   /** Per-locale command labels; what the bot actually shows to a user. */
   commandLocales: Record<TelegramLocale, Record<TelegramCommandKey, string>>;
+  /** Which optional menu entries the bot exposes. */
+  menu: {
+    faqEnabled: boolean;
+    /** Help articles sourced from the workspace Knowledge Base. */
+    guidesEnabled: boolean;
+  };
+  /** Operator-authored FAQ, per locale. */
+  faq: Record<TelegramLocale, TelegramFaqItem[]>;
 
   handlingMode: TelegramHandlingMode;
 };
 
 const MESSAGE_KEYS = ['welcome', 'help', 'offline', 'handoff', 'fallback'] as const;
+
 
 function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
   switch (locale) {

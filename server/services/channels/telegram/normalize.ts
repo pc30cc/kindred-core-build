@@ -72,6 +72,13 @@ export function normalizeTelegramUpdate(
     senderName: sanitizeText(name, MAX_NAME_LENGTH) || null,
     senderUsername: sanitizeText(from.username, MAX_NAME_LENGTH) || null,
     senderLanguage: sanitizeText(from.language_code, 10) || null,
+    senderProfile: {
+      firstName: sanitizeText(from.first_name, MAX_NAME_LENGTH) || null,
+      lastName: sanitizeText(from.last_name, MAX_NAME_LENGTH) || null,
+      isPremium: from.is_premium === true,
+      isBot: from.is_bot === true,
+      chatType: sanitizeText(message?.chat?.type, 32) || null,
+    },
     text,
     attachments,
     sentAt: message.date ? new Date(message.date * 1000).toISOString() : null,

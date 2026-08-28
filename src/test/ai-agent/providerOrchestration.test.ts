@@ -18,10 +18,14 @@ vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }
 
 const { resolveAIConfig, executeAICompletion } = await import('../../../server/services/ai/index.js');
 
+// Core no longer talks to providers: the stubbed HTTP boundary below is the
+// AI Runtime's /internal/ai/complete endpoint on the external server.
 const CONFIG = {
   supabaseUrl: 'https://example.supabase.co',
   supabaseAnonKey: 'ANON_KEY',
   supabaseServiceRoleKey: 'SERVICE_KEY',
+  aiRuntimeBaseUrl: 'https://ai-runtime.test',
+  aiRuntimeInternalSecret: 'runtime-secret',
 } as any;
 
 const WORKSPACE_ID = 'ws-1';
@@ -117,6 +121,18 @@ describe('executeAICompletion — provider not configured', () => {
         },
       ],
     });
+    // The unsupported-provider verdict is now the runtime's to give; Core
+    // must surface it verbatim rather than swallowing it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        text: async () =>
+          JSON.stringify({ error: 'unsupported_provider', message: 'Unsupported AI provider: not_a_real_provider' }),
+        json: async () => ({ error: 'unsupported_provider', message: 'Unsupported AI provider: not_a_real_provider' }),
+      })) as any,
+    );
     await expect(
       executeAICompletion(CONFIG, { workspaceId: WORKSPACE_ID, prompt: 'hi' } as any),
     ).rejects.toThrow(/Unsupported AI provider/);
@@ -178,9 +194,16 @@ describe('executeAICompletion — error mapping and usage logging', () => {
         ok: true,
         status: 200,
         json: async () => ({
-          choices: [{ message: { content: 'hello there' } }],
-          model: 'gpt-4o-mini',
-          usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+          ok: true,
+          response: {
+            text: 'hello there',
+            model: 'gpt-4o-mini',
+            provider: 'openai',
+            promptTokens: 5,
+            completionTokens: 3,
+            totalTokens: 8,
+            latencyMs: 12,
+          },
         }),
       })) as any,
     );

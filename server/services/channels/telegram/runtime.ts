@@ -209,16 +209,16 @@ export async function handleTelegramCallbackQuery(
       screen = await resolveCallbackScreen(config, ctx.workspaceId, settings, data, locale, fallbackLocale);
     }
     if (!screen) return true;
-
+    const view = screen;
 
     // A persistent reply keyboard cannot be attached to an edited message —
     // those screens are delivered as a fresh message instead.
-    if ((screen.replyMarkup as any)?.keyboard) {
+    if ((view.replyMarkup as any)?.keyboard) {
       await sendMessage(token, {
         chatId,
-        text: screen.text,
+        text: view.text,
         parseMode: 'HTML',
-        replyMarkup: screen.replyMarkup,
+        replyMarkup: view.replyMarkup,
       });
       return true;
     }
@@ -226,19 +226,20 @@ export async function handleTelegramCallbackQuery(
     await editMessageText(token, {
       chatId,
       messageId,
-      text: screen.text,
+      text: view.text,
       parseMode: 'HTML',
-      replyMarkup: screen.replyMarkup,
+      replyMarkup: view.replyMarkup,
     }).catch(async () => {
       // The bubble may be too old to edit — fall back to a fresh message.
       await sendMessage(token, {
         chatId,
-        text: screen.text,
+        text: view.text,
         parseMode: 'HTML',
-        replyMarkup: screen.replyMarkup,
+        replyMarkup: view.replyMarkup,
       });
     });
     return true;
+
 
   } catch (err) {
     console.warn('[telegram] callback error:', err instanceof Error ? err.message : err);

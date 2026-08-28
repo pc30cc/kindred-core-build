@@ -107,8 +107,9 @@ export async function handleTelegramInboundFlow(
     const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, settings.handlingMode);
     const aiAllowed = mode === 'ai_first';
 
-    const command = commandKeyFromText(input.text);
+    const command = commandKeyFromText(input.text) ?? matchReplyKeyboardCommand(settings, input.text);
     if (!command || !installation) return { aiAllowed, handled: false, locale };
+
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
     if (command === 'faq' && isTelegramMenuEntryEnabled(settings, 'faq')) {

@@ -4128,6 +4128,7 @@ const tr: TranslationKeys = {
       lastOutbound: 'Son gönderilen mesaj',
       reconnected: 'Webhook yeniden kaydedildi.',
       reconnectFailed: 'Webhook onarılamadı.',
+      workerOffline: 'Channels Worker servisi çalışmıyor. Sunucuda başlatıp tekrar deneyin.',
       confirmDisconnect: 'Bu botun bağlantısı kesilsin mi? Telegram mesajları durur, ancak görüşme geçmişiniz korunur.',
       brandingTitle: 'Bot markası',
       brandingName: 'Görünen ad',

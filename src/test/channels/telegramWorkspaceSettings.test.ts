@@ -128,8 +128,8 @@ describe('locale fallback chain', () => {
 
   it('never returns an empty string even when everything is blank', () => {
     const s = defaultTelegramSettings();
-    for (const l of settings.TELEGRAM_LOCALES) s.locales[l].help = '';
-    expect(resolveLocalizedMessage(s, 'fa', 'help').trim()).not.toBe('');
+    for (const l of settings.TELEGRAM_LOCALES) s.locales[l].menuTitle = '';
+    expect(resolveLocalizedMessage(s, 'fa', 'menuTitle').trim()).not.toBe('');
   });
 
   it('normalizes Telegram language codes', () => {
@@ -144,8 +144,8 @@ describe('locale fallback chain', () => {
 describe('commands', () => {
   it('recognizes commands with and without the bot suffix', () => {
     expect(commandKeyFromText('/start')).toBe('start');
-    expect(commandKeyFromText('  /Help@MySupportBot ')).toBe('help');
-    expect(commandKeyFromText('/human please')).toBe('human');
+    expect(commandKeyFromText('  /Faq@MySupportBot ')).toBe('faq');
+    expect(commandKeyFromText('/human please')).toBeNull();
     expect(commandKeyFromText('/new')).toBe('new');
   });
 
@@ -162,15 +162,14 @@ describe('commands', () => {
     expect(list.every((c) => c.description.trim().length > 0)).toBe(true);
   });
 
-  it('advertises /human only when AI answers first', () => {
+  it('never advertises the retired /human entry, even with AI first', () => {
     const list = buildTelegramCommandList({ ...defaultTelegramSettings(), handlingMode: 'ai_first' });
-    expect(list.map((c) => c.command)).toEqual(['start', 'human', 'new', 'faq', 'guides']);
+    expect(list.map((c) => c.command)).toEqual(['start', 'new', 'faq', 'guides']);
   });
 
 
   it('maps commands to the right localized reply', () => {
     expect(messageKeyForCommand('start')).toBe('welcome');
-    expect(messageKeyForCommand('help')).toBe('help');
-    expect(messageKeyForCommand('human')).toBe('handoff');
+    expect(messageKeyForCommand('new')).toBe('welcome');
   });
 });

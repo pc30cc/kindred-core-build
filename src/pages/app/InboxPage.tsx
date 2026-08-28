@@ -1687,11 +1687,10 @@ export default function InboxPage() {
                 // operator, AI/visitor switch, or new day starts a fresh group.
                 const showAvatar = !sameSenderAsPrev;
                 const showMeta = !sameSenderAsPrev;
-                }
                 // Pass A — system call_ended summary renders as a centered
-
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};
+
                 // Routing system notices are stored in English by the server;
                 // render them from metadata so they follow the app locale.
                 if (msg.sender_type === 'system' && (meta as any).kind === 'routing_agent_joined') {

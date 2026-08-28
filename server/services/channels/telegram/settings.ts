@@ -58,6 +58,12 @@ export type TelegramLocaleMessages = {
   /** `{department}` is replaced with the chosen department name. */
   deptConfirmed: string;
   deptChange: string;
+  /** Sent when every operator is away and the AI is not answering. */
+  offlineNotice: string;
+  /** Sent when writing is closed (offline + AI off + lock switched on). */
+  offlineLocked: string;
+  /** Placeholder shown inside Telegram's text field while offline (≤64). */
+  offlineInputHint: string;
 };
 
 export type TelegramHandlingMode = 'human_only' | 'ai_first';
@@ -86,6 +92,10 @@ export type TelegramSettings = {
     faqEnabled: boolean;
     /** Help articles sourced from the workspace Knowledge Base. */
     guidesEnabled: boolean;
+    /** Reply with the away notice when no operator is online. */
+    offlineNoticeEnabled: boolean;
+    /** Close writing while offline AND the AI is not answering. */
+    lockWhenOffline: boolean;
   };
   /** Operator-authored FAQ, per locale. */
   faq: Record<TelegramLocale, TelegramFaqItem[]>;
@@ -112,6 +122,9 @@ const MESSAGE_KEYS = [
   'deptHint',
   'deptConfirmed',
   'deptChange',
+  'offlineNotice',
+  'offlineLocked',
+  'offlineInputHint',
 ] as const;
 
 
@@ -137,6 +150,9 @@ function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
         deptHint: 'بخش مرتبط با درخواست خود را انتخاب کنید تا به همکار مناسب وصل شوید. در همین حین هم می‌توانید بنویسید.',
         deptConfirmed: '✅ به بخش {department} وصل شدید. همکاران این بخش به‌زودی همین‌جا پاسخ می‌دهند.',
         deptChange: 'تغییر بخش',
+        offlineNotice: '🌙 همکاران ما همین حالا آفلاین هستند. پیام شما ثبت شد و به‌محض آنلاین شدن تیم، همین‌جا پاسخ می‌گیرید.',
+        offlineLocked: '🔒 پشتیبانی در حال حاضر بسته است. لطفاً کمی بعد دوباره سر بزنید؛ در این فاصله می‌توانید سوالات متداول و مقالات راهنما را ببینید.',
+        offlineInputHint: 'پشتیبانی فعلاً آفلاین است',
       };
     case 'tr':
       return {
@@ -158,6 +174,9 @@ function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
         deptHint: 'Talebinize uygun departmanı seçin; sizi doğru ekip arkadaşına bağlayalım. Bu sırada yazmaya devam edebilirsiniz.',
         deptConfirmed: '✅ {department} departmanına bağlandınız. Bu departmandan bir temsilci kısa süre içinde yanıtlayacak.',
         deptChange: 'Departmanı değiştir',
+        offlineNotice: '🌙 Ekibimiz şu anda çevrimdışı. Mesajınız kaydedildi; ekip döner dönmez burada yanıtlayacağız.',
+        offlineLocked: '🔒 Destek şu anda kapalı. Lütfen daha sonra tekrar deneyin; bu sırada SSS ve yardım makalelerine göz atabilirsiniz.',
+        offlineInputHint: 'Destek şu anda çevrimdışı',
       };
     default:
       return {
@@ -179,6 +198,9 @@ function defaultLocaleMessages(locale: TelegramLocale): TelegramLocaleMessages {
         deptHint: 'Pick the department that fits your request — we will connect you with the right teammate. You can keep writing in the meantime.',
         deptConfirmed: '✅ Connected to {department}. A teammate from this department will reply here shortly.',
         deptChange: 'Change department',
+        offlineNotice: '🌙 Our team is away right now. Your message is saved and you will get a reply here as soon as someone is back.',
+        offlineLocked: '🔒 Support is closed at the moment. Please check back later — meanwhile you can browse the FAQ and help articles.',
+        offlineInputHint: 'Support is offline right now',
       };
   }
 }
@@ -226,7 +248,7 @@ export function defaultTelegramSettings(): TelegramSettings {
       fa: { ...DEFAULT_COMMANDS_BY_LOCALE.fa },
       tr: { ...DEFAULT_COMMANDS_BY_LOCALE.tr },
     },
-    menu: { faqEnabled: true, guidesEnabled: true },
+    menu: { faqEnabled: true, guidesEnabled: true, offlineNoticeEnabled: true, lockWhenOffline: false },
     faq: { en: [...DEFAULT_FAQ.en], fa: [...DEFAULT_FAQ.fa], tr: [...DEFAULT_FAQ.tr] },
     handlingMode: 'human_only',
   };
@@ -296,6 +318,11 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
     // bot's default menu, an operator has to switch them off deliberately.
     faqEnabled: menuInput.faqEnabled !== false,
     guidesEnabled: menuInput.guidesEnabled !== false,
+    // Away-mode UX: tell the visitor nobody is online instead of leaving the
+    // message unanswered, and (optionally) close writing when neither a
+    // human nor the AI can answer.
+    offlineNoticeEnabled: menuInput.offlineNoticeEnabled !== false,
+    lockWhenOffline: menuInput.lockWhenOffline === true,
   };
 
   // FAQ entries are authored copy: capped in count and length, never markup.

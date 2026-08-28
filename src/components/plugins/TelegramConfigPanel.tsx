@@ -48,7 +48,10 @@ import {
   Stethoscope,
   Upload,
   Bot,
+  MoonStar,
+  Lock,
 } from 'lucide-react';
+
 
 export type TelegramPanelSection = 'connection' | 'branding' | 'messages' | 'menu';
 
@@ -56,7 +59,7 @@ type CommandKey = 'start' | 'new' | 'faq' | 'guides';
 const COMMAND_KEYS: CommandKey[] = ['start', 'new', 'faq', 'guides'];
 
 /** Conversational replies the bot sends on its own. */
-const REPLY_KEYS = ['welcome', 'offline', 'fallback'] as const;
+const REPLY_KEYS = ['welcome', 'offline', 'fallback', 'offlineNotice', 'offlineLocked', 'offlineInputHint'] as const;
 /** Menu / screen chrome — every visible string is operator-authored. */
 const CHROME_KEYS = [
   'menuTitle', 'menuHint', 'back',
@@ -135,7 +138,12 @@ export function TelegramConfigPanel({
     fa: { ...EMPTY_COMMANDS },
     tr: { ...EMPTY_COMMANDS },
   });
-  const [menuSettings, setMenuSettings] = useState({ faqEnabled: false, guidesEnabled: false });
+  const [menuSettings, setMenuSettings] = useState({
+    faqEnabled: false,
+    guidesEnabled: false,
+    offlineNoticeEnabled: true,
+    lockWhenOffline: false,
+  });
   const [faq, setFaq] = useState<Record<'en' | 'fa' | 'tr', FaqItem[]>>({ en: [], fa: [], tr: [] });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
@@ -208,7 +216,7 @@ export function TelegramConfigPanel({
     setLocales(s.locales);
     setCommands(s.commands);
     if (s.commandLocales) setCommandLocales(s.commandLocales as any);
-    if ((s as any).menu) setMenuSettings((s as any).menu);
+    if ((s as any).menu) setMenuSettings((prev) => ({ ...prev, ...(s as any).menu }));
     if ((s as any).faq) setFaq({ en: [], fa: [], tr: [], ...(s as any).faq });
     setBotName((prev) => prev || s.profile.name);
     setShortDescription((prev) => prev || s.profile.shortDescription);
@@ -510,6 +518,8 @@ export function TelegramConfigPanel({
           {([
             ['guidesEnabled', BookOpen, 'plugins.telegram.menuGuides', 'plugins.telegram.menuGuidesHint'],
             ['faqEnabled', HelpCircle, 'plugins.telegram.menuFaq', 'plugins.telegram.menuFaqHint'],
+            ['offlineNoticeEnabled', MoonStar, 'plugins.telegram.offlineNotice', 'plugins.telegram.offlineNoticeHint'],
+            ['lockWhenOffline', Lock, 'plugins.telegram.offlineLock', 'plugins.telegram.offlineLockHint'],
           ] as const).map(([key, Icon, labelKey, hintKey]) => (
             <div key={key} className="flex items-start justify-between gap-4 rounded-xl border p-3">
               <div className="flex items-start gap-3">

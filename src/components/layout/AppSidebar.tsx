@@ -99,12 +99,16 @@ export function AppSidebar() {
   // on. Platform kill-switch alone is not enough — workspace must also have
   // the AI Agent surface enabled and auto-answer capability available.
   // Fail-CLOSED on error.
+  // Fail-CLOSED on capabilities, but never strand existing AI-managed
+  // threads: if the queue already holds conversations, the entry stays
+  // reachable so operators can still open them.
   const automatedInboxVisible =
-    !aiAgentCapsError &&
-    !!aiAgentCaps &&
-    aiAgentCaps.ai_agent_enabled === true &&
-    aiAgentCaps.customer_ai_agent_visible === true &&
-    aiAgentCaps.auto_answer_enabled === true;
+    (!aiAgentCapsError &&
+      !!aiAgentCaps &&
+      aiAgentCaps.ai_agent_enabled === true &&
+      aiAgentCaps.customer_ai_agent_visible === true &&
+      aiAgentCaps.auto_answer_enabled === true) ||
+    (inboxCounts?.automated ?? 0) > 0;
 
   // Primary domain for the active workspace (display under the workspace name).
   // Backed by GET /api/workspaces/:workspaceId/primary-domain — direct

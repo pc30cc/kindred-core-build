@@ -140,6 +140,24 @@ export default function AdminPluginDetailPage() {
               </div>
             )}
 
+            {item.id === 'telegram' && (
+              <div className="flex items-start justify-between gap-3 border-t pt-3">
+                <div>
+                  <Label className="text-sm font-normal">{t('plugins.admin.menuEventsVisible')}</Label>
+                  <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                    {t('plugins.admin.menuEventsVisibleHint')}
+                  </p>
+                </div>
+                <Switch
+                  checked={menuEventsVisible}
+                  disabled={update.isPending}
+                  onCheckedChange={(v) =>
+                    update.mutate({ policy: { ...(item.policy ?? {}), menuEventsVisible: v } })
+                  }
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5 border-t pt-3">
               <Label className="text-xs font-normal text-muted-foreground">
                 {t('plugins.admin.rolloutStatus')}

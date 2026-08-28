@@ -157,7 +157,7 @@ export function defaultTelegramSettings(): TelegramSettings {
       fa: { ...DEFAULT_COMMANDS_BY_LOCALE.fa },
       tr: { ...DEFAULT_COMMANDS_BY_LOCALE.tr },
     },
-    menu: { faqEnabled: false, guidesEnabled: false },
+    menu: { faqEnabled: true, guidesEnabled: true },
     faq: { en: [...DEFAULT_FAQ.en], fa: [...DEFAULT_FAQ.fa], tr: [...DEFAULT_FAQ.tr] },
     handlingMode: 'human_only',
   };
@@ -225,8 +225,10 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
 
   const menuInput = (input.menu ?? {}) as Record<string, unknown>;
   const menu = {
-    faqEnabled: menuInput.faqEnabled === true,
-    guidesEnabled: menuInput.guidesEnabled === true,
+    // Absent means ON: the FAQ and help-article entries are part of the
+    // bot's default menu, an operator has to switch them off deliberately.
+    faqEnabled: menuInput.faqEnabled !== false,
+    guidesEnabled: menuInput.guidesEnabled !== false,
   };
 
   // FAQ entries are authored copy: capped in count and length, never markup.

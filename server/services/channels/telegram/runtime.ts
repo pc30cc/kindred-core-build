@@ -48,7 +48,10 @@ export type TelegramInboundFlowResult = {
   handled: boolean;
   /** Locale every outbound reply (including AI) must speak. */
   locale: string | null;
+  /** The menu/slash command the visitor tapped, when recognized. */
+  command?: TelegramCommandKey | null;
 };
+
 
 /**
  * The language the bot must answer in: the Telegram user's language when the

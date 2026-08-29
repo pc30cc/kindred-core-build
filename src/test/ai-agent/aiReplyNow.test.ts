@@ -329,12 +329,25 @@ describe('E — operator-forced runtime policy', () => {
     const { decideRuntime } = await import('../../../server/services/ai-agent/runtimePolicy.js');
     const d = decideRuntime({
       ...base,
-      state: { ...base.state, aiRepliesCountInConversation: 99, aiRepliesInLastHour: 99, pendingHandoffRequested: true },
+      state: { ...base.state, aiRepliesCountInConversation: 99, aiRepliesInLastHour: 99 },
       settings: settings({ mode: 'auto_reply_when_offline' }),
       operatorForcedReply: true,
     });
     expect(d.canAutoReply).toBe(true);
   });
+
+  it('still refuses when a handoff is pending (ownership is never bypassed)', async () => {
+    const { decideRuntime } = await import('../../../server/services/ai-agent/runtimePolicy.js');
+    const d = decideRuntime({
+      ...base,
+      state: { ...base.state, pendingHandoffRequested: true },
+      settings: settings(),
+      operatorForcedReply: true,
+    });
+    expect(d.canAutoReply).toBe(false);
+    expect(d.reason).toBe('pending_handoff');
+  });
+
 
   it('still refuses when a human owns the conversation', async () => {
     const { decideRuntime } = await import('../../../server/services/ai-agent/runtimePolicy.js');

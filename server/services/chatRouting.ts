@@ -26,6 +26,7 @@ import {
 import { listWorkspacePresence } from './widget/operatorPresence.js';
 import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
 import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
+import { maybeQueueTelegramOfflineScreen } from './channels/telegram/offlineDelivery.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -439,8 +440,17 @@ export async function routeConversationToOperator(
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
         const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, metadata);
-        const alreadyShownInChannel = metadata.channel === 'telegram'
-          && await telegramOfflineScreenJustSent(config, args.conversationId);
+        const telegramScreenQueued = metadata.channel === 'telegram'
+          ? await maybeQueueTelegramOfflineScreen(config, {
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
+              requireUnreachable: false,
+            }).catch(() => false)
+          : false;
+        const alreadyShownInChannel = telegramScreenQueued || (
+          metadata.channel === 'telegram'
+          && await telegramOfflineScreenJustSent(config, args.conversationId)
+        );
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
           visitorBody,

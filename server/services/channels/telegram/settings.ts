@@ -287,6 +287,15 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
     for (const key of MESSAGE_KEYS) {
       merged[key] = str(localeInput[key], 2000, base[key]);
     }
+    // Transparently repair the former built-in Persian wording when it was
+    // persisted before the copy was corrected. Custom operator text remains
+    // untouched.
+    if (
+      locale === 'fa'
+      && merged.offlineLocked === '🔒 پشتیبانی در حال حاضر بسته است. لطفاً کمی بعد دوباره سر بزنید؛ در این فاصله می‌توانید سوالات متداول و مقالات راهنما را ببینید.'
+    ) {
+      merged.offlineLocked = base.offlineLocked;
+    }
     locales[locale] = merged;
   }
 

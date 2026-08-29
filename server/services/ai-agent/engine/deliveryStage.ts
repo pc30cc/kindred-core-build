@@ -15,6 +15,8 @@ import type { ServerConfig } from '../../../config.js';
 import { logRun, finalizeRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged } from '../handoffState.js';
+import { checkGenerationFreshness, freshnessMeta } from '../freshness.js';
+import { persistWorkingMemory } from '../workingMemory.js';
 import { publishOperatorEvent } from '../../realtime/publish.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -49,6 +51,22 @@ export async function runDeliveryStage(
   } = answer;
   const { aiResult } = generation;
   const aiActionsMeta = (generation as any).actionsMeta || null;
+  const vnextMeta = (generation as any).vnextMeta || null;
+  const memoryPatch = (generation as any).memoryPatch || null;
+  /**
+   * vNext bug fix — a handoff executed by the action pipeline must NOT be
+   * silently reverted to `ai_managed` after delivery. Previously this stage
+   * always called markAiManaged(), which pulled a conversation that the AI
+   * had just escalated back out of the human queue.
+   */
+  const handoffExecuted = !!(generation as any).actionHandoffExecuted;
+  const keepAiOwnership = async () => {
+    if (handoffExecuted) {
+      decisionTimeline.push('ai_ownership_released_after_handoff');
+      return;
+    }
+    await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+  };
 
   const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
@@ -61,6 +79,7 @@ export async function runDeliveryStage(
     runtime_warnings: runtimeCfg?.warnings || [],
     page_context: pageContextMetaRef,
     ...(aiActionsMeta ? { ai_actions: aiActionsMeta } : {}),
+    ...(vnextMeta || {}),
   } as Record<string, unknown>);
 
   const kbIds = sources.filter((s) => s.kind === 'kb_article').map((s) => s.id);
@@ -69,6 +88,29 @@ export async function runDeliveryStage(
   // ─── AUTO REPLY → insert visitor-facing message ────────────────────────
   if (decision.canAutoReply) {
     decisionTimeline.push('answer_strategy_selected');
+    // vNext §20-24 — last freshness checkpoint. A human who took over (or a
+    // newer visitor message) between generation and delivery must not be
+    // talked over by an answer written for an older state.
+    const freshDelivery = await checkGenerationFreshness(config, {
+      workspaceId, conversationId, visitorMessageId, checkpoint: 'pre_delivery',
+    });
+    if (!freshDelivery.fresh) {
+      decisionTimeline.push(`stale_${freshDelivery.reason}`);
+      const staleRunId = await logRun(config, {
+        workspaceId, conversationId, visitorMessageId,
+        runType: 'auto_reply', mode: settings.mode, status: 'skipped',
+        inputText: question, outputText: aiResult.text,
+        skipReason: `stale_${freshDelivery.reason || 'superseded'}`,
+        provider: aiResult.provider, model: aiResult.model,
+        kbArticleIds: kbIds, confidence: strategy.confidence,
+        metadata: { ...baseRuntimeMeta(), ...freshnessMeta(freshDelivery), locale, language: languageMeta },
+      });
+      return {
+        ran: false, action: 'skipped',
+        reason: `stale_${freshDelivery.reason || 'superseded'}`,
+        runId: staleRunId || undefined,
+      };
+    }
     // The run row is created in a provisional `failed` state with zero credits.
     // It is promoted to `replied` (and billed) ONLY after the visitor-facing
     // message is confirmed persisted, so a failed insert can never leave a
@@ -145,7 +187,7 @@ export async function runDeliveryStage(
       console.error('[ai-agent] run finalization failed after delivery', {
         conversationId, runId, messageId: inserted.id, error: finalized.error, attempts: finalized.attempts,
       });
-      await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+      await keepAiOwnership();
       return {
         ran: true,
         action: 'replied',
@@ -156,8 +198,14 @@ export async function runDeliveryStage(
       };
     }
     console.log('[ai-agent] auto reply sent', { conversationId, runId, messageId: inserted.id });
-    // Keep conversation in the Automated inbox while AI is handling it.
-    await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+    // Keep conversation in the Automated inbox while AI is handling it —
+    // unless this very turn escalated to a human.
+    await keepAiOwnership();
+    // Persist conversation working memory only after a successful delivery,
+    // so a failed turn never leaves phantom resolution attempts behind.
+    if (memoryPatch && Object.keys(memoryPatch).length) {
+      await persistWorkingMemory(config, { workspaceId, conversationId, patch: memoryPatch }).catch(() => {});
+    }
     return { ran: true, action: 'replied', runId, messageId: inserted.id };
   }
 

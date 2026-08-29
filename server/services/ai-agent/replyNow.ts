@@ -22,6 +22,10 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { maybeRunAiAssistantAfterVisitorMessage, type MaybeRunResult } from './engine.js';
 import {
+  claimReplyNow, completeReplyNowClaim, failReplyNowClaim, readReplyNowClaim,
+  type ClaimScope,
+} from './replyNowClaims.js';
+import {
   createGuidance, resolveGuidanceRequest,
   type GuidanceKind, type GuidanceRecord, type GuidanceScope,
 } from './guidance.js';
@@ -32,7 +36,10 @@ export type ReplyNowBlockedReason =
   | 'conversation_not_found'
   | 'conversation_closed'
   | 'human_active'
+  | 'handoff_in_progress'
+  | 'not_ai_managed'
   | 'no_visitor_message'
+  | 'reply_now_in_progress'
   | 'guidance_create_failed';
 
 export interface ReplyNowSuccess {
@@ -96,6 +103,48 @@ export async function findLatestVisitorMessage(
   return { id: row.id, body };
 }
 
+/**
+ * Canonical AI-ownership invariant for "AI Reply Now".
+ *
+ * AI Reply Now is a Human Guidance feature that is only valid while the AI
+ * still owns the PUBLIC conversation. It is NOT a way to bypass a handoff
+ * that already started: once the conversation is canonically human-owned
+ * (needs_human / human_assigned / human_active / takeover / active handoff
+ * request), the conversation must first return to AI through the existing
+ * "return to AI" transition. Frontend visibility is never the authority.
+ */
+export function checkAiOwnership(
+  metadata: Record<string, unknown> | null | undefined,
+): { owned: true; reason: null } | { owned: false; reason: ReplyNowBlockedReason } {
+  const meta = (metadata || {}) as Record<string, unknown>;
+  const state = typeof meta.ai_state === 'string' ? meta.ai_state : null;
+
+  if (state === 'human_active' || meta.human_takeover_at) {
+    return { owned: false, reason: 'human_active' };
+  }
+  if (state === 'human_assigned') {
+    return { owned: false, reason: 'human_active' };
+  }
+  if (state === 'needs_human') {
+    return { owned: false, reason: 'handoff_in_progress' };
+  }
+  // An active (unresolved) handoff request, whatever the mirrored state is.
+  if (meta.ai_handoff_requested === true) {
+    return { owned: false, reason: 'handoff_in_progress' };
+  }
+  if (state === 'closed') {
+    return { owned: false, reason: 'conversation_closed' };
+  }
+  // Only the canonical AI-owned state qualifies. Conversations that were
+  // never AI-managed are not a Human Guidance surface.
+  const aiOwned =
+    state === 'ai_managed' ||
+    meta.managed_by_ai === true ||
+    meta.ai_managed_by_ai === true;
+  if (!aiOwned) return { owned: false, reason: 'not_ai_managed' };
+  return { owned: true, reason: null };
+}
+
 export interface ReplyNowEligibility {
   eligible: boolean;
   reason: ReplyNowBlockedReason | null;
@@ -123,8 +172,9 @@ export async function checkReplyNowEligibility(
     return { eligible: false, reason: 'conversation_closed', visitorMessage: null };
   }
   const meta = (((conv as any).metadata || {}) as Record<string, unknown>);
-  if (meta.ai_state === 'human_active' || meta.human_takeover_at) {
-    return { eligible: false, reason: 'human_active', visitorMessage: null };
+  const ownership = checkAiOwnership(meta);
+  if (!ownership.owned) {
+    return { eligible: false, reason: ownership.reason, visitorMessage: null };
   }
   const visitorMessage = await findLatestVisitorMessage(config, args.conversationId);
   if (!visitorMessage) return { eligible: false, reason: 'no_visitor_message', visitorMessage: null };
@@ -132,12 +182,17 @@ export async function checkReplyNowEligibility(
 }
 
 // ─── Idempotency ───────────────────────────────────────────────────────
-// Duplicate clicks (double-tap, retried request, flaky network) must never
-// produce two visitor-facing replies. Identical (conversation, key) pairs
-// share a single in-flight promise; the resolved value is retained briefly so
-// an immediate retry returns the SAME result instead of starting a new turn.
+// Duplicate clicks (double-tap, retried request, flaky network, a retry that
+// lands on another Core replica) must never produce two visitor-facing
+// replies. The CORRECTNESS boundary is the durable claim table
+// (public.ai_agent_reply_now_claims, migration 059); the in-process map below
+// is only a fast local short-circuit for the same process.
 const IDEMPOTENCY_TTL_MS = 60_000;
 const inFlight = new Map<string, { promise: Promise<ReplyNowResult>; at: number }>();
+
+/** How long a caller waits for a peer instance to finish an identical turn. */
+const PEER_WAIT_MS = 15_000;
+const PEER_POLL_MS = 250;
 
 function pruneIdempotency(now: number): void {
   for (const [k, v] of inFlight) {
@@ -145,9 +200,13 @@ function pruneIdempotency(now: number): void {
   }
 }
 
-/** Test-only helper: clears the idempotency cache between cases. */
+/** Test-only helper: clears the local idempotency cache between cases. */
 export function __resetReplyNowIdempotency(): void {
   inFlight.clear();
+}
+
+function asDeduplicated(result: ReplyNowResult): ReplyNowResult {
+  return result.ok ? { ...result, deduplicated: true } : result;
 }
 
 export async function replyNowWithGuidance(
@@ -156,25 +215,51 @@ export async function replyNowWithGuidance(
 ): Promise<ReplyNowResult> {
   const now = Date.now();
   pruneIdempotency(now);
-  const key = input.idempotencyKey
-    ? `${input.conversationId}:${input.idempotencyKey}`
-    : null;
-  if (key) {
-    const existing = inFlight.get(key);
-    if (existing) {
-      const prior = await existing.promise;
-      return prior.ok ? { ...prior, deduplicated: true } : prior;
-    }
-  }
+  if (!input.idempotencyKey) return runReplyNow(config, input);
 
-  const promise = runReplyNow(config, input);
-  if (key) {
-    inFlight.set(key, { promise, at: now });
-    void promise.finally(() => {
-      const entry = inFlight.get(key);
-      if (entry) inFlight.set(key, { ...entry, at: Date.now() });
-    });
-  }
+  const scope: ClaimScope = {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    idempotencyKey: input.idempotencyKey,
+  };
+  const localKey = `${input.workspaceId}:${input.conversationId}:${input.idempotencyKey}`;
+
+  const existing = inFlight.get(localKey);
+  if (existing) return asDeduplicated(await existing.promise);
+
+  const promise = (async (): Promise<ReplyNowResult> => {
+    const claim = await claimReplyNow<ReplyNowResult>(config, scope);
+    if (claim.state === 'duplicate_completed') {
+      return claim.result ? asDeduplicated(claim.result) : { ok: false, reason: 'reply_now_in_progress' };
+    }
+    if (claim.state === 'duplicate_running') {
+      // Another instance owns this exact turn — wait for its outcome instead
+      // of generating a second visitor-facing reply.
+      const deadline = Date.now() + PEER_WAIT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, PEER_POLL_MS));
+        const peer = await readReplyNowClaim<ReplyNowResult>(config, scope);
+        if (peer.status === 'completed' && peer.result) return asDeduplicated(peer.result);
+        if (peer.status === 'failed') break;
+      }
+      return { ok: false, reason: 'reply_now_in_progress' };
+    }
+
+    try {
+      const result = await runReplyNow(config, input);
+      await completeReplyNowClaim(config, scope, result);
+      return result;
+    } catch (err) {
+      await failReplyNowClaim(config, scope);
+      throw err;
+    }
+  })();
+
+  inFlight.set(localKey, { promise, at: now });
+  void promise.catch(() => undefined).finally(() => {
+    const entry = inFlight.get(localKey);
+    if (entry) inFlight.set(localKey, { ...entry, at: Date.now() });
+  });
   return promise;
 }
 

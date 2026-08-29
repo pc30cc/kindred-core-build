@@ -186,7 +186,7 @@ describe('blocker 3 — working memory compare-and-swap', () => {
     };
     const { persistWorkingMemory } = await import('../../../server/services/ai-agent/workingMemory.js');
     const next = await persistWorkingMemory(config, {
-      workspaceId: WS, conversationId: CONV, patch: { issueSummary: 'mine' },
+      workspaceId: WS, conversationId: CONV, patch: { currentIssue: 'mine' },
     });
     expect(calls).toBe(2);
     expect(next).not.toBeNull();
@@ -197,7 +197,7 @@ describe('blocker 3 — working memory compare-and-swap', () => {
       ? { data: { conflict: false, rev: 1 }, error: null }
       : { data: true, error: null });
     const { persistWorkingMemory } = await import('../../../server/services/ai-agent/workingMemory.js');
-    await persistWorkingMemory(config, { workspaceId: WS, conversationId: CONV, patch: { issueSummary: 'x' } });
+    await persistWorkingMemory(config, { workspaceId: WS, conversationId: CONV, patch: { currentIssue: 'x' } });
     expect(order.filter((o) => o === 'update:conversations')).toHaveLength(0);
   });
 
@@ -206,7 +206,7 @@ describe('blocker 3 — working memory compare-and-swap', () => {
       ? { data: null, error: { message: 'function does not exist' } }
       : { data: true, error: null });
     const { persistWorkingMemory } = await import('../../../server/services/ai-agent/workingMemory.js');
-    const next = await persistWorkingMemory(config, { workspaceId: WS, conversationId: CONV, patch: { issueSummary: 'x' } });
+    const next = await persistWorkingMemory(config, { workspaceId: WS, conversationId: CONV, patch: { currentIssue: 'x' } });
     expect(next).not.toBeNull();
     expect(order).toContain('update:conversations');
   });

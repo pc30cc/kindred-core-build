@@ -21,23 +21,11 @@ import { PluginLogo } from '@/components/plugins/PluginLogo';
 import { Link, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
-  CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Sparkles, Trash2, Wrench,
+  CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Trash2, Wrench,
 } from 'lucide-react';
 
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-border/60 bg-card/40 p-4 transition-colors hover:border-border">
-      <div className="mb-1.5 flex items-center gap-2 text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
-        <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
-      </div>
-      <div className="text-2xl font-semibold text-foreground">{value}</div>
-    </div>
-  );
-}
-
 export default function PluginsPage() {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id ?? '';
   const qc = useQueryClient();

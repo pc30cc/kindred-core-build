@@ -43,6 +43,30 @@ export interface ConversationGuidanceResponse {
   maxBody: number;
 }
 
+export type ReplyNowBlockedReason =
+  | 'conversation_not_found'
+  | 'conversation_closed'
+  | 'human_active'
+  | 'no_visitor_message'
+  | 'guidance_create_failed';
+
+export interface ReplyNowEligibility {
+  eligible: boolean;
+  reason: ReplyNowBlockedReason | null;
+  visitorMessageId: string | null;
+}
+
+export interface ReplyNowResponse {
+  guidance: AiGuidance | null;
+  visitorMessageId: string;
+  deduplicated: boolean;
+  action: 'replied' | 'suggested' | 'handoff' | 'no_answer' | 'skipped' | 'failed';
+  reason: string | null;
+  messageId: string | null;
+  runId: string | null;
+}
+
+
 export const humanGuidanceApi = {
   /** Active guidance + pending AI questions for a conversation. */
   getConversationGuidance(conversationId: string): Promise<ConversationGuidanceResponse> {

@@ -49,20 +49,42 @@ export interface RuntimePolicyInput {
   state: ConversationState;
   availability: AvailabilityInfo;
   visitorText: string;
+  /**
+   * Human Guidance UX — an authenticated operator explicitly asked the AI to
+   * answer now ("AI Reply Now"). The guards that exist to keep the AI from
+   * speaking *unasked* (suggest-only mode, operators-online, reply caps,
+   * hourly throttle, human-request keyword deflection) do not apply to a turn
+   * a human deliberately requested. The guards that protect the VISITOR —
+   * agent disabled/off and human takeover — still apply, and every downstream
+   * freshness / grounding / delivery check is unchanged.
+   */
+  operatorForcedReply?: boolean;
 }
 
 export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
   const { settings, state, availability, visitorText } = input;
+  const forced = input.operatorForcedReply === true;
   const base = {
     mode: settings.mode,
     availability: availability.state,
     canAutoReply: false,
     canSuggest: false,
-    notes: {} as Record<string, unknown>,
+    notes: (forced ? { operator_forced_reply: true } : {}) as Record<string, unknown>,
   };
 
   if (!settings.enabled || settings.mode === 'off') {
     return { ...base, action: 'skip', reason: 'disabled_or_off' };
+  }
+
+  if (forced) {
+    // A human owning the public conversation still wins: the operator is
+    // already the visitor's counterpart, so the AI must not speak over them.
+    const humanTookOver =
+      state.aiState === 'human_active' || !!state.humanTakeoverAt;
+    if (humanTookOver) {
+      return { ...base, action: 'skip', reason: 'human_already_joined' };
+    }
+    return { ...base, action: 'auto_reply', reason: 'ok', canAutoReply: true };
   }
 
   // Human request keyword always wins — don't try to "outsmart" the user.
@@ -91,6 +113,7 @@ export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
   if (settings.max_replies_per_hour > 0 && state.aiRepliesInLastHour >= settings.max_replies_per_hour) {
     return { ...base, action: 'skip', reason: 'rate_limited' };
   }
+
 
   if (settings.mode === 'suggest_only') {
     return { ...base, action: 'suggest', reason: 'mode_suggest_only', canSuggest: true };

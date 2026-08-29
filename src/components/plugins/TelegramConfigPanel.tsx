@@ -114,10 +114,14 @@ const EMPTY_LOCALES: Record<'en' | 'fa' | 'tr', Record<MessageKey, string>> = {
 export function TelegramConfigPanel({
   workspaceId,
   section,
+  // Bale speaks the Telegram Bot API, so this one panel drives both bots.
+  provider = 'telegram',
 }: {
   workspaceId: string;
   section: TelegramPanelSection;
+  provider?: 'telegram' | 'bale';
 }) {
+
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [token, setToken] = useState('');

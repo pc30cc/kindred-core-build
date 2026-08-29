@@ -18,6 +18,7 @@ import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
 import { handleTelegramInboundFlow } from './telegram/runtime.js';
 import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
 import { anonCodeFrom } from '../widget/anonymousContact.js';
+import { isBotProvider } from '../../../shared/channels/botProviders.js';
 
 export type NormalizedInboundMessage = {
   provider: string;
@@ -166,13 +167,13 @@ async function resolveInboundAiOwnership(
   config: ServerConfig,
   input: NormalizedInboundMessage,
 ): Promise<boolean> {
-  if (input.provider !== 'telegram') return false;
+  if (!isBotProvider(input.provider)) return false;
   try {
     const [{ getInstallation }, { parseTelegramSettings, resolveTelegramHandlingMode }] = await Promise.all([
       import('../plugins/state.js'),
       import('./telegram/settings.js'),
     ]);
-    const installation = await getInstallation(config, input.workspaceId, 'telegram');
+    const installation = await getInstallation(config, input.workspaceId, input.provider);
     if (!installation) return false;
     const parsed = parseTelegramSettings(installation.settings);
     const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode);
@@ -241,7 +242,7 @@ export async function processInboundMessage(
     const contactId = await ensureChannelContact(sb, input);
 
     // Profile photo sync — best-effort, never blocks message processing.
-    if (contactId && input.provider === 'telegram') {
+    if (contactId && isBotProvider(input.provider)) {
       void import('./telegram/avatarSync.js')
         .then(({ syncTelegramContactAvatar }) =>
           syncTelegramContactAvatar(config, {
@@ -249,6 +250,7 @@ export async function processInboundMessage(
             integrationId: input.integrationId,
             contactId,
             telegramUserId: input.externalUserId,
+            provider: input.provider,
           }),
         )
         .catch(() => undefined);
@@ -310,6 +312,7 @@ export async function processInboundMessage(
       try {
         const { requestTelegramMediaFetch } = await import('./telegram/mediaIngest.js');
         const { outcomes } = await requestTelegramMediaFetch(config, {
+          provider: input.provider,
           workspaceId: input.workspaceId,
           integrationId: input.integrationId,
           conversationId: conversation.id,
@@ -404,7 +407,7 @@ export async function processInboundMessage(
         locale: replyLocale || undefined,
       })
         .then((r: any) => {
-          if (input.provider === 'telegram') console.log('[channels] telegram ai result', r);
+          if (isBotProvider(input.provider)) console.log(`[channels] ${input.provider} ai result`, r);
         })
         .catch((e: any) => console.warn('[channels] AI engine error:', e?.message || e));
     }

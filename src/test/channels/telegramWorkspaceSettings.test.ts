@@ -77,6 +77,21 @@ describe('settings parsing', () => {
   it('rejects an invalid handling mode', () => {
     expect(parseTelegramSettings({ handlingMode: 'skynet' }).handlingMode).toBe('human_only');
   });
+
+  it('repairs the former Persian closed wording without changing custom copy', () => {
+    const legacy = parseTelegramSettings({
+      locales: {
+        fa: {
+          offlineLocked: '🔒 پشتیبانی در حال حاضر بسته است. لطفاً کمی بعد دوباره سر بزنید؛ در این فاصله می‌توانید سوالات متداول و مقالات راهنما را ببینید.',
+        },
+      },
+    });
+    expect(legacy.locales.fa.offlineLocked).toContain('آفلاین است');
+    expect(legacy.locales.fa.offlineLocked).not.toContain('بسته است');
+
+    const custom = parseTelegramSettings({ locales: { fa: { offlineLocked: 'متن سفارشی من' } } });
+    expect(custom.locales.fa.offlineLocked).toBe('متن سفارشی من');
+  });
 });
 
 describe('AI entitlement gating', () => {

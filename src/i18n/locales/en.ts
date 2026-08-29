@@ -4169,7 +4169,7 @@ const en = {
       lastInbound: 'Last message received',
       lastError: 'Last error',
       never: 'Never',
-      connectSuccess: 'Telegram connected successfully.',
+      connectSuccess: '{provider} connected successfully.',
       connectFailed: 'Could not connect the Telegram bot.',
       disconnected: 'Telegram was disconnected.',
       diagnosticsTitle: 'Diagnostics',

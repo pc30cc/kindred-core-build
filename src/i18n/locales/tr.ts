@@ -4160,7 +4160,7 @@ const tr: TranslationKeys = {
       lastInbound: 'Son gelen mesaj',
       lastError: 'Son hata',
       never: 'Hiç',
-      connectSuccess: 'Telegram başarıyla bağlandı.',
+      connectSuccess: '{provider} başarıyla bağlandı.',
       connectFailed: 'Telegram botu bağlanamadı.',
       disconnected: 'Telegram bağlantısı kesildi.',
       diagnosticsTitle: 'Tanılama',

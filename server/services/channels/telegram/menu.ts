@@ -160,7 +160,9 @@ export function buildOfflineScreen(
     contentRow.push({ text: labelFor(settings, locale, 'faq', fallback) });
   }
   if (contentRow.length) rows.push(contentRow);
-  if (!opts.locked) rows.push([{ text: labelFor(settings, locale, 'new', fallback) }]);
+  // While the offline screen is showing, starting a new chat is never offered —
+  // the reduced keyboard plus the placeholder is the visitor-facing lock.
+
 
   return {
     text: `${escapeHtml(body)}`,

@@ -120,7 +120,7 @@ export function TelegramConfigPanel({
 }: {
   workspaceId: string;
   section: TelegramPanelSection;
-  provider?: 'telegram' | 'bale';
+  provider?: 'telegram' | 'bale' | 'whatsapp';
 }) {
 
   const { t } = useTranslation();
@@ -133,7 +133,17 @@ export function TelegramConfigPanel({
    * command menu can be published there.
    */
   const supportsBotProfile = findBotProvider(provider)?.supportsBotProfile !== false;
+  /**
+   * WhatsApp Cloud is credentialled with a phone number id + permanent access
+   * token, and its callback URL is registered in the Meta app dashboard — the
+   * platform can only SHOW the URL and verify token.
+   */
+  const descriptor = findBotProvider(provider);
+  const isCloudApi = descriptor?.credentialKind === 'whatsapp_cloud';
+  const managesWebhook = descriptor?.supportsWebhookRegistration !== false;
   const [token, setToken] = useState('');
+  const [phoneNumberId, setPhoneNumberId] = useState('');
+  const [businessAccountId, setBusinessAccountId] = useState('');
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [botName, setBotName] = useState('');
   const [shortDescription, setShortDescription] = useState('');
@@ -251,7 +261,14 @@ export function TelegramConfigPanel({
   const refresh = () => qc.invalidateQueries({ queryKey: ['plugins'] });
 
   const connect = useMutation({
-    mutationFn: () => pluginsApi.telegramConnect(workspaceId, token.trim(), provider),
+    mutationFn: () =>
+      isCloudApi
+        ? pluginsApi.whatsappConnect(workspaceId, {
+            phoneNumberId: phoneNumberId.trim(),
+            accessToken: token.trim(),
+            businessAccountId: businessAccountId.trim() || undefined,
+          })
+        : pluginsApi.telegramConnect(workspaceId, token.trim(), provider),
     onSuccess: () => {
       setToken('');
       toast({ title: t('plugins.telegram.connectSuccess', { provider: providerLabel }) });
@@ -375,21 +392,89 @@ export function TelegramConfigPanel({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="telegram-token">{t('plugins.telegram.botToken')}</Label>
-            <Input
-              id="telegram-token"
-              dir="ltr"
-              autoComplete="off"
-              placeholder="123456789:AA..."
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">{t('plugins.telegram.botTokenHint')}</p>
-            {hasToken && !token && (
-              <p className="text-xs text-emerald-600">{t('plugins.telegram.tokenStored')}</p>
-            )}
-          </div>
+          {isCloudApi ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-phone-id">{t('plugins.whatsapp.phoneNumberId')}</Label>
+                <Input
+                  id="wa-phone-id"
+                  dir="ltr"
+                  autoComplete="off"
+                  placeholder="123456789012345"
+                  value={phoneNumberId}
+                  onChange={(e) => setPhoneNumberId(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('plugins.whatsapp.phoneNumberIdHint')}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-token">{t('plugins.whatsapp.accessToken')}</Label>
+                <Input
+                  id="wa-token"
+                  dir="ltr"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="EAAG..."
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('plugins.whatsapp.accessTokenHint')}</p>
+                {hasToken && !token && (
+                  <p className="text-xs text-emerald-600">{t('plugins.telegram.tokenStored')}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-waba">{t('plugins.whatsapp.businessAccountId')}</Label>
+                <Input
+                  id="wa-waba"
+                  dir="ltr"
+                  autoComplete="off"
+                  placeholder="(optional)"
+                  value={businessAccountId}
+                  onChange={(e) => setBusinessAccountId(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="telegram-token">{t('plugins.telegram.botToken')}</Label>
+              <Input
+                id="telegram-token"
+                dir="ltr"
+                autoComplete="off"
+                placeholder="123456789:AA..."
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t('plugins.telegram.botTokenHint')}</p>
+              {hasToken && !token && (
+                <p className="text-xs text-emerald-600">{t('plugins.telegram.tokenStored')}</p>
+              )}
+            </div>
+          )}
+
+          {/* Callback URL + verify token belong to the provider dashboard for
+              Cloud API providers, so they are displayed, not registered. */}
+          {!managesWebhook && integration?.webhookUrl && (
+            <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
+              <p className="text-sm font-medium">{t('plugins.whatsapp.webhookSetupTitle')}</p>
+              <p className="text-xs text-muted-foreground">{t('plugins.whatsapp.webhookSetupHint')}</p>
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t('plugins.whatsapp.callbackUrl')}</Label>
+                <Input dir="ltr" readOnly value={integration.webhookUrl} onFocus={(e) => e.currentTarget.select()} />
+              </div>
+              {integration.verifyToken && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('plugins.whatsapp.verifyToken')}</Label>
+                  <Input
+                    dir="ltr"
+                    readOnly
+                    value={integration.verifyToken}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
 
 
@@ -447,7 +532,7 @@ export function TelegramConfigPanel({
               </Button>
             )}
 
-            {hasToken && (
+            {hasToken && managesWebhook && (
               <Button type="button" variant="outline" disabled={reconnect.isPending} onClick={() => reconnect.mutate()}>
                 {reconnect.isPending ? (
                   <Loader2 className="me-2 h-4 w-4 animate-spin" />
@@ -475,7 +560,11 @@ export function TelegramConfigPanel({
 
             <Button
               type="button"
-              disabled={connect.isPending || token.trim().length < 20}
+              disabled={
+                connect.isPending ||
+                token.trim().length < 20 ||
+                (isCloudApi && phoneNumberId.trim().length < 5)
+              }
               onClick={() => connect.mutate()}
             >
               {connect.isPending ? (

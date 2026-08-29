@@ -18,7 +18,6 @@
 import type { ServerConfig } from '../../../config.js';
 import { checkModuleAccess } from '../../../middleware/featureGating.js';
 import { getPlatformState } from '../../plugins/state.js';
-import type { BotProviderId } from '../../../../shared/channels/botProviders.js';
 
 export const TELEGRAM_LOCALES = ['en', 'fa', 'tr'] as const;
 export type TelegramLocale = (typeof TELEGRAM_LOCALES)[number];

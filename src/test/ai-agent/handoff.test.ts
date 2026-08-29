@@ -33,6 +33,7 @@ const logRunCalls: any[] = [];
 const insertAiMessageCalls: any[] = [];
 const markNeedsHumanCalls: any[] = [];
 const markHandoffRequestedCalls: any[] = [];
+let commitNeedsHumanFails = false;
 let aiCallCount = 0;
 let fakeSb: ReturnType<typeof makeFakeSupabase>;
 
@@ -129,9 +130,14 @@ vi.mock('../../../server/services/ai-agent/handoffState.js', async (importOrigin
     // vNext blocker 1 — handoff is a two-phase commit; the engine calls
     // commitNeedsHuman() then routeAfterHandoff(). Both are recorded here so
     // these suites keep asserting on handoff side effects.
-    commitNeedsHuman: async (_config: any, input: any) => {
+    // Delegates to the REAL implementation (which persists needs_human onto
+    // the faked `conversations` row). Since the redundant pre-handoff marker
+    // was removed, this commit is the only writer of the handoff metadata
+    // the cross-source idempotency checks read back.
+    commitNeedsHuman: async (config: any, input: any) => {
       markNeedsHumanCalls.push(input);
-      return { ok: true, routingDeferred: false };
+      if (commitNeedsHumanFails) return { ok: false, routingDeferred: false };
+      return actual.commitNeedsHuman(config, input);
     },
     routeAfterHandoff: async () => {},
   };
@@ -217,6 +223,7 @@ beforeEach(() => {
   insertAiMessageCalls.length = 0;
   markNeedsHumanCalls.length = 0;
   markHandoffRequestedCalls.length = 0;
+  commitNeedsHumanFails = false;
   aiCallCount = 0;
   fakeSb = makeFakeSupabase({
     workspaces: [{ id: DEFAULT_WORKSPACE_ID, locale: 'en', widget_language: 'en' }],
@@ -1061,7 +1068,9 @@ describe('C8.12 — Follow-up 9E.3.1 POST hard handoff independent of canAutoRep
 
     expect(result.action).toBe('handoff');
     expect(markNeedsHumanCalls).toHaveLength(1);
-    expect(markHandoffRequestedCalls.length).toBeGreaterThanOrEqual(1);
+    // vNext final blocker 1 — the canonical commit is the FIRST and ONLY
+    // durable handoff transition; no redundant pre-marker is written.
+    expect(markHandoffRequestedCalls).toHaveLength(0);
     // suggest_only suppresses the Routing-generated visitor ack.
     expect(insertAiMessageCalls).toHaveLength(0);
     const log = logRunCalls[logRunCalls.length - 1];

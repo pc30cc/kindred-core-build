@@ -72,11 +72,43 @@ const UNSURE_PATTERNS: RegExp[] = [
   /لست\s*متأكد/,
 ];
 
-export function postValidateAnswer(answer: string): { ok: boolean; reason?: string } {
+/**
+ * Strategy-aware post-validation (vNext §32).
+ *
+ * Honest uncertainty is the CORRECT answer when nothing verified was
+ * retrieved: "اطلاعات تأییدشده‌ای درباره این مورد ندارم." must not be
+ * silently rewritten into `model_unsure → handoff`.
+ *
+ * It stays a failure signal for a GROUNDED turn: if strong evidence was in
+ * the prompt and the model still gave up, that is genuinely poor output.
+ *
+ * Legacy callers that pass only a string keep the old strict behaviour.
+ */
+export interface PostValidateContext {
+  /** Retrieval grounding for this turn. */
+  groundingMode?: 'grounded' | 'partial' | 'unverified';
+  /** Owner asked for escalation whenever verified knowledge is missing. */
+  escalateOnUncertainty?: boolean;
+}
+
+export function postValidateAnswer(
+  answer: string,
+  ctx: PostValidateContext = {},
+): { ok: boolean; reason?: string } {
   if (!answer || answer.trim().length < 2) return { ok: false, reason: 'empty' };
   const text = answer.trim();
-  for (const re of UNSURE_PATTERNS) {
-    if (re.test(text)) return { ok: false, reason: 'model_unsure' };
+
+  const unsure = UNSURE_PATTERNS.some((re) => re.test(text));
+  if (!unsure) return { ok: true };
+
+  // Ungrounded turn: saying so is honest and allowed, unless the workspace
+  // explicitly opted into escalating on missing verified information.
+  if (ctx.groundingMode === 'unverified' && ctx.escalateOnUncertainty !== true) {
+    return { ok: true };
   }
-  return { ok: true };
+  // Partial grounding: allowed to hedge as long as the reply is substantive.
+  if (ctx.groundingMode === 'partial' && text.length >= 80 && ctx.escalateOnUncertainty !== true) {
+    return { ok: true };
+  }
+  return { ok: false, reason: 'model_unsure' };
 }

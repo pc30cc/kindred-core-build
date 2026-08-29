@@ -23,6 +23,11 @@ import { buildRoutingMetadata } from '../runtime/routingRuntime.js';
 import { buildTriggerMetadata } from '../runtime/triggerRuntime.js';
 import { buildToolMetadata } from '../runtime/toolRuntime.js';
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
+import { loadActiveGuidance, type ActiveGuidanceBundle } from '../guidance.js';
+import {
+  loadWorkingMemory, deriveTurnPatch, applyMemoryPatch, renderMemoryBlock,
+  memoryMeta, type WorkingMemory, type MemoryPatch,
+} from '../workingMemory.js';
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 
@@ -53,6 +58,16 @@ export interface ContextStageResult {
   pageContextMetaRef: any;
   state: Awaited<ReturnType<typeof getConversationState>>;
   availability: Awaited<ReturnType<typeof getOperatorAvailability>>;
+  /** vNext — private operator guidance active for this generation. */
+  operatorGuidance: ActiveGuidanceBundle;
+  /** vNext — bounded working memory AFTER folding in this turn's signals. */
+  memory: WorkingMemory;
+  /** Deterministic patch derived from this turn (persisted by delivery). */
+  memoryTurnPatch: MemoryPatch;
+  memoryBlock: string | null;
+  memoryMetaBundle: Record<string, unknown>;
+  /** Text of the most recent assistant message, for reference resolution. */
+  previousAssistantText: string | null;
 }
 
 export async function runContextStage(
@@ -220,15 +235,67 @@ export async function runContextStage(
     intent_override: null,
   } : (isPageIntent ? { page_intent_detected: true, intent_override: null } : null);
 
-  // Gather state in parallel — runtime policy needs all three.
-  const [state, availability] = await Promise.all([
+  // Gather state in parallel — runtime policy needs all of it.
+  // vNext additions (operator guidance, working memory, last assistant turn)
+  // are best-effort reads: each degrades to an empty value on failure and can
+  // never break the existing auto-reply flow.
+  const [state, availability, operatorGuidance, storedMemory, previousAssistantText] = await Promise.all([
     getConversationState(config, workspaceId, conversationId),
     getOperatorAvailability(config, workspaceId, locale),
+    loadActiveGuidance(config, workspaceId, conversationId),
+    loadWorkingMemory(config, workspaceId, conversationId),
+    loadPreviousAssistantText(sb, conversationId),
   ]);
+
+  // Deterministic resolution awareness: fold "that link is broken" /
+  // "I tried that, it didn't work" into memory with ZERO provider calls.
+  const memoryTurnPatch = deriveTurnPatch({
+    visitorText: question,
+    previousAssistantText,
+    memory: storedMemory,
+  });
+  const memory = Object.keys(memoryTurnPatch).length
+    ? applyMemoryPatch(storedMemory, memoryTurnPatch)
+    : storedMemory;
+  const memoryBlock = renderMemoryBlock(memory);
+  const memoryMetaBundle = memoryMeta(memory);
+  if (operatorGuidance.items.length) decisionTimeline.push('operator_guidance_loaded');
+  if (memoryBlock) decisionTimeline.push('conversation_memory_loaded');
 
   return {
     sb, locale, workspaceName, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
     humanRequestFromTopics, guidanceMeta, routingMeta, triggerMeta, workflowMeta,
     toolMeta, pageContextMetaRef, state, availability,
+    operatorGuidance, memory, memoryTurnPatch, memoryBlock, memoryMetaBundle,
+    previousAssistantText,
   };
+}
+
+/**
+ * Last assistant-authored message body. Used to resolve "this link doesn't
+ * open" to the exact URL the assistant offered.
+ */
+async function loadPreviousAssistantText(
+  sb: ReturnType<typeof getServiceClient>,
+  conversationId: string,
+): Promise<string | null> {
+  if (!conversationId) return null;
+  try {
+    const { data } = await sb
+      .from('conversation_messages')
+      .select('body,sender_type,metadata,created_at')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(12);
+    for (const m of data || []) {
+      const st = String((m as any).sender_type || '').toLowerCase();
+      const src = String(((m as any).metadata || {}).source || '');
+      if (st === 'ai' || st === 'bot' || src.startsWith('ai_agent')) {
+        return String((m as any).body || '') || null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

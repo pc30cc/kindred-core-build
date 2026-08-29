@@ -19,6 +19,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
+import { PluginLogo } from '@/components/plugins/PluginLogo';
+
 import { ArrowLeft, ArrowRight, Lock, Plug, Trash2, Wrench } from 'lucide-react';
 
 export default function PluginDetailPage() {

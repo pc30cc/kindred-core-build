@@ -260,11 +260,36 @@ const whatsappConnectSchema = z.object({
   business_account_id: z.string().max(64).optional().nullable(),
 });
 
+/**
+ * Instagram Messaging is a Graph provider too: the connection is the IG
+ * professional account id plus a long-lived Page/IG access token (optionally
+ * the linked Page id), stored as one JSON envelope in the same encrypted
+ * credential slot every other channel uses.
+ */
+const instagramConnectSchema = z.object({
+  workspace_id: z.string().uuid(),
+  ig_account_id: z.string().min(5).max(64).regex(/^\d+$/, 'Invalid Instagram account id'),
+  access_token: z.string().min(20).max(512),
+  page_id: z.string().max(64).optional().nullable(),
+});
+
 /** Normalizes a connect body into the credential string for `provider`. */
 function parseConnectCredential(
   provider: string,
   body: unknown,
 ): { workspaceId: string; credential: string } | null {
+  if (botProvider(provider).credentialKind === 'instagram_graph') {
+    const parsed = instagramConnectSchema.safeParse(body);
+    if (!parsed.success) return null;
+    return {
+      workspaceId: parsed.data.workspace_id,
+      credential: JSON.stringify({
+        ig_account_id: parsed.data.ig_account_id,
+        access_token: parsed.data.access_token,
+        page_id: parsed.data.page_id || null,
+      }),
+    };
+  }
   if (botProvider(provider).credentialKind === 'whatsapp_cloud') {
     const parsed = whatsappConnectSchema.safeParse(body);
     if (!parsed.success) return null;

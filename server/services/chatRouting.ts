@@ -17,6 +17,7 @@
  */
 import { isBotProvider } from '../../shared/channels/botProviders.js';
 import type { ServerConfig } from '../config.js';
+import { patchConversationMetadata } from './conversationMetadata.js';
 import { getServiceClient } from '../supabase.js';
 import {
   resolveRoutingCandidates,
@@ -110,13 +111,10 @@ async function resolveConversationDepartment(
     .maybeSingle();
   const deptId = (msg as any)?.metadata?.department_id as string | undefined;
   if (!deptId) return null;
-  try {
-    await sb
-      .from('conversations')
-      .update({ metadata: { ...metadata, department_id: deptId } })
-      .eq('id', conversationId)
-      .eq('workspace_id', workspaceId);
-  } catch { /* best-effort persistence only */ }
+  // Atomic single-key patch — this used to write back the whole metadata
+  // snapshot captured at routing entry, which could revert a concurrent AI
+  // handoff/takeover transition.
+  await patchConversationMetadata(config, conversationId, { department_id: deptId }, workspaceId);
   return deptId;
 }
 

@@ -130,9 +130,10 @@ describe('worker boundary', () => {
   });
 
   it('never sends the offline notice twice to a Telegram visitor', () => {
-    expect(chatRoutingSource).toContain('telegramOfflineScreenJustSent');
-    expect(chatRoutingSource).toContain('telegram_offline_notice_at');
     expect(chatRoutingSource).toContain('maybeQueueTelegramOfflineScreen');
+    expect(chatRoutingSource).toContain("metadata.channel !== 'telegram'");
+    expect(chatRoutingSource).toContain("channel_delivery_skip: 'true'");
+    expect(chatRoutingSource).not.toContain('telegramOfflineScreenJustSent');
     expect(telegramOfflineDeliverySource).toContain('if (Date.now() - lastAt < cooldown) return true;');
   });
 

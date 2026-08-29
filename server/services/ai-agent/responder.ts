@@ -12,6 +12,7 @@ import {
   buildMessageEnvelope,
 } from '../realtime/publish.js';
 import { ensureOutboundIntent } from '../channels/outbound.js';
+import { maybeQueueTelegramOfflineScreen } from '../channels/telegram/offlineDelivery.js';
 import type { AgentSettings } from './settings.js';
 
 export interface InsertAiMessageInput {
@@ -38,6 +39,13 @@ export async function insertAiMessage(
   input: InsertAiMessageInput,
 ): Promise<{ id: string | null; error?: string }> {
   const sb = getServiceClient(config);
+  const offlineScreenQueued = input.handoff === true
+    ? await maybeQueueTelegramOfflineScreen(config, {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        locale: 'en',
+      }).catch(() => false)
+    : false;
   const metadata: Record<string, unknown> = {
     source: input.source,
     run_id: input.runId ?? null,
@@ -52,6 +60,7 @@ export async function insertAiMessage(
     agent_logo_url: input.agentLogoUrl ?? null,
     decision_type: input.decisionType ?? null,
     answer_strategy: { decision_type: input.decisionType ?? null },
+    ...(offlineScreenQueued ? { channel_delivery_skip: 'true', telegram_offline_screen: true } : {}),
   };
 
   const { data: row, error } = await sb
@@ -80,15 +89,17 @@ export async function insertAiMessage(
   // compatibility backstop for deployments whose channel trigger has not yet
   // been migrated to accept sender_type='ai'. The message-id unique index
   // keeps this idempotent when the trigger already created the job.
-  try {
-    await ensureOutboundIntent(config, {
-      workspaceId: input.workspaceId,
-      conversationId: input.conversationId,
-      messageId: row.id,
-      body: input.body,
-    });
-  } catch (e: any) {
-    console.warn('[ai-agent] outbound reconciliation failed:', e?.message || e);
+  if (!offlineScreenQueued) {
+    try {
+      await ensureOutboundIntent(config, {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        messageId: row.id,
+        body: input.body,
+      });
+    } catch (e: any) {
+      console.warn('[ai-agent] outbound reconciliation failed:', e?.message || e);
+    }
   }
 
   // Realtime fan-out: same envelope as operator messages.

@@ -68,6 +68,14 @@ describe('worker boundary', () => {
     resolve(process.cwd(), 'worker/channels/providerOperations.ts'),
     'utf8',
   );
+  const telegramOfflineDeliverySource = readFileSync(
+    resolve(process.cwd(), 'server/services/channels/telegram/offlineDelivery.ts'),
+    'utf8',
+  );
+  const aiResponderSourceForOffline = readFileSync(
+    resolve(process.cwd(), 'server/services/ai-agent/responder.ts'),
+    'utf8',
+  );
 
   it('never writes canonical business tables', () => {
     const canonicalTables = ['contacts', 'conversations', 'conversation_messages', 'contact_channels'];
@@ -124,6 +132,24 @@ describe('worker boundary', () => {
   it('never sends the offline notice twice to a Telegram visitor', () => {
     expect(chatRoutingSource).toContain('telegramOfflineScreenJustSent');
     expect(chatRoutingSource).toContain('telegram_offline_notice_at');
+  });
+
+  it('claims the Telegram offline screen before enqueueing it', () => {
+    expect(telegramOfflineDeliverySource).toContain(".eq('metadata', metadata)");
+    expect(telegramOfflineDeliverySource).toContain('telegram_offline_notice_claim: claimId');
+    expect(telegramOfflineDeliverySource.indexOf(".update({ metadata: nextMetadata })"))
+      .toBeLessThan(telegramOfflineDeliverySource.indexOf('await enqueueProviderActions'));
+  });
+
+  it('applies the offline keyboard immediately without a typing delay', () => {
+    expect(telegramOfflineDeliverySource).toContain('replyMarkup: screen.replyMarkup');
+    expect(telegramOfflineDeliverySource).toContain('typing: false');
+  });
+
+  it('suppresses the plain AI handoff delivery after the Telegram screen wins', () => {
+    expect(aiResponderSourceForOffline).toContain('offlineScreenQueued');
+    expect(aiResponderSourceForOffline).toContain("channel_delivery_skip: 'true'");
+    expect(aiResponderSourceForOffline).toContain('if (!offlineScreenQueued)');
   });
 
   it('treats a handed-off Telegram conversation as having no AI responder', () => {

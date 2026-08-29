@@ -306,7 +306,7 @@ export async function processInboundMessage(
     // Media persistence — provider-specific, best-effort, non-fatal. The
     // DOWNLOAD happens in the Channels Worker (Core performs no provider
     // network I/O); attachments show as `pending` until it reports back.
-    if (input.provider === 'telegram' && input.attachments?.length) {
+    if (isBotProvider(input.provider) && input.attachments?.length) {
       try {
         const { requestTelegramMediaFetch } = await import('./telegram/mediaIngest.js');
         const { outcomes } = await requestTelegramMediaFetch(config, {
@@ -339,7 +339,7 @@ export async function processInboundMessage(
     let replyLocale: string | null = input.senderLanguage;
     let menuCommand: string | null = null;
     let aiPromptOverride: string | null = null;
-    if (input.provider === 'telegram') {
+    if (isBotProvider(input.provider)) {
       const flow = await handleTelegramInboundFlow(config, input, conversation.id);
       aiAllowed = flow.aiAllowed;
       telegramCommandHandled = flow.handled;

@@ -120,7 +120,7 @@ export function TelegramConfigPanel({
 }: {
   workspaceId: string;
   section: TelegramPanelSection;
-  provider?: 'telegram' | 'bale' | 'whatsapp';
+  provider?: 'telegram' | 'bale' | 'whatsapp' | 'instagram';
 }) {
 
   const { t } = useTranslation();
@@ -140,10 +140,17 @@ export function TelegramConfigPanel({
    */
   const descriptor = findBotProvider(provider);
   const isCloudApi = descriptor?.credentialKind === 'whatsapp_cloud';
+  /**
+   * Instagram Messaging: IG professional account id + long-lived access
+   * token, callback URL subscribed once in the Meta app dashboard.
+   */
+  const isInstagram = descriptor?.credentialKind === 'instagram_graph';
   const managesWebhook = descriptor?.supportsWebhookRegistration !== false;
   const [token, setToken] = useState('');
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [businessAccountId, setBusinessAccountId] = useState('');
+  const [igAccountId, setIgAccountId] = useState('');
+  const [igPageId, setIgPageId] = useState('');
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [botName, setBotName] = useState('');
   const [shortDescription, setShortDescription] = useState('');
@@ -262,7 +269,13 @@ export function TelegramConfigPanel({
 
   const connect = useMutation({
     mutationFn: () =>
-      isCloudApi
+      isInstagram
+        ? pluginsApi.instagramConnect(workspaceId, {
+            igAccountId: igAccountId.trim(),
+            accessToken: token.trim(),
+            pageId: igPageId.trim() || undefined,
+          })
+        : isCloudApi
         ? pluginsApi.whatsappConnect(workspaceId, {
             phoneNumberId: phoneNumberId.trim(),
             accessToken: token.trim(),
@@ -392,7 +405,50 @@ export function TelegramConfigPanel({
             </div>
           )}
 
-          {isCloudApi ? (
+          {isInstagram ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="ig-account-id">{t('plugins.instagram.accountId')}</Label>
+                <Input
+                  id="ig-account-id"
+                  dir="ltr"
+                  autoComplete="off"
+                  placeholder="17841400000000000"
+                  value={igAccountId}
+                  onChange={(e) => setIgAccountId(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('plugins.instagram.accountIdHint')}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ig-token">{t('plugins.instagram.accessToken')}</Label>
+                <Input
+                  id="ig-token"
+                  dir="ltr"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="EAAG..."
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('plugins.instagram.accessTokenHint')}</p>
+                {hasToken && !token && (
+                  <p className="text-xs text-emerald-600">{t('plugins.telegram.tokenStored')}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ig-page-id">{t('plugins.instagram.pageId')}</Label>
+                <Input
+                  id="ig-page-id"
+                  dir="ltr"
+                  autoComplete="off"
+                  placeholder="(optional)"
+                  value={igPageId}
+                  onChange={(e) => setIgPageId(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('plugins.instagram.pageIdHint')}</p>
+              </div>
+            </div>
+          ) : isCloudApi ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="wa-phone-id">{t('plugins.whatsapp.phoneNumberId')}</Label>
@@ -563,7 +619,8 @@ export function TelegramConfigPanel({
               disabled={
                 connect.isPending ||
                 token.trim().length < 20 ||
-                (isCloudApi && phoneNumberId.trim().length < 5)
+                (isCloudApi && phoneNumberId.trim().length < 5) ||
+                (isInstagram && igAccountId.trim().length < 5)
               }
               onClick={() => connect.mutate()}
             >

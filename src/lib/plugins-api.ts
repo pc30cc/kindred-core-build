@@ -240,6 +240,27 @@ export const pluginsApi = {
       },
     ),
 
+  /**
+   * Instagram Messaging connects with the IG professional account id + a
+   * long-lived access token; stored in the same encrypted slot.
+   */
+  instagramConnect: (
+    workspaceId: string,
+    input: { igAccountId: string; accessToken: string; pageId?: string },
+  ) =>
+    jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
+      '/api/plugins/bot/instagram/connect',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          ig_account_id: input.igAccountId,
+          access_token: input.accessToken,
+          page_id: input.pageId || null,
+        }),
+      },
+    ),
+
   telegramDiagnostics: (workspaceId: string, provider = 'telegram') =>
     jsonFetch<Record<string, unknown>>(`/api/plugins/bot/${provider}/diagnostics`, {
       method: 'POST',

@@ -157,7 +157,7 @@ export default function PluginDetailPage() {
         </Card>
       )}
 
-      {(pluginId === 'telegram' || pluginId === 'bale' || pluginId === 'whatsapp') && !blocked ? (
+      {(pluginId === 'telegram' || pluginId === 'bale' || pluginId === 'whatsapp' || pluginId === 'instagram') && !blocked ? (
         <Tabs defaultValue="connection" className="space-y-4" dir={dir}>
           <TabsList>
             <TabsTrigger value="connection">{t('plugins.tab.connection')}</TabsTrigger>
@@ -166,18 +166,18 @@ export default function PluginDetailPage() {
             <TabsTrigger value="menu">{t('plugins.tab.menu')}</TabsTrigger>
           </TabsList>
           <TabsContent value="connection">
-            <TelegramConfigPanel workspaceId={workspaceId} section="connection" provider={pluginId as 'telegram' | 'bale' | 'whatsapp'} />
+            <TelegramConfigPanel workspaceId={workspaceId} section="connection" provider={pluginId as 'telegram' | 'bale' | 'whatsapp' | 'instagram'} />
           </TabsContent>
           {supportsBotProfile && (
             <TabsContent value="branding">
-              <TelegramConfigPanel workspaceId={workspaceId} section="branding" provider={pluginId as 'telegram' | 'bale' | 'whatsapp'} />
+              <TelegramConfigPanel workspaceId={workspaceId} section="branding" provider={pluginId as 'telegram' | 'bale' | 'whatsapp' | 'instagram'} />
             </TabsContent>
           )}
           <TabsContent value="messages">
-            <TelegramConfigPanel workspaceId={workspaceId} section="messages" provider={pluginId as 'telegram' | 'bale' | 'whatsapp'} />
+            <TelegramConfigPanel workspaceId={workspaceId} section="messages" provider={pluginId as 'telegram' | 'bale' | 'whatsapp' | 'instagram'} />
           </TabsContent>
           <TabsContent value="menu">
-            <TelegramConfigPanel workspaceId={workspaceId} section="menu" provider={pluginId as 'telegram' | 'bale' | 'whatsapp'} />
+            <TelegramConfigPanel workspaceId={workspaceId} section="menu" provider={pluginId as 'telegram' | 'bale' | 'whatsapp' | 'instagram'} />
           </TabsContent>
 
 

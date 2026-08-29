@@ -158,16 +158,18 @@ export default function PluginDetailPage() {
         <Tabs defaultValue="connection" className="space-y-4" dir={dir}>
           <TabsList>
             <TabsTrigger value="connection">{t('plugins.tab.connection')}</TabsTrigger>
-            <TabsTrigger value="branding">{t('plugins.tab.branding')}</TabsTrigger>
+            {supportsBotProfile && <TabsTrigger value="branding">{t('plugins.tab.branding')}</TabsTrigger>}
             <TabsTrigger value="messages">{t('plugins.tab.messages')}</TabsTrigger>
             <TabsTrigger value="menu">{t('plugins.tab.menu')}</TabsTrigger>
           </TabsList>
           <TabsContent value="connection">
             <TelegramConfigPanel workspaceId={workspaceId} section="connection" provider={pluginId as 'telegram' | 'bale'} />
           </TabsContent>
-          <TabsContent value="branding">
-            <TelegramConfigPanel workspaceId={workspaceId} section="branding" provider={pluginId as 'telegram' | 'bale'} />
-          </TabsContent>
+          {supportsBotProfile && (
+            <TabsContent value="branding">
+              <TelegramConfigPanel workspaceId={workspaceId} section="branding" provider={pluginId as 'telegram' | 'bale'} />
+            </TabsContent>
+          )}
           <TabsContent value="messages">
             <TelegramConfigPanel workspaceId={workspaceId} section="messages" provider={pluginId as 'telegram' | 'bale'} />
           </TabsContent>

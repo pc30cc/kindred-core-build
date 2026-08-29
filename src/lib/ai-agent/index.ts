@@ -13,6 +13,7 @@ import { operatorAssistApi } from './operatorAssist.js';
 import { knowledgeApi } from './knowledge.js';
 import { automationApi } from './automation.js';
 import { internalQaApi } from './internalQa.js';
+import { humanGuidanceApi } from './humanGuidance.js';
 
 export const aiAgentApi = {
   ...platformApi,
@@ -22,6 +23,7 @@ export const aiAgentApi = {
   ...knowledgeApi,
   ...automationApi,
   ...internalQaApi,
+  ...humanGuidanceApi,
 };
 
 export { AiAgentApiError } from './client.js';
@@ -33,3 +35,4 @@ export * from './operatorAssist.js';
 export * from './knowledge.js';
 export * from './automation.js';
 export * from './internalQa.js';
+export * from './humanGuidance.js';

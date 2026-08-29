@@ -302,18 +302,19 @@ export function makeFakeSupabase(seed: Record<string, any[]> = {}) {
       // flags that never replaces the whole metadata document.
       if (!conv) return { data: null, error: null };
       const meta = { ...(conv.metadata || {}) } as any;
-      if (args.p_greeting_sent) meta.ai_greeting_sent = true;
-      if (args.p_handoff_sent) meta.ai_handoff_sent = true;
+      const patch = args.p_patch || {};
+      if (patch.greeting_sent) meta.ai_greeting_sent = true;
+      if (patch.handoff_sent) meta.ai_handoff_sent = true;
       const push = (key: string, val: any) => {
         if (!val) return;
         const arr: any[] = Array.isArray(meta[key]) ? [...meta[key]] : [];
         if (!arr.includes(val)) arr.push(val);
         meta[key] = arr;
       };
-      push('ai_trigger_executed_ids', args.p_trigger_id);
-      push('ai_workflow_planned_ids', args.p_workflow_id);
-      push('ai_routing_executed_rule_ids', args.p_routing_rule_id);
-      if (args.p_touch !== false) meta.ai_last_runtime_action_at = new Date().toISOString();
+      push('ai_trigger_executed_ids', patch.append_trigger_id);
+      push('ai_workflow_planned_ids', patch.append_workflow_id);
+      push('ai_routing_executed_rule_ids', patch.append_routing_rule_id);
+      if (patch.touch !== false) meta.ai_last_runtime_action_at = new Date().toISOString();
       conv.metadata = meta;
       return { data: meta, error: null };
     }

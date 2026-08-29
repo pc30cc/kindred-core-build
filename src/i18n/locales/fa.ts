@@ -4024,6 +4024,10 @@ const fa: TranslationKeys = {
     title: 'افزونه‌ها',
     subtitle: 'کانال‌ها و سرویس‌های بیرونی را به فضای کاری خود متصل کنید.',
     catalogEmpty: 'هنوز افزونه‌ای در دسترس نیست.',
+    search: 'جستجوی افزونه…',
+    noResults: 'افزونه‌ای با این جستجو پیدا نشد.',
+    filterAll: 'همه',
+    stat: { installed: 'نصب‌شده', available: 'در دسترس', comingSoon: 'به‌زودی', total: 'افزونه‌ها' },
     category: {
       channels: 'کانال‌ها',
       crm: 'مدیریت مشتریان',

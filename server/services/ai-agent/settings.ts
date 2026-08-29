@@ -46,6 +46,13 @@ export interface AgentSettings {
   handoff_on_low_confidence: boolean;
   handoff_on_human_request: boolean;
   handoff_when_no_kb_match: boolean;
+  /**
+   * vNext — adaptive handoff. NULL/undefined keeps legacy behaviour and is
+   * resolved from handoff_on_human_request (see handoffPolicy.ts).
+   */
+  handoff_policy?: 'immediate' | 'assist_first' | 'adaptive' | null;
+  /** Max brief assist attempts before an explicit human request escalates. */
+  max_assist_attempts?: number;
   confidence_threshold: number;
   instructions: AgentInstructions;
   metadata: Record<string, unknown>;
@@ -104,6 +111,10 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     handoff_on_low_confidence: false,
     handoff_on_human_request: true,
     handoff_when_no_kb_match: false,
+    // NULL on purpose: existing workspaces keep byte-identical behaviour
+    // until an owner explicitly picks a policy (§53 backward compatibility).
+    handoff_policy: null,
+    max_assist_attempts: 1,
     confidence_threshold: 0.55,
     instructions: {},
     metadata: {},
@@ -155,6 +166,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'max_replies_per_conversation','max_replies_per_hour','allowed_locales',
   'show_sources_to_operator','show_sources_to_visitor',
   'handoff_on_low_confidence','handoff_on_human_request','handoff_when_no_kb_match',
+  'handoff_policy','max_assist_attempts',
   'confidence_threshold','instructions','metadata',
   'ai_intro_enabled','intro_message','intro_message_localized','handoff_message_localized','handoff_prechat_message_localized','fallback_behavior','stop_on_handoff',
   'pause_auto_reply_after_human_reply','allow_suggestions_after_takeover',

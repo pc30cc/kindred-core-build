@@ -47,7 +47,10 @@ export type ReplyNowBlockedReason =
   | 'conversation_not_found'
   | 'conversation_closed'
   | 'human_active'
+  | 'handoff_in_progress'
+  | 'not_ai_managed'
   | 'no_visitor_message'
+  | 'reply_now_in_progress'
   | 'guidance_create_failed';
 
 export interface ReplyNowEligibility {

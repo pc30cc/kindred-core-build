@@ -85,6 +85,9 @@ export function GuidanceComposer({
       case 'no_visitor_message': return t('inbox.guidance.blockedNoVisitorMessage');
       case 'human_active': return t('inbox.guidance.blockedHumanActive');
       case 'conversation_closed': return t('inbox.guidance.blockedClosed');
+      case 'handoff_in_progress': return t('inbox.guidance.blockedHandoff');
+      case 'not_ai_managed': return t('inbox.guidance.blockedNotAiManaged');
+      case 'reply_now_in_progress': return t('inbox.guidance.blockedInProgress');
       default: return t('inbox.guidance.blockedGeneric');
     }
   }, [eligibility, t]);

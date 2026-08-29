@@ -77,15 +77,24 @@ export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
   }
 
   if (forced) {
-    // A human owning the public conversation still wins: the operator is
-    // already the visitor's counterpart, so the AI must not speak over them.
+    // Ownership/handoff/takeover safety is NEVER relaxed by an operator-forced
+    // turn. A human owning (or already being handed) the public conversation
+    // wins: the AI must not speak over them, and "AI Reply Now" must not be a
+    // way to bypass a handoff that already started. Returning to AI requires
+    // the canonical "return to AI / ai_managed" transition first.
     const humanTookOver =
-      state.aiState === 'human_active' || !!state.humanTakeoverAt;
+      state.aiState === 'human_active' ||
+      state.aiState === 'human_assigned' ||
+      !!state.humanTakeoverAt;
     if (humanTookOver) {
       return { ...base, action: 'skip', reason: 'human_already_joined' };
     }
+    if (state.aiState === 'needs_human' || state.pendingHandoffRequested) {
+      return { ...base, action: 'skip', reason: 'pending_handoff' };
+    }
     return { ...base, action: 'auto_reply', reason: 'ok', canAutoReply: true };
   }
+
 
   // Human request keyword always wins — don't try to "outsmart" the user.
   if (

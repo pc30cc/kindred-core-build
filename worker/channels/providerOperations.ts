@@ -157,6 +157,7 @@ async function report(
 async function runConnect(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
   const provider = descriptorFor(operation);
+  const api = botApiFor(provider);
   // The staged credential — the live one is untouched until Core promotes it.
   const token = await credential(ctx, provider, integrationId, 'pending');
 
@@ -182,13 +183,20 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
     throw err;
   }
 
+  // WhatsApp Cloud webhooks live in the Meta app dashboard: there is nothing
+  // for the platform to register or verify, so the whole webhook handshake is
+  // skipped and the connect succeeds on a validated credential alone.
+  const managesWebhook = provider.supportsWebhookRegistration;
+
   try {
-    await api.setWebhook(
-      token,
-      preflight.webhook_url,
-      provider.supportsSecretToken ? preflight.secret_token : null,
-      provider.supportsAllowedUpdates ? undefined : null,
-    );
+    if (managesWebhook) {
+      await api.setWebhook(
+        token,
+        preflight.webhook_url,
+        provider.supportsSecretToken ? preflight.secret_token : null,
+        provider.supportsAllowedUpdates ? undefined : null,
+      );
+    }
   } catch (err) {
     const { message } = fail(err);
     await report(ctx, operation, {
@@ -202,7 +210,7 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
 
   // The provider CONFIRMS the exact URL — never trust the write alone.
   try {
-    const info = await api.getWebhookInfo(token);
+    const info = managesWebhook ? await api.getWebhookInfo(token) : { url: preflight.webhook_url };
     if (info.url !== preflight.webhook_url) {
       await report(ctx, operation, {
         status: 'failed',
@@ -253,6 +261,8 @@ async function restorePreviousWebhook(
 ): Promise<void> {
   if (!preflight.has_previous_token || !operation.integration_id) return;
   const provider = descriptorFor(operation);
+  if (!provider.supportsWebhookRegistration) return;
+  const api = botApiFor(provider);
   try {
     const liveToken = await credential(ctx, provider, operation.integration_id, 'live');
     await api.setWebhook(
@@ -270,11 +280,13 @@ async function restorePreviousWebhook(
 
 async function runDisconnect(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
+  const provider = descriptorFor(operation);
+  const api = botApiFor(provider);
   let removed = false;
   let error: { code: string; message: string } | null = null;
   try {
-    const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
-    await api.deleteWebhook(token);
+    const token = await credential(ctx, provider, integrationId, 'live');
+    if (provider.supportsWebhookRegistration) await api.deleteWebhook(token);
     removed = true;
   } catch (err) {
     error = fail(err);
@@ -293,7 +305,13 @@ async function runDisconnect(ctx: OperationContext, operation: ProviderOperation
 async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
   const provider = descriptorFor(operation);
+  const api = botApiFor(provider);
   const token = await credential(ctx, provider, integrationId, 'live');
+  if (!provider.supportsWebhookRegistration) {
+    // Nothing to repair: the callback URL is owned by the provider dashboard.
+    await report(ctx, operation, { status: 'succeeded', result: { repaired: false, managed_externally: true } });
+    return;
+  }
   // Core owns the ingress contract. Repair/reconnect targets an ALREADY-OWNED
   // bot, so it must use the ownership-free contract endpoint — running the
   // connect preflight here would re-claim the account of a healthy
@@ -332,9 +350,13 @@ async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperat
 
 async function runDiagnostics(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
+  const descriptor = descriptorFor(operation);
+  const api = botApiFor(descriptor);
   try {
-    const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
-    const info = await api.getWebhookInfo(token);
+    const token = await credential(ctx, descriptor, integrationId, 'live');
+    const info = descriptor.supportsWebhookRegistration
+      ? await api.getWebhookInfo(token)
+      : { url: '', pending_update_count: 0, last_error_message: undefined, last_error_date: undefined };
     await report(ctx, operation, {
       status: 'succeeded',
       result: {
@@ -353,6 +375,7 @@ async function runDiagnostics(ctx: OperationContext, operation: ProviderOperatio
 async function runProfileSync(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
   const provider = descriptorFor(operation);
+  const api = botApiFor(provider);
   const token = await credential(ctx, provider, integrationId, 'live');
   const profile = ((operation.request as any)?.profile ?? {}) as any;
   const applied: string[] = [];
@@ -393,7 +416,9 @@ async function runProfileSync(ctx: OperationContext, operation: ProviderOperatio
 
 async function runMediaFetch(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
-  const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
+  const descriptor = descriptorFor(operation);
+  const api = botApiFor(descriptor);
+  const token = await credential(ctx, descriptor, integrationId, 'live');
   const request = (operation.request ?? {}) as any;
   const maxBytes = Number(request.max_bytes ?? 25 * 1024 * 1024);
   const attachments: any[] = Array.isArray(request.attachments) ? request.attachments : [];
@@ -435,6 +460,7 @@ async function runMediaFetch(ctx: OperationContext, operation: ProviderOperation
 async function runAvatarFetch(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
   const provider = descriptorFor(operation);
+  const api = botApiFor(provider);
   const token = await credential(ctx, provider, integrationId, 'live');
   const request = (operation.request ?? {}) as any;
   const userId = String(request.telegram_user_id ?? request.bot_user_id ?? '');
@@ -477,6 +503,7 @@ export async function executeOutboundActions(
   providerId = 'telegram',
 ): Promise<void> {
   const provider = descriptorFor({ provider: providerId });
+  const api = botApiFor(provider);
   const token = await credential(ctx, provider, integrationId, 'live');
 
   for (const action of actions) {
@@ -503,6 +530,7 @@ export async function executeOutboundActions(
         });
       } else if (kind === 'edit_message') {
         try {
+          if (provider.dialect !== 'telegram-bot') throw new Error('edit_unsupported');
           await api.editMessageText(token, {
             chatId: action.chat_id,
             messageId: Number(action.message_id),

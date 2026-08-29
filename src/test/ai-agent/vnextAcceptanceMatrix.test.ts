@@ -531,11 +531,8 @@ describe('P — runtime flag writes vs. a concurrent human takeover', () => {
     const { updateRuntimeFlags } = await rt();
     const { patchConversationMetadata } = await import('../../../server/services/conversationMetadata.js');
     await updateRuntimeFlags(config, CONV, { appendTriggerId: 'trigger-2' });
-    await patchConversationMetadata(config, {
-      conversationId: CONV,
-      workspaceId: WS,
-      patch: { ai_state: 'human_active', human_takeover_at: '2026-01-01T11:00:00.000Z', managed_by_ai: false },
-    });
+    await patchConversationMetadata(config, CONV,
+      { ai_state: 'human_active', human_takeover_at: '2026-01-01T11:00:00.000Z', managed_by_ai: false }, WS);
     // A late runtime writer must not resurrect AI ownership.
     await updateRuntimeFlags(config, CONV, { appendTriggerId: 'trigger-3' });
     expect(conv.metadata.ai_state).toBe('human_active');
@@ -554,11 +551,7 @@ describe('Q — routing metadata written immediately after a durable handoff', (
     await commitNeedsHuman(config, { workspaceId: WS, conversationId: CONV, reason: 'repeated_human_request' as any });
     const snapshotBeforeHandoff = { department_id: null, routing_outcome: null };
     void snapshotBeforeHandoff; // the routing writer used to send this whole document back
-    await patchConversationMetadata(config, {
-      conversationId: CONV,
-      workspaceId: WS,
-      patch: { routing_outcome: 'assigned', department_id: 'dep-1' },
-    });
+    await patchConversationMetadata(config, CONV, { routing_outcome: 'assigned', department_id: 'dep-1' }, WS);
     expect(conv.metadata.ai_state).toBe('needs_human');
     expect(conv.metadata.ai_handoff_requested).toBe(true);
     expect(conv.metadata.routing_outcome).toBe('assigned');

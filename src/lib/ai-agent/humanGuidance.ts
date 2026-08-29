@@ -46,7 +46,7 @@ export interface ConversationGuidanceResponse {
 export const humanGuidanceApi = {
   /** Active guidance + pending AI questions for a conversation. */
   getConversationGuidance(conversationId: string): Promise<ConversationGuidanceResponse> {
-    return jsonFetch(`/api/ai-agent/conversations/${conversationId}/guidance`);
+    return jsonFetch<ConversationGuidanceResponse>(`/api/ai-agent/conversations/${conversationId}/guidance`);
   },
 
   /** Write a private instruction or fact for the AI. */
@@ -59,17 +59,17 @@ export const humanGuidanceApi = {
       requestId?: string;
     },
   ): Promise<{ guidance: AiGuidance }> {
-    return jsonFetch(`/api/ai-agent/conversations/${conversationId}/guidance`, {
+    return jsonFetch<{ guidance: AiGuidance }>(`/api/ai-agent/conversations/${conversationId}/guidance`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
   revokeConversationGuidance(guidanceId: string): Promise<{ ok: boolean }> {
-    return jsonFetch(`/api/ai-agent/guidance/${guidanceId}`, { method: 'DELETE' });
+    return jsonFetch<{ ok: boolean }>(`/api/ai-agent/guidance/${guidanceId}`, { method: 'DELETE' });
   },
 
   dismissGuidanceRequest(requestId: string): Promise<{ ok: boolean }> {
-    return jsonFetch(`/api/ai-agent/guidance-requests/${requestId}/dismiss`, { method: 'POST' });
+    return jsonFetch<{ ok: boolean }>(`/api/ai-agent/guidance-requests/${requestId}/dismiss`, { method: 'POST' });
   },
 };

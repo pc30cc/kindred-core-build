@@ -11,7 +11,7 @@
  * Nothing in this panel is ever visible to the visitor.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from '@/i18n';
 import { Brain, Loader2, Lock, Send, Trash2, X, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

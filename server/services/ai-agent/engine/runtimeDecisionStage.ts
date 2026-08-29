@@ -18,7 +18,6 @@
 import type { ServerConfig } from '../../../config.js';
 import { decideRuntime } from '../runtimePolicy.js';
 import { logRun } from '../logs.js';
-import { markHandoffRequested } from '../conversationState.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
 

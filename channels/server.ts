@@ -18,6 +18,7 @@
 
 import express from 'express';
 import { deriveChannelWebhookSecret, safeSecretEqual } from '../shared/channels/webhookSecret.js';
+import { findBotProvider } from '../shared/channels/botProviders.js';
 import { classifyCoreResponse } from './delivery.js';
 
 const PORT = parseInt(process.env.CHANNELS_PORT || process.env.PORT || '3011', 10);
@@ -110,13 +111,21 @@ app.get('/ready', async (_req, res) => {
 
 
 /**
- * POST /hooks/telegram/:publicIntegrationId
+ * POST /hooks/:provider/:publicIntegrationId
  *
+ * One ingress for every Telegram-compatible bot provider (Telegram, Bale).
  * The expected secret is derived from the URL's public integration id — no
  * database round trip, so a flood of bogus ids costs nothing and leaks
  * nothing. Failures always return a bare 401 with no discriminating detail.
+ *
+ * Providers that support a webhook secret token MUST present it. Providers
+ * that do not (Bale) are authenticated by the unguessable 192-bit public
+ * integration id in the path, and the header is still verified when present.
  */
-app.post('/hooks/telegram/:publicIntegrationId', async (req, res) => {
+app.post('/hooks/:provider/:publicIntegrationId', async (req, res) => {
+  const descriptor = findBotProvider(String(req.params.provider || ''));
+  if (!descriptor) return res.status(404).json({ error: 'not_found' });
+
   const publicIntegrationId = String(req.params.publicIntegrationId || '');
   if (!publicIntegrationId || publicIntegrationId.length > 128) {
     return res.status(401).json({ error: 'unauthorized' });
@@ -124,17 +133,20 @@ app.post('/hooks/telegram/:publicIntegrationId', async (req, res) => {
 
   let expected: string;
   try {
-    expected = deriveChannelWebhookSecret(SIGNING_KEY, 'telegram', publicIntegrationId);
+    expected = deriveChannelWebhookSecret(SIGNING_KEY, descriptor.id, publicIntegrationId);
   } catch {
     // Misconfiguration is NOT the provider's fault: retryable.
     return res.status(503).json({ error: 'gateway_not_configured' });
   }
 
-  const presented = req.header('X-Telegram-Bot-Api-Secret-Token');
-  if (!safeSecretEqual(presented, expected)) {
-    // Do not log the presented value.
-    console.warn('[channels-gateway] rejected telegram webhook: secret mismatch');
-    return res.status(401).json({ error: 'unauthorized' });
+  if (descriptor.webhookSecretHeader) {
+    const presented = req.header(descriptor.webhookSecretHeader);
+    const optional = !descriptor.supportsSecretToken && presented == null;
+    if (!optional && !safeSecretEqual(presented, expected)) {
+      // Do not log the presented value.
+      console.warn(`[channels-gateway] rejected ${descriptor.id} webhook: secret mismatch`);
+      return res.status(401).json({ error: 'unauthorized' });
+    }
   }
 
   const controller = new AbortController();
@@ -147,7 +159,7 @@ app.post('/hooks/telegram/:publicIntegrationId', async (req, res) => {
         ...coreAuthHeaders(),
       },
       body: JSON.stringify({
-        provider: 'telegram',
+        provider: descriptor.id,
         public_integration_id: publicIntegrationId,
         update: req.body ?? {},
         received_at: new Date().toISOString(),

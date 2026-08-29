@@ -51,7 +51,8 @@ import {
   recordMediaOutcomes,
 } from '../services/channels/telegram/mediaIngest.js';
 import { markAvatarChecked } from '../services/channels/telegram/avatarSync.js';
-import { enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
+import { botJobType, enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
+import { BOT_PROVIDER_IDS } from '../../shared/channels/botProviders.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
@@ -107,7 +108,7 @@ internalChannelsRouter.use((req, res, next) => {
  * enqueues a job. Returns quickly so the provider is not kept waiting.
  */
 const ingestSchema = z.object({
-  provider: z.literal('telegram'),
+  provider: z.enum(BOT_PROVIDER_IDS),
   public_integration_id: z.string().min(10).max(128),
   update: z.record(z.unknown()),
   received_at: z.string().optional(),
@@ -125,8 +126,8 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
 
     const sb = getServiceClient(config);
     await enqueueChannelJob(sb, {
-      provider: 'telegram',
-      jobType: 'telegram_inbound_event',
+      provider: parsed.data.provider,
+      jobType: botJobType(parsed.data.provider, 'inbound_event'),
       workspaceId: integration.workspace_id,
       integrationId: integration.id,
       payload: {
@@ -149,7 +150,7 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
  * update into canonical business data. Core owns all writes.
  */
 const processSchema = z.object({
-  provider: z.literal('telegram'),
+  provider: z.enum(BOT_PROVIDER_IDS),
   integration_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
   update: z.record(z.unknown()),
@@ -167,6 +168,7 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
     if (parsed.data.update?.callback_query) {
       await handleTelegramCallbackQuery(config, {
         workspaceId: parsed.data.workspace_id,
+        provider: parsed.data.provider,
         update: parsed.data.update as Record<string, any>,
       });
       return res.json({ status: 'menu_handled' });
@@ -175,6 +177,7 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
     const normalized = normalizeTelegramUpdate(parsed.data.update, {
       workspaceId: parsed.data.workspace_id,
       integrationId: parsed.data.integration_id,
+      provider: parsed.data.provider,
     });
     if (!normalized) return res.json({ status: 'ignored' });
 
@@ -192,7 +195,7 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
  * data. The Worker never updates conversation_messages itself.
  */
 const outboundResultSchema = z.object({
-  provider: z.literal('telegram'),
+  provider: z.enum(BOT_PROVIDER_IDS),
   integration_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
   message_id: z.string().uuid(),

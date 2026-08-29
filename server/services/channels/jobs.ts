@@ -19,6 +19,14 @@ export const CHANNEL_JOB_TYPES = [
   'telegram_outbound_media',
   'telegram_profile_sync',
   'telegram_webhook_repair',
+  // Bale (بله) mirrors the Telegram job surface — same worker handlers, a
+  // different API root. See `shared/channels/botProviders.ts`.
+  'bale_inbound_event',
+  'bale_inbound_media',
+  'bale_outbound_message',
+  'bale_outbound_media',
+  'bale_profile_sync',
+  'bale_webhook_repair',
   // Provider-network-isolated work. Everything that must touch a provider
   // socket runs through these, executed exclusively by the Channels Worker.
   'provider_operation',
@@ -40,6 +48,19 @@ export type ChannelJob = {
   claim_token: string;
   claim_expires_at: string;
 };
+
+/**
+ * Job type for a bot provider. Job names are provider-prefixed so a stuck
+ * provider can be drained or paused independently.
+ */
+export function botJobType(
+  provider: string,
+  kind: 'inbound_event' | 'inbound_media' | 'outbound_message' | 'outbound_media' | 'profile_sync' | 'webhook_repair',
+): ChannelJobType {
+  const jobType = `${provider}_${kind}`;
+  if (!isChannelJobType(jobType)) throw new Error(`unsupported bot job type: ${jobType}`);
+  return jobType;
+}
 
 export function isChannelJobType(value: unknown): value is ChannelJobType {
   return typeof value === 'string' && (CHANNEL_JOB_TYPES as readonly string[]).includes(value);

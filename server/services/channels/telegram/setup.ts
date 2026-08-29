@@ -31,10 +31,8 @@
 import type { ServerConfig } from '../../../config.js';
 import { redactToken } from '../../../../shared/channels/redact.js';
 import { deriveChannelWebhookSecret } from '../../../../shared/channels/webhookSecret.js';
+import { BOT_PROVIDER_IDS, botProvider } from '../../../../shared/channels/botProviders.js';
 import {
-  TELEGRAM_BOT_TOKEN_KEY,
-  TELEGRAM_BOT_TOKEN_PENDING_KEY,
-  TELEGRAM_BOT_TOKEN_PREVIOUS_KEY,
   copyPluginSecret,
   deletePluginSecret,
   hasPluginSecret,
@@ -57,6 +55,12 @@ import {
   requestProviderOperation,
   type ProviderOperation,
 } from '../operations.js';
+
+/**
+ * Credential slot names for a provider. Telegram and Bale keep SEPARATE
+ * slots, so a workspace can run both bots at once.
+ */
+const keys = (provider: string) => botProvider(provider).secretKeys;
 
 export class TelegramConnectError extends Error {
   constructor(readonly code: string, message: string) {
@@ -107,13 +111,14 @@ export async function requestTelegramConnect(
     throw new TelegramConnectError('not_configured', 'PUBLIC_CHANNELS_BASE_URL is not configured');
   }
 
-  const hadToken = await hasPluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_KEY).catch(
+  const slots = keys(integration.provider);
+  const hadToken = await hasPluginSecret(config, integration.installation_id, slots.live).catch(
     () => false,
   );
 
   // Stage the credential: write-only slot, the live one is untouched.
   try {
-    await storePluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_PENDING_KEY, botToken);
+    await storePluginSecret(config, integration.installation_id, slots.pending, botToken);
   } catch (err) {
     throw new TelegramConnectError(
       'credential_store_failed',
@@ -123,7 +128,7 @@ export async function requestTelegramConnect(
 
   try {
     return await requestProviderOperation(config, {
-      provider: 'telegram',
+      provider: integration.provider,
       operation: 'connect',
       workspaceId: integration.workspace_id,
       integrationId: integration.id,
@@ -142,7 +147,7 @@ export async function requestTelegramConnect(
       maxAttempts: 1,
     });
   } catch (err) {
-    await deletePluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_PENDING_KEY).catch(() => {});
+    await deletePluginSecret(config, integration.installation_id, slots.pending).catch(() => {});
     throw err;
   }
 }
@@ -208,10 +213,10 @@ export async function connectPreflight(
   }
 
   return {
-    webhookUrl: buildWebhookUrl(config, 'telegram', integration.public_integration_id),
+    webhookUrl: buildWebhookUrl(config, integration.provider, integration.public_integration_id),
     secretToken: deriveChannelWebhookSecret(
       config.channelsWebhookSigningKey!,
-      'telegram',
+      integration.provider,
       integration.public_integration_id,
     ),
     hasPreviousToken: snapshotOf(operation).had_working_integration,
@@ -244,7 +249,7 @@ export async function providerWebhookContract(
   const integration = operation.integration_id ? await getIntegrationById(config, operation.integration_id) : null;
   if (!integration) throw new TelegramConnectError('no_integration', 'integration not found');
 
-  const hasToken = await hasPluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_KEY).catch(
+  const hasToken = await hasPluginSecret(config, integration.installation_id, keys(integration.provider).live).catch(
     () => false,
   );
   if (!hasToken) throw new TelegramConnectError('no_token', 'integration has no live credential');
@@ -289,20 +294,16 @@ export async function applyConnectSuccess(
     return { ok: false, rollback: true, errorCode: 'no_integration' };
   }
   const installationId = integration.installation_id;
+  const slots = keys(integration.provider);
   const verifiedAt = new Date().toISOString();
 
-  const hadLiveToken = await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => false);
+  const hadLiveToken = await hasPluginSecret(config, installationId, slots.live).catch(() => false);
 
   try {
     if (hadLiveToken) {
-      await copyPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY, TELEGRAM_BOT_TOKEN_PREVIOUS_KEY);
+      await copyPluginSecret(config, installationId, slots.live, slots.previous);
     }
-    const promoted = await copyPluginSecret(
-      config,
-      installationId,
-      TELEGRAM_BOT_TOKEN_PENDING_KEY,
-      TELEGRAM_BOT_TOKEN_KEY,
-    );
+    const promoted = await copyPluginSecret(config, installationId, slots.pending, slots.live);
     if (!promoted) throw new Error('staged credential is missing');
 
     await updateIntegration(config, integration.id, {
@@ -319,11 +320,9 @@ export async function applyConnectSuccess(
     // Restore the exact previous credential, then let the Worker undo the
     // provider-side webhook.
     if (hadLiveToken) {
-      await copyPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_PREVIOUS_KEY, TELEGRAM_BOT_TOKEN_KEY).catch(
-        () => {},
-      );
+      await copyPluginSecret(config, installationId, slots.previous, slots.live).catch(() => {});
     } else {
-      await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => {});
+      await deletePluginSecret(config, installationId, slots.live).catch(() => {});
     }
     await applyConnectFailure(config, operation, {
       errorCode: 'state_transition_failed',
@@ -332,8 +331,8 @@ export async function applyConnectSuccess(
     return { ok: false, rollback: true, errorCode: 'state_transition_failed' };
   }
 
-  await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_PENDING_KEY).catch(() => {});
-  await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_PREVIOUS_KEY).catch(() => {});
+  await deletePluginSecret(config, installationId, slots.pending).catch(() => {});
+  await deletePluginSecret(config, installationId, slots.previous).catch(() => {});
 
   await completeOperation(config, operation.id, {
     status: 'succeeded',
@@ -362,8 +361,9 @@ export async function applyConnectFailure(
   const integration = operation.integration_id ? await getIntegrationById(config, operation.integration_id) : null;
 
   if (integration) {
-    await deletePluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_PENDING_KEY).catch(() => {});
-    await deletePluginSecret(config, integration.installation_id, TELEGRAM_BOT_TOKEN_PREVIOUS_KEY).catch(() => {});
+    const slots = keys(integration.provider);
+    await deletePluginSecret(config, integration.installation_id, slots.pending).catch(() => {});
+    await deletePluginSecret(config, integration.installation_id, slots.previous).catch(() => {});
 
     // Ownership restore: back to the previous account, or released entirely.
     try {
@@ -431,12 +431,17 @@ export async function requestTelegramDisconnect(
   const integration = await getIntegrationForInstallation(config, installationId);
 
   if (!integration) {
-    await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => {});
-    await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_PENDING_KEY).catch(() => {});
+    // No integration row means the provider is unknown here: purge EVERY bot
+    // credential slot so nothing usable can survive a disconnect.
+    for (const provider of BOT_PROVIDER_IDS) {
+      await deletePluginSecret(config, installationId, keys(provider).live).catch(() => {});
+      await deletePluginSecret(config, installationId, keys(provider).pending).catch(() => {});
+    }
     return { integration: false, operation: null };
   }
 
-  await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_PENDING_KEY).catch(() => {});
+  const slots = keys(integration.provider);
+  await deletePluginSecret(config, installationId, slots.pending).catch(() => {});
   await releaseProviderAccount(config, integration.id).catch(() => {});
   await updateIntegration(config, integration.id, {
     status: 'disconnected',
@@ -446,11 +451,11 @@ export async function requestTelegramDisconnect(
     last_error_at: null,
   });
 
-  const hasToken = await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => false);
+  const hasToken = await hasPluginSecret(config, installationId, slots.live).catch(() => false);
   if (!hasToken) return { integration: true, operation: null };
 
   const operation = await requestProviderOperation(config, {
-    provider: 'telegram',
+    provider: integration.provider,
     operation: 'disconnect',
     workspaceId: integration.workspace_id,
     integrationId: integration.id,
@@ -462,7 +467,7 @@ export async function requestTelegramDisconnect(
   if (!operation) {
     // Could not even queue the cleanup: destroy the credential now rather
     // than leaving a usable one behind.
-    await deletePluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => {});
+    await deletePluginSecret(config, installationId, slots.live).catch(() => {});
   }
   return { integration: true, operation };
 }
@@ -474,8 +479,9 @@ export async function applyDisconnectResult(
   report: { webhookRemoved: boolean; errorCode?: string | null; errorMessage?: string | null },
 ): Promise<void> {
   if (operation.installation_id) {
-    await deletePluginSecret(config, operation.installation_id, TELEGRAM_BOT_TOKEN_KEY).catch(() => {});
-    await deletePluginSecret(config, operation.installation_id, TELEGRAM_BOT_TOKEN_PENDING_KEY).catch(() => {});
+    const slots = keys(operation.provider);
+    await deletePluginSecret(config, operation.installation_id, slots.live).catch(() => {});
+    await deletePluginSecret(config, operation.installation_id, slots.pending).catch(() => {});
   }
   if (operation.integration_id && report.errorCode) {
     await updateIntegration(config, operation.integration_id, {
@@ -505,7 +511,7 @@ export async function requestTelegramWebhookRepair(
     throw new TelegramConnectError('not_configured', 'Channels ingress is not configured');
   }
   return requestProviderOperation(config, {
-    provider: 'telegram',
+    provider: integration.provider,
     operation: 'webhook_repair',
     workspaceId: integration.workspace_id,
     integrationId: integration.id,
@@ -559,7 +565,7 @@ export async function requestTelegramDiagnostics(
   const integration = await getIntegrationForInstallation(config, installationId);
   if (!integration) throw new TelegramConnectError('no_integration', 'Telegram is not connected');
   return requestProviderOperation(config, {
-    provider: 'telegram',
+    provider: integration.provider,
     operation: 'diagnostics',
     workspaceId: integration.workspace_id,
     integrationId: integration.id,
@@ -598,11 +604,11 @@ export async function telegramDiagnosticsView(
   const integration = await getIntegrationForInstallation(config, installationId);
   if (!integration) return { connected: false as const, reason: 'no_integration' };
 
-  const hasToken = await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => false);
+  const hasToken = await hasPluginSecret(config, installationId, keys(integration.provider).live).catch(() => false);
   if (!hasToken) return { connected: false as const, reason: 'no_token' };
 
   const expectedUrl = config.publicChannelsBaseUrl
-    ? buildWebhookUrl(config, 'telegram', integration.public_integration_id)
+    ? buildWebhookUrl(config, integration.provider, integration.public_integration_id)
     : null;
   const probe = (operation?.status === 'succeeded' ? (operation.result as any) : null) ?? null;
 
@@ -641,11 +647,11 @@ export async function requestTelegramProfileSync(
 ): Promise<ProviderOperation> {
   const integration = await getIntegrationForInstallation(config, installationId);
   if (!integration) throw new TelegramConnectError('no_integration', 'Telegram is not connected');
-  const hasToken = await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY).catch(() => false);
-  if (!hasToken) throw new TelegramConnectError('no_token', 'Telegram is not connected');
+  const hasToken = await hasPluginSecret(config, installationId, keys(integration.provider).live).catch(() => false);
+  if (!hasToken) throw new TelegramConnectError('no_token', 'the bot is not connected');
 
   return requestProviderOperation(config, {
-    provider: 'telegram',
+    provider: integration.provider,
     operation: 'profile_sync',
     workspaceId: integration.workspace_id,
     integrationId: integration.id,

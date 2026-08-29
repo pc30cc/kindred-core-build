@@ -42,9 +42,9 @@ import {
   evaluateCoreReadiness,
   type CoreReadinessPayload,
 } from '../../shared/channels/internalRoutes.js';
+import { botProvider, findBotProvider } from '../../shared/channels/botProviders.js';
 import {
   PermanentOperationError,
-  TOKEN_KEY,
   executeOutboundActions,
   executeProviderOperation,
   type OperationContext,
@@ -347,7 +347,7 @@ async function reportOutbound(
 ): Promise<void> {
   if (!messageId || !job.integration_id) return;
   await coreCall('/internal/channels/outbound-result', {
-    provider: 'telegram',
+    provider: job.provider,
     integration_id: job.integration_id,
     workspace_id: job.workspace_id,
     message_id: messageId,
@@ -360,14 +360,25 @@ async function reportOutbound(
 async function handleJob(job: ChannelJob): Promise<void> {
   const payload = (job.payload ?? {}) as any;
 
+  // Every Telegram-compatible bot channel shares these handlers; the API root
+  // and capability flags come from the provider descriptor, never from a
+  // branch in the handler body.
+  const bot = findBotProvider(job.provider);
+  const credential = async (integrationId: string) => ({
+    token: await resolveIntegrationToken(integrationId, botProvider(job.provider).secretKeys.live),
+    apiRoot: botProvider(job.provider).apiRoot,
+  });
+
   switch (job.job_type) {
     // ── Inbound ───────────────────────────────────────────────────────
     case 'telegram_inbound_event':
-    case 'telegram_inbound_media': {
+    case 'telegram_inbound_media':
+    case 'bale_inbound_event':
+    case 'bale_inbound_media': {
       // Media arrives inside the same update envelope; Core normalizes both
       // and owns attachment persistence, so the worker only forwards.
       await coreCall('/internal/channels/process-inbound', {
-        provider: 'telegram',
+        provider: job.provider,
         integration_id: job.integration_id,
         workspace_id: job.workspace_id,
         update: payload.update ?? {},
@@ -376,24 +387,27 @@ async function handleJob(job: ChannelJob): Promise<void> {
     }
 
     // ── Outbound text ─────────────────────────────────────────────────
-    case 'telegram_outbound_message': {
+    case 'telegram_outbound_message':
+    case 'bale_outbound_message': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
       const text = String(payload.text ?? '').slice(0, 4096);
       const messageId: string | null = payload.message_id ?? null;
       if (!chatId || !text.trim()) return; // nothing deliverable
 
-      const token = await resolveIntegrationToken(job.integration_id, TOKEN_KEY);
+      const token = await credential(job.integration_id);
       // Native "typing…" bubble right before the reply lands. Best-effort:
       // a failure here must never block or retry the actual delivery.
-      await sendChatAction(token, chatId, 'typing').catch(() => undefined);
+      if (bot?.supportsChatAction) {
+        await sendChatAction(token, chatId, 'typing').catch(() => undefined);
+      }
       try {
         const sent = await sendMessage(token, { chatId, text });
 
         await reportOutbound(job, messageId, 'sent', sent.message_id, null);
       } catch (err) {
         if (err instanceof TelegramApiError && !err.retryable) {
-          await reportOutbound(job, messageId, 'failed', null, `telegram_${err.httpStatus}`);
+          await reportOutbound(job, messageId, 'failed', null, `${job.provider}_${err.httpStatus}`);
         }
         throw err;
       }
@@ -401,14 +415,15 @@ async function handleJob(job: ChannelJob): Promise<void> {
     }
 
     // ── Outbound media ────────────────────────────────────────────────
-    case 'telegram_outbound_media': {
+    case 'telegram_outbound_media':
+    case 'bale_outbound_media': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
       const messageId: string | null = payload.message_id ?? null;
       const attachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
       if (!chatId || attachments.length === 0) return;
 
-      const token = await resolveIntegrationToken(job.integration_id, TOKEN_KEY);
+      const token = await credential(job.integration_id);
       try {
         let last: { message_id: number } | null = null;
         for (const [index, attachment] of attachments.entries()) {
@@ -424,7 +439,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
         await reportOutbound(job, messageId, 'sent', last?.message_id ?? null, null);
       } catch (err) {
         if (err instanceof TelegramApiError && !err.retryable) {
-          await reportOutbound(job, messageId, 'failed', null, `telegram_${err.httpStatus}`);
+          await reportOutbound(job, messageId, 'failed', null, `${job.provider}_${err.httpStatus}`);
         }
         throw err;
       }
@@ -448,13 +463,15 @@ async function handleJob(job: ChannelJob): Promise<void> {
       if (!job.integration_id) throw Object.assign(new Error('action job without integration'), { permanent: true });
       const actions: any[] = Array.isArray(payload.actions) ? payload.actions : [];
       if (!actions.length) return;
-      await executeOutboundActions(operationContext(), job.integration_id, actions);
+      await executeOutboundActions(operationContext(), job.integration_id, actions, job.provider);
       return;
     }
 
     // ── Legacy maintenance job types (pre-isolation deployments) ──────
     case 'telegram_profile_sync':
-    case 'telegram_webhook_repair': {
+    case 'telegram_webhook_repair':
+    case 'bale_profile_sync':
+    case 'bale_webhook_repair': {
       const operationId = String(payload.operation_id ?? '');
       if (!operationId) {
         throw Object.assign(

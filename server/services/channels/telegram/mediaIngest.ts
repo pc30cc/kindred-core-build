@@ -106,6 +106,8 @@ async function checkStorageQuota(
 }
 
 export type TelegramMediaIngestInput = {
+  /** Bot provider that owns the attachment (telegram | bale). */
+  provider?: string;
   workspaceId: string;
   integrationId: string;
   conversationId: string;
@@ -130,7 +132,7 @@ export async function requestTelegramMediaFetch(
 
   try {
     const operation = await requestProviderOperation(config, {
-      provider: 'telegram',
+      provider: input.provider || 'telegram',
       operation: 'media_fetch',
       workspaceId: input.workspaceId,
       integrationId: input.integrationId,

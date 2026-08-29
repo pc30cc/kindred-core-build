@@ -1,5 +1,8 @@
 /**
- * Telegram update → provider-neutral inbound message.
+ * Bot API update → provider-neutral inbound message.
+ *
+ * Shared by every Telegram-compatible provider (Telegram, Bale): the update
+ * envelope is identical, so only the `provider` tag differs.
  *
  * All text is length-capped and control characters stripped before it can
  * reach the database, the Inbox UI or an AI prompt. Unsupported update kinds
@@ -21,14 +24,17 @@ export function sanitizeText(input: unknown, max = MAX_TEXT_LENGTH): string {
     .slice(0, max);
 }
 
-type Ctx = { workspaceId: string; integrationId: string };
+type Ctx = { workspaceId: string; integrationId: string; provider?: string };
 
 export function normalizeTelegramUpdate(
   update: Record<string, any>,
   ctx: Ctx,
 ): NormalizedInboundMessage | null {
   const message = update?.message ?? update?.edited_message;
-  if (!message || typeof update?.update_id !== 'number') return null;
+  // Bale sends the same envelope but has been observed to serialize
+  // `update_id` as a string, so accept both shapes.
+  const updateId = update?.update_id;
+  if (!message || (typeof updateId !== 'number' && typeof updateId !== 'string')) return null;
 
   const chatId = message?.chat?.id;
   if (chatId === undefined || chatId === null) return null;
@@ -63,10 +69,10 @@ export function normalizeTelegramUpdate(
   if (!text && attachments.length === 0) return null;
 
   return {
-    provider: 'telegram',
+    provider: ctx.provider ?? 'telegram',
     workspaceId: ctx.workspaceId,
     integrationId: ctx.integrationId,
-    providerEventId: String(update.update_id),
+    providerEventId: String(updateId),
     externalChatId: String(chatId),
     externalUserId: from.id ? String(from.id) : null,
     senderName: sanitizeText(name, MAX_NAME_LENGTH) || null,

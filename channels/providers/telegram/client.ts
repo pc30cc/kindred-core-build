@@ -10,6 +10,25 @@
 const TELEGRAM_API_ROOT = 'https://api.telegram.org';
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/**
+ * A bot credential plus the API root it belongs to.
+ *
+ * Bale (بله) speaks the same Bot API on a different host, so every function
+ * here accepts either a bare Telegram token (legacy call sites) or an
+ * explicit `{ token, apiRoot }` pair. NOTHING else in this file is
+ * provider-specific — capability differences live in
+ * `shared/channels/botProviders.ts`.
+ */
+export type BotCredential = string | { token: string; apiRoot?: string | null };
+
+function credentialParts(credential: BotCredential): { token: string; apiRoot: string } {
+  if (typeof credential === 'string') return { token: credential, apiRoot: TELEGRAM_API_ROOT };
+  return {
+    token: credential.token,
+    apiRoot: (credential.apiRoot || TELEGRAM_API_ROOT).replace(/\/+$/, ''),
+  };
+}
+
 export class TelegramApiError extends Error {
   constructor(
     message: string,
@@ -29,17 +48,18 @@ export function redactToken(text: string): string {
 }
 
 export async function callTelegram<T = any>(
-  botToken: string,
+  botToken: BotCredential,
   method: string,
   body?: Record<string, unknown>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
+  const { token, apiRoot } = credentialParts(botToken);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
-    response = await fetch(`${TELEGRAM_API_ROOT}/bot${botToken}/${method}`, {
+    response = await fetch(`${apiRoot}/bot${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body ?? {}),
@@ -95,27 +115,28 @@ export type TelegramBotIdentity = {
   firstName: string | null;
 };
 
-export async function getMe(botToken: string): Promise<TelegramBotIdentity> {
+export async function getMe(botToken: BotCredential): Promise<TelegramBotIdentity> {
   const me = await callTelegram<any>(botToken, 'getMe');
   return { id: me.id, username: me.username ?? null, firstName: me.first_name ?? null };
 }
 
 export async function setWebhook(
-  botToken: string,
+  botToken: BotCredential,
   url: string,
-  secretToken: string,
-  allowedUpdates: string[] = ['message', 'edited_message', 'callback_query'],
+  secretToken: string | null,
+  allowedUpdates: string[] | null = ['message', 'edited_message', 'callback_query'],
 ): Promise<void> {
+  // Providers without a secret-token mechanism (Bale) reject unknown fields,
+  // so optional parameters are omitted rather than sent as null.
   await callTelegram(botToken, 'setWebhook', {
     url,
-    secret_token: secretToken,
-    allowed_updates: allowedUpdates,
+    ...(secretToken ? { secret_token: secretToken } : {}),
+    ...(allowedUpdates ? { allowed_updates: allowedUpdates } : {}),
     drop_pending_updates: false,
-    max_connections: 40,
   });
 }
 
-export async function deleteWebhook(botToken: string): Promise<void> {
+export async function deleteWebhook(botToken: BotCredential): Promise<void> {
   await callTelegram(botToken, 'deleteWebhook', { drop_pending_updates: false });
 }
 
@@ -127,12 +148,12 @@ export type TelegramWebhookInfo = {
   ip_address?: string;
 };
 
-export async function getWebhookInfo(botToken: string): Promise<TelegramWebhookInfo> {
+export async function getWebhookInfo(botToken: BotCredential): Promise<TelegramWebhookInfo> {
   return callTelegram<TelegramWebhookInfo>(botToken, 'getWebhookInfo');
 }
 
 export async function sendMessage(
-  botToken: string,
+  botToken: BotCredential,
   input: {
     chatId: number | string;
     text: string;
@@ -158,7 +179,7 @@ export async function sendMessage(
  * never block the actual reply, so callers should ignore rejections.
  */
 export async function sendChatAction(
-  botToken: string,
+  botToken: BotCredential,
   chatId: number | string,
   action: 'typing' | 'upload_photo' | 'upload_document' = 'typing',
 ): Promise<void> {
@@ -166,13 +187,13 @@ export async function sendChatAction(
 }
 
 
-export async function getFile(botToken: string, fileId: string): Promise<{ file_path: string; file_size?: number }> {
+export async function getFile(botToken: BotCredential, fileId: string): Promise<{ file_path: string; file_size?: number }> {
   return callTelegram(botToken, 'getFile', { file_id: fileId });
 }
 
 /** Largest available size of the user's current profile photo, if any. */
 export async function getUserProfilePhotoFileId(
-  botToken: string,
+  botToken: BotCredential,
   userId: string | number,
 ): Promise<string | null> {
   const photos = await callTelegram<{ total_count: number; photos: Array<Array<{ file_id: string }>> }>(
@@ -187,11 +208,12 @@ export async function getUserProfilePhotoFileId(
 
 
 export async function downloadFile(
-  botToken: string,
+  botToken: BotCredential,
   filePath: string,
   maxBytes: number,
 ): Promise<Uint8Array> {
-  const response = await fetch(`${TELEGRAM_API_ROOT}/file/bot${botToken}/${filePath}`);
+  const { token, apiRoot } = credentialParts(botToken);
+  const response = await fetch(`${apiRoot}/file/bot${token}/${filePath}`);
   if (!response.ok) {
     throw new TelegramApiError(
       `Telegram file download failed [${response.status}]`,
@@ -212,21 +234,21 @@ export async function downloadFile(
 
 export type TelegramCommand = { command: string; description: string };
 
-export async function setMyName(botToken: string, name: string): Promise<void> {
+export async function setMyName(botToken: BotCredential, name: string): Promise<void> {
   await callTelegram(botToken, 'setMyName', { name: name.slice(0, 64) });
 }
 
-export async function setMyShortDescription(botToken: string, shortDescription: string): Promise<void> {
+export async function setMyShortDescription(botToken: BotCredential, shortDescription: string): Promise<void> {
   await callTelegram(botToken, 'setMyShortDescription', {
     short_description: shortDescription.slice(0, 120),
   });
 }
 
-export async function setMyDescription(botToken: string, description: string): Promise<void> {
+export async function setMyDescription(botToken: BotCredential, description: string): Promise<void> {
   await callTelegram(botToken, 'setMyDescription', { description: description.slice(0, 512) });
 }
 
-export async function setMyCommands(botToken: string, commands: TelegramCommand[]): Promise<void> {
+export async function setMyCommands(botToken: BotCredential, commands: TelegramCommand[]): Promise<void> {
   await callTelegram(botToken, 'setMyCommands', {
     commands: commands.slice(0, 20).map((c) => ({
       command: c.command.replace(/^\//, '').slice(0, 32),
@@ -257,7 +279,7 @@ export function telegramMediaMethod(kind: string | null | undefined) {
  * URL, never a raw service key.
  */
 export async function sendMedia(
-  botToken: string,
+  botToken: BotCredential,
   input: { chatId: number | string; kind: string; url: string; caption?: string | null },
 ): Promise<{ message_id: number }> {
   const { method, field } = telegramMediaMethod(input.kind);
@@ -275,7 +297,7 @@ export async function sendMedia(
  * until this returns, so it is always called — even for unknown payloads.
  */
 export async function answerCallbackQuery(
-  botToken: string,
+  botToken: BotCredential,
   callbackQueryId: string,
   text?: string,
 ): Promise<void> {
@@ -290,7 +312,7 @@ export async function answerCallbackQuery(
  * single chat bubble morphs instead of flooding the chat with new messages.
  */
 export async function editMessageText(
-  botToken: string,
+  botToken: BotCredential,
   input: {
     chatId: number | string;
     messageId: number;

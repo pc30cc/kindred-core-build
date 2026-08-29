@@ -105,7 +105,7 @@ humanGuidanceRouter.post('/conversations/:id/guidance', async (req: Request, res
     scope: parsed.data.scope,
     requestId: parsed.data.requestId || null,
   });
-  if (!result.ok) {
+  if (result.ok !== true) {
     return res.status(400).json({ error: result.error || 'guidance_create_failed' });
   }
 

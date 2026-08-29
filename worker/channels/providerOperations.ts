@@ -541,7 +541,7 @@ export async function executeOutboundActions(
         } catch (err) {
           // Telegram refuses to edit old/unchanged bubbles; a fresh screen is
           // strictly better than a dead menu.
-          if (action.send_on_edit_failure) {
+          if (action.send_on_edit_failure || provider.dialect !== 'telegram-bot') {
             await api.sendMessage(token, {
               chatId: action.chat_id,
               text,

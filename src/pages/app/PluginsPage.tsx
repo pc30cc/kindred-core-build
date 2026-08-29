@@ -64,7 +64,17 @@ export default function PluginsPage() {
     return label === key ? '' : label;
   }
 
-  const items = data?.items ?? [];
+  // Curated display order — flagship channels first (Telegram, then Bale).
+  const DISPLAY_ORDER = ['telegram', 'bale'];
+  const items = useMemo(() => {
+    const rank = (id: string) => {
+      const i = DISPLAY_ORDER.indexOf(id);
+      return i === -1 ? DISPLAY_ORDER.length : i;
+    };
+    return [...(data?.items ?? [])].sort((a, b) => rank(a.id) - rank(b.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
 
   const stats = useMemo(() => {
     const comingSoon = items.filter(

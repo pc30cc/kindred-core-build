@@ -123,10 +123,10 @@ describe('worker boundary', () => {
     expect(outboundMigrationSource).not.toMatch(/SELECT\s+workspace_id,\s*channel,/);
   });
 
-  it('delivers routing system notices to channel visitors explicitly', () => {
+  it('delivers routing notices explicitly except through Telegram generic routing', () => {
     expect(chatRoutingSource).toContain('await dispatchOutboundIfChannelConversation(config, {');
-    expect(chatRoutingSource).toContain("{ kind: 'routing_no_agent_available' }");
-    expect(chatRoutingSource).toContain('!alreadyShownInChannel,');
+    expect(chatRoutingSource).toContain("kind: 'routing_no_agent_available'");
+    expect(chatRoutingSource).toContain("metadata.channel !== 'telegram'");
   });
 
   it('never sends the offline notice twice to a Telegram visitor', () => {

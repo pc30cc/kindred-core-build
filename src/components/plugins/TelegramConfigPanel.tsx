@@ -38,7 +38,6 @@ import {
   AlertCircle,
   CheckCircle2,
   BookOpen,
-  Copy,
   HelpCircle,
   Loader2,
   Plus,

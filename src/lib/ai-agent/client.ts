@@ -51,7 +51,7 @@ function readErrorCode(body: unknown): string | null {
   return null;
 }
 
-export async function jsonFetch(path: string, init: RequestInit = {}): Promise<unknown> {
+export async function jsonFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method || 'GET').toUpperCase();
   let res: Response;
   try {

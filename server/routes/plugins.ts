@@ -27,11 +27,12 @@ import {
   updatePlatformState,
 } from '../services/plugins/state.js';
 import {
-  TELEGRAM_BOT_TOKEN_KEY,
   deletePluginSecret,
   hasPluginSecret,
   pluginCryptoReady,
 } from '../services/plugins/secrets.js';
+import { botProvider, isBotProvider } from '../../shared/channels/botProviders.js';
+
 import {
   buildWebhookUrl,
   createIntegration,

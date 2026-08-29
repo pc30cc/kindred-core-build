@@ -143,13 +143,6 @@ export default function PluginsPage() {
       </div>
 
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard icon={Puzzle} label={t('plugins.stat.total')} value={stats.total} />
-        <StatCard icon={CheckCircle2} label={t('plugins.stat.installed')} value={stats.installed} />
-        <StatCard icon={Sparkles} label={t('plugins.stat.available')} value={stats.available} />
-        <StatCard icon={Clock} label={t('plugins.stat.comingSoon')} value={stats.comingSoon} />
-      </div>
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

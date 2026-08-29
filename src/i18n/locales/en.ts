@@ -4037,6 +4037,10 @@ const en = {
     title: 'Plugins',
     subtitle: 'Connect external channels and services to your workspace.',
     catalogEmpty: 'No plugins are available yet.',
+    search: 'Search plugins…',
+    noResults: 'No plugin matches your search.',
+    filterAll: 'All',
+    stat: { installed: 'Installed', available: 'Available', comingSoon: 'Coming soon', total: 'Plugins' },
     category: {
       channels: 'Channels',
       crm: 'CRM',

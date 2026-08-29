@@ -55,6 +55,8 @@ import { botJobType, enqueueChannelJob, queueMetrics } from '../services/channel
 import { BOT_PROVIDER_IDS } from '../../shared/channels/botProviders.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
+import { whatsappToBotUpdates } from '../services/channels/whatsapp/toBotUpdate.js';
+import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 
 export const internalChannelsRouter = Router();
@@ -125,16 +127,28 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
     if (integration.status === 'disconnected') return res.status(410).json({ error: 'integration_disconnected' });
 
     const sb = getServiceClient(config);
-    await enqueueChannelJob(sb, {
-      provider: parsed.data.provider,
-      jobType: botJobType(parsed.data.provider, 'inbound_event'),
-      workspaceId: integration.workspace_id,
-      integrationId: integration.id,
-      payload: {
-        update: parsed.data.update,
-        received_at: parsed.data.received_at ?? new Date().toISOString(),
-      },
-    });
+
+    // Protocol translation happens ONCE, here: WhatsApp Cloud batches several
+    // messages (plus non-conversational delivery statuses) into one webhook
+    // body, so it expands into zero or more bot-shaped updates. Every other
+    // provider already speaks the shared envelope.
+    const updates =
+      botProvider(parsed.data.provider).dialect === 'whatsapp-cloud'
+        ? whatsappToBotUpdates(parsed.data.update as Record<string, any>)
+        : [parsed.data.update];
+
+    for (const update of updates) {
+      await enqueueChannelJob(sb, {
+        provider: parsed.data.provider,
+        jobType: botJobType(parsed.data.provider, 'inbound_event'),
+        workspaceId: integration.workspace_id,
+        integrationId: integration.id,
+        payload: {
+          update,
+          received_at: parsed.data.received_at ?? new Date().toISOString(),
+        },
+      });
+    }
 
     await updateIntegration(config, integration.id, { last_inbound_at: new Date().toISOString() });
 

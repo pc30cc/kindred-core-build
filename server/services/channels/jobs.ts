@@ -27,6 +27,14 @@ export const CHANNEL_JOB_TYPES = [
   'bale_outbound_media',
   'bale_profile_sync',
   'bale_webhook_repair',
+  // WhatsApp Cloud (Meta Graph API). Same job surface, different dialect —
+  // the Worker owns the protocol translation.
+  'whatsapp_inbound_event',
+  'whatsapp_inbound_media',
+  'whatsapp_outbound_message',
+  'whatsapp_outbound_media',
+  'whatsapp_profile_sync',
+  'whatsapp_webhook_repair',
   // Provider-network-isolated work. Everything that must touch a provider
   // socket runs through these, executed exclusively by the Channels Worker.
   'provider_operation',

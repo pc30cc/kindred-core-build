@@ -122,6 +122,44 @@ app.get('/ready', async (_req, res) => {
  * that do not (Bale) are authenticated by the unguessable 192-bit public
  * integration id in the path, and the header is still verified when present.
  */
+/**
+ * GET /hooks/:provider/:publicIntegrationId — Meta webhook verification.
+ *
+ * WhatsApp Cloud proves ownership of a callback URL with a challenge request:
+ * Meta sends `hub.verify_token` and expects `hub.challenge` echoed back in
+ * plain text. The expected token is DERIVED from the public integration id,
+ * exactly like the Telegram secret, so the gateway still needs no database.
+ */
+app.get('/hooks/:provider/:publicIntegrationId', (req, res) => {
+  const descriptor = findBotProvider(String(req.params.provider || ''));
+  if (!descriptor || descriptor.supportsWebhookRegistration) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+
+  const publicIntegrationId = String(req.params.publicIntegrationId || '');
+  const mode = String(req.query['hub.mode'] || '');
+  const token = String(req.query['hub.verify_token'] || '');
+  const challenge = String(req.query['hub.challenge'] || '');
+
+  if (mode !== 'subscribe' || !publicIntegrationId || publicIntegrationId.length > 128) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  let expected: string;
+  try {
+    expected = deriveChannelWebhookSecret(SIGNING_KEY, descriptor.id, publicIntegrationId);
+  } catch {
+    return res.status(503).json({ error: 'gateway_not_configured' });
+  }
+
+  if (!safeSecretEqual(token, expected)) {
+    console.warn(`[channels-gateway] rejected ${descriptor.id} verification: token mismatch`);
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  return res.type('text/plain').send(challenge);
+});
+
 app.post('/hooks/:provider/:publicIntegrationId', async (req, res) => {
   const descriptor = findBotProvider(String(req.params.provider || ''));
   if (!descriptor) return res.status(404).json({ error: 'not_found' });

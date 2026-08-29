@@ -43,6 +43,30 @@ export interface ConversationGuidanceResponse {
   maxBody: number;
 }
 
+export type ReplyNowBlockedReason =
+  | 'conversation_not_found'
+  | 'conversation_closed'
+  | 'human_active'
+  | 'no_visitor_message'
+  | 'guidance_create_failed';
+
+export interface ReplyNowEligibility {
+  eligible: boolean;
+  reason: ReplyNowBlockedReason | null;
+  visitorMessageId: string | null;
+}
+
+export interface ReplyNowResponse {
+  guidance: AiGuidance | null;
+  visitorMessageId: string;
+  deduplicated: boolean;
+  action: 'replied' | 'suggested' | 'handoff' | 'no_answer' | 'skipped' | 'failed';
+  reason: string | null;
+  messageId: string | null;
+  runId: string | null;
+}
+
+
 export const humanGuidanceApi = {
   /** Active guidance + pending AI questions for a conversation. */
   getConversationGuidance(conversationId: string): Promise<ConversationGuidanceResponse> {
@@ -72,4 +96,32 @@ export const humanGuidanceApi = {
   dismissGuidanceRequest(requestId: string): Promise<{ ok: boolean }> {
     return jsonFetch<{ ok: boolean }>(`/api/ai-agent/guidance-requests/${requestId}/dismiss`, { method: 'POST' });
   },
+
+  /** Can the AI answer right now (latest visitor message, no takeover)? */
+  getReplyNowEligibility(conversationId: string): Promise<ReplyNowEligibility> {
+    return jsonFetch<ReplyNowEligibility>(
+      `/api/ai-agent/conversations/${conversationId}/ai-reply-now/eligibility`,
+    );
+  },
+
+  /**
+   * Persist optional private guidance and run the REAL AI Agent pipeline
+   * against the latest visitor message, publishing the reply when eligible.
+   */
+  aiReplyNow(
+    conversationId: string,
+    body: {
+      body?: string;
+      kind?: GuidanceKind;
+      scope?: GuidanceScope;
+      requestId?: string;
+      idempotencyKey?: string;
+    },
+  ): Promise<ReplyNowResponse> {
+    return jsonFetch<ReplyNowResponse>(`/api/ai-agent/conversations/${conversationId}/ai-reply-now`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
 };
+

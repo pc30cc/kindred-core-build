@@ -21,7 +21,18 @@ export interface MaybeRunInput {
     referrer?: string | null;
     source?: string;
   } | null;
+  /**
+   * Human Guidance UX — the turn was explicitly requested by an authenticated
+   * operator pressing "AI Reply Now" instead of by an inbound visitor message.
+   * The pipeline is IDENTICAL (same context, retrieval, grounding, freshness,
+   * delivery, accounting); this flag only relaxes the throttles/modes that
+   * exist to stop the AI from speaking *unasked*.
+   */
+  operatorReplyNow?: boolean;
+  /** Operator who requested the forced turn (telemetry only). */
+  operatorId?: string | null;
 }
+
 
 export interface MaybeRunResult {
   ran: boolean;

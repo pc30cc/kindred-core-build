@@ -22,7 +22,9 @@ import {
   listGuidanceRequests, resolveGuidanceRequest,
   MAX_GUIDANCE_BODY,
 } from '../../services/ai-agent/guidance.js';
+import { replyNowWithGuidance, checkReplyNowEligibility } from '../../services/ai-agent/replyNow.js';
 import { authorizeMember } from './shared.js';
+
 
 export const humanGuidanceRouter: Router = express.Router();
 
@@ -120,6 +122,83 @@ humanGuidanceRouter.post('/conversations/:id/guidance', async (req: Request, res
 
   return res.status(201).json({ guidance: result.guidance });
 });
+
+// ─── POST /api/ai-agent/conversations/:id/ai-reply-now ─────────────────
+// Human Guidance UX: the operator (optionally) writes a private instruction
+// and asks the assistant to answer the visitor NOW. The answer is produced by
+// the real Core AI Agent pipeline against the latest visitor message — this
+// endpoint never renders the guidance text as a reply.
+const replyNowSchema = z.object({
+  body: z.string().max(MAX_GUIDANCE_BODY).optional(),
+  kind: z.enum(['direction', 'fact']).default('direction'),
+  scope: z.enum(['next_turn', 'conversation']).default('next_turn'),
+  requestId: z.string().uuid().optional(),
+  idempotencyKey: z.string().min(8).max(120).optional(),
+});
+
+humanGuidanceRouter.post('/conversations/:id/ai-reply-now', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsedId = idSchema.safeParse(req.params.id);
+  if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
+  const ctx = await authorizeConversation(req, res, parsedId.data);
+  if (!ctx) return;
+
+  const parsed = replyNowSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  }
+
+  const sb = getServiceClient(config);
+  const { data: profile } = await sb
+    .from('profiles')
+    .select('full_name')
+    .eq('id', ctx.userId)
+    .maybeSingle();
+
+  const result = await replyNowWithGuidance(config, {
+    workspaceId: ctx.workspaceId,
+    conversationId: parsedId.data,
+    operatorId: ctx.userId,
+    operatorName: (profile as any)?.full_name || null,
+    body: parsed.data.body || null,
+    kind: parsed.data.kind,
+    scope: parsed.data.scope,
+    requestId: parsed.data.requestId || null,
+    idempotencyKey: parsed.data.idempotencyKey || null,
+  });
+
+  if (result.ok !== true) {
+    return res.status(409).json({ error: result.reason, detail: result.detail });
+  }
+  return res.json({
+    guidance: result.guidance,
+    visitorMessageId: result.visitorMessageId,
+    deduplicated: result.deduplicated,
+    action: result.run.action,
+    reason: result.run.reason || null,
+    messageId: result.run.messageId || null,
+    runId: result.run.runId || null,
+  });
+});
+
+// ─── GET /api/ai-agent/conversations/:id/ai-reply-now/eligibility ──────
+humanGuidanceRouter.get('/conversations/:id/ai-reply-now/eligibility', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsedId = idSchema.safeParse(req.params.id);
+  if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
+  const ctx = await authorizeConversation(req, res, parsedId.data);
+  if (!ctx) return;
+  const eligibility = await checkReplyNowEligibility(config, {
+    workspaceId: ctx.workspaceId,
+    conversationId: parsedId.data,
+  });
+  return res.json({
+    eligible: eligibility.eligible,
+    reason: eligibility.reason,
+    visitorMessageId: eligibility.visitorMessage?.id || null,
+  });
+});
+
 
 // ─── DELETE /api/ai-agent/guidance/:guidanceId ─────────────────────────
 humanGuidanceRouter.delete('/guidance/:guidanceId', async (req: Request, res: Response) => {

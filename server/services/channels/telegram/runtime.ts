@@ -13,7 +13,8 @@
 import type { ServerConfig } from '../../../config.js';
 import type { NormalizedInboundMessage } from '../inboundProcessing.js';
 import { getInstallation } from '../../plugins/state.js';
-import { TELEGRAM_BOT_TOKEN_KEY, hasPluginSecret } from '../../plugins/secrets.js';
+import { hasPluginSecret } from '../../plugins/secrets.js';
+import { botProvider } from '../../../../shared/channels/botProviders.js';
 import { getIntegrationForInstallation } from '../integrations.js';
 import { enqueueProviderActions, type ProviderAction } from '../providerActions.js';
 import {
@@ -168,7 +169,8 @@ export async function handleTelegramInboundFlow(
 ): Promise<TelegramInboundFlowResult> {
   const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, input.senderLanguage);
   try {
-    const installation = await getInstallation(config, input.workspaceId, 'telegram');
+    const provider = input.provider || 'telegram';
+    const installation = await getInstallation(config, input.workspaceId, provider);
     const parsed = parseTelegramSettings(installation?.settings);
     const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode);
     // The plugin may remain in ai_first while this particular conversation
@@ -210,7 +212,7 @@ export async function handleTelegramInboundFlow(
           fallbackLocale,
         });
         if (picker) {
-          await sendTelegramScreen(config, installation.id, input.externalChatId, picker);
+          await sendTelegramScreen(config, installation.id, input.externalChatId, picker, provider);
         }
       }
 
@@ -247,7 +249,7 @@ export async function handleTelegramInboundFlow(
       screen = renderCommandScreen(settings, command, locale, fallbackLocale);
     }
 
-    const sent = await sendTelegramScreen(config, installation.id, input.externalChatId, screen);
+    const sent = await sendTelegramScreen(config, installation.id, input.externalChatId, screen, provider);
     return { aiAllowed, handled: sent, locale, command };
 
   } catch (err) {
@@ -265,7 +267,7 @@ export async function handleTelegramInboundFlow(
  */
 export async function handleTelegramCallbackQuery(
   config: ServerConfig,
-  ctx: { workspaceId: string; update: Record<string, any> },
+  ctx: { workspaceId: string; update: Record<string, any>; provider?: string },
 ): Promise<boolean> {
   const query = ctx.update?.callback_query;
   if (!query?.id) return false;
@@ -275,9 +277,10 @@ export async function handleTelegramCallbackQuery(
   const data = typeof query.data === 'string' ? query.data : '';
 
   try {
-    const installation = await getInstallation(config, ctx.workspaceId, 'telegram');
+    const provider = ctx.provider || 'telegram';
+    const installation = await getInstallation(config, ctx.workspaceId, provider);
     if (!installation) return true;
-    if (!(await hasPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY))) return true;
+    if (!(await hasPluginSecret(config, installation.id, botProvider(provider).secretKeys.live))) return true;
     const integration = await getIntegrationForInstallation(config, installation.id);
     if (!integration) return true;
 
@@ -285,7 +288,7 @@ export async function handleTelegramCallbackQuery(
     const actions: ProviderAction[] = [{ kind: 'answer_callback', callbackQueryId: String(query.id) }];
     const flush = () =>
       enqueueProviderActions(config, {
-        provider: 'telegram',
+        provider,
         workspaceId: ctx.workspaceId,
         integrationId: integration.id,
         actions,
@@ -455,8 +458,9 @@ async function sendTelegramScreen(
   installationId: string,
   chatId: string,
   screen: { text: string; replyMarkup: Record<string, unknown> },
+  provider = 'telegram',
 ): Promise<boolean> {
-  if (!(await hasPluginSecret(config, installationId, TELEGRAM_BOT_TOKEN_KEY))) {
+  if (!(await hasPluginSecret(config, installationId, botProvider(provider).secretKeys.live))) {
     console.warn('[telegram] screen not queued: credential missing');
     return false;
   }
@@ -466,7 +470,7 @@ async function sendTelegramScreen(
     return false;
   }
   const queued = await enqueueProviderActions(config, {
-    provider: 'telegram',
+    provider,
     workspaceId: integration.workspace_id,
     integrationId: integration.id,
     actions: [

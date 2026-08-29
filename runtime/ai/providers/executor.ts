@@ -134,6 +134,16 @@ function priorMessages(req: AIRequest): { role: 'user' | 'assistant'; content: s
 
 // ─── OpenAI (and OpenAI-compatible) ──────────────────────────────
 
+/**
+ * GPT-5 / o-series reasoning models reject the classic chat parameters:
+ * they take `max_completion_tokens` instead of `max_tokens` and refuse any
+ * non-default `temperature`. Sending the legacy body returns a 400, so the
+ * request shape is derived from the selected model.
+ */
+export function usesCompletionTokenParam(model: string): boolean {
+  return /^(gpt-5|o1|o3|o4)/i.test(String(model || '').trim());
+}
+
 async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetch): Promise<AIResponse> {
   const start = Date.now();
   const baseUrl = config.baseUrl || PROVIDER_BASE_URLS.openai;
@@ -145,6 +155,7 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
   };
   if (config.orgId) headers['OpenAI-Organization'] = config.orgId;
 
+  const maxTokens = req.maxTokens || config.maxTokens || 4096;
   const body: any = {
     model,
     messages: [
@@ -152,9 +163,13 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
       ...priorMessages(req),
       { role: 'user', content: req.prompt },
     ],
-    max_tokens: req.maxTokens || config.maxTokens || 4096,
-    temperature: req.temperature ?? config.temperature ?? 0.7,
   };
+  if (usesCompletionTokenParam(model)) {
+    body.max_completion_tokens = maxTokens;
+  } else {
+    body.max_tokens = maxTokens;
+    body.temperature = req.temperature ?? config.temperature ?? 0.7;
+  }
   if (req.jsonMode) {
     body.response_format = { type: 'json_object' };
   }

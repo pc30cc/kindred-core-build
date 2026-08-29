@@ -19,7 +19,7 @@
  *   - duplicate clicks are collapsed by an idempotency key.
  */
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../supabase.js';
+import { getServiceClient } from '../../supabase.js';
 import { maybeRunAiAssistantAfterVisitorMessage, type MaybeRunResult } from './engine.js';
 import {
   createGuidance, resolveGuidanceRequest,

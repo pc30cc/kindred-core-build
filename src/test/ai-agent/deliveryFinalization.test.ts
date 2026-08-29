@@ -33,11 +33,28 @@ vi.mock('../../../server/services/ai-agent/handoffState.js', () => ({
   markAiManaged: async () => {},
 }));
 
+// vNext blocker 2 — delivery now re-checks generation freshness (a pending
+// handoff / newer visitor message / takeover must block publication). This
+// suite is about accounting, so freshness is pinned to "fresh" and the
+// service client it would otherwise open is never needed.
+vi.mock('../../../server/services/ai-agent/freshness.js', () => ({
+  checkGenerationFreshness: async () => ({
+    fresh: true, checkpoint: 'pre_delivery', reason: null,
+    supersededByMessageId: null, latestVisitorMessageId: 'v1',
+    humanTakeoverDetected: false, checkFailed: false,
+  }),
+  freshnessMeta: () => ({}),
+}));
+
+vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => sbRef.current }));
+
 vi.mock('../../../server/services/realtime/publish.js', () => ({
   publishOperatorEvent: async () => {},
 }));
 
 const { runDeliveryStage } = await import('../../../server/services/ai-agent/engine/deliveryStage.js');
+
+const sbRef: { current: any } = { current: null };
 
 const sb = {
   from: (table: string) => ({
@@ -63,6 +80,7 @@ function args(canAutoReply: boolean) {
 }
 
 beforeEach(() => {
+  sbRef.current = sb;
   finalizeCalls.length = 0;
   insertMessageCalls.length = 0;
   suggestionInsertCalls.length = 0;

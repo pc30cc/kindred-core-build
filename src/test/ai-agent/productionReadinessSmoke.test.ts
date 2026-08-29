@@ -93,6 +93,8 @@ vi.mock('../../../server/services/ai-agent/responder.js', () => ({
 vi.mock('../../../server/services/ai-agent/handoffState.js', () => ({
   markAiManaged: vi.fn(async () => {}),
   markNeedsHuman: vi.fn(async (_c: any, input: any) => { markNeedsHumanCalls.push(input); }),
+  commitNeedsHuman: vi.fn(async (_c: any, input: any) => { markNeedsHumanCalls.push(input); return { ok: true, routingDeferred: false }; }),
+  routeAfterHandoff: vi.fn(async () => {}),
 }));
 
 vi.mock('../../../server/services/ai-agent/spamGuard.js', () => ({

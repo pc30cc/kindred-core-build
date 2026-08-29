@@ -124,13 +124,24 @@ export async function markHandoffRequested(
   conversationId: string,
 ): Promise<void> {
   const sb = getServiceClient(config);
+  const patch = {
+    ai_handoff_requested: true,
+    ai_handoff_at: new Date().toISOString(),
+  };
+  // Atomic server-side merge (migration 057) — the previous read-modify-write
+  // discarded concurrent metadata writes (working memory, routing state).
+  const { error } = await sb.rpc('patch_conversation_metadata', {
+    p_conversation_id: conversationId,
+    p_workspace_id: null,
+    p_patch: patch,
+  });
+  if (!error) return;
   const { data: conv } = await sb
     .from('conversations')
     .select('metadata')
     .eq('id', conversationId)
     .maybeSingle();
-  const meta = (conv as any)?.metadata || {};
-  meta.ai_handoff_requested = true;
-  meta.ai_handoff_at = new Date().toISOString();
+  const meta = { ...(((conv as any)?.metadata || {}) as Record<string, unknown>), ...patch };
   await sb.from('conversations').update({ metadata: meta }).eq('id', conversationId);
 }
+

@@ -142,23 +142,45 @@ export async function readAiConversationMeta(
   };
 }
 
+/**
+ * Atomic shallow patch of `conversations.metadata`.
+ *
+ * vNext blocker 3 — this used to be SELECT → merge in JS → UPDATE, which
+ * silently dropped concurrent writers' keys (handoff state vs working
+ * memory vs routing). The merge now happens inside a single server-side
+ * statement (migration 057).
+ *
+ * Returns false when the row could not be updated, so callers that must be
+ * truthful about a durable transition can fail closed.
+ */
 async function patchMeta(
   config: ServerConfig,
   conversationId: string,
   patch: Record<string, unknown>,
-): Promise<void> {
+  workspaceId?: string | null,
+): Promise<boolean> {
   const sb = getServiceClient(config);
-  const { data } = await sb
+  const { data, error } = await sb.rpc('patch_conversation_metadata', {
+    p_conversation_id: conversationId,
+    p_workspace_id: workspaceId || null,
+    p_patch: patch,
+  });
+  if (!error) return !!data;
+
+  // Fallback for deployments that have not applied migration 057 yet. Still
+  // best-effort, but never silently reports success when it did nothing.
+  const { data: row } = await sb
     .from('conversations')
     .select('metadata')
     .eq('id', conversationId)
     .maybeSingle();
-  const meta = ((data as any)?.metadata || {}) as Record<string, unknown>;
-  const merged = { ...meta, ...patch };
-  await sb
+  if (!row) return false;
+  const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
+  const { error: updErr } = await sb
     .from('conversations')
-    .update({ metadata: merged, updated_at: new Date().toISOString() })
+    .update({ metadata: { ...meta, ...patch }, updated_at: new Date().toISOString() })
     .eq('id', conversationId);
+  return !updErr;
 }
 
 /** Mark a conversation as managed by AI (placed into the Automated inbox). */
@@ -172,26 +194,37 @@ export async function markAiManaged(
     ai_managed_by_ai: true,
     ai_handoff_requested: false,
     last_ai_reply_at: new Date().toISOString(),
-  });
+  }, args.workspaceId);
 }
 
-/** Mark a conversation as needing a human (handoff). AI stops auto-replying. */
-export async function markNeedsHuman(
+export interface HandoffCommit {
+  /** True only when needs_human was durably persisted. */
+  ok: boolean;
+  /** Routing was deferred until the visitor completes pre-chat. */
+  routingDeferred: boolean;
+}
+
+/**
+ * vNext blocker 1 — phase ONE of a handoff: durably persist `needs_human`.
+ *
+ * Callers must await this BEFORE telling the visitor anything. If it returns
+ * `ok: false`, no "I'm connecting you to a human" acknowledgement may be
+ * sent: the conversation is not actually in the human queue.
+ */
+export async function commitNeedsHuman(
   config: ServerConfig,
-  args: {
-    workspaceId: string;
-    conversationId: string;
-    reason: HandoffReason;
-  },
-): Promise<void> {
-  await patchMeta(config, args.conversationId, {
+  args: { workspaceId: string; conversationId: string; reason: HandoffReason },
+): Promise<HandoffCommit> {
+  const ok = await patchMeta(config, args.conversationId, {
     ai_state: 'needs_human',
     managed_by_ai: false,
     ai_managed_by_ai: false,
     ai_handoff_requested: true,
     ai_handoff_reason: args.reason,
     ai_handoff_at: new Date().toISOString(),
-  });
+  }, args.workspaceId).catch(() => false);
+  if (!ok) return { ok: false, routingDeferred: false };
+
   try {
     await publishOperatorEvent(config, {
       kind: 'ai_handoff_requested' as any,
@@ -206,18 +239,28 @@ export async function markNeedsHuman(
   // identified themselves (pre-chat) instead of connecting/queuing them the
   // instant AI hands off — the inline pre-chat card shouldn't be racing an
   // "operator joined" notice that already fired before they typed anything.
-  // widgetIdentity.ts's POST /identity/prechat is the deferred trigger: once
-  // the visitor submits, it looks up any conversation still flagged
-  // routing_pending and calls routeConversationToOperator then.
-  if (await shouldDeferRoutingForPrechat(config, args.workspaceId, args.conversationId)) {
-    await patchMeta(config, args.conversationId, { routing_pending: true });
-    return;
+  // widgetIdentity.ts's POST /identity/prechat is the deferred trigger.
+  const deferred = await shouldDeferRoutingForPrechat(config, args.workspaceId, args.conversationId);
+  if (deferred) {
+    await patchMeta(config, args.conversationId, { routing_pending: true }, args.workspaceId);
   }
+  return { ok: true, routingDeferred: deferred };
+}
 
-  // Single choke point — every caller that transitions a conversation to
-  // needs_human gets real routing (auto/round-robin/manual + owner
-  // fallback), replacing what used to be no assignment at all. Never
-  // blocks or fails the handoff itself.
+/**
+ * Phase TWO of a handoff: actual operator assignment/queueing.
+ *
+ * Runs AFTER the visitor-facing acknowledgement so the routing outcome
+ * message ("X joined" / "everyone is busy") can never appear before the AI
+ * has said anything. Never throws — routing failure leaves the conversation
+ * durably in `needs_human`, which is exactly what the acknowledgement
+ * promised (queued), so the visitor was never lied to.
+ */
+export async function routeAfterHandoff(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string; commit?: HandoffCommit },
+): Promise<void> {
+  if (args.commit && (!args.commit.ok || args.commit.routingDeferred)) return;
   try {
     await routeConversationToOperator(config, {
       workspaceId: args.workspaceId,
@@ -225,6 +268,26 @@ export async function markNeedsHuman(
     });
   } catch { /* best-effort — routing failure must never break handoff */ }
 }
+
+/**
+ * Mark a conversation as needing a human (handoff). AI stops auto-replying.
+ *
+ * Compatibility wrapper: commit + route in one call, for callers that do not
+ * send a visitor-facing acknowledgement of their own.
+ */
+export async function markNeedsHuman(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    conversationId: string;
+    reason: HandoffReason;
+  },
+): Promise<HandoffCommit> {
+  const commit = await commitNeedsHuman(config, args);
+  await routeAfterHandoff(config, { ...args, commit });
+  return commit;
+}
+
 
 /**
  * True when the workspace's pre-chat asks for at least one field and this
@@ -296,7 +359,8 @@ export async function markHumanTakeover(
     human_takeover_reason: args.reason,
     ai_handoff_requested: false,
     last_human_reply_at: now,
-  });
+  }, args.workspaceId);
+
   try {
     await publishOperatorEvent(config, {
       kind: 'ai_human_takeover' as any,

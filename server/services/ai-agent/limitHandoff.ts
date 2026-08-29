@@ -21,7 +21,7 @@ import type { AgentSettings } from './settings.js';
 import { logRun } from './logs.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { markHandoffRequested } from './conversationState.js';
-import { markNeedsHuman, type HandoffReason } from './handoffState.js';
+import { commitNeedsHuman, routeAfterHandoff, type HandoffReason } from './handoffState.js';
 
 export type LimitReason =
   | 'max_replies_reached'
@@ -57,19 +57,26 @@ async function readMeta(
   return ((data as any)?.metadata || {}) as Record<string, any>;
 }
 
+/** Atomic shallow metadata patch (migration 057) — no lost updates. */
 async function patchMeta(
   config: ServerConfig,
   conversationId: string,
   patch: Record<string, unknown>,
 ): Promise<void> {
   const sb = getServiceClient(config);
+  const { error } = await sb.rpc('patch_conversation_metadata', {
+    p_conversation_id: conversationId,
+    p_workspace_id: null,
+    p_patch: patch,
+  });
+  if (!error) return;
   const current = await readMeta(config, conversationId);
-  const merged = { ...current, ...patch };
   await sb
     .from('conversations')
-    .update({ metadata: merged, updated_at: new Date().toISOString() })
+    .update({ metadata: { ...current, ...patch }, updated_at: new Date().toISOString() })
     .eq('id', conversationId);
 }
+
 
 export interface RunLimitHandoffInput {
   workspaceId: string;
@@ -141,22 +148,33 @@ export async function runLimitHandoff(
     ai_limit_handoff_at: nowIso,
   });
 
+  // vNext blocker 1 — the durable needs_human commit always happens FIRST.
+  const commit = await commitNeedsHuman(config, {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    reason: input.reason as HandoffReason,
+  }).catch(() => ({ ok: false, routingDeferred: false }));
+
   // Suppress visitor-facing message when fallback_behavior='silent' or
-  // mode=suggest_only. No ack is being sent, so there's no message-ordering
-  // hazard — route to the human queue right away.
+  // mode=suggest_only.
   if (fallbackBehavior === 'silent' || input.suppressVisitorMessage) {
-    await markNeedsHuman(config, {
+    await routeAfterHandoff(config, {
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
-      reason: input.reason as HandoffReason,
-    }).catch(() => {});
+      commit,
+    });
     return { sentMessage: false, duplicate: false, runId, messageId: null };
   }
 
-  // Insert the ack BEFORE markNeedsHuman() — markNeedsHuman synchronously
-  // runs routing and inserts its own "X joined" / "no one's available"
-  // system message, so the ack has to land first or the routing outcome
-  // renders ahead of the AI's own message.
+  // No acknowledgement when the state transition did not persist — the
+  // visitor must never be told they were queued when they were not.
+  if (!commit.ok) {
+    return { sentMessage: false, duplicate: false, runId, messageId: null };
+  }
+
+  // The ack is inserted AFTER the commit but BEFORE routing, so the routing
+  // outcome ("X joined" / "no one's available") can never render ahead of
+  // the AI's own message.
   const display = deriveAgentDisplay(input.settings);
   const body = pickLimitHandoffMessage(input.locale, input.reason);
   const inserted = await insertAiMessage(config, {
@@ -171,11 +189,12 @@ export async function runLimitHandoff(
     agentName: display.agentName,
     agentLogoUrl: display.agentLogoUrl,
   });
-  await markNeedsHuman(config, {
+  await routeAfterHandoff(config, {
     workspaceId: input.workspaceId,
     conversationId: input.conversationId,
-    reason: input.reason as HandoffReason,
-  }).catch(() => {});
+    commit,
+  });
+
 
   // Tag this specific message so the timeline can render the limit badge.
   try {

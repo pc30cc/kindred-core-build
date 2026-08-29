@@ -104,6 +104,15 @@ vi.mock('../../../server/services/ai-agent/handoffState.js', async (importOrigin
     markNeedsHuman: async (_config: any, input: any) => {
       markNeedsHumanCalls.push(input);
     },
+
+    // vNext blocker 1 — handoff is a two-phase commit; the engine calls
+    // commitNeedsHuman() then routeAfterHandoff(). Both are recorded here so
+    // these suites keep asserting on handoff side effects.
+    commitNeedsHuman: async (_config: any, input: any) => {
+      markNeedsHumanCalls.push(input);
+      return { ok: true, routingDeferred: false };
+    },
+    routeAfterHandoff: async () => {},
   };
 });
 vi.mock('../../../server/services/ai-agent/conversationState.js', async (importOriginal) => {

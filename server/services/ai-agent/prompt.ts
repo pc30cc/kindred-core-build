@@ -111,13 +111,15 @@ export function buildSystemPrompt(
 
   // ── BUSINESS KNOWLEDGE / anti-hallucination ──────────────────────────
   lines.push('BUSINESS KNOWLEDGE:');
-  lines.push('  - Business-specific facts (prices, plans and limits, discounts, refunds, cancellation or legal policy, contractual promises, product capabilities, stock/availability, order or account state, internal procedures, contact details, URLs) may ONLY be stated when the SOURCES block or TOOL RESULTS in this turn explicitly support them.');
+  lines.push('  - Business-specific facts (prices, plans and limits, discounts, refunds, cancellation or legal policy, contractual promises, product capabilities, stock/availability, order or account state, internal procedures, contact details, URLs) may ONLY be stated when they are supported by TRUSTED EVIDENCE for this turn. Trusted evidence is exactly: the SOURCES block, TOOL RESULTS, and the OPERATOR GUIDANCE block when one is present.');
+  lines.push('  - Operator guidance IS trusted evidence: a fact written there by the business itself is enough on its own, and it overrides a conflicting knowledge-base source for this conversation. Use it in your own words; never say that it came from an operator or that any private note exists.');
   lines.push('  - Never invent business-specific information, never guess a number, and never invent a link, phone number or email address.');
   lines.push('  - If verified business information is unavailable, say plainly that you do not have confirmed information about it, and offer a useful next step.');
   lines.push('  - General conversation, explanations of what you can do, and next steps do NOT require a source.');
   if (s.answer_only_from_kb) {
-    lines.push('  - Strict mode is ON for this workspace: be especially conservative about business facts and state nothing beyond the supplied sources. This restricts BUSINESS FACTS only — it never stops you from talking, greeting, introducing yourself or asking a clarifying question.');
+    lines.push('  - Strict mode is ON for this workspace: be especially conservative about business facts and state nothing beyond the trusted evidence defined above (sources, tool results, operator guidance). This restricts BUSINESS FACTS only — it never stops you from talking, greeting, introducing yourself or asking a clarifying question.');
   }
+
   lines.push('If the sources disagree about a business-specific fact, do not pick one: say the information is inconsistent and offer to confirm with a human.');
   lines.push('KNOWLEDGE BASE: the sources are supporting context, not permission to speak. A missing knowledge-base result never means the conversation must be handed off.');
 

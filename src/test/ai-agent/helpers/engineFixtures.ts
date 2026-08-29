@@ -273,10 +273,37 @@ export function makeFakeSupabase(seed: Record<string, any[]> = {}) {
     };
     return builder;
   }
+  // Support Intelligence vNext (migration 057): conversation metadata is
+  // patched server-side instead of read-modify-written in JS. The fake
+  // mirrors that contract so engine dedupe logic that re-reads
+  // `conversations.metadata` still observes handoff state in tests.
+  async function rpc(fn: string, args: any = {}) {
+    const rows = store['conversations'] || [];
+    const conv = rows.find((r) => r?.id === args?.p_conversation_id
+      && (!args?.p_workspace_id || r?.workspace_id === args.p_workspace_id));
+    if (fn === 'patch_conversation_metadata') {
+      if (!conv) return { data: null, error: null };
+      conv.metadata = { ...(conv.metadata || {}), ...(args.p_patch || {}) };
+      return { data: conv.metadata, error: null };
+    }
+    if (fn === 'patch_conversation_ai_memory') {
+      if (!conv) return { data: null, error: null };
+      const current = (conv.metadata || {}).ai_memory || {};
+      const rev = Number(current.rev) || 0;
+      if (args.p_expected_rev != null && rev !== Number(args.p_expected_rev)) {
+        return { data: { conflict: true, rev, memory: current }, error: null };
+      }
+      const next = { ...(args.p_memory || {}), rev: rev + 1 };
+      conv.metadata = { ...(conv.metadata || {}), ai_memory: next };
+      return { data: { conflict: false, rev: rev + 1, memory: next }, error: null };
+    }
+    return { data: null, error: null };
+  }
   return {
     from,
     auth: { getUser: async () => ({ data: { user: null }, error: new Error('not used') }) },
-    rpc: async () => ({ data: null, error: null }),
+    rpc,
     __store: store,
   };
 }
+

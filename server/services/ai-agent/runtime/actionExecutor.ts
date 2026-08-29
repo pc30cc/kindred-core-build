@@ -14,7 +14,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import type { RuntimeAction } from './types.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markNeedsHuman, readAiConversationMeta } from '../handoffState.js';
+import { commitNeedsHuman, routeAfterHandoff, readAiConversationMeta } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from './conversationState.js';
 import { pickHandoffAckMessage } from './templates.js';
@@ -109,12 +109,19 @@ export async function executeRuntimeActions(
           continue;
         }
         await markHandoffRequested(ctx.config, ctx.conversationId).catch(() => {});
-        // The AI's own "connecting you now" ack must land in the thread
-        // BEFORE any routing-outcome message ("X joined" / "no one's
-        // available") — markNeedsHuman() below synchronously runs routing
-        // (chatRouting.ts) and inserts that outcome message itself, so the
-        // ack has to be inserted first or it renders out of order (visitor
-        // sees "operator joined" before the AI ever says it's connecting).
+        // vNext blocker 1 — commit needs_human FIRST (truthfulness), then
+        // acknowledge, then route. Routing inserts its own outcome message
+        // ("X joined" / "no one's available"), so it must run last or the
+        // visitor sees the outcome before the AI says anything.
+        const commit = await commitNeedsHuman(ctx.config, {
+          workspaceId: ctx.workspaceId,
+          conversationId: ctx.conversationId,
+          reason: 'human_request',
+        });
+        if (!commit.ok) {
+          console.warn('[ai-agent.runtime.executor] handoff state commit failed — ack suppressed', { conversationId: ctx.conversationId });
+          continue;
+        }
         const display = deriveAgentDisplay(ctx.settings);
         const ack = pickHandoffAckMessage(ctx.settings, ctx.responseLanguage);
         const ins = await insertAiMessage(ctx.config, {
@@ -129,10 +136,10 @@ export async function executeRuntimeActions(
           agentLogoUrl: display.agentLogoUrl,
         });
         if (ins.id) result.insertedMessageIds.push(ins.id);
-        await markNeedsHuman(ctx.config, {
+        await routeAfterHandoff(ctx.config, {
           workspaceId: ctx.workspaceId,
           conversationId: ctx.conversationId,
-          reason: 'human_request',
+          commit,
         });
         await updateRuntimeFlags(ctx.config, ctx.conversationId, { handoffSent: true }).catch(() => {});
         if (a.source === 'message_trigger' && a.sourceId) {
@@ -143,6 +150,7 @@ export async function executeRuntimeActions(
         }
         if (a.type === 'tool_executed') result.toolUsedNames.push('handoff_to_operator');
         result.handoffExecuted = true;
+
       } catch (err: any) {
         console.warn('[ai-agent.runtime.executor] handoff failed:', err?.message || err);
       }

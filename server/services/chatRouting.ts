@@ -457,8 +457,9 @@ export async function routeConversationToOperator(
               requireUnreachable: false,
             }).catch(() => false)
           : false;
-        const alreadyShownInChannel = metadata.channel === 'telegram' || telegramScreenQueued || (
-          await telegramOfflineScreenJustSent(config, args.conversationId)
+        const alreadyShownInChannel = telegramScreenQueued || (
+          metadata.channel === 'telegram'
+          && await telegramOfflineScreenJustSent(config, args.conversationId)
         );
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,

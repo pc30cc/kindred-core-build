@@ -133,7 +133,7 @@ describe('worker boundary', () => {
     expect(chatRoutingSource).toContain('telegramOfflineScreenJustSent');
     expect(chatRoutingSource).toContain('telegram_offline_notice_at');
     expect(chatRoutingSource).toContain('maybeQueueTelegramOfflineScreen');
-    expect(chatRoutingSource).toContain("const alreadyShownInChannel = metadata.channel === 'telegram'");
+    expect(telegramOfflineDeliverySource).toContain('if (Date.now() - lastAt < cooldown) return true;');
   });
 
   it('does not erase an offline-screen claim with stale routing metadata', () => {

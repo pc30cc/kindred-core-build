@@ -87,7 +87,10 @@ export async function maybeQueueTelegramOfflineScreen(
     if (!data) return false;
     const metadata = (((data as any).metadata as Record<string, unknown>) || {});
     const lastAt = Date.parse(String(metadata.telegram_offline_notice_at || '')) || 0;
-    if (Date.now() - lastAt < cooldown) return false;
+    // Another concurrent path already owns this visitor-facing response.
+    // Return true so callers suppress their plain-text channel fallback;
+    // false would incorrectly mean "not handled" and create a duplicate job.
+    if (Date.now() - lastAt < cooldown) return true;
 
     const now = new Date().toISOString();
     const nextMetadata = {

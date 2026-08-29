@@ -1,7 +1,8 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { getInstallation } from '../../plugins/state.js';
-import { TELEGRAM_BOT_TOKEN_KEY, hasPluginSecret } from '../../plugins/secrets.js';
+import { hasPluginSecret } from '../../plugins/secrets.js';
+import { botProvider, isBotProvider } from '../../../../shared/channels/botProviders.js';
 import { resolveAvailability } from '../../widget/availability.js';
 import { anyOperatorOnline } from '../../widget/operatorPresence.js';
 import { enqueueProviderActions } from '../providerActions.js';
@@ -48,13 +49,21 @@ export async function maybeQueueTelegramOfflineScreen(
      * plain-text AI delivery.
      */
     resolvedVisitorBody?: string | null;
+    /**
+     * Bot provider that owns the thread (telegram | bale). Omitted by generic
+     * callers (routing, AI handoff), in which case it is read from the
+     * conversation itself.
+     */
+    provider?: string | null;
   },
 ): Promise<boolean> {
   const platformLocales = await getPlatformAllowedLocales(config).catch(() => ['en']);
   const fallbackLocale = args.fallbackLocale || platformLocales[0] || 'en';
   const locale = args.locale || fallbackLocale;
 
-  const installation = await getInstallation(config, args.workspaceId, 'telegram');
+  const provider = await resolveConversationProvider(config, args);
+  if (!provider) return false;
+  const installation = await getInstallation(config, args.workspaceId, provider);
   if (!installation) return false;
   const settings = parseTelegramSettings(installation.settings);
   const locked = settings.menu.lockWhenOffline === true;
@@ -65,7 +74,7 @@ export async function maybeQueueTelegramOfflineScreen(
   if (args.requireUnreachable !== false
       && !bodyConfirmsOffline
       && !(await isWorkspaceUnreachable(config, args.workspaceId, locale))) return false;
-  if (!(await hasPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY))) return false;
+  if (!(await hasPluginSecret(config, installation.id, botProvider(provider).secretKeys.live))) return false;
   const integration = await getIntegrationForInstallation(config, installation.id);
   if (!integration) return false;
 
@@ -120,7 +129,7 @@ export async function maybeQueueTelegramOfflineScreen(
   if (!chatId) return false;
 
   const queued = await enqueueProviderActions(config, {
-    provider: 'telegram',
+    provider,
     workspaceId: args.workspaceId,
     integrationId: integration.id,
     actions: [{
@@ -148,4 +157,23 @@ export async function maybeQueueTelegramOfflineScreen(
       .contains('metadata', { telegram_offline_notice_claim: claimId });
   }
   return queued;
+}
+
+/**
+ * Which bot channel owns this thread. Widget conversations return null so the
+ * bot-specific offline screen is never attempted for them.
+ */
+async function resolveConversationProvider(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string; provider?: string | null },
+): Promise<string | null> {
+  if (args.provider && isBotProvider(args.provider)) return args.provider;
+  const { data } = await getServiceClient(config)
+    .from('conversations')
+    .select('metadata')
+    .eq('id', args.conversationId)
+    .eq('workspace_id', args.workspaceId)
+    .maybeSingle();
+  const channel = String((((data as any)?.metadata ?? {}) as Record<string, unknown>).channel ?? '');
+  return isBotProvider(channel) ? channel : null;
 }

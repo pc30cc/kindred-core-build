@@ -4080,6 +4080,18 @@ const fa: TranslationKeys = {
       name: 'بله',
       description: 'پیام‌های پیام‌رسان بله را مستقیماً در صندوق ورودی دریافت کنید و پاسخ دهید.',
     },
+    instagram: {
+      name: 'اینستاگرام',
+      description: 'پیام‌های دایرکت اینستاگرام را مستقیماً در صندوق ورودی دریافت کنید و پاسخ دهید.',
+      accountId: 'شناسه حساب اینستاگرام',
+      accountIdHint: 'شناسه حساب حرفه‌ای اینستاگرام؛ در داشبورد Meta ▸ Instagram ▸ API setup موجود است.',
+      accessToken: 'توکن دسترسی',
+      accessTokenHint: 'توکن بلندمدت صفحه با دسترسی‌های instagram_manage_messages و pages_messaging.',
+      pageId: 'شناسه صفحه فیسبوک متصل',
+      pageIdHint: 'اختیاری — صفحه فیسبوکی که به این حساب اینستاگرام متصل است.',
+      webhookSetupTitle: 'تنظیم وب‌هوک در داشبورد Meta',
+      webhookSetupHint: 'این آدرس و توکن تأیید را در بخش Webhooks اپلیکیشن Meta وارد کنید و رویداد پیام‌های اینستاگرام را فعال کنید.',
+    },
     whatsapp: {
       phoneNumberId: "شناسه شماره تلفن (Phone Number ID)",
       phoneNumberIdHint: "در داشبورد Meta ▸ WhatsApp ▸ API Setup قابل مشاهده است.",

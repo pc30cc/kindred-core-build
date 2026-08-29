@@ -4093,6 +4093,18 @@ const en = {
       name: 'Bale',
       description: 'Receive and reply to Bale (بله) messages directly in your Inbox.',
     },
+    instagram: {
+      name: 'Instagram',
+      description: 'Receive and reply to Instagram Direct messages right in your Inbox.',
+      accountId: 'Instagram account ID',
+      accountIdHint: 'The IG professional account ID, found in Meta dashboard ▸ Instagram ▸ API setup.',
+      accessToken: 'Access token',
+      accessTokenHint: 'A long-lived Page token with instagram_manage_messages and pages_messaging.',
+      pageId: 'Linked Facebook Page ID',
+      pageIdHint: 'Optional — the Facebook Page connected to this Instagram account.',
+      webhookSetupTitle: 'Configure the webhook in the Meta dashboard',
+      webhookSetupHint: 'Paste this callback URL and verify token into your Meta app Webhooks section and subscribe to the Instagram messages event.',
+    },
     whatsapp: {
       phoneNumberId: "Phone Number ID",
       phoneNumberIdHint: "Found in Meta dashboard ▸ WhatsApp ▸ API Setup.",

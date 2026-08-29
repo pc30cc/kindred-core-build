@@ -34,10 +34,39 @@ import {
   setMyName,
   setMyShortDescription,
   setWebhook,
+  type BotCredential,
 } from '../../channels/providers/telegram/client.js';
+import { botProvider, type BotProviderDescriptor } from '../../shared/channels/botProviders.js';
 
+/** Legacy Telegram slot names, kept for callers that predate multi-provider. */
 export const TOKEN_KEY = 'telegram_bot_token';
 export const TOKEN_PENDING_KEY = 'telegram_bot_token_pending';
+
+/**
+ * Resolves a credential AND the API root it belongs to.
+ *
+ * Every provider call in this file goes through here, which is what makes the
+ * same executor drive Telegram and Bale without a single `if (provider ===)`
+ * in the operation bodies.
+ */
+async function credential(
+  ctx: OperationContext,
+  provider: BotProviderDescriptor,
+  integrationId: string,
+  slot: 'live' | 'pending',
+): Promise<BotCredential> {
+  const secretKey = slot === 'pending' ? provider.secretKeys.pending : provider.secretKeys.live;
+  const token = await ctx.resolveToken(integrationId, secretKey);
+  return { token, apiRoot: provider.apiRoot };
+}
+
+function descriptorFor(operation: { provider: string }): BotProviderDescriptor {
+  try {
+    return botProvider(operation.provider);
+  } catch {
+    throw new PermanentOperationError('unsupported_provider', `unsupported provider: ${operation.provider}`);
+  }
+}
 
 export type ProviderOperationRecord = {
   id: string;
@@ -71,7 +100,7 @@ export class PermanentOperationError extends Error {
 function fail(err: unknown): { code: string; message: string } {
   if (err instanceof TelegramApiError) {
     return {
-      code: `telegram_${err.httpStatus ?? 'error'}`,
+      code: `bot_api_${err.httpStatus ?? 'error'}`,
       message: redactToken(err.message).slice(0, 500),
     };
   }
@@ -141,8 +170,9 @@ async function report(
 
 async function runConnect(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
+  const provider = descriptorFor(operation);
   // The staged credential — the live one is untouched until Core promotes it.
-  const token = await ctx.resolveToken(integrationId, TOKEN_PENDING_KEY);
+  const token = await credential(ctx, provider, integrationId, 'pending');
 
   let identity;
   try {
@@ -167,7 +197,12 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
   }
 
   try {
-    await setWebhook(token, preflight.webhook_url, preflight.secret_token);
+    await setWebhook(
+      token,
+      preflight.webhook_url,
+      provider.supportsSecretToken ? preflight.secret_token : null,
+      provider.supportsAllowedUpdates ? undefined : null,
+    );
   } catch (err) {
     const { message } = fail(err);
     await report(ctx, operation, {
@@ -186,7 +221,7 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
       await report(ctx, operation, {
         status: 'failed',
         error_code: 'webhook_url_mismatch',
-        error_message: 'Telegram reports a different webhook URL',
+        error_message: `${provider.label} reports a different webhook URL`,
       });
       await deleteWebhook(token).catch(() => {});
       await restorePreviousWebhook(ctx, operation, preflight);
@@ -231,9 +266,15 @@ async function restorePreviousWebhook(
   preflight: { webhook_url: string; secret_token: string; has_previous_token: boolean },
 ): Promise<void> {
   if (!preflight.has_previous_token || !operation.integration_id) return;
+  const provider = descriptorFor(operation);
   try {
-    const liveToken = await ctx.resolveToken(operation.integration_id, TOKEN_KEY);
-    await setWebhook(liveToken, preflight.webhook_url, preflight.secret_token);
+    const liveToken = await credential(ctx, provider, operation.integration_id, 'live');
+    await setWebhook(
+      liveToken,
+      preflight.webhook_url,
+      provider.supportsSecretToken ? preflight.secret_token : null,
+      provider.supportsAllowedUpdates ? undefined : null,
+    );
   } catch (err) {
     console.warn('[channels-worker] previous webhook restore failed:', fail(err).message);
   }
@@ -246,7 +287,7 @@ async function runDisconnect(ctx: OperationContext, operation: ProviderOperation
   let removed = false;
   let error: { code: string; message: string } | null = null;
   try {
-    const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
+    const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
     await deleteWebhook(token);
     removed = true;
   } catch (err) {
@@ -265,7 +306,8 @@ async function runDisconnect(ctx: OperationContext, operation: ProviderOperation
 
 async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
-  const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
+  const provider = descriptorFor(operation);
+  const token = await credential(ctx, provider, integrationId, 'live');
   // Core owns the ingress contract. Repair/reconnect targets an ALREADY-OWNED
   // bot, so it must use the ownership-free contract endpoint — running the
   // connect preflight here would re-claim the account of a healthy
@@ -287,9 +329,14 @@ async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperat
 
 
   try {
-    await setWebhook(token, target, secret);
+    await setWebhook(
+      token,
+      target,
+      provider.supportsSecretToken ? secret : null,
+      provider.supportsAllowedUpdates ? undefined : null,
+    );
     const info = await getWebhookInfo(token);
-    if (info.url !== target) throw new Error('Telegram reports a different webhook URL');
+    if (info.url !== target) throw new Error(`${provider.label} reports a different webhook URL`);
     await report(ctx, operation, { status: 'succeeded', result: { repaired: true, webhook_url: target } });
   } catch (err) {
     const { code, message } = fail(err);
@@ -300,7 +347,7 @@ async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperat
 async function runDiagnostics(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
   try {
-    const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
+    const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
     const info = await getWebhookInfo(token);
     await report(ctx, operation, {
       status: 'succeeded',
@@ -319,24 +366,28 @@ async function runDiagnostics(ctx: OperationContext, operation: ProviderOperatio
 
 async function runProfileSync(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
-  const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
+  const provider = descriptorFor(operation);
+  const token = await credential(ctx, provider, integrationId, 'live');
   const profile = ((operation.request as any)?.profile ?? {}) as any;
   const applied: string[] = [];
+  // Providers without a bot-profile API (Bale) silently skip those fields
+  // instead of failing the whole sync — commands still apply.
+  const canProfile = provider.supportsBotProfile;
 
   try {
-    if (profile.name) {
+    if (profile.name && canProfile) {
       await setMyName(token, String(profile.name));
       applied.push('name');
     }
-    if (profile.short_description) {
+    if (profile.short_description && canProfile) {
       await setMyShortDescription(token, String(profile.short_description));
       applied.push('short_description');
     }
-    if (profile.description) {
+    if (profile.description && canProfile) {
       await setMyDescription(token, String(profile.description));
       applied.push('description');
     }
-    if (Array.isArray(profile.commands)) {
+    if (Array.isArray(profile.commands) && provider.supportsCommands) {
       await setMyCommands(token, profile.commands);
       applied.push('commands');
     }
@@ -356,7 +407,7 @@ async function runProfileSync(ctx: OperationContext, operation: ProviderOperatio
 
 async function runMediaFetch(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
-  const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
+  const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
   const request = (operation.request ?? {}) as any;
   const maxBytes = Number(request.max_bytes ?? 25 * 1024 * 1024);
   const attachments: any[] = Array.isArray(request.attachments) ? request.attachments : [];
@@ -397,13 +448,17 @@ async function runMediaFetch(ctx: OperationContext, operation: ProviderOperation
 
 async function runAvatarFetch(ctx: OperationContext, operation: ProviderOperationRecord): Promise<void> {
   const integrationId = requireIntegration(operation);
-  const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
+  const provider = descriptorFor(operation);
+  const token = await credential(ctx, provider, integrationId, 'live');
   const request = (operation.request ?? {}) as any;
-  const userId = String(request.telegram_user_id ?? '');
+  const userId = String(request.telegram_user_id ?? request.bot_user_id ?? '');
   const maxBytes = Number(request.max_bytes ?? 2 * 1024 * 1024);
 
   try {
-    const fileId = userId ? await getUserProfilePhotoFileId(token, userId) : null;
+    const fileId =
+      userId && provider.supportsUserProfilePhotos
+        ? await getUserProfilePhotoFileId(token, userId)
+        : null;
     if (!fileId) {
       await report(ctx, operation, { status: 'succeeded', result: { no_photo: true } });
       return;
@@ -433,8 +488,10 @@ export async function executeOutboundActions(
   ctx: OperationContext,
   integrationId: string,
   actions: any[],
+  providerId = 'telegram',
 ): Promise<void> {
-  const token = await ctx.resolveToken(integrationId, TOKEN_KEY);
+  const provider = descriptorFor({ provider: providerId });
+  const token = await credential(ctx, provider, integrationId, 'live');
 
   for (const action of actions) {
     const kind = String(action?.kind ?? '');

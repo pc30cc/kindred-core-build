@@ -512,8 +512,12 @@ export function TelegramConfigPanel({
               Cloud API providers, so they are displayed, not registered. */}
           {!managesWebhook && integration?.webhookUrl && (
             <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
-              <p className="text-sm font-medium">{t('plugins.whatsapp.webhookSetupTitle')}</p>
-              <p className="text-xs text-muted-foreground">{t('plugins.whatsapp.webhookSetupHint')}</p>
+              <p className="text-sm font-medium">
+                {isInstagram ? t('plugins.instagram.webhookSetupTitle') : t('plugins.whatsapp.webhookSetupTitle')}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {isInstagram ? t('plugins.instagram.webhookSetupHint') : t('plugins.whatsapp.webhookSetupHint')}
+              </p>
               <div className="space-y-1.5">
                 <Label className="text-xs">{t('plugins.whatsapp.callbackUrl')}</Label>
                 <Input dir="ltr" readOnly value={integration.webhookUrl} onFocus={(e) => e.currentTarget.select()} />

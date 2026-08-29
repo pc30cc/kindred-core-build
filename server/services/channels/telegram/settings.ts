@@ -364,7 +364,7 @@ export async function resolveTelegramHandlingMode(
   config: ServerConfig,
   workspaceId: string,
   requestedMode: TelegramHandlingMode,
-  provider: BotProviderId = 'telegram',
+  provider: string = 'telegram',
 ): Promise<{ mode: TelegramHandlingMode; aiAvailable: boolean }> {
   const [platformEnabled, entitled] = await Promise.all([
     isTelegramAiPlatformEnabled(config, provider),
@@ -387,7 +387,7 @@ export async function resolveTelegramHandlingMode(
  */
 export async function isTelegramMenuEventsVisible(
   config: ServerConfig,
-  provider: BotProviderId = 'telegram',
+  provider: string = 'telegram',
 ): Promise<boolean> {
   try {
     const state = await getPlatformState(config, provider);
@@ -399,7 +399,7 @@ export async function isTelegramMenuEventsVisible(
 
 export async function isTelegramAiPlatformEnabled(
   config: ServerConfig,
-  provider: BotProviderId = 'telegram',
+  provider: string = 'telegram',
 ): Promise<boolean> {
   try {
     const state = await getPlatformState(config, provider);
@@ -428,7 +428,7 @@ export async function sanitizeTelegramSettingsForSave(
   config: ServerConfig,
   workspaceId: string,
   settings: TelegramSettings,
-  provider: BotProviderId = 'telegram',
+  provider: string = 'telegram',
 ): Promise<TelegramSettings> {
   const { mode } = await resolveTelegramHandlingMode(config, workspaceId, settings.handlingMode, provider);
   return { ...settings, handlingMode: mode };

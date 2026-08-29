@@ -469,6 +469,12 @@ export default function InboxPage() {
       : undefined
   );
 
+  /* Human Guidance UX — guidance surfaces (composer mode switch + sidebar
+     viewer) exist only while the AI still owns the conversation. */
+  const aiManagedConversation = (selected as any)?.metadata?.ai_state === 'ai_managed';
+
+
+
   const [contactDrawerId, setContactDrawerId] = useState<string | null>(null);
   const openContactProfile = useCallback(() => {
     const cid = (selected as any)?.contact_id;

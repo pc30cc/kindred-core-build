@@ -132,6 +132,7 @@ describe('worker boundary', () => {
   it('never sends the offline notice twice to a Telegram visitor', () => {
     expect(chatRoutingSource).toContain('telegramOfflineScreenJustSent');
     expect(chatRoutingSource).toContain('telegram_offline_notice_at');
+    expect(chatRoutingSource).toContain('maybeQueueTelegramOfflineScreen');
   });
 
   it('claims the Telegram offline screen before enqueueing it', () => {

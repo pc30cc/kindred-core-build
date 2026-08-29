@@ -32,7 +32,6 @@ import {
   buildFaqAnswer,
   buildFaqList,
   buildMainMenu,
-  buildOfflineScreen,
   escapeHtml,
   listHelpArticles,
   matchReplyKeyboardCommand,
@@ -47,7 +46,7 @@ import {
 
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
 import { getServiceClient } from '../../../supabase.js';
-import { isWorkspaceUnreachable, maybeQueueTelegramOfflineScreen } from './offlineDelivery.js';
+import { maybeQueueTelegramOfflineScreen } from './offlineDelivery.js';
 export { isWorkspaceUnreachable } from './offlineDelivery.js';
 
 /**

@@ -43,7 +43,6 @@ export async function insertAiMessage(
     ? await maybeQueueTelegramOfflineScreen(config, {
         workspaceId: input.workspaceId,
         conversationId: input.conversationId,
-        locale: 'en',
       }).catch(() => false)
     : false;
   const metadata: Record<string, unknown> = {

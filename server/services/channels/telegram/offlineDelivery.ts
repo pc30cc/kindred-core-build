@@ -8,6 +8,7 @@ import { enqueueProviderActions } from '../providerActions.js';
 import { getIntegrationForInstallation } from '../integrations.js';
 import { buildOfflineScreen } from './menu.js';
 import { parseTelegramSettings } from './settings.js';
+import { getPlatformAllowedLocales } from '../../platformRegion.js';
 
 const OFFLINE_NOTICE_COOLDOWN_MS = 10 * 60 * 1000;
 const OFFLINE_LOCK_COOLDOWN_MS = 45 * 1000;
@@ -37,13 +38,16 @@ export async function maybeQueueTelegramOfflineScreen(
   args: {
     workspaceId: string;
     conversationId: string;
-    locale: string;
+    locale?: string | null;
     fallbackLocale?: string | null;
     requireUnreachable?: boolean;
   },
 ): Promise<boolean> {
+  const platformLocales = await getPlatformAllowedLocales(config).catch(() => ['en']);
+  const fallbackLocale = args.fallbackLocale || platformLocales[0] || 'en';
+  const locale = args.locale || fallbackLocale;
   if (args.requireUnreachable !== false
-      && !(await isWorkspaceUnreachable(config, args.workspaceId, args.locale))) return false;
+      && !(await isWorkspaceUnreachable(config, args.workspaceId, locale))) return false;
 
   const installation = await getInstallation(config, args.workspaceId, 'telegram');
   if (!installation) return false;
@@ -101,7 +105,7 @@ export async function maybeQueueTelegramOfflineScreen(
   const chatId = String(conversationMetadata.channel_chat_id ?? '');
   if (!chatId) return false;
 
-  const screen = buildOfflineScreen(settings, args.locale, args.fallbackLocale, { locked });
+  const screen = buildOfflineScreen(settings, locale, fallbackLocale, { locked });
   const queued = await enqueueProviderActions(config, {
     provider: 'telegram',
     workspaceId: args.workspaceId,

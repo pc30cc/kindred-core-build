@@ -16,11 +16,8 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { enqueueChannelJob, type ChannelJobType } from './jobs.js';
-
-const OUTBOUND_JOB_BY_PROVIDER: Record<string, ChannelJobType> = {
-  telegram: 'telegram_outbound_message',
-};
+import { botJobType, enqueueChannelJob } from './jobs.js';
+import { isBotProvider } from '../../../shared/channels/botProviders.js';
 
 export type OutboundIntentResult = 'not_a_channel_conversation' | 'already_enqueued' | 'enqueued';
 
@@ -43,8 +40,8 @@ export async function ensureOutboundIntent(
 
   const metadata = ((conversation as any)?.metadata ?? {}) as Record<string, unknown>;
   const provider = String(metadata.channel ?? '');
-  const jobType = OUTBOUND_JOB_BY_PROVIDER[provider];
-  if (!jobType) return 'not_a_channel_conversation';
+  if (!isBotProvider(provider)) return 'not_a_channel_conversation';
+  const jobType = botJobType(provider, 'outbound_message');
 
   const integrationId = metadata.channel_integration_id as string | undefined;
   const chatId = metadata.channel_chat_id as string | undefined;
@@ -53,7 +50,7 @@ export async function ensureOutboundIntent(
   const { data: existing } = await sb
     .from('channel_jobs')
     .select('id')
-    .in('job_type', ['telegram_outbound_message', 'telegram_outbound_media'])
+    .in('job_type', [botJobType(provider, 'outbound_message'), botJobType(provider, 'outbound_media')])
     .filter('payload->>message_id', 'eq', input.messageId)
     .limit(1)
     .maybeSingle();

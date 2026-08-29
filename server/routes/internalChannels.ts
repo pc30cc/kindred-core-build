@@ -107,7 +107,7 @@ internalChannelsRouter.use((req, res, next) => {
  * enqueues a job. Returns quickly so the provider is not kept waiting.
  */
 const ingestSchema = z.object({
-  provider: z.literal('telegram'),
+  provider: z.enum(BOT_PROVIDER_IDS),
   public_integration_id: z.string().min(10).max(128),
   update: z.record(z.unknown()),
   received_at: z.string().optional(),
@@ -125,8 +125,8 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
 
     const sb = getServiceClient(config);
     await enqueueChannelJob(sb, {
-      provider: 'telegram',
-      jobType: 'telegram_inbound_event',
+      provider: parsed.data.provider,
+      jobType: botJobType(parsed.data.provider, 'inbound_event'),
       workspaceId: integration.workspace_id,
       integrationId: integration.id,
       payload: {

@@ -68,8 +68,8 @@ humanGuidanceRouter.get('/conversations/:id/guidance', async (req: Request, res:
   if (!ctx) return;
 
   const [items, requests] = await Promise.all([
-    listGuidance(config, ctx.workspaceId, parsedId.data),
-    listGuidanceRequests(config, ctx.workspaceId, parsedId.data),
+    listGuidance(config, { workspaceId: ctx.workspaceId, conversationId: parsedId.data, status: 'active' }),
+    listGuidanceRequests(config, { workspaceId: ctx.workspaceId, conversationId: parsedId.data, status: 'pending' }),
   ]);
   return res.json({ items, requests, maxBody: MAX_GUIDANCE_BODY });
 });
@@ -99,25 +99,26 @@ humanGuidanceRouter.post('/conversations/:id/guidance', async (req: Request, res
   const result = await createGuidance(config, {
     workspaceId: ctx.workspaceId,
     conversationId: parsedId.data,
-    authorId: ctx.userId,
+    operatorId: ctx.userId,
     body: parsed.data.body,
     kind: parsed.data.kind,
     scope: parsed.data.scope,
+    requestId: parsed.data.requestId || null,
   });
-  if (!result.ok || !result.record) {
-    return res.status(400).json({ error: result.reason || 'guidance_create_failed' });
+  if (!result.ok) {
+    return res.status(400).json({ error: result.error || 'guidance_create_failed' });
   }
 
   if (parsed.data.requestId) {
     await resolveGuidanceRequest(config, {
       workspaceId: ctx.workspaceId,
       requestId: parsed.data.requestId,
-      guidanceId: result.record.id,
+      guidanceId: result.guidance.id,
       resolvedBy: ctx.userId,
     }).catch(() => {});
   }
 
-  return res.status(201).json({ guidance: result.record });
+  return res.status(201).json({ guidance: result.guidance });
 });
 
 // ─── DELETE /api/ai-agent/guidance/:guidanceId ─────────────────────────
@@ -129,7 +130,7 @@ humanGuidanceRouter.delete('/guidance/:guidanceId', async (req: Request, res: Re
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('ai_agent_guidance')
-    .select('workspace_id')
+    .select('workspace_id,conversation_id')
     .eq('id', parsedId.data)
     .maybeSingle();
   const workspaceId = (data as any)?.workspace_id;
@@ -137,7 +138,11 @@ humanGuidanceRouter.delete('/guidance/:guidanceId', async (req: Request, res: Re
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
-  const ok = await revokeGuidance(config, workspaceId, parsedId.data, auth.userId);
+  const ok = await revokeGuidance(config, {
+    workspaceId,
+    conversationId: (data as any).conversation_id,
+    guidanceId: parsedId.data,
+  });
   if (!ok) return res.status(400).json({ error: 'guidance_revoke_failed' });
   return res.json({ ok: true });
 });
@@ -166,7 +171,7 @@ humanGuidanceRouter.post('/guidance-requests/:requestId/dismiss', async (req: Re
     requestId: parsedId.data,
     guidanceId: null,
     resolvedBy: auth.userId,
-    status: 'dismissed',
+    dismissed: true,
   });
   if (!ok) return res.status(400).json({ error: 'request_dismiss_failed' });
   return res.json({ ok: true });

@@ -349,9 +349,25 @@ export async function loadWorkingMemory(
 }
 
 /**
- * Read-modify-write the memory sub-object only. Never touches unrelated
- * conversation metadata keys (handoff state, runtime flags, channel data).
+ * Persist a memory patch WITHOUT losing concurrent writes.
+ *
+ * vNext blocker 3 — the previous implementation read `metadata`, merged in
+ * JS and wrote the whole document back. Two overlapping turns (or a turn
+ * racing a handoff/routing write) silently discarded each other's changes.
+ *
+ * The write now goes through `patch_conversation_ai_memory` (migration 057):
+ * the row is locked, the stored `rev` is compared with the one the patch was
+ * computed against, and on mismatch the caller recomputes the patch on top
+ * of the CURRENT memory and retries. Only the `ai_memory` sub-object is ever
+ * written, so unrelated metadata keys can never be clobbered.
  */
+const MEMORY_CAS_ATTEMPTS = 3;
+
+function memoryRev(meta: unknown): number {
+  const raw = (meta as any)?.[MEMORY_KEY]?.rev;
+  return Number.isFinite(raw) ? Number(raw) : 0;
+}
+
 export async function persistWorkingMemory(
   config: ServerConfig,
   args: { workspaceId: string; conversationId: string; patch: MemoryPatch },
@@ -366,18 +382,44 @@ export async function persistWorkingMemory(
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
     if (!data) return null;
-    const meta = ((data as any).metadata || {}) as Record<string, unknown>;
-    const next = applyMemoryPatch(readWorkingMemory(meta), args.patch);
-    await sb
-      .from('conversations')
-      .update({ metadata: { ...meta, [MEMORY_KEY]: next } })
-      .eq('id', args.conversationId)
-      .eq('workspace_id', args.workspaceId);
-    return next;
+
+    let currentMeta = ((data as any).metadata || {}) as Record<string, unknown>;
+    let expectedRev = memoryRev(currentMeta);
+    let rpcSupported = true;
+
+    for (let attempt = 0; attempt < MEMORY_CAS_ATTEMPTS; attempt++) {
+      const next = applyMemoryPatch(readWorkingMemory(currentMeta), args.patch);
+      const { data: res, error } = await sb.rpc('patch_conversation_ai_memory', {
+        p_conversation_id: args.conversationId,
+        p_workspace_id: args.workspaceId,
+        p_expected_rev: expectedRev,
+        p_memory: next as unknown as Record<string, unknown>,
+      });
+      if (error) { rpcSupported = false; break; }
+      if (!res) return null;
+      if ((res as any).conflict !== true) return next;
+      // Someone else wrote first — rebase this patch onto their document.
+      currentMeta = { ...currentMeta, [MEMORY_KEY]: (res as any).memory || {} };
+      expectedRev = Number((res as any).rev) || 0;
+    }
+
+    if (!rpcSupported) {
+      // Pre-057 deployments: keep the old behaviour rather than dropping the
+      // write entirely. Still scoped to the memory key only.
+      const next = applyMemoryPatch(readWorkingMemory(currentMeta), args.patch);
+      await sb
+        .from('conversations')
+        .update({ metadata: { ...currentMeta, [MEMORY_KEY]: next } })
+        .eq('id', args.conversationId)
+        .eq('workspace_id', args.workspaceId);
+      return next;
+    }
+    return null;
   } catch {
     return null;
   }
 }
+
 
 /** Bounded observability payload. */
 export function memoryMeta(m: WorkingMemory): Record<string, unknown> {

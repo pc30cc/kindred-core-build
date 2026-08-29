@@ -277,7 +277,7 @@ vi.mock('../../../server/services/ai-agent/responder.js', () => ({
   insertAiMessage: async () => ({ id: 'msg-1' }),
   deriveAgentDisplay: (settings: any) => ({ agentName: settings.agent_name || 'AI Assistant', agentLogoUrl: null }),
 }));
-vi.mock('../../../server/services/ai-agent/handoffState.js', () => ({ markAiManaged: vi.fn(async () => {}), markNeedsHuman: vi.fn(async () => {}) }));
+vi.mock('../../../server/services/ai-agent/handoffState.js', () => ({ markAiManaged: vi.fn(async () => {}), markNeedsHuman: vi.fn(async () => {}), commitNeedsHuman: vi.fn(async () => ({ ok: true, routingDeferred: false })), routeAfterHandoff: vi.fn(async () => {}) }));
 vi.mock('../../../server/services/ai-agent/spamGuard.js', () => ({ isConversationSpam: async () => false }));
 vi.mock('../../../server/services/ai-agent/queryBuilder.js', () => ({ buildRetrievalQuery: async () => makeBuiltQuery() }));
 vi.mock('../../../server/services/ai-agent/runtimeConfig.js', () => ({ loadAiAgentRuntimeConfig: async () => null }));

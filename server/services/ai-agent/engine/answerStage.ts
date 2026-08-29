@@ -20,7 +20,7 @@ import type { ServerConfig } from '../../../config.js';
 import { decideStrategy, countClarificationAttempts, isStrictKbNoGrounding } from '../answerStrategy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markAiManaged, markNeedsHuman } from '../handoffState.js';
+import { markAiManaged, commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickTemplate } from '../runtime/templates.js';
@@ -234,9 +234,16 @@ export async function runAnswerStage(
   // only on BUSINESS turns: a conversational turn (greeting, identity,
   // thanks) is answered from the assistant persona and was never gated by
   // the knowledge base.
+  // vNext blocker 4 — operator guidance IS grounding. Strict knowledge-only
+  // mode may not silence an answer the business itself just supplied
+  // privately for this conversation; otherwise the prompt tells the model
+  // guidance outranks the KB while the gate blocks it from ever being used.
+  const hasOperatorGuidance = !!ctxStage.operatorGuidance?.items?.length;
   const strictBlocked =
     strategy.requiresBusinessKnowledge
+    && !hasOperatorGuidance
     && isStrictKbNoGrounding(settings, strategy.retrievalStrength);
+
 
   // Normalize the PRE-strategy result now that retrievalStrength is finally
   // known, so a PRE keep_ai action that strict-KB blocks is never reported
@@ -388,16 +395,22 @@ export async function runAnswerStage(
         return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null } };
       }
       await markHandoffRequested(config, conversationId).catch(() => {});
+      // vNext blocker 1 — commit the durable needs_human state BEFORE the
+      // visitor-facing acknowledgement, and run routing AFTER it.
+      const commit = await commitNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: strategy.reason as any,
+      }).catch(() => ({ ok: false, routingDeferred: false } as HandoffCommit));
+      decisionTimeline.push(commit.ok ? 'handoff_state_committed' : 'handoff_state_commit_failed');
       // Visitor-facing ack mirrors the EXISTING PRE hard-handoff mode
       // semantics (runtimeDecisionStage.ts's HANDOFF branch): suppressed in
       // suggest_only mode unless canAutoReply is true; sent in every other
       // mode regardless of canAutoReply (e.g. auto_reply_when_offline with
-      // operators currently online). The handoff state transition itself
-      // always happens, independent of this.
+      // operators currently online). It is ALSO suppressed when the state
+      // commit failed — never promise an escalation that did not persist.
       let messageId: string | null = null;
-      if (decision.canAutoReply || settings.mode !== 'suggest_only') {
-        // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
-        // ordering note on the human-request handoff branch above.
+      if (commit.ok && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
         const display = deriveAgentDisplay(settings);
         // Handoff wording stays deterministic and owner-controlled: an
         // escalation must never depend on a second model call that can fail
@@ -421,14 +434,13 @@ export async function runAnswerStage(
           agentLogoUrl: display.agentLogoUrl,
         });
         messageId = inserted.id;
+      } else if (!commit.ok) {
+        decisionTimeline.push('handoff_ack_suppressed_commit_failed');
       }
-      await markNeedsHuman(config, {
-        workspaceId,
-        conversationId,
-        reason: strategy.reason as any,
-      }).catch(() => {});
+      await routeAfterHandoff(config, { workspaceId, conversationId, commit });
       await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
       return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId } };
+
     }
     return { terminal: { ran: true, action: 'no_answer', reason: strategy.reason, runId } };
     }

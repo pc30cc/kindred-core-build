@@ -28,7 +28,7 @@ import {
 } from './workflowRuntime.js';
 import { pickStepMessage, type NormalizedWorkflowStep } from './workflowSteps.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markNeedsHuman, readAiConversationMeta } from '../handoffState.js';
+import { commitNeedsHuman, routeAfterHandoff, readAiConversationMeta } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { pickHandoffAckMessage } from './templates.js';
 
@@ -138,10 +138,15 @@ async function executeHandoff(
   );
   if (alreadyHandoff) return { messageId: null, alreadyDone: true };
   await markHandoffRequested(ctx.config, ctx.conversationId).catch(() => {});
-  // Insert the ack BEFORE markNeedsHuman() — markNeedsHuman synchronously
-  // runs routing and inserts its own "X joined" / "no one's available"
-  // system message, so the ack has to land first or the routing outcome
-  // renders ahead of the AI's own "connecting you now" message.
+  // vNext blocker 1 — commit the durable needs_human state FIRST, then send
+  // the ack, then route. Routing inserts its own "X joined" / "no one's
+  // available" system message, so it must run after the ack.
+  const commit = await commitNeedsHuman(ctx.config, {
+    workspaceId: ctx.workspaceId,
+    conversationId: ctx.conversationId,
+    reason: 'human_request',
+  }).catch(() => ({ ok: false, routingDeferred: false }));
+  if (!commit.ok) return { messageId: null, alreadyDone: false };
   const display = deriveAgentDisplay(ctx.settings);
   const ack = pickHandoffAckMessage(ctx.settings, ctx.responseLanguage);
   const inserted = await insertAiMessage(ctx.config, {
@@ -155,11 +160,12 @@ async function executeHandoff(
     agentName: display.agentName,
     agentLogoUrl: display.agentLogoUrl,
   });
-  await markNeedsHuman(ctx.config, {
+  await routeAfterHandoff(ctx.config, {
     workspaceId: ctx.workspaceId,
     conversationId: ctx.conversationId,
-    reason: 'human_request',
-  }).catch(() => {});
+    commit,
+  });
+
   return { messageId: inserted.id || null, alreadyDone: false };
 }
 

@@ -28,7 +28,9 @@ export type StaleReason =
   | 'superseded_by_newer_visitor_message'
   | 'human_public_reply'
   | 'human_takeover'
+  | 'handoff_in_progress'
   | 'conversation_closed';
+
 
 export interface FreshnessVerdict {
   fresh: boolean;
@@ -146,6 +148,29 @@ export async function checkGenerationFreshness(
         checkFailed: false,
       };
     }
+
+    // vNext blocker 2 — a handoff that was requested or already committed
+    // (by this turn's action pipeline, another concurrent turn, a workflow,
+    // or an operator) means the conversation no longer belongs to the AI.
+    // Delivering a generated answer on top of it produces the classic
+    // "I'm connecting you to a human" followed by the AI answering anyway.
+    const handoffPending = meta.ai_state === 'needs_human'
+      || meta.ai_state === 'human_assigned'
+      || meta.ai_handoff_requested === true
+      || (meta as any).ai_handoff_sent === true
+      || (meta as any).routing_pending === true;
+    if (handoffPending) {
+      return {
+        fresh: false,
+        checkpoint,
+        reason: 'handoff_in_progress',
+        supersededByMessageId: superseded,
+        latestVisitorMessageId: latestVisitor,
+        humanTakeoverDetected: false,
+        checkFailed: false,
+      };
+    }
+
     if (String((conv as any)?.status || '') === 'closed') {
       return {
         fresh: false,

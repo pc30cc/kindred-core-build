@@ -10,17 +10,18 @@
  * and terminal-result wrapping of existing early `return` statements) is
  * new. No behavior change. decideRuntime() itself is untouched.
  *
- * Handoff side-effect ordering preserved exactly: the acknowledgement
- * message is inserted BEFORE markNeedsHuman() (which synchronously runs
- * chatRouting.ts and inserts its own system message) -- see the inline
- * comment carried over from the original.
+ * Handoff side-effect ordering (vNext blocker 1): the durable needs_human
+ * commit happens FIRST, the visitor acknowledgement second, and operator
+ * routing (which inserts its own system message) LAST. A failed commit
+ * suppresses the acknowledgement entirely.
  */
 import type { ServerConfig } from '../../../config.js';
 import { decideRuntime } from '../runtimePolicy.js';
 import { logRun } from '../logs.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markNeedsHuman } from '../handoffState.js';
+import { commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
+
 import { runLimitHandoff, type LimitReason } from '../limitHandoff.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickHandoffAckMessage } from '../runtime/templates.js';
@@ -272,14 +273,27 @@ export async function runRuntimeDecisionStage(
         ...ctxStage.memoryMetaBundle,
       },
     });
-    // In auto-reply modes we acknowledge the handoff to the visitor. This
-    // insert MUST happen before markNeedsHuman() below — markNeedsHuman
-    // synchronously runs routing (chatRouting.ts) and inserts its own
-    // "X joined" / "no one's available" system message, so the ack has to
-    // land first or the visitor sees the routing outcome appear before the
-    // AI ever says it's connecting them.
+    // vNext blocker 1 — ORDER: commit the durable handoff state FIRST, then
+    // acknowledge to the visitor, then run routing.
+    //   commit  → the conversation really is in the human queue
+    //   ack     → truthful ("queued"), and still lands before the routing
+    //             outcome message ("X joined" / "everyone is busy") because
+    //             routing is deferred to routeAfterHandoff() below
+    // If the commit fails we send NO acknowledgement: the visitor must never
+    // be told they were handed to a human when nothing was persisted.
+    let commit: HandoffCommit | null = null;
+    if (!handoffAlreadyDone) {
+      commit = await commitNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'human_request',
+      }).catch(() => ({ ok: false, routingDeferred: false } as HandoffCommit));
+      decisionTimeline.push(commit.ok ? 'handoff_state_committed' : 'handoff_state_commit_failed');
+    }
     let messageId: string | null = null;
-    if (!handoffAlreadyDone && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
+    const mayAck = !handoffAlreadyDone && !!commit?.ok
+      && (decision.canAutoReply || settings.mode !== 'suggest_only');
+    if (mayAck) {
       const display = deriveAgentDisplay(settings);
       const teamOffline = availability.state === 'offline';
       const ack = await resolveHandoffAckMessage(config, workspaceId, locale, teamOffline, pickHandoffAckMessage(settings, locale), conversationId);
@@ -298,14 +312,13 @@ export async function runRuntimeDecisionStage(
     } else if (handoffAlreadyDone) {
       messageId = triggerMessageId || workflowMessageId;
       decisionTimeline.push('handoff_message_already_sent');
+    } else if (commit && !commit.ok) {
+      decisionTimeline.push('handoff_ack_suppressed_commit_failed');
     }
-    if (!handoffAlreadyDone) {
-      await markNeedsHuman(config, {
-        workspaceId,
-        conversationId,
-        reason: 'human_request',
-      }).catch(() => {});
+    if (commit) {
+      await routeAfterHandoff(config, { workspaceId, conversationId, commit });
     }
+
     // mark_priority now executes unconditionally right after PRE routing
     // evaluation in automationStage.ts (Follow-up 9E.2) — calling it again
     // here would execute it twice, so this branch no longer does so.

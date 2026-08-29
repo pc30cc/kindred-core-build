@@ -6,7 +6,8 @@
  * against silently dropping, renaming, or duplicating a method key during
  * this or any future domain-module reorganization. The expected key list
  * is the exact inventory of the pre-split src/lib/ai-agent-api.ts (138
- * methods), captured before the split.
+ * methods), captured before the split, plus the 4 Support Intelligence
+ * vNext human-guidance methods added afterwards (142 total).
  */
 import { describe, it, expect } from 'vitest';
 import { aiAgentApi } from '@/lib/ai-agent-api';
@@ -17,6 +18,7 @@ import { operatorAssistApi } from '@/lib/ai-agent/operatorAssist';
 import { knowledgeApi } from '@/lib/ai-agent/knowledge';
 import { automationApi } from '@/lib/ai-agent/automation';
 import { internalQaApi } from '@/lib/ai-agent/internalQa';
+import { humanGuidanceApi } from '@/lib/ai-agent/humanGuidance';
 
 const EXPECTED_METHOD_KEYS = [
   "acceptSuggestedTestCase", "approveLearningCandidateAsLearned", "approveLearningCandidateAsQna",
@@ -51,10 +53,13 @@ const EXPECTED_METHOD_KEYS = [
   "updateRegressionSchedule", "updateRouting", "updateSettings", "updateTestCase", "updateTool",
   "updateToolServer", "updateTopic", "updateWorkflow", "uploadAiFile", "uploadAvatar",
   "useSuggestion", "validateWorkflow",
+  // Support Intelligence vNext — private operator → AI guidance.
+  "getConversationGuidance", "createConversationGuidance",
+  "revokeConversationGuidance", "dismissGuidanceRequest",
 ].sort();
 
 describe('Phase 4 — aiAgentApi compatibility aggregate surface parity', () => {
-  it('has exactly the same 138 method keys as the pre-split monolith', () => {
+  it('has exactly the expected 142 method keys', () => {
     expect(Object.keys(aiAgentApi).sort()).toEqual(EXPECTED_METHOD_KEYS);
   });
 
@@ -76,6 +81,7 @@ describe('Phase 4 — aiAgentApi compatibility aggregate surface parity', () => 
       knowledge: knowledgeApi,
       automation: automationApi,
       internalQa: internalQaApi,
+      humanGuidance: humanGuidanceApi,
     };
     const seen = new Map<string, string>();
     const duplicates: Array<{ key: string; domains: string[] }> = [];
@@ -92,7 +98,7 @@ describe('Phase 4 — aiAgentApi compatibility aggregate surface parity', () => 
   });
 
   it('every domain module method count sums to the total aggregate size', () => {
-    const domainApis = [platformApi, assistantApi, activityApi, operatorAssistApi, knowledgeApi, automationApi, internalQaApi];
+    const domainApis = [platformApi, assistantApi, activityApi, operatorAssistApi, knowledgeApi, automationApi, internalQaApi, humanGuidanceApi];
     const sum = domainApis.reduce((n, api) => n + Object.keys(api).length, 0);
     expect(sum).toBe(EXPECTED_METHOD_KEYS.length);
     expect(Object.keys(aiAgentApi).length).toBe(EXPECTED_METHOD_KEYS.length);

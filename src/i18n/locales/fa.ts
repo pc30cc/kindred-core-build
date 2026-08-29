@@ -4080,6 +4080,17 @@ const fa: TranslationKeys = {
       name: 'بله',
       description: 'پیام‌های پیام‌رسان بله را مستقیماً در صندوق ورودی دریافت کنید و پاسخ دهید.',
     },
+    whatsapp: {
+      phoneNumberId: 'شناسه شماره تلفن (Phone Number ID)'
+      phoneNumberIdHint: 'در داشبورد Meta ▸ WhatsApp ▸ API Setup قابل مشاهده است.'
+      accessToken: 'توکن دسترسی دائمی'
+      accessTokenHint: 'توکن System User با دسترسی whatsapp_business_messaging.'
+      businessAccountId: 'شناسه حساب کسب\u200cوکار (WABA ID)'
+      webhookSetupTitle: 'تنظیم وب\u200cهوک در داشبورد Meta'
+      webhookSetupHint: 'این آدرس و توکن تأیید را در بخش Webhooks اپلیکیشن Meta وارد کنید و رویداد messages را فعال کنید.'
+      callbackUrl: 'Callback URL'
+      verifyToken: 'Verify Token'
+    },
     telegram: {
       photoUrl: 'تصویر ربات',
       photoUrlHint: 'این تصویر فقط داخل همین فضای کاری (صندوق ورودی و تنظیمات) نمایش داده می‌شود. {provider} اجازه نمی‌دهد ربات تصویر پروفایل خودش را تغییر دهد؛ آواتار واقعی ربات را از BotFather تنظیم کنید.',

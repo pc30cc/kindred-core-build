@@ -4084,6 +4084,17 @@ const tr: TranslationKeys = {
       name: 'Bale',
       description: 'Bale (بله) mesajlarını doğrudan Gelen Kutusu’nda alın ve yanıtlayın.',
     },
+    whatsapp: {
+      phoneNumberId: 'Telefon Numarası Kimliği'
+      phoneNumberIdHint: 'Meta panosu ▸ WhatsApp ▸ API Setup bölümünde bulunur.'
+      accessToken: 'Kalıcı erişim belirteci'
+      accessTokenHint: 'whatsapp_business_messaging iznine sahip bir System User belirteci.'
+      businessAccountId: 'WhatsApp İşletme Hesabı Kimliği'
+      webhookSetupTitle: 'Webhook’u Meta panosunda yapılandırın'
+      webhookSetupHint: 'Bu geri arama adresini ve doğrulama belirtecini Meta uygulamanızın Webhooks bölümüne girin ve messages olayına abone olun.'
+      callbackUrl: 'Callback URL'
+      verifyToken: 'Verify Token'
+    },
     telegram: {
       photoUrl: 'Bot görseli',
       photoUrlHint: 'Bu görsel yalnızca bu çalışma alanında (Gelen Kutusu ve ayarlar) gösterilir. {provider}, botların kendi profil fotoğrafını değiştirmesine izin vermez; gerçek avatarı BotFather üzerinden ayarlayın.',

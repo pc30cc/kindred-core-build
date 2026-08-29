@@ -18,24 +18,10 @@
 
 import {
   TelegramApiError,
-  answerCallbackQuery,
-  deleteWebhook,
-  downloadFile,
-  editMessageText,
-  getFile,
-  getMe,
-  getUserProfilePhotoFileId,
-  getWebhookInfo,
   redactToken,
-  sendChatAction,
-  sendMessage,
-  setMyCommands,
-  setMyDescription,
-  setMyName,
-  setMyShortDescription,
-  setWebhook,
   type BotCredential,
 } from '../../channels/providers/telegram/client.js';
+import { botApiFor } from './botApi.js';
 import { botProvider, renderBotText, type BotProviderDescriptor } from '../../shared/channels/botProviders.js';
 
 /** Legacy Telegram slot names, kept for callers that predate multi-provider. */
@@ -176,7 +162,7 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
 
   let identity;
   try {
-    identity = await getMe(token);
+    identity = await api.getMe(token);
   } catch (err) {
     const { code, message } = fail(err);
     await report(ctx, operation, { status: 'failed', error_code: 'invalid_token', error_message: message || code });
@@ -197,7 +183,7 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
   }
 
   try {
-    await setWebhook(
+    await api.setWebhook(
       token,
       preflight.webhook_url,
       provider.supportsSecretToken ? preflight.secret_token : null,
@@ -216,14 +202,14 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
 
   // The provider CONFIRMS the exact URL — never trust the write alone.
   try {
-    const info = await getWebhookInfo(token);
+    const info = await api.getWebhookInfo(token);
     if (info.url !== preflight.webhook_url) {
       await report(ctx, operation, {
         status: 'failed',
         error_code: 'webhook_url_mismatch',
         error_message: `${provider.label} reports a different webhook URL`,
       });
-      await deleteWebhook(token).catch(() => {});
+      await api.deleteWebhook(token).catch(() => {});
       await restorePreviousWebhook(ctx, operation, preflight);
       return;
     }
@@ -234,7 +220,7 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
       error_code: 'webhook_verify_failed',
       error_message: message,
     });
-    await deleteWebhook(token).catch(() => {});
+    await api.deleteWebhook(token).catch(() => {});
     await restorePreviousWebhook(ctx, operation, preflight);
     return;
   }
@@ -251,7 +237,7 @@ async function runConnect(ctx: OperationContext, operation: ProviderOperationRec
 
   // Core could not commit: undo the provider-side change we just made.
   if (outcome && outcome.ok === false && outcome.rollback) {
-    await deleteWebhook(token).catch(() => {});
+    await api.deleteWebhook(token).catch(() => {});
     await restorePreviousWebhook(ctx, operation, preflight);
   }
 }
@@ -269,7 +255,7 @@ async function restorePreviousWebhook(
   const provider = descriptorFor(operation);
   try {
     const liveToken = await credential(ctx, provider, operation.integration_id, 'live');
-    await setWebhook(
+    await api.setWebhook(
       liveToken,
       preflight.webhook_url,
       provider.supportsSecretToken ? preflight.secret_token : null,
@@ -288,7 +274,7 @@ async function runDisconnect(ctx: OperationContext, operation: ProviderOperation
   let error: { code: string; message: string } | null = null;
   try {
     const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
-    await deleteWebhook(token);
+    await api.deleteWebhook(token);
     removed = true;
   } catch (err) {
     error = fail(err);
@@ -329,13 +315,13 @@ async function runWebhookRepair(ctx: OperationContext, operation: ProviderOperat
 
 
   try {
-    await setWebhook(
+    await api.setWebhook(
       token,
       target,
       provider.supportsSecretToken ? secret : null,
       provider.supportsAllowedUpdates ? undefined : null,
     );
-    const info = await getWebhookInfo(token);
+    const info = await api.getWebhookInfo(token);
     if (info.url !== target) throw new Error(`${provider.label} reports a different webhook URL`);
     await report(ctx, operation, { status: 'succeeded', result: { repaired: true, webhook_url: target } });
   } catch (err) {
@@ -348,7 +334,7 @@ async function runDiagnostics(ctx: OperationContext, operation: ProviderOperatio
   const integrationId = requireIntegration(operation);
   try {
     const token = await credential(ctx, descriptorFor(operation), integrationId, 'live');
-    const info = await getWebhookInfo(token);
+    const info = await api.getWebhookInfo(token);
     await report(ctx, operation, {
       status: 'succeeded',
       result: {
@@ -376,19 +362,19 @@ async function runProfileSync(ctx: OperationContext, operation: ProviderOperatio
 
   try {
     if (profile.name && canProfile) {
-      await setMyName(token, String(profile.name));
+      await api.setMyName(token, String(profile.name));
       applied.push('name');
     }
     if (profile.short_description && canProfile) {
-      await setMyShortDescription(token, String(profile.short_description));
+      await api.setMyShortDescription(token, String(profile.short_description));
       applied.push('short_description');
     }
     if (profile.description && canProfile) {
-      await setMyDescription(token, String(profile.description));
+      await api.setMyDescription(token, String(profile.description));
       applied.push('description');
     }
     if (Array.isArray(profile.commands) && provider.supportsCommands) {
-      await setMyCommands(token, profile.commands);
+      await api.setMyCommands(token, profile.commands);
       applied.push('commands');
     }
   } catch (err) {
@@ -418,9 +404,9 @@ async function runMediaFetch(ctx: OperationContext, operation: ProviderOperation
     const kind = String(attachment?.kind ?? 'document');
     if (!fileId) continue;
     try {
-      const meta = await getFile(token, fileId);
+      const meta = await api.getFile(token, fileId);
       if (meta.file_size && meta.file_size > maxBytes) throw new Error('file_too_large');
-      const bytes = await downloadFile(token, meta.file_path, maxBytes);
+      const bytes = await api.downloadFile(token, meta.file_path, maxBytes);
 
       // Core validates and persists; only bot-agnostic metadata crosses.
       const query = new URLSearchParams({
@@ -457,18 +443,18 @@ async function runAvatarFetch(ctx: OperationContext, operation: ProviderOperatio
   try {
     const fileId =
       userId && provider.supportsUserProfilePhotos
-        ? await getUserProfilePhotoFileId(token, userId)
+        ? await api.getUserProfilePhotoFileId(token, userId)
         : null;
     if (!fileId) {
       await report(ctx, operation, { status: 'succeeded', result: { no_photo: true } });
       return;
     }
-    const meta = await getFile(token, fileId);
+    const meta = await api.getFile(token, fileId);
     if (meta.file_size && meta.file_size > maxBytes) {
       await report(ctx, operation, { status: 'succeeded', result: { no_photo: true } });
       return;
     }
-    const bytes = await downloadFile(token, meta.file_path, maxBytes);
+    const bytes = await api.downloadFile(token, meta.file_path, maxBytes);
     const query = new URLSearchParams({
       operation_id: operation.id,
       kind: 'avatar',
@@ -506,10 +492,10 @@ export async function executeOutboundActions(
     const parseMode = rendered.parseMode as 'HTML' | 'MarkdownV2' | undefined;
     try {
       if (kind === 'answer_callback') {
-        await answerCallbackQuery(token, String(action.callback_query_id), action.text ?? undefined);
+        await api.answerCallbackQuery(token, String(action.callback_query_id), action.text ?? undefined);
       } else if (kind === 'send_message') {
-        if (action.typing) await sendChatAction(token, action.chat_id, 'typing').catch(() => undefined);
-        await sendMessage(token, {
+        if (action.typing) await api.sendChatAction(token, action.chat_id, 'typing').catch(() => undefined);
+        await api.sendMessage(token, {
           chatId: action.chat_id,
           text,
           parseMode,
@@ -517,7 +503,7 @@ export async function executeOutboundActions(
         });
       } else if (kind === 'edit_message') {
         try {
-          await editMessageText(token, {
+          await api.editMessageText(token, {
             chatId: action.chat_id,
             messageId: Number(action.message_id),
             text,
@@ -528,7 +514,7 @@ export async function executeOutboundActions(
           // Telegram refuses to edit old/unchanged bubbles; a fresh screen is
           // strictly better than a dead menu.
           if (action.send_on_edit_failure) {
-            await sendMessage(token, {
+            await api.sendMessage(token, {
               chatId: action.chat_id,
               text,
               parseMode,

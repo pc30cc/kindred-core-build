@@ -355,8 +355,7 @@ export async function runRuntimeDecisionStage(
     };
   }
 
-    return { terminal: { ran: true, action: 'handoff', reason: decision.reason, runId, messageId } };
-  }
+
 
   return { decision, routingKeepAi, handoffPolicyDecision, assistFirstActive };
 }

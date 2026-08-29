@@ -4084,6 +4084,18 @@ const tr: TranslationKeys = {
       name: 'Bale',
       description: 'Bale (بله) mesajlarını doğrudan Gelen Kutusu’nda alın ve yanıtlayın.',
     },
+    instagram: {
+      name: 'Instagram',
+      description: 'Instagram Direct mesajlarını doğrudan Gelen Kutusu’nda alın ve yanıtlayın.',
+      accountId: 'Instagram hesap kimliği',
+      accountIdHint: 'IG profesyonel hesap kimliği; Meta panosu ▸ Instagram ▸ API setup bölümünde bulunur.',
+      accessToken: 'Erişim belirteci',
+      accessTokenHint: 'instagram_manage_messages ve pages_messaging izinlerine sahip uzun ömürlü Sayfa belirteci.',
+      pageId: 'Bağlı Facebook Sayfa kimliği',
+      pageIdHint: 'İsteğe bağlı — bu Instagram hesabına bağlı Facebook Sayfası.',
+      webhookSetupTitle: 'Webhook’u Meta panosunda yapılandırın',
+      webhookSetupHint: 'Bu geri arama adresini ve doğrulama belirtecini Meta uygulamanızın Webhooks bölümüne girin ve Instagram mesaj olayına abone olun.',
+    },
     whatsapp: {
       phoneNumberId: "Telefon Numarası Kimliği",
       phoneNumberIdHint: "Meta panosu ▸ WhatsApp ▸ API Setup bölümünde bulunur.",

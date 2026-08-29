@@ -12,6 +12,7 @@
 
 import * as telegram from '../../channels/providers/telegram/client.js';
 import * as whatsapp from '../../channels/providers/whatsapp/client.js';
+import * as instagram from '../../channels/providers/instagram/client.js';
 import { botProvider, type BotProviderDescriptor } from '../../shared/channels/botProviders.js';
 import type { BotCredential } from '../../channels/providers/telegram/client.js';
 
@@ -107,7 +108,28 @@ const WHATSAPP_API: BotApi = {
   getUserProfilePhotoFileId: async () => whatsapp.getUserProfilePhotoFileId(),
 };
 
+const INSTAGRAM_API: BotApi = {
+  getMe: instagram.getMe,
+  setWebhook: async () => instagram.setWebhook(),
+  deleteWebhook: async () => instagram.deleteWebhook(),
+  getWebhookInfo: async () => instagram.getWebhookInfo(),
+  sendMessage: instagram.sendMessage,
+  sendChatAction: (c, chatId) => instagram.sendChatAction(c, chatId),
+  editMessageText: async () => instagram.editMessageText(),
+  answerCallbackQuery: async () => instagram.answerCallbackQuery(),
+  getFile: instagram.getFile,
+  downloadFile: instagram.downloadFile,
+  sendMedia: instagram.sendMedia,
+  setMyName: async () => instagram.setMyName(),
+  setMyShortDescription: async () => instagram.setMyShortDescription(),
+  setMyDescription: async () => instagram.setMyDescription(),
+  setMyCommands: async () => instagram.setMyCommands(),
+  getUserProfilePhotoFileId: instagram.getUserProfilePhotoFileId,
+};
+
 export function botApiFor(provider: string | BotProviderDescriptor): BotApi {
   const descriptor = typeof provider === 'string' ? botProvider(provider) : provider;
-  return descriptor.dialect === 'whatsapp-cloud' ? WHATSAPP_API : TELEGRAM_API;
+  if (descriptor.dialect === 'whatsapp-cloud') return WHATSAPP_API;
+  if (descriptor.dialect === 'instagram-graph') return INSTAGRAM_API;
+  return TELEGRAM_API;
 }

@@ -12,7 +12,7 @@
  * provider id in feature code, read the capability flag instead.
  */
 
-export const BOT_PROVIDER_IDS = ['telegram', 'bale', 'whatsapp'] as const;
+export const BOT_PROVIDER_IDS = ['telegram', 'bale', 'whatsapp', 'instagram'] as const;
 export type BotProviderId = (typeof BOT_PROVIDER_IDS)[number];
 
 /**
@@ -20,7 +20,7 @@ export type BotProviderId = (typeof BOT_PROVIDER_IDS)[number];
  * neutral (text + a keyboard description); the Worker translates it into the
  * dialect right before the socket, so no feature code ever branches on ids.
  */
-export type BotApiDialect = 'telegram-bot' | 'whatsapp-cloud';
+export type BotApiDialect = 'telegram-bot' | 'whatsapp-cloud' | 'instagram-graph';
 
 /** Markup a provider actually renders in a chat bubble. */
 export type BotTextFormat = 'html' | 'whatsapp' | 'plain';
@@ -69,11 +69,11 @@ export type BotProviderDescriptor = {
    */
   supportsWebhookRegistration: boolean;
   /** Inline/reply keyboards vs. WhatsApp interactive buttons + list rows. */
-  keyboardStyle: 'telegram' | 'whatsapp-interactive';
+  keyboardStyle: 'telegram' | 'whatsapp-interactive' | 'instagram-quick-reply';
   /** Max buttons a single screen may carry (WhatsApp caps hard). */
   maxButtonsPerScreen: number;
   /** Credential shape accepted by the connect endpoint. */
-  credentialKind: 'bot_token' | 'whatsapp_cloud';
+  credentialKind: 'bot_token' | 'whatsapp_cloud' | 'instagram_graph';
   /** Plan channel entitlement key in the capability registry. */
   planChannelKey: string;
   /** Encrypted credential slots in `plugin_secrets`. */
@@ -163,6 +163,42 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     credentialKind: 'whatsapp_cloud',
     planChannelKey: 'whatsapp',
     secretKeys: secretKeys('whatsapp'),
+  },
+  instagram: {
+    id: 'instagram',
+    label: 'Instagram',
+    // Instagram Messaging rides the Meta Messenger Platform: the same Graph
+    // host, a different endpoint shape (`recipient`/`message`) and quick
+    // replies instead of inline keyboards.
+    dialect: 'instagram-graph',
+    apiRoot: 'https://graph.facebook.com',
+    apiVersion: 'v21.0',
+    // Credential envelope: { ig_account_id, access_token, page_id? }.
+    tokenPattern: /^\{[\s\S]*"access_token"[\s\S]*\}$/,
+    // Meta signs the body with the app secret (X-Hub-Signature-256), which
+    // the credential-free Gateway cannot verify; authenticity rests on the
+    // unguessable 192-bit public integration id in the callback path.
+    webhookSecretHeader: null,
+    supportsSecretToken: false,
+    supportsAllowedUpdates: false,
+    // The IG professional account name/bio are edited in the Instagram app,
+    // never through the messaging API.
+    supportsBotProfile: false,
+    supportsCommands: false,
+    // `sender_action: typing_on` exists on the Messenger Platform.
+    supportsChatAction: true,
+    // `GET /{igsid}?fields=profile_pic` returns the contact avatar.
+    supportsUserProfilePhotos: true,
+    supportsHtmlFormatting: false,
+    textFormat: 'plain',
+    // Webhooks are subscribed once in the Meta app dashboard.
+    supportsWebhookRegistration: false,
+    keyboardStyle: 'instagram-quick-reply',
+    // Messenger Platform caps quick replies at 13 per message.
+    maxButtonsPerScreen: 13,
+    credentialKind: 'instagram_graph',
+    planChannelKey: 'instagram',
+    secretKeys: secretKeys('instagram'),
   },
 };
 

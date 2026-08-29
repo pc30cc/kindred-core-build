@@ -377,6 +377,8 @@ async function handleJob(job: ChannelJob): Promise<void> {
     case 'bale_inbound_event':
     case 'bale_inbound_media':
     case 'whatsapp_inbound_event':
+    case 'instagram_inbound_event':
+    case 'instagram_inbound_media':
     case 'whatsapp_inbound_media': {
       // Media arrives inside the same update envelope; Core normalizes both
       // and owns attachment persistence, so the worker only forwards.
@@ -392,6 +394,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
     // ── Outbound text ─────────────────────────────────────────────────
     case 'telegram_outbound_message':
     case 'bale_outbound_message':
+    case 'instagram_outbound_message':
     case 'whatsapp_outbound_message': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
@@ -421,6 +424,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
     // ── Outbound media ────────────────────────────────────────────────
     case 'telegram_outbound_media':
     case 'bale_outbound_media':
+    case 'instagram_outbound_media':
     case 'whatsapp_outbound_media': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
@@ -480,6 +484,8 @@ async function handleJob(job: ChannelJob): Promise<void> {
     case 'bale_profile_sync':
     case 'bale_webhook_repair':
     case 'whatsapp_profile_sync':
+    case 'instagram_profile_sync':
+    case 'instagram_webhook_repair':
     case 'whatsapp_webhook_repair': {
       const operationId = String(payload.operation_id ?? '');
       if (!operationId) {

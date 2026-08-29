@@ -64,8 +64,8 @@ export default function PluginsPage() {
     return label === key ? '' : label;
   }
 
-  // Curated display order — flagship channels first (Telegram, then Bale).
-  const DISPLAY_ORDER = ['telegram', 'bale'];
+  // Curated display order — flagship channels first.
+  const DISPLAY_ORDER = ['telegram', 'bale', 'whatsapp', 'instagram'];
   const items = useMemo(() => {
     const rank = (id: string) => {
       const i = DISPLAY_ORDER.indexOf(id);

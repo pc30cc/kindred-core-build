@@ -56,6 +56,7 @@ import { BOT_PROVIDER_IDS } from '../../shared/channels/botProviders.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
 import { whatsappToBotUpdates } from '../services/channels/whatsapp/toBotUpdate.js';
+import { instagramToBotUpdates } from '../services/channels/instagram/toBotUpdate.js';
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 
@@ -132,10 +133,13 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
     // messages (plus non-conversational delivery statuses) into one webhook
     // body, so it expands into zero or more bot-shaped updates. Every other
     // provider already speaks the shared envelope.
+    const dialect = botProvider(parsed.data.provider).dialect;
     const updates =
-      botProvider(parsed.data.provider).dialect === 'whatsapp-cloud'
+      dialect === 'whatsapp-cloud'
         ? whatsappToBotUpdates(parsed.data.update as Record<string, any>)
-        : [parsed.data.update];
+        : dialect === 'instagram-graph'
+          ? instagramToBotUpdates(parsed.data.update as Record<string, any>)
+          : [parsed.data.update];
 
     for (const update of updates) {
       await enqueueChannelJob(sb, {

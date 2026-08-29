@@ -35,6 +35,13 @@ export const CHANNEL_JOB_TYPES = [
   'whatsapp_outbound_media',
   'whatsapp_profile_sync',
   'whatsapp_webhook_repair',
+  // Instagram Messaging (Meta Messenger Platform). Same job surface again.
+  'instagram_inbound_event',
+  'instagram_inbound_media',
+  'instagram_outbound_message',
+  'instagram_outbound_media',
+  'instagram_profile_sync',
+  'instagram_webhook_repair',
   // Provider-network-isolated work. Everything that must touch a provider
   // socket runs through these, executed exclusively by the Channels Worker.
   'provider_operation',

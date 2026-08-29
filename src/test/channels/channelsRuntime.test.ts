@@ -133,6 +133,12 @@ describe('worker boundary', () => {
     expect(chatRoutingSource).toContain('telegramOfflineScreenJustSent');
     expect(chatRoutingSource).toContain('telegram_offline_notice_at');
     expect(chatRoutingSource).toContain('maybeQueueTelegramOfflineScreen');
+    expect(chatRoutingSource).toContain("const alreadyShownInChannel = metadata.channel === 'telegram'");
+  });
+
+  it('does not erase an offline-screen claim with stale routing metadata', () => {
+    expect(chatRoutingSource).toContain(".select('metadata')");
+    expect(chatRoutingSource).toContain('...latestMetadata');
   });
 
   it('claims the Telegram offline screen before enqueueing it', () => {
@@ -151,6 +157,8 @@ describe('worker boundary', () => {
     expect(aiResponderSourceForOffline).toContain('offlineScreenQueued');
     expect(aiResponderSourceForOffline).toContain("channel_delivery_skip: 'true'");
     expect(aiResponderSourceForOffline).toContain('if (!offlineScreenQueued)');
+    expect(aiResponderSourceForOffline).toContain('resolvedVisitorBody: input.body');
+    expect(telegramOfflineDeliverySource).toContain('bodyConfirmsOffline');
   });
 
   it('treats a handed-off Telegram conversation as having no AI responder', () => {

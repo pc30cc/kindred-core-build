@@ -235,9 +235,12 @@ export function extractUrls(text: string): string[] {
 
 /** "this link doesn't open", "لینک باز نمیشه", "link açılmıyor" … */
 const BROKEN_RESOURCE_PATTERNS = [
-  /\blink\b.{0,24}\b(broken|dead|down|not work|doesn'?t work|won'?t open|does not open|404)\b/i,
+  // The documented example "that link doesn't open" must match, so the
+  // negated-verb alternatives cover doesn't/won't/does not/isn't + open|load.
+  /\blink\b.{0,24}\b(broken|dead|down|404|(not|doesn'?t|does not|won'?t|isn'?t|can'?t|cannot)\s+(work|working|open|opening|load|loading))\b/i,
   /\b(broken|dead|invalid)\s+link\b/i,
-  /\burl\b.{0,20}\b(not work|doesn'?t work|404|error)\b/i,
+  /\burl\b.{0,20}\b(404|error|(not|doesn'?t|does not|won'?t)\s+(work|working|open|load))\b/i,
+
   /لینک.{0,25}(باز نمی|کار نمی|خرابه|باز نمیشه|نمی‌شه|نمیشه)/,
   /(باز نمی‌شود|باز نمیشه).{0,20}لینک/,
   /link.{0,20}(açılmıyor|çalışmıyor|bozuk)/i,

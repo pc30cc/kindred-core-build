@@ -68,7 +68,14 @@ export type TelegramInboundFlowResult = {
   locale: string | null;
   /** The menu/slash command the visitor tapped, when recognized. */
   command?: TelegramCommandKey | null;
+  /**
+   * Text the AI engine should answer instead of the raw update text. Used for
+   * `/start` while the assistant is live: the visitor sees an AI greeting
+   * rather than the static welcome copy.
+   */
+  aiPrompt?: string | null;
 };
+
 
 async function conversationIsWaitingForHuman(
   config: ServerConfig,

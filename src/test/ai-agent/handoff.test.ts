@@ -1317,7 +1317,7 @@ describe('M/N — failed canonical handoff commit in the real runtime-decision p
     expect(result.action).not.toBe('handoff');
 
     // Exact final state: nothing about a handoff was persisted.
-    const conv = fakeSb.__tables.conversations[0];
+    const conv = fakeSb.__store.conversations[0];
     const meta = conv.metadata || {};
     expect(meta.ai_handoff_requested).toBeUndefined();
     expect(meta.ai_state).toBeUndefined();

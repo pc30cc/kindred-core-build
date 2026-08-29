@@ -38,7 +38,6 @@ import {
   AlertCircle,
   CheckCircle2,
   BookOpen,
-  Copy,
   HelpCircle,
   Loader2,
   Plus,
@@ -379,25 +378,8 @@ export function TelegramConfigPanel({
             )}
           </div>
 
-          {integration?.webhookUrl && (
-            <div className="space-y-1.5">
-              <Label>{t('plugins.telegram.webhookUrl')}</Label>
-              <div className="flex items-center gap-2">
-                <Input dir="ltr" readOnly value={integration.webhookUrl} className="font-mono text-xs" />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(integration.webhookUrl!);
-                    toast({ title: t('plugins.action.copied') });
-                  }}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+
+
 
           {integration && (
             <div className="grid grid-cols-2 gap-3 rounded-lg border p-3 text-xs">

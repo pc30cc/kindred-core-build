@@ -124,6 +124,8 @@ export function TelegramConfigPanel({
 
   const { t } = useTranslation();
   const qc = useQueryClient();
+  /** Human-readable provider name so toasts never say "Telegram" for Bale. */
+  const providerLabel = t(`plugins.${provider}.name` as never) || (provider === 'bale' ? 'Bale' : 'Telegram');
   const [token, setToken] = useState('');
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [botName, setBotName] = useState('');
@@ -245,13 +247,13 @@ export function TelegramConfigPanel({
     mutationFn: () => pluginsApi.telegramConnect(workspaceId, token.trim(), provider),
     onSuccess: () => {
       setToken('');
-      toast({ title: t('plugins.telegram.connectSuccess') });
+      toast({ title: t('plugins.telegram.connectSuccess', { provider: providerLabel }) });
       refresh();
     },
     onError: (err: any) =>
       toast({
         variant: 'destructive',
-        title: t(connectErrorKey(err?.code) as never),
+        title: t(connectErrorKey(err?.code) as never, { provider: providerLabel }),
         description:
           err?.code === 'duplicate_bot'
             ? undefined
@@ -287,7 +289,7 @@ export function TelegramConfigPanel({
   const disconnect = useMutation({
     mutationFn: () => pluginsApi.telegramDisconnect(workspaceId, provider),
     onSuccess: () => {
-      toast({ title: t('plugins.telegram.disconnected') });
+      toast({ title: t('plugins.telegram.disconnected', { provider: providerLabel }) });
       setDiagnostics(null);
       refresh();
     },

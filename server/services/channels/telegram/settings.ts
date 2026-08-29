@@ -363,9 +363,10 @@ export async function resolveTelegramHandlingMode(
   config: ServerConfig,
   workspaceId: string,
   requestedMode: TelegramHandlingMode,
+  provider: BotProviderId = 'telegram',
 ): Promise<{ mode: TelegramHandlingMode; aiAvailable: boolean }> {
   const [platformEnabled, entitled] = await Promise.all([
-    isTelegramAiPlatformEnabled(config),
+    isTelegramAiPlatformEnabled(config, provider),
     hasAiEntitlement(config, workspaceId),
   ]);
   const aiAvailable = platformEnabled && entitled;
@@ -383,18 +384,24 @@ export async function resolveTelegramHandlingMode(
  * Super Admin switch controlling whether Telegram bot menu taps are surfaced
  * in the operator inbox. Absent means ON (existing behavior).
  */
-export async function isTelegramMenuEventsVisible(config: ServerConfig): Promise<boolean> {
+export async function isTelegramMenuEventsVisible(
+  config: ServerConfig,
+  provider: BotProviderId = 'telegram',
+): Promise<boolean> {
   try {
-    const state = await getPlatformState(config, 'telegram');
+    const state = await getPlatformState(config, provider);
     return (state.policy as Record<string, unknown> | null)?.menuEventsVisible !== false;
   } catch {
     return true;
   }
 }
 
-export async function isTelegramAiPlatformEnabled(config: ServerConfig): Promise<boolean> {
+export async function isTelegramAiPlatformEnabled(
+  config: ServerConfig,
+  provider: BotProviderId = 'telegram',
+): Promise<boolean> {
   try {
-    const state = await getPlatformState(config, 'telegram');
+    const state = await getPlatformState(config, provider);
     return (state.policy as Record<string, unknown> | null)?.aiEnabled !== false;
   } catch {
     return true;
@@ -420,8 +427,9 @@ export async function sanitizeTelegramSettingsForSave(
   config: ServerConfig,
   workspaceId: string,
   settings: TelegramSettings,
+  provider: BotProviderId = 'telegram',
 ): Promise<TelegramSettings> {
-  const { mode } = await resolveTelegramHandlingMode(config, workspaceId, settings.handlingMode);
+  const { mode } = await resolveTelegramHandlingMode(config, workspaceId, settings.handlingMode, provider);
   return { ...settings, handlingMode: mode };
 }
 

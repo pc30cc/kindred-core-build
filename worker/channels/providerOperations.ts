@@ -36,7 +36,7 @@ import {
   setWebhook,
   type BotCredential,
 } from '../../channels/providers/telegram/client.js';
-import { botProvider, type BotProviderDescriptor } from '../../shared/channels/botProviders.js';
+import { botProvider, renderBotText, type BotProviderDescriptor } from '../../shared/channels/botProviders.js';
 
 /** Legacy Telegram slot names, kept for callers that predate multi-provider. */
 export const TOKEN_KEY = 'telegram_bot_token';
@@ -495,6 +495,15 @@ export async function executeOutboundActions(
 
   for (const action of actions) {
     const kind = String(action?.kind ?? '');
+    // Providers that ignore `parse_mode` (Bale) must never receive markup —
+    // flatten it here, once, for every outbound screen.
+    const rendered = renderBotText(
+      provider.id,
+      String(action?.text ?? ''),
+      (action?.parse_mode as string | undefined) ?? undefined,
+    );
+    const text = rendered.text;
+    const parseMode = rendered.parseMode as 'HTML' | 'MarkdownV2' | undefined;
     try {
       if (kind === 'answer_callback') {
         await answerCallbackQuery(token, String(action.callback_query_id), action.text ?? undefined);
@@ -502,8 +511,8 @@ export async function executeOutboundActions(
         if (action.typing) await sendChatAction(token, action.chat_id, 'typing').catch(() => undefined);
         await sendMessage(token, {
           chatId: action.chat_id,
-          text: String(action.text ?? ''),
-          parseMode: action.parse_mode ?? undefined,
+          text,
+          parseMode,
           replyMarkup: action.reply_markup ?? undefined,
         });
       } else if (kind === 'edit_message') {
@@ -511,8 +520,8 @@ export async function executeOutboundActions(
           await editMessageText(token, {
             chatId: action.chat_id,
             messageId: Number(action.message_id),
-            text: String(action.text ?? ''),
-            parseMode: action.parse_mode ?? undefined,
+            text,
+            parseMode,
             replyMarkup: action.reply_markup ?? undefined,
           });
         } catch (err) {
@@ -521,8 +530,8 @@ export async function executeOutboundActions(
           if (action.send_on_edit_failure) {
             await sendMessage(token, {
               chatId: action.chat_id,
-              text: String(action.text ?? ''),
-              parseMode: action.parse_mode ?? undefined,
+              text,
+              parseMode,
               replyMarkup: action.reply_markup ?? undefined,
             });
           } else {

@@ -318,7 +318,7 @@ export function TelegramConfigPanel({
       // reflect the effective mode instead of the requested one.
       const effective = data?.settings?.handlingMode;
       if (effective === 'human_only' || effective === 'ai_first') setHandlingMode(effective);
-      toast({ title: t('plugins.telegram.settingsSaved') });
+      toast({ title: t('plugins.telegram.settingsSaved', { provider: providerLabel }) });
       refresh();
     },
     onError: (err: any) =>
@@ -458,7 +458,7 @@ export function TelegramConfigPanel({
                 className="text-destructive"
                 disabled={disconnect.isPending}
                 onClick={() => {
-                  if (window.confirm(t('plugins.telegram.confirmDisconnect'))) disconnect.mutate();
+                  if (window.confirm(t('plugins.telegram.confirmDisconnect', { provider: providerLabel }))) disconnect.mutate();
                 }}
               >
                 {disconnect.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
@@ -691,7 +691,7 @@ export function TelegramConfigPanel({
               )}
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">{t('plugins.telegram.photoUrlHint')}</p>
+          <p className="text-xs text-muted-foreground">{t('plugins.telegram.photoUrlHint', { provider: providerLabel })}</p>
         </div>
 
 
@@ -809,7 +809,7 @@ export function TelegramConfigPanel({
 
       <div className="space-y-2" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
         <Label>{t('plugins.telegram.commandsTitle')}</Label>
-        <p className="text-xs text-muted-foreground">{t('plugins.telegram.commandsHint')}</p>
+        <p className="text-xs text-muted-foreground">{t('plugins.telegram.commandsHint', { provider: providerLabel })}</p>
         {COMMAND_KEYS.filter(
           (key) =>
             (key !== 'faq' || menuSettings.faqEnabled) && (key !== 'guides' || menuSettings.guidesEnabled),

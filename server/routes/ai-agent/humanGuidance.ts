@@ -22,7 +22,9 @@ import {
   listGuidanceRequests, resolveGuidanceRequest,
   MAX_GUIDANCE_BODY,
 } from '../../services/ai-agent/guidance.js';
+import { replyNowWithGuidance, checkReplyNowEligibility } from '../../services/ai-agent/replyNow.js';
 import { authorizeMember } from './shared.js';
+
 
 export const humanGuidanceRouter: Router = express.Router();
 

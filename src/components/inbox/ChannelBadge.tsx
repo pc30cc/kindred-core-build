@@ -8,7 +8,7 @@
 import { MessageSquare, Send, Mail, Phone, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type ChannelKey = 'telegram' | 'whatsapp' | 'email' | 'phone' | 'widget';
+export type ChannelKey = 'telegram' | 'bale' | 'whatsapp' | 'email' | 'phone' | 'widget';
 
 const META: Record<ChannelKey, { icon: typeof Send; label: string; className: string }> = {
   telegram: {
@@ -16,12 +16,18 @@ const META: Record<ChannelKey, { icon: typeof Send; label: string; className: st
     label: 'Telegram',
     className: 'bg-[hsl(200_90%_50%/0.12)] text-[hsl(200_90%_40%)] border-[hsl(200_90%_50%/0.25)]',
   },
+  bale: {
+    icon: Send,
+    label: 'بله',
+    className: 'bg-[hsl(150_60%_45%/0.12)] text-[hsl(150_60%_32%)] border-[hsl(150_60%_45%/0.25)]',
+  },
   whatsapp: {
     icon: MessageCircle,
     label: 'WhatsApp',
     className: 'bg-success/10 text-success border-success/25',
   },
   email: { icon: Mail, label: 'Email', className: 'bg-secondary text-muted-foreground border-border' },
+
   phone: { icon: Phone, label: 'Phone', className: 'bg-secondary text-muted-foreground border-border' },
   widget: {
     icon: MessageSquare,

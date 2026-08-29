@@ -215,6 +215,27 @@ export const pluginsApi = {
       { method: 'POST', body: JSON.stringify({ workspace_id: workspaceId, bot_token: botToken }) },
     ),
 
+  /**
+   * WhatsApp Cloud connects with a phone number id + permanent access token
+   * instead of a bot token; the server stores both in the same encrypted slot.
+   */
+  whatsappConnect: (
+    workspaceId: string,
+    input: { phoneNumberId: string; accessToken: string; businessAccountId?: string },
+  ) =>
+    jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
+      '/api/plugins/bot/whatsapp/connect',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          phone_number_id: input.phoneNumberId,
+          access_token: input.accessToken,
+          business_account_id: input.businessAccountId || null,
+        }),
+      },
+    ),
+
   telegramDiagnostics: (workspaceId: string, provider = 'telegram') =>
     jsonFetch<Record<string, unknown>>(`/api/plugins/bot/${provider}/diagnostics`, {
       method: 'POST',

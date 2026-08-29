@@ -209,9 +209,10 @@ pluginsRouter.post('/uninstall', async (req: any, res) => {
     if (!installation) return res.json({ ok: true });
 
     // Provider-side cleanup first so no orphan webhook keeps delivering.
-    if (pluginId === 'telegram') await requestTelegramDisconnect(config, installation.id, auth.userId);
-
-    await deletePluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY);
+    if (isBotProvider(pluginId)) {
+      await requestTelegramDisconnect(config, installation.id, auth.userId);
+      await deletePluginSecret(config, installation.id, botProvider(pluginId).secretKeys.live);
+    }
     await setInstallationStatus(config, installation.id, 'uninstalled');
     res.json({ ok: true });
   } catch (err) {
@@ -220,14 +221,33 @@ pluginsRouter.post('/uninstall', async (req: any, res) => {
   }
 });
 
-// ── Telegram configuration ────────────────────────────────────────────
+// ── Bot channel configuration (Telegram, Bale) ────────────────────────
+//
+// Telegram and Bale share ONE implementation: Bale speaks the Telegram Bot
+// API on its own host. The historical `/telegram/*` paths keep working and
+// every provider is also reachable at `/bot/:provider/*`.
+
+/** Resolves and validates the bot provider addressed by the request. */
+function botProviderOf(req: any, res: any): string | null {
+  const provider = String(req.params?.provider || 'telegram');
+  if (!isBotProvider(provider)) {
+    res.status(404).json({ error: 'unknown_provider' });
+    return null;
+  }
+  return provider;
+}
+
+const botPaths = (suffix: string) => [`/telegram/${suffix}`, `/bot/:provider/${suffix}`];
+
 
 const telegramConnectSchema = z.object({
   workspace_id: z.string().uuid(),
   bot_token: z.string().min(20).max(200).regex(/^\d{6,}:[A-Za-z0-9_-]{20,}$/, 'Invalid bot token format'),
 });
 
-pluginsRouter.post('/telegram/connect', async (req: any, res) => {
+pluginsRouter.post(botPaths('connect'), async (req: any, res) => {
+  const provider = botProviderOf(req, res);
+  if (!provider) return;
   const parsed = telegramConnectSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid bot token' });
   const { workspace_id: workspaceId, bot_token: botToken } = parsed.data;
@@ -257,12 +277,12 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
     }
 
 
-    const availability = await resolveAvailability(req, workspaceId, 'telegram');
+    const availability = await resolveAvailability(req, workspaceId, provider);
     if (!availability.ok) return res.status(403).json({ error: 'Plugin unavailable', reason: availability.reason });
 
     const installation =
-      (await getInstallation(config, workspaceId, 'telegram')) ??
-      (await installPlugin(config, workspaceId, 'telegram', auth.userId));
+      (await getInstallation(config, workspaceId, provider)) ??
+      (await installPlugin(config, workspaceId, provider, auth.userId));
     if (installation.status !== 'installed') {
       await setInstallationStatus(config, installation.id, 'installed');
     }
@@ -272,7 +292,7 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
       (await createIntegration(config, {
         workspaceId,
         installationId: installation.id,
-        provider: 'telegram',
+        provider,
       }));
 
     // Core cannot reach Telegram: the handshake is executed by the Channels
@@ -335,7 +355,9 @@ pluginsRouter.post('/telegram/connect', async (req: any, res) => {
 
 });
 
-pluginsRouter.get('/telegram/status', async (req: any, res) => {
+pluginsRouter.get(botPaths('status'), async (req: any, res) => {
+  const provider = botProviderOf(req, res);
+  if (!provider) return;
   const workspaceId = String(req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);
@@ -343,7 +365,7 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
 
   try {
     const config = serverConfigOf(req);
-    const installation = await getInstallation(config, workspaceId, 'telegram');
+    const installation = await getInstallation(config, workspaceId, provider);
     if (!installation || installation.status === 'uninstalled') {
       return res.json({ installed: false });
     }
@@ -378,7 +400,7 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
       settings: telegramSettings,
       aiAvailable,
       aiAgent: aiAgentDiagnostics,
-      hasToken: await hasPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY),
+      hasToken: await hasPluginSecret(config, installation.id, botProvider(provider).secretKeys.live),
 
       integration: integration
         ? {
@@ -392,7 +414,7 @@ pluginsRouter.get('/telegram/status', async (req: any, res) => {
             lastErrorCode: integration.last_error_code,
             lastErrorAt: integration.last_error_at,
             webhookUrl: config.publicChannelsBaseUrl
-              ? buildWebhookUrl(config, 'telegram', integration.public_integration_id)
+              ? buildWebhookUrl(config, provider, integration.public_integration_id)
               : null,
           }
         : null,
@@ -425,7 +447,9 @@ async function channelsWorkerOffline(req: any): Promise<boolean> {
   }
 }
 
-pluginsRouter.post('/telegram/diagnostics', async (req: any, res) => {
+pluginsRouter.post(botPaths('diagnostics'), async (req: any, res) => {
+  const provider = botProviderOf(req, res);
+  if (!provider) return;
 
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
@@ -434,7 +458,7 @@ pluginsRouter.post('/telegram/diagnostics', async (req: any, res) => {
 
   try {
     const config = serverConfigOf(req);
-    const installation = await getInstallation(config, workspaceId, 'telegram');
+    const installation = await getInstallation(config, workspaceId, provider);
     if (!installation) return res.status(404).json({ error: 'Telegram is not installed' });
     if (await channelsWorkerOffline(req)) {
       return res
@@ -462,7 +486,9 @@ pluginsRouter.post('/telegram/diagnostics', async (req: any, res) => {
  * credential. Used when diagnostics report drift (wrong URL, provider-side
  * reset) without asking the operator to paste the token again.
  */
-pluginsRouter.post('/telegram/reconnect', async (req: any, res) => {
+pluginsRouter.post(botPaths('reconnect'), async (req: any, res) => {
+  const provider = botProviderOf(req, res);
+  if (!provider) return;
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);
@@ -470,7 +496,7 @@ pluginsRouter.post('/telegram/reconnect', async (req: any, res) => {
 
   try {
     const config = serverConfigOf(req);
-    const installation = await getInstallation(config, workspaceId, 'telegram');
+    const installation = await getInstallation(config, workspaceId, provider);
     if (!installation) return res.status(404).json({ error: 'not_installed' });
     if (await channelsWorkerOffline(req)) {
       return res
@@ -500,7 +526,9 @@ pluginsRouter.post('/telegram/reconnect', async (req: any, res) => {
  * Disconnect: removes the provider webhook and the stored credential but
  * KEEPS the installation and all conversation history.
  */
-pluginsRouter.post('/telegram/disconnect', async (req: any, res) => {
+pluginsRouter.post(botPaths('disconnect'), async (req: any, res) => {
+  const provider = botProviderOf(req, res);
+  if (!provider) return;
   const workspaceId = String(req.body?.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
   const auth = await requireManager(req, res, workspaceId);
@@ -508,7 +536,7 @@ pluginsRouter.post('/telegram/disconnect', async (req: any, res) => {
 
   try {
     const config = serverConfigOf(req);
-    const installation = await getInstallation(config, workspaceId, 'telegram');
+    const installation = await getInstallation(config, workspaceId, provider);
     if (!installation) return res.json({ ok: true });
 
     // Local acceptance stops immediately; the provider webhook is removed by
@@ -533,7 +561,9 @@ const telegramProfileSchema = z.object({
     .optional(),
 });
 
-pluginsRouter.post('/telegram/profile', async (req: any, res) => {
+pluginsRouter.post(botPaths('profile'), async (req: any, res) => {
+  const provider = botProviderOf(req, res);
+  if (!provider) return;
   const parsed = telegramProfileSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_profile' });
   const auth = await requireManager(req, res, parsed.data.workspace_id);
@@ -541,7 +571,7 @@ pluginsRouter.post('/telegram/profile', async (req: any, res) => {
 
   try {
     const config = serverConfigOf(req);
-    const installation = await getInstallation(config, parsed.data.workspace_id, 'telegram');
+    const installation = await getInstallation(config, parsed.data.workspace_id, provider);
     if (!installation) return res.status(404).json({ error: 'not_installed' });
 
     const operation = await requestTelegramProfileSync(config, installation.id, {
@@ -592,7 +622,7 @@ pluginsRouter.put('/settings', async (req: any, res) => {
     delete (settings as any).bot_token;
 
     let toPersist: Record<string, unknown> = settings;
-    if (pluginId === 'telegram') {
+    if (isBotProvider(pluginId)) {
       // Deep-merge onto the existing (already-defaulted) settings so a
       // partial save (e.g. only the `fa` locale) never wipes other locales,
       // and downgrade ai_first → human_only when the AI entitlement is gone.
@@ -606,7 +636,7 @@ pluginsRouter.put('/settings', async (req: any, res) => {
     // lives on the provider, not in our settings row. Re-sync it on every
     // save so retired/disabled entries disappear from the client instead of
     // lingering until someone opens the branding form.
-    if (pluginId === 'telegram') {
+    if (isBotProvider(pluginId)) {
       void (async () => {
         try {
           const parsedSettings = parseTelegramSettings(toPersist);
@@ -623,7 +653,7 @@ pluginsRouter.put('/settings', async (req: any, res) => {
       })();
     }
 
-    res.json({ ok: true, settings: pluginId === 'telegram' ? toPersist : undefined });
+    res.json({ ok: true, settings: isBotProvider(pluginId) ? toPersist : undefined });
 
   } catch (err) {
     console.error('[plugins] settings update failed:', err);
@@ -879,7 +909,7 @@ adminPluginsRouter.post('/channels/integrations/:integrationId/disconnect', asyn
     const config = serverConfigOf(req);
     const integration = await getIntegrationById(config, integrationId);
     if (!integration) return res.status(404).json({ error: 'Unknown integration' });
-    if (integration.provider !== 'telegram') return res.status(400).json({ error: 'Unsupported provider' });
+    if (!isBotProvider(integration.provider)) return res.status(400).json({ error: 'Unsupported provider' });
 
     await requestTelegramDisconnect(config, integration.installation_id, req.platformAdminId ?? null);
     console.warn(

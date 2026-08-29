@@ -32,6 +32,7 @@ import {
   pluginCryptoReady,
 } from '../services/plugins/secrets.js';
 import { botProvider, isBotProvider } from '../../shared/channels/botProviders.js';
+import { deriveChannelWebhookSecret } from '../../shared/channels/webhookSecret.js';
 
 import {
   buildWebhookUrl,

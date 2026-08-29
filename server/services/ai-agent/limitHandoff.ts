@@ -20,7 +20,6 @@ import { getServiceClient } from '../../supabase.js';
 import type { AgentSettings } from './settings.js';
 import { logRun } from './logs.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
-import { markHandoffRequested } from './conversationState.js';
 import { commitNeedsHuman, routeAfterHandoff, type HandoffReason } from './handoffState.js';
 
 export type LimitReason =
@@ -139,7 +138,6 @@ export async function runLimitHandoff(
   }
 
   // Always route to human queue, even when fallback_behavior='silent'.
-  await markHandoffRequested(config, input.conversationId).catch(() => {});
 
   const nowIso = new Date().toISOString();
   await patchMeta(config, input.conversationId, {

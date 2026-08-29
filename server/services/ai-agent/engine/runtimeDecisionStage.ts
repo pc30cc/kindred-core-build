@@ -18,7 +18,6 @@
 import type { ServerConfig } from '../../../config.js';
 import { decideRuntime } from '../runtimePolicy.js';
 import { logRun } from '../logs.js';
-import { markHandoffRequested } from '../conversationState.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
 
@@ -253,28 +252,18 @@ export async function runRuntimeDecisionStage(
   // ─── Branch: HANDOFF (human request) ───────────────────────────────────
   if (decision.action === 'handoff') {
     // C2 hardening — if a trigger/tool already executed the handoff above,
-    // do not call markNeedsHuman or insert a second handoff message.
+    // do not call commitNeedsHuman or insert a second handoff message.
     const handoffAlreadyDone = triggerForcesHandoff || workflowHandoffExecuted;
-    if (!handoffAlreadyDone) {
-      await markHandoffRequested(config, conversationId).catch(() => {});
-    }
-    const runId = await logRun(config, {
-      workspaceId,
-      conversationId,
-      visitorMessageId,
-      runType: 'handoff',
-      mode: settings.mode,
-      status: 'handoff',
-      inputText: question,
-      skipReason: decision.reason,
-      metadata: {
-        ...baseRuntimeMeta(), language: languageMeta, locale,
-        ...(handoffPolicyDecision ? handoffPolicyMeta(handoffPolicyDecision) : {}),
-        ...ctxStage.memoryMetaBundle,
-      },
-    });
-    // vNext blocker 1 — ORDER: commit the durable handoff state FIRST, then
-    // acknowledge to the visitor, then run routing.
+    // vNext final blocker 1 — NO pre-handoff marker is written here. The old
+    // markHandoffRequested() pre-write left `ai_handoff_requested = true`
+    // behind whenever the canonical commit below failed, which made
+    // checkGenerationFreshness() report `handoff_in_progress` forever and
+    // muted all future legitimate AI generations. commitNeedsHuman() already
+    // persists that flag (plus ai_state/managed_by_ai/reason/timestamp)
+    // atomically, so it is the FIRST and ONLY durable handoff transition.
+    //
+    // ORDER: commit the durable handoff state FIRST, then acknowledge to the
+    // visitor, then run routing.
     //   commit  → the conversation really is in the human queue
     //   ack     → truthful ("queued"), and still lands before the routing
     //             outcome message ("X joined" / "everyone is busy") because
@@ -290,6 +279,25 @@ export async function runRuntimeDecisionStage(
       }).catch(() => ({ ok: false, routingDeferred: false } as HandoffCommit));
       decisionTimeline.push(commit.ok ? 'handoff_state_committed' : 'handoff_state_commit_failed');
     }
+    const handoffDurable = handoffAlreadyDone || !!commit?.ok;
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: 'handoff',
+      // Truthful logging — a failed canonical commit is NOT a handoff.
+      status: handoffDurable ? 'handoff' : 'failed',
+      mode: settings.mode,
+      inputText: question,
+      skipReason: handoffDurable ? decision.reason : 'handoff_state_commit_failed',
+      metadata: {
+        ...baseRuntimeMeta(), language: languageMeta, locale,
+        ...(handoffPolicyDecision ? handoffPolicyMeta(handoffPolicyDecision) : {}),
+        ...ctxStage.memoryMetaBundle,
+        handoff_committed: handoffDurable,
+        ...(handoffDurable ? {} : { handoff_failure: 'handoff_state_commit_failed' }),
+      },
+    });
     let messageId: string | null = null;
     const mayAck = !handoffAlreadyDone && !!commit?.ok
       && (decision.canAutoReply || settings.mode !== 'suggest_only');
@@ -322,15 +330,31 @@ export async function runRuntimeDecisionStage(
     // mark_priority now executes unconditionally right after PRE routing
     // evaluation in automationStage.ts (Follow-up 9E.2) — calling it again
     // here would execute it twice, so this branch no longer does so.
-    await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+    //
+    // vNext final blocker 3 — `handoffSent` is an "a handoff really was
+    // executed" marker. It may only be recorded when the canonical commit
+    // succeeded, or when a trigger/workflow already executed one.
+    if (handoffDurable) {
+      await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+    }
     // Persist routing rule executed ids for dedup.
     if (routingResult) {
       for (const id of routingResult.matchedRuleIds) {
         await updateRuntimeFlags(config, conversationId, { appendRoutingRuleId: id }).catch(() => {});
       }
     }
-    return { terminal: { ran: true, action: 'handoff', reason: decision.reason, runId, messageId } };
+    return {
+      terminal: {
+        ran: handoffDurable,
+        action: handoffDurable ? 'handoff' : 'skipped',
+        reason: handoffDurable ? decision.reason : 'handoff_state_commit_failed',
+        runId,
+        messageId,
+      },
+    };
   }
+
+
 
   return { decision, routingKeepAi, handoffPolicyDecision, assistFirstActive };
 }

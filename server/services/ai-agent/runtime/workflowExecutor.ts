@@ -29,7 +29,6 @@ import {
 import { pickStepMessage, type NormalizedWorkflowStep } from './workflowSteps.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { commitNeedsHuman, routeAfterHandoff, readAiConversationMeta } from '../handoffState.js';
-import { markHandoffRequested } from '../conversationState.js';
 import { pickHandoffAckMessage } from './templates.js';
 
 export interface WorkflowExecutorContext {
@@ -137,7 +136,6 @@ async function executeHandoff(
     (current.metadata as any)?.ai_handoff_sent === true
   );
   if (alreadyHandoff) return { messageId: null, alreadyDone: true };
-  await markHandoffRequested(ctx.config, ctx.conversationId).catch(() => {});
   // vNext blocker 1 — commit the durable needs_human state FIRST, then send
   // the ack, then route. Routing inserts its own "X joined" / "no one's
   // available" system message, so it must run after the ack.

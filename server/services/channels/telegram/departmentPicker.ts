@@ -15,6 +15,7 @@
  */
 
 import type { ServerConfig } from '../../../config.js';
+import { patchConversationMetadata } from '../../conversationMetadata.js';
 import { getServiceClient } from '../../../supabase.js';
 import { recordConversationEvent } from '../../conversationEvents.js';
 import {
@@ -79,12 +80,9 @@ async function patchConversationMeta(
   conversationId: string,
   patch: Record<string, unknown>,
 ): Promise<void> {
-  const sb = getServiceClient(config);
-  const current = await readConversationMeta(config, conversationId);
-  await sb
-    .from('conversations')
-    .update({ metadata: { ...current, ...patch } })
-    .eq('id', conversationId);
+  // Reachable from the vNext path (Telegram conversations are AI-managed),
+  // so the merge happens server-side and only touches the picker keys.
+  await patchConversationMetadata(config, conversationId, patch);
 }
 
 /**

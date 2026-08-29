@@ -23,6 +23,7 @@ let prechat: any;
 let routeCalls: string[];
 let routeThrows = false;
 let metadataRpcFails = false;
+let runtimeFlagsRpcFails = false;
 const order: string[] = [];
 
 /** Migration 057 `patch_conversation_metadata`, in memory. */
@@ -45,6 +46,28 @@ function rpcPatchAiMemory(args: any) {
   const next = { ...(args.p_memory || {}), rev: rev + 1 };
   conv.metadata = { ...(conv.metadata || {}), ai_memory: next };
   return { data: { conflict: false, rev: rev + 1, memory: next }, error: null };
+}
+
+/** Migration 058 `patch_conversation_runtime_flags`, in memory. */
+function rpcPatchRuntimeFlags(args: any) {
+  if (runtimeFlagsRpcFails) return { data: null, error: { message: 'function does not exist' } };
+  if (!conv || conv.id !== args.p_conversation_id) return { data: null, error: null };
+  const patch = args.p_patch || {};
+  const meta: any = { ...(conv.metadata || {}) };
+  if (patch.greeting_sent) meta.ai_greeting_sent = true;
+  if (patch.handoff_sent) meta.ai_handoff_sent = true;
+  const push = (key: string, val?: string) => {
+    if (!val) return;
+    const arr: string[] = Array.isArray(meta[key]) ? [...meta[key]] : [];
+    if (!arr.includes(val)) arr.push(val);
+    meta[key] = arr;
+  };
+  push('ai_trigger_executed_ids', patch.append_trigger_id);
+  push('ai_workflow_planned_ids', patch.append_workflow_id);
+  push('ai_routing_executed_rule_ids', patch.append_routing_rule_id);
+  if (patch.touch !== false) meta.ai_last_runtime_action_at = new Date().toISOString();
+  conv.metadata = meta;
+  return { data: meta, error: null };
 }
 
 function makeSb() {
@@ -122,6 +145,7 @@ function makeSb() {
       order.push(`rpc:${fn}`);
       if (fn === 'patch_conversation_metadata') return rpcPatchMetadata(args);
       if (fn === 'patch_conversation_ai_memory') return rpcPatchAiMemory(args);
+      if (fn === 'patch_conversation_runtime_flags') return rpcPatchRuntimeFlags(args);
       return { data: null, error: null };
     },
   };
@@ -150,6 +174,7 @@ beforeEach(() => {
   routeCalls = [];
   routeThrows = false;
   metadataRpcFails = false;
+  runtimeFlagsRpcFails = false;
   order.length = 0;
   fakeSb = makeSb();
 });
@@ -460,5 +485,77 @@ describe('L — concurrent working-memory write', () => {
     expect(conv.metadata.ai_state).toBe('needs_human');
     expect(conv.metadata.ai_memory.currentIssue).toBe('refund');
     expect(conv.metadata.ai_memory.entities).toContain('INV-9');
+  });
+});
+
+const rt = () => import('../../../server/services/ai-agent/runtime/conversationState.js');
+
+// ── O ────────────────────────────────────────────────────────────────
+describe('O — runtime flag writes vs. a concurrent needs_human transition', () => {
+  it('runtime flags then handoff: both changes coexist', async () => {
+    const { updateRuntimeFlags, readRuntimeFlags } = await rt();
+    const { commitNeedsHuman } = await hs();
+    await updateRuntimeFlags(config, CONV, { appendTriggerId: 'trigger-1' });
+    await commitNeedsHuman(config, { workspaceId: WS, conversationId: CONV, reason: 'repeated_human_request' as any });
+    expect(conv.metadata.ai_state).toBe('needs_human');
+    expect(readRuntimeFlags(conv.metadata).triggerExecutedIds).toContain('trigger-1');
+  });
+
+  it('handoff then runtime flags (reverse order): ai_state=needs_human is never overwritten', async () => {
+    const { updateRuntimeFlags, readRuntimeFlags } = await rt();
+    const { commitNeedsHuman } = await hs();
+    await commitNeedsHuman(config, { workspaceId: WS, conversationId: CONV, reason: 'repeated_human_request' as any });
+    // A runtime writer holding a PRE-handoff snapshot of the document.
+    await updateRuntimeFlags(config, CONV, { appendWorkflowId: 'wf-1', greetingSent: true });
+    expect(conv.metadata.ai_state).toBe('needs_human');
+    expect(conv.metadata.ai_handoff_requested).toBe(true);
+    expect(conv.metadata.managed_by_ai).toBe(false);
+    const flags = readRuntimeFlags(conv.metadata);
+    expect(flags.workflowPlannedIds).toContain('wf-1');
+    expect(flags.greetingSent).toBe(true);
+  });
+
+  it('runtime flags never clobber working memory either', async () => {
+    const { updateRuntimeFlags } = await rt();
+    const { persistWorkingMemory } = await wm();
+    await persistWorkingMemory(config, { workspaceId: WS, conversationId: CONV, patch: { currentIssue: 'refund' } });
+    await updateRuntimeFlags(config, CONV, { appendRoutingRuleId: 'rule-9' });
+    expect(conv.metadata.ai_memory.currentIssue).toBe('refund');
+    expect(conv.metadata.ai_routing_executed_rule_ids).toContain('rule-9');
+  });
+});
+
+// ── P ────────────────────────────────────────────────────────────────
+describe('P — runtime flag writes vs. a concurrent human takeover', () => {
+  it('takeover metadata survives exactly', async () => {
+    const { updateRuntimeFlags } = await rt();
+    const { patchConversationMetadata } = await import('../../../server/services/conversationMetadata.js');
+    await updateRuntimeFlags(config, CONV, { appendTriggerId: 'trigger-2' });
+    await patchConversationMetadata(config, CONV,
+      { ai_state: 'human_active', human_takeover_at: '2026-01-01T11:00:00.000Z', managed_by_ai: false }, WS);
+    // A late runtime writer must not resurrect AI ownership.
+    await updateRuntimeFlags(config, CONV, { appendTriggerId: 'trigger-3' });
+    expect(conv.metadata.ai_state).toBe('human_active');
+    expect(conv.metadata.human_takeover_at).toBe('2026-01-01T11:00:00.000Z');
+    expect(conv.metadata.managed_by_ai).toBe(false);
+    expect(conv.metadata.ai_trigger_executed_ids).toEqual(['trigger-2', 'trigger-3']);
+    expect((await check()).reason).toBe('human_takeover');
+  });
+});
+
+// ── Q ────────────────────────────────────────────────────────────────
+describe('Q — routing metadata written immediately after a durable handoff', () => {
+  it('the canonical needs_human state is not reverted by the routing write', async () => {
+    const { commitNeedsHuman } = await hs();
+    const { patchConversationMetadata } = await import('../../../server/services/conversationMetadata.js');
+    await commitNeedsHuman(config, { workspaceId: WS, conversationId: CONV, reason: 'repeated_human_request' as any });
+    const snapshotBeforeHandoff = { department_id: null, routing_outcome: null };
+    void snapshotBeforeHandoff; // the routing writer used to send this whole document back
+    await patchConversationMetadata(config, CONV, { routing_outcome: 'assigned', department_id: 'dep-1' }, WS);
+    expect(conv.metadata.ai_state).toBe('needs_human');
+    expect(conv.metadata.ai_handoff_requested).toBe(true);
+    expect(conv.metadata.routing_outcome).toBe('assigned');
+    expect(conv.metadata.department_id).toBe('dep-1');
+    expect((await check()).reason).toBe('handoff_in_progress');
   });
 });

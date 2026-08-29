@@ -286,7 +286,7 @@ export async function runRuntimeDecisionStage(
       visitorMessageId,
       runType: 'handoff',
       // Truthful logging — a failed canonical commit is NOT a handoff.
-      status: handoffDurable ? 'handoff' : 'error',
+      status: handoffDurable ? 'handoff' : 'failed',
       mode: settings.mode,
       inputText: question,
       skipReason: handoffDurable ? decision.reason : 'handoff_state_commit_failed',

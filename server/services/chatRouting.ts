@@ -181,31 +181,18 @@ async function tagOutcome(
   outcome: RoutingOutcome,
   extra?: Record<string, unknown>,
 ): Promise<void> {
-  try {
-    const sb = getServiceClient(config);
-    // Routing can race the Telegram offline-screen claim. Never write the
-    // stale snapshot captured at function entry back over that claim, or a
-    // second path can reserve and send the same screen again immediately.
-    const { data: current } = await sb
-      .from('conversations')
-      .select('metadata')
-      .eq('id', conversationId)
-      .eq('workspace_id', workspaceId)
-      .maybeSingle();
-    const latestMetadata = (((current as any)?.metadata as Record<string, unknown>) || metadata);
-    await sb
-      .from('conversations')
-      .update({
-        metadata: {
-          ...latestMetadata,
-          routing_outcome: outcome,
-          routing_outcome_at: new Date().toISOString(),
-          ...extra,
-        },
-      })
-      .eq('id', conversationId)
-      .eq('workspace_id', workspaceId);
-  } catch { /* best-effort */ }
+  // Routing runs immediately after a successful AI handoff commit, so it
+  // must never write back a whole metadata document: only the routing keys
+  // are patched, server-side (migration 057). A concurrent
+  // `ai_state = needs_human`, `human_takeover_at` or `ai_memory` write
+  // therefore survives verbatim.
+  void metadata;
+  await patchConversationMetadata(config, conversationId, {
+    routing_outcome: outcome,
+    routing_outcome_at: new Date().toISOString(),
+    ...(extra || {}),
+  }, workspaceId);
+
 }
 
 async function resolveAgentDisplayName(config: ServerConfig, userId: string): Promise<string> {

@@ -150,7 +150,7 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
  * update into canonical business data. Core owns all writes.
  */
 const processSchema = z.object({
-  provider: z.literal('telegram'),
+  provider: z.enum(BOT_PROVIDER_IDS),
   integration_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
   update: z.record(z.unknown()),
@@ -168,6 +168,7 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
     if (parsed.data.update?.callback_query) {
       await handleTelegramCallbackQuery(config, {
         workspaceId: parsed.data.workspace_id,
+        provider: parsed.data.provider,
         update: parsed.data.update as Record<string, any>,
       });
       return res.json({ status: 'menu_handled' });
@@ -176,6 +177,7 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
     const normalized = normalizeTelegramUpdate(parsed.data.update, {
       workspaceId: parsed.data.workspace_id,
       integrationId: parsed.data.integration_id,
+      provider: parsed.data.provider,
     });
     if (!normalized) return res.json({ status: 'ignored' });
 
@@ -193,7 +195,7 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
  * data. The Worker never updates conversation_messages itself.
  */
 const outboundResultSchema = z.object({
-  provider: z.literal('telegram'),
+  provider: z.enum(BOT_PROVIDER_IDS),
   integration_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
   message_id: z.string().uuid(),

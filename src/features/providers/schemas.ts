@@ -166,11 +166,14 @@ const emailVendors: ProviderVendor[] = [
 const aiVendors: ProviderVendor[] = [
   {
     name: 'openai', label: 'OpenAI',
-    description: 'GPT-4o, GPT-4, o1, embeddings, DALL·E',
+    description: 'GPT-5, GPT-4o, o1, embeddings, DALL·E',
     docsUrl: 'https://platform.openai.com/docs',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'model', label: 'Default Model', type: 'select', options: [
+        { value: 'gpt-5', label: 'GPT-5' },
+        { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+        { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
         { value: 'gpt-4o', label: 'GPT-4o' },
         { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
         { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },

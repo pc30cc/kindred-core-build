@@ -246,12 +246,47 @@ const telegramConnectSchema = z.object({
   bot_token: z.string().min(20).max(200).regex(/^\d{6,}:[A-Za-z0-9_-]{20,}$/, 'Invalid bot token format'),
 });
 
+/**
+ * WhatsApp Cloud is not a bot-token provider: a connection is a phone number
+ * id plus a permanent access token (optionally the WABA id). Both are stored
+ * in the SAME encrypted credential slot as a JSON envelope, so the whole
+ * credential lifecycle (stage → promote → destroy) stays provider-neutral.
+ */
+const whatsappConnectSchema = z.object({
+  workspace_id: z.string().uuid(),
+  phone_number_id: z.string().min(5).max(64).regex(/^\d+$/, 'Invalid phone number id'),
+  access_token: z.string().min(20).max(512),
+  business_account_id: z.string().max(64).optional().nullable(),
+});
+
+/** Normalizes a connect body into the credential string for `provider`. */
+function parseConnectCredential(
+  provider: string,
+  body: unknown,
+): { workspaceId: string; credential: string } | null {
+  if (botProvider(provider).credentialKind === 'whatsapp_cloud') {
+    const parsed = whatsappConnectSchema.safeParse(body);
+    if (!parsed.success) return null;
+    return {
+      workspaceId: parsed.data.workspace_id,
+      credential: JSON.stringify({
+        phone_number_id: parsed.data.phone_number_id,
+        access_token: parsed.data.access_token,
+        business_account_id: parsed.data.business_account_id || null,
+      }),
+    };
+  }
+  const parsed = telegramConnectSchema.safeParse(body);
+  if (!parsed.success) return null;
+  return { workspaceId: parsed.data.workspace_id, credential: parsed.data.bot_token };
+}
+
 pluginsRouter.post(botPaths('connect'), async (req: any, res) => {
   const provider = botProviderOf(req, res);
   if (!provider) return;
-  const parsed = telegramConnectSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid bot token' });
-  const { workspace_id: workspaceId, bot_token: botToken } = parsed.data;
+  const parsed = parseConnectCredential(provider, req.body);
+  if (!parsed) return res.status(400).json({ error: 'Invalid credentials' });
+  const { workspaceId, credential: botToken } = parsed;
 
   const auth = await requireManager(req, res, workspaceId);
   if (!auth) return;
@@ -417,6 +452,18 @@ pluginsRouter.get(botPaths('status'), async (req: any, res) => {
             webhookUrl: config.publicChannelsBaseUrl
               ? buildWebhookUrl(config, provider, integration.public_integration_id)
               : null,
+            // Providers whose callback URL is registered in their OWN
+            // dashboard (WhatsApp Cloud) need the verify token shown once so
+            // the operator can paste it into the Meta app configuration.
+            verifyToken:
+              !botProvider(provider).supportsWebhookRegistration && config.channelsWebhookSigningKey
+                ? deriveChannelWebhookSecret(
+                    config.channelsWebhookSigningKey,
+                    provider,
+                    integration.public_integration_id,
+                  )
+                : null,
+            managesWebhookExternally: !botProvider(provider).supportsWebhookRegistration,
           }
         : null,
     });

@@ -323,7 +323,19 @@ function AIProviderCard({ workspaceId, settings }: { workspaceId: string; settin
 
               <div className="space-y-1.5">
                 <Label className="text-xs">Model</Label>
-                <Input value={config.model} onChange={e => setConfig(c => ({ ...c, model: e.target.value }))} placeholder={providerName === 'openai' ? 'gpt-4o-mini' : 'meta-llama/llama-3-8b'} />
+                <Input
+                  value={config.model}
+                  onChange={e => setConfig(c => ({ ...c, model: e.target.value }))}
+                  placeholder={providerName === 'openai' ? 'gpt-5-nano' : 'meta-llama/llama-3-8b'}
+                  list={providerName === 'openai' ? 'openai-model-suggestions' : undefined}
+                />
+                {providerName === 'openai' && (
+                  <datalist id="openai-model-suggestions">
+                    {['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1', 'o1-mini'].map(m => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
+                )}
               </div>
 
               {providerName === 'openrouter' && (

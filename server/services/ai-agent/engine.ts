@@ -77,7 +77,9 @@ async function runGuarded(
   try {
     // vNext §20-24 — burst coalescing. Visitors often send one thought as
     // three short messages; answering the first fragment reads as a bot.
-    if (input.conversationId && input.visitorMessageId) {
+    // An operator-forced turn is not a burst fragment: the operator already
+    // decided this is the moment to answer, so no debounce is applied.
+    if (input.conversationId && input.visitorMessageId && !input.operatorReplyNow) {
       const burst = await coalesceVisitorBurst({
         conversationId: input.conversationId,
         visitorMessageId: input.visitorMessageId,
@@ -86,6 +88,7 @@ async function runGuarded(
         return { ran: false, action: 'skipped', reason: 'superseded_by_newer_message' };
       }
     }
+
     return await runInternal(config, input);
   } catch (err: any) {
     console.warn('[ai-agent] engine failed:', err?.message || err);

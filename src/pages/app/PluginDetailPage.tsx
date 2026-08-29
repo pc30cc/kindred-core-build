@@ -20,6 +20,7 @@ import { toast } from '@/hooks/use-toast';
 import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
+import { findBotProvider } from '../../../shared/channels/botProviders';
 
 import { ArrowLeft, ArrowRight, Lock, Plug, Trash2, Wrench } from 'lucide-react';
 
@@ -90,6 +91,8 @@ export default function PluginDetailPage() {
 
   const comingSoon = item.status === 'coming_soon' || item.rolloutStatus === 'coming_soon';
   const locked = !item.planAllowed;
+  // Bale has no bot-profile API, so the branding tab would be a dead end there.
+  const supportsBotProfile = findBotProvider(pluginId ?? '')?.supportsBotProfile !== false;
   const blocked = comingSoon || locked || item.maintenanceMode || !item.installable;
 
   return (

@@ -25,6 +25,11 @@ import { runLimitHandoff, type LimitReason } from '../limitHandoff.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickHandoffAckMessage } from '../runtime/templates.js';
 import { resolveHandoffAckMessage } from './helpers.js';
+import {
+  resolveHandoffPolicy, resolveMaxAssistAttempts, decideHandoff, handoffPolicyMeta,
+  type HandoffPolicyDecision,
+} from '../handoffPolicy.js';
+import { persistWorkingMemory } from '../workingMemory.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -33,6 +38,17 @@ import type { AutomationStageResult } from './automationStage.js';
 export interface RuntimeDecisionStageResult {
   decision: ReturnType<typeof decideRuntime>;
   routingKeepAi: boolean;
+  /**
+   * vNext §16-19 — outcome of the adaptive handoff policy for this turn.
+   * `null` when the turn was not a human request at all.
+   */
+  handoffPolicyDecision: HandoffPolicyDecision | null;
+  /**
+   * True when the policy converted an explicit human request into ONE brief
+   * assist attempt. Generation must then acknowledge the request honestly
+   * and must never claim a transfer already happened.
+   */
+  assistFirstActive: boolean;
 }
 
 export async function runRuntimeDecisionStage(
@@ -123,6 +139,58 @@ export async function runRuntimeDecisionStage(
     });
     return { terminal: { ran: true, action: 'replied', runId, messageId: triggerMessageId } };
   }
+  // ─── vNext §16-19 — adaptive handoff policy ────────────────────────────
+  // Applies ONLY to a visitor-driven human request. Routing rules, message
+  // triggers and workflows that demand a human are mandatory and bypass it.
+  const mandatoryHuman = !!routingResult?.hardHandoff || !!triggerForcesHandoff || !!workflowHandoffExecuted;
+  let handoffPolicyDecision: HandoffPolicyDecision | null = null;
+  let assistFirstActive = false;
+  if (decision.action === 'handoff' && (decision as any).reason === 'human_request') {
+    const policy = resolveHandoffPolicy(settings);
+    handoffPolicyDecision = decideHandoff({
+      policy,
+      explicitHumanRequest: true,
+      visitorText: question,
+      memory: ctxStage.memory,
+      maxAssistAttempts: resolveMaxAssistAttempts(settings),
+      mandatoryHuman,
+    });
+    if (handoffPolicyDecision.kind === 'assist_once') {
+      // Downgrade to a normal AI turn. Recomputed through the SAME policy
+      // function with the human-request rule disabled, so every other guard
+      // (caps, throttles, takeover, mode) still applies unchanged.
+      const downgraded = decideRuntime({
+        settings: { ...settings, handoff_on_human_request: false } as typeof settings,
+        state,
+        availability,
+        visitorText: question,
+      });
+      if (downgraded.action !== 'handoff') {
+        (decision as any).action = downgraded.action;
+        (decision as any).reason = downgraded.reason;
+        (decision as any).canAutoReply = downgraded.canAutoReply;
+        (decision as any).canSuggest = downgraded.canSuggest;
+        assistFirstActive = true;
+        decisionTimeline.push('handoff_assist_first');
+      } else {
+        handoffPolicyDecision = { ...handoffPolicyDecision, kind: 'handoff', reason: 'downgrade_unavailable' };
+      }
+    }
+    // Durable counters: a repeated explicit request can never be deflected
+    // again, even across processes (§19).
+    await persistWorkingMemory(config, {
+      workspaceId,
+      conversationId,
+      patch: {
+        incrementHandoffRequests: true,
+        ...(assistFirstActive ? { incrementAssistAttempts: true } : {}),
+      },
+    }).catch(() => {});
+    if (handoffPolicyDecision) {
+      decisionTimeline.push(`handoff_policy_${handoffPolicyDecision.kind}`);
+    }
+  }
+
   // Routing rule with action=keep_ai prevents weak-confidence handoff.
   const routingKeepAi = !!routingResult?.keepAi;
 
@@ -198,7 +266,11 @@ export async function runRuntimeDecisionStage(
       status: 'handoff',
       inputText: question,
       skipReason: decision.reason,
-      metadata: { ...baseRuntimeMeta(), language: languageMeta, locale },
+      metadata: {
+        ...baseRuntimeMeta(), language: languageMeta, locale,
+        ...(handoffPolicyDecision ? handoffPolicyMeta(handoffPolicyDecision) : {}),
+        ...ctxStage.memoryMetaBundle,
+      },
     });
     // In auto-reply modes we acknowledge the handoff to the visitor. This
     // insert MUST happen before markNeedsHuman() below — markNeedsHuman
@@ -247,5 +319,5 @@ export async function runRuntimeDecisionStage(
     return { terminal: { ran: true, action: 'handoff', reason: decision.reason, runId, messageId } };
   }
 
-  return { decision, routingKeepAi };
+  return { decision, routingKeepAi, handoffPolicyDecision, assistFirstActive };
 }

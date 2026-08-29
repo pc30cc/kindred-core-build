@@ -84,16 +84,22 @@ export async function runRuntimeDecisionStage(
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
 
-  const decision = decideRuntime({ settings, state, availability, visitorText: question });
+  const operatorForcedReply = input.operatorReplyNow === true;
+  const decision = decideRuntime({ settings, state, availability, visitorText: question, operatorForcedReply });
+  if (operatorForcedReply) decisionTimeline.push('operator_reply_now');
   // If the visitor's intent matched the configured "human-request" topic but
   // the legacy keyword check did not fire, upgrade the decision to handoff so
   // we never miss an explicit "وصل کن" / "operatör".
+  // Skipped for an operator-forced turn: the human is already in the loop and
+  // has explicitly chosen to let the AI answer this message.
   if (
+    !operatorForcedReply &&
     settings.handoff_on_human_request &&
     humanRequestFromTopics &&
     decision.action !== 'handoff' &&
     decision.action !== 'skip'
   ) {
+
     (decision as any).action = 'handoff';
     (decision as any).reason = 'human_request';
     decisionTimeline.push('immediate_intent_human_request');

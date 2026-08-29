@@ -106,6 +106,9 @@ export default function PlaygroundPage() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="auto">Choose automatically</SelectItem>
+                    <SelectItem value="gpt-5-nano">gpt-5-nano</SelectItem>
+                    <SelectItem value="gpt-5-mini">gpt-5-mini</SelectItem>
+                    <SelectItem value="gpt-5">gpt-5</SelectItem>
                     <SelectItem value="gpt-4o-mini">gpt-4o-mini</SelectItem>
                     <SelectItem value="gpt-4o">gpt-4o</SelectItem>
                   </SelectContent>

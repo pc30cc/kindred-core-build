@@ -104,7 +104,7 @@ export function PluginLogo({
   const mark = MARKS[id] ?? MARKS.default;
   const Fallback = mark.fallback ?? MessageSquare;
   const box = size === 'lg' ? 'h-14 w-14 rounded-2xl' : size === 'sm' ? 'h-9 w-9 rounded-lg' : 'h-12 w-12 rounded-xl';
-  const glyph = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-4.5 w-4.5' : 'h-6 w-6';
+  const glyph = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-4 w-4' : 'h-6 w-6';
 
   return (
     <div

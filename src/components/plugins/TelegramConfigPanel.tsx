@@ -160,8 +160,8 @@ export function TelegramConfigPanel({
 
 
   const { data: status, isLoading } = useQuery({
-    queryKey: ['plugins', 'telegram', 'status', workspaceId],
-    queryFn: () => pluginsApi.telegramStatus(workspaceId),
+    queryKey: ['plugins', provider, 'status', workspaceId],
+    queryFn: () => pluginsApi.telegramStatus(workspaceId, provider),
     enabled: !!workspaceId,
   });
 
@@ -189,7 +189,7 @@ export function TelegramConfigPanel({
       const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
       const result = await storageUpload({
         workspaceId,
-        fileKey: `workspace/${workspaceId}/telegram/bot-avatar-${Date.now()}.${ext}`,
+        fileKey: `workspace/${workspaceId}/${provider}/bot-avatar-${Date.now()}.${ext}`,
         data: btoa(binary),
         contentType: file.type,
       });
@@ -238,7 +238,7 @@ export function TelegramConfigPanel({
   const refresh = () => qc.invalidateQueries({ queryKey: ['plugins'] });
 
   const connect = useMutation({
-    mutationFn: () => pluginsApi.telegramConnect(workspaceId, token.trim()),
+    mutationFn: () => pluginsApi.telegramConnect(workspaceId, token.trim(), provider),
     onSuccess: () => {
       setToken('');
       toast({ title: t('plugins.telegram.connectSuccess') });
@@ -262,14 +262,14 @@ export function TelegramConfigPanel({
       : err?.message;
 
   const runDiagnostics = useMutation({
-    mutationFn: () => pluginsApi.telegramDiagnostics(workspaceId),
+    mutationFn: () => pluginsApi.telegramDiagnostics(workspaceId, provider),
     onSuccess: (data) => setDiagnostics(data),
     onError: (err: any) =>
       toast({ variant: 'destructive', title: t('plugins.error.generic'), description: failureDescription(err) }),
   });
 
   const reconnect = useMutation({
-    mutationFn: () => pluginsApi.telegramReconnect(workspaceId),
+    mutationFn: () => pluginsApi.telegramReconnect(workspaceId, provider),
     onSuccess: () => {
       toast({ title: t('plugins.telegram.reconnected') });
       setDiagnostics(null);
@@ -281,7 +281,7 @@ export function TelegramConfigPanel({
 
 
   const disconnect = useMutation({
-    mutationFn: () => pluginsApi.telegramDisconnect(workspaceId),
+    mutationFn: () => pluginsApi.telegramDisconnect(workspaceId, provider),
     onSuccess: () => {
       toast({ title: t('plugins.telegram.disconnected') });
       setDiagnostics(null);
@@ -293,7 +293,7 @@ export function TelegramConfigPanel({
 
   const saveSettings = useMutation({
     mutationFn: () =>
-      pluginsApi.updateSettings(workspaceId, 'telegram', {
+      pluginsApi.updateSettings(workspaceId, provider, {
         profile: {
           name: botName.trim(),
           shortDescription: shortDescription.trim(),

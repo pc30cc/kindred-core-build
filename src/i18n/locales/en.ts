@@ -4089,6 +4089,10 @@ const en = {
       empty: 'No activity recorded yet.',
     },
     noSettings: 'This plugin has no settings yet.',
+    bale: {
+      name: 'Bale',
+      description: 'Receive and reply to Bale (بله) messages directly in your Inbox.',
+    },
     telegram: {
       photoUrl: 'Bot photo',
       photoUrlHint: 'Shown next to the bot inside this workspace (Inbox and settings). Telegram does not allow bots to change their own avatar — set the real Telegram avatar via @BotFather.',

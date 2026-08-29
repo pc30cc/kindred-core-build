@@ -144,7 +144,7 @@ export default function AdminPluginDetailPage() {
               </div>
             )}
 
-            {item.id === 'telegram' && (
+            {(item.id === 'telegram' || item.id === 'bale') && (
               <div className="flex items-start justify-between gap-3 border-t pt-3">
                 <div>
                   <Label className="text-sm font-normal">{t('plugins.admin.menuEventsVisible')}</Label>

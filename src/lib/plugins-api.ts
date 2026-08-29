@@ -202,37 +202,39 @@ export const pluginsApi = {
       body: JSON.stringify({ workspace_id: workspaceId, plugin_id: pluginId }),
     }),
 
-  telegramStatus: (workspaceId: string) =>
+  // Telegram and Bale share one bot implementation; `provider` selects the
+  // API namespace (`/api/plugins/bot/:provider/*`).
+  telegramStatus: (workspaceId: string, provider = 'telegram') =>
     jsonFetch<TelegramStatus>(
-      `/api/plugins/telegram/status?workspace_id=${encodeURIComponent(workspaceId)}`,
+      `/api/plugins/bot/${provider}/status?workspace_id=${encodeURIComponent(workspaceId)}`,
     ),
 
-  telegramConnect: (workspaceId: string, botToken: string) =>
+  telegramConnect: (workspaceId: string, botToken: string, provider = 'telegram') =>
     jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
-      '/api/plugins/telegram/connect',
+      `/api/plugins/bot/${provider}/connect`,
       { method: 'POST', body: JSON.stringify({ workspace_id: workspaceId, bot_token: botToken }) },
     ),
 
-  telegramDiagnostics: (workspaceId: string) =>
-    jsonFetch<Record<string, unknown>>('/api/plugins/telegram/diagnostics', {
+  telegramDiagnostics: (workspaceId: string, provider = 'telegram') =>
+    jsonFetch<Record<string, unknown>>(`/api/plugins/bot/${provider}/diagnostics`, {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceId }),
     }),
 
-  telegramReconnect: (workspaceId: string) =>
-    jsonFetch<{ ok: true }>('/api/plugins/telegram/reconnect', {
+  telegramReconnect: (workspaceId: string, provider = 'telegram') =>
+    jsonFetch<{ ok: true }>(`/api/plugins/bot/${provider}/reconnect`, {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceId }),
     }),
 
-  telegramDisconnect: (workspaceId: string) =>
-    jsonFetch<{ ok: true }>('/api/plugins/telegram/disconnect', {
+  telegramDisconnect: (workspaceId: string, provider = 'telegram') =>
+    jsonFetch<{ ok: true }>(`/api/plugins/bot/${provider}/disconnect`, {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceId }),
     }),
 
-  telegramProfile: (workspaceId: string, patch: TelegramProfilePatch) =>
-    jsonFetch<{ ok: true }>('/api/plugins/telegram/profile', {
+  telegramProfile: (workspaceId: string, patch: TelegramProfilePatch, provider = 'telegram') =>
+    jsonFetch<{ ok: true }>(`/api/plugins/bot/${provider}/profile`, {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceId, ...patch }),
     }),

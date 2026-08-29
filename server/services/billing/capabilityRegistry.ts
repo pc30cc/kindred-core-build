@@ -81,6 +81,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'sms',         type: 'channel', label: 'SMS',         group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 40 },
   { key: 'instagram',   type: 'channel', label: 'Instagram',   group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 50 },
   { key: 'telegram',    type: 'channel', label: 'Telegram',    group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 60 },
+  { key: 'bale',        type: 'channel', label: 'Bale',        group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 65 },
   { key: 'voice',       type: 'channel', label: 'Voice Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
   { key: 'video',       type: 'channel', label: 'Video Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
 

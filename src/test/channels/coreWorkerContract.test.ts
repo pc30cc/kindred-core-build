@@ -254,7 +254,12 @@ describe('webhook repair asks Core for the ingress contract', () => {
     const paths = calls.map((c) => c.path);
     expect(paths).toContain('/internal/channels/webhook-contract');
     expect(paths).not.toContain('/internal/channels/connect-preflight');
-    expect(telegram.setWebhook).toHaveBeenCalledWith('111:TOKEN', CONTRACT.webhook_url, CONTRACT.secret_token);
+    expect(telegram.setWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({ token: '111:TOKEN' }),
+      CONTRACT.webhook_url,
+      CONTRACT.secret_token,
+      undefined,
+    );
     expect(calls.at(-1)).toMatchObject({
       path: '/internal/channels/operation-result',
       body: { operation_id: 'op-1', status: 'succeeded' },

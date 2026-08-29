@@ -176,7 +176,7 @@ async function resolveInboundAiOwnership(
     const installation = await getInstallation(config, input.workspaceId, input.provider);
     if (!installation) return false;
     const parsed = parseTelegramSettings(installation.settings);
-    const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode);
+    const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode, input.provider);
     if (mode !== 'ai_first') return false;
     const { resolveEffectiveAiMode } = await import('../ai-agent/effectiveMode.js');
     const effective = await resolveEffectiveAiMode(config, input.workspaceId);

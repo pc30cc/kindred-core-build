@@ -372,7 +372,7 @@ pluginsRouter.get(botPaths('status'), async (req: any, res) => {
     }
     const integration = await getIntegrationForInstallation(config, installation.id);
     const telegramSettings = parseTelegramSettings(installation.settings);
-    const { aiAvailable } = await resolveTelegramHandlingMode(config, workspaceId, telegramSettings.handlingMode);
+    const { aiAvailable } = await resolveTelegramHandlingMode(config, workspaceId, telegramSettings.handlingMode, provider);
     // Why an "enabled" AI can still stay silent: the assistant is gated by the
     // platform kill switch and by the workspace AI Agent mode, independently of
     // the Telegram handling mode. Surface both so the operator sees the cause.
@@ -628,7 +628,7 @@ pluginsRouter.put('/settings', async (req: any, res) => {
       // partial save (e.g. only the `fa` locale) never wipes other locales,
       // and downgrade ai_first → human_only when the AI entitlement is gone.
       const merged = parseTelegramSettings({ ...parseTelegramSettings(installation.settings), ...settings });
-      toPersist = await sanitizeTelegramSettingsForSave(config, workspaceId, merged);
+      toPersist = await sanitizeTelegramSettingsForSave(config, workspaceId, merged, pluginId);
     }
 
     await updateInstallationSettings(config, installation.id, toPersist);

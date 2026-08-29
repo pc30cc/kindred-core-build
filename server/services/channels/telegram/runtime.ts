@@ -172,7 +172,7 @@ export async function handleTelegramInboundFlow(
     const provider = input.provider || 'telegram';
     const installation = await getInstallation(config, input.workspaceId, provider);
     const parsed = parseTelegramSettings(installation?.settings);
-    const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode);
+    const { mode } = await resolveTelegramHandlingMode(config, input.workspaceId, parsed.handlingMode, provider);
     // The plugin may remain in ai_first while this particular conversation
     // has already been handed to a human. In that state AI is not a live
     // responder and must not suppress the away notice / offline lock.
@@ -300,7 +300,7 @@ export async function handleTelegramCallbackQuery(
     }
 
     const parsedSettings = parseTelegramSettings(installation.settings);
-    const { mode } = await resolveTelegramHandlingMode(config, ctx.workspaceId, parsedSettings.handlingMode);
+    const { mode } = await resolveTelegramHandlingMode(config, ctx.workspaceId, parsedSettings.handlingMode, ctx.provider ?? 'telegram');
     const settings = { ...parsedSettings, handlingMode: mode };
     const { locale, fallbackLocale } = await resolveTelegramReplyLocale(config, query.from?.language_code);
 

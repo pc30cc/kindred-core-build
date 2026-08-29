@@ -123,16 +123,17 @@ describe('worker boundary', () => {
     expect(outboundMigrationSource).not.toMatch(/SELECT\s+workspace_id,\s*channel,/);
   });
 
-  it('delivers routing system notices to channel visitors explicitly', () => {
+  it('delivers routing notices explicitly except through Telegram generic routing', () => {
     expect(chatRoutingSource).toContain('await dispatchOutboundIfChannelConversation(config, {');
-    expect(chatRoutingSource).toContain("{ kind: 'routing_no_agent_available' }");
-    expect(chatRoutingSource).toContain('!alreadyShownInChannel,');
+    expect(chatRoutingSource).toContain("kind: 'routing_no_agent_available'");
+    expect(chatRoutingSource).toContain("metadata.channel !== 'telegram'");
   });
 
   it('never sends the offline notice twice to a Telegram visitor', () => {
-    expect(chatRoutingSource).toContain('telegramOfflineScreenJustSent');
-    expect(chatRoutingSource).toContain('telegram_offline_notice_at');
     expect(chatRoutingSource).toContain('maybeQueueTelegramOfflineScreen');
+    expect(chatRoutingSource).toContain("metadata.channel !== 'telegram'");
+    expect(chatRoutingSource).toContain("channel_delivery_skip: 'true'");
+    expect(chatRoutingSource).not.toContain('telegramOfflineScreenJustSent');
     expect(telegramOfflineDeliverySource).toContain('if (Date.now() - lastAt < cooldown) return true;');
   });
 

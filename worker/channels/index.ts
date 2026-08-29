@@ -430,7 +430,9 @@ async function handleJob(job: ChannelJob): Promise<void> {
 
       const token = await credential(job.integration_id);
       try {
-        let last: { message_id: number } | null = null;
+        // WhatsApp returns an opaque `wamid` string; Telegram a numeric id.
+        let last: { message_id: number | string } | null = null;
+
         for (const [index, attachment] of attachments.entries()) {
           const url = String(attachment?.url ?? attachment?.public_url ?? '');
           if (!/^https:\/\//i.test(url)) continue; // never send an unsafe URL

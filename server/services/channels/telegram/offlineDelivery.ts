@@ -41,19 +41,30 @@ export async function maybeQueueTelegramOfflineScreen(
     locale?: string | null;
     fallbackLocale?: string | null;
     requireUnreachable?: boolean;
+    /**
+     * A handoff resolver may already have selected the exact offline copy.
+     * Matching that copy is an authoritative offline signal even if presence
+     * briefly fails open, and lets this screen (with its keyboard) replace the
+     * plain-text AI delivery.
+     */
+    resolvedVisitorBody?: string | null;
   },
 ): Promise<boolean> {
   const platformLocales = await getPlatformAllowedLocales(config).catch(() => ['en']);
   const fallbackLocale = args.fallbackLocale || platformLocales[0] || 'en';
   const locale = args.locale || fallbackLocale;
-  if (args.requireUnreachable !== false
-      && !(await isWorkspaceUnreachable(config, args.workspaceId, locale))) return false;
 
   const installation = await getInstallation(config, args.workspaceId, 'telegram');
   if (!installation) return false;
   const settings = parseTelegramSettings(installation.settings);
   const locked = settings.menu.lockWhenOffline === true;
   if (settings.menu.offlineNoticeEnabled === false && !locked) return false;
+  const screen = buildOfflineScreen(settings, locale, fallbackLocale, { locked });
+  const bodyConfirmsOffline = typeof args.resolvedVisitorBody === 'string'
+    && args.resolvedVisitorBody.trim() === screen.text.trim();
+  if (args.requireUnreachable !== false
+      && !bodyConfirmsOffline
+      && !(await isWorkspaceUnreachable(config, args.workspaceId, locale))) return false;
   if (!(await hasPluginSecret(config, installation.id, TELEGRAM_BOT_TOKEN_KEY))) return false;
   const integration = await getIntegrationForInstallation(config, installation.id);
   if (!integration) return false;
@@ -76,7 +87,10 @@ export async function maybeQueueTelegramOfflineScreen(
     if (!data) return false;
     const metadata = (((data as any).metadata as Record<string, unknown>) || {});
     const lastAt = Date.parse(String(metadata.telegram_offline_notice_at || '')) || 0;
-    if (Date.now() - lastAt < cooldown) return false;
+    // Another concurrent path already owns this visitor-facing response.
+    // Return true so callers suppress their plain-text channel fallback;
+    // false would incorrectly mean "not handled" and create a duplicate job.
+    if (Date.now() - lastAt < cooldown) return true;
 
     const now = new Date().toISOString();
     const nextMetadata = {
@@ -105,7 +119,6 @@ export async function maybeQueueTelegramOfflineScreen(
   const chatId = String(conversationMetadata.channel_chat_id ?? '');
   if (!chatId) return false;
 
-  const screen = buildOfflineScreen(settings, locale, fallbackLocale, { locked });
   const queued = await enqueueProviderActions(config, {
     provider: 'telegram',
     workspaceId: args.workspaceId,

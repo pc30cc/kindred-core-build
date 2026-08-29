@@ -182,11 +182,21 @@ async function tagOutcome(
 ): Promise<void> {
   try {
     const sb = getServiceClient(config);
+    // Routing can race the Telegram offline-screen claim. Never write the
+    // stale snapshot captured at function entry back over that claim, or a
+    // second path can reserve and send the same screen again immediately.
+    const { data: current } = await sb
+      .from('conversations')
+      .select('metadata')
+      .eq('id', conversationId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    const latestMetadata = (((current as any)?.metadata as Record<string, unknown>) || metadata);
     await sb
       .from('conversations')
       .update({
         metadata: {
-          ...metadata,
+          ...latestMetadata,
           routing_outcome: outcome,
           routing_outcome_at: new Date().toISOString(),
           ...extra,

@@ -199,8 +199,21 @@ export async function handleTelegramInboundFlow(
       return { aiAllowed, handled: away, locale, command: null };
     }
 
+    // `/start` with a live assistant: the AI greets the visitor itself, so the
+    // static welcome screen is skipped entirely. When AI is off (or the thread
+    // already belongs to a human) the operator-authored welcome still shows.
+    if (command === 'start' && aiAllowed) {
+      return {
+        aiAllowed,
+        handled: false,
+        locale,
+        command,
+        aiPrompt: telegramGreetingPrompt(locale, fallbackLocale),
+      };
+    }
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
+
     if (!isTelegramMenuEntryEnabled(settings, command) && command !== 'start') {
       // Retired or switched-off command — never a dead end, show the menu.
       screen = buildMainMenu(settings, locale, fallbackLocale);

@@ -516,7 +516,7 @@ export function TelegramConfigPanel({
                 </span>
                 <div>
                   <p className="text-sm font-medium">{t(labelKey as never)}</p>
-                  <p className="text-xs text-muted-foreground">{t(hintKey as never)}</p>
+                  <p className="text-xs text-muted-foreground">{t(hintKey as never, { provider: providerLabel })}</p>
                 </div>
               </div>
               <Switch

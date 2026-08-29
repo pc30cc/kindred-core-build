@@ -76,11 +76,11 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
       });
       setBody('');
       setAnsweringRequestId(null);
-      toast({ title: t('inbox.guidance.saved', 'Guidance sent to the AI') });
+      toast({ title: t('inbox.guidance.saved') });
       await load();
     } catch (e: any) {
       toast({
-        title: t('inbox.guidance.saveFailed', 'Could not save guidance'),
+        title: t('inbox.guidance.saveFailed'),
         description: e?.message || 'unknown',
         variant: 'destructive',
       });
@@ -113,10 +113,10 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
     <div dir={dir} className={cn('rounded-xl border border-border/60 bg-card/60 p-3 space-y-3', className)}>
       <div className="flex items-center gap-2">
         <Brain className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium">{t('inbox.guidance.title', 'Guide the AI')}</span>
+        <span className="text-sm font-medium">{t('inbox.guidance.title')}</span>
         <Badge variant="secondary" className="gap-1 text-[10px]">
           <Lock className="h-3 w-3" />
-          {t('inbox.guidance.private', 'Private')}
+          {t('inbox.guidance.private')}
         </Badge>
         {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
       </div>
@@ -127,7 +127,7 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
           <div className="flex items-start gap-2">
             <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium">{t('inbox.guidance.aiAsks', 'The AI needs your input')}</p>
+              <p className="text-xs font-medium">{t('inbox.guidance.aiAsks')}</p>
               <p className="mt-0.5 text-sm leading-relaxed">{pendingRequest.question}</p>
               {pendingRequest.missing_information && (
                 <p className="mt-1 text-xs text-muted-foreground">{pendingRequest.missing_information}</p>
@@ -139,7 +139,7 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
               size="icon"
               className="h-6 w-6 shrink-0"
               onClick={() => void dismissRequest(pendingRequest.id)}
-              aria-label={t('inbox.guidance.dismiss', 'Dismiss') as string}
+              aria-label={t('inbox.guidance.dismiss') as string}
             >
               <X className="h-3.5 w-3.5" />
             </Button>
@@ -151,7 +151,7 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
             className="h-7 text-xs"
             onClick={() => setAnsweringRequestId(pendingRequest.id)}
           >
-            {t('inbox.guidance.answer', 'Answer this')}
+            {t('inbox.guidance.answer')}
           </Button>
         </div>
       )}
@@ -163,8 +163,8 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
             <li key={g.id} className="group flex items-start gap-2 rounded-lg bg-muted/50 p-2">
               <Badge variant="outline" className="shrink-0 text-[10px]">
                 {g.kind === 'fact'
-                  ? t('inbox.guidance.kindFact', 'Fact')
-                  : t('inbox.guidance.kindDirection', 'Direction')}
+                  ? t('inbox.guidance.kindFact')
+                  : t('inbox.guidance.kindDirection')}
               </Badge>
               <span className="min-w-0 flex-1 text-xs leading-relaxed break-words">{g.body}</span>
               <Button
@@ -173,7 +173,7 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
                 size="icon"
                 className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={() => void revoke(g.id)}
-                aria-label={t('inbox.guidance.remove', 'Remove') as string}
+                aria-label={t('inbox.guidance.remove') as string}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -188,8 +188,8 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
         rows={3}
         placeholder={
           answeringRequestId
-            ? (t('inbox.guidance.answerPlaceholder', 'Answer the AI privately…') as string)
-            : (t('inbox.guidance.placeholder', 'Tell the AI what to do or what it does not know…') as string)
+            ? (t('inbox.guidance.answerPlaceholder') as string)
+            : (t('inbox.guidance.placeholder') as string)
         }
         className="resize-none text-sm"
       />
@@ -198,15 +198,15 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
         <Select value={kind} onValueChange={(v) => setKind(v as GuidanceKind)}>
           <SelectTrigger className="h-8 w-[7.5rem] text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="direction">{t('inbox.guidance.kindDirection', 'Direction')}</SelectItem>
-            <SelectItem value="fact">{t('inbox.guidance.kindFact', 'Fact')}</SelectItem>
+            <SelectItem value="direction">{t('inbox.guidance.kindDirection')}</SelectItem>
+            <SelectItem value="fact">{t('inbox.guidance.kindFact')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={scope} onValueChange={(v) => setScope(v as GuidanceScope)}>
           <SelectTrigger className="h-8 w-[9.5rem] text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="conversation">{t('inbox.guidance.scopeConversation', 'Whole conversation')}</SelectItem>
-            <SelectItem value="next_turn">{t('inbox.guidance.scopeNextTurn', 'Next reply only')}</SelectItem>
+            <SelectItem value="conversation">{t('inbox.guidance.scopeConversation')}</SelectItem>
+            <SelectItem value="next_turn">{t('inbox.guidance.scopeNextTurn')}</SelectItem>
           </SelectContent>
         </Select>
         <Button
@@ -217,15 +217,12 @@ export function AiGuidancePanel({ conversationId, aiManaged, dir = 'ltr', classN
           onClick={() => void submit()}
         >
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          {t('inbox.guidance.send', 'Send to AI')}
+          {t('inbox.guidance.send')}
         </Button>
       </div>
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        {t(
-          'inbox.guidance.hint',
-          'Only the AI sees this. It cannot unlock actions the workspace does not allow.',
-        )}
+        {t('inbox.guidance.hint')}
       </p>
     </div>
   );

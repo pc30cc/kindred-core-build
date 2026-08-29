@@ -93,5 +93,5 @@ export async function jsonFetch<T = unknown>(path: string, init: RequestInit = {
       method,
     });
   }
-  return data ?? {};
+  return (data ?? {}) as T;
 }

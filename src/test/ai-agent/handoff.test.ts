@@ -34,6 +34,7 @@ const insertAiMessageCalls: any[] = [];
 const markNeedsHumanCalls: any[] = [];
 const markHandoffRequestedCalls: any[] = [];
 let commitNeedsHumanFails = false;
+const routeAfterHandoffCalls: any[] = [];
 let aiCallCount = 0;
 let fakeSb: ReturnType<typeof makeFakeSupabase>;
 
@@ -139,7 +140,7 @@ vi.mock('../../../server/services/ai-agent/handoffState.js', async (importOrigin
       if (commitNeedsHumanFails) return { ok: false, routingDeferred: false };
       return actual.commitNeedsHuman(config, input);
     },
-    routeAfterHandoff: async () => {},
+    routeAfterHandoff: async (_config: any, input: any) => { routeAfterHandoffCalls.push(input); },
   };
 });
 
@@ -224,6 +225,7 @@ beforeEach(() => {
   markNeedsHumanCalls.length = 0;
   markHandoffRequestedCalls.length = 0;
   commitNeedsHumanFails = false;
+  routeAfterHandoffCalls.length = 0;
   aiCallCount = 0;
   fakeSb = makeFakeSupabase({
     workspaces: [{ id: DEFAULT_WORKSPACE_ID, locale: 'en', widget_language: 'en' }],
@@ -1282,5 +1284,87 @@ describe('C8.14 — Follow-up 9F.1 topic_detected condition contract (engine-lev
     // contract proven in topicRoutingCondition.test.ts.
     const skip = finalLog.metadata.routing.skippedActions.find((a: any) => a.sourceId === 'seed-billing');
     expect(skip).toBeUndefined(); // a validly-shaped, non-matching condition is a plain non-match
+  });
+});
+
+// ── M / N — vNext final blockers 1–3: a FAILED canonical handoff commit ──
+//
+// Drives the REAL runtime-decision handoff branch (engine.ts →
+// runtimeDecisionStage.ts) with commitNeedsHuman() failing, and proves the
+// attempt leaves ZERO false pending/sent handoff state behind.
+describe('M/N — failed canonical handoff commit in the real runtime-decision path', () => {
+  const arrange = () => {
+    settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_human_request: true });
+    conversationStateFixture = makeConversationState({ aiRepliesCountInConversation: 0 });
+    runtimeCfgFixture = makeRuntimeConfig({
+      routingRules: [
+        { id: 'route-fail', name: 'Escalate', trigger_type: 'human_request', conditions_json: {}, action_type: 'handoff', action_json: {}, priority: 1, enabled: true },
+      ],
+    });
+    commitNeedsHumanFails = true;
+  };
+
+  it('M — no pre-handoff marker survives the failed attempt and freshness is not blocked', async () => {
+    arrange();
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'let me talk to an operator please' }),
+    );
+
+    // The old pre-marker semantics would have succeeded here; it is gone.
+    expect(markHandoffRequestedCalls).toHaveLength(0);
+    expect(markNeedsHumanCalls).toHaveLength(1); // the canonical commit was attempted
+    expect(result.action).not.toBe('handoff');
+
+    // Exact final state: nothing about a handoff was persisted.
+    const conv = fakeSb.__tables.conversations[0];
+    const meta = conv.metadata || {};
+    expect(meta.ai_handoff_requested).toBeUndefined();
+    expect(meta.ai_state).toBeUndefined();
+    expect(meta.routing_pending).toBeUndefined();
+    expect(meta.ai_handoff_sent).toBeUndefined();
+
+    // No acknowledgement and no routing.
+    expect(insertAiMessageCalls).toHaveLength(0);
+    expect(routeAfterHandoffCalls.every((c) => c.commit?.ok === false)).toBe(true);
+
+    // A subsequent freshness check is NOT handoff_in_progress because of it.
+    const { checkGenerationFreshness } = await import('../../../server/services/ai-agent/freshness.js');
+    const verdict = await checkGenerationFreshness(CONFIG, {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      conversationId: DEFAULT_CONVERSATION_ID,
+      visitorMessageId: 'msg-visitor-1',
+      checkpoint: 'pre_generation',
+    });
+    expect(verdict.reason).not.toBe('handoff_in_progress');
+
+    // Truthful run logging — not reported as a successful handoff.
+    const log = logRunCalls.find((c) => c.runType === 'handoff');
+    expect(log?.status).toBe('failed');
+    expect(log?.metadata?.handoff_committed).toBe(false);
+  });
+
+  it('N — handoffSent is never recorded for a failed handoff attempt', async () => {
+    arrange();
+    const { updateRuntimeFlags } = await import('../../../server/services/ai-agent/runtime/conversationState.js');
+    await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'let me talk to an operator please' }),
+    );
+    const calls = (updateRuntimeFlags as any).mock.calls as any[];
+    expect(calls.some((c) => c[2]?.handoffSent === true)).toBe(false);
+  });
+
+  it('control — a SUCCESSFUL commit still records handoffSent exactly once', async () => {
+    arrange();
+    commitNeedsHumanFails = false;
+    const { updateRuntimeFlags } = await import('../../../server/services/ai-agent/runtime/conversationState.js');
+    const result = await maybeRunAiAssistantAfterVisitorMessage(
+      CONFIG,
+      baseInput({ question: 'let me talk to an operator please' }),
+    );
+    expect(result.action).toBe('handoff');
+    const calls = (updateRuntimeFlags as any).mock.calls as any[];
+    expect(calls.filter((c) => c[2]?.handoffSent === true)).toHaveLength(1);
   });
 });

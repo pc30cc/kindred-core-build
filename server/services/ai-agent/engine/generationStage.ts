@@ -33,7 +33,7 @@ import {
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
 import { checkGenerationFreshness, freshnessMeta } from '../freshness.js';
 import { parseAiControl, buildAiControlContract, type AiControl } from '../aiControl.js';
-import { markGuidanceConsumed, createGuidanceRequest, hasPendingGuidanceRequest } from '../guidance.js';
+import { createGuidanceRequest, hasPendingGuidanceRequest } from '../guidance.js';
 import { assistFirstMessage } from '../handoffPolicy.js';
 import type { MemoryPatch } from '../workingMemory.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
@@ -306,14 +306,16 @@ export async function runGenerationStage(
   // messages the visitor and never routes the conversation by itself.
   let guidanceRequestId: string | null = null;
   if (aiControl.requestHumanGuidance && allowGuidanceRequest && aiControl.guidanceQuestion) {
-    guidanceRequestId = await createGuidanceRequest(config, {
+    const created = await createGuidanceRequest(config, {
       workspaceId,
       conversationId,
       question: aiControl.guidanceQuestion,
+      visitorQuestion: question,
+      visitorMessageId,
       missingInformation: aiControl.missingInformation,
       knownSummary: aiControl.knownSummary,
-      runId: null,
     }).catch(() => null);
+    guidanceRequestId = created?.request?.id || null;
     if (guidanceRequestId) decisionTimeline.push('guidance_requested');
   }
 
@@ -332,15 +334,6 @@ export async function runGenerationStage(
           handoff_policy_kind: decisionStage.handoffPolicyDecision.kind }
       : {}),
   };
-
-  // Single-turn guidance was actually used by this generation → retire it.
-  if (operatorGuidance?.items?.length) {
-    await markGuidanceConsumed(
-      config,
-      workspaceId,
-      operatorGuidance.items.filter((g) => g.scope === 'next_turn').map((g) => g.id),
-    ).catch(() => {});
-  }
 
   // ─── Phase 3 — plan → gate → execute → record, BEFORE delivery (3.8) ────
   let actionsMeta: Record<string, unknown> | null = null;

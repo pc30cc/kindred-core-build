@@ -17,6 +17,7 @@ import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged } from '../handoffState.js';
 import { checkGenerationFreshness, freshnessMeta } from '../freshness.js';
 import { persistWorkingMemory } from '../workingMemory.js';
+import { markGuidanceConsumed } from '../guidance.js';
 import { publishOperatorEvent } from '../../realtime/publish.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -205,6 +206,14 @@ export async function runDeliveryStage(
     // so a failed turn never leaves phantom resolution attempts behind.
     if (memoryPatch && Object.keys(memoryPatch).length) {
       await persistWorkingMemory(config, { workspaceId, conversationId, patch: memoryPatch }).catch(() => {});
+    }
+    // Guidance is only "used" once a reply actually reached the visitor.
+    if (ctxStage.operatorGuidance?.items?.length) {
+      await markGuidanceConsumed(config, {
+        workspaceId, conversationId,
+        items: ctxStage.operatorGuidance.items,
+        runId,
+      }).catch(() => {});
     }
     return { ran: true, action: 'replied', runId, messageId: inserted.id };
   }

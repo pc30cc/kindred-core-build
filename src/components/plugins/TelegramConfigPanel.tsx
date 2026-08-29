@@ -335,7 +335,7 @@ export function TelegramConfigPanel({
           command,
           description: desc,
         })),
-      }),
+      }, provider),
     onSuccess: () => {
       toast({ title: t('plugins.telegram.brandingApplied') });
       refresh();

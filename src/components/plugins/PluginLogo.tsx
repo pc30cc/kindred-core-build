@@ -28,6 +28,21 @@ const MARKS: Record<string, Mark> = {
       />
     ),
   },
+  // Bale (بله) — Iranian Telegram-compatible messenger; brand is a teal/green
+  // paper-plane-in-circle mark.
+  bale: {
+    from: '#22C55E',
+    to: '#0E9F6E',
+    svg: (
+      <>
+        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="1.6" opacity="0.55" />
+        <path
+          fill="currentColor"
+          d="M18.4 6.6 6.1 10.9c-.75.27-.73.86.05 1.06l3.1.96 1.2 3.63c.15.42.27.58.62.58.27 0 .39-.12.54-.27l1.5-1.45 3.12 2.3c.57.32 1 .15 1.14-.53l2.05-9.63c.2-.83-.31-1.2-.86-.95Z"
+        />
+      </>
+    ),
+  },
   whatsapp: {
     from: '#25D366',
     to: '#128C7E',

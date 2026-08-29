@@ -31,6 +31,11 @@ import {
   wantsBusinessHours, renderToolResults, type GateContext,
 } from '../actions/index.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
+import { checkGenerationFreshness, freshnessMeta } from '../freshness.js';
+import { parseAiControl, buildAiControlContract, type AiControl } from '../aiControl.js';
+import { createGuidanceRequest, hasPendingGuidanceRequest } from '../guidance.js';
+import { assistFirstMessage } from '../handoffPolicy.js';
+import type { MemoryPatch } from '../workingMemory.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import type { ContextStageResult } from './contextStage.js';
@@ -45,6 +50,12 @@ export interface GenerationStageResult {
   actionsMeta?: Record<string, unknown> | null;
   /** Phase 3 — true when handoff executed through the action pipeline. */
   actionHandoffExecuted?: boolean;
+  /** vNext — parsed private status block (never visitor-visible). */
+  aiControl?: AiControl | null;
+  /** vNext — memory patch to persist at delivery time. */
+  memoryPatch?: MemoryPatch | null;
+  /** vNext — freshness/guidance observability for the run log. */
+  vnextMeta?: Record<string, unknown> | null;
 }
 
 export async function runGenerationStage(
@@ -63,6 +74,7 @@ export async function runGenerationStage(
   const {
     sb, locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
     guidanceMeta, availability, state,
+    operatorGuidance, memoryBlock, memoryTurnPatch,
   } = ctxStage;
   const { decision } = decisionStage;
   const { sources, queryMeta, built } = retrieval;
@@ -84,6 +96,17 @@ export async function runGenerationStage(
     runtime_warnings: runtimeCfg?.warnings || [],
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
+
+  // ─── vNext §20-24 — freshness checkpoint #1 (pre-generation) ──────────
+  // Never spend a provider call on a turn the visitor has already
+  // superseded or a human has already taken over.
+  const freshPre = await checkGenerationFreshness(config, {
+    workspaceId, conversationId, visitorMessageId, checkpoint: 'pre_generation',
+  });
+  if (!freshPre.fresh) {
+    decisionTimeline.push(`stale_${freshPre.reason}`);
+    return { terminal: { ran: false, action: 'skipped', reason: `stale_${freshPre.reason || 'superseded'}` } };
+  }
 
   // ─── LLM call ─────────────────────────────────────────────────────────
   const aiConfig = await resolveAIConfig(config, workspaceId);
@@ -139,6 +162,18 @@ export async function runGenerationStage(
     }]);
     readOnlyToolResults.push({ name: 'get_business_hours', ok: true });
   }
+  // A guidance request only makes sense when a human could actually answer
+  // it soon: operators reachable, AI still owns the conversation, and no
+  // request is already pending for this conversation.
+  const guidanceRequestPending = conversationId
+    ? await hasPendingGuidanceRequest(config, workspaceId, conversationId).catch(() => false)
+    : false;
+  const allowGuidanceRequest =
+    !!conversationId
+    && !guidanceRequestPending
+    && availability.state !== 'offline'
+    && !(state?.humanTakeoverAt || state?.hasHumanAgentReplied);
+
   const systemPrompt = buildSystemPrompt(settings, locale, {
     responseLanguage: locale,
     inputLanguage,
@@ -154,6 +189,10 @@ export async function runGenerationStage(
     guidanceRules: runtimeCfg?.guidanceRules,
     topicSlug: topTopicSlug,
     enabledActions: enabledActionNames,
+    // vNext — private, non-visitor-visible context.
+    operatorGuidanceBlock: operatorGuidance?.promptBlock || null,
+    conversationMemoryBlock: memoryBlock,
+    aiControlContract: buildAiControlContract({ allowGuidanceRequest: allowGuidanceRequest }),
   });
   // Phase 11 — real role-tagged history. Providers that accept a message
   // array get system + user/assistant turns + the current message; the
@@ -170,7 +209,9 @@ export async function runGenerationStage(
     // Phase 2.7 — warn the model when sources materially disagree.
     conflictDetected: strategy.conflictDetected,
     toolResults: toolResultsBlock,
-  });
+  }) + (decisionStage.assistFirstActive
+    ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
+    : '');
 
   let aiResult;
   try {
@@ -236,6 +277,63 @@ export async function runGenerationStage(
     });
     return { terminal: { ran: true, action: 'failed', reason: err?.message || 'ai_call_failed', runId } };
   }
+
+  // ─── vNext §25-31 — private status block ──────────────────────────────
+  // Parsed and STRIPPED before anything else touches the text, so the
+  // control JSON can never reach the visitor even if a later stage fails.
+  const parsedControl = parseAiControl(aiResult.text || '');
+  aiResult = { ...aiResult, text: parsedControl.text };
+  const aiControl = parsedControl.control;
+
+  // Fold model-reported state into the deterministic memory patch. Model
+  // input is advisory: bounded fields only, never counters or authorization.
+  const memoryPatch: MemoryPatch = {
+    ...memoryTurnPatch,
+    ...(aiControl.currentIssue ? { currentIssue: aiControl.currentIssue } : {}),
+    ...(aiControl.awaitingUserAction ? { awaitingUserAction: aiControl.awaitingUserAction } : {}),
+    ...(aiControl.entities.length ? { addEntities: aiControl.entities } : {}),
+    ...(aiControl.resolutionStatus !== 'unknown'
+      ? { issueStatus: aiControl.resolutionStatus === 'resolved' ? 'resolved' as const
+          : aiControl.resolutionStatus === 'awaiting_user' ? 'awaiting_user' as const
+          : 'open' as const }
+      : {}),
+    ...(aiControl.proposedSolution
+      ? { addAttempt: { summary: aiControl.proposedSolution, status: 'proposed' as const } }
+      : {}),
+  };
+
+  // Model-requested human guidance → private operator request. This NEVER
+  // messages the visitor and never routes the conversation by itself.
+  let guidanceRequestId: string | null = null;
+  if (aiControl.requestHumanGuidance && allowGuidanceRequest && aiControl.guidanceQuestion) {
+    const created = await createGuidanceRequest(config, {
+      workspaceId,
+      conversationId,
+      question: aiControl.guidanceQuestion,
+      visitorQuestion: question,
+      visitorMessageId,
+      missingInformation: aiControl.missingInformation,
+      knownSummary: aiControl.knownSummary,
+    }).catch(() => null);
+    guidanceRequestId = created?.request?.id || null;
+    if (guidanceRequestId) decisionTimeline.push('guidance_requested');
+  }
+
+  const vnextMeta: Record<string, unknown> = {
+    ...freshnessMeta(freshPre),
+    ...(operatorGuidance?.meta || {}),
+    ...ctxStage.memoryMetaBundle,
+    ai_control: {
+      present: parsedControl.blockPresent,
+      parse_error: parsedControl.parseError,
+      resolution_status: aiControl.resolutionStatus,
+      guidance_requested: !!guidanceRequestId,
+    },
+    ...(decisionStage.handoffPolicyDecision
+      ? { handoff_policy: decisionStage.handoffPolicyDecision.policy,
+          handoff_policy_kind: decisionStage.handoffPolicyDecision.kind }
+      : {}),
+  };
 
   // ─── Phase 3 — plan → gate → execute → record, BEFORE delivery (3.8) ────
   let actionsMeta: Record<string, unknown> | null = null;
@@ -311,7 +409,10 @@ export async function runGenerationStage(
   const valid =
     strategy.decisionType === 'ask_clarifying_question'
       ? { ok: true as const }
-      : postValidateAnswer(aiResult.text || '');
+      : postValidateAnswer(aiResult.text || '', {
+          groundingMode: strategy.groundingMode as any,
+          escalateOnUncertainty: settings.handoff_when_no_kb_match !== false,
+        });
   if (!valid.ok) {
     // Treat as handoff when AI itself bailed out.
     const runId = await logRun(config, {
@@ -365,5 +466,24 @@ export async function runGenerationStage(
     return { terminal: { ran: true, action: 'handoff', reason: valid.reason, runId } };
   }
 
-  return { aiResult, actionsMeta, actionHandoffExecuted };
+  // ─── vNext — freshness checkpoint #2 (post-generation) ────────────────
+  const freshPost = await checkGenerationFreshness(config, {
+    workspaceId, conversationId, visitorMessageId, checkpoint: 'post_generation',
+  });
+  if (!freshPost.fresh) {
+    decisionTimeline.push(`stale_${freshPost.reason}`);
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'skipped',
+      inputText: question, outputText: aiResult.text,
+      skipReason: `stale_${freshPost.reason || 'superseded'}`,
+      provider: aiResult.provider, model: aiResult.model,
+      kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
+      confidence: strategy.confidence,
+      metadata: { ...baseRuntimeMeta(), ...vnextMeta, ...freshnessMeta(freshPost), locale, language: languageMeta },
+    });
+    return { terminal: { ran: false, action: 'skipped', reason: `stale_${freshPost.reason || 'superseded'}`, runId } };
+  }
+
+  return { aiResult, actionsMeta, actionHandoffExecuted, aiControl, memoryPatch, vnextMeta };
 }

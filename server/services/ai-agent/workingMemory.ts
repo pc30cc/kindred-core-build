@@ -75,7 +75,7 @@ export const EMPTY_MEMORY: WorkingMemory = {
   updatedAt: null,
 };
 
-function str(v: unknown, max = MEMORY_BOUNDS.maxTextLen): string | null {
+function str(v: unknown, max: number = MEMORY_BOUNDS.maxTextLen): string | null {
   const s = String(v ?? '').replace(/\s+/g, ' ').trim();
   return s ? s.slice(0, max) : null;
 }

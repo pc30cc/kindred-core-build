@@ -35,14 +35,57 @@ import { runAnswerStage } from './engine/answerStage.js';
 import { runGenerationStage } from './engine/generationStage.js';
 import { runDeliveryStage } from './engine/deliveryStage.js';
 import { logRun } from './logs.js';
+import { coalesceVisitorBurst, noteVisitorMessage } from './coalescing.js';
 
 export type { MaybeRunInput, MaybeRunResult } from './engine/types.js';
+
+/**
+ * vNext §22 — one in-flight generation per conversation, per process.
+ * Two visitor messages arriving back-to-back used to start two independent
+ * engine runs on the same conversation, which produced duplicated or
+ * contradictory replies. The second caller now waits for the first to
+ * settle, then re-evaluates freshness (and usually skips).
+ */
+const inFlightByConversation = new Map<string, Promise<unknown>>();
 
 export async function maybeRunAiAssistantAfterVisitorMessage(
   config: ServerConfig,
   input: MaybeRunInput,
 ): Promise<MaybeRunResult> {
+  const convId = input.conversationId || '';
+  if (convId) {
+    // Register the message BEFORE any awaiting, so a burst partner that is
+    // already sleeping in its debounce window sees it and stands down.
+    if (input.visitorMessageId) noteVisitorMessage(convId, input.visitorMessageId);
+    const prior = inFlightByConversation.get(convId);
+    if (prior) await prior.catch(() => {});
+  }
+  const run = runGuarded(config, input);
+  if (convId) {
+    inFlightByConversation.set(convId, run);
+    void run.finally(() => {
+      if (inFlightByConversation.get(convId) === run) inFlightByConversation.delete(convId);
+    });
+  }
+  return run;
+}
+
+async function runGuarded(
+  config: ServerConfig,
+  input: MaybeRunInput,
+): Promise<MaybeRunResult> {
   try {
+    // vNext §20-24 — burst coalescing. Visitors often send one thought as
+    // three short messages; answering the first fragment reads as a bot.
+    if (input.conversationId && input.visitorMessageId) {
+      const burst = await coalesceVisitorBurst({
+        conversationId: input.conversationId,
+        visitorMessageId: input.visitorMessageId,
+      });
+      if (!burst.proceed) {
+        return { ran: false, action: 'skipped', reason: 'superseded_by_newer_message' };
+      }
+    }
     return await runInternal(config, input);
   } catch (err: any) {
     console.warn('[ai-agent] engine failed:', err?.message || err);

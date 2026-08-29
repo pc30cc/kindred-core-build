@@ -43,6 +43,7 @@ import { contactDisplayName } from '@/lib/contact-display';
 import { localizedCountryName } from '@/lib/geo/countryLocalization';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
+import { AiGuidancePanel } from '@/components/inbox/AiGuidancePanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
 import { AiSuggestionCard } from '@/components/inbox/AiSuggestionCard';
 import { OperatorAssistPanel } from '@/components/inbox/OperatorAssistPanel';
@@ -2354,6 +2355,15 @@ export default function InboxPage() {
                       </span>
                     ))}
                   </div>
+                )}
+
+                {/* vNext — private operator guidance while the AI is handling this. */}
+                {selectedId && (
+                  <AiGuidancePanel
+                    conversationId={selectedId}
+                    aiManaged={(selected as any)?.metadata?.ai_state === 'ai_managed'}
+                    dir={dir as 'ltr' | 'rtl'}
+                  />
                 )}
 
                 {/* Phase 3 — Editable action panel */}

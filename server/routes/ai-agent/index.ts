@@ -26,6 +26,7 @@ import { operatorAssistRouter } from './operatorAssist.js';
 import { knowledgeRouter } from './knowledge.js';
 import { automationRouter } from './automation.js';
 import { internalQaRouter } from './internalQa.js';
+import { humanGuidanceRouter } from './humanGuidance.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -74,3 +75,5 @@ aiAgentRouter.use(operatorAssistRouter);
 aiAgentRouter.use(knowledgeRouter);
 aiAgentRouter.use(automationRouter);
 aiAgentRouter.use(internalQaRouter);
+// vNext — private operator → AI guidance for a single conversation.
+aiAgentRouter.use(humanGuidanceRouter);

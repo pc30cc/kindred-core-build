@@ -116,7 +116,25 @@ export async function resolveTelegramReplyLocale(
 }
 
 
+/**
+ * The opening line handed to the AI engine when a visitor taps /start while
+ * the assistant is live — a plain greeting in the visitor's language so the
+ * assistant answers naturally instead of parroting the raw command.
+ */
+export function telegramGreetingPrompt(
+  locale: string | null | undefined,
+  fallbackLocale?: string | null,
+): string {
+  const map: Record<string, string> = {
+    fa: 'سلام',
+    tr: 'Merhaba',
+    en: 'Hello',
+  };
+  return map[(locale || '').toLowerCase()] || map[(fallbackLocale || '').toLowerCase()] || 'Hello';
+}
+
 export { escapeHtml };
+
 
 /**
  * A command screen: the operator-authored copy on top, the inline menu

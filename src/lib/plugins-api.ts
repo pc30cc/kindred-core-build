@@ -132,6 +132,10 @@ export interface TelegramStatus {
     lastErrorCode: string | null;
     lastErrorAt: string | null;
     webhookUrl: string | null;
+    /** Cloud API providers (WhatsApp) register the callback themselves. */
+    verifyToken?: string | null;
+    managesWebhookExternally?: boolean;
+
   } | null;
 }
 

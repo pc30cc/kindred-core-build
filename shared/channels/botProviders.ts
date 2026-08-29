@@ -12,12 +12,26 @@
  * provider id in feature code, read the capability flag instead.
  */
 
-export const BOT_PROVIDER_IDS = ['telegram', 'bale'] as const;
+export const BOT_PROVIDER_IDS = ['telegram', 'bale', 'whatsapp'] as const;
 export type BotProviderId = (typeof BOT_PROVIDER_IDS)[number];
+
+/**
+ * Wire protocol a provider speaks. Everything Core produces is protocol
+ * neutral (text + a keyboard description); the Worker translates it into the
+ * dialect right before the socket, so no feature code ever branches on ids.
+ */
+export type BotApiDialect = 'telegram-bot' | 'whatsapp-cloud';
+
+/** Markup a provider actually renders in a chat bubble. */
+export type BotTextFormat = 'html' | 'whatsapp' | 'plain';
 
 export type BotProviderDescriptor = {
   id: BotProviderId;
   label: string;
+  /** Wire protocol; selects the Worker-side client implementation. */
+  dialect: BotApiDialect;
+  /** Graph-style APIs need a version segment; empty for Bot API providers. */
+  apiVersion?: string;
   /** Bot API root; the token is appended as `/bot<token>/<method>`. */
   apiRoot: string;
   /** Accepted shape of a bot credential. */
@@ -46,6 +60,20 @@ export type BotProviderDescriptor = {
    * so text destined for it must be flattened to plain text first.
    */
   supportsHtmlFormatting: boolean;
+  /** Markup dialect the provider renders. */
+  textFormat: BotTextFormat;
+  /**
+   * The platform can register the webhook itself (`setWebhook`). WhatsApp
+   * Cloud webhooks are configured once in the Meta app dashboard, so the UI
+   * must instead SHOW the callback URL and verify token to the operator.
+   */
+  supportsWebhookRegistration: boolean;
+  /** Inline/reply keyboards vs. WhatsApp interactive buttons + list rows. */
+  keyboardStyle: 'telegram' | 'whatsapp-interactive';
+  /** Max buttons a single screen may carry (WhatsApp caps hard). */
+  maxButtonsPerScreen: number;
+  /** Credential shape accepted by the connect endpoint. */
+  credentialKind: 'bot_token' | 'whatsapp_cloud';
   /** Plan channel entitlement key in the capability registry. */
   planChannelKey: string;
   /** Encrypted credential slots in `plugin_secrets`. */
@@ -64,6 +92,7 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
   telegram: {
     id: 'telegram',
     label: 'Telegram',
+    dialect: 'telegram-bot',
     apiRoot: 'https://api.telegram.org',
     tokenPattern: /^\d{6,}:[A-Za-z0-9_-]{20,}$/,
     webhookSecretHeader: 'X-Telegram-Bot-Api-Secret-Token',
@@ -74,12 +103,18 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     supportsChatAction: true,
     supportsUserProfilePhotos: true,
     supportsHtmlFormatting: true,
+    textFormat: 'html',
+    supportsWebhookRegistration: true,
+    keyboardStyle: 'telegram',
+    maxButtonsPerScreen: 20,
+    credentialKind: 'bot_token',
     planChannelKey: 'telegram',
     secretKeys: secretKeys('telegram'),
   },
   bale: {
     id: 'bale',
     label: 'Bale',
+    dialect: 'telegram-bot',
     apiRoot: 'https://tapi.bale.ai',
     // Bale issues Telegram-shaped tokens (`<bot_id>:<secret>`).
     tokenPattern: /^\d{6,}:[A-Za-z0-9_-]{20,}$/,
@@ -91,8 +126,43 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     supportsChatAction: true,
     supportsUserProfilePhotos: true,
     supportsHtmlFormatting: false,
+    textFormat: 'plain',
+    supportsWebhookRegistration: true,
+    keyboardStyle: 'telegram',
+    maxButtonsPerScreen: 20,
+    credentialKind: 'bot_token',
     planChannelKey: 'bale',
     secretKeys: secretKeys('bale'),
+  },
+  whatsapp: {
+    id: 'whatsapp',
+    label: 'WhatsApp',
+    dialect: 'whatsapp-cloud',
+    // Meta Graph API. The credential is a JSON envelope (phone number id +
+    // permanent access token), so the token pattern below matches JSON.
+    apiRoot: 'https://graph.facebook.com',
+    apiVersion: 'v21.0',
+    tokenPattern: /^\{[\s\S]*"access_token"[\s\S]*\}$/,
+    // Meta signs the body with the app secret (X-Hub-Signature-256), which
+    // the credential-free Gateway cannot verify. Authenticity therefore rests
+    // on the unguessable 192-bit public integration id in the callback path,
+    // exactly as for Bale.
+    webhookSecretHeader: null,
+    supportsSecretToken: false,
+    supportsAllowedUpdates: false,
+    supportsBotProfile: true,
+    supportsCommands: false,
+    supportsChatAction: true,
+    supportsUserProfilePhotos: false,
+    supportsHtmlFormatting: false,
+    textFormat: 'whatsapp',
+    supportsWebhookRegistration: false,
+    keyboardStyle: 'whatsapp-interactive',
+    // Cloud API: 3 reply buttons, or 10 rows in a single list section.
+    maxButtonsPerScreen: 10,
+    credentialKind: 'whatsapp_cloud',
+    planChannelKey: 'whatsapp',
+    secretKeys: secretKeys('whatsapp'),
   },
 };
 
@@ -146,6 +216,24 @@ export function botHtmlToPlainText(html: string): string {
 }
 
 /**
+ * Bot-API HTML → WhatsApp markup (`*bold*`, `_italic_`, `~strike~`).
+ * WhatsApp renders no tags at all, but it does render its own light markup,
+ * so headings stay visually distinct instead of collapsing into flat text.
+ */
+export function botHtmlToWhatsAppText(html: string): string {
+  const marked = html
+    .replace(/<\s*(b|strong)\s*>/gi, '*')
+    .replace(/<\s*\/\s*(b|strong)\s*>/gi, '*')
+    .replace(/<\s*(i|em)\s*>/gi, '_')
+    .replace(/<\s*\/\s*(i|em)\s*>/gi, '_')
+    .replace(/<\s*(s|del)\s*>/gi, '~')
+    .replace(/<\s*\/\s*(s|del)\s*>/gi, '~')
+    .replace(/<\s*code\s*>/gi, '`')
+    .replace(/<\s*\/\s*code\s*>/gi, '`');
+  return botHtmlToPlainText(marked);
+}
+
+/**
  * Adapts generated bot copy to what the target provider can actually render.
  * Providers without HTML support receive flattened text and no `parse_mode`,
  * so tags never leak into the chat.
@@ -159,5 +247,7 @@ export function renderBotText<T extends string | undefined>(
   if (parseMode !== 'HTML' || descriptor?.supportsHtmlFormatting !== false) {
     return { text, parseMode };
   }
-  return { text: botHtmlToPlainText(text), parseMode: undefined };
+  const flattened =
+    descriptor?.textFormat === 'whatsapp' ? botHtmlToWhatsAppText(text) : botHtmlToPlainText(text);
+  return { text: flattened, parseMode: undefined };
 }

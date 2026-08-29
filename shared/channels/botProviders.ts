@@ -41,6 +41,11 @@ export type BotProviderDescriptor = {
   supportsChatAction: boolean;
   /** `getUserProfilePhotos` exists (contact avatar enrichment). */
   supportsUserProfilePhotos: boolean;
+  /**
+   * `parse_mode: 'HTML'` is honoured. Bale ignores it and shows the raw tags,
+   * so text destined for it must be flattened to plain text first.
+   */
+  supportsHtmlFormatting: boolean;
   /** Plan channel entitlement key in the capability registry. */
   planChannelKey: string;
   /** Encrypted credential slots in `plugin_secrets`. */
@@ -68,6 +73,7 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     supportsCommands: true,
     supportsChatAction: true,
     supportsUserProfilePhotos: true,
+    supportsHtmlFormatting: true,
     planChannelKey: 'telegram',
     secretKeys: secretKeys('telegram'),
   },
@@ -84,6 +90,7 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     supportsCommands: true,
     supportsChatAction: true,
     supportsUserProfilePhotos: true,
+    supportsHtmlFormatting: false,
     planChannelKey: 'bale',
     secretKeys: secretKeys('bale'),
   },
@@ -112,4 +119,45 @@ export const BOT_PROVIDERS: readonly BotProviderDescriptor[] = Object.freeze(
 /** Credential slot names for a provider, used by Core and the Worker. */
 export function providerSecretKeys(provider: string) {
   return botProvider(provider).secretKeys;
+}
+
+/** Decodes the handful of entities our own HTML escaping can produce. */
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/** Bot-API HTML → readable plain text (line breaks and bullets preserved). */
+export function botHtmlToPlainText(html: string): string {
+  return decodeEntities(
+    html
+      .replace(/<br\s*\/?>(\s*<\/br>)?/gi, '\n')
+      .replace(/<\/(p|div|li|h[1-6]|blockquote)>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '• ')
+      .replace(/<[^>]+>/g, ''),
+  )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Adapts generated bot copy to what the target provider can actually render.
+ * Providers without HTML support receive flattened text and no `parse_mode`,
+ * so tags never leak into the chat.
+ */
+export function renderBotText<T extends string | undefined>(
+  providerId: string,
+  text: string,
+  parseMode: T,
+): { text: string; parseMode: T | undefined } {
+  const descriptor = findBotProvider(providerId);
+  if (parseMode !== 'HTML' || descriptor?.supportsHtmlFormatting !== false) {
+    return { text, parseMode };
+  }
+  return { text: botHtmlToPlainText(text), parseMode: undefined };
 }

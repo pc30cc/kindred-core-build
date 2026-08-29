@@ -34,6 +34,7 @@ import { pluginsApi } from '@/lib/plugins-api';
 import { storageUpload } from '@/lib/api';
 import { formatDateTime } from '@/lib/date';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { findBotProvider } from '../../../shared/channels/botProviders';
 import {
   AlertCircle,
   CheckCircle2,
@@ -126,6 +127,12 @@ export function TelegramConfigPanel({
   const qc = useQueryClient();
   /** Human-readable provider name so toasts never say "Telegram" for Bale. */
   const providerLabel = t(`plugins.${provider}.name` as never) || (provider === 'bale' ? 'Bale' : 'Telegram');
+  /**
+   * Capability, never a provider id: Bale exposes no `setMyName` /
+   * `setMyDescription`, so pushing branding to it is impossible — only the
+   * command menu can be published there.
+   */
+  const supportsBotProfile = findBotProvider(provider)?.supportsBotProfile !== false;
   const [token, setToken] = useState('');
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [botName, setBotName] = useState('');
@@ -318,7 +325,7 @@ export function TelegramConfigPanel({
       // reflect the effective mode instead of the requested one.
       const effective = data?.settings?.handlingMode;
       if (effective === 'human_only' || effective === 'ai_first') setHandlingMode(effective);
-      toast({ title: t('plugins.telegram.settingsSaved') });
+      toast({ title: t('plugins.telegram.settingsSaved', { provider: providerLabel }) });
       refresh();
     },
     onError: (err: any) =>
@@ -458,7 +465,7 @@ export function TelegramConfigPanel({
                 className="text-destructive"
                 disabled={disconnect.isPending}
                 onClick={() => {
-                  if (window.confirm(t('plugins.telegram.confirmDisconnect'))) disconnect.mutate();
+                  if (window.confirm(t('plugins.telegram.confirmDisconnect', { provider: providerLabel }))) disconnect.mutate();
                 }}
               >
                 {disconnect.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
@@ -516,7 +523,7 @@ export function TelegramConfigPanel({
                 </span>
                 <div>
                   <p className="text-sm font-medium">{t(labelKey as never)}</p>
-                  <p className="text-xs text-muted-foreground">{t(hintKey as never)}</p>
+                  <p className="text-xs text-muted-foreground">{t(hintKey as never, { provider: providerLabel })}</p>
                 </div>
               </div>
               <Switch
@@ -628,6 +635,11 @@ export function TelegramConfigPanel({
   if (section === 'branding') {
     return (
       <Card className="space-y-4 p-4">
+        {!supportsBotProfile && (
+          <p className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+            {t('plugins.telegram.brandingUnsupported', { provider: providerLabel })}
+          </p>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="telegram-bot-name">{t('plugins.telegram.brandingName')}</Label>
           <Input id="telegram-bot-name" value={botName} maxLength={64} onChange={(e) => setBotName(e.target.value)} />
@@ -691,15 +703,17 @@ export function TelegramConfigPanel({
               )}
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">{t('plugins.telegram.photoUrlHint')}</p>
+          <p className="text-xs text-muted-foreground">{t('plugins.telegram.photoUrlHint', { provider: providerLabel })}</p>
         </div>
 
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="secondary" disabled={applyProfile.isPending} onClick={() => applyProfile.mutate()}>
-            {applyProfile.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-            {t('plugins.telegram.applyBranding')}
-          </Button>
+          {supportsBotProfile && (
+            <Button type="button" variant="secondary" disabled={applyProfile.isPending} onClick={() => applyProfile.mutate()}>
+              {applyProfile.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+              {t('plugins.telegram.applyBranding')}
+            </Button>
+          )}
           <Button type="button" disabled={saveSettings.isPending} onClick={() => saveSettings.mutate()}>
             {saveSettings.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
             {t('plugins.telegram.saveSettings')}
@@ -809,7 +823,7 @@ export function TelegramConfigPanel({
 
       <div className="space-y-2" dir={locale === 'fa' ? 'rtl' : 'ltr'}>
         <Label>{t('plugins.telegram.commandsTitle')}</Label>
-        <p className="text-xs text-muted-foreground">{t('plugins.telegram.commandsHint')}</p>
+        <p className="text-xs text-muted-foreground">{t('plugins.telegram.commandsHint', { provider: providerLabel })}</p>
         {COMMAND_KEYS.filter(
           (key) =>
             (key !== 'faq' || menuSettings.faqEnabled) && (key !== 'guides' || menuSettings.guidesEnabled),

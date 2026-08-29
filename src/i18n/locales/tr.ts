@@ -4028,6 +4028,10 @@ const tr: TranslationKeys = {
     title: 'Eklentiler',
     subtitle: 'Harici kanalları ve servisleri çalışma alanınıza bağlayın.',
     catalogEmpty: 'Henüz kullanılabilir eklenti yok.',
+    search: 'Eklenti ara…',
+    noResults: 'Aramanızla eşleşen eklenti yok.',
+    filterAll: 'Tümü',
+    stat: { installed: 'Kurulu', available: 'Kullanılabilir', comingSoon: 'Yakında', total: 'Eklentiler' },
     category: {
       channels: 'Kanallar',
       crm: 'CRM',

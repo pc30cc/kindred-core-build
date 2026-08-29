@@ -51,7 +51,8 @@ import {
   recordMediaOutcomes,
 } from '../services/channels/telegram/mediaIngest.js';
 import { markAvatarChecked } from '../services/channels/telegram/avatarSync.js';
-import { enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
+import { botJobType, enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
+import { BOT_PROVIDER_IDS } from '../../shared/channels/botProviders.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';

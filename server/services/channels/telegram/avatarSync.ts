@@ -22,6 +22,8 @@ import { MAX_AVATAR_BYTES } from './mediaIngest.js';
 const REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type TelegramAvatarSyncInput = {
+  /** Bot provider that owns the account (telegram | bale). */
+  provider?: string;
   workspaceId: string;
   integrationId: string;
   contactId: string;
@@ -52,7 +54,7 @@ export async function syncTelegramContactAvatar(
     if (!contact || !shouldSync(contact)) return;
 
     await requestProviderOperation(config, {
-      provider: 'telegram',
+      provider: input.provider || 'telegram',
       operation: 'avatar_fetch',
       workspaceId: input.workspaceId,
       integrationId: input.integrationId,

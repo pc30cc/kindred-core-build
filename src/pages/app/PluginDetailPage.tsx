@@ -19,6 +19,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
+import { PluginLogo } from '@/components/plugins/PluginLogo';
+
 import { ArrowLeft, ArrowRight, Lock, Plug, Trash2, Wrench } from 'lucide-react';
 
 export default function PluginDetailPage() {
@@ -99,10 +101,12 @@ export default function PluginDetailPage() {
         </Link>
       </Button>
 
-      <header className="flex flex-wrap items-start gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Plug className="h-5 w-5" />
+      <header className="relative flex flex-wrap items-start gap-4 overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6">
+        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
+        <div className="relative">
+          <PluginLogo id={item.id} />
         </div>
+
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold">{name}</h1>

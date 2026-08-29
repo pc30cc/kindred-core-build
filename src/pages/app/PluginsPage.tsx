@@ -21,23 +21,11 @@ import { PluginLogo } from '@/components/plugins/PluginLogo';
 import { Link, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
-  CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Sparkles, Trash2, Wrench,
+  CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Trash2, Wrench,
 } from 'lucide-react';
 
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-border/60 bg-card/40 p-4 transition-colors hover:border-border">
-      <div className="mb-1.5 flex items-center gap-2 text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
-        <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
-      </div>
-      <div className="text-2xl font-semibold text-foreground">{value}</div>
-    </div>
-  );
-}
-
 export default function PluginsPage() {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id ?? '';
   const qc = useQueryClient();
@@ -120,26 +108,29 @@ export default function PluginsPage() {
   }, [filtered]);
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Header — mirrors the other workspace pages */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t('plugins.title')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('plugins.subtitle')}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground">
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-          {stats.installed} / {stats.total}
+    <div className="space-y-6 animate-fade-in" dir={dir}>
+      {/* Hero header — same language as Knowledge Base */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
+        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30">
+              <Puzzle className="h-6 w-6 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('plugins.title')}</h1>
+              <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">{t('plugins.subtitle')}</p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1.5 text-xs text-foreground backdrop-blur">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            {stats.installed} / {stats.total}
+          </div>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard icon={Puzzle} label={t('plugins.stat.total')} value={stats.total} />
-        <StatCard icon={CheckCircle2} label={t('plugins.stat.installed')} value={stats.installed} />
-        <StatCard icon={Sparkles} label={t('plugins.stat.available')} value={stats.available} />
-        <StatCard icon={Clock} label={t('plugins.stat.comingSoon')} value={stats.comingSoon} />
-      </div>
+
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

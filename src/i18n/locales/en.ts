@@ -4094,15 +4094,15 @@ const en = {
       description: 'Receive and reply to Bale (بله) messages directly in your Inbox.',
     },
     whatsapp: {
-      phoneNumberId: 'Phone Number ID'
-      phoneNumberIdHint: 'Found in Meta dashboard ▸ WhatsApp ▸ API Setup.'
-      accessToken: 'Permanent access token'
-      accessTokenHint: 'A System User token with the whatsapp_business_messaging permission.'
-      businessAccountId: 'WhatsApp Business Account ID'
-      webhookSetupTitle: 'Configure the webhook in the Meta dashboard'
-      webhookSetupHint: 'Paste this callback URL and verify token into your Meta app Webhooks section and subscribe to the messages event.'
-      callbackUrl: 'Callback URL'
-      verifyToken: 'Verify Token'
+      phoneNumberId: "Phone Number ID",
+      phoneNumberIdHint: "Found in Meta dashboard ▸ WhatsApp ▸ API Setup.",
+      accessToken: "Permanent access token",
+      accessTokenHint: "A System User token with the whatsapp_business_messaging permission.",
+      businessAccountId: "WhatsApp Business Account ID",
+      webhookSetupTitle: "Configure the webhook in the Meta dashboard",
+      webhookSetupHint: "Paste this callback URL and verify token into your Meta app Webhooks section and subscribe to the messages event.",
+      callbackUrl: "Callback URL",
+      verifyToken: "Verify Token",
     },
     telegram: {
       photoUrl: 'Bot photo',

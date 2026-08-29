@@ -4081,15 +4081,15 @@ const fa: TranslationKeys = {
       description: 'پیام‌های پیام‌رسان بله را مستقیماً در صندوق ورودی دریافت کنید و پاسخ دهید.',
     },
     whatsapp: {
-      phoneNumberId: 'شناسه شماره تلفن (Phone Number ID)'
-      phoneNumberIdHint: 'در داشبورد Meta ▸ WhatsApp ▸ API Setup قابل مشاهده است.'
-      accessToken: 'توکن دسترسی دائمی'
-      accessTokenHint: 'توکن System User با دسترسی whatsapp_business_messaging.'
-      businessAccountId: 'شناسه حساب کسب\u200cوکار (WABA ID)'
-      webhookSetupTitle: 'تنظیم وب\u200cهوک در داشبورد Meta'
-      webhookSetupHint: 'این آدرس و توکن تأیید را در بخش Webhooks اپلیکیشن Meta وارد کنید و رویداد messages را فعال کنید.'
-      callbackUrl: 'Callback URL'
-      verifyToken: 'Verify Token'
+      phoneNumberId: "شناسه شماره تلفن (Phone Number ID)",
+      phoneNumberIdHint: "در داشبورد Meta ▸ WhatsApp ▸ API Setup قابل مشاهده است.",
+      accessToken: "توکن دسترسی دائمی",
+      accessTokenHint: "توکن System User با دسترسی whatsapp_business_messaging.",
+      businessAccountId: "Ø´ÙØ§Ø³Ù Ø­Ø³Ø§Ø¨ Ú©Ø³Ø¨‌ÙÚ©Ø§Ø± (WABA ID)",
+      webhookSetupTitle: "ØªÙØ¸ÛÙ ÙØ¨‌ÙÙÚ© Ø¯Ø± Ø¯Ø§Ø´Ø¨ÙØ±Ø¯ Meta",
+      webhookSetupHint: "این آدرس و توکن تأیید را در بخش Webhooks اپلیکیشن Meta وارد کنید و رویداد messages را فعال کنید.",
+      callbackUrl: "Callback URL",
+      verifyToken: "Verify Token",
     },
     telegram: {
       photoUrl: 'تصویر ربات',

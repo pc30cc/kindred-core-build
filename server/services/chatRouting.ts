@@ -15,6 +15,7 @@
  *   - the atomic public.claim_conversation() Postgres function
  *     (supabase/migrations/20260807132846_chat_routing_assignment.sql)
  */
+import { isBotProvider } from '../../shared/channels/botProviders.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -224,14 +225,15 @@ async function resolveNoAgentVisitorBody(
   conversationMetadata: Record<string, unknown>,
 ): Promise<string> {
   const fallback = "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.";
-  if (conversationMetadata.channel !== 'telegram') return fallback;
+  const provider = String(conversationMetadata.channel || '');
+  if (!isBotProvider(provider)) return fallback;
   try {
     const [{ getInstallation }, telegram, platformRegion] = await Promise.all([
       import('./plugins/state.js'),
       import('./channels/telegram/settings.js'),
       import('./platformRegion.js'),
     ]);
-    const installation = await getInstallation(config, workspaceId, 'telegram');
+    const installation = await getInstallation(config, workspaceId, provider);
     if (!installation) return fallback;
     const settings = telegram.parseTelegramSettings(installation.settings);
     const allowed = await platformRegion.getPlatformAllowedLocales(config);
@@ -424,7 +426,7 @@ export async function routeConversationToOperator(
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
         const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, metadata);
-        const telegramScreenQueued = metadata.channel === 'telegram'
+        const telegramScreenQueued = isBotProvider(String(metadata.channel || ''))
           ? await maybeQueueTelegramOfflineScreen(config, {
               workspaceId: args.workspaceId,
               conversationId: args.conversationId,
@@ -436,7 +438,7 @@ export async function routeConversationToOperator(
           visitorBody,
           {
             kind: 'routing_no_agent_available',
-            ...(metadata.channel === 'telegram'
+            ...(isBotProvider(String(metadata.channel || ''))
               ? { channel_delivery_skip: 'true', telegram_offline_screen_queued: telegramScreenQueued }
               : {}),
           },
@@ -445,7 +447,7 @@ export async function routeConversationToOperator(
           // handoff response inserted before routing. This generic routing
           // notice is always Inbox-only for Telegram; using a timestamp check
           // here is racy and previously created a second message_id/job.
-          metadata.channel !== 'telegram',
+          !isBotProvider(String(metadata.channel || '')),
         );
       }
       await tagOutcome(

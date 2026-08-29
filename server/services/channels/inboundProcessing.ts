@@ -338,12 +338,14 @@ export async function processInboundMessage(
     let telegramCommandHandled = false;
     let replyLocale: string | null = input.senderLanguage;
     let menuCommand: string | null = null;
+    let aiPromptOverride: string | null = null;
     if (input.provider === 'telegram') {
       const flow = await handleTelegramInboundFlow(config, input, conversation.id);
       aiAllowed = flow.aiAllowed;
       telegramCommandHandled = flow.handled;
       replyLocale = flow.locale;
       menuCommand = flow.command ?? null;
+      aiPromptOverride = flow.aiPrompt ?? null;
       console.log('[channels] telegram ai gate', {
         workspaceId: input.workspaceId,
         aiAllowed,
@@ -393,12 +395,12 @@ export async function processInboundMessage(
     // human-takeover blocking and safety gates behave identically. Telegram
     // additionally requires ai_first (entitlement-gated) mode and skips this
     // for recognized slash commands, which are already answered above.
-    if (aiAllowed && !telegramCommandHandled && input.text.trim()) {
+    if (aiAllowed && !telegramCommandHandled && (aiPromptOverride || input.text.trim())) {
       void maybeRunAiAssistantAfterVisitorMessage(config, {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
         visitorMessageId: (insertedMsg as any).id,
-        question: input.text,
+        question: aiPromptOverride || input.text,
         locale: replyLocale || undefined,
       })
         .then((r: any) => {

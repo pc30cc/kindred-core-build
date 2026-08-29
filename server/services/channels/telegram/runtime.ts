@@ -68,7 +68,14 @@ export type TelegramInboundFlowResult = {
   locale: string | null;
   /** The menu/slash command the visitor tapped, when recognized. */
   command?: TelegramCommandKey | null;
+  /**
+   * Text the AI engine should answer instead of the raw update text. Used for
+   * `/start` while the assistant is live: the visitor sees an AI greeting
+   * rather than the static welcome copy.
+   */
+  aiPrompt?: string | null;
 };
+
 
 async function conversationIsWaitingForHuman(
   config: ServerConfig,
@@ -109,7 +116,25 @@ export async function resolveTelegramReplyLocale(
 }
 
 
+/**
+ * The opening line handed to the AI engine when a visitor taps /start while
+ * the assistant is live — a plain greeting in the visitor's language so the
+ * assistant answers naturally instead of parroting the raw command.
+ */
+export function telegramGreetingPrompt(
+  locale: string | null | undefined,
+  fallbackLocale?: string | null,
+): string {
+  const map: Record<string, string> = {
+    fa: 'سلام',
+    tr: 'Merhaba',
+    en: 'Hello',
+  };
+  return map[(locale || '').toLowerCase()] || map[(fallbackLocale || '').toLowerCase()] || 'Hello';
+}
+
 export { escapeHtml };
+
 
 /**
  * A command screen: the operator-authored copy on top, the inline menu
@@ -192,8 +217,21 @@ export async function handleTelegramInboundFlow(
       return { aiAllowed, handled: away, locale, command: null };
     }
 
+    // `/start` with a live assistant: the AI greets the visitor itself, so the
+    // static welcome screen is skipped entirely. When AI is off (or the thread
+    // already belongs to a human) the operator-authored welcome still shows.
+    if (command === 'start' && aiAllowed) {
+      return {
+        aiAllowed,
+        handled: false,
+        locale,
+        command,
+        aiPrompt: telegramGreetingPrompt(locale, fallbackLocale),
+      };
+    }
 
     let screen: { text: string; replyMarkup: Record<string, unknown> };
+
     if (!isTelegramMenuEntryEnabled(settings, command) && command !== 'start') {
       // Retired or switched-off command — never a dead end, show the menu.
       screen = buildMainMenu(settings, locale, fallbackLocale);

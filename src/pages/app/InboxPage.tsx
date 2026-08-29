@@ -44,6 +44,7 @@ import { localizedCountryName } from '@/lib/geo/countryLocalization';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { AiGuidancePanel } from '@/components/inbox/AiGuidancePanel';
+import { GuidanceComposer } from '@/components/inbox/GuidanceComposer';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
 import { AiSuggestionCard } from '@/components/inbox/AiSuggestionCard';
 import { OperatorAssistPanel } from '@/components/inbox/OperatorAssistPanel';
@@ -758,6 +759,12 @@ export default function InboxPage() {
     pendingTrackRef.current = remaining;
   }, [trackUseMut]);
 
+  /* Human Guidance UX — the composer has two modes:
+     'reply' → public operator message, 'guide' → private AI steering. */
+  const [composerMode, setComposerMode] = useState<'reply' | 'guide'>('reply');
+  const [guidanceRequestId, setGuidanceRequestId] = useState<string | null>(null);
+  const [guidanceRefresh, setGuidanceRefresh] = useState(0);
+
   const handleSend = async () => {
     if (!selectedId || !user) return;
     const hasText = message.trim().length > 0;
@@ -787,6 +794,8 @@ export default function InboxPage() {
 
   // Reset visitor typing indicator + pending attachment when switching conversations.
   useEffect(() => {
+    setComposerMode('reply');
+    setGuidanceRequestId(null);
     setVisitorTypingUntil(0);
     lastTypingSentRef.current = 0;
     resetAttachment();
@@ -1978,6 +1987,48 @@ export default function InboxPage() {
                   }}
                 />
               )}
+              {/* Human Guidance UX — composer mode switch. Only while the AI
+                  still owns the conversation; a human takeover hides it. */}
+              {selectedId && aiManagedConversation && (
+                <div className="mb-2 inline-flex items-center rounded-lg border border-border/60 bg-secondary/40 p-0.5 text-[11px] font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setComposerMode('reply')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md transition-colors',
+                      composerMode === 'reply'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {t('inbox.guidance.modeReply')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setComposerMode('guide')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md transition-colors inline-flex items-center gap-1',
+                      composerMode === 'guide'
+                        ? 'bg-background text-primary shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                    {t('inbox.guidance.modeGuide')}
+                  </button>
+                </div>
+              )}
+
+              {composerMode === 'guide' && selectedId && aiManagedConversation ? (
+                <GuidanceComposer
+                  conversationId={selectedId}
+                  dir={dir as 'ltr' | 'rtl'}
+                  answeringRequestId={guidanceRequestId}
+                  onClearAnsweringRequest={() => setGuidanceRequestId(null)}
+                  onChanged={() => setGuidanceRefresh((n) => n + 1)}
+                />
+              ) : (
+              <>
               {/* Pending attachment chip */}
               {att.status !== 'idle' && (
                 <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
@@ -2130,6 +2181,8 @@ export default function InboxPage() {
                 <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">/</kbd>
                 <span>shortcuts</span>
               </div>
+              </>
+              )}
             </div>
           </>
         )}
@@ -2361,8 +2414,13 @@ export default function InboxPage() {
                 {selectedId && (
                   <AiGuidancePanel
                     conversationId={selectedId}
-                    aiManaged={(selected as any)?.metadata?.ai_state === 'ai_managed'}
+                    aiManaged={aiManagedConversation}
                     dir={dir as 'ltr' | 'rtl'}
+                    refreshToken={guidanceRefresh}
+                    onAnswerRequest={(requestId) => {
+                      setGuidanceRequestId(requestId);
+                      setComposerMode('guide');
+                    }}
                   />
                 )}
 

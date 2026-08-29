@@ -21,7 +21,6 @@ import { decideStrategy, countClarificationAttempts, isStrictKbNoGrounding } fro
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged, commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
-import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickTemplate } from '../runtime/templates.js';
 import {
@@ -394,7 +393,6 @@ export async function runAnswerStage(
         decisionTimeline.push('handoff_message_already_sent');
         return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null } };
       }
-      await markHandoffRequested(config, conversationId).catch(() => {});
       // vNext blocker 1 — commit the durable needs_human state BEFORE the
       // visitor-facing acknowledgement, and run routing AFTER it.
       const commit = await commitNeedsHuman(config, {
@@ -438,7 +436,10 @@ export async function runAnswerStage(
         decisionTimeline.push('handoff_ack_suppressed_commit_failed');
       }
       await routeAfterHandoff(config, { workspaceId, conversationId, commit });
-      await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+      // vNext final blocker 3 — only a durable handoff may be recorded as sent.
+      if (commit.ok) {
+        await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+      }
       return { terminal: { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId } };
 
     }

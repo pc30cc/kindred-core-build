@@ -15,7 +15,6 @@ import { getServiceClient } from '../../../supabase.js';
 import type { RuntimeAction } from './types.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { commitNeedsHuman, routeAfterHandoff, readAiConversationMeta } from '../handoffState.js';
-import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from './conversationState.js';
 import { pickHandoffAckMessage } from './templates.js';
 import type { AgentSettings } from '../settings.js';
@@ -108,7 +107,6 @@ export async function executeRuntimeActions(
           console.log('[ai-agent.runtime.executor] handoff skipped — already in handoff/takeover state', { conversationId: ctx.conversationId });
           continue;
         }
-        await markHandoffRequested(ctx.config, ctx.conversationId).catch(() => {});
         // vNext blocker 1 — commit needs_human FIRST (truthfulness), then
         // acknowledge, then route. Routing inserts its own outcome message
         // ("X joined" / "no one's available"), so it must run last or the

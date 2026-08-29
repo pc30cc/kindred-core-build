@@ -223,6 +223,174 @@ export type Database = {
           },
         ]
       }
+      ai_agent_guidance: {
+        Row: {
+          body: string
+          consumed_at: string | null
+          consumed_by_run_id: string | null
+          conversation_id: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          kind: string
+          metadata: Json
+          operator_id: string | null
+          operator_name: string | null
+          request_id: string | null
+          scope: string
+          status: string
+          updated_at: string
+          use_count: number
+          workspace_id: string
+        }
+        Insert: {
+          body: string
+          consumed_at?: string | null
+          consumed_by_run_id?: string | null
+          conversation_id: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          metadata?: Json
+          operator_id?: string | null
+          operator_name?: string | null
+          request_id?: string | null
+          scope?: string
+          status?: string
+          updated_at?: string
+          use_count?: number
+          workspace_id: string
+        }
+        Update: {
+          body?: string
+          consumed_at?: string | null
+          consumed_by_run_id?: string | null
+          conversation_id?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          metadata?: Json
+          operator_id?: string | null
+          operator_name?: string | null
+          request_id?: string | null
+          scope?: string
+          status?: string
+          updated_at?: string
+          use_count?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_guidance_conversation_ws_fkey"
+            columns: ["conversation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "ai_agent_guidance_operator_id_fkey"
+            columns: ["operator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_guidance_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_guidance_requests: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          known_summary: string | null
+          metadata: Json
+          missing_information: string | null
+          question: string
+          resolved_at: string | null
+          resolved_by: string | null
+          resolved_guidance_id: string | null
+          run_id: string | null
+          status: string
+          updated_at: string
+          visitor_message_id: string | null
+          visitor_question: string | null
+          workspace_id: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          known_summary?: string | null
+          metadata?: Json
+          missing_information?: string | null
+          question: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          resolved_guidance_id?: string | null
+          run_id?: string | null
+          status?: string
+          updated_at?: string
+          visitor_message_id?: string | null
+          visitor_question?: string | null
+          workspace_id: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          known_summary?: string | null
+          metadata?: Json
+          missing_information?: string | null
+          question?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          resolved_guidance_id?: string | null
+          run_id?: string | null
+          status?: string
+          updated_at?: string
+          visitor_message_id?: string | null
+          visitor_question?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_guidance_requests_conversation_ws_fkey"
+            columns: ["conversation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "ai_agent_guidance_requests_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_guidance_requests_resolved_guidance_id_fkey"
+            columns: ["resolved_guidance_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agent_guidance"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_guidance_requests_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_guidance_rules: {
         Row: {
           condition_json: Json
@@ -773,6 +941,7 @@ export type Database = {
           handoff_message_localized: Json
           handoff_on_human_request: boolean
           handoff_on_low_confidence: boolean
+          handoff_policy: string | null
           handoff_prechat_message_localized: Json
           handoff_when_no_kb_match: boolean
           id: string
@@ -781,6 +950,7 @@ export type Database = {
           intro_message_localized: Json
           keep_in_automated_until_handoff: boolean
           learning_enabled: boolean
+          max_assist_attempts: number
           max_clarification_attempts: number
           max_replies_per_conversation: number
           max_replies_per_hour: number
@@ -817,6 +987,7 @@ export type Database = {
           handoff_message_localized?: Json
           handoff_on_human_request?: boolean
           handoff_on_low_confidence?: boolean
+          handoff_policy?: string | null
           handoff_prechat_message_localized?: Json
           handoff_when_no_kb_match?: boolean
           id?: string
@@ -825,6 +996,7 @@ export type Database = {
           intro_message_localized?: Json
           keep_in_automated_until_handoff?: boolean
           learning_enabled?: boolean
+          max_assist_attempts?: number
           max_clarification_attempts?: number
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
@@ -861,6 +1033,7 @@ export type Database = {
           handoff_message_localized?: Json
           handoff_on_human_request?: boolean
           handoff_on_low_confidence?: boolean
+          handoff_policy?: string | null
           handoff_prechat_message_localized?: Json
           handoff_when_no_kb_match?: boolean
           id?: string
@@ -869,6 +1042,7 @@ export type Database = {
           intro_message_localized?: Json
           keep_in_automated_until_handoff?: boolean
           learning_enabled?: boolean
+          max_assist_attempts?: number
           max_clarification_attempts?: number
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
@@ -9395,6 +9569,23 @@ export type Database = {
         Returns: Json
       }
       normalize_domain: { Args: { _input: string }; Returns: string }
+      patch_conversation_ai_memory: {
+        Args: {
+          p_conversation_id: string
+          p_expected_rev: number
+          p_memory: Json
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      patch_conversation_metadata: {
+        Args: {
+          p_conversation_id: string
+          p_patch: Json
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       perf_metrics_rollup_and_prune: { Args: never; Returns: Json }
       phone_status_matches: {
         Args: { _filter: string; _phone: string; _verified_at: string }

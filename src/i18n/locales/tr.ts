@@ -4080,6 +4080,10 @@ const tr: TranslationKeys = {
       empty: 'Henüz kayıtlı etkinlik yok.',
     },
     noSettings: 'Bu eklentinin henüz ayarı yok.',
+    bale: {
+      name: 'Bale',
+      description: 'Bale (بله) mesajlarını doğrudan Gelen Kutusu’nda alın ve yanıtlayın.',
+    },
     telegram: {
       photoUrl: 'Bot görseli',
       photoUrlHint: 'Bu görsel yalnızca bu çalışma alanında (Gelen Kutusu ve ayarlar) gösterilir. Telegram, botların kendi profil fotoğrafını değiştirmesine izin vermez; gerçek avatarı @BotFather üzerinden ayarlayın.',

@@ -33,10 +33,8 @@ import { decryptPluginSecret } from '../../server/lib/pluginCrypto.js';
 import {
   TelegramApiError,
   redactToken,
-  sendChatAction,
-  sendMedia,
-  sendMessage,
 } from '../../channels/providers/telegram/client.js';
+import { botApiFor } from './botApi.js';
 import {
   CORE_INTERNAL_SERVICE_NAME,
   evaluateCoreReadiness,
@@ -364,6 +362,9 @@ async function handleJob(job: ChannelJob): Promise<void> {
   // and capability flags come from the provider descriptor, never from a
   // branch in the handler body.
   const bot = findBotProvider(job.provider);
+  // Protocol translation lives behind this dispatcher; handlers below stay
+  // dialect-agnostic (Telegram Bot API and WhatsApp Cloud alike).
+  const api = botApiFor(job.provider);
   const credential = async (integrationId: string) => ({
     token: await resolveIntegrationToken(integrationId, botProvider(job.provider).secretKeys.live),
     apiRoot: botProvider(job.provider).apiRoot,
@@ -374,7 +375,9 @@ async function handleJob(job: ChannelJob): Promise<void> {
     case 'telegram_inbound_event':
     case 'telegram_inbound_media':
     case 'bale_inbound_event':
-    case 'bale_inbound_media': {
+    case 'bale_inbound_media':
+    case 'whatsapp_inbound_event':
+    case 'whatsapp_inbound_media': {
       // Media arrives inside the same update envelope; Core normalizes both
       // and owns attachment persistence, so the worker only forwards.
       await coreCall('/internal/channels/process-inbound', {
@@ -388,7 +391,8 @@ async function handleJob(job: ChannelJob): Promise<void> {
 
     // ── Outbound text ─────────────────────────────────────────────────
     case 'telegram_outbound_message':
-    case 'bale_outbound_message': {
+    case 'bale_outbound_message':
+    case 'whatsapp_outbound_message': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
       const text = String(payload.text ?? '').slice(0, 4096);
@@ -399,10 +403,10 @@ async function handleJob(job: ChannelJob): Promise<void> {
       // Native "typing…" bubble right before the reply lands. Best-effort:
       // a failure here must never block or retry the actual delivery.
       if (bot?.supportsChatAction) {
-        await sendChatAction(token, chatId, 'typing').catch(() => undefined);
+        await api.sendChatAction(token, chatId, 'typing').catch(() => undefined);
       }
       try {
-        const sent = await sendMessage(token, { chatId, text });
+        const sent = await api.sendMessage(token, { chatId, text });
 
         await reportOutbound(job, messageId, 'sent', sent.message_id, null);
       } catch (err) {
@@ -416,7 +420,8 @@ async function handleJob(job: ChannelJob): Promise<void> {
 
     // ── Outbound media ────────────────────────────────────────────────
     case 'telegram_outbound_media':
-    case 'bale_outbound_media': {
+    case 'bale_outbound_media':
+    case 'whatsapp_outbound_media': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
       const messageId: string | null = payload.message_id ?? null;
@@ -429,7 +434,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
         for (const [index, attachment] of attachments.entries()) {
           const url = String(attachment?.url ?? attachment?.public_url ?? '');
           if (!/^https:\/\//i.test(url)) continue; // never send an unsafe URL
-          last = await sendMedia(token, {
+          last = await api.sendMedia(token, {
             chatId,
             kind: String(attachment?.kind ?? 'document'),
             url,
@@ -471,7 +476,9 @@ async function handleJob(job: ChannelJob): Promise<void> {
     case 'telegram_profile_sync':
     case 'telegram_webhook_repair':
     case 'bale_profile_sync':
-    case 'bale_webhook_repair': {
+    case 'bale_webhook_repair':
+    case 'whatsapp_profile_sync':
+    case 'whatsapp_webhook_repair': {
       const operationId = String(payload.operation_id ?? '');
       if (!operationId) {
         throw Object.assign(

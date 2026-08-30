@@ -719,10 +719,10 @@ export function WidgetLivePreview({
     });
 
     applyPhase(GS_PREVIEW.phase);
-  })();
+  }
 
   // Preview-only: the renderer's real tab hooks drive the parent's view state.
-  (function () {
+  function gsBindTabs() {
     if (GS_SMART.enabled) return;
     document.addEventListener('click', function (e) {
       var el = e.target && e.target.closest ? e.target.closest('[data-tab]') : null;
@@ -730,39 +730,42 @@ export function WidgetLivePreview({
       e.preventDefault();
       parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-tab') }, '*');
     });
-  })();
+  }
 
   // Preview-only: open a real article and support returning to the list.
-  (function () {
+  // The markup always comes from the renderer's KB surfaces.
+  function gsBindArticles(R) {
     var body = document.querySelector('.panel [data-body]');
     if (!body) return;
     var initialMarkup = body.innerHTML;
+    function openArticle(index) {
+      var vm = (GS_PREVIEW.kbArticleVms || [])[Number(index)];
+      if (!vm) return;
+      body.innerHTML = R.kbArticleHtml(vm);
+      body.scrollTop = 0;
+    }
     document.addEventListener('click', function (e) {
       var target = e.target && e.target.closest ? e.target : null;
       if (!target) return;
-      var article = target.closest('[data-preview-article]');
+      var article = target.closest('[data-kb-action="open"]');
       if (article) {
         e.preventDefault();
-        var template = document.getElementById('preview-article-' + article.getAttribute('data-preview-article'));
-        if (template) {
-          body.innerHTML = template.innerHTML;
-          body.scrollTop = 0;
-        }
+        openArticle(article.getAttribute('data-kb-slug'));
         return;
       }
       var homeArticle = target.closest('[data-home-article]');
       if (homeArticle) {
         e.preventDefault();
-        var tpl = document.getElementById('preview-article-' + homeArticle.getAttribute('data-home-article'));
-        if (tpl) { body.innerHTML = tpl.innerHTML; body.scrollTop = 0; }
+        openArticle(homeArticle.getAttribute('data-home-article'));
         return;
       }
-      if (target.closest('[data-preview-kb-back]')) {
+      if (target.closest('[data-kb-action="back"]')) {
         e.preventDefault();
         body.innerHTML = initialMarkup;
         body.scrollTop = 0;
         return;
       }
+
       var homeAction = target.closest('[data-home-action]');
       if (homeAction) {
         e.preventDefault();

@@ -1327,8 +1327,10 @@
           sessionToken: ctx.sessionToken,
           fetchWith: ctx.fetchWith,
           conversationId: payload.conversationId,
+          forceNewConversation: !!payload.forceNewConversation,
           // Phase 6b — attachment id flows through to the message endpoint.
           attachmentId: payload.attachmentId || null,
+
           text: payload.text,
           onConversation: function (cid) {
             if (cid) {

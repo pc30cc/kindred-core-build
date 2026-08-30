@@ -451,38 +451,46 @@ export function WidgetLivePreview({
       ? `<span class="home-avatar has-img is-online"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
       : `<span class="home-avatar is-online"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
 
+    const homeAvatarWy = operatorAvatar
+      ? `<span class="wy-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
+      : `<span class="wy-avatar"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
+
+    // Mirrors renderHome() in public/widget/runtime.js — keep in lockstep.
     const homeBody = `
-      <div class="home-root" dir="${dir}">
-        <section class="home-hero">
-          <div class="home-greeting">${esc(d.homeGreeting)}</div>
-          <p class="home-welcome">${esc(welcome || d.homeWelcome)}</p>
-        </section>
-        <section class="home-card">
-          <div class="home-card-top">
-            <div class="home-avatars">${homeAvatar}</div>
-            <div class="home-status is-online">
-              <span class="home-status-dot"></span>
-              <span>${esc(d.homeTeamOnline)}</span>
+      <div class="wy-home" dir="${dir}">
+        <div class="wy-scroll">
+          <section class="wy-hero">
+            <div class="wy-hero-greeting">${esc(d.homeGreeting)}</div>
+            <div class="wy-hero-question">${esc(welcome || d.homeWelcome)}</div>
+          </section>
+          <section class="wy-section">
+            <div class="wy-section-head">
+              <h4 class="wy-section-title">${esc(d.homeTeamOnline)}</h4>
             </div>
-          </div>
-          <button type="button" class="home-cta" style="background:${esc(primary)}">
-            <span class="home-cta-label">${esc(d.homeStartChat)}</span>
-            <span class="home-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
-          </button>
-        </section>
-        ${kbEnabled ? `<section class="home-section">
-          <div class="home-section-head">
-            <h4 class="home-section-title">${esc(d.homeHelpTitle)}</h4>
-            <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
-          </div>
-          <div class="home-kb-list">
-            ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="home-kb-item"${a.articleIndex !== undefined ? ` data-preview-article="${a.articleIndex}"` : ' data-preview-open-help'}>
-              <span class="home-kb-title">${esc(a.title)}</span>
-              <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
-            </button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
-          </div>
-        </section>` : ''}
+            <div class="wy-thread-list">
+              <button type="button" class="wy-thread" data-preview-nav="chat">
+                <span class="wy-thread-main">
+                  <span class="wy-thread-preview">${esc(welcome || d.homeWelcome)}</span>
+                  <span class="wy-thread-meta"><span class="wy-badge is-open">${esc(d.homeTeamOnline)}</span></span>
+                </span>
+                <span class="wy-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
+              </button>
+            </div>
+          </section>
+          ${kbEnabled ? `<section class="wy-section">
+            <p class="wy-section-hint">${esc(d.homeHelpTitle)}</p>
+            <div class="wy-chips">
+              ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="wy-chip"${a.articleIndex !== undefined ? ` data-preview-article="${a.articleIndex}"` : ' data-preview-open-help'}>${esc(a.title)}</button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
+            </div>
+            <button type="button" class="wy-link-btn" data-preview-open-help>${esc(d.homeSeeAll)}</button>
+          </section>` : ''}
+        </div>
+        <div class="wy-action-row">
+          <button type="button" class="wy-action wy-action-primary" data-preview-nav="chat" style="background:${esc(primary)}">${esc(d.homeStartChat)}</button>
+          ${kbEnabled ? `<button type="button" class="wy-action wy-action-ghost" data-preview-open-help>${esc(d.helpTab)}</button>` : ''}
+        </div>
       </div>`;
+
 
     const body =
       view === 'home' ? homeBody :

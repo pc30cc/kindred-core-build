@@ -5170,7 +5170,7 @@
     // avatar overlapping the next one, falling back to their initial when no
     // avatar_url is set. The whole stack is hidden when there are no team
     // members configured.
-    panel.innerHTML = Presentation.shellHtml({
+    var shellVm = {
       config: config,
       locale: ctx.locale,
       primaryColor: ctx.primaryColor,
@@ -5179,11 +5179,30 @@
       chatEnabled: chatEnabled,
       kbEnabled: kbEnabled,
       activeTab: shellStore.get().activeTab,
-    });
+    };
+    panel.innerHTML = Presentation.shellHtml(shellVm);
     shellDiv.appendChild(panel);
 
-    var typingRow = panel.querySelector('[data-typing-row]');
-    var typingLabel = panel.querySelector('[data-typing-label]');
+    // SINGLE-VIEW ARCHITECTURE: the chat surface is a full view like every
+    // other one. It is built ONCE (so every composer/transport binding below
+    // survives view switches) and mounted into the view host only while the
+    // chat view is active — that is what keeps the panel free of duplicate
+    // headers, composers and footers.
+    var chatFrame = null;
+    var chatMessagesHost = null;
+    if (typeof Presentation.chatFrameHtml === 'function') {
+      var __frameWrap = document.createElement('div');
+      __frameWrap.innerHTML = Presentation.chatFrameHtml(shellVm);
+      chatFrame = __frameWrap.firstElementChild;
+      if (chatFrame) chatMessagesHost = chatFrame.querySelector('[data-chat-messages]');
+    }
+    function chatQ(sel) {
+      var el = chatFrame ? chatFrame.querySelector(sel) : null;
+      return el || panel.querySelector(sel);
+    }
+
+    var typingRow = chatQ('[data-typing-row]');
+    var typingLabel = chatQ('[data-typing-label]');
     var body = panel.querySelector('[data-body]');
     // Screen-reader announcer for new incoming chat messages (spec §29 —
     // status transitions need aria-live=polite). The visible message list
@@ -5197,21 +5216,22 @@
     srAnnouncer.setAttribute('aria-live', 'polite');
     srAnnouncer.setAttribute('role', 'status');
     panel.appendChild(srAnnouncer);
+    function chatScrollHost() { return chatMessagesHost || body; }
     function announceIncoming(senderName, text) {
       if (!text) return;
       srAnnouncer.textContent = (senderName ? senderName + ': ' : '') + text;
     }
-    var msgInput = panel.querySelector('[data-msg-input]');
+    var msgInput = chatQ('[data-msg-input]');
     if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); }
-    var sendBtn = panel.querySelector('[data-send-btn]');
-    var inputBar = panel.querySelector('[data-input-bar]');
-    var attachBtn = panel.querySelector('[data-attach-btn]');
-    var attachInput = panel.querySelector('[data-attach-input]');
-    var attachTray = panel.querySelector('[data-attach-tray]');
-    var micBtn = panel.querySelector('[data-mic-btn]');
-    var emojiBtn = panel.querySelector('[data-emoji-btn]');
-    var emojiPickerEl = panel.querySelector('[data-emoji-picker]');
-    var escalateBtn = panel.querySelector('[data-escalate-btn]');
+    var sendBtn = chatQ('[data-send-btn]');
+    var inputBar = chatQ('[data-input-bar]');
+    var attachBtn = chatQ('[data-attach-btn]');
+    var attachInput = chatQ('[data-attach-input]');
+    var attachTray = chatQ('[data-attach-tray]');
+    var micBtn = chatQ('[data-mic-btn]');
+    var emojiBtn = chatQ('[data-emoji-btn]');
+    var emojiPickerEl = chatQ('[data-emoji-picker]');
+    var escalateBtn = chatQ('[data-escalate-btn]');
 
     // ─── Smart Engagement bridge ───────────────────────────────────────
     // The loader owns rule evaluation (it runs before the runtime is even
@@ -5223,7 +5243,9 @@
     smartDock.className = 'smart-chat-dock';
     smartDock.hidden = true;
     try {
-      panel.insertBefore(smartDock, inputBar || panel.querySelector('.tabs') || null);
+      var __dockAnchor = chatFrame ? chatFrame.querySelector('[data-composer-zone]') : null;
+      if (chatFrame) chatFrame.insertBefore(smartDock, __dockAnchor);
+      else panel.appendChild(smartDock);
     } catch (_) { panel.appendChild(smartDock); }
 
     // Announcements dock INSIDE the panel, directly under the header and above
@@ -5233,10 +5255,7 @@
     smartAnnounce.className = 'smart-announce';
     smartAnnounce.hidden = true;
     try {
-      var headerEl = panel.querySelector('.header');
-      if (headerEl && headerEl.nextSibling) panel.insertBefore(smartAnnounce, headerEl.nextSibling);
-      else if (headerEl) panel.insertBefore(smartAnnounce, body || null);
-      else panel.insertBefore(smartAnnounce, panel.firstChild);
+      panel.insertBefore(smartAnnounce, body || panel.firstChild);
     } catch (_) { panel.appendChild(smartAnnounce); }
 
     function smartInnerHtml(s) {
@@ -5305,7 +5324,7 @@
         '</div>';
       list.appendChild(row);
       bindSmartSurface(row, s);
-      try { body.scrollTop = body.scrollHeight; } catch (_) {}
+      try { var __h = chatScrollHost(); __h.scrollTop = __h.scrollHeight; } catch (_) {}
     }
 
     function renderSmartAnnounce() {
@@ -5826,6 +5845,7 @@
       if (!msgInput) return;
       var d = getDraftFor(currentDraftKey());
       if (msgInput.value !== d) msgInput.value = d;
+      try { syncComposerDraftState(); } catch (_) {}
     }
     // ─── Visitor typing emit (throttled to ≤1 publish per 2s) ───
     // Realtime-only; if no realtime driver is active the call becomes a no-op
@@ -5861,8 +5881,15 @@
         }).catch(function () {});
       } catch (_) {}
     }
+    // Design §5 composer state: mic shows only while the draft is empty,
+    // send only once there is something to send.
+    function syncComposerDraftState() {
+      if (!inputBar || !msgInput) return;
+      var has = !!String(msgInput.value || '').trim();
+      inputBar.classList.toggle('has-draft', has);
+    }
     if (msgInput) {
-      msgInput.addEventListener('input', function () { syncDraftFromInput(); maybeEmitTyping(); });
+      msgInput.addEventListener('input', function () { syncDraftFromInput(); maybeEmitTyping(); syncComposerDraftState(); });
     }
 
     // Migrate pending draft → real conversationId the moment one is assigned.
@@ -5907,6 +5934,7 @@
         return;
       }
       msgInput.value = '';
+      try { syncComposerDraftState(); } catch (_) {}
       setDraftFor(currentDraftKey(), '');
       if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
         transport.sendTyping({ conversationId: chatStore.get().conversationId });
@@ -6105,7 +6133,7 @@
             // Force an immediate re-render — chatStore listeners debounce
             // through renderBody, but we want zero-delay paint of the intro.
             try { renderBody(); } catch (_) {}
-            try { if (body) body.scrollTop = body.scrollHeight; } catch (_) {}
+            try { var __h2 = chatScrollHost(); if (__h2) __h2.scrollTop = __h2.scrollHeight; } catch (_) {}
             try { console.debug('[Widget AI Agent] intro rendered immediately'); } catch (_) {}
           } catch (_) {}
         })
@@ -6132,9 +6160,22 @@
     // makes template-specific decisions itself.
     function syncViewChrome(key) {
       try { panel.setAttribute('data-view', key); } catch (_) {}
+      if (key !== 'chat') unmountChatFrame();
+    }
+
+    // Mount/unmount the single chat view. Mounting never rebuilds the frame,
+    // so composer/attachment/voice/reply/emoji/escalate bindings stay live.
+    function mountChatFrame() {
+      if (!body || !chatFrame) return null;
+      if (chatFrame.parentNode !== body) {
+        body.innerHTML = '';
+        body.appendChild(chatFrame);
+      }
+      return chatMessagesHost;
+    }
+    function unmountChatFrame() {
       try {
-        var chatHeader = panel.querySelector('[data-chat-header]');
-        if (chatHeader) chatHeader.hidden = key !== 'chat';
+        if (chatFrame && chatFrame.parentNode) chatFrame.parentNode.removeChild(chatFrame);
       } catch (_) {}
     }
 
@@ -6248,27 +6289,41 @@
     }
 
 
-    function bindViewHooks(root) {
+    // Generic navigation is PANEL-LEVEL event delegation: any view the
+    // presentation layer renders — now or later — gets [data-view],
+    // [data-view-back] and [data-conversation-open] for free, including the
+    // chat frame that is mounted/unmounted dynamically.
+    function bindPanelNavigation(root) {
       if (!root) return;
-      Array.prototype.forEach.call(root.querySelectorAll('[data-view]'), function (el) {
-        el.addEventListener('click', function (ev) {
+      root.addEventListener('click', function (ev) {
+        var target = ev.target;
+        if (!target || !target.closest) return;
+        var back = target.closest('[data-view-back]');
+        if (back && root.contains(back)) {
           try { ev.preventDefault(); } catch (_) {}
-          switchTab(el.getAttribute('data-view'));
-        });
-      });
-      Array.prototype.forEach.call(root.querySelectorAll('[data-view-back]'), function (el) {
-        el.addEventListener('click', function (ev) {
+          switchTab(back.getAttribute('data-view-back') || 'home');
+          return;
+        }
+        var open = target.closest('[data-conversation-open]');
+        if (open && root.contains(open)) {
           try { ev.preventDefault(); } catch (_) {}
-          switchTab(el.getAttribute('data-view-back') || 'home');
-        });
-      });
-      Array.prototype.forEach.call(root.querySelectorAll('[data-conversation-open]'), function (el) {
-        el.addEventListener('click', function (ev) {
+          openConversation(open.getAttribute('data-conversation-open'));
+          return;
+        }
+        var view = target.closest('[data-view]');
+        if (view && root.contains(view)) {
           try { ev.preventDefault(); } catch (_) {}
-          openConversation(el.getAttribute('data-conversation-open'));
-        });
+          switchTab(view.getAttribute('data-view'));
+        }
       });
     }
+    // One listener on the panel covers every view, including the chat frame
+    // (which is always mounted inside the panel when it is visible).
+    bindPanelNavigation(panel);
+
+    // Kept for call-site compatibility: navigation is delegated now.
+    function bindViewHooks() {}
+
 
     function renderConversationList() {
       if (!body) return;
@@ -6521,7 +6576,7 @@
           // prior conversation stays visible — the full-page form is only
           // for PRECHAT_FOR_HUMAN, the very first thing a visitor sees.
           if (state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
-            chatUI.renderHandoffPrechatInline(body, identity, ctx.locale, onPrechatSubmitted);
+            chatUI.renderHandoffPrechatInline(mountChatFrame() || body, identity, ctx.locale, onPrechatSubmitted);
           } else {
             chatUI.renderPreChat(body, identity, ctx.locale, onPrechatSubmitted);
           }
@@ -6553,7 +6608,7 @@
             requestAiAgentIntro('chat_open');
           }
         } catch (_) {}
-        chatUI.renderChat(body);
+        chatUI.renderChat(mountChatFrame() || body);
         renderSmartDock();
       } else if (tab === 'help') {
         if (inputBar) inputBar.style.display = 'none';

@@ -339,7 +339,11 @@
 }
 /* When a full-screen view (home/list/kb/precontact) owns the body, the
    body itself must not add chrome padding. */
-.body:has(> .wy-view) { padding: 0; display: flex; flex-direction: column; }
+.body:has(> .wy-view) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Chat view scroll host — the chat frame owns its own scrolling now that the
+   panel no longer wraps a persistent chat body. */
+.wy-chat-scroll { flex: 1; min-height: 0; padding: 14px 16px 4px; background: var(--wy-surface); }
 
 /* ─── Messages ──────────────────────────────────────────────────────── */
 .messages { display: flex; flex-direction: column; gap: 10px; padding-bottom: 8px; }
@@ -516,9 +520,13 @@
 }
 .input-wrap:focus-within { border-color: var(--wy-accent); box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.14); }
 .input {
-  flex: 1; min-width: 0; height: 40px; border: 0; outline: none; background: transparent;
+  flex: 1; min-width: 0; height: 44px; max-height: 44px; border: 0; outline: none;
+  background: transparent; resize: none; overflow-y: auto; padding: 12px 0; line-height: 20px;
   font-size: 13.5px; color: var(--wy-text);
 }
+/* Mic while the draft is empty, send once there is something to send. */
+.input-bar:not(.has-draft) .send-btn { display: none; }
+.input-bar.has-draft .mic-btn { display: none; }
 .input::placeholder { color: var(--wy-faint); }
 .send-btn, .attach-btn, .emoji-btn, .mic-btn, .escalate-btn {
   display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;

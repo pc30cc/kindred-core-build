@@ -576,17 +576,11 @@ export function WidgetLivePreview({
     } else if (view === 'kb') {
       body.innerHTML = R.kbHtml(GS_PREVIEW.kbVm);
     } else {
-      body.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
-    }
-
-    /* Composer only belongs to the chat surface in the preview. */
-    if (view !== 'chat' && view !== 'offline') {
-      ['[data-input-bar]', '[data-typing-row]', '[data-attach-tray]', '[data-emoji-picker]']
-        .forEach(function (sel) {
-          var el = panel.querySelector(sel);
-          if (el) el.remove();
-        });
-    } else {
+      /* Single-view architecture: chat is a full view (header + messages +
+         composer + footer) exactly like production mounts it. */
+      body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
+      var msgHost = body.querySelector('[data-chat-messages]');
+      if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
       var typingRow = panel.querySelector('[data-typing-row]');
       if (typingRow) {
         typingRow.removeAttribute('hidden');
@@ -594,6 +588,7 @@ export function WidgetLivePreview({
         if (lbl) lbl.textContent = GS_PREVIEW.typingLabel;
       }
     }
+
 
     /* The scenario studio simulates one moment — browsing away from it via
        the tabs would leave the scenario. */

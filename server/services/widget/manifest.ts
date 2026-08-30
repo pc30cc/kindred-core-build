@@ -31,6 +31,10 @@ interface WidgetManifest {
   'runtime-rt-centrifugo.js'?: string;
   'runtime-rt-supabase.js'?: string;
   'runtime-rt-resolver.js'?: string;
+  // Presentation layer (template registry + the 'classic' renderer/styles).
+  'presentation-registry.js'?: string;
+  'presentation-classic.js'?: string;
+  'presentation-classic.css'?: string;
   // Self-hosted vendor assets (Pass 1: LiveKit JS SDK).
   'vendor/livekit-client.umd.min.js'?: string;
   'loader.js'?: string;
@@ -46,6 +50,9 @@ type WidgetAssetKey =
   | 'runtime-rt-centrifugo.js'
   | 'runtime-rt-supabase.js'
   | 'runtime-rt-resolver.js'
+  | 'presentation-registry.js'
+  | 'presentation-classic.js'
+  | 'presentation-classic.css'
   | 'smart-engine.js'
   | 'vendor/livekit-client.umd.min.js';
 

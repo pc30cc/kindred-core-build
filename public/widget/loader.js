@@ -720,6 +720,13 @@
     // ─────────────────────────────────────────────────────────────
     var runtimeCss = configData.styleUrl || "";
     var runtimeJs = configData.runtimeUrl || "";
+    // ─── Presentation (template) assets ───────────────────────────
+    // The registry + active template renderer + template stylesheet.
+    // Widget Core carries no markup, so these are REQUIRED — same
+    // strict, hash-only policy as the runtime assets above.
+    var presentationRegistryJs = configData.presentationRegistryUrl || "";
+    var presentationJs = configData.presentationUrl || "";
+    var presentationCss = configData.presentationStyleUrl || "";
     var callRuntimeJs = configData.callRuntimeUrl || "";
     // Pass 2 — vendor LiveKit SDK URL (hashed, self-hosted). Set BEFORE
     // any runtime-call.js script runs so its strict loadSdk() never has
@@ -728,6 +735,12 @@
     var livekitSdkUrl = configData.livekitSdkUrl || "";
     if (livekitSdkUrl) {
       try { window.__gs_call_sdk_url = livekitSdkUrl; } catch (_) { /* noop */ }
+    }
+    if (!presentationRegistryJs || !presentationJs || !presentationCss) {
+      warn("No presentation template URLs");
+      runtimeLoading = false;
+      if (wantRuntimeOpen) showShellError(lt("resourcesUnavailable"));
+      return;
     }
     if (!runtimeJs || !runtimeCss) {
       warn("No runtime URL");
@@ -738,10 +751,12 @@
 
     var cssLoaded = !runtimeCss;
     var jsLoaded = false;
+    var templateCssLoaded = false;
+    var templateJsLoaded = false;
     var failed = false;
 
     function done() {
-      if (failed || !cssLoaded || !jsLoaded) return;
+      if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateJsLoaded) return;
       runtimeLoaded = true;
       runtimeLoading = false;
       if (window.__gs_runtime && window.__gs_runtime.init) {
@@ -812,6 +827,35 @@
       link.onerror = function () { fail("css"); };
       shadowRoot.appendChild(link);
     }
+
+    // Template stylesheet — injected AFTER runtime.css so template rules
+    // keep their original cascade position. Core CSS stays template-agnostic.
+    var tplLink = document.createElement("link");
+    tplLink.rel = "stylesheet";
+    tplLink.href = presentationCss;
+    tplLink.setAttribute("data-gs-runtime", "true");
+    tplLink.setAttribute("data-gs-template", "true");
+    tplLink.onload = function () { templateCssLoaded = true; done(); };
+    tplLink.onerror = function () { fail("template-css"); };
+    shadowRoot.appendChild(tplLink);
+
+    // Registry first (tiny), then the active template's renderer. The
+    // renderer must be registered on window BEFORE runtime.init() runs.
+    var regScript = document.createElement("script");
+    regScript.src = presentationRegistryJs;
+    regScript.async = true;
+    regScript.setAttribute("data-gs-template", "registry");
+    regScript.onload = function () {
+      var tplScript = document.createElement("script");
+      tplScript.src = presentationJs;
+      tplScript.async = true;
+      tplScript.setAttribute("data-gs-template", "renderer");
+      tplScript.onload = function () { templateJsLoaded = true; done(); };
+      tplScript.onerror = function () { fail("template-js"); };
+      document.head.appendChild(tplScript);
+    };
+    regScript.onerror = function () { fail("template-registry"); };
+    document.head.appendChild(regScript);
 
     var script = document.createElement("script");
     script.src = runtimeJs;

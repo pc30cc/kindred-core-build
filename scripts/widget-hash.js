@@ -40,7 +40,9 @@ if (!existsSync(SRC_DIR)) {
 }
 
 // Files that get content-hashed filenames
-const HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
+const HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js',
+  // Presentation layer (template system)
+  'presentation-registry.js', 'presentation-classic.js', 'presentation-classic.css'];
 
 // Files copied as-is (stable entry points)
 const STABLE_FILES = ['loader.js'];
@@ -65,7 +67,7 @@ function contentHash(buf) {
 function cleanOldHashed() {
   if (!existsSync(OUT_DIR)) return;
   for (const f of readdirSync(OUT_DIR)) {
-    if (/^runtime[a-z0-9-]*\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+    if (/^(runtime|presentation)[a-z0-9-]*\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
       unlinkSync(join(OUT_DIR, f));
     }
   }
@@ -149,6 +151,13 @@ console.log(JSON.stringify(manifest, null, 2));
 // Build must fail loudly if the visitor call runtime was omitted from the
 // widget output. The join flow now depends on an explicit manifest-backed URL,
 // so silently succeeding here would regress back to runtime URL guessing.
+for (const required of ['presentation-registry.js', 'presentation-classic.js', 'presentation-classic.css']) {
+  if (!manifest[required] || !existsSync(join(OUT_DIR, manifest[required]))) {
+    console.error(`[widget-hash] FATAL: presentation asset missing from build output: ${required}`);
+    process.exit(1);
+  }
+}
+
 if (!manifest['runtime-call.js']) {
   console.error('[widget-hash] FATAL: runtime-call.js missing from widget manifest');
   process.exit(1);

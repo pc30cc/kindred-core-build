@@ -282,107 +282,14 @@ export function WidgetLivePreview({
     const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
     const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
-    const NAV_ICONS: Record<string, string> = {
-      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.8"/>',
-      chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-      help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
-    };
     const smartDoc = previewMode === 'smart';
-    const navDefs: { key: string; label: string }[] = [{ key: 'home', label: d.homeTab }, { key: 'chat', label: d.chatTab }];
-    if (kbEnabled) navDefs.push({ key: 'help', label: d.helpTab });
-    const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
-    // The scenario studio is a simulation of one moment, not a browsable
-    // widget — generic navigation would let the operator leave the scenario.
-    const tabs = smartDoc ? '' : `<div class="tabs tabs-bottom">${navDefs
-      .map(
-        (n) => `<button type="button" data-preview-nav="${n.key}" class="tab${n.key === activeNav ? ' active' : ''}">
-           <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
-           <span class="tab-label">${esc(n.label)}</span>
-         </button>`,
-      )
-      .join('')}</div>`;
 
-    // Header shows the uploaded workspace logo; falls back to nothing.
-    const avatar = logo
-      ? `<span class="header-op-avatar has-img"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
-      : '';
-
-    const header = `
-      <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
-        <button type="button" class="header-close" id="gs-close" aria-label="close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-        </button>
-        <div class="header-brand">
-          ${avatar ? `<div class="header-op-stack">${avatar}</div>` : ''}
-        </div>
-      </div>`;
-
-    const fields = [
-      prechat?.ask_name !== false && { key: 'name', label: d.name, req: prechat?.require_name },
-      prechat?.ask_email !== false && { key: 'email', label: d.email, req: prechat?.require_email },
-      prechat?.ask_phone && { key: 'phone', label: d.phone, req: prechat?.require_phone },
-    ].filter(Boolean) as { key: string; label: string; req?: boolean }[];
-
-    const prechatBody = `
-      <div class="prechat prechat-pro" dir="${dir}">
-        <div class="prechat-hero">
-          <h3 class="prechat-title">${esc(d.prechatTitle)}</h3>
-          <p class="prechat-subtitle">${esc(d.prechatIntro)}</p>
-        </div>
-        <div class="prechat-fields">
-          ${fields.map(f => `
-            <div class="prechat-field">
-              <div class="prechat-row">
-                <label class="prechat-label">${esc(f.label)}${f.req ? '<span class="prechat-req-mark">*</span>' : ''}</label>
-              </div>
-              <div class="prechat-control">
-                <input class="prechat-input" placeholder="${esc(f.label)}" />
-              </div>
-            </div>`).join('')}
-        </div>
-        <button type="button" class="prechat-submit" style="background:${esc(primary)}">
-          <span class="prechat-submit-label">${esc(d.start)}</span>
-        </button>
-        <p class="prechat-privacy">${esc(d.privacy)}</p>
-      </div>`;
-
-    // Sample timestamps + a "seen" status, matching runtime.js's renderChat():
-    // .msg-time sits INSIDE each bubble, and .msg-status is the LEADING
-    // sibling of the visitor's bubble (not trailing) — it renders on the
-    // physical LEFT of the bubble, not pushed past it to the panel edge.
-    let sampleTimeA = '';
-    let sampleTimeB = '';
-    try {
-      const now = new Date();
-      const earlier = new Date(now.getTime() - 90 * 1000);
-      sampleTimeA = earlier.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
-      sampleTimeB = now.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
-    } catch { /* toLocaleTimeString can throw on an unrecognized locale tag */ }
-    const chatBody = `
-      <div class="messages">
-        <!--SMART_CHAT_SLOT-->
-        <div class="msg-row operator">
-          ${operatorAvatar
-            ? `<span class="msg-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
-            : `<span class="msg-avatar">${esc(((operatorName || '').trim().charAt(0) || initial).toUpperCase())}</span>`}
-          <div class="msg operator welcome-bubble">${esc(d.sample)}${sampleTimeA ? `<span class="msg-time">${esc(sampleTimeA)}</span>` : ''}</div>
-        </div>
-        <div class="msg-row visitor">
-          <div class="msg-status status-seen"><span class="msg-status-icon seen">✓✓</span><span class="msg-status-label">${esc(d.msgSeen)}</span></div>
-          <div class="msg visitor" style="background:${esc(primary)}">${esc(d.visitorSample)}${sampleTimeB ? `<span class="msg-time">${esc(sampleTimeB)}</span>` : ''}</div>
-        </div>
-      </div>`;
-
-    // Real published knowledge-base content (falls back to sample titles only
-    // when the workspace has nothing published yet).
+    /* ── Real published knowledge-base content (KB view markup still lives in
+       runtime-kb.js, which is outside the presentation contract, so the KB
+       list/article views stay local to the preview). ── */
     const realArticles = (kbArticles || []).filter(a => a && a.title);
     const realCategories = (kbCategories || []).filter(c => c && c.name);
     const hasRealKb = realArticles.length > 0 || realCategories.length > 0;
-    const homeKbItems: { title: string; articleIndex?: number }[] = hasRealKb
-      ? (realArticles.length
-          ? realArticles.slice(0, 4).map((a, index) => ({ title: a.title, articleIndex: index }))
-          : realCategories.slice(0, 4).map(c => ({ title: c.name })))
-      : [];
 
     const articleTemplates = realArticles.map((a, index) => {
       const bodyText = articleText(a.content) || articleText(a.excerpt);
@@ -418,8 +325,8 @@ export function WidgetLivePreview({
           ${realArticles.length ? `
             <div class="kb-section-h">${esc(d.kbAllArticles)}</div>
             <div class="kb-list">
-              ${realArticles.map(a => `
-                <button type="button" class="kb-article" data-preview-article="${realArticles.indexOf(a)}">
+              ${realArticles.map((a, i) => `
+                <button type="button" class="kb-article" data-preview-article="${i}">
                   <div class="kb-article-title">${esc(a.title)}</div>
                   ${a.excerpt ? `<div class="kb-article-excerpt">${esc(a.excerpt)}</div>` : ''}
                 </button>`).join('')}
@@ -436,58 +343,10 @@ export function WidgetLivePreview({
         `}
       </div>`;
 
-    const offlineBody = `
-      <div class="messages">
-        <div class="msg-row system"><div class="msg-system-pill">${esc(offlineMsg)}</div></div>
-      </div>` + prechatBody;
-
-    // Operator avatars only — the workspace logo is not shown here.
-    const homeAvatar = operatorAvatar
-      ? `<span class="home-avatar has-img is-online"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
-      : `<span class="home-avatar is-online"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
-
-    const homeBody = `
-      <div class="home-root" dir="${dir}">
-        <section class="home-hero">
-          <div class="home-greeting">${esc(d.homeGreeting)}</div>
-          <p class="home-welcome">${esc(welcome || d.homeWelcome)}</p>
-        </section>
-        <section class="home-card">
-          <div class="home-card-top">
-            <div class="home-avatars">${homeAvatar}</div>
-            <div class="home-status is-online">
-              <span class="home-status-dot"></span>
-              <span>${esc(d.homeTeamOnline)}</span>
-            </div>
-          </div>
-          <button type="button" class="home-cta" style="background:${esc(primary)}">
-            <span class="home-cta-label">${esc(d.homeStartChat)}</span>
-            <span class="home-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
-          </button>
-        </section>
-        ${kbEnabled ? `<section class="home-section">
-          <div class="home-section-head">
-            <h4 class="home-section-title">${esc(d.homeHelpTitle)}</h4>
-            <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
-          </div>
-          <div class="home-kb-list">
-            ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="home-kb-item"${a.articleIndex !== undefined ? ` data-preview-article="${a.articleIndex}"` : ' data-preview-open-help'}>
-              <span class="home-kb-title">${esc(a.title)}</span>
-              <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
-            </button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
-          </div>
-        </section>` : ''}
-      </div>`;
-
-    const body =
-      view === 'home' ? homeBody :
-      view === 'prechat' ? prechatBody :
-      view === 'kb' ? kbBody :
-      view === 'offline' ? offlineBody : chatBody;
-
-    /* ── Smart Engagement surfaces (same markup as the runtime emits) ── */
+    /* ── Smart Engagement surface (rendered by the real renderer inside the
+       frame — the preview only decides placement, exactly like Core does). ── */
     const scenarioContent = smartScenario?.content;
-    const sp = smartScenario && scenarioContent && scenarioContent.body
+    const smartSurface = smartScenario && scenarioContent && scenarioContent.body
       ? {
           mode: smartScenario.rule.presentation_config?.mode || 'launcher_nudge',
           title: scenarioContent.title,
@@ -496,94 +355,106 @@ export function WidgetLivePreview({
           dismissible: smartScenario.rule.presentation_config?.dismissible !== false,
         }
       : null;
-    const spTitle = sp?.title ? `<div class="smart-title">${esc(sp.title)}</div>` : '';
-    const spCta = sp?.ctaLabel ? `<button type="button" class="smart-cta">${esc(sp.ctaLabel)}</button>` : '';
-    const spDismiss = sp && sp.dismissible !== false
-      ? '<button type="button" class="smart-dismiss" aria-label="dismiss">×</button>' : '';
 
-    const smartNudge = sp && sp.mode === 'launcher_nudge'
-      ? `<div class="smart-nudge ${pos}" data-smart-surface style="bottom:${fabSize + 40}px">
-           ${spDismiss}${spTitle}
-           <div class="smart-body">${esc(sp.body)}</div>
-           ${spCta}
-         </div>`
-      : '';
+    /* ── View-models handed to the production renderer. Nothing below builds
+       widget markup: `presentation-classic.js` is the single source of it. ── */
+    const previewConfig = {
+      brandName: brandName || title,
+      welcomeMessage: welcome,
+      logoUrl: logo || null,
+      showLogo: s.show_logo !== false,
+      attachments: {
+        enabled: s.attachments_enabled === true,
+        voiceNotesEnabled: s.voice_notes_enabled === true,
+        allowedMimes: [],
+      },
+      composer: { emojiEnabled: s.emoji_enabled !== false },
+      readReceipts: { enabled: true },
+    };
 
-    const smartAnnounce = sp && sp.mode === 'announcement'
-      ? `<div class="smart-announce" data-smart-surface>
-           <span class="smart-body">${esc(sp.body)}</span>${spCta}${spDismiss}
-         </div>`
-      : '';
+    const nowIso = new Date().toISOString();
+    const earlierIso = new Date(Date.now() - 90 * 1000).toISOString();
 
-    const smartHomeCard = sp && sp.mode === 'home_card'
-      ? `<div class="smart-home-card" data-smart-surface>
-           ${spDismiss}${spTitle}
-           <div class="smart-body">${esc(sp.body)}</div>
-           ${spCta}
-         </div>`
-      : '';
-
-    /* A smart chat message is automation, not a human operator: it is docked
-       above the composer exactly like `renderSmartDock()` in runtime.js and
-       never borrows an operator avatar or name. */
-    const smartChatDock = sp && sp.mode === 'chat_message'
-      ? `<div class="smart-chat-dock" data-smart-surface>
-           ${spDismiss}${spTitle}
-           <div class="smart-body">${esc(sp.body)}</div>
-           ${spCta}
-         </div>`
-      : '';
-
-    // Home card renders inside the home view; the chat message goes into the
-    // message list via a dedicated slot. Everything else floats over the shell.
-    const bodyWithSmart = (smartHomeCard && view === 'home'
-      ? `${smartHomeCard}${body}`
-      : body
-    ).replace('<!--SMART_CHAT_SLOT-->', '');
-
-    // Mirrors the composer built by __gs_runtime.init() in runtime.js:
-    // escalate (outside) -> input-wrap[input, attach, mic] -> emoji
-    // (outside) -> send (outside). Keep this in lockstep with that file —
-    // see its own comment pointing back here.
-    const attachmentsOn = s.attachments_enabled === true;
-    const voiceOn = s.voice_notes_enabled === true;
-    const emojiOn = s.emoji_enabled !== false;
-    const composer = view === 'chat' ? `
-      <div class="typing-row" aria-live="polite">
-        <span class="typing-dots"><span></span><span></span><span></span></span>
-        <span class="typing-label">${esc(title)} ${esc(d.typing)}</span>
-      </div>
-      <div class="attach-tray" hidden></div>
-      <div class="emoji-picker" hidden></div>
-      <div class="input-bar">
-        <button type="button" class="escalate-btn" title="${esc(d.talkToHuman)}" aria-label="${esc(d.talkToHuman)}">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>
-        </button>
-        <div class="input-wrap">
-          <input class="input" placeholder="${esc(placeholder)}" />
-          ${attachmentsOn ? `<button type="button" class="attach-btn" title="${esc(d.attachTitle)}" aria-label="${esc(d.attachTitle)}">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          </button>` : ''}
-          ${voiceOn ? `<button type="button" class="mic-btn" title="${esc(d.micTitle)}" aria-label="${esc(d.micTitle)}">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
-            <span class="mic-ring" aria-hidden="true"></span>
-          </button>` : ''}
-        </div>
-        ${emojiOn ? `<button type="button" class="emoji-btn" title="${esc(d.emojiTitle)}" aria-label="${esc(d.emojiTitle)}">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-        </button>` : ''}
-        <button type="button" class="send-btn" style="background:${esc(primary)}">
-          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-        </button>
-      </div>` : '';
-
-    const powered = `<div class="powered">${esc(d.poweredBy)} <a href="#">${esc(brandName || title)}</a></div>`;
+    const payload = {
+      locale,
+      rtl,
+      primary,
+      view,
+      smart: { enabled: smartDoc, mode: smartSurface?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' },
+      smartSurface,
+      config: previewConfig,
+      /** Dictionary keys are the renderer's i18n contract, filled from DICTS. */
+      dict: {
+        home: d.homeTab, chat: d.chatTab, help: d.helpTab,
+        closeWidget: 'Close', openFile: 'Open', closePreview: 'Close',
+        talkToHuman: d.talkToHuman, typeMsg: placeholder,
+        attachFile: d.attachTitle, recordVoice: d.micTitle, emojiPicker: d.emojiTitle,
+        poweredBy: d.poweredBy, operator: operatorName || title,
+        intro: welcome || d.welcomeFallback,
+        homeGreeting: d.homeGreeting, homeWelcome: d.homeWelcome,
+        homeTeamOnline: d.homeTeamOnline, homeTeamOffline: d.homeTeamOffline,
+        homeReplySlow: d.homeReplySlow, homeStartChat: d.homeStartChat,
+        homeLeaveMessage: d.homeLeaveMessage, homeHelpTitle: d.homeHelpTitle,
+        homeSeeAll: d.homeSeeAll,
+        msgSeen: d.msgSeen, msgSent: d.msgSeen, msgSending: d.msgSeen, msgFailed: d.msgSeen,
+        name: d.name, email: d.email, phone: d.phone,
+        prechatNamePh: d.name, prechatEmailPh: d.email, prechatPhonePh: d.phone,
+        required: '*', prechatTitle: d.prechatTitle, prechatSubtitle: d.prechatIntro,
+        continue: d.start, prechatPrivacy: d.privacy,
+      },
+      shellVm: {
+        config: previewConfig,
+        brandName: brandName || title,
+        headerTitle: title,
+        chatEnabled: true,
+        kbEnabled,
+        locale,
+        activeTab: view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat',
+        primaryColor: primary,
+      },
+      homeVm: {
+        rtl,
+        isOnline: view !== 'offline',
+        chatEnabled: true,
+        kbEnabled,
+        welcomeMessage: welcome,
+        primaryColor: primary,
+        teamMembers: [{ name: operatorName || title, avatar: operatorAvatar || '', online: true }],
+        articles: realArticles.map((a, i) => ({ title: a.title, slug: String(i) })),
+        categories: [],
+      },
+      messages: view === 'offline'
+        ? [{ sender: 'operator', senderType: 'system', body: offlineMsg, time: nowIso }]
+        : [
+            {
+              sender: 'operator', senderType: 'operator', body: d.sample, time: earlierIso,
+              senderName: operatorName || title, senderAvatar: operatorAvatar || '',
+            },
+            { sender: 'visitor', senderType: 'visitor', body: d.visitorSample, time: nowIso, status: 'seen' },
+          ],
+      prechat: {
+        asked: {
+          name: prechat?.ask_name !== false,
+          email: prechat?.ask_email !== false,
+          phone: !!prechat?.ask_phone,
+        },
+        required: {
+          name: !!prechat?.require_name,
+          email: !!prechat?.require_email,
+          phone: !!prechat?.require_phone,
+        },
+      },
+      kbHtml: kbBody,
+      typingLabel: `${title} ${d.typing}`,
+      phase,
+    };
 
     return `<!doctype html>
 <html dir="${dir}" lang="${esc(locale)}">
 <head>
 <meta charset="utf-8" />
 <link rel="stylesheet" href="/widget/runtime.css" />
+<link rel="stylesheet" href="/widget/presentation-classic.css" />
 <style>
   html,body{margin:0;height:100%;}
   body{background:#F1F5F9;overflow:hidden;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
@@ -633,24 +504,123 @@ export function WidgetLivePreview({
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
   <div class="shell${s.fab_animation === true ? ' anim-on' : ''}">
-    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}">
-      ${header}
-      ${smartAnnounce}
-      <div class="body">${bodyWithSmart}</div>
-      ${view === 'chat' ? smartChatDock : ''}
-      ${composer}
-      ${tabs}
-      ${powered}
-    </div>
+    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
     <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
-    ${smartNudge}
     ${articleTemplates}
   </div>
+<!-- The preview loads the SAME presentation assets the visitor widget loads. -->
+<script src="/widget/presentation-registry.js"></script>
+<script src="/widget/presentation-classic.js"></script>
 <script>
-  var GS_SMART = ${JSON.stringify({ enabled: smartDoc, mode: sp?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' })};
+  var GS_PREVIEW = ${JSON.stringify(payload)};
+  var GS_SMART = GS_PREVIEW.smart;
+
+  /* Render the panel with the production renderer — the preview never builds
+     widget markup itself. */
+  (function () {
+    var reg = window.__gs_presentation_registry;
+    var mod = (reg && reg.get) ? reg.get('classic') : window.__gs_presentation_classic;
+    mod = mod || window.__gs_presentation_classic;
+    if (!mod || !mod.create) return;
+
+    function escapeHtml(v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function t(key) {
+      var v = GS_PREVIEW.dict[key];
+      return v == null ? key : v;
+    }
+
+    var R = mod.create({
+      t: t,
+      escapeHtml: escapeHtml,
+      config: GS_PREVIEW.config,
+      locale: GS_PREVIEW.locale,
+      primaryColor: GS_PREVIEW.primary,
+    });
+
+    var panel = document.querySelector('.panel');
+    panel.innerHTML = R.shellHtml(GS_PREVIEW.shellVm);
+
+    var body = panel.querySelector('[data-body]');
+    var view = GS_PREVIEW.view;
+    if (view === 'home') {
+      body.innerHTML = R.homeHtml(GS_PREVIEW.homeVm);
+    } else if (view === 'prechat') {
+      var pc = GS_PREVIEW.prechat;
+      var identity = {
+        isAsked: function (k) { return !!pc.asked[k]; },
+        isRequired: function (k) { return !!pc.required[k]; },
+      };
+      body.innerHTML = R.prechatFormHtml(identity, {}, GS_PREVIEW.locale);
+    } else if (view === 'kb') {
+      body.innerHTML = GS_PREVIEW.kbHtml;
+    } else {
+      body.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
+    }
+
+    /* Composer only belongs to the chat surface in the preview. */
+    if (view !== 'chat' && view !== 'offline') {
+      ['[data-input-bar]', '[data-typing-row]', '[data-attach-tray]', '[data-emoji-picker]']
+        .forEach(function (sel) {
+          var el = panel.querySelector(sel);
+          if (el) el.remove();
+        });
+    } else {
+      var typingRow = panel.querySelector('[data-typing-row]');
+      if (typingRow) {
+        typingRow.removeAttribute('hidden');
+        var lbl = typingRow.querySelector('[data-typing-label]');
+        if (lbl) lbl.textContent = GS_PREVIEW.typingLabel;
+      }
+    }
+
+    /* The scenario studio simulates one moment — browsing away from it via
+       the tabs would leave the scenario. */
+    if (GS_SMART.enabled) {
+      var tabsEl = panel.querySelector('.tabs');
+      if (tabsEl) tabsEl.remove();
+    }
+
+    /* Smart surfaces: inner markup from the renderer, placement from Core. */
+    var surface = GS_PREVIEW.smartSurface;
+    if (surface) {
+      var inner = R.smartSurfaceHtml(surface);
+      var shell = document.querySelector('.shell');
+      if (surface.mode === 'launcher_nudge') {
+        var nudge = document.createElement('div');
+        nudge.className = 'smart-nudge ' + ${JSON.stringify(pos)};
+        nudge.setAttribute('data-smart-surface', '');
+        nudge.style.bottom = ${JSON.stringify(String(fabSize + 40) + 'px')};
+        nudge.innerHTML = inner;
+        shell.appendChild(nudge);
+      } else if (surface.mode === 'announcement') {
+        var ann = document.createElement('div');
+        ann.className = 'smart-announce';
+        ann.setAttribute('data-smart-surface', '');
+        ann.innerHTML = inner;
+        panel.insertBefore(ann, body);
+      } else if (surface.mode === 'home_card' && view === 'home') {
+        var card = document.createElement('div');
+        card.className = 'smart-home-card';
+        card.setAttribute('data-smart-surface', '');
+        card.innerHTML = inner;
+        body.insertBefore(card, body.firstChild);
+      } else if (surface.mode === 'chat_message') {
+        var dock = document.createElement('div');
+        dock.className = 'smart-chat-dock';
+        dock.setAttribute('data-smart-surface', '');
+        dock.innerHTML = inner;
+        var bar = panel.querySelector('[data-input-bar]');
+        panel.insertBefore(dock, bar || null);
+      }
+    }
+  })();
 
   // Preview-only: let the operator open/close the widget exactly like a visitor.
   (function () {
@@ -678,8 +648,9 @@ export function WidgetLivePreview({
         }, '*');
       }
     });
-    var closeBtn = document.getElementById('gs-close');
-    if (closeBtn) closeBtn.addEventListener('click', function () {
+    document.addEventListener('click', function (e) {
+      var closeEl = e.target && e.target.closest ? e.target.closest('[data-panel-close]') : null;
+      if (!closeEl) return;
       setOpen(false);
       if (GS_SMART.enabled) parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:widget-closed' }, '*');
     });
@@ -724,34 +695,34 @@ export function WidgetLivePreview({
     document.addEventListener('click', function (e) {
       var t = e.target && e.target.closest ? e.target : null;
       if (!t) return;
-      if (t.closest('.smart-dismiss')) {
+      if (t.closest('[data-smart-dismiss]')) {
         e.preventDefault();
         parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:dismiss' }, '*');
         return;
       }
-      if (t.closest('.smart-cta')) {
+      if (t.closest('[data-smart-cta]')) {
         e.preventDefault();
         parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:cta' }, '*');
       }
     });
 
-    applyPhase(${JSON.stringify(phase)});
+    applyPhase(GS_PREVIEW.phase);
   })();
 
-  // Preview-only: clicking a bottom nav tab tells the parent to switch views.
+  // Preview-only: the renderer's real tab hooks drive the parent's view state.
   (function () {
     if (GS_SMART.enabled) return;
     document.addEventListener('click', function (e) {
-      var el = e.target && e.target.closest ? e.target.closest('[data-preview-nav]') : null;
+      var el = e.target && e.target.closest ? e.target.closest('[data-tab]') : null;
       if (!el) return;
       e.preventDefault();
-      parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-preview-nav') }, '*');
+      parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-tab') }, '*');
     });
   })();
 
   // Preview-only: open a real article and support returning to the list.
   (function () {
-    var body = document.querySelector('.panel > .body');
+    var body = document.querySelector('.panel [data-body]');
     if (!body) return;
     var initialMarkup = body.innerHTML;
     document.addEventListener('click', function (e) {
@@ -767,15 +738,24 @@ export function WidgetLivePreview({
         }
         return;
       }
+      var homeArticle = target.closest('[data-home-article]');
+      if (homeArticle) {
+        e.preventDefault();
+        var tpl = document.getElementById('preview-article-' + homeArticle.getAttribute('data-home-article'));
+        if (tpl) { body.innerHTML = tpl.innerHTML; body.scrollTop = 0; }
+        return;
+      }
       if (target.closest('[data-preview-kb-back]')) {
         e.preventDefault();
         body.innerHTML = initialMarkup;
         body.scrollTop = 0;
         return;
       }
-      if (target.closest('[data-preview-open-help]')) {
+      var homeAction = target.closest('[data-home-action]');
+      if (homeAction) {
         e.preventDefault();
-        parent.postMessage({ source: 'gs-widget-preview', nav: 'help' }, '*');
+        var act = homeAction.getAttribute('data-home-action');
+        parent.postMessage({ source: 'gs-widget-preview', nav: act === 'help' ? 'help' : 'chat' }, '*');
       }
     });
   })();

@@ -731,6 +731,13 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const runtimeJsName = getWidgetAssetName('runtime.js');
     const runtimeCssName = getWidgetAssetName('runtime.css');
     const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
+    // Presentation layer — registry + active template assets. Widget Core
+    // ships no markup, so these are part of the required boot payload.
+    // `templateId` is the registry key; only 'classic' exists today.
+    const templateId = 'classic';
+    const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
+    const presentationJsName = getWidgetAssetName(`presentation-${templateId}.js`);
+    const presentationCssName = getWidgetAssetName(`presentation-${templateId}.css`);
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const smartEngineName = getWidgetAssetName('smart-engine.js');
@@ -859,6 +866,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),
       styleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeCssName}` : null),
       callRuntimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${callRuntimeJsName}` : null),
+      templateId,
+      presentationRegistryUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationRegistryJsName}` : null),
+      presentationUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationJsName}` : null),
+      presentationStyleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationCssName}` : null),
       // Pass 1 — explicit LiveKit SDK URL. Self-hosted, hashed asset. The
       // call runtime MUST consume this and never fall back to a CDN. When
       // assetBase is unresolved (very unusual — most likely a misconfigured

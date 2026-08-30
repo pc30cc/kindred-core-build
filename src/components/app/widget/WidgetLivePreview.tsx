@@ -293,33 +293,34 @@ export function WidgetLivePreview({
     const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
     // The scenario studio is a simulation of one moment, not a browsable
     // widget — generic navigation would let the operator leave the scenario.
-    const tabs = smartDoc ? '' : `<div class="tabs tabs-bottom">${navDefs
-      .map(
-        (n) => `<button type="button" data-preview-nav="${n.key}" class="tab${n.key === activeNav ? ' active' : ''}">
-           <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
-           <span class="tab-label">${esc(n.label)}</span>
-         </button>`,
-      )
-      .join('')}</div>`;
+    // Design spec: no bottom tab bar — navigation lives in the home action
+    // row and the per-view header controls (mirrors runtime.js).
+    void NAV_ICONS; void navDefs; void activeNav; void smartDoc;
+    const tabs = '';
 
     // Header shows the uploaded workspace logo; falls back to nothing.
     const avatar = logo
-      ? `<span class="header-op-avatar has-img"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
+      ? `<span class="wy-header-logo"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
       : '';
 
+    const backChevron = rtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6';
+    const headerBack = view === 'home' ? '' : `
+        <button type="button" class="wy-header-back" data-preview-nav="home" aria-label="back">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${backChevron}"/></svg>
+        </button>`;
+
     const header = `
-      <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
-        <button type="button" class="header-back" id="gs-close" aria-label="back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${rtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6'}"/></svg>
-        </button>
-        <div class="header-brand">
-          ${avatar ? `<div class="header-op-stack">${avatar}</div>` : ''}
-          <div class="header-brand-text">
-            <div class="header-title">${esc(brandName || title)}</div>
-            <div class="header-subtitle"><span class="header-live-dot" aria-hidden="true"></span>${esc(d.homeReplyFast)}</div>
+      <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}" data-header data-view="${esc(view)}">
+        ${headerBack}
+        <div class="wy-header-brand">
+          ${avatar}
+          <div class="wy-header-text">
+            <div class="wy-header-title">${esc(brandName || title)}</div>
+            <div class="wy-header-sub"><span class="wy-dot is-online" aria-hidden="true"></span>${esc(d.homeReplyFast)}</div>
           </div>
         </div>
       </div>`;
+
 
 
     const fields = [

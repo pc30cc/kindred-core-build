@@ -181,12 +181,13 @@ console.log(JSON.stringify(manifest, null, 2));
 // Build must fail loudly if the visitor call runtime was omitted from the
 // widget output. The join flow now depends on an explicit manifest-backed URL,
 // so silently succeeding here would regress back to runtime URL guessing.
-for (const required of ['presentation-registry.js', 'presentation-classic.js', 'presentation-classic.css']) {
+for (const required of PRESENTATION_FILES) {
   if (!manifest[required] || !existsSync(join(OUT_DIR, manifest[required]))) {
     console.error(`[widget-hash] FATAL: presentation asset missing from build output: ${required}`);
     process.exit(1);
   }
 }
+
 
 if (!manifest['runtime-call.js']) {
   console.error('[widget-hash] FATAL: runtime-call.js missing from widget manifest');

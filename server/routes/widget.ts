@@ -39,7 +39,7 @@ import {
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
-import { resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/templates.js';
+import { resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
 
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import {

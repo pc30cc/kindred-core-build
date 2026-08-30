@@ -492,6 +492,7 @@ export function WidgetLivePreview({
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
     <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
+      <svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
   </div>
@@ -507,18 +508,33 @@ export function WidgetLivePreview({
     if (!reg || typeof reg.resolve !== 'function') return;
     var desc = reg.resolve(GS_PREVIEW.templateId);
     if (!desc) return;
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = '/widget/' + desc.style;
-    document.head.appendChild(link);
-    var scr = document.createElement('script');
-    scr.src = '/widget/' + desc.script;
-    scr.onload = function () {
-      var mod = window[desc.globalKey];
-      if (mod && mod.create) gsRenderPreview(mod);
-    };
-    document.body.appendChild(scr);
+
+    // ASSET PARITY: visitors get manifest-hashed files. Resolve through the
+    // SAME manifest here so a stale/mismatched build cannot hide behind the
+    // unhashed dev sources. Falls back to the plain names in dev, where
+    // dist/widget/widget-manifest.json does not exist yet.
+    function boot(manifest) {
+      var styleFile = (manifest && manifest[desc.style]) || desc.style;
+      var scriptFile = (manifest && manifest[desc.script]) || desc.script;
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/widget/' + styleFile;
+      document.head.appendChild(link);
+      var scr = document.createElement('script');
+      scr.src = '/widget/' + scriptFile;
+      scr.onload = function () {
+        var mod = window[desc.globalKey];
+        if (mod && mod.create) gsRenderPreview(mod);
+      };
+      document.body.appendChild(scr);
+    }
+
+    fetch('/widget/widget-manifest.json', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(boot);
   })();
+
 
   /* Render the panel with the production renderer — the preview never builds
      widget markup itself. */

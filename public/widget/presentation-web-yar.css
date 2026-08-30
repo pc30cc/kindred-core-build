@@ -255,13 +255,23 @@
 .wy-view-precontact .wy-actions { padding: 10px 16px; }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */
-.wy-footer { flex: none; padding: 6px 16px 10px; text-align: center; }
+/* `flex: none` keeps the footer pinned OUTSIDE the scroll area. */
+.wy-footer { flex: none; padding: 10px 16px 14px; text-align: center; }
 .wy-powered {
-  display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
   color: var(--wy-faint); text-decoration: none; transition: color 0.16s;
 }
 .wy-powered:hover { color: var(--wy-muted); }
-.wy-powered-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--wy-accent); }
+.wy-powered-dot {
+  width: 12px; height: 12px; border-radius: 50%; background: var(--wy-accent);
+  flex: none;
+  animation: wy-load-pulse 0.9s ease-in-out 3;
+}
+@keyframes wy-load-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.7); }
+}
+
 
 /* ─── Home ──────────────────────────────────────────────────────────── */
 .home-greeting-block { margin-bottom: 14px; }

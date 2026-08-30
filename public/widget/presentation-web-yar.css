@@ -58,22 +58,21 @@
 }
 
 /* ─── Shell + panel ─────────────────────────────────────────────────── */
+/* The shell is a plain (non-positioned) container inside the shadow root.
+   The launcher stays LOADER-owned (position:fixed, edge 24px) and the panel
+   is positioned INDEPENDENTLY by this presentation layer. There is no
+   `.shell.pos-*` contract — the loader never emits those classes. */
 .shell {
-  position: fixed;
-  z-index: 2147483000;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
   color: var(--wy-text);
   font-size: 14px;
   line-height: 1.65;
 }
-.shell.pos-bottom-right { right: 20px; bottom: 20px; align-items: flex-end; }
-.shell.pos-bottom-left { left: 20px; bottom: 20px; align-items: flex-start; }
 .shell[dir='rtl'] { text-align: right; }
 
 .panel {
+  position: fixed;
+  /* Below the loader's launcher (2147483646) so the FAB is always clickable. */
+  z-index: 2147483000;
   width: 380px;
   height: 600px;
   max-height: calc(100vh - 120px);
@@ -86,19 +85,38 @@
   overflow: hidden;
   overflow-x: hidden;
   box-sizing: border-box;
-  transform-origin: bottom right;
   opacity: 0;
   transform: translateY(12px) scale(0.97);
   pointer-events: none;
   transition: opacity 0.22s var(--wy-ease), transform 0.28s var(--wy-ease);
 }
-.shell.pos-bottom-left .panel { transform-origin: bottom left; }
+/* Design geometry: edge 24px, panel↔launcher gap 14px. */
+.panel.bottom-right {
+  right: 24px;
+  left: auto;
+  top: auto;
+  bottom: calc(24px + var(--gs-fab-size, 56px) + 14px);
+  transform-origin: bottom right;
+}
+.panel.bottom-left {
+  left: 24px;
+  right: auto;
+  top: auto;
+  bottom: calc(24px + var(--gs-fab-size, 56px) + 14px);
+  transform-origin: bottom left;
+}
 .panel.visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
 .shell.no-anim .panel { transition: none; }
 
 @media (max-width: 440px) {
-  .panel { width: calc(100vw - 24px); height: calc(100dvh - 120px); }
+  .panel {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    height: calc(100dvh - 120px);
+  }
+  .panel.bottom-right, .panel.bottom-left { right: 12px; left: 12px; }
 }
+
 
 /* ─── Launcher (the ONLY open/close control) ────────────────────────── */
 .launcher {
@@ -142,14 +160,16 @@
 
 .wy-scroll {
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: hidden !important;
   scrollbar-width: thin;
   scrollbar-color: #e0e1e6 transparent;
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
-.wy-scroll::-webkit-scrollbar { width: 8px; }
+.wy-scroll::-webkit-scrollbar { width: 6px; }
 .wy-scroll::-webkit-scrollbar-thumb { background: #e0e1e6; border-radius: 4px; }
 .wy-scroll::-webkit-scrollbar-track { background: transparent; }
+
 
 .wy-body-pad { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wy-home-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -161,19 +181,24 @@
 .wy-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 10px;
+  padding: 16px 20px;
   background: var(--wy-card);
-  border-bottom: 1px solid var(--wy-border);
   flex: none;
+  box-sizing: border-box;
 }
-.wy-head-plain { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; }
-.wy-head-article-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wy-head-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+/* Home header is the only one with symmetric 20px padding (design §1). */
+.wy-head-home { padding: 20px; justify-content: space-between; }
+/* Chat header uses a tighter 16px box (design §5). */
+.wy-head-chat { padding: 16px; }
+.wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
+.wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wy-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .wy-head-title { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; }
 .wy-head-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-sub { font-size: 12px; color: var(--wy-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wy-online); flex: none; }
+
 
 .wy-back {
   width: 32px; height: 32px; border-radius: 9999px; display: flex; align-items: center;
@@ -226,17 +251,28 @@
 .wy-btn-grow { flex: 1 1 auto; }
 
 .wy-actions-block { flex: none; }
-.wy-actions { display: flex; gap: 8px; padding: 10px 16px 6px; }
+.wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 6px; }
+.wy-actions .wy-btn { flex: 1 1 auto; min-width: 0; }
 .wy-view-precontact .wy-actions { padding: 10px 16px; }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */
-.wy-footer { flex: none; padding: 6px 16px 10px; text-align: center; }
+/* `flex: none` keeps the footer pinned OUTSIDE the scroll area. */
+.wy-footer { flex: none; padding: 10px 16px 14px; text-align: center; }
 .wy-powered {
-  display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
   color: var(--wy-faint); text-decoration: none; transition: color 0.16s;
 }
 .wy-powered:hover { color: var(--wy-muted); }
-.wy-powered-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--wy-accent); }
+.wy-powered-dot {
+  width: 12px; height: 12px; border-radius: 50%; background: var(--wy-accent);
+  flex: none;
+  animation: wy-load-pulse 0.9s ease-in-out 3;
+}
+@keyframes wy-load-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.7); }
+}
+
 
 /* ─── Home ──────────────────────────────────────────────────────────── */
 .home-greeting-block { margin-bottom: 14px; }

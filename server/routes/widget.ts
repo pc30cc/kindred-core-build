@@ -785,6 +785,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       assetBase,
       debugMode: ws.debug_mode ?? false,
       brandName: branding?.platform_name || 'Support',
+      // Explicit platform brand for the "powered by" footer. The footer must
+      // ALWAYS name the platform, never the workspace's own brand.
+      platformName: branding?.platform_name || 'Support',
+
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',
       logoUrl: ws.logo_url || branding?.logo_url || null,

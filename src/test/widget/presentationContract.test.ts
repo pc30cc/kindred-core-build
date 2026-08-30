@@ -250,8 +250,8 @@ describe('widget preview — template-agnostic single source of truth', () => {
   it('resolves the template through the same registry path as production', () => {
     expect(PREVIEW).toContain('presentation-registry.js');
     expect(PREVIEW).toContain('reg.resolve(GS_PREVIEW.templateId)');
-    expect(PREVIEW).toContain("'/widget/' + desc.script");
-    expect(PREVIEW).toContain("'/widget/' + desc.style");
+    expect(PREVIEW).toContain("'/widget/' + scriptFile");
+    expect(PREVIEW).toContain("'/widget/' + styleFile");
   });
 
   it('builds no widget markup of its own (KB included)', () => {

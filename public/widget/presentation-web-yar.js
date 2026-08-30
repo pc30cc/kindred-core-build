@@ -75,13 +75,15 @@
     }
 
     function footerHtml() {
-      var brandName = (config && config.brandName) ? String(config.brandName) : '';
+      // The footer credits the PLATFORM, never the workspace brand.
+      var platform = (config && (config.platformName || config.brandName)) || '';
       if (config && config.showPoweredBy === false) return '';
-      if (!brandName) return '';
+      if (!platform) return '';
       return '<div class="wy-footer"><a class="wy-powered" href="#" data-powered>' +
         '<span class="wy-powered-dot" aria-hidden="true"></span>' +
-        '<span>' + esc(tf('poweredBy', 'Powered by')) + ' ' + esc(brandName) + '</span></a></div>';
+        '<span>' + esc(tf('poweredBy', 'Powered by')) + ' ' + esc(platform) + '</span></a></div>';
     }
+
 
     function headerIdentityHtml(opts) {
       opts = opts || {};
@@ -727,11 +729,13 @@
       var hasThreads = convs.length > 0;
       var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
       var articles = (vm.articles || []);
-      // Design §7 — with 3 recent conversations the chips would push the
-      // home screen into an awkward scroll, so they collapse into the
-      // compact action button instead.
-      var showChips = vm.kbEnabled && articles.length > 0 && convs.length < 3;
-      var showArticlesButton = vm.kbEnabled && articles.length > 0 && !showChips;
+      // Design source of truth: the home screen shows EITHER article
+      // suggestions (no conversation yet) OR recent conversations (≥1
+      // thread) — never both. With threads present the articles collapse
+      // into the compact "Articles" action button.
+      var showChips = vm.kbEnabled && articles.length > 0 && !hasThreads;
+      var showArticlesButton = vm.kbEnabled && articles.length > 0 && hasThreads;
+
 
       var stack = (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
         .map(function (m) {

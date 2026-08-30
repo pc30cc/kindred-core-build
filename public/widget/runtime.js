@@ -3865,7 +3865,7 @@
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
     if (!shell || !shadowRoot) {
       Util.warn('FATAL: no shadowRoot provided by loader');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
 
      // Honor the workspace's "Widget Language" setting. When set to a
@@ -3894,7 +3894,7 @@
     Presentation = resolvePresentation(ctx, function (key) { return I18n.t(ctx.locale, key); });
     if (!Presentation) {
       Util.warn('FATAL: no presentation template registered');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
@@ -4911,7 +4911,7 @@
     }
     if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
       Util.warn('FATAL: no mount target available inside shadow root');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
     var launcher = shell.launcher;
 
@@ -5736,9 +5736,13 @@
     presenceStore.subscribe(renderPresence);
     renderPresence(presenceStore.get());
 
-    // Open immediately (user clicked launcher)
-    shellStore.set({ isOpen: true, mounted: true });
-    panel.classList.add('visible');
+    // LIFECYCLE CONTRACT: init() ONLY mounts. It never opens the panel.
+    // A silent Smart Engagement preload must leave the widget closed; the
+    // loader explicitly calls instance.open() when the visitor asked for it.
+    shellStore.set({ isOpen: false, mounted: true });
+    panel.classList.remove('visible');
+    if (launcher) launcher.classList.remove('open');
+
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
@@ -6845,9 +6849,13 @@
     });
 
     // ─── Public API back to loader ───
+    // open/close/toggle ALWAYS return the real, final open state so the
+    // loader never has to guess (no `isOpen = !isOpen` dual-state drift).
     return {
+      /** Single source of truth for panel visibility. */
+      isOpen: function () { return !!shellStore.get().isOpen; },
       open: function () {
-        if (shellStore.get().isOpen) return;
+        if (shellStore.get().isOpen) return true;
         shellStore.set({ isOpen: true });
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
@@ -6860,18 +6868,21 @@
         if (msgInput && transportStore.get().connectionState === 'online' && !contextualNeedsPrechat()) {
           setTimeout(function () { msgInput.focus(); }, 300);
         }
+        return true;
       },
       close: function () {
-        if (!shellStore.get().isOpen) return;
+        if (!shellStore.get().isOpen) return false;
         // Capture any in-flight typed text before hiding
         syncDraftFromInput();
         shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
         panel.classList.remove('visible');
+        return false;
       },
       toggle: function () {
-        if (shellStore.get().isOpen) this.close(); else this.open();
+        return shellStore.get().isOpen ? this.close() : this.open();
       },
+
       setUnread: function (count) {
         // Public bridge: sets the global counter directly (loader API parity).
         notify.setUnread(count);

@@ -404,6 +404,11 @@
     var size = Math.round(56 * scale);
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
+    // Publish the REAL launcher size to the shell so the presentation layer
+    // can anchor the panel above it without re-deriving FAB geometry.
+    var shellForVar = shadowRoot && shadowRoot.querySelector(".shell");
+    if (shellForVar) shellForVar.style.setProperty("--gs-fab-size", size + "px");
+
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
     if (fab.animation === true) launcherEl.classList.add("pulse");
     launcherEl.style.color = fab.iconColor || "#ffffff";
@@ -657,19 +662,39 @@
     });
   }
 
+  // ─── Single source of truth for open state ───────────────────────────
+  // The Runtime owns `isOpen`. The loader NEVER flips its own copy blindly;
+  // after every action it re-reads the runtime and mirrors the launcher.
+  function runtimeInstanceRef() {
+    return (window.__gs_runtime && window.__gs_runtime._instance) || null;
+  }
+  function syncOpenStateFromRuntime() {
+    var inst = runtimeInstanceRef();
+    if (inst && typeof inst.isOpen === "function") {
+      try { isOpen = !!inst.isOpen(); } catch (_) { /* keep last known */ }
+    } else {
+      isOpen = false;
+    }
+    if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
+    return isOpen;
+  }
+
   function triggerOpen() {
     if (!launcherEl) return;
-    if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
-      window.__gs_runtime._instance.open();
-      isOpen = true;
-      launcherEl.classList.add("open");
+    var inst = runtimeInstanceRef();
+    if (runtimeLoaded && inst) {
+      try { inst.open(); } catch (_) {}
+      syncOpenStateFromRuntime();
       return;
     }
     onLauncherClick();
   }
   function triggerClose() {
-    if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
-      try { window.__gs_runtime._instance.close(); } catch (_) {}
+    var inst = runtimeInstanceRef();
+    if (runtimeLoaded && inst) {
+      try { inst.close(); } catch (_) {}
+      syncOpenStateFromRuntime();
+      return;
     }
     isOpen = false;
     if (launcherEl) launcherEl.classList.remove("open");
@@ -681,10 +706,10 @@
 
   function onLauncherClick() {
     if (!configData) return;
-    if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
-      window.__gs_runtime._instance.toggle();
-      isOpen = !isOpen;
-      launcherEl.classList.toggle("open", isOpen);
+    var inst = runtimeInstanceRef();
+    if (runtimeLoaded && inst) {
+      try { inst.toggle(); } catch (_) {}
+      syncOpenStateFromRuntime();
       return;
     }
     // A Smart Engagement silent preload (see preloadRuntimeForSmart) may
@@ -694,6 +719,7 @@
     if (runtimeLoading) return;
     loadRuntimeAssets();
   }
+
 
   // Loads runtime.css + runtime.js (+ the call-module sidecar) and calls
   // window.__gs_runtime.init(). Shared by onLauncherClick (visitor clicked
@@ -768,17 +794,21 @@
           });
           window.__gs_runtime._instance = instance;
           widgetApi = {
-            open: function () { instance.open(); isOpen = true; launcherEl.classList.add("open"); },
-            close: function () { instance.close(); isOpen = false; launcherEl.classList.remove("open"); },
-            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen); },
+            open: function () { try { instance.open(); } catch (_) {} syncOpenStateFromRuntime(); },
+            close: function () { try { instance.close(); } catch (_) {} syncOpenStateFromRuntime(); },
+            toggle: function () { try { instance.toggle(); } catch (_) {} syncOpenStateFromRuntime(); },
             setUnread: setUnreadBadge,
           };
           ready = true;
+          // init() only MOUNTS. The panel opens here — and ONLY here — when
+          // something actually asked for it (a real launcher click). A silent
+          // Smart Engagement preload leaves the widget mounted but closed.
           if (wantRuntimeOpen) {
-            isOpen = true;
-            launcherEl.classList.add("open");
+            try { instance.open(); } catch (_) {}
           }
+          syncOpenStateFromRuntime();
           processQueue();
+
         } catch (e) {
           warn("Runtime init failed", e);
           if (wantRuntimeOpen) showShellError(lt("couldNotStart"));

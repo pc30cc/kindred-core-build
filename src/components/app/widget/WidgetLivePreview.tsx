@@ -454,34 +454,28 @@ export function WidgetLivePreview({
   .site .bar.w2{width:62%}.site .bar.w3{width:78%}.site .bar.w4{width:45%}
   .site .block{height:120px;border-radius:14px;background:#E2E8F0;margin:16px 0;}
   .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:#E2E8F0}
-  .shell{--gs-primary:${esc(primary)};--gs-secondary:${esc(secondary)};color:#1F2937;}
-  /* Panel keeps production geometry (380px wide, anchored 92px above the
-     launcher) — only the height clamp differs because the preview frame is
-     smaller than a real browser viewport. */
-  /* Override the runtime's <=480px full-screen rule: inside this small preview
-     frame the panel must stay a floating card, otherwise it covers the FAB. */
-   .panel{position:fixed!important;top:auto!important;width:min(380px, calc(100% - 28px))!important;
-    max-width:calc(100% - 28px)!important;border-radius:20px!important;
-     height:calc(100% - ${fabSize + 60}px)!important;}
-  .panel[hidden]{display:none!important;}
-  .launcher.is-hidden{opacity:0!important;visibility:hidden!important;pointer-events:none!important;}
-  .fab-label.is-hidden{opacity:0!important;visibility:hidden!important;}
+  .shell{--gs-primary:${esc(primary)};--gs-secondary:${esc(secondary)};--gs-fab-size:${fabSize}px;color:#1F2937;}
+  /* PARITY RULE: the preview provides ONLY the fake page + viewport. It must
+     NOT redefine panel geometry or lifecycle — the panel is positioned and
+     toggled by the production presentation stylesheet, exactly like a real
+     visitor's browser, so layout regressions surface here too. */
   .header-op-avatar.has-img img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
-   .panel.bottom-right{bottom:${fabSize + 44}px!important;right:20px!important;left:auto!important;}
-   .panel.bottom-left{bottom:${fabSize + 44}px!important;left:20px!important;right:auto!important;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
   .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
     width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;
     box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);
     transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;
-     background:${esc(primary)};color:${esc(fabIconColor)};z-index:5;}
+     background:${esc(primary)};color:${esc(fabIconColor)};z-index:2147483646;}
   .launcher.bottom-right{bottom:24px;right:24px;}
   .launcher.bottom-left{bottom:24px;left:24px;}
   .launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .launcher.open svg.chat-icon{display:none;}
+  .launcher:not(.open) svg.close-icon{display:none;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}
   .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
     background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;
-     box-shadow:0 4px 14px -4px rgba(0,0,0,.25);z-index:5;}
+     box-shadow:0 4px 14px -4px rgba(0,0,0,.25);z-index:2147483646;}
+
   /* Smart simulation: surfaces fade in/out with the real transition timing. */
   [data-smart-surface]{transition:opacity .22s ease, transform .22s ease;}
   [data-smart-surface][hidden]{display:none!important;}
@@ -498,6 +492,7 @@ export function WidgetLivePreview({
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
     <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
+      <svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
   </div>
@@ -513,18 +508,33 @@ export function WidgetLivePreview({
     if (!reg || typeof reg.resolve !== 'function') return;
     var desc = reg.resolve(GS_PREVIEW.templateId);
     if (!desc) return;
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = '/widget/' + desc.style;
-    document.head.appendChild(link);
-    var scr = document.createElement('script');
-    scr.src = '/widget/' + desc.script;
-    scr.onload = function () {
-      var mod = window[desc.globalKey];
-      if (mod && mod.create) gsRenderPreview(mod);
-    };
-    document.body.appendChild(scr);
+
+    // ASSET PARITY: visitors get manifest-hashed files. Resolve through the
+    // SAME manifest here so a stale/mismatched build cannot hide behind the
+    // unhashed dev sources. Falls back to the plain names in dev, where
+    // dist/widget/widget-manifest.json does not exist yet.
+    function boot(manifest) {
+      var styleFile = (manifest && manifest[desc.style]) || desc.style;
+      var scriptFile = (manifest && manifest[desc.script]) || desc.script;
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/widget/' + styleFile;
+      document.head.appendChild(link);
+      var scr = document.createElement('script');
+      scr.src = '/widget/' + scriptFile;
+      scr.onload = function () {
+        var mod = window[desc.globalKey];
+        if (mod && mod.create) gsRenderPreview(mod);
+      };
+      document.body.appendChild(scr);
+    }
+
+    fetch('/widget/widget-manifest.json', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(boot);
   })();
+
 
   /* Render the panel with the production renderer — the preview never builds
      widget markup itself. */
@@ -639,19 +649,22 @@ export function WidgetLivePreview({
     var launcher = document.getElementById('gs-launcher');
     if (!panel || !launcher) return;
     var label = document.querySelector('.fab-label');
+    // LIFECYCLE PARITY: the preview uses the PRODUCTION contract —
+    // panel.visible + launcher.open — never a preview-only
+    // hidden attribute. Anything else masks real regressions.
+    function isOpen() { return panel.classList.contains('visible'); }
     function setOpen(open) {
-      if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
-      // Preview keeps the launcher visible even while the panel is open.
-      launcher.classList.remove('is-hidden');
-      if (label) label.classList.remove('is-hidden');
+      panel.classList.toggle('visible', !!open);
+      launcher.classList.toggle('open', !!open);
     }
     window.__gsSetOpen = setOpen;
     // In the scenario studio the panel state belongs to the simulation, so it
     // starts closed and only opens when the rule says a visitor would see it.
     setOpen(!GS_SMART.enabled);
     launcher.addEventListener('click', function () {
-      var willOpen = panel.hasAttribute('hidden');
+      var willOpen = !isOpen();
       setOpen(willOpen);
+
       if (GS_SMART.enabled) {
         parent.postMessage({
           source: 'gs-smart-preview',

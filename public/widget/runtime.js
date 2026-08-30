@@ -6184,11 +6184,10 @@
       var st = conversationsStore.get();
       if (st.loading) return;
       conversationsStore.set({ loading: true });
-      var visitorId = (identityStore.get() || {}).visitorId
-        || ((window.__gs_identity || {}).visitorId) || '';
+      // No visitor_id on the wire: the server resolves identity solely from
+      // the signed HttpOnly `dvsid` cookie and ignores any client-sent id.
       var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
-        encodeURIComponent(ctx.workspaceId || '') +
-        (visitorId ? ('&visitor_id=' + encodeURIComponent(visitorId)) : '');
+        encodeURIComponent(ctx.workspaceId || '');
       ctx.fetchWith(url, { method: 'GET' })
         .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
         .catch(function () { return { conversations: [] }; })
@@ -6202,17 +6201,48 @@
         });
     }
 
+    // Durable read marker so the unread badge reflects reality across
+    // reloads and devices. Fire-and-forget; failure just leaves the badge.
+    function markConversationRead(conversationId) {
+      if (!conversationId) return;
+      try {
+        ctx.fetchWith(ctx.apiBase + '/api/widget/conversations/' +
+          encodeURIComponent(conversationId) + '/read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspace_id: ctx.workspaceId }),
+        }).then(function () {
+          var cs = conversationsStore.get();
+          conversationsStore.set({
+            items: (cs.items || []).map(function (c) {
+              return c.id === conversationId ? Object.assign({}, c, { unreadCount: 0 }) : c;
+            }),
+          });
+        }).catch(function () {});
+      } catch (_) {}
+    }
+
+    // Explicit "+ / start new conversation": arm Core's force-new latch so
+    // the first message creates a fresh thread even when an open one exists.
+    function startNewConversation() {
+      try { if (chatUI.startNewConversation) chatUI.startNewConversation(); }
+      catch (_) { chatStore.set({ conversationId: null, messages: [] }); }
+      switchTab('chat');
+    }
+
     // Opening an existing thread = make it the active conversation and go
     // to chat. Business logic (history load, subscription) is reused.
     function openConversation(conversationId) {
-      if (!conversationId) { switchTab('chat'); return; }
+      if (!conversationId) { startNewConversation(); return; }
       if (chatStore.get().conversationId !== conversationId) {
         chatStore.set({ conversationId: conversationId, messages: [] });
         try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
         try { chatUI.bootstrapHistory(function () { if (shellStore.get().activeTab === 'chat') renderBody(); }); } catch (_) {}
       }
+      markConversationRead(conversationId);
       switchTab('chat');
     }
+
 
     function bindViewHooks(root) {
       if (!root) return;

@@ -7306,10 +7306,8 @@
         } catch (_) {}
         chatUI.renderChat(body);
         renderSmartDock();
-      } else if (tab === 'help') {
-        if (inputBar) inputBar.style.display = 'none';
-        kbUI.ensure(function () { kbUI.render(body); });
       }
+
     }
 
     // Pass 2 — re-render whenever the in-panel call surface changes so

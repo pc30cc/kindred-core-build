@@ -58,22 +58,21 @@
 }
 
 /* ─── Shell + panel ─────────────────────────────────────────────────── */
+/* The shell is a plain (non-positioned) container inside the shadow root.
+   The launcher stays LOADER-owned (position:fixed, edge 24px) and the panel
+   is positioned INDEPENDENTLY by this presentation layer. There is no
+   `.shell.pos-*` contract — the loader never emits those classes. */
 .shell {
-  position: fixed;
-  z-index: 2147483000;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
   color: var(--wy-text);
   font-size: 14px;
   line-height: 1.65;
 }
-.shell.pos-bottom-right { right: 20px; bottom: 20px; align-items: flex-end; }
-.shell.pos-bottom-left { left: 20px; bottom: 20px; align-items: flex-start; }
 .shell[dir='rtl'] { text-align: right; }
 
 .panel {
+  position: fixed;
+  /* Below the loader's launcher (2147483646) so the FAB is always clickable. */
+  z-index: 2147483000;
   width: 380px;
   height: 600px;
   max-height: calc(100vh - 120px);
@@ -86,19 +85,38 @@
   overflow: hidden;
   overflow-x: hidden;
   box-sizing: border-box;
-  transform-origin: bottom right;
   opacity: 0;
   transform: translateY(12px) scale(0.97);
   pointer-events: none;
   transition: opacity 0.22s var(--wy-ease), transform 0.28s var(--wy-ease);
 }
-.shell.pos-bottom-left .panel { transform-origin: bottom left; }
+/* Design geometry: edge 24px, panel↔launcher gap 14px. */
+.panel.bottom-right {
+  right: 24px;
+  left: auto;
+  top: auto;
+  bottom: calc(24px + var(--gs-fab-size, 56px) + 14px);
+  transform-origin: bottom right;
+}
+.panel.bottom-left {
+  left: 24px;
+  right: auto;
+  top: auto;
+  bottom: calc(24px + var(--gs-fab-size, 56px) + 14px);
+  transform-origin: bottom left;
+}
 .panel.visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
 .shell.no-anim .panel { transition: none; }
 
 @media (max-width: 440px) {
-  .panel { width: calc(100vw - 24px); height: calc(100dvh - 120px); }
+  .panel {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    height: calc(100dvh - 120px);
+  }
+  .panel.bottom-right, .panel.bottom-left { right: 12px; left: 12px; }
 }
+
 
 /* ─── Launcher (the ONLY open/close control) ────────────────────────── */
 .launcher {

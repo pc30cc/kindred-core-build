@@ -431,7 +431,9 @@ export function WidgetLivePreview({
           phone: !!prechat?.require_phone,
         },
       },
-      kbHtml: kbBody,
+      kbVm,
+      kbArticleVms,
+
       typingLabel: `${title} ${d.typing}`,
       phase,
     };

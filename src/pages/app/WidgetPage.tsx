@@ -109,9 +109,6 @@ function WidgetPageContent() {
     if (backfilled.current || !widget || !effectiveLocale) return;
     backfilled.current = true;
     const patch: Record<string, string> = {};
-    if (!widgetTextValue((widget as any).launcher_text, 'launcher', effectiveLocale)) {
-      patch.launcher_text = widgetTextDefault('launcher', effectiveLocale);
-    }
     if (!widgetTextValue((widget as any).welcome_message, 'welcome', effectiveLocale)) {
       patch.welcome_message = widgetTextDefault('welcome', effectiveLocale);
     }
@@ -334,73 +331,6 @@ function WidgetPageContent() {
                     </div>
                   </div>
 
-                  {/* Secondary color — drives the header gradient */}
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.secondaryColor')}</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        type="color"
-                        value={live?.secondary_color || primaryColor}
-                        onChange={e => setField('secondary_color', e.target.value)}
-                        className="h-10 w-12 shrink-0 cursor-pointer p-1"
-                      />
-                      <Input
-                        value={live?.secondary_color || ''}
-                        dir="ltr"
-                        placeholder={primaryColor}
-                        onChange={e => setField('secondary_color', e.target.value)}
-                        className="text-start font-mono text-xs"
-                      />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.gradientHint')}</p>
-                  </div>
-
-                  {/* Header/panel gradient — presets write both stops at once */}
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.gradientTheme')}</Label>
-                    <div
-                      className="h-12 w-full rounded-xl border border-border/60 shadow-inner"
-                      style={{ background: `linear-gradient(165deg, ${primaryColor} 0%, ${live?.secondary_color || primaryColor} 100%)` }}
-                    />
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {([
-                        ['#3B82F6', '#6366F1'],
-                        ['#0EA5E9', '#22D3EE'],
-                        ['#8B5CF6', '#EC4899'],
-                        ['#10B981', '#0D9488'],
-                        ['#F59E0B', '#EF4444'],
-                        ['#111827', '#374151'],
-                      ] as const).map(([from, to]) => (
-                        <button
-                          key={from + to}
-                          type="button"
-                          aria-label={`${from} → ${to}`}
-                          onClick={() => {
-                            setField('primary_color', from, 0);
-                            setField('secondary_color', to, 0);
-                          }}
-                          className={cn(
-                            'h-8 w-12 rounded-lg border-2 transition-transform hover:scale-105',
-                            primaryColor.toLowerCase() === from.toLowerCase() &&
-                              (live?.secondary_color || '').toLowerCase() === to.toLowerCase()
-                              ? 'border-foreground'
-                              : 'border-transparent',
-                          )}
-                          style={{ background: `linear-gradient(165deg, ${from} 0%, ${to} 100%)` }}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.gradientThemeHint')}</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
-                    <Input
-                      value={widgetTextValue(live?.launcher_text, 'launcher', effectiveLocale)}
-                      onChange={e => setField('launcher_text', e.target.value)}
-                      placeholder={widgetTextDefault('launcher', effectiveLocale) || platformName}
-                    />
-                  </div>
 
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
@@ -459,113 +389,10 @@ function WidgetPageContent() {
                 </CardContent>
               </Card>
 
-              {/* ── Launcher button ── */}
-              <Card className="card-elevated">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">{t('widgetPage.appearance.launcherSection')}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-5 p-6 pt-0">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabShape')}</Label>
-                      <Select
-                        value={live?.fab_shape || 'round'}
-                        onValueChange={v => setField('fab_shape', v, 0)}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="round">{t('widgetPage.appearance.shapeRound')}</SelectItem>
-                          <SelectItem value="square">{t('widgetPage.appearance.shapeSquare')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIconColor')}</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="color"
-                          value={live?.fab_icon_color || '#FFFFFF'}
-                          onChange={e => setField('fab_icon_color', e.target.value)}
-                          className="h-10 w-12 shrink-0 cursor-pointer p-1"
-                        />
-                        <Input
-                          value={live?.fab_icon_color || ''}
-                          dir="ltr"
-                          placeholder="#FFFFFF"
-                          onChange={e => setField('fab_icon_color', e.target.value)}
-                          className="text-start font-mono text-xs"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIcon')}</Label>
-                    <Select
-                      value={live?.fab_icon || 'chat'}
-                      onValueChange={v => setField('fab_icon', v, 0)}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="chat">{t('widgetPage.appearance.iconChat')}</SelectItem>
-                        <SelectItem value="message">{t('widgetPage.appearance.iconMessage')}</SelectItem>
-                        <SelectItem value="help">{t('widgetPage.appearance.iconHelp')}</SelectItem>
-                        <SelectItem value="headset">{t('widgetPage.appearance.iconHeadset')}</SelectItem>
-                        <SelectItem value="phone">{t('widgetPage.appearance.iconPhone')}</SelectItem>
-                        <SelectItem value="sparkles">{t('widgetPage.appearance.iconSparkles')}</SelectItem>
-                        <SelectItem value="smile">{t('widgetPage.appearance.iconSmile')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">
-                      {t('widgetPage.appearance.fabScale')} —{' '}
-                      {(() => {
-                        const raw = Number(live?.fab_scale);
-                        if (!isFinite(raw) || raw <= 0) return 100;
-                        return Math.round(raw > 3 ? raw : raw * 100);
-                      })()}%
-                    </Label>
-                    <input
-                      type="range"
-                      min={80}
-                      max={140}
-                      step={5}
-                      value={(() => {
-                        const raw = Number(live?.fab_scale);
-                        if (!isFinite(raw) || raw <= 0) return 100;
-                        return Math.round(raw > 3 ? raw : raw * 100);
-                      })()}
-                      onChange={e => setField('fab_scale', Number(e.target.value), 400)}
-                      className="w-full accent-primary"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.fabLabel')}</Label>
-                    <Input
-                      value={live?.fab_label || ''}
-                      onChange={e => setField('fab_label', e.target.value)}
-                    />
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
-                  </div>
-
-                  <div className="flex items-start justify-between gap-3 rounded-lg border border-border/70 p-3">
-                    <div className="min-w-0 space-y-1">
-                      <Label className="text-sm">{t('widgetPage.appearance.widgetAnimation')}</Label>
-                      <p className="text-[11px] text-muted-foreground">
-                        {t('widgetPage.appearance.widgetAnimationHint')}
-                      </p>
-                    </div>
-                    <Switch
-                      className="mt-0.5 shrink-0"
-                      checked={live?.fab_animation ?? false}
-                      onCheckedChange={v => setField('fab_animation', v, 0)}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Launcher visuals (shape, icon, colour, scale, label, animation) are a
+                  FIXED presentation spec in the Web Yar template — 56px round button,
+                  chat/X icon, white glyph on the primary colour — so they are no longer
+                  workspace-configurable. */}
               </div>
             </TabsContent>
 

@@ -63,7 +63,28 @@ export default defineConfig(({ mode }) => {
         : {}),
 
     },
-    plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+    plugins: [
+      react(),
+      mode === "development" && componentTagger(),
+      // Dev parity with nginx.conf.template: /widget/* assets (loader,
+      // runtime, presentation CSS and its self-hosted font files) are always
+      // fetched cross-origin by embedding sites. Fonts additionally require
+      // CORS on the file itself, otherwise the shadow-root @font-face is
+      // blocked and the widget falls back to a system font in dev only.
+      {
+        name: 'widget-assets-cors',
+        configureServer(server: any) {
+          server.middlewares.use((req: any, res: any, next: any) => {
+            if (req.url && req.url.startsWith('/widget/')) {
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+            }
+            next();
+          });
+        },
+      },
+    ].filter(Boolean),
+
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

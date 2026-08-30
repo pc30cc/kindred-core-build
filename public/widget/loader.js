@@ -404,6 +404,11 @@
     var size = Math.round(56 * scale);
     launcherEl.style.width = size + "px";
     launcherEl.style.height = size + "px";
+    // Publish the REAL launcher size to the shell so the presentation layer
+    // can anchor the panel above it without re-deriving FAB geometry.
+    var shellForVar = shadowRoot && shadowRoot.querySelector(".shell");
+    if (shellForVar) shellForVar.style.setProperty("--gs-fab-size", size + "px");
+
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
     if (fab.animation === true) launcherEl.classList.add("pulse");
     launcherEl.style.color = fab.iconColor || "#ffffff";

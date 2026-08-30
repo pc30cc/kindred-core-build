@@ -185,7 +185,9 @@
         body: JSON.stringify({
           workspace_id: workspaceId,
           conversation_id: conversationId || undefined,
+          force_new_conversation: forceNewConversation || undefined,
           attachment_id: attachmentId || undefined,
+
           message: text,
           department_id: departmentId || undefined,
           // Canonical key only. Backend still accepts the legacy `pageContext`

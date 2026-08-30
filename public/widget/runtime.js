@@ -6744,138 +6744,354 @@
         });
     }
 
-    // Keep the header brand slot in sync with the active tab: operator
-    // avatars while chatting, workspace logo (when enabled) elsewhere.
-    function syncHeaderBrand() {
-      try {
-        var logoEl = panel.querySelector('[data-header-logo]');
-        if (logoEl) logoEl.hidden = false;
-      } catch (_) {}
+    // ════════════════════════════════════════════════════════════════
+    // Design-spec view layer
+    //
+    // Views: home | list | articles | article | chat  (pre-chat and the
+    // offline capture form still render inside the `chat` view exactly as
+    // before — no entry-flow logic changed here).
+    //
+    // Legacy tab keys are mapped onto views so every existing caller of
+    // switchTab('home'|'chat'|'help') keeps working untouched.
+    // ════════════════════════════════════════════════════════════════
+    var VIEW_ALIAS = { help: 'articles' };
+    var currentArticleSlug = null;
+    var articleFeedback = {};
+    var wyRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
+    var wyChevronBack = wyRtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6';
+    var wyChevronFwd = wyRtl ? 'm15 18-6-6 6-6' : 'm9 18 6-6-6-6';
+
+    function currentView() {
+      var v = shellStore.get().activeTab || 'home';
+      return VIEW_ALIAS[v] || v;
     }
 
-    function syncHeaderNav() {
-      try {
-        var backBtn = panel.querySelector('[data-nav-home]');
-        if (backBtn) backBtn.hidden = (shellStore.get().activeTab === 'home');
-      } catch (_) {}
+    function chevronSvg(d, size) {
+      return '<svg viewBox="0 0 24 24" width="' + (size || 18) + '" height="' + (size || 18) +
+        '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>';
     }
+
+    function teamAvatarsHtml(limit) {
+      return (teamMembers || []).filter(function (op) { return op && op.online !== false; })
+        .slice(0, limit || 3).map(function (op) {
+          var name = (op && op.name) ? String(op.name) : t('operator');
+          var av = op && op.avatar ? String(op.avatar) : '';
+          var cls = 'wy-avatar' + (av ? ' has-img' : '');
+          var inner = av
+            ? '<img src="' + Util.escapeHtml(av) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
+            : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
+          return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner + '</span>';
+        }).join('');
+    }
+
+    function isTeamOnline() {
+      var p = presenceStore.get();
+      return p.status === 'online' && p.liveChatEnabled !== false;
+    }
+
+    // Paints the header for the active view. Called by renderBody().
+    function renderHeader() {
+      var header = panel.querySelector('[data-header]');
+      if (!header) return;
+      var view = currentView();
+      var logo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+      var title = headerTitle || brandName || t('support');
+      var online = isTeamOnline();
+
+      function backBtn(target) {
+        return '<button type="button" class="wy-header-back" data-nav-back="' + target + '" aria-label="' +
+          Util.escapeHtml(t('wyBack')) + '" title="' + Util.escapeHtml(t('wyBack')) + '">' +
+          chevronSvg(wyChevronBack, 20) + '</button>';
+      }
+
+      var html = '';
+      if (view === 'home') {
+        var stack = teamAvatarsHtml(3);
+        html =
+          '<div class="wy-header-brand">' +
+            (logo ? '<span class="wy-header-logo"><img src="' + Util.escapeHtml(logo) + '" alt="' + Util.escapeHtml(title) + '" loading="lazy" decoding="async" /></span>' : '') +
+            (stack ? '<div class="wy-avatar-stack">' + stack + '</div>' : '') +
+            '<div class="wy-header-text">' +
+              '<div class="wy-header-title">' + Util.escapeHtml(title) + '</div>' +
+              '<div class="wy-header-sub">' + Util.escapeHtml(online ? t('homeReplyFast') : t('homeReplySlow')) + '</div>' +
+            '</div>' +
+          '</div>';
+      } else if (view === 'list') {
+        html = backBtn('home') +
+          '<div class="wy-header-text wy-header-text-only">' +
+            '<div class="wy-header-title">' + Util.escapeHtml(t('wyConversations')) + '</div>' +
+          '</div>' +
+          '<button type="button" class="wy-header-new" data-nav-newchat aria-label="' + Util.escapeHtml(t('wyNewConversation')) + '" title="' + Util.escapeHtml(t('wyNewConversation')) + '">' +
+            '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
+          '</button>';
+      } else if (view === 'articles') {
+        html = backBtn('home') +
+          '<div class="wy-header-text wy-header-text-only">' +
+            '<div class="wy-header-title">' + Util.escapeHtml(t('wyArticles')) + '</div>' +
+          '</div>';
+      } else if (view === 'article') {
+        var a = findArticle(currentArticleSlug);
+        html = backBtn('articles') +
+          '<div class="wy-header-text wy-header-text-only">' +
+            '<div class="wy-header-title wy-truncate">' + Util.escapeHtml((a && a.title) || t('wyArticles')) + '</div>' +
+          '</div>';
+      } else {
+        // chat (incl. pre-chat / offline capture)
+        var stack2 = teamAvatarsHtml(2);
+        html = backBtn('home') +
+          '<div class="wy-header-brand">' +
+            (stack2 ? '<div class="wy-avatar-stack">' + stack2 + '</div>'
+              : (logo ? '<span class="wy-header-logo"><img src="' + Util.escapeHtml(logo) + '" alt="' + Util.escapeHtml(title) + '" loading="lazy" decoding="async" /></span>' : '')) +
+            '<div class="wy-header-text">' +
+              '<div class="wy-header-title">' + Util.escapeHtml(title) + '</div>' +
+              '<div class="wy-header-sub">' +
+                '<span class="wy-dot ' + (online ? 'is-online' : 'is-offline') + '" aria-hidden="true"></span>' +
+                Util.escapeHtml(online ? t('homeReplyFast') : t('homeReplySlow')) +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      }
+      header.innerHTML = html;
+      header.setAttribute('data-view', view);
+
+      var back = header.querySelector('[data-nav-back]');
+      if (back) back.addEventListener('click', function () { switchTab(back.getAttribute('data-nav-back')); });
+      var newBtn = header.querySelector('[data-nav-newchat]');
+      if (newBtn) newBtn.addEventListener('click', function () { switchTab('chat'); });
+    }
+
+    function syncHeaderBrand() { renderHeader(); }
+    function syncHeaderNav() { renderHeader(); }
 
     function switchTab(key) {
-      if (shellStore.get().activeTab === key) { renderBody(); syncHeaderNav(); return; }
-      shellStore.set({ activeTab: key });
-      syncHeaderNav();
-
-      try {
-        var allT = panel.querySelectorAll('.tab');
-        Array.prototype.forEach.call(allT, function (t2) {
-          t2.classList.toggle('active', t2.getAttribute('data-tab') === key);
-        });
-      } catch (_) {}
+      var next = VIEW_ALIAS[key] || key;
+      if (currentView() === next) { renderBody(); return; }
+      shellStore.set({ activeTab: next });
       renderBody();
-      if (key === 'chat' && identityStore.get().loaded && !contextualNeedsPrechat()) {
+      if (next === 'chat' && identityStore.get().loaded && !contextualNeedsPrechat()) {
         restoreDraftToInput();
       }
     }
 
+    function findArticle(slug) {
+      if (!slug) return null;
+      var arts = (kbStore.get() && kbStore.get().articles) || [];
+      for (var i = 0; i < arts.length; i++) {
+        if (arts[i] && (arts[i].slug === slug || arts[i].id === slug)) return arts[i];
+      }
+      return null;
+    }
+
+    function openArticleView(slug) {
+      currentArticleSlug = slug || null;
+      shellStore.set({ activeTab: 'article' });
+      renderBody();
+    }
+
+    function relTime(ts) {
+      var d = ts ? new Date(ts) : null;
+      if (!d || isNaN(d.getTime())) return '';
+      try {
+        return d.toLocaleDateString(ctx.locale || 'en', { month: 'short', day: 'numeric' }) +
+          ' · ' + d.toLocaleTimeString(ctx.locale || 'en', { hour: '2-digit', minute: '2-digit' });
+      } catch (_) { return ''; }
+    }
+
+    // Derives the visitor-visible thread rows. The runtime keeps a single
+    // active conversation, so this is either zero or one row — the markup is
+    // list-shaped so multi-thread support needs no template change.
+    function threadRows() {
+      var cs = chatStore.get();
+      var msgs = cs.messages || [];
+      if (!cs.conversationId && !msgs.length) return [];
+      var last = msgs.length ? msgs[msgs.length - 1] : null;
+      var preview = '';
+      if (last) preview = String(last.text || last.body || last.content || '').replace(/\s+/g, ' ').slice(0, 90);
+      return [{
+        id: cs.conversationId || 'active',
+        preview: preview || t('wyConnectOperator'),
+        at: last && (last.createdAt || last.created_at || last.ts),
+        unread: (Notify && Notify.getUnread) ? 0 : 0,
+        resolved: false,
+      }];
+    }
+
+    function threadRowHtml(row) {
+      return '<button type="button" class="wy-thread" data-thread="' + Util.escapeHtml(String(row.id)) + '">' +
+          '<span class="wy-thread-main">' +
+            '<span class="wy-thread-preview">' + Util.escapeHtml(row.preview) + '</span>' +
+            '<span class="wy-thread-meta">' +
+              '<span class="wy-badge ' + (row.resolved ? 'is-resolved' : 'is-open') + '">' +
+                Util.escapeHtml(row.resolved ? t('wyResolvedStatus') : t('wyOpenStatus')) + '</span>' +
+              (row.at ? '<span class="wy-thread-time">' + Util.escapeHtml(relTime(row.at)) + '</span>' : '') +
+              (row.unread ? '<span class="wy-thread-unread">' + row.unread + ' ' + Util.escapeHtml(t('wyUnread')) + '</span>' : '') +
+            '</span>' +
+          '</span>' +
+          '<span class="wy-chevron" aria-hidden="true">' + chevronSvg(wyChevronFwd, 16) + '</span>' +
+        '</button>';
+    }
+
     function renderHome() {
       if (!body) return;
-      var rtlHome = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
-      var pState = presenceStore.get();
-      var isOnline = pState.status === 'online' && pState.liveChatEnabled !== false;
-      var avatars = (teamMembers || []).map(function (op) {
-        var name = (op && op.name) ? String(op.name) : t('operator');
-        var av = op && op.avatar ? String(op.avatar) : '';
-        var on = !!(op && op.online);
-        var cls = 'home-avatar' + (av ? ' has-img' : '') + (on ? ' is-online' : '');
-        var inner = av
-          ? '<img src="' + Util.escapeHtml(av) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
-          : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
-        return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner + '</span>';
-      }).join('');
-
+      var rows = threadRows();
       var kbState = kbStore.get();
-      var cats = (kbState && kbState.categories) || [];
       var arts = (kbState && kbState.articles) || [];
-      var kbHtml = '';
-      if (kbEnabled && (cats.length || arts.length)) {
-        var items = cats.length
-          ? cats.slice(0, 4).map(function (c) {
-              return '<button type="button" class="home-kb-item" data-home-cat="' +
-                Util.escapeHtml(c.slug || c.id || '') + '">' +
-                '<span class="home-kb-title">' + Util.escapeHtml(c.name || c.title || '') + '</span>' +
-                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
-              '</button>';
-            }).join('')
-          : arts.slice(0, 4).map(function (a) {
-              return '<button type="button" class="home-kb-item" data-home-article="' +
-                Util.escapeHtml(a.slug || '') + '">' +
-                '<span class="home-kb-title">' + Util.escapeHtml(a.title || '') + '</span>' +
-                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
-              '</button>';
-            }).join('');
-        kbHtml =
-          '<section class="home-section">' +
-            '<div class="home-section-head">' +
-              '<h4 class="home-section-title">' + Util.escapeHtml(t('homeHelpTitle')) + '</h4>' +
-              '<button type="button" class="home-section-link" data-home-action="help">' +
-                Util.escapeHtml(t('homeSeeAll')) + '</button>' +
-            '</div>' +
-            '<div class="home-kb-list">' + items + '</div>' +
-          '</section>';
-      }
 
-      var ctaLabel = isOnline ? t('homeStartChat') : t('homeLeaveMessage');
-      var ctaHtml = chatEnabled
-        ? '<button type="button" class="home-cta" data-home-action="chat" style="background:' + ctx.primaryColor + '">' +
-            '<span class="home-cta-label">' + Util.escapeHtml(ctaLabel) + '</span>' +
-            '<span class="home-cta-icon" aria-hidden="true">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
-            '</span>' +
-          '</button>'
+      var recentHtml = rows.length
+        ? '<section class="wy-section">' +
+            '<div class="wy-section-head">' +
+              '<h4 class="wy-section-title">' + Util.escapeHtml(t('wyRecent')) + '</h4>' +
+            '</div>' +
+            '<div class="wy-thread-list">' + rows.slice(0, 3).map(threadRowHtml).join('') + '</div>' +
+            '<button type="button" class="wy-link-btn" data-nav="list">' + Util.escapeHtml(t('wyViewConvs')) + '</button>' +
+          '</section>'
+        : '';
+
+      var artHtml = (kbEnabled && arts.length)
+        ? '<section class="wy-section">' +
+            '<p class="wy-section-hint">' + Util.escapeHtml(t('wyArticlesHint')) + '</p>' +
+            '<div class="wy-chips">' +
+              arts.slice(0, 4).map(function (a) {
+                return '<button type="button" class="wy-chip" data-article="' + Util.escapeHtml(a.slug || a.id || '') + '">' +
+                  Util.escapeHtml(a.title || '') + '</button>';
+              }).join('') +
+            '</div>' +
+            '<button type="button" class="wy-link-btn" data-nav="articles">' + Util.escapeHtml(t('wyMoreArticles')) + '</button>' +
+          '</section>'
         : '';
 
       var smartCardHtml = (smartSurface && smartSurface.mode === 'home_card')
         ? '<section class="smart-home-card">' + smartInnerHtml(smartSurface) + '</section>'
         : '';
 
+      var actions = '';
+      if (chatEnabled && rows.length) {
+        actions += '<button type="button" class="wy-action wy-action-ghost" data-nav="chat">' +
+          Util.escapeHtml(t('wyContinueLast')) + '</button>';
+      }
+      if (chatEnabled) {
+        actions += '<button type="button" class="wy-action wy-action-primary" data-nav-new="1" style="background:' + ctx.primaryColor + '">' +
+          Util.escapeHtml(isTeamOnline() ? t('wyStartNew') : t('homeLeaveMessage')) + '</button>';
+      }
+      if (kbEnabled && arts.length) {
+        actions += '<button type="button" class="wy-action wy-action-ghost" data-nav="articles">' +
+          Util.escapeHtml(t('wyArticles')) + '</button>';
+      }
+
       body.innerHTML =
-        '<div class="home-root"' + (rtlHome ? ' dir="rtl"' : '') + '>' +
-          smartCardHtml +
-          '<section class="home-hero">' +
-            '<div class="home-greeting">' + Util.escapeHtml(t('homeGreeting')) + '</div>' +
-            '<p class="home-welcome">' + Util.escapeHtml(welcomeMessage || t('homeWelcome')) + '</p>' +
-          '</section>' +
-          '<section class="home-card">' +
-            '<div class="home-card-top">' +
-              (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
-              '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
-                '<span class="home-status-dot"></span>' +
-                '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
-              '</div>' +
-              (isOnline ? '' : '<p class="home-hint">' + Util.escapeHtml(t('homeReplySlow')) + '</p>') +
-            '</div>' +
-            ctaHtml +
-          '</section>' +
-          kbHtml +
+        '<div class="wy-home"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
+          '<div class="wy-scroll">' +
+            smartCardHtml +
+            '<section class="wy-hero">' +
+              '<div class="wy-hero-greeting">' + Util.escapeHtml(t('homeGreeting')) + '</div>' +
+              '<div class="wy-hero-question">' + Util.escapeHtml(welcomeMessage || t('wyHelpQ')) + '</div>' +
+            '</section>' +
+            recentHtml +
+            artHtml +
+          '</div>' +
+          (actions ? '<div class="wy-action-row">' + actions + '</div>' : '') +
         '</div>';
 
-      var ctaBtn = body.querySelector('[data-home-action="chat"]');
-      if (ctaBtn) ctaBtn.addEventListener('click', function () { switchTab('chat'); });
-      var seeAll = body.querySelector('[data-home-action="help"]');
-      if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
-      Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {
-        el.addEventListener('click', function () {
-          var slug = el.getAttribute('data-home-article');
-          switchTab('help');
-          if (slug && kbUI.openArticle) kbUI.openArticle(slug);
-        });
-      });
-      Array.prototype.forEach.call(body.querySelectorAll('[data-home-cat]'), function (el) {
-        el.addEventListener('click', function () { switchTab('help'); });
-      });
+      bindNavTargets(body);
       bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
     }
+
+    function bindNavTargets(root) {
+      Array.prototype.forEach.call(root.querySelectorAll('[data-nav]'), function (el) {
+        el.addEventListener('click', function () { switchTab(el.getAttribute('data-nav')); });
+      });
+      Array.prototype.forEach.call(root.querySelectorAll('[data-nav-new]'), function (el) {
+        el.addEventListener('click', function () { switchTab('chat'); });
+      });
+      Array.prototype.forEach.call(root.querySelectorAll('[data-thread]'), function (el) {
+        el.addEventListener('click', function () { switchTab('chat'); });
+      });
+      Array.prototype.forEach.call(root.querySelectorAll('[data-article]'), function (el) {
+        el.addEventListener('click', function () { openArticleView(el.getAttribute('data-article')); });
+      });
+    }
+
+    function renderThreadList() {
+      if (!body) return;
+      var rows = threadRows();
+      body.innerHTML =
+        '<div class="wy-page"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
+          '<div class="wy-scroll">' +
+            (rows.length
+              ? '<div class="wy-thread-list">' + rows.map(threadRowHtml).join('') + '</div>'
+              : '<div class="wy-empty">' + Util.escapeHtml(t('wyStartNew')) + '</div>') +
+          '</div>' +
+          '<div class="wy-action-row">' +
+            '<button type="button" class="wy-action wy-action-primary" data-nav-new="1" style="background:' + ctx.primaryColor + '">' +
+              Util.escapeHtml(t('wyStartNew')) + '</button>' +
+          '</div>' +
+        '</div>';
+      bindNavTargets(body);
+    }
+
+    function renderArticlesList() {
+      if (!body) return;
+      var arts = (kbStore.get() && kbStore.get().articles) || [];
+      body.innerHTML =
+        '<div class="wy-page"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
+          '<div class="wy-scroll">' +
+            (arts.length
+              ? '<div class="wy-article-list">' + arts.map(function (a) {
+                  return '<button type="button" class="wy-article-row" data-article="' + Util.escapeHtml(a.slug || a.id || '') + '">' +
+                    '<span class="wy-article-title">' + Util.escapeHtml(a.title || '') + '</span>' +
+                    '<span class="wy-chevron" aria-hidden="true">' + chevronSvg(wyChevronFwd, 16) + '</span>' +
+                  '</button>';
+                }).join('') + '</div>'
+              : '<div class="wy-empty">' + Util.escapeHtml(t('wyArticles')) + '</div>') +
+          '</div>' +
+        '</div>';
+      bindNavTargets(body);
+    }
+
+    function renderArticleDetail() {
+      if (!body) return;
+      var a = findArticle(currentArticleSlug);
+      var voted = currentArticleSlug ? articleFeedback[currentArticleSlug] : null;
+      var contentHtml = '';
+      if (a) {
+        var raw = a.contentHtml || a.body_html || '';
+        contentHtml = raw
+          ? '<div class="wy-article-body">' + raw + '</div>'
+          : '<div class="wy-article-body">' + Util.escapeHtml(a.body || a.content || a.excerpt || '') + '</div>';
+      }
+      var rateHtml;
+      if (voted) {
+        rateHtml = '<div class="wy-rate wy-rate-done">' + Util.escapeHtml(t('wyRateThanks')) + '</div>' +
+          (voted === 'down'
+            ? '<button type="button" class="wy-action wy-action-primary" data-nav-new="1" style="background:' + ctx.primaryColor + '">' +
+                Util.escapeHtml(t('wyTalkSupport')) + '</button>'
+            : '');
+      } else {
+        rateHtml = '<div class="wy-rate">' +
+          '<span class="wy-rate-q">' + Util.escapeHtml(t('wyRateQ')) + '</span>' +
+          '<div class="wy-rate-btns">' +
+            '<button type="button" class="wy-rate-btn" data-rate="up">' + Util.escapeHtml(t('wyRateUp')) + '</button>' +
+            '<button type="button" class="wy-rate-btn" data-rate="down">' + Util.escapeHtml(t('wyRateDown')) + '</button>' +
+          '</div>' +
+        '</div>';
+      }
+      body.innerHTML =
+        '<div class="wy-page"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
+          '<div class="wy-scroll">' +
+            (a ? '<h3 class="wy-article-heading">' + Util.escapeHtml(a.title || '') + '</h3>' + contentHtml
+               : '<div class="wy-empty">' + Util.escapeHtml(t('wyArticles')) + '</div>') +
+            rateHtml +
+          '</div>' +
+        '</div>';
+      bindNavTargets(body);
+      Array.prototype.forEach.call(body.querySelectorAll('[data-rate]'), function (el) {
+        el.addEventListener('click', function () {
+          if (currentArticleSlug) articleFeedback[currentArticleSlug] = el.getAttribute('data-rate');
+          renderArticleDetail();
+        });
+      });
+    }
+
 
     // Canonical entry-flow state names (spec §21). Internal naming only —
     // no visual/template redesign implied. See deriveChatTabState() below

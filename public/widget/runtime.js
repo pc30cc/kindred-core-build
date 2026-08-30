@@ -3377,6 +3377,9 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
+    // slug -> 'up' | 'down' for votes this visitor submitted in this session.
+    var articleRatings = {};
+
     // In-flight de-dup for ensure() — renderBody() can call ensure() from
     // more than one branch (home preload + help tab) within the same tick
     // (e.g. two store subscriptions firing off the same underlying event),

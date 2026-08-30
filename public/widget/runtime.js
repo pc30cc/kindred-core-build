@@ -3257,6 +3257,9 @@
         {
           text: text,
           conversationId: s.conversationId,
+          // One-shot: only true for the first message after "+ New
+          // conversation". Never sent alongside a conversationId.
+          forceNewConversation: forceNewConversation && !s.conversationId,
           attachmentId: attachmentId || null,
           departmentId: (function () {
             try {
@@ -3267,11 +3270,15 @@
         },
         {
           onConversation: function (cid) {
+            // Thread established — disarm before anything else so a retry or
+            // a follow-up message can never spawn a second thread.
+            forceNewConversation = false;
             if (cid && cid !== chatStore.get().conversationId) {
               chatStore.set({ conversationId: cid });
               transport.subscribeConversation(cid);
             }
           },
+
           onAccepted: function (info) {
             // Bind canonical message id and flip to 'sent'. The next merge
             // (poll/history) will reconcile by __id and may promote to 'seen'.

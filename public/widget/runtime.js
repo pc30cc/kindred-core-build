@@ -6280,11 +6280,9 @@
       bindViewHooks(body);
       var newBtn = body.querySelector('[data-home-action="chat"]');
       if (newBtn) {
-        newBtn.addEventListener('click', function () {
-          chatStore.set({ conversationId: null, messages: [] });
-          switchTab('chat');
-        });
+        newBtn.addEventListener('click', function () { startNewConversation(); });
       }
+
       if (!cs.loaded && !cs.loading) {
         loadConversations(function () {
           if (shellStore.get().activeTab === 'list') renderConversationList();

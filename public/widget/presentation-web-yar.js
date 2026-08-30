@@ -1,0 +1,1023 @@
+/**
+ * Widget Presentation — "web-yar" renderer.
+ *
+ * THE default (and only) presentation template. Registered under
+ * `window.__gs_presentation_web_yar` and resolved through
+ * `presentation-registry.js`.
+ *
+ * CONTRACT (see docs/WIDGET_PRESENTATION_ARCHITECTURE.md)
+ *   create(env) -> renderer
+ *     env    = { t, escapeHtml, config, locale, primaryColor }
+ *     render = pure functions: (view-model) -> HTML string
+ *
+ * Rules for every presentation implementation:
+ *   - NEVER touch transport, fetch, realtime, stores or the DOM.
+ *   - NEVER read application state directly — everything arrives as a
+ *     view-model argument produced by Widget Core.
+ *   - Interaction is expressed with behaviour hooks (data-* attributes)
+ *     that Core binds; visual classes carry no behavioural meaning.
+ */
+(function () {
+  'use strict';
+
+  function create(env) {
+    env = env || {};
+    var t = env.t || function (k) { return k; };
+    var config = env.config || {};
+    var Util = { escapeHtml: env.escapeHtml || function (v) { return String(v == null ? '' : v); } };
+    var ctx = {
+      config: config,
+      locale: env.locale,
+      primaryColor: env.primaryColor,
+      loadAuthedMediaBlobUrl: env.loadAuthedMediaBlobUrl,
+    };
+
+    function esc(v) { return Util.escapeHtml(v); }
+    function isRtl() { return String(ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
+    function tf(key, fallback) {
+      var v = t(key);
+      return (v && v !== key) ? v : fallback;
+    }
+
+    // ── Shared iconography (stroke icons, matching the design language) ──
+    var ICON = {
+      back: '<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+      chevron: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+      plus: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+      send: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4L3 11l6.5 2.5L12 20l8-16Z"/></svg>',
+      attach: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.48"/></svg>',
+      emoji: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8.5 14s1.2 2 3.5 2 3.5-2 3.5-2" stroke-linecap="round"/><circle cx="9" cy="10" r="0.9" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg>',
+      mic: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>',
+      human: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>',
+      thumbUp: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h6.28a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.75 20H7a1 1 0 0 1-1-1v-9a1 1 0 0 1 .29-.71l6.06-6.06a.5.5 0 0 1 .85.35L13 5.88Z"/></svg>',
+      thumbDown: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12 10 14H3.72a2 2 0 0 1-1.94-2.5l1.54-6A2 2 0 0 1 5.25 4H17a1 1 0 0 1 1 1v9a1 1 0 0 1-.29.71l-6.06 6.06a.5.5 0 0 1-.85-.35L11 18.12Z"/></svg>',
+      close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    };
+
+    // Workspace identity block reused by every header (home/list/articles/
+    // article/precontact/chat). Never hardcodes a brand — everything comes
+    // from config/view-model.
+    function identityAvatarHtml(size) {
+      var logo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+      var brand = String((config && config.brandName) || '');
+      var cls = 'wy-avatar wy-avatar-' + (size || 'md');
+      if (logo) {
+        return '<span class="' + cls + ' has-img"><img src="' + esc(logo) + '" alt="' + esc(brand) +
+          '" loading="lazy" decoding="async" /></span>';
+      }
+      var initial = (brand.trim().charAt(0) || 'W').toUpperCase();
+      return '<span class="' + cls + '" aria-hidden="true">' + esc(initial) + '</span>';
+    }
+
+    function backButtonHtml(target) {
+      return '<button type="button" class="wy-back" data-view-back="' + esc(target || 'home') +
+        '" aria-label="' + esc(tf('back', 'Back')) + '">' + ICON.back + '</button>';
+    }
+
+    function footerHtml() {
+      var brandName = (config && config.brandName) ? String(config.brandName) : '';
+      if (config && config.showPoweredBy === false) return '';
+      if (!brandName) return '';
+      return '<div class="wy-footer"><a class="wy-powered" href="#" data-powered>' +
+        '<span class="wy-powered-dot" aria-hidden="true"></span>' +
+        '<span>' + esc(tf('poweredBy', 'Powered by')) + ' ' + esc(brandName) + '</span></a></div>';
+    }
+
+    function headerIdentityHtml(opts) {
+      opts = opts || {};
+      var title = esc(opts.title || (config && config.brandName) || '');
+      var subtitle = opts.subtitle ? '<span class="wy-head-sub">' + esc(opts.subtitle) + '</span>' : '';
+      var dot = opts.online ? '<span class="wy-online-dot" aria-hidden="true"></span>' : '';
+      return (opts.back ? backButtonHtml(opts.back) : '') +
+        identityAvatarHtml(opts.avatarSize) +
+        '<div class="wy-head-text">' +
+          '<span class="wy-head-title">' + dot + '<span>' + title + '</span>' + (opts.stack || '') + '</span>' +
+          subtitle +
+        '</div>';
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Chat surfaces
+    // ══════════════════════════════════════════════════════════════════
+
+    function emptyHtml() {
+      var ai = ctx.config && ctx.config.aiAgent;
+      if (ai && ai.suppressGreeting === true) {
+        return '<div class="messages welcome-only"></div>';
+      }
+      var welcome = (ctx.config && typeof ctx.config.welcomeMessage === 'string' && ctx.config.welcomeMessage.trim().length > 0)
+        ? ctx.config.welcomeMessage
+        : t('intro');
+      var lines = String(welcome).split(/\n+/).map(function (l) { return esc(l); }).join('<br>');
+      var team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
+      var op = team.filter(function (m) { return m && (m.avatar_url || m.avatar); })[0];
+      var opAvatar = op && (op.avatar_url || op.avatar);
+      var avatarHtml = opAvatar
+        ? '<span class="msg-avatar has-img"><img src="' + esc(String(opAvatar)) + '" alt="" loading="lazy" decoding="async" /></span>'
+        : '<span class="msg-avatar" aria-hidden="true">' +
+            esc((((team[0] && (team[0].name || team[0].full_name)) || (ctx.config && ctx.config.brandName) || 'S').trim().charAt(0) || 'S').toUpperCase()) +
+          '</span>';
+      return '<div class="messages welcome-only">' +
+        '<div class="msg-row operator">' + avatarHtml +
+          '<div class="msg operator welcome-bubble">' + lines + '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function qnaChipsHtml(qnaState) {
+      qnaState = qnaState || {};
+      var collapsed = qnaState.collapsedCount || 3;
+      var all = qnaState.questions || [];
+      var visible = qnaState.expanded ? all : all.slice(0, collapsed);
+      var remaining = all.length - visible.length;
+      var chipsHtml = visible.map(function (q) {
+        var text = (q && q.question) ? String(q.question) : '';
+        if (!text) return '';
+        return '<button type="button" class="qna-chip" data-qna-question="' + esc(text) + '">' + esc(text) + '</button>';
+      }).join('');
+      var moreHtml = (!qnaState.expanded && remaining > 0)
+        ? '<button type="button" class="qna-more-btn" data-qna-more>' + esc(t('qnaMore')) +
+            '<span class="qna-more-count">+' + remaining + '</span></button>'
+        : '';
+      return '<div class="qna-suggestions" data-qna>' +
+        '<div class="qna-title">' + esc(t('qnaTitle')) + '</div>' +
+        '<div class="qna-chips">' + chipsHtml + moreHtml + '</div>' +
+      '</div>';
+    }
+
+    function humanSize(bytes) {
+      var n = Number(bytes) || 0;
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+    }
+
+    // Real attachments — authenticated media is loaded by Core through the
+    // data-att-media-src / data-att-download hooks. No demo placeholders.
+    function renderMessageAttachment(att) {
+      if (!att || !att.id) return '';
+      var id = esc(att.id);
+      var name = esc(att.file_name || 'file');
+      var size = humanSize(att.size_bytes);
+      var isImage = att.kind === 'image' || (att.mime_type && /^image\//.test(att.mime_type));
+      var isAudio = att.kind === 'audio' || (att.mime_type && /^audio\//.test(att.mime_type));
+      if (isImage) {
+        return '<div class="msg-att msg-att-image">' +
+          '<button type="button" class="msg-att-img-btn" data-att-preview="' + id + '" aria-label="' + esc(t('openFile')) + '">' +
+            '<img loading="lazy" decoding="async" data-att-media-src="' + id + '" alt="' + name + '" />' +
+            '<span class="msg-att-img-fallback">' + esc(t('imageUnavailable')) + '</span>' +
+          '</button>' +
+        '</div>';
+      }
+      if (isAudio) {
+        return '<div class="msg-att msg-att-audio">' +
+          '<audio controls preload="none" data-att-media-src="' + id + '"></audio>' +
+        '</div>';
+      }
+      var iconSvg = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+      return '<div class="msg-att msg-att-file">' +
+        '<div class="msg-att-icon">' + iconSvg + '</div>' +
+        '<div class="msg-att-meta">' +
+          '<div class="msg-att-name" title="' + name + '">' + name + '</div>' +
+          '<div class="msg-att-sub">' + esc(size) + '</div>' +
+        '</div>' +
+        '<a class="msg-att-action" href="#" data-att-download="' + id + '" data-att-download-name="' + name +
+          '" aria-label="' + esc(t('download')) + '">' +
+          '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg>' +
+        '</a>' +
+      '</div>';
+    }
+
+    function fmtInvitationRemaining(expiresAtIso) {
+      var ms = new Date(expiresAtIso).getTime() - Date.now();
+      if (!isFinite(ms) || ms <= 0) return t('ciStateExpired') || 'Expired';
+      var total = Math.ceil(ms / 1000);
+      var timeStr;
+      if (total < 60) {
+        timeStr = (t('ciSeconds') || '{s}s').replace('{s}', String(total));
+      } else {
+        var m = Math.floor(total / 60);
+        var s = total % 60;
+        if (s === 0) timeStr = (t('ciMinutes') || '{m}m').replace('{m}', String(m));
+        else timeStr = (t('ciMinutesSeconds') || '{m}m {s}s').replace('{m}', String(m)).replace('{s}', String(s));
+      }
+      return (t('ciTimeLeft') || '{time} left').replace('{time}', timeStr);
+    }
+
+    function fmtCallDuration(seconds) {
+      var s = Math.max(0, Math.floor(Number(seconds) || 0));
+      var hh = Math.floor(s / 3600);
+      var mm = Math.floor((s % 3600) / 60);
+      var ss = s % 60;
+      function pad(n) { return n < 10 ? '0' + n : '' + n; }
+      return hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss);
+    }
+
+    function systemPillHtml(icon, text) {
+      return '<div class="msg-row system"><div class="msg-system-pill">' + icon +
+        '<span>' + esc(text) + '</span></div></div>';
+    }
+
+    function renderCallEndedRow(msg) {
+      var meta = msg.metadata || {};
+      var endedBy = String(meta.ended_by || 'system');
+      var endReason = String(meta.end_reason || '');
+      var dur = Number(meta.duration_seconds) || 0;
+      var isMissed = endReason === 'failed' || dur <= 0;
+      var key = isMissed ? 'csEndedNotConnected'
+        : endedBy === 'operator' ? 'csEndedByOperator'
+        : endedBy === 'visitor' ? 'csEndedByVisitor'
+        : 'csEndedBySystem';
+      var fallback = isMissed ? 'Call did not connect'
+        : endedBy === 'operator' ? ('Call ended by operator · Duration ' + fmtCallDuration(dur))
+        : endedBy === 'visitor' ? ('Call ended by visitor · Duration ' + fmtCallDuration(dur))
+        : ('Call ended · Duration ' + fmtCallDuration(dur));
+      var raw = t(key);
+      var text = (raw && raw !== key) ? String(raw).replace('{duration}', fmtCallDuration(dur)) : fallback;
+      var icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 8.63 18.5"/>'
+        + '<line x1="23" y1="1" x2="1" y2="23"/></svg>';
+      return systemPillHtml(icon, text);
+    }
+
+    function renderRoutingOutcomeRow(msg) {
+      var meta = msg.metadata || {};
+      var kind = meta.kind;
+      var text;
+      if (kind === 'routing_agent_joined') {
+        var name = meta.agent_name ? String(meta.agent_name) : '';
+        var raw = t('routingAgentJoined');
+        text = (raw && raw !== 'routingAgentJoined' && name)
+          ? String(raw).replace('{name}', name)
+          : (name ? (name + ' ' + t('routingAgentJoinedSuffix')) : t('routingAgentJoinedGeneric'));
+      } else if (kind === 'routing_no_agent_available') {
+        text = t('routingNoAgentAvailable');
+      } else {
+        text = t('routingInQueue');
+      }
+      var icon = kind === 'routing_agent_joined'
+        ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+      return systemPillHtml(icon, text);
+    }
+
+    function renderCallInvitationCard(msg) {
+      var meta = msg.metadata || {};
+      var channel = meta.channel === 'video' ? 'video' : 'audio';
+      var status = meta.status || 'pending';
+      var inviteId = esc(meta.invitation_id || '');
+      var op = meta.operator_name ? esc(meta.operator_name) : '';
+      var headlineKey = channel === 'video'
+        ? (op ? 'ciHeadlineVideoFrom' : 'ciHeadlineVideo')
+        : (op ? 'ciHeadlineAudioFrom' : 'ciHeadlineAudio');
+      var headlineTpl = t(headlineKey) || (channel === 'video'
+        ? 'You have been invited to a video call'
+        : 'You have been invited to an audio call');
+      var headline = op ? headlineTpl.replace('{op}', op) : headlineTpl;
+      var iconSvg = channel === 'video'
+        ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>';
+
+      var statusBlock = '';
+      var actionBlock = '';
+      var bodyBlock = '';
+      if (status === 'pending') {
+        var bodyKey = channel === 'video' ? 'ciBodyVideo' : 'ciBodyAudio';
+        var bodyText = t(bodyKey) || (channel === 'video'
+          ? 'An operator is inviting you to a video call.'
+          : 'An operator is inviting you to a voice call.');
+        var waitMinutes = (typeof meta.wait_minutes === 'number' && isFinite(meta.wait_minutes) && meta.wait_minutes > 0)
+          ? Math.round(meta.wait_minutes) : 0;
+        if (!waitMinutes && meta.expires_at) {
+          var deltaMs = new Date(meta.expires_at).getTime() - new Date(msg.createdAt || Date.now()).getTime();
+          if (isFinite(deltaMs) && deltaMs > 0) waitMinutes = Math.max(1, Math.round(deltaMs / 60000));
+        }
+        var waitLine = '';
+        if (waitMinutes === 1) waitLine = t('ciWaitOneMinute') || 'The operator will wait up to one minute for you to join.';
+        else if (waitMinutes > 1) {
+          waitLine = (t('ciWaitMinutes') || 'The operator will wait up to {m} minutes for you to join.')
+            .replace('{m}', String(waitMinutes));
+        }
+        bodyBlock = '<div class="ci-body"><div>' + esc(bodyText) + '</div>' +
+          (waitLine ? '<div class="ci-wait">' + esc(waitLine) + '</div>' : '') + '</div>';
+        statusBlock = '<div class="ci-meta ci-countdown" aria-live="polite">' +
+          '<span class="ci-pulse" aria-hidden="true"></span>' + esc(fmtInvitationRemaining(meta.expires_at)) + '</div>';
+        var joinLabel = channel === 'video' ? (t('ciJoinVideo') || 'Join video call') : (t('ciJoinAudio') || 'Join call');
+        var joinAria = channel === 'video' ? (t('ciAriaJoinVideo') || 'Join the video call now') : (t('ciAriaJoinAudio') || 'Join the audio call now');
+        actionBlock = '<div class="ci-actions">' +
+          '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
+            '" data-ci-channel="' + channel + '" aria-label="' + esc(joinAria) + '">' + esc(joinLabel) + '</button>' +
+          '<button type="button" class="ci-btn ci-btn-ghost" data-ci-action="decline" data-ci-id="' + inviteId +
+            '" aria-label="' + esc(t('ciAriaDecline') || 'Decline this call invitation') + '">' +
+            esc(t('ciDecline') || 'Decline') + '</button>' +
+        '</div>';
+      } else {
+        var stateLabel = status === 'joined' ? (t('ciStateJoined') || 'You joined the call')
+          : status === 'expired' ? (t('ciStateExpired') || 'Invitation expired')
+          : status === 'cancelled' ? (t('ciStateCancelled') || 'Operator cancelled the invitation')
+          : status === 'declined' ? (t('ciStateDeclined') || 'You declined this call') : '';
+        statusBlock = '<div class="ci-meta ci-status ci-status-' + esc(status) + '">' + esc(stateLabel) + '</div>';
+      }
+
+      var ariaCard = (t('ciAriaCard') || 'Call invitation') + ' — ' +
+        (channel === 'video' ? (t('videoCall') || 'Video') : (t('voiceCall') || 'Voice'));
+      return '<div class="msg-row system">' +
+        '<div class="ci-card ci-channel-' + channel + ' ci-status-' + esc(status) +
+          '" data-ci-card="' + inviteId + '" role="group" aria-label="' + esc(ariaCard) + '">' +
+          '<div class="ci-row">' +
+            '<span class="ci-icon" aria-hidden="true">' + iconSvg + '</span>' +
+            '<div class="ci-text">' +
+              '<div class="ci-title">' + esc(headline) + '</div>' + bodyBlock + statusBlock +
+            '</div>' +
+          '</div>' + actionBlock +
+        '</div>' +
+      '</div>';
+    }
+
+    function formatMsgTime(d) {
+      try {
+        var date = (d instanceof Date) ? d : new Date(d);
+        if (!date || isNaN(date.getTime())) return '';
+        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
+      } catch (_) { return ''; }
+    }
+
+    var PRECHAT_ICONS = {
+      name: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+      email: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+      phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>',
+      lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+    };
+
+    // Field visibility/required state is server-authoritative (identity),
+    // never derived from the design demo.
+    function renderPrechatFieldRow(identity, key, type, value) {
+      var label = t(key);
+      var ph = t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
+      var req = identity.isRequired(key);
+      var badge = req
+        ? '<span class="prechat-req-mark" aria-label="' + esc(t('required')) + '" title="' + esc(t('required')) + '">*</span>'
+        : '';
+      var ac = key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel';
+      var inputDir = (key === 'email' || key === 'phone') ? 'ltr' : '';
+      return '<div class="prechat-field" data-field="' + key + '">' +
+          '<label class="prechat-label" for="prechat-' + key + '">' + esc(label) + badge + '</label>' +
+          '<div class="prechat-control">' +
+            '<span class="prechat-icon" aria-hidden="true">' + PRECHAT_ICONS[key] + '</span>' +
+            '<input id="prechat-' + key + '" class="prechat-input" data-prechat="' + key + '" type="' + type +
+              '" autocomplete="' + ac + '"' + (inputDir ? ' dir="' + inputDir + '"' : '') +
+              ' placeholder="' + esc(ph) + '"' + (req ? ' aria-required="true"' : '') +
+              ' aria-invalid="false" aria-describedby="prechat-err-' + key + '"' +
+              ' value="' + esc(value || '') + '" />' +
+            '<span class="prechat-status" aria-hidden="true"></span>' +
+          '</div>' +
+          '<div class="prechat-error" id="prechat-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
+        '</div>';
+    }
+
+    function renderAiThinkingRow() {
+      return '<div class="msg-row operator ai-thinking-row">' +
+        '<div class="msg operator ai-thinking-bubble">' +
+          '<span class="ai-thinking-spark" aria-hidden="true"></span>' +
+          '<span class="typing-dots"><span></span><span></span><span></span></span>' +
+          '<span class="ai-thinking-label">' + esc(t('aiThinking') || 'Thinking…') + '</span>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function messagesHtml(s, extraRowHtml, view) {
+      view = view || {};
+      var typewriter = view.typewriter || null;
+      var qnaState = view.qna || { questions: [], expanded: false };
+      var rrCfg = ctx.config && ctx.config.readReceipts;
+      var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
+      var lastVisitorIdx = -1;
+      for (var lv = s.messages.length - 1; lv >= 0; lv--) {
+        if (s.messages[lv].sender === 'visitor') { lastVisitorIdx = lv; break; }
+      }
+      var html = '<div class="messages">';
+      var groupKeys = s.messages.map(function (m) {
+        return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+      });
+      var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
+
+      s.messages.forEach(function (m, idx) {
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
+          html += renderCallInvitationCard(m); return;
+        }
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_ended') {
+          html += renderCallEndedRow(m); return;
+        }
+        if (m.senderType === 'system' && m.metadata
+            && (m.metadata.kind === 'routing_agent_joined'
+              || m.metadata.kind === 'routing_no_agent_available'
+              || m.metadata.kind === 'routing_in_queue')) {
+          html += renderRoutingOutcomeRow(m); return;
+        }
+        var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
+        var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
+        var isAi = m.senderType === 'ai';
+        var aiBadgeHtml = isAi ? '<span class="msg-ai-badge" aria-label="AI assistant" title="AI assistant">AI</span>' : '';
+        var hasText = m.body && String(m.body).trim().length > 0;
+        var attHtml = renderMessageAttachment(m.attachment);
+        var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
+
+        var statusHtml = '';
+        if (m.sender === 'visitor' && idx === lastVisitorIdx && receiptsEnabled && m.status) {
+          var label, icon;
+          if (m.status === 'sending') { label = t('msgSending'); icon = '<span class="msg-status-spinner"></span>'; }
+          else if (m.status === 'failed') { label = t('msgFailed'); icon = '<span class="msg-status-icon">!</span>'; }
+          else if (m.status === 'seen') { label = t('msgSeen'); icon = '<span class="msg-status-icon seen">✓✓</span>'; }
+          else { label = t('msgSent'); icon = '<span class="msg-status-icon">✓</span>'; }
+          statusHtml = '<div class="msg-status status-' + m.status + '">' + icon +
+            '<span class="msg-status-label">' + esc(label) + '</span></div>';
+        }
+
+        // Consecutive operator/AI messages share ONE avatar, on the last
+        // bubble of the run (design §12).
+        var avatarHtml = '';
+        if (cls === 'operator') {
+          var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
+          if (isLastInStreak) {
+            avatarHtml = m.senderAvatar
+              ? '<span class="msg-avatar has-img"><img src="' + esc(m.senderAvatar) + '" alt="' +
+                  esc(m.senderName || t('operator')) + '" loading="lazy" decoding="async" /></span>'
+              : '<span class="msg-avatar" aria-hidden="true">' +
+                  esc(((m.senderName || ctx.config.brandName || 'S').trim().charAt(0) || 'S').toUpperCase()) + '</span>';
+          } else {
+            avatarHtml = '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
+          }
+        }
+
+        var timeStr = formatMsgTime(m.time);
+        var timeHtml = timeStr ? '<span class="msg-time">' + esc(timeStr) + '</span>' : '';
+        var leadingHtml = cls === 'operator' ? avatarHtml : statusHtml;
+
+        var isTypingThis = !!(typewriter && typewriter.id === m.__id);
+        var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
+        var displayText = (isTypingThis && !typingDone)
+          ? typewriter.tokens.slice(0, typewriter.revealedCount).join('')
+          : m.body;
+        var textHtml = hasText
+          ? '<span class="msg-text"' + (isTypingThis && !typingDone ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
+              esc(displayText) + '</span>'
+          : '';
+
+        // Reply affordance (design §12) — Core binds data-msg-reply when it
+        // supports quoting; the button is inert-safe otherwise.
+        var replyBtn = hasText
+          ? '<button type="button" class="msg-reply" data-msg-reply="' + esc(m.__id || '') +
+              '" data-msg-reply-text="' + esc(String(m.body || '').slice(0, 160)) +
+              '" aria-label="' + esc(tf('reply', 'Reply')) + '">' +
+              '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h10a5 5 0 0 1 5 5v2"/></svg>' +
+            '</button>'
+          : '';
+
+        var quoted = (m.replyTo && (m.replyTo.text || m.replyTo.body))
+          ? '<span class="msg-quote">' + esc(String(m.replyTo.text || m.replyTo.body)) + '</span>'
+          : '';
+
+        html += '<div class="msg-row ' + cls + '">' + leadingHtml +
+          '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '"' +
+            (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
+            aiBadgeHtml + quoted + textHtml + attHtml + timeHtml +
+          '</div>' + replyBtn +
+        '</div>';
+
+        var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
+        if (isIntro && !visitorHasReplied && qnaState.questions.length) html += qnaChipsHtml(qnaState);
+      });
+
+      if (extraRowHtml) html += extraRowHtml;
+      var lastMsg = s.messages && s.messages.length ? s.messages[s.messages.length - 1] : null;
+      var waitingOnAi = !!lastMsg && (lastMsg.sender === 'visitor' || lastMsg.from === 'visitor' || lastMsg.author === 'visitor');
+      if (s.aiThinking && waitingOnAi) html += renderAiThinkingRow();
+      html += '</div>';
+      return html;
+    }
+
+    function handoffPrechatCardHtml(identity, contact, locale, subtitle, animateSubtitle) {
+      contact = contact || {};
+      var fieldsHtml = '';
+      if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
+      if (identity.isAsked('email')) fieldsHtml += renderPrechatFieldRow(identity, 'email', 'email', contact.email);
+      if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
+      var dir = String(locale || '').toLowerCase().split('-')[0] === 'fa' ? 'rtl' : 'ltr';
+      var subtitleHtml = animateSubtitle
+        ? '<div class="hc-subtitle" data-typing-host data-typing-active="1" data-typing-id="hc-subtitle"></div>'
+        : '<div class="hc-subtitle">' + esc(subtitle) + '</div>';
+      return '<div class="msg-row visitor">' +
+        '<div class="hc-card" dir="' + dir + '" role="group" aria-label="' + esc(t('prechatTitle')) + '">' +
+          '<div class="hc-title">' + esc(t('prechatTitle')) + '</div>' + subtitleHtml +
+          '<div class="prechat-fields hc-fields">' + fieldsHtml + '</div>' +
+          '<button type="button" class="wy-btn wy-btn-primary hc-submit" data-prechat-submit>' +
+            esc(t('continue')) + '</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    /**
+     * Full-screen pre-contact view (design §9). Field set and required
+     * markers come from the server-authoritative identity contract; the
+     * design's "name required" demo rule never overrides it.
+     */
+    function prechatFormHtml(identity, contact, locale) {
+      contact = contact || {};
+      var fieldsHtml = '';
+      if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
+      if (identity.isAsked('email')) fieldsHtml += renderPrechatFieldRow(identity, 'email', 'email', contact.email);
+      if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
+      var dir = String(locale || '').toLowerCase().split('-')[0] === 'fa' ? 'rtl' : 'ltr';
+      return '<div class="wy-view wy-view-precontact prechat" dir="' + dir + '">' +
+        '<div class="wy-head">' +
+          headerIdentityHtml({ back: 'home', subtitle: tf('wyConnectOperator', 'Connect to an operator') }) +
+        '</div>' +
+        '<div class="wy-scroll wy-body-pad">' +
+          '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
+          '<div class="prechat-fields">' + fieldsHtml + '</div>' +
+          '<p class="prechat-privacy">' +
+            '<span class="prechat-privacy-icon" aria-hidden="true">' + PRECHAT_ICONS.lock + '</span>' +
+            esc(t('prechatPrivacy')) + '</p>' +
+        '</div>' +
+        '<div class="wy-actions">' +
+          '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit" data-prechat-submit>' +
+            esc(tf('wyConnectOperator', t('continue'))) + '</button>' +
+        '</div>' + footerHtml() +
+      '</div>';
+    }
+
+    function contactFallbackHtml(identity, contact, locale, presence) {
+      contact = contact || {};
+      var intro = (presence && presence.introLabel) ? presence.introLabel : t('fallbackIntro');
+      var dir = String(locale || '').toLowerCase().split('-')[0] === 'fa' ? 'rtl' : 'ltr';
+
+      function fieldRow(key, type, value, required) {
+        var label = t(key);
+        return '<div class="prechat-field" data-field="' + key + '">' +
+          '<label class="prechat-label" for="fb-' + key + '">' + esc(label) +
+            (required ? '<span class="prechat-req-mark">*</span>' : '') + '</label>' +
+          '<div class="prechat-control">' +
+            '<input id="fb-' + key + '" class="prechat-input" data-fb="' + key + '" type="' + type +
+            '" autocomplete="' + (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
+            '" placeholder="' + esc(label) + '"' + (required ? ' aria-required="true"' : '') +
+            ' aria-invalid="false" aria-describedby="fb-err-' + key + '"' +
+            ' value="' + esc(value || '') + '" />' +
+          '</div>' +
+          '<div class="prechat-error" id="fb-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
+        '</div>';
+      }
+
+      var askPhone = identity.isAsked('phone');
+      var fieldsHtml = fieldRow('name', 'text', contact.name, identity.isRequired('name')) +
+        fieldRow('email', 'email', contact.email, !askPhone) +
+        (askPhone ? fieldRow('phone', 'tel', contact.phone, identity.isRequired('phone')) : '');
+
+      return '<div class="wy-view wy-view-fallback prechat fallback" dir="' + dir + '">' +
+        '<div class="wy-scroll wy-body-pad">' +
+          '<p class="prechat-intro">' + esc(intro) + '</p>' +
+          '<div class="prechat-fields">' + fieldsHtml +
+            '<div class="prechat-field" data-field="message">' +
+              '<label class="prechat-label" for="fb-message">' + esc(t('fallbackMessageLabel')) +
+                '<span class="prechat-req-mark">*</span></label>' +
+              '<div class="prechat-control">' +
+                '<textarea id="fb-message" class="prechat-input prechat-textarea" data-fb="message" rows="3" placeholder="' +
+                  esc(t('typeMsg')) + '" aria-required="true" aria-invalid="false" aria-describedby="fb-err-message"></textarea>' +
+              '</div>' +
+              '<div class="prechat-error" id="fb-err-message" data-err="message" role="alert" aria-live="polite"></div>' +
+            '</div>' +
+          '</div>' +
+          '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit" data-fb-submit>' +
+            esc(t('fallbackSubmit')) + '</button>' +
+          '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div>' +
+        '</div>' + footerHtml() +
+      '</div>';
+    }
+
+    function smartSurfaceHtml(s) {
+      return (s.dismissible === false
+        ? ''
+        : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="close">\u00d7</button>') +
+        (s.title ? '<div class="smart-title">' + esc(s.title) + '</div>' : '') +
+        '<div class="smart-body">' + esc(s.body || '') + '</div>' +
+        (s.ctaLabel
+          ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + env.primaryColor + '">' +
+              esc(s.ctaLabel) + '</button>'
+          : '');
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Shell — panel chrome, chat header, composer, footer
+    // ══════════════════════════════════════════════════════════════════
+    //
+    // There is NO bottom tab bar and NO header close button: the launcher
+    // is the only visual open/close control (design §15).
+    function shellHtml(vm) {
+      vm = vm || {};
+      var cfg = vm.config || {};
+      var chatEnabled = !!vm.chatEnabled;
+      var rtl = String(vm.locale || 'en').toLowerCase().split('-')[0] === 'fa';
+
+      var chatHeader = '<div class="header wy-head wy-head-chat"' + (rtl ? ' dir="rtl"' : '') + ' data-chat-header>' +
+        headerIdentityHtml({
+          back: 'home',
+          title: vm.headerTitle || vm.brandName,
+          subtitle: tf('homeReplyFast', ''),
+          online: true,
+        }) +
+        '<div class="presence sr-only" data-presence aria-live="polite">' +
+          '<span class="presence-dot" data-presence-dot></span>' +
+          '<span class="presence-label" data-presence-label></span>' +
+        '</div>' +
+      '</div>';
+
+      var bodyHtml = '<div class="body wy-scroll" data-body></div>';
+
+      var attachCfg = (cfg && cfg.attachments) || { enabled: false };
+      var composerCfg = (cfg && cfg.composer) || {};
+      var micSupported = !!(typeof navigator !== 'undefined' && navigator.mediaDevices
+        && navigator.mediaDevices.getUserMedia && typeof window.MediaRecorder === 'function');
+      var voiceNotesEnabled = attachCfg.voiceNotesEnabled === true;
+      var emojiEnabled = composerCfg.emojiEnabled !== false;
+
+      var inputHtml = chatEnabled
+        ? '<div class="composer-zone" data-composer-zone>' +
+            '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
+              '<span class="typing-dots"><span></span><span></span><span></span></span>' +
+              '<span class="typing-label" data-typing-label></span>' +
+            '</div>' +
+            '<div class="attach-tray" data-attach-tray hidden></div>' +
+            '<div class="reply-preview" data-reply-preview hidden>' +
+              '<span class="reply-preview-text" data-reply-preview-text></span>' +
+              '<button type="button" class="reply-preview-cancel" data-reply-cancel aria-label="' +
+                esc(tf('cancel', 'Cancel')) + '">' + ICON.close + '</button>' +
+            '</div>' +
+            '<div class="emoji-picker" data-emoji-picker hidden></div>' +
+            '<div class="input-bar" data-input-bar>' +
+              '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + esc(t('talkToHuman')) +
+                '" aria-label="' + esc(t('talkToHuman')) + '">' + ICON.human + '</button>' +
+              '<div class="input-wrap" data-input-wrap>' +
+                (voiceNotesEnabled && micSupported
+                  ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
+                      '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
+                      '<span class="mic-ring" aria-hidden="true"></span></button>'
+                  : '') +
+                '<input class="input" data-msg-input placeholder="' + esc(t('typeMsg')) + '" />' +
+                (attachCfg.enabled
+                  ? '<button type="button" class="attach-btn" data-attach-btn title="' + esc(t('attachFile') || 'Attach file') +
+                      '" aria-label="' + esc(t('attachFile') || 'Attach file') + '">' + ICON.attach + '</button>' +
+                    '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
+                  : '') +
+                (emojiEnabled
+                  ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + esc(t('emojiPicker')) +
+                      '" aria-label="' + esc(t('emojiPicker')) + '">' + ICON.emoji + '</button>'
+                  : '') +
+                '<button type="button" class="send-btn" data-send-btn aria-label="' + esc(tf('send', 'Send')) +
+                  '" style="color:' + esc(vm.primaryColor || '') + '">' + ICON.send + '</button>' +
+              '</div>' +
+            '</div>' +
+            footerHtml() +
+          '</div>'
+        : '';
+
+      return chatHeader + bodyHtml + inputHtml +
+        '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' +
+          esc(t('openFile')) + '">' +
+          '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' +
+            esc(t('closePreview')) + '">×</button>' +
+          '<img data-att-lightbox-img alt="" />' +
+        '</div>';
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Home (design §7)
+    // ══════════════════════════════════════════════════════════════════
+    function conversationRowHtml(c, compact) {
+      var unread = Number(c.unreadCount) || 0;
+      var unreadHtml = unread > 0
+        ? '<span class="conv-unread">' + esc(String(unread)) + '</span>' : '';
+      var timeHtml = c.timeLabel ? '<span class="conv-time">' + esc(c.timeLabel) + '</span>' : '';
+      if (compact) {
+        return '<button type="button" class="conv-row conv-row-compact" data-conversation-open="' + esc(c.id) + '">' +
+          '<span class="conv-preview">' + esc(c.preview || tf('wyNoPreview', '…')) + '</span>' +
+          unreadHtml + timeHtml +
+        '</button>';
+      }
+      var resolved = String(c.status || '') === 'resolved';
+      var statusLabel = resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open');
+      return '<button type="button" class="conv-row" data-conversation-open="' + esc(c.id) + '">' +
+        identityAvatarHtml('sm') +
+        '<span class="conv-main">' +
+          '<span class="conv-line">' +
+            '<span class="conv-name">' + esc(c.title || (config && config.brandName) || '') + '</span>' + timeHtml +
+          '</span>' +
+          '<span class="conv-line">' +
+            '<span class="conv-preview">' + esc(c.preview || tf('wyNoPreview', '…')) + '</span>' + unreadHtml +
+          '</span>' +
+          '<span class="conv-status' + (resolved ? ' is-resolved' : '') + '">' +
+            '<span class="conv-status-dot" aria-hidden="true"></span>' + esc(statusLabel) + '</span>' +
+        '</span>' +
+      '</button>';
+    }
+
+    function homeHtml(vm) {
+      vm = vm || {};
+      var rtl = !!vm.rtl;
+      var online = !!vm.isOnline;
+      var convs = (vm.conversations || []).slice(0, 3);
+      var hasThreads = convs.length > 0;
+      var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
+      var articles = (vm.articles || []);
+      // Design §7 — with 3 recent conversations the chips would push the
+      // home screen into an awkward scroll, so they collapse into the
+      // compact action button instead.
+      var showChips = vm.kbEnabled && articles.length > 0 && convs.length < 3;
+      var showArticlesButton = vm.kbEnabled && articles.length > 0 && !showChips;
+
+      var stack = (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
+        .map(function (m) {
+          var av = m.avatar ? String(m.avatar) : '';
+          return '<span class="home-stack-item' + (av ? ' has-img' : '') + '" title="' + esc(m.name || '') + '">' +
+            (av ? '<img src="' + esc(av) + '" alt="" loading="lazy" decoding="async" />' : '') + '</span>';
+        }).join('');
+      var stackHtml = stack ? '<span class="home-stack">' + stack + '</span>' : '';
+
+      var smartCardHtml = vm.smartSurface && vm.smartSurface.mode === 'home_card'
+        ? '<section class="smart-home-card">' + smartSurfaceHtml(vm.smartSurface) + '</section>'
+        : '';
+
+      var recentHtml = hasThreads
+        ? '<section class="home-section home-recent">' +
+            '<h3 class="home-section-title">' + esc(tf('wyRecentConversations', 'Recent conversations')) + '</h3>' +
+            convs.map(function (c) { return conversationRowHtml(c, true); }).join('') +
+            '<button type="button" class="home-link" data-view="list">' +
+              esc(tf('wyViewConversations', 'View conversations')) +
+              '<span class="home-link-chevron" aria-hidden="true">' + ICON.chevron + '</span>' +
+            '</button>' +
+          '</section>'
+        : '';
+
+      var chipsHtml = showChips
+        ? '<section class="home-section">' +
+            '<h3 class="home-section-title">' + esc(tf('wyArticlesSuggest', t('homeHelpTitle'))) + '</h3>' +
+            '<div class="home-chips">' +
+              articles.slice(0, 5).map(function (a) {
+                return '<button type="button" class="home-chip" data-home-article="' + esc(a.slug || '') + '">' +
+                  esc(a.title || '') + '</button>';
+              }).join('') +
+              '<button type="button" class="home-chip home-chip-more" data-view="help">' +
+                esc(tf('wyMoreArticles', t('homeSeeAll'))) + '</button>' +
+            '</div>' +
+          '</section>'
+        : '';
+
+      var actions = '';
+      if (vm.chatEnabled) {
+        if (unresolved) {
+          actions += '<button type="button" class="wy-btn wy-btn-primary" data-conversation-open="' + esc(unresolved.id) + '">' +
+            esc(tf('wyContinueLast', 'Continue last conversation')) + '</button>';
+        }
+        actions += '<button type="button" class="wy-btn ' + (unresolved ? 'wy-btn-outline' : 'wy-btn-primary') +
+          ' wy-btn-grow" data-home-action="chat">' +
+          esc(unresolved ? tf('wyStartNew', t('homeStartChat')) : (online ? t('homeStartChat') : t('homeLeaveMessage'))) +
+          '</button>';
+      }
+      if (showArticlesButton) {
+        actions += '<button type="button" class="wy-btn wy-btn-outline" data-view="help">' +
+          esc(tf('wyArticles', t('help'))) + '</button>';
+      }
+
+      return '<div class="wy-view wy-view-home home-root"' + (rtl ? ' dir="rtl"' : '') + '>' +
+        '<div class="wy-head wy-head-home">' +
+          headerIdentityHtml({
+            title: vm.headerTitle || (config && config.brandName) || '',
+            subtitle: online ? tf('homeReplyFast', '') : tf('homeReplySlow', ''),
+            stack: stackHtml,
+          }) +
+        '</div>' +
+        '<div class="wy-home-body">' +
+          '<div class="wy-scroll wy-home-scroll">' +
+            smartCardHtml +
+            '<section class="home-greeting-block">' +
+              '<h2 class="home-greeting">' + esc(t('homeGreeting')) + '</h2>' +
+              '<p class="home-welcome">' + esc(vm.welcomeMessage || t('homeWelcome')) + '</p>' +
+            '</section>' +
+            recentHtml + chipsHtml +
+          '</div>' +
+          '<div class="wy-actions-block">' +
+            '<div class="wy-actions">' + actions + '</div>' + footerHtml() +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Conversation list (design §8)
+    // ══════════════════════════════════════════════════════════════════
+    function conversationListHtml(vm) {
+      vm = vm || {};
+      var rtl = !!vm.rtl;
+      var items = vm.conversations || [];
+      var bodyHtml = vm.loading
+        ? '<div class="wy-status">' + esc(tf('wyLoading', '…')) + '</div>'
+        : (items.length
+            ? items.map(function (c) { return conversationRowHtml(c, false); }).join('')
+            : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>');
+      return '<div class="wy-view wy-view-list"' + (rtl ? ' dir="rtl"' : '') + '>' +
+        '<div class="wy-head wy-head-list">' +
+          backButtonHtml('home') +
+          '<div class="wy-head-plain">' + esc(tf('wyConversations', 'Conversations')) + '</div>' +
+          (vm.chatEnabled
+            ? '<button type="button" class="wy-fab" data-home-action="chat" aria-label="' +
+                esc(tf('wyNewConversation', 'New conversation')) + '">' + ICON.plus + '</button>'
+            : '') +
+        '</div>' +
+        '<div class="wy-body-pad wy-list-body">' +
+          '<div class="wy-scroll wy-list-scroll">' + bodyHtml + '</div>' + footerHtml() +
+        '</div>' +
+      '</div>';
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Knowledge Base surfaces (articles / article, design §10 + §11)
+    // ══════════════════════════════════════════════════════════════════
+    var KB_ICON_SEARCH =
+      '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+        '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+    var KB_ICON_BOOK =
+      '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+
+    function kbArticleItemHtml(a) {
+      return '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' + esc(a.slug) + '">' +
+        '<span class="kb-article-title">' + esc(a.title) + '</span>' +
+        '<span class="kb-article-chevron" aria-hidden="true">' + ICON.chevron + '</span>' +
+      '</button>';
+    }
+
+    function kbSearchBarHtml(vm) {
+      vm = vm || {};
+      return '<div class="kb-search-wrap">' +
+        '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
+        'placeholder="' + esc(t('searchKb')) + '" value="' + esc(vm.query || '') + '" /></div>';
+    }
+
+    function kbEmptyHtml(vm) {
+      vm = vm || {};
+      var isSearch = vm.state === 'results';
+      var text = vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'));
+      return '<div class="kb-empty">' +
+        '<div class="kb-empty-icon" aria-hidden="true">' + (isSearch ? KB_ICON_SEARCH : KB_ICON_BOOK) + '</div>' +
+        '<p class="kb-empty-text">' + esc(text) + '</p>' +
+        (vm.hideChatCta ? '' :
+          '<button type="button" class="wy-btn wy-btn-primary" data-kb-action="switch-chat">' +
+            esc(t('kbSwitchToChat')) + '</button>') +
+      '</div>';
+    }
+
+    function kbLoadingHtml() {
+      return '<div class="kb-status wy-status">' + esc(t('kbSearching')) + '</div>';
+    }
+
+    function kbSearchResultsHtml(vm) {
+      vm = vm || {};
+      var results = vm.results || [];
+      if (!results.length) return kbEmptyHtml({ state: 'results', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
+      return '<div class="kb-list">' + results.map(kbArticleItemHtml).join('') + '</div>';
+    }
+
+    function kbHomeHtml(vm) {
+      vm = vm || {};
+      var cats = vm.categories || [];
+      var articles = vm.articles || [];
+      if (!cats.length && !articles.length) {
+        return kbEmptyHtml({ state: 'list', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
+      }
+      var html = '';
+      if (articles.length) html += '<div class="kb-list">' + articles.map(kbArticleItemHtml).join('') + '</div>';
+      if (cats.length) {
+        html += '<div class="kb-section-h">' + esc(t('kbCategories')) + '</div><div class="kb-list">';
+        cats.forEach(function (c) {
+          var href = c.url ? ' href="' + esc(c.url) + '"' : '';
+          html += '<a class="kb-category" target="_blank" rel="noopener noreferrer"' + href + '>' +
+            '<span class="kb-article-title">' + esc(c.name) + '</span>' +
+            '<span class="kb-article-chevron" aria-hidden="true">' + ICON.chevron + '</span></a>';
+        });
+        html += '</div>';
+      }
+      return html;
+    }
+
+    /**
+     * Article feedback block (design §11). Rendered ONLY when Core says the
+     * capability exists (vm.feedback.enabled) — the renderer never fakes a
+     * persisted rating.
+     */
+    function kbArticleFeedbackHtml(fb) {
+      if (!fb || !fb.enabled) return '';
+      var rating = fb.rating || null;
+      return '<div class="kb-feedback" data-kb-feedback>' +
+        '<span class="kb-feedback-q">' + esc(tf('wyArticleHelpful', 'Was this article helpful?')) + '</span>' +
+        '<div class="kb-feedback-actions">' +
+          '<button type="button" class="kb-rate' + (rating === 'up' ? ' is-up' : '') +
+            '" data-kb-rate="up" aria-pressed="' + (rating === 'up') + '">' + ICON.thumbUp +
+            esc(tf('wyHelpfulYes', 'Helpful')) + '</button>' +
+          '<button type="button" class="kb-rate' + (rating === 'down' ? ' is-down' : '') +
+            '" data-kb-rate="down" aria-pressed="' + (rating === 'down') + '">' + ICON.thumbDown +
+            esc(tf('wyHelpfulNo', 'Not helpful')) + '</button>' +
+        '</div>' +
+        (rating ? '<span class="kb-feedback-thanks">' + esc(tf('wyFeedbackThanks', 'Thanks for your feedback!')) + '</span>' : '') +
+        (rating === 'down'
+          ? '<button type="button" class="wy-btn wy-btn-primary kb-feedback-cta" data-kb-action="switch-chat">' +
+              esc(tf('wyTalkToSupport', t('kbSwitchToChat'))) + '</button>'
+          : '') +
+      '</div>';
+    }
+
+    function kbArticleHtml(vm) {
+      vm = vm || {};
+      var a = vm.article || {};
+      return '<div class="kb-article-view">' +
+        '<h2 class="kb-article-h">' + esc(a.title || '') + '</h2>' +
+        (a.excerpt ? '<p class="kb-article-excerpt-full">' + esc(a.excerpt) + '</p>' : '') +
+        '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
+        kbArticleFeedbackHtml(vm.feedback) +
+        (a.publicUrl
+          ? '<div class="kb-article-footer"><a class="kb-open-browser" href="' + esc(a.publicUrl) +
+              '" target="_blank" rel="noopener noreferrer">' + esc(t('kbOpenInBrowser')) + '</a></div>'
+          : '') +
+      '</div>';
+    }
+
+    /** Full KB surface — its own header + the state-specific body. */
+    function kbHtml(vm) {
+      vm = vm || {};
+      var state = vm.state || 'list';
+      var isArticle = state === 'article';
+      var inner;
+      if (isArticle) inner = kbArticleHtml(vm);
+      else if (state === 'searching') inner = kbLoadingHtml(vm);
+      else if (state === 'results') inner = kbSearchResultsHtml(vm);
+      else inner = kbHomeHtml(vm);
+
+      // article -> articles, articles -> home (design §16).
+      var head = isArticle
+        ? '<div class="wy-head wy-head-article">' +
+            '<button type="button" class="wy-back" data-kb-action="back" aria-label="' + esc(tf('back', 'Back')) + '">' +
+              ICON.back + '</button>' +
+            identityAvatarHtml('sm') +
+            '<div class="wy-head-plain wy-head-article-title">' + esc((vm.article && vm.article.title) || '') + '</div>' +
+          '</div>'
+        : '<div class="wy-head">' +
+            headerIdentityHtml({ back: 'home', subtitle: tf('wyArticles', t('help')) }) +
+          '</div>';
+
+      return '<div class="wy-view wy-view-kb kb-root"' + (vm.rtl ? ' dir="rtl"' : '') + '>' + head +
+        '<div class="wy-body-pad wy-kb-body">' +
+          '<div class="wy-scroll wy-kb-scroll">' +
+            ((vm.hideSearch || isArticle) ? '' : kbSearchBarHtml(vm)) + inner +
+          '</div>' + footerHtml() +
+        '</div>' +
+      '</div>';
+    }
+
+    return {
+      id: 'web-yar',
+      shellHtml: shellHtml,
+      homeHtml: homeHtml,
+      emptyHtml: emptyHtml,
+      messagesHtml: messagesHtml,
+      aiThinkingRowHtml: renderAiThinkingRow,
+      qnaChipsHtml: qnaChipsHtml,
+      messageAttachmentHtml: renderMessageAttachment,
+      callInvitationCardHtml: renderCallInvitationCard,
+      callEndedRowHtml: renderCallEndedRow,
+      routingOutcomeRowHtml: renderRoutingOutcomeRow,
+      prechatFieldRowHtml: renderPrechatFieldRow,
+      prechatFormHtml: prechatFormHtml,
+      handoffPrechatCardHtml: handoffPrechatCardHtml,
+      contactFallbackHtml: contactFallbackHtml,
+      smartSurfaceHtml: smartSurfaceHtml,
+      // Generic contract extensions (template-agnostic surfaces).
+      conversationListHtml: conversationListHtml,
+      conversationRowHtml: conversationRowHtml,
+      // Knowledge Base surfaces
+      kbHtml: kbHtml,
+      kbSearchBarHtml: kbSearchBarHtml,
+      kbHomeHtml: kbHomeHtml,
+      kbSearchResultsHtml: kbSearchResultsHtml,
+      kbArticleHtml: kbArticleHtml,
+      kbEmptyHtml: kbEmptyHtml,
+      kbLoadingHtml: kbLoadingHtml,
+      kbArticleFeedbackHtml: kbArticleFeedbackHtml,
+
+      format: {
+        msgTime: formatMsgTime,
+        callDuration: fmtCallDuration,
+        invitationRemaining: fmtInvitationRemaining,
+        humanSize: humanSize,
+      },
+    };
+  }
+
+  window.__gs_presentation_web_yar = { id: 'web-yar', create: create };
+})();

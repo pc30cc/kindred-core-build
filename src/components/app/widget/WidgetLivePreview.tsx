@@ -665,10 +665,11 @@ export function WidgetLivePreview({
       setOpen(false);
       if (GS_SMART.enabled) parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:widget-closed' }, '*');
     });
-  })();
+  }
 
   // Preview-only: drive the smart surface lifecycle from the parent studio.
-  (function () {
+  function gsBindSmart() {
+
     if (!GS_SMART.enabled) return;
     var surfaces = [].slice.call(document.querySelectorAll('[data-smart-surface]'));
     surfaces.forEach(function (el) { el.setAttribute('hidden', ''); el.classList.add('smart-enter'); });

@@ -625,10 +625,16 @@ export function WidgetLivePreview({
         panel.insertBefore(dock, bar || null);
       }
     }
-  })();
+
+    gsBindLauncher();
+    gsBindSmart();
+    gsBindTabs();
+    gsBindArticles(R);
+  }
 
   // Preview-only: let the operator open/close the widget exactly like a visitor.
-  (function () {
+  function gsBindLauncher() {
+
     var panel = document.querySelector('.panel');
     var launcher = document.getElementById('gs-launcher');
     if (!panel || !launcher) return;

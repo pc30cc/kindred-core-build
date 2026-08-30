@@ -639,19 +639,22 @@ export function WidgetLivePreview({
     var launcher = document.getElementById('gs-launcher');
     if (!panel || !launcher) return;
     var label = document.querySelector('.fab-label');
+    // LIFECYCLE PARITY: the preview uses the PRODUCTION contract —
+    // `.panel.visible` + `.launcher.open` — never a preview-only
+    // [hidden] attribute. Anything else masks real regressions.
+    function isOpen() { return panel.classList.contains('visible'); }
     function setOpen(open) {
-      if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
-      // Preview keeps the launcher visible even while the panel is open.
-      launcher.classList.remove('is-hidden');
-      if (label) label.classList.remove('is-hidden');
+      panel.classList.toggle('visible', !!open);
+      launcher.classList.toggle('open', !!open);
     }
     window.__gsSetOpen = setOpen;
     // In the scenario studio the panel state belongs to the simulation, so it
     // starts closed and only opens when the rule says a visitor would see it.
     setOpen(!GS_SMART.enabled);
     launcher.addEventListener('click', function () {
-      var willOpen = panel.hasAttribute('hidden');
+      var willOpen = !isOpen();
       setOpen(willOpen);
+
       if (GS_SMART.enabled) {
         parent.postMessage({
           source: 'gs-smart-preview',

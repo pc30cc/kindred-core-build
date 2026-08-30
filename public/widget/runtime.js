@@ -1327,8 +1327,10 @@
           sessionToken: ctx.sessionToken,
           fetchWith: ctx.fetchWith,
           conversationId: payload.conversationId,
+          forceNewConversation: !!payload.forceNewConversation,
           // Phase 6b — attachment id flows through to the message endpoint.
           attachmentId: payload.attachmentId || null,
+
           text: payload.text,
           onConversation: function (cid) {
             if (cid) {
@@ -3215,7 +3217,11 @@
       wirePrechatForm(body, identity, onSubmitted, { autofocus: true });
     }
 
+    // One-shot "start a brand new thread" latch (see startNewConversation).
+    var forceNewConversation = false;
+
     function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
+
       var conn = transportStore.get().connectionState;
       if (conn !== 'online') return;
       var s = chatStore.get();
@@ -3257,6 +3263,9 @@
         {
           text: text,
           conversationId: s.conversationId,
+          // One-shot: only true for the first message after "+ New
+          // conversation". Never sent alongside a conversationId.
+          forceNewConversation: forceNewConversation && !s.conversationId,
           attachmentId: attachmentId || null,
           departmentId: (function () {
             try {
@@ -3267,11 +3276,15 @@
         },
         {
           onConversation: function (cid) {
+            // Thread established — disarm before anything else so a retry or
+            // a follow-up message can never spawn a second thread.
+            forceNewConversation = false;
             if (cid && cid !== chatStore.get().conversationId) {
               chatStore.set({ conversationId: cid });
               transport.subscribeConversation(cid);
             }
           },
+
           onAccepted: function (info) {
             // Bind canonical message id and flip to 'sent'. The next merge
             // (poll/history) will reconcile by __id and may promote to 'seen'.
@@ -3428,8 +3441,19 @@
       bootstrapHistory: bootstrapHistory,
       mergeIncoming: mergeIncoming,
       startTypewriter: startTypewriter,
+      // "+ New conversation" — arms a one-shot flag so the *first* message of
+      // this flow is sent with force_new_conversation:true. The server then
+      // refuses to reuse an existing open thread. The flag is cleared as soon
+      // as the backend hands back a conversation id (or the send fails), so it
+      // can never leak into subsequent messages.
+      startNewConversation: function () {
+        forceNewConversation = true;
+        chatStore.set({ conversationId: null, messages: [] });
+      },
+      isForcingNewConversation: function () { return forceNewConversation; },
       getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
     };
+
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -6160,11 +6184,10 @@
       var st = conversationsStore.get();
       if (st.loading) return;
       conversationsStore.set({ loading: true });
-      var visitorId = (identityStore.get() || {}).visitorId
-        || ((window.__gs_identity || {}).visitorId) || '';
+      // No visitor_id on the wire: the server resolves identity solely from
+      // the signed HttpOnly `dvsid` cookie and ignores any client-sent id.
       var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
-        encodeURIComponent(ctx.workspaceId || '') +
-        (visitorId ? ('&visitor_id=' + encodeURIComponent(visitorId)) : '');
+        encodeURIComponent(ctx.workspaceId || '');
       ctx.fetchWith(url, { method: 'GET' })
         .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
         .catch(function () { return { conversations: [] }; })
@@ -6178,17 +6201,48 @@
         });
     }
 
+    // Durable read marker so the unread badge reflects reality across
+    // reloads and devices. Fire-and-forget; failure just leaves the badge.
+    function markConversationRead(conversationId) {
+      if (!conversationId) return;
+      try {
+        ctx.fetchWith(ctx.apiBase + '/api/widget/conversations/' +
+          encodeURIComponent(conversationId) + '/read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspace_id: ctx.workspaceId }),
+        }).then(function () {
+          var cs = conversationsStore.get();
+          conversationsStore.set({
+            items: (cs.items || []).map(function (c) {
+              return c.id === conversationId ? Object.assign({}, c, { unreadCount: 0 }) : c;
+            }),
+          });
+        }).catch(function () {});
+      } catch (_) {}
+    }
+
+    // Explicit "+ / start new conversation": arm Core's force-new latch so
+    // the first message creates a fresh thread even when an open one exists.
+    function startNewConversation() {
+      try { if (chatUI.startNewConversation) chatUI.startNewConversation(); }
+      catch (_) { chatStore.set({ conversationId: null, messages: [] }); }
+      switchTab('chat');
+    }
+
     // Opening an existing thread = make it the active conversation and go
     // to chat. Business logic (history load, subscription) is reused.
     function openConversation(conversationId) {
-      if (!conversationId) { switchTab('chat'); return; }
+      if (!conversationId) { startNewConversation(); return; }
       if (chatStore.get().conversationId !== conversationId) {
         chatStore.set({ conversationId: conversationId, messages: [] });
         try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
         try { chatUI.bootstrapHistory(function () { if (shellStore.get().activeTab === 'chat') renderBody(); }); } catch (_) {}
       }
+      markConversationRead(conversationId);
       switchTab('chat');
     }
+
 
     function bindViewHooks(root) {
       if (!root) return;
@@ -6226,11 +6280,9 @@
       bindViewHooks(body);
       var newBtn = body.querySelector('[data-home-action="chat"]');
       if (newBtn) {
-        newBtn.addEventListener('click', function () {
-          chatStore.set({ conversationId: null, messages: [] });
-          switchTab('chat');
-        });
+        newBtn.addEventListener('click', function () { startNewConversation(); });
       }
+
       if (!cs.loaded && !cs.loading) {
         loadConversations(function () {
           if (shellStore.get().activeTab === 'list') renderConversationList();
@@ -6259,9 +6311,17 @@
       bindViewHooks(body);
       var ctaBtn = body.querySelector('[data-home-action="chat"]');
       if (ctaBtn) ctaBtn.addEventListener('click', function () {
+        // When an unresolved thread exists the template labels this CTA
+        // "Start new", so it must genuinely force a new conversation.
+        // Otherwise it is just "Start chat" → resume normal resolution.
+        var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
+          return c.status !== 'resolved' && c.status !== 'closed';
+        });
+        if (hasUnresolved) { startNewConversation(); return; }
         chatStore.set({ conversationId: chatStore.get().conversationId });
         switchTab('chat');
       });
+
       var seeAll = body.querySelector('[data-home-action="help"]');
       if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {

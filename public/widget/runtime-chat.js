@@ -137,6 +137,10 @@
         init.headers = h; return fetch(url, init);
       };
       var conversationId = opts.conversationId || null;
+      // Only meaningful when there is no conversationId: asks the server to
+      // create a fresh thread instead of reusing the visitor's open one.
+      var forceNewConversation = !conversationId && !!opts.forceNewConversation;
+
       var attachmentId = opts.attachmentId || null;
       var text = opts.text;
       var departmentId = opts.departmentId || null;
@@ -181,7 +185,9 @@
         body: JSON.stringify({
           workspace_id: workspaceId,
           conversation_id: conversationId || undefined,
+          force_new_conversation: forceNewConversation || undefined,
           attachment_id: attachmentId || undefined,
+
           message: text,
           department_id: departmentId || undefined,
           // Canonical key only. Backend still accepts the legacy `pageContext`

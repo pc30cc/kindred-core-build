@@ -5309,6 +5309,58 @@ export type Database = {
         }
         Relationships: []
       }
+      kb_article_feedback: {
+        Row: {
+          article_id: string
+          created_at: string
+          id: string
+          rating: string
+          updated_at: string
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          article_id: string
+          created_at?: string
+          id?: string
+          rating: string
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          article_id?: string
+          created_at?: string
+          id?: string
+          rating?: string
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_article_feedback_article_id_fkey"
+            columns: ["article_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_base_articles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_article_feedback_visitor_session_id_fkey"
+            columns: ["visitor_session_id"]
+            isOneToOne: false
+            referencedRelation: "visitor_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_article_feedback_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       knowledge_base_articles: {
         Row: {
           category_id: string | null
@@ -7583,6 +7635,51 @@ export type Database = {
           },
           {
             foreignKeyName: "visitor_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_conversation_reads: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          last_read_at: string
+          updated_at: string
+          visitor_id: string
+          workspace_id: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          last_read_at?: string
+          updated_at?: string
+          visitor_id: string
+          workspace_id: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          last_read_at?: string
+          updated_at?: string
+          visitor_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_conversation_reads_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_conversation_reads_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"

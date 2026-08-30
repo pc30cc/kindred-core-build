@@ -1219,12 +1219,13 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
 // ═══════════════════════════════════════════════
 // GET /conversations — Visitor's own conversation list
 // ───────────────────────────────────────────────
-// Returns ONLY conversations belonging to the resolved visitor session
-// (workspace + visitor identity), newest first. Identity is resolved the
-// same way as every other token-secured widget route: the HttpOnly `dvsid`
-// cookie (already copied into req.query.visitor_id by the middleware
-// mounted above) is authoritative; visitor_session_id / contact linkage is
-// used only to widen the match, never to narrow the workspace scope.
+// Identity is taken EXCLUSIVELY from the signed HttpOnly `dvsid` cookie
+// (`req.visitorId`, set by the middleware above after verifying the cookie
+// signature AND that it was issued for this workspace). Any `visitor_id`
+// supplied by the client in the query string or body is ignored outright —
+// it is never read here, so a tampered/forged value cannot widen or shift
+// the result set. visitor_session_id / contact linkage only widens the match
+// within that already-authenticated identity.
 // ═══════════════════════════════════════════════
 widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -1232,7 +1233,9 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
   if (res.headersSent) return;
   if (!workspaceId) return res.json({ conversations: [] });
 
-  const visitorId = (req.query.visitor_id as string) || null;
+  // Cookie-derived identity ONLY. Deliberately does not fall back to
+  // req.query.visitor_id / req.body.visitor_id.
+  const visitorId = (req as any).visitorId as string | undefined;
   if (!visitorId) return res.json({ conversations: [] });
 
   const supabase = getServiceClient(config);
@@ -1279,22 +1282,44 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     const list = convos || [];
     const convIds = list.map((c: any) => c.id);
 
-    // Last message per conversation, for the preview + lastMessageAt.
-    // conversation_messages has no visitor-side "read" marker (the
-    // existing `seen_at` column is the opposite direction — an operator
-    // marking a visitor's message seen), so unreadCount is always 0 here
-    // rather than inventing a signal that doesn't exist.
+    // Visitor-side read markers (widget_conversation_reads). Keyed by the
+    // cookie-derived visitor id, so a visitor only ever sees their own
+    // read state.
+    const readAtByConv: Record<string, number> = {};
+    if (convIds.length > 0) {
+      const { data: reads } = await supabase
+        .from('widget_conversation_reads')
+        .select('conversation_id, last_read_at')
+        .eq('workspace_id', workspaceId)
+        .eq('visitor_id', visitorId)
+        .in('conversation_id', convIds);
+      for (const r of (reads || []) as any[]) {
+        readAtByConv[r.conversation_id] = new Date(r.last_read_at).getTime();
+      }
+    }
+
+    // Last message per conversation (preview + lastMessageAt) and the real
+    // unread count: inbound messages (operator / ai / bot / system) created
+    // after this visitor's last_read_at for that thread. The visitor's own
+    // messages never count as unread.
+    const INBOUND = new Set(['agent', 'operator', 'ai', 'bot', 'system']);
     const lastByConv: Record<string, { body: string; created_at: string }> = {};
+    const unreadByConv: Record<string, number> = {};
     if (convIds.length > 0) {
       const { data: msgs } = await supabase
         .from('conversation_messages')
-        .select('conversation_id, body, created_at')
+        .select('conversation_id, body, created_at, sender_type')
         .in('conversation_id', convIds)
         .order('created_at', { ascending: false })
         .limit(500);
       for (const m of (msgs || []) as any[]) {
         if (!lastByConv[m.conversation_id]) {
           lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at };
+        }
+        if (!INBOUND.has(String(m.sender_type))) continue;
+        const readAt = readAtByConv[m.conversation_id] ?? 0;
+        if (new Date(m.created_at).getTime() > readAt) {
+          unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] || 0) + 1;
         }
       }
     }
@@ -1311,7 +1336,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         status: c.status || 'unknown',
         updatedAt: c.updated_at,
         preview: last ? truncate(last.body) : '',
-        unreadCount: 0,
+        unreadCount: unreadByConv[c.id] || 0,
         lastMessageAt: last ? last.created_at : c.updated_at,
       };
     });
@@ -1322,6 +1347,76 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     res.status(500).json({ error: 'Internal error' });
   }
 });
+
+// ═══════════════════════════════════════════════
+// POST /conversations/:id/read — visitor read marker
+// ───────────────────────────────────────────────
+// Sets last_read_at=now() for (conversation, cookie-derived visitor).
+// Ownership is re-verified against the visitor's own sessions/contact so a
+// visitor cannot mark somebody else's thread as read.
+// ═══════════════════════════════════════════════
+widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, (req.body && (req.body as any).workspace_id) || (req.query.workspace_id as string));
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const visitorId = (req as any).visitorId as string | undefined;
+  if (!visitorId) return res.status(401).json({ error: 'visitor identity required' });
+
+  const conversationId = String(req.params.id || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId)) {
+    return res.status(400).json({ error: 'invalid conversation id' });
+  }
+
+  const supabase = getServiceClient(config);
+  try {
+    const { data: convo } = await supabase
+      .from('conversations')
+      .select('id, visitor_session_id, contact_id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!convo) return res.status(404).json({ error: 'not found' });
+
+    const { data: sessions } = await supabase
+      .from('visitor_sessions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_id', visitorId)
+      .limit(50);
+    const sessionIds = new Set((sessions || []).map((s: any) => s.id));
+
+    let owns = !!(convo as any).visitor_session_id && sessionIds.has((convo as any).visitor_session_id);
+    if (!owns && (convo as any).contact_id) {
+      const { data: contact } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('id', (convo as any).contact_id)
+        .contains('metadata', { visitor_id: visitorId })
+        .maybeSingle();
+      owns = !!contact;
+    }
+    if (!owns) return res.status(404).json({ error: 'not found' });
+
+    await supabase
+      .from('widget_conversation_reads')
+      .upsert({
+        workspace_id: workspaceId,
+        conversation_id: conversationId,
+        visitor_id: visitorId,
+        last_read_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'conversation_id,visitor_id' });
+
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[widget-conversation-read] Error:', err.message);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 
 // ═══════════════════════════════════════════════
 // GET /help-articles — Knowledge base articles

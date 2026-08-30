@@ -897,6 +897,139 @@
       '</div>';
 
   }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Knowledge Base surfaces
+  // ══════════════════════════════════════════════════════════════════
+  // Data fetching, search state and HTML sanitization stay in Widget
+  // Core / the KB module. Everything below is pure markup driven by a
+  // view-model:
+  //   vm = {
+  //     rtl, state: 'list'|'results'|'searching'|'article',
+  //     query, emptyText,
+  //     article:   { title, excerpt, contentHtml, publicUrl },
+  //     results:   [{ slug, title, excerpt }],
+  //     articles:  [{ slug, title, excerpt }],
+  //     categories:[{ name, description, url }],
+  //   }
+  // `article.contentHtml` MUST arrive already sanitized by Core.
+
+  var KB_ICON_SEARCH =
+    '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' +
+    '</svg>';
+  var KB_ICON_BOOK =
+    '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' +
+    '</svg>';
+  var KB_ICON_CHAT =
+    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+
+  function kbArticleItemHtml(a) {
+    return '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' +
+      Util.escapeHtml(a.slug) + '">' +
+      '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
+      (a.excerpt ? '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</div>' : '') +
+      '</button>';
+  }
+
+  function kbSearchBarHtml(vm) {
+    vm = vm || {};
+    return '<div class="kb-search-wrap">' +
+      '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
+      'placeholder="' + Util.escapeHtml(t('searchKb')) + '" value="' + Util.escapeHtml(vm.query || '') + '" />' +
+      '</div>';
+  }
+
+  function kbEmptyHtml(vm) {
+    vm = vm || {};
+    var isSearch = vm.state === 'results';
+    var text = vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'));
+    return '<div class="kb-empty kb-empty-centered">' +
+      '<div class="kb-empty-icon" aria-hidden="true">' + (isSearch ? KB_ICON_SEARCH : KB_ICON_BOOK) + '</div>' +
+      '<p class="kb-empty-text">' + Util.escapeHtml(text) + '</p>' +
+      (vm.hideChatCta ? '' :
+        '<button type="button" class="kb-cta kb-cta-pro" data-kb-action="switch-chat">' +
+          '<span class="kb-cta-icon" aria-hidden="true">' + KB_ICON_CHAT + '</span>' +
+          '<span>' + Util.escapeHtml(t('kbSwitchToChat')) + '</span>' +
+        '</button>') +
+      '</div>';
+  }
+
+  function kbLoadingHtml() {
+    return '<div class="kb-status">' + Util.escapeHtml(t('kbSearching')) + '</div>';
+  }
+
+  function kbSearchResultsHtml(vm) {
+    vm = vm || {};
+    var results = vm.results || [];
+    if (!results.length) return kbEmptyHtml({ state: 'results', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
+    return '<div class="kb-list">' + results.map(kbArticleItemHtml).join('') + '</div>';
+  }
+
+  function kbHomeHtml(vm) {
+    vm = vm || {};
+    var cats = vm.categories || [];
+    var articles = vm.articles || [];
+    if (!cats.length && !articles.length) {
+      return kbEmptyHtml({ state: 'list', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
+    }
+    var html = '';
+    if (articles.length) {
+      html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
+      html += '<div class="kb-list">' + articles.map(kbArticleItemHtml).join('') + '</div>';
+    }
+    if (cats.length) {
+      html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
+      html += '<div class="kb-list">';
+      cats.forEach(function (c) {
+        var href = c.url ? ' href="' + Util.escapeHtml(c.url) + '"' : '';
+        html += '<a class="kb-category" target="_blank" rel="noopener noreferrer"' + href + '>' +
+          '<div class="kb-article-title">' + Util.escapeHtml(c.name) + '</div>' +
+          (c.description ? '<div class="kb-article-excerpt">' + Util.escapeHtml(c.description) + '</div>' : '') +
+          '</a>';
+      });
+      html += '</div>';
+    }
+    return html;
+  }
+
+  function kbArticleHtml(vm) {
+    vm = vm || {};
+    var a = vm.article || {};
+    var rtl = !!vm.rtl;
+    return '<div class="kb-article-view">' +
+      '<button type="button" class="kb-back" data-kb-action="back">' +
+        (rtl ? '→ ' : '← ') + Util.escapeHtml(t('kbBack')) +
+      '</button>' +
+      '<h2 class="kb-article-h">' + Util.escapeHtml(a.title || '') + '</h2>' +
+      (a.excerpt ? '<p class="kb-article-excerpt-full">' + Util.escapeHtml(a.excerpt) + '</p>' : '') +
+      '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
+      (a.publicUrl
+        ? '<div class="kb-article-footer">' +
+            '<a class="kb-open-browser" href="' + Util.escapeHtml(a.publicUrl) + '" target="_blank" rel="noopener noreferrer">' +
+              Util.escapeHtml(t('kbOpenInBrowser')) +
+            '</a>' +
+          '</div>'
+        : '') +
+      '</div>';
+  }
+
+  /** Full KB surface — search bar + the state-specific body. */
+  function kbHtml(vm) {
+    vm = vm || {};
+    var state = vm.state || 'list';
+    var inner;
+    if (state === 'article') inner = kbArticleHtml(vm);
+    else if (state === 'searching') inner = kbLoadingHtml(vm);
+    else if (state === 'results') inner = kbSearchResultsHtml(vm);
+    else inner = kbHomeHtml(vm);
+    return '<div class="kb-root"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
+      (vm.hideSearch ? '' : kbSearchBarHtml(vm)) +
+      inner +
+      '</div>';
+  }
+
     return {
       id: 'classic',
       shellHtml: shellHtml,

@@ -679,6 +679,30 @@
         welcomeFallback: 'Hi there 👋\nHow can we help you today?',
         teamLabel: 'Support team',
         onlineLabel: 'online',
+        // web-yar template surfaces
+        wyRecentConversations: 'Recent conversations',
+        wyViewConversations: 'View conversations',
+        wyConversations: 'Conversations',
+        wyNewConversation: 'New conversation',
+        wyNoConversations: 'No conversations yet',
+        wyNoPreview: 'No messages yet',
+        wyLoading: 'Loading…',
+        wyStatusOpen: 'Open',
+        wyStatusResolved: 'Resolved',
+        wyContinueLast: 'Continue last conversation',
+        wyStartNew: 'New conversation',
+        wyArticles: 'Articles',
+        wyMoreArticles: 'More articles',
+        wyArticlesSuggest: 'Suggested articles',
+        wyConnectOperator: 'Connect to an operator',
+        wyPrecontactDesc: 'Tell us how to reach you and an operator will join shortly.',
+        wyArticleHelpful: 'Was this article helpful?',
+        wyHelpfulYes: 'Helpful',
+        wyHelpfulNo: 'Not helpful',
+        wyFeedbackThanks: 'Thanks for your feedback!',
+        wyTalkToSupport: 'Chat with support',
+        convJustNow: 'now',
+
       },
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',
@@ -853,6 +877,30 @@
         welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
+        // web-yar template surfaces
+        wyRecentConversations: 'گفتگوهای اخیر',
+        wyViewConversations: 'مشاهده گفتگوها',
+        wyConversations: 'گفتگوها',
+        wyNewConversation: 'گفتگوی جدید',
+        wyNoConversations: 'هنوز گفتگویی ندارید',
+        wyNoPreview: 'هنوز پیامی نیست',
+        wyLoading: 'در حال بارگذاری…',
+        wyStatusOpen: 'باز',
+        wyStatusResolved: 'حل شده',
+        wyContinueLast: 'ادامه آخرین گفتگو',
+        wyStartNew: 'گفتگوی جدید',
+        wyArticles: 'مقالات',
+        wyMoreArticles: 'مقالات بیشتر',
+        wyArticlesSuggest: 'مقالات پیشنهادی',
+        wyConnectOperator: 'اتصال به اپراتور',
+        wyPrecontactDesc: 'راه ارتباطی خود را وارد کنید تا اپراتور به گفتگو بپیوندد.',
+        wyArticleHelpful: 'آیا این مقاله مفید بود؟',
+        wyHelpfulYes: 'مفید بود',
+        wyHelpfulNo: 'مفید نبود',
+        wyFeedbackThanks: 'از بازخورد شما سپاسگزاریم!',
+        wyTalkToSupport: 'گفتگو با پشتیبانی',
+        convJustNow: 'هم‌اکنون',
+
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım Merkezi',
@@ -1027,6 +1075,30 @@
         welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
         teamLabel: 'Destek ekibi',
         onlineLabel: 'çevrimiçi',
+        // web-yar template surfaces
+        wyRecentConversations: 'Son sohbetler',
+        wyViewConversations: 'Sohbetleri gör',
+        wyConversations: 'Sohbetler',
+        wyNewConversation: 'Yeni sohbet',
+        wyNoConversations: 'Henüz sohbet yok',
+        wyNoPreview: 'Henüz mesaj yok',
+        wyLoading: 'Yükleniyor…',
+        wyStatusOpen: 'Açık',
+        wyStatusResolved: 'Çözüldü',
+        wyContinueLast: 'Son sohbete devam et',
+        wyStartNew: 'Yeni sohbet',
+        wyArticles: 'Makaleler',
+        wyMoreArticles: 'Daha fazla makale',
+        wyArticlesSuggest: 'Önerilen makaleler',
+        wyConnectOperator: 'Operatöre bağlan',
+        wyPrecontactDesc: 'Size nasıl ulaşacağımızı yazın, bir operatör kısa sürede katılacak.',
+        wyArticleHelpful: 'Bu makale yardımcı oldu mu?',
+        wyHelpfulYes: 'Yardımcı oldu',
+        wyHelpfulNo: 'Yardımcı olmadı',
+        wyFeedbackThanks: 'Geri bildiriminiz için teşekkürler!',
+        wyTalkToSupport: 'Destek ile sohbet et',
+        convJustNow: 'şimdi',
+
       },
     };
     return {
@@ -3377,6 +3449,9 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
+    // slug -> 'up' | 'down' for votes this visitor submitted in this session.
+    var articleRatings = {};
+
     // In-flight de-dup for ensure() — renderBody() can call ensure() from
     // more than one branch (home preload + help tab) within the same tick
     // (e.g. two store subscriptions firing off the same underlying event),
@@ -3465,6 +3540,13 @@
               publicUrl: publicArticleUrl(currentArticle.slug),
             }
           : null,
+        // Article feedback is a real, persisted Knowledge Base capability
+        // (POST /api/widget/kb/articles/:slug/feedback). It is only offered
+        // while an article is open; the rating shown is the one this
+        // visitor actually submitted in this session.
+        feedback: (view === 'article' && currentArticle)
+          ? { enabled: true, rating: articleRatings[currentArticle.slug] || null }
+          : { enabled: false, rating: null },
         results: (s.searchResults || []).map(function (a) {
           return { slug: a.slug, title: a.title, excerpt: a.excerpt };
         }),
@@ -3479,6 +3561,7 @@
           };
         }),
       };
+
 
       rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(vm) : '';
       bindEvents();
@@ -3604,7 +3687,44 @@
           });
         })(actionEls[i]);
       }
+
+      // Article helpfulness vote — persisted through the Knowledge Base
+      // extension endpoint. The UI only reflects a rating once the server
+      // accepted it; a failed vote leaves the buttons untouched.
+      var rateEls = rootEl.querySelectorAll('[data-kb-rate]');
+      for (var ri = 0; ri < rateEls.length; ri++) {
+        (function (el) {
+          el.addEventListener('click', function (ev) {
+            try { ev.preventDefault(); } catch (_) {}
+            if (!currentArticle || !currentArticle.slug) return;
+            var slug = currentArticle.slug;
+            var rating = el.getAttribute('data-kb-rate');
+            submitArticleFeedback(slug, rating);
+          });
+        })(rateEls[ri]);
+      }
     }
+
+    function submitArticleFeedback(slug, rating) {
+      var visitorId = '';
+      try { visitorId = (window.__gs_identity && window.__gs_identity.visitorId) || ''; } catch (_) {}
+      var url = ctx.apiBase + '/api/widget/kb/articles/' + encodeURIComponent(slug) + '/feedback' +
+        '?workspace_id=' + encodeURIComponent(ctx.workspaceId || '') +
+        (visitorId ? ('&visitor_id=' + encodeURIComponent(visitorId)) : '');
+      ctx.fetchWith(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: rating, workspace_id: ctx.workspaceId }),
+      })
+        .then(function (r) { return r && r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || data.ok !== true) return;
+          articleRatings[slug] = data.rating || rating;
+          if (currentArticle && currentArticle.slug === slug) paint();
+        })
+        .catch(function () { /* silent — voting is non-critical */ });
+    }
+
 
     function restoreCaret(el, pos) {
       if (!el || typeof el.setSelectionRange !== 'function') return;
@@ -5977,7 +6097,21 @@
       } catch (_) {}
     }
 
+    // View chrome — the active template renders its OWN header for every
+    // full-screen view (home / list / help / article / pre-contact); the
+    // shell's chat header belongs to the chat view only. Core exposes the
+    // current view on the panel so templates can style per-view, and never
+    // makes template-specific decisions itself.
+    function syncViewChrome(key) {
+      try { panel.setAttribute('data-view', key); } catch (_) {}
+      try {
+        var chatHeader = panel.querySelector('[data-chat-header]');
+        if (chatHeader) chatHeader.hidden = key !== 'chat';
+      } catch (_) {}
+    }
+
     function switchTab(key) {
+      syncViewChrome(key);
       if (shellStore.get().activeTab === key) { renderBody(); return; }
       shellStore.set({ activeTab: key });
       try {
@@ -5992,6 +6126,118 @@
       }
     }
 
+    // ─── Visitor conversation list (server-backed) ───
+    // GET /api/widget/conversations returns ONLY the conversations that
+    // belong to this visitor. Core owns the state; the template owns markup.
+    var conversationsStore = createStore({ loaded: false, loading: false, items: [] });
+
+    function relativeTimeLabel(iso) {
+      try {
+        var ts = new Date(iso).getTime();
+        if (!isFinite(ts)) return '';
+        var diff = Math.max(0, Date.now() - ts);
+        var mins = Math.floor(diff / 60000);
+        if (mins < 1) return t('convJustNow') !== 'convJustNow' ? t('convJustNow') : 'now';
+        if (mins < 60) return mins + 'm';
+        var hrs = Math.floor(mins / 60);
+        if (hrs < 24) return hrs + 'h';
+        return Math.floor(hrs / 24) + 'd';
+      } catch (_) { return ''; }
+    }
+
+    function mapConversationVm(c) {
+      return {
+        id: c.id,
+        status: c.status,
+        preview: c.preview || '',
+        unreadCount: Number(c.unreadCount) || 0,
+        timeLabel: relativeTimeLabel(c.lastMessageAt || c.updatedAt),
+      };
+    }
+
+    function loadConversations(onDone) {
+      if (!chatEnabled) { if (onDone) onDone(); return; }
+      var st = conversationsStore.get();
+      if (st.loading) return;
+      conversationsStore.set({ loading: true });
+      var visitorId = (identityStore.get() || {}).visitorId
+        || ((window.__gs_identity || {}).visitorId) || '';
+      var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
+        encodeURIComponent(ctx.workspaceId || '') +
+        (visitorId ? ('&visitor_id=' + encodeURIComponent(visitorId)) : '');
+      ctx.fetchWith(url, { method: 'GET' })
+        .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
+        .catch(function () { return { conversations: [] }; })
+        .then(function (data) {
+          conversationsStore.set({
+            loaded: true,
+            loading: false,
+            items: (data && data.conversations ? data.conversations : []).map(mapConversationVm),
+          });
+          if (onDone) onDone();
+        });
+    }
+
+    // Opening an existing thread = make it the active conversation and go
+    // to chat. Business logic (history load, subscription) is reused.
+    function openConversation(conversationId) {
+      if (!conversationId) { switchTab('chat'); return; }
+      if (chatStore.get().conversationId !== conversationId) {
+        chatStore.set({ conversationId: conversationId, messages: [] });
+        try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
+        try { chatUI.bootstrapHistory(function () { if (shellStore.get().activeTab === 'chat') renderBody(); }); } catch (_) {}
+      }
+      switchTab('chat');
+    }
+
+    function bindViewHooks(root) {
+      if (!root) return;
+      Array.prototype.forEach.call(root.querySelectorAll('[data-view]'), function (el) {
+        el.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) {}
+          switchTab(el.getAttribute('data-view'));
+        });
+      });
+      Array.prototype.forEach.call(root.querySelectorAll('[data-view-back]'), function (el) {
+        el.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) {}
+          switchTab(el.getAttribute('data-view-back') || 'home');
+        });
+      });
+      Array.prototype.forEach.call(root.querySelectorAll('[data-conversation-open]'), function (el) {
+        el.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) {}
+          openConversation(el.getAttribute('data-conversation-open'));
+        });
+      });
+    }
+
+    function renderConversationList() {
+      if (!body) return;
+      var cs = conversationsStore.get();
+      body.innerHTML = Presentation.conversationListHtml
+        ? Presentation.conversationListHtml({
+            rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
+            loading: cs.loading && !cs.loaded,
+            conversations: cs.items,
+            chatEnabled: chatEnabled,
+          })
+        : '';
+      bindViewHooks(body);
+      var newBtn = body.querySelector('[data-home-action="chat"]');
+      if (newBtn) {
+        newBtn.addEventListener('click', function () {
+          chatStore.set({ conversationId: null, messages: [] });
+          switchTab('chat');
+        });
+      }
+      if (!cs.loaded && !cs.loading) {
+        loadConversations(function () {
+          if (shellStore.get().activeTab === 'list') renderConversationList();
+        });
+      }
+    }
+
     function renderHome() {
       if (!body) return;
       var pState = presenceStore.get();
@@ -6002,14 +6248,20 @@
         teamMembers: teamMembers,
         categories: kbState.categories || [],
         articles: kbState.articles || [],
+        conversations: (conversationsStore.get() || {}).items || [],
+        headerTitle: headerTitle,
         kbEnabled: kbEnabled,
         chatEnabled: chatEnabled,
         primaryColor: ctx.primaryColor,
         welcomeMessage: welcomeMessage,
         smartSurface: smartSurface,
       });
+      bindViewHooks(body);
       var ctaBtn = body.querySelector('[data-home-action="chat"]');
-      if (ctaBtn) ctaBtn.addEventListener('click', function () { switchTab('chat'); });
+      if (ctaBtn) ctaBtn.addEventListener('click', function () {
+        chatStore.set({ conversationId: chatStore.get().conversationId });
+        switchTab('chat');
+      });
       var seeAll = body.querySelector('[data-home-action="help"]');
       if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {
@@ -6023,7 +6275,13 @@
         el.addEventListener('click', function () { switchTab('help'); });
       });
       bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
+      if (!(conversationsStore.get() || {}).loaded) {
+        loadConversations(function () {
+          if (shellStore.get().activeTab === 'home') renderHome();
+        });
+      }
     }
+
 
     // Canonical entry-flow state names (spec §21). Internal naming only —
     // no visual/template redesign implied. See deriveChatTabState() below
@@ -6141,6 +6399,7 @@
         Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
       } catch (_) {}
       var tab = shellStore.get().activeTab;
+      syncViewChrome(tab);
       if (tab === 'home') {
         if (inputBar) inputBar.style.display = 'none';
         renderHome();
@@ -6151,6 +6410,12 @@
         }
         return;
       }
+      if (tab === 'list') {
+        if (inputBar) inputBar.style.display = 'none';
+        renderConversationList();
+        return;
+      }
+
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight

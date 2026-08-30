@@ -11,7 +11,7 @@
  * Server responsibility here is purely security: the id becomes part of an
  * asset file name, so its shape is strictly validated.
  */
-export const DEFAULT_WIDGET_TEMPLATE_ID = 'classic';
+export const DEFAULT_WIDGET_TEMPLATE_ID = 'web-yar';
 
 const TEMPLATE_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 

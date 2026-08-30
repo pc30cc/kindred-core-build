@@ -3615,7 +3615,44 @@
           });
         })(actionEls[i]);
       }
+
+      // Article helpfulness vote — persisted through the Knowledge Base
+      // extension endpoint. The UI only reflects a rating once the server
+      // accepted it; a failed vote leaves the buttons untouched.
+      var rateEls = rootEl.querySelectorAll('[data-kb-rate]');
+      for (var ri = 0; ri < rateEls.length; ri++) {
+        (function (el) {
+          el.addEventListener('click', function (ev) {
+            try { ev.preventDefault(); } catch (_) {}
+            if (!currentArticle || !currentArticle.slug) return;
+            var slug = currentArticle.slug;
+            var rating = el.getAttribute('data-kb-rate');
+            submitArticleFeedback(slug, rating);
+          });
+        })(rateEls[ri]);
+      }
     }
+
+    function submitArticleFeedback(slug, rating) {
+      var visitorId = '';
+      try { visitorId = (window.__gs_identity && window.__gs_identity.visitorId) || ''; } catch (_) {}
+      var url = ctx.apiBase + '/api/widget/kb/articles/' + encodeURIComponent(slug) + '/feedback' +
+        '?workspace_id=' + encodeURIComponent(ctx.workspaceId || '') +
+        (visitorId ? ('&visitor_id=' + encodeURIComponent(visitorId)) : '');
+      ctx.fetchWith(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: rating, workspace_id: ctx.workspaceId }),
+      })
+        .then(function (r) { return r && r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || data.ok !== true) return;
+          articleRatings[slug] = data.rating || rating;
+          if (currentArticle && currentArticle.slug === slug) paint();
+        })
+        .catch(function () { /* silent — voting is non-critical */ });
+    }
+
 
     function restoreCaret(el, pos) {
       if (!el || typeof el.setSelectionRange !== 'function') return;

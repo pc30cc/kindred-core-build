@@ -443,7 +443,9 @@ export function WidgetLivePreview({
 <head>
 <meta charset="utf-8" />
 <link rel="stylesheet" href="/widget/runtime.css" />
-<link rel="stylesheet" href="/widget/presentation-classic.css" />
+<!-- The active template's stylesheet is injected at runtime from the
+     registry descriptor — the preview never names a template asset. -->
+
 <style>
   html,body{margin:0;height:100%;}
   body{background:#F1F5F9;overflow:hidden;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}

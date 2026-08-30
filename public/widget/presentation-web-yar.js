@@ -85,6 +85,17 @@
     }
 
 
+    /**
+     * Reply-time note under the workspace name. Workspace-configurable via
+     * `widget_settings.reply_time_text` (surfaced as config.replyTimeText);
+     * falls back to the locale default for the availability state.
+     */
+    function replyTimeText(online) {
+      var custom = (config && typeof config.replyTimeText === 'string') ? config.replyTimeText.trim() : '';
+      if (custom) return custom;
+      return online === false ? tf('homeReplySlow', '') : tf('homeReplyFast', '');
+    }
+
     function headerIdentityHtml(opts) {
       opts = opts || {};
       var title = esc(opts.title || (config && config.brandName) || '');
@@ -93,10 +104,12 @@
       return (opts.back ? backButtonHtml(opts.back) : '') +
         identityAvatarHtml(opts.avatarSize) +
         '<div class="wy-head-text">' +
-          '<span class="wy-head-title">' + dot + '<span>' + title + '</span>' + (opts.stack || '') + '</span>' +
+          // Online-operator stack sits BEFORE the workspace name (design source).
+          '<span class="wy-head-title">' + dot + (opts.stack || '') + '<span>' + title + '</span></span>' +
           subtitle +
         '</div>';
     }
+
 
     // ══════════════════════════════════════════════════════════════════
     // Chat surfaces

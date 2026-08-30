@@ -180,10 +180,13 @@
 
 
 .wy-body-pad { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.wy-home-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.wy-home-scroll,
+/* Home body — 16px box, 16px gap between the scroll area and the fixed
+   action block (design source). */
+.wy-home-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 16px; gap: 16px; box-sizing: border-box; }
+.wy-home-scroll { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
 .wy-list-scroll,
 .wy-kb-scroll { flex: 1; min-height: 0; padding: 14px 16px 8px; }
+
 
 /* ─── Headers ───────────────────────────────────────────────────────── */
 .wy-head {
@@ -191,29 +194,26 @@
   align-items: center;
   gap: 10px;
   padding: 16px 20px;
-  background: var(--wy-card);
+  background: var(--wy-surface);
   flex: none;
   box-sizing: border-box;
 }
-/* Home header is the only one with symmetric 20px padding (design §1). */
-.wy-head-home { padding: 20px; justify-content: space-between; }
-/* Chat header uses a tighter 16px box (design §5). */
-/* Chat header — exact design box: 68px tall, 16px inline padding, hairline
-   bottom rule. Every dimension here is fixed presentation spec (never
-   configurable). */
+/* Home header — symmetric 20px padding, 12px avatar gutter (design source). */
+.wy-head-home { padding: 20px; gap: 12px; justify-content: space-between; }
+.wy-head-home .wy-head-text { gap: 4px; }
+.wy-head-home .wy-head-title { font-size: 16px; font-weight: 500; line-height: 1.1; }
+/* Chat header — design box: 16px padding, panel surface, no bottom rule. */
 .wy-head-chat {
-  height: 68px;
-  min-height: 68px;
-  padding: 0 16px;
+  padding: 16px;
   gap: 10px;
-  border-bottom: 1px solid #f0f0f3;
 }
-.wy-head-chat .wy-back { width: 36px; height: 36px; }
-.wy-head-chat .wy-head-title { font-size: 13px; font-weight: 500; gap: 6px; }
-.wy-head-chat .wy-head-sub { font-size: 10px; color: #8b8d98; }
-.wy-head-chat .wy-online-dot {
-  width: 12px; height: 12px; border: 2px solid #fff; box-sizing: border-box;
+.wy-head-chat .wy-back {
+  width: auto; height: auto; padding: 4px; margin-inline-end: -6px;
+  border-radius: 6px; color: var(--wy-text);
 }
+.wy-head-chat .wy-head-title { font-size: 15px; font-weight: 600; gap: 6px; }
+.wy-head-chat .wy-head-sub { font-size: 12px; color: var(--wy-muted); }
+.wy-head-chat .wy-online-dot { width: 8px; height: 8px; border: 0; }
 .wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
 .wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -240,12 +240,17 @@
 .wy-avatar-sm { width: 2.25rem; height: 2.25rem; font-size: 14px; }
 .wy-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-.home-stack { display: inline-flex; align-items: center; margin-inline-start: 6px; }
+/* Online-operator stack — 16px circles overlapping by 6px, sitting BEFORE
+   the workspace name inside the home header title row (design source). */
+.home-stack { display: inline-flex; align-items: center; flex: none; }
 .home-stack-item {
-  width: 20px; height: 20px; border-radius: 50%; background: var(--wy-hover-2);
-  border: 2px solid var(--wy-card); margin-inline-start: -7px; overflow: hidden; display: inline-block;
+  width: 1rem; height: 1rem; border-radius: 50%; background: var(--wy-hover-2);
+  border: 1.5px solid var(--wy-surface); box-sizing: border-box;
+  margin-inline-end: -6px; overflow: hidden; display: inline-block;
 }
+.home-stack-item:last-child { margin-inline-end: 0; }
 .home-stack-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 
 .wy-fab {
   width: 32px; height: 32px; border-radius: 9999px; background: var(--wy-accent); color: #fff;
@@ -273,19 +278,22 @@
 .wy-btn-block { width: 100%; }
 .wy-btn-grow { flex: 1 1 auto; }
 
-.wy-actions-block { flex: none; }
-.wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 6px; }
+.wy-actions-block { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }
 .wy-actions .wy-btn { flex: 1 1 auto; min-width: 0; }
+.wy-view-home .wy-actions .wy-btn { padding: 8px; }
 .wy-view-precontact .wy-actions { padding: 10px 16px; }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */
 /* `flex: none` keeps the footer pinned OUTSIDE the scroll area. */
 .wy-footer { flex: none; padding: 10px 16px 14px; text-align: center; }
+.wy-view-home .wy-footer { padding: 4px 0 0; }
 .wy-powered {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
-  color: var(--wy-faint); text-decoration: none; transition: color 0.16s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  line-height: 12px; font-size: 12px;
+  color: var(--wy-muted); text-decoration: none; transition: color 0.16s;
 }
-.wy-powered:hover { color: var(--wy-muted); }
+.wy-powered:hover { color: var(--wy-text); }
 .wy-powered-dot {
   width: 12px; height: 12px; border-radius: 50%; background: var(--wy-accent);
   flex: none;
@@ -298,16 +306,18 @@
 
 
 /* ─── Home ──────────────────────────────────────────────────────────── */
-.home-greeting-block { margin-bottom: 14px; }
-.home-greeting { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
-.home-welcome { font-size: 13.5px; color: var(--wy-muted); margin: 0; white-space: pre-line; }
+.home-greeting-block { display: flex; flex-direction: column; flex-shrink: 0; gap: 2px; margin: 0; }
+.home-greeting { font-size: 22px; font-weight: 500; margin: 0; color: var(--wy-text); }
+.home-welcome { font-size: 16px; font-weight: 500; color: var(--wy-text); margin: 0; white-space: pre-line; }
 
-.home-section { margin-bottom: 14px; }
-.home-section-title { font-size: 12px; font-weight: 600; color: var(--wy-muted); margin: 0 0 8px; }
+.home-section { display: flex; flex-direction: column; flex-shrink: 0; margin: 0; }
+.home-section-title { font-size: 13px; font-weight: 400; color: var(--wy-text); margin: 0 0 6px; }
+.home-recent { gap: 0; }
+.home-section:not(.home-recent) .home-section-title { font-size: 14px; margin-bottom: 8px; }
 
 .home-link {
-  display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
-  font-size: 12px; font-weight: 500; color: var(--wy-accent);
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin-top: 2px;
+  font-size: 12.5px; font-weight: 500; letter-spacing: 0.025em; color: var(--wy-accent); padding: 0;
 }
 .home-link-chevron { display: inline-flex; transition: transform 0.16s var(--wy-ease); }
 [dir='rtl'] .home-link-chevron svg { transform: scaleX(-1); }
@@ -334,10 +344,10 @@
 .conv-row:hover { background: var(--wy-hover); border-color: var(--wy-border-strong); transform: translateY(-1px); }
 .conv-row-compact { align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--wy-radius-sm); margin-bottom: 6px; }
 .conv-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.conv-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.conv-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-line { display: flex; align-items: center; gap: 8px; min-width: 0; justify-content: space-between; }
+.conv-name { font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-preview {
-  font-size: 12px; color: var(--wy-muted); flex: 1; min-width: 0;
+  font-size: 12.5px; color: var(--wy-muted); flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .conv-time { font-size: 11px; color: var(--wy-faint); flex: none; }
@@ -345,15 +355,16 @@
   padding: 1px 7px; font-size: 11px; font-weight: 500; color: #fff;
   border-radius: 9999px; background: var(--wy-accent); flex: none;
 }
-.conv-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--wy-online); }
+.conv-status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--wy-faint); }
 .conv-status.is-resolved { color: var(--wy-faint); }
-.conv-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.conv-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--wy-online); flex: none; }
+.conv-status.is-resolved .conv-status-dot { background: currentColor; }
+
 
 .wy-status { padding: 24px 8px; text-align: center; font-size: 13px; color: var(--wy-muted); }
 .wy-empty { padding: 40px 16px; text-align: center; color: var(--wy-muted); font-size: 13px; }
 
 /* ─── Chat header + body ────────────────────────────────────────────── */
-.wy-head-chat .wy-avatar { width: 36px; height: 36px; font-size: 14px; }
 .body {
   flex: 1;
   min-height: 0;
@@ -365,14 +376,14 @@
 .body:has(> .wy-view) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Chat view scroll host — the chat frame owns its own scrolling now that the
-   panel no longer wraps a persistent chat body. */
-.wy-chat-scroll { flex: 1; min-height: 0; padding: 14px 16px 4px; background: var(--wy-surface); }
+   panel no longer wraps a persistent chat body. Design: 16px box on white. */
+.wy-chat-scroll { flex: 1; min-height: 0; padding: 16px; background: var(--wy-card); }
 
 /* ─── Messages ──────────────────────────────────────────────────────── */
-.messages { display: flex; flex-direction: column; gap: 10px; padding-bottom: 8px; }
-.msg-row { display: flex; align-items: flex-end; gap: 8px; }
+.messages { display: flex; flex-direction: column; gap: 10px; }
+.msg-row { display: flex; align-items: flex-end; gap: 0.5rem; }
 .msg-row.visitor { flex-direction: row-reverse; }
-.msg-row.system { justify-content: center; }
+.msg-row.system { justify-content: center; padding: 2px 0; }
 .msg-row { animation: wy-msg-in 0.24s var(--wy-ease) both; }
 @keyframes wy-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .shell.no-anim .msg-row { animation: none; }
@@ -387,20 +398,22 @@
 
 .msg {
   position: relative;
-  max-width: 78%;
-  padding: 9px 13px;
-  border-radius: var(--wy-radius-lg);
-  font-size: 13.5px;
-  line-height: 1.75;
+  max-width: 80%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 1.25rem;
+  font-size: 14px;
+  line-height: 1.5;
   word-break: break-word;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
-.msg.operator { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-text); border-end-start-radius: 6px; }
-.msg.visitor { background: var(--wy-accent); color: #fff; border-end-end-radius: 6px; }
+.msg.operator { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-text); border-bottom-left-radius: 0.25rem; }
+.msg.visitor { background: var(--wy-accent); color: #fff; border-bottom-right-radius: 0.25rem; }
 .msg-text { white-space: pre-wrap; }
-.msg-time { align-self: flex-end; font-size: 10.5px; opacity: 0.65; }
+.msg-time { align-self: stretch; text-align: left; font-size: 10px; opacity: 1; color: var(--wy-faint); }
+.msg.visitor .msg-time { color: rgba(255, 255, 255, 0.75); }
+
 .msg-quote {
   border-inline-start: 3px solid currentColor; padding-inline-start: 8px; font-size: 12px;
   opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -533,74 +546,87 @@
 [data-call-surface] video { width: 100%; border-radius: var(--wy-radius-md); background: #0d0d0f; }
 .gs-call-pip-off { display: none; }
 
-/* ─── Composer (fixed design spec — nothing here is configurable) ───── */
+/* ─── Composer (fixed design spec — nothing here is configurable) ─────
+   Design source: one single-row pill (padding 0 8px, radius 7px, white,
+   1px ring) that holds mic → textarea → action group. Nothing sits outside
+   the pill; the zone itself is 8px/16px on the panel surface. */
 .composer-zone {
   flex: none;
-  background: #ffffff;
-  border-top: 1px solid #f0f0f3;
-  padding-top: 0;
+  background: var(--wy-surface);
+  padding: 8px 16px;
 }
 .input-bar {
+  position: relative;
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 12px;
+  align-items: center;
+  gap: 0;
+  padding: 0;
 }
-/* Mic sits OUTSIDE the input container: 40×40 primary-blue circle. */
-.mic-btn {
-  width: 40px; height: 40px; border-radius: 9999px;
-  background: var(--wy-accent); color: #fff; flex: none;
-  display: flex; align-items: center; justify-content: center;
-  transition: filter 0.15s, transform 0.15s var(--wy-ease);
-}
-.mic-btn:hover { filter: brightness(1.06); background: var(--wy-accent); }
-.mic-btn svg { width: 19px; height: 19px; }
 .input-wrap {
-  position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0;
-  border: 1px solid #e0e1e6; border-radius: 10px; background: #ffffff;
-  transition: border-color 0.16s, box-shadow 0.16s;
+  position: relative; display: flex; flex-direction: row; align-items: center;
+  flex: 1; min-width: 0;
+  border: 0; border-radius: 7px; background: #ffffff;
+  padding: 0 8px;
+  box-shadow: 0 0 0 1px var(--wy-border);
+  transition: box-shadow 0.16s;
 }
-.input-wrap:focus-within { border-color: #1f93ff; box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.1); }
+.input-wrap:focus-within { box-shadow: 0 0 0 1px var(--wy-accent); }
+/* Mic lives INSIDE the pill, before the textarea (design source). */
+.mic-btn {
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px; flex: none;
+  margin-inline-end: 6px; border-radius: 9999px;
+  background: transparent; color: var(--wy-text);
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, background-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.mic-btn:hover { background: var(--wy-hover-2); }
+.mic-btn svg { width: 18px; height: 18px; }
 .input {
-  width: 100%; box-sizing: border-box; min-width: 0;
-  height: 42px; min-height: 42px; max-height: 96px;
+  width: 100%; box-sizing: border-box; min-width: 0; flex: 1;
+  height: 44px; min-height: 44px; max-height: 15rem;
   border: 0; outline: none; background: transparent; resize: none; overflow-y: auto;
-  padding: 10px 12px 6px; line-height: 20px;
-  font-size: 13px; color: #1c2024;
+  padding: 12px 0; line-height: 20px;
+  font-size: 14px; color: var(--wy-text);
 }
-.input::placeholder { color: #b9bbc1; }
-/* Action row inside the input container. */
+.input::placeholder { color: var(--wy-faint); }
+/* Action group at the end of the pill. */
 .composer-actions {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 8px 6px;
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0; padding-inline-start: 8px; flex: none;
 }
-.composer-actions-start { display: flex; align-items: center; gap: 2px; }
+.composer-actions-start { display: flex; align-items: center; }
 .composer-actions-end { display: flex; align-items: center; }
 /* Mic while the draft is empty, send once there is something to send. */
 .input-bar:not(.has-draft) .send-btn { display: none; }
 .input-bar.has-draft .mic-btn { display: none; }
 .send-btn, .attach-btn, .emoji-btn, .escalate-btn {
-  display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
-  border-radius: 9999px; color: #8b8d98; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px;
+  border-radius: 9999px; background: transparent; color: var(--wy-text); flex: none;
   transition: background-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
 }
 .attach-btn svg, .emoji-btn svg { width: 18px; height: 18px; }
-.send-btn { background: var(--wy-accent); color: #fff; }
-.send-btn svg { width: 15px; height: 15px; }
-.send-btn:hover { filter: brightness(1.06); }
-.attach-btn:hover, .emoji-btn:hover, .escalate-btn:hover { background: var(--wy-hover-2); color: var(--wy-text); }
+.emoji-btn[aria-expanded='true'] { color: var(--wy-accent); }
+.send-btn { color: var(--wy-accent); margin-inline-start: 4px; }
+.send-btn svg { width: 18px; height: 18px; transform: scaleX(-1); }
+[dir='ltr'] .send-btn svg { transform: none; }
+.send-btn:hover, .attach-btn:hover, .emoji-btn:hover, .escalate-btn:hover { background: var(--wy-hover-2); }
 .send-btn:active, .attach-btn:active, .emoji-btn:active, .mic-btn:active { transform: scale(0.9); }
 .send-btn:disabled, .attach-btn:disabled { opacity: 0.45; }
-[dir='rtl'] .send-btn svg { transform: scaleX(-1); }
-.escalate-btn { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-accent); width: 36px; height: 36px; }
-.mic-btn.recording { background: #e5484d; color: #fff; }
-/* Chat footer sits directly under the composer (design §5). */
-.composer-zone .wy-footer { padding: 0 16px 8px; }
-.composer-zone .wy-powered { font-size: 10px; }
+.escalate-btn { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-accent); margin-inline-end: 6px; }
+/* [hidden] must win over the flex display above — the design shows no
+   escalate affordance until the core unhides it. */
+.send-btn[hidden], .attach-btn[hidden], .emoji-btn[hidden], .escalate-btn[hidden], .mic-btn[hidden] { display: none; }
+
+.mic-btn.recording { background: transparent; color: #e5484d; }
+/* Chat footer sits directly under the composer (design source). */
+.composer-zone .wy-footer { padding: 10px 0 0; }
+.composer-zone .wy-powered { font-size: 12px; }
 .mic-ring { position: absolute; inset: 0; border-radius: 9999px; pointer-events: none; }
 .mic-btn.recording .mic-ring { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); animation: wy-load-pulse 1.4s infinite; }
 
-.attach-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px; }
+
+.attach-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 6px; }
 .attach-tray[hidden] { display: none; }
 .attach-chip {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 12px;
@@ -610,7 +636,7 @@
 .attach-chip.failed { border-color: #e5484d; color: #e5484d; }
 
 .reply-preview {
-  display: flex; align-items: center; gap: 8px; margin: 0 12px 6px; padding: 8px 10px;
+  display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 8px 10px;
   background: var(--wy-hover-2); border-radius: var(--wy-radius-sm); border-inline-start: 3px solid var(--wy-accent);
   font-size: 12px; color: var(--wy-muted);
 }
@@ -618,7 +644,7 @@
 .reply-preview-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .emoji-picker {
-  margin: 0 12px 6px; background: var(--wy-card); border: 1px solid var(--wy-border);
+  margin: 0 0 6px; background: var(--wy-card); border: 1px solid var(--wy-border);
   border-radius: var(--wy-radius-xl); padding: 0.25rem; display: grid;
   grid-template-columns: repeat(6, 1fr); max-height: 13.25rem; overflow-y: auto;
 }
@@ -629,7 +655,7 @@
 }
 .emoji-picker button:hover { background: var(--wy-hover-2); }
 
-.rec-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--wy-muted); }
+.rec-bar { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; font-size: 12px; color: var(--wy-muted); }
 
 /* ─── Pre-contact / fallback forms ──────────────────────────────────── */
 .prechat-subtitle, .prechat-intro { font-size: 13px; color: var(--wy-muted); margin: 0 0 14px; }

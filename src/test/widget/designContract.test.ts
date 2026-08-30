@@ -92,14 +92,14 @@ describe('chat header design contract', () => {
   });
 
   it('locks the design header box', () => {
-    expect(PRES_CSS).toMatch(/\.wy-head-chat\s*\{[^}]*height:\s*68px/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat\s*\{[^}]*padding:\s*0 16px/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat\s*\{[^}]*border-bottom:\s*1px solid #f0f0f3/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-back\s*\{[^}]*width:\s*36px/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-avatar\s*\{[^}]*width:\s*36px/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-title\s*\{[^}]*font-size:\s*13px/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-sub\s*\{[^}]*font-size:\s*10px/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-online-dot\s*\{[^}]*width:\s*12px/);
+    expect(PRES_CSS).toMatch(/\.wy-head-chat\s*\{[^}]*padding:\s*16px/);
+    expect(PRES_CSS).not.toMatch(/\.wy-head-chat\s*\{[^}]*height:\s*68px/);
+    expect(PRES_CSS).not.toMatch(/\.wy-head-chat\s*\{[^}]*border-bottom/);
+    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-back\s*\{[^}]*padding:\s*4px/);
+    expect(PRES_CSS).toMatch(/\.wy-avatar\s*\{[^}]*width:\s*2\.75rem/);
+    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-title\s*\{[^}]*font-size:\s*15px/);
+    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-sub\s*\{[^}]*font-size:\s*12px/);
+    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-online-dot\s*\{[^}]*width:\s*8px/);
   });
 });
 
@@ -114,12 +114,13 @@ describe('typing state', () => {
 });
 
 describe('composer design contract', () => {
-  it('places the mic OUTSIDE the input container and send inside the action row', () => {
+  it('keeps the whole composer in ONE pill: mic, textarea, then actions', () => {
     const el = chatDom();
     const bar = el.querySelector('[data-input-bar]')!;
     const wrap = el.querySelector('[data-input-wrap]')!;
-    expect(bar.querySelector(':scope > [data-mic-btn]')).toBeTruthy();
-    expect(wrap.querySelector('[data-mic-btn]')).toBeNull();
+    expect(bar.querySelector(':scope > [data-mic-btn]')).toBeNull();
+    // Mic is the first child inside the pill, ahead of the textarea.
+    expect(wrap.firstElementChild!.getAttribute('data-mic-btn')).not.toBeNull();
     expect(wrap.querySelector('.composer-actions [data-send-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-attach-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-emoji-btn]')).toBeTruthy();
@@ -137,23 +138,20 @@ describe('composer design contract', () => {
   });
 
   it('locks composer geometry to the design values', () => {
-    expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*background:\s*#ffffff/);
-    expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*border-top:\s*1px solid #f0f0f3/);
-    expect(PRES_CSS).toMatch(/\.input-bar\s*\{[^}]*align-items:\s*flex-end/);
-    expect(PRES_CSS).toMatch(/\.input-bar\s*\{[^}]*gap:\s*8px/);
-    expect(PRES_CSS).toMatch(/\.input-bar\s*\{[^}]*padding:\s*12px/);
-    expect(PRES_CSS).toMatch(/\.mic-btn\s*\{[^}]*width:\s*40px[^}]*height:\s*40px/);
-    expect(PRES_CSS).toMatch(/\.mic-btn svg\s*\{[^}]*width:\s*19px/);
-    expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*border-radius:\s*10px/);
-    expect(PRES_CSS).toMatch(/\.input-wrap:focus-within\s*\{[^}]*border-color:\s*#1f93ff/);
-    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*height:\s*42px/);
-    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*max-height:\s*96px/);
-    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*font-size:\s*13px/);
-    expect(PRES_CSS).toMatch(/\.input::placeholder\s*\{[^}]*color:\s*#b9bbc1/);
-    expect(PRES_CSS).toMatch(/\.composer-actions\s*\{[^}]*justify-content:\s*space-between/);
+    expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*background:\s*var\(--wy-surface\)/);
+    expect(PRES_CSS).toMatch(/\.composer-zone\s*\{[^}]*padding:\s*8px 16px/);
+    expect(PRES_CSS).toMatch(/\.input-bar\s*\{[^}]*align-items:\s*center/);
+    expect(PRES_CSS).toMatch(/\.mic-btn\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/);
+    expect(PRES_CSS).toMatch(/\.mic-btn svg\s*\{[^}]*width:\s*18px/);
+    expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*border-radius:\s*7px/);
+    expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*padding:\s*0 8px/);
+    expect(PRES_CSS).toMatch(/\.input-wrap:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--wy-accent\)/);
+    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*height:\s*44px/);
+    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*max-height:\s*15rem/);
+    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*font-size:\s*14px/);
     expect(PRES_CSS).toMatch(/\.attach-btn svg, \.emoji-btn svg\s*\{[^}]*width:\s*18px/);
-    expect(PRES_CSS).toMatch(/\.send-btn svg\s*\{[^}]*width:\s*15px/);
-    expect(PRES_CSS).toMatch(/\.composer-zone \.wy-powered\s*\{[^}]*font-size:\s*10px/);
+    expect(PRES_CSS).toMatch(/\.send-btn svg\s*\{[^}]*width:\s*18px/);
+    expect(PRES_CSS).toMatch(/\.composer-zone \.wy-powered\s*\{[^}]*font-size:\s*12px/);
   });
 
   it('renders exactly one footer under the composer', () => {

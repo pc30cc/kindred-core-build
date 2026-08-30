@@ -3977,6 +3977,8 @@ const en = {
       sampleMessage: 'Hi! How can we help?',
       sampleReply: 'I have a question',
       inputPlaceholder: 'Type a message…',
+      replyTimeLabel: 'Reply time note',
+      replyTimeHint: 'Shown under your workspace name in the widget header.',
       onlineNow: 'Online now',
     },
     prechat: {

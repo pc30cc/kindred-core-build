@@ -85,6 +85,17 @@
     }
 
 
+    /**
+     * Reply-time note under the workspace name. Workspace-configurable via
+     * `widget_settings.reply_time_text` (surfaced as config.replyTimeText);
+     * falls back to the locale default for the availability state.
+     */
+    function replyTimeText(online) {
+      var custom = (config && typeof config.replyTimeText === 'string') ? config.replyTimeText.trim() : '';
+      if (custom) return custom;
+      return online === false ? tf('homeReplySlow', '') : tf('homeReplyFast', '');
+    }
+
     function headerIdentityHtml(opts) {
       opts = opts || {};
       var title = esc(opts.title || (config && config.brandName) || '');
@@ -93,10 +104,12 @@
       return (opts.back ? backButtonHtml(opts.back) : '') +
         identityAvatarHtml(opts.avatarSize) +
         '<div class="wy-head-text">' +
-          '<span class="wy-head-title">' + dot + '<span>' + title + '</span>' + (opts.stack || '') + '</span>' +
+          // Online-operator stack sits BEFORE the workspace name (design source).
+          '<span class="wy-head-title">' + dot + (opts.stack || '') + '<span>' + title + '</span></span>' +
           subtitle +
         '</div>';
     }
+
 
     // ══════════════════════════════════════════════════════════════════
     // Chat surfaces
@@ -649,7 +662,7 @@
         headerIdentityHtml({
           back: 'home',
           title: vm.brandName || (config && config.brandName) || '',
-          subtitle: tf('homeReplyFast', ''),
+          subtitle: replyTimeText(true),
           online: true,
         }) +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
@@ -683,14 +696,14 @@
             '<div class="input-bar" data-input-bar>' +
               '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + esc(t('talkToHuman')) +
                 '" aria-label="' + esc(t('talkToHuman')) + '">' + ICON.human + '</button>' +
-              // Mic lives OUTSIDE the input container (design §4) and only
-              // shows while the draft is empty.
-              (voiceNotesEnabled && micSupported
-                ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
-                    '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
-                    '<span class="mic-ring" aria-hidden="true"></span></button>'
-                : '') +
               '<div class="input-wrap" data-input-wrap>' +
+                // Mic is the FIRST child inside the input pill and only shows
+                // while the draft is empty (design source).
+                (voiceNotesEnabled && micSupported
+                  ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
+                      '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
+                      '<span class="mic-ring" aria-hidden="true"></span></button>'
+                  : '') +
                 '<textarea class="input" rows="1" data-msg-input placeholder="' + esc(t('typeMsg')) + '"></textarea>' +
                 '<div class="composer-actions">' +
                   '<div class="composer-actions-start">' +
@@ -700,7 +713,7 @@
                         '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
                       : '') +
                     (emojiEnabled
-                      ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + esc(t('emojiPicker')) +
+                      ? '<button type="button" class="emoji-btn" data-emoji-btn aria-expanded="false" title="' + esc(t('emojiPicker')) +
                           '" aria-label="' + esc(t('emojiPicker')) + '">' + ICON.emoji + '</button>'
                       : '') +
                   '</div>' +
@@ -711,6 +724,7 @@
                 '</div>' +
               '</div>' +
             '</div>' +
+
             footerHtml() +
           '</div>'
         : footerHtml();
@@ -826,7 +840,7 @@
         '<div class="wy-head wy-head-home">' +
           headerIdentityHtml({
             title: vm.headerTitle || (config && config.brandName) || '',
-            subtitle: online ? tf('homeReplyFast', '') : tf('homeReplySlow', ''),
+            subtitle: replyTimeText(online),
             stack: stackHtml,
           }) +
         '</div>' +

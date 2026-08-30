@@ -351,6 +351,16 @@ function WidgetPageContent() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
+                    <Input
+                      value={(live as any)?.reply_time_text || ''}
+                      onChange={e => setField('reply_time_text' as any, e.target.value)}
+                      placeholder={t('widgetPage.preview.replyTimeLabel')}
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
+                  </div>
+
+                  <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
                     <Select
                       value={effectiveLocale}

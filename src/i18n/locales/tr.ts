@@ -3968,6 +3968,8 @@ const tr: TranslationKeys = {
       sampleMessage: 'Merhaba! Nasıl yardımcı olabiliriz?',
       sampleReply: 'Bir sorum var',
       inputPlaceholder: 'Bir mesaj yazın…',
+      replyTimeLabel: 'Yanıt süresi notu',
+      replyTimeHint: 'Widget başlığında çalışma alanı adının altında görünür.',
       onlineNow: 'Şu anda çevrimiçi',
     },
     prechat: {

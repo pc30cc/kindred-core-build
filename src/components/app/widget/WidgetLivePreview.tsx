@@ -259,7 +259,9 @@ export function WidgetLivePreview({
     const primary: string = s.primary_color || '#3B82F6';
     const secondary: string = s.secondary_color || s.primary_color || '#6366F1';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
-    const title = (localizedValue(s.launcher_text, 'launcher', locale) || s.fab_label || brandName || d.brandFallback) as string;
+    /* Header titles use workspace identity only — launcher_text is a launcher
+       concern and is not consumed by the Web Yar presentation. */
+    const title = (brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
       || localizedValue(s.greeting_message, 'welcome', locale)
       || d.welcomeFallback) as string;
@@ -581,12 +583,7 @@ export function WidgetLivePreview({
       body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
       var msgHost = body.querySelector('[data-chat-messages]');
       if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
-      var typingRow = panel.querySelector('[data-typing-row]');
-      if (typingRow) {
-        typingRow.removeAttribute('hidden');
-        var lbl = typingRow.querySelector('[data-typing-label]');
-        if (lbl) lbl.textContent = GS_PREVIEW.typingLabel;
-      }
+      /* Typing state is sr-only in the design — no visible typing row. */
     }
 
 

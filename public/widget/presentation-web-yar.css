@@ -533,31 +533,62 @@
 [data-call-surface] video { width: 100%; border-radius: var(--wy-radius-md); background: #0d0d0f; }
 .gs-call-pip-off { display: none; }
 
-/* ─── Composer ──────────────────────────────────────────────────────── */
-.composer-zone { flex: none; background: var(--wy-surface); border-top: 1px solid var(--wy-border); padding-top: 6px; }
-.input-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px 4px; }
+/* ─── Composer (fixed design spec — nothing here is configurable) ───── */
+.composer-zone {
+  flex: none;
+  background: #ffffff;
+  border-top: 1px solid #f0f0f3;
+  padding-top: 0;
+}
+.input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px;
+}
+/* Mic sits OUTSIDE the input container: 40×40 primary-blue circle. */
+.mic-btn {
+  width: 40px; height: 40px; border-radius: 9999px;
+  background: var(--wy-accent); color: #fff; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  transition: filter 0.15s, transform 0.15s var(--wy-ease);
+}
+.mic-btn:hover { filter: brightness(1.06); background: var(--wy-accent); }
+.mic-btn svg { width: 19px; height: 19px; }
 .input-wrap {
-  position: relative; display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0;
-  padding: 0 8px; border-radius: 7px; background: var(--wy-card); border: 1px solid var(--wy-border);
+  position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0;
+  border: 1px solid #e0e1e6; border-radius: 10px; background: #ffffff;
   transition: border-color 0.16s, box-shadow 0.16s;
 }
-.input-wrap:focus-within { border-color: var(--wy-accent); box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.14); }
+.input-wrap:focus-within { border-color: #1f93ff; box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.1); }
 .input {
-  flex: 1; min-width: 0; height: 44px; max-height: 44px; border: 0; outline: none;
-  background: transparent; resize: none; overflow-y: auto; padding: 12px 0; line-height: 20px;
-  font-size: 13.5px; color: var(--wy-text);
+  width: 100%; box-sizing: border-box; min-width: 0;
+  height: 42px; min-height: 42px; max-height: 96px;
+  border: 0; outline: none; background: transparent; resize: none; overflow-y: auto;
+  padding: 10px 12px 6px; line-height: 20px;
+  font-size: 13px; color: #1c2024;
 }
+.input::placeholder { color: #b9bbc1; }
+/* Action row inside the input container. */
+.composer-actions {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 8px 6px;
+}
+.composer-actions-start { display: flex; align-items: center; gap: 2px; }
+.composer-actions-end { display: flex; align-items: center; }
 /* Mic while the draft is empty, send once there is something to send. */
 .input-bar:not(.has-draft) .send-btn { display: none; }
 .input-bar.has-draft .mic-btn { display: none; }
-.input::placeholder { color: var(--wy-faint); }
-.send-btn, .attach-btn, .emoji-btn, .mic-btn, .escalate-btn {
+.send-btn, .attach-btn, .emoji-btn, .escalate-btn {
   display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
-  border-radius: 9999px; color: var(--wy-muted); flex: none;
+  border-radius: 9999px; color: #8b8d98; flex: none;
   transition: background-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
 }
-.send-btn { color: var(--wy-accent); }
-.send-btn:hover, .attach-btn:hover, .emoji-btn:hover, .mic-btn:hover, .escalate-btn:hover { background: var(--wy-hover-2); }
+.attach-btn svg, .emoji-btn svg { width: 18px; height: 18px; }
+.send-btn { background: var(--wy-accent); color: #fff; }
+.send-btn svg { width: 15px; height: 15px; }
+.send-btn:hover { filter: brightness(1.06); }
+.attach-btn:hover, .emoji-btn:hover, .escalate-btn:hover { background: var(--wy-hover-2); color: var(--wy-text); }
 .send-btn:active, .attach-btn:active, .emoji-btn:active, .mic-btn:active { transform: scale(0.9); }
 .send-btn:disabled, .attach-btn:disabled { opacity: 0.45; }
 [dir='rtl'] .send-btn svg { transform: scaleX(-1); }

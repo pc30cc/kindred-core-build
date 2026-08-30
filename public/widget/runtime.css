@@ -3,13 +3,11 @@
    No host-page selectors. No global resets that leak out.
    Embed-safe: :host uses `all: initial` (set by shell CSS) so the host page
    cannot push styles in. We re-establish only what we need.
-*/
 
-/* ─── Self-hosted Vazirmatn (no external CDN) ─── */
-@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/vazirmatn-400.woff2') format('woff2'); }
-@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/vazirmatn-500.woff2') format('woff2'); }
-@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/vazirmatn-600.woff2') format('woff2'); }
-@font-face { font-family: 'Vazirmatn'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/vazirmatn-700.woff2') format('woff2'); }
+   TYPOGRAPHY-NEUTRAL: this Core stylesheet must NEVER declare a font-family
+   or load a webfont. Typography belongs 100% to the Presentation layer
+   (presentation-web-yar.css). Only reset / layout / focus lives here.
+*/
 
 :host {
   /* Re-enable layout + style isolation */
@@ -22,7 +20,6 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -40,6 +37,7 @@ textarea{
 button:disabled{
   cursor: not-allowed;
 }
+
 
 /* Keyboard focus — visible ring on every interactive element.
    Mouse-only focus stays clean (no ring) thanks to :focus-visible. */button:focus-visible,

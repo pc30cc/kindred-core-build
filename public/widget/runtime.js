@@ -6418,10 +6418,25 @@
         sendBtn.style.opacity = '0.5';
         msgInput.style.opacity = '0.7';
       }
+      syncComposerDraftState();
+    }
+    // Design spec: the mic shows while the draft is empty and is replaced by
+    // the send button as soon as the visitor types.
+    function syncComposerDraftState() {
+      try {
+        var wrap = panel.querySelector('[data-input-wrap]');
+        if (!wrap || !msgInput) return;
+        wrap.classList.toggle('has-draft', String(msgInput.value || '').trim().length > 0);
+      } catch (_) {}
+    }
+    if (msgInput) {
+      msgInput.addEventListener('input', syncComposerDraftState);
+      msgInput.addEventListener('focus', syncComposerDraftState);
     }
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
     presenceStore.subscribe(applyComposerState);
+
 
     // ─── Draft preservation (in-memory only, per-conversation) ───
     // Drafts live in chatStore.drafts keyed by conversationId. Before a

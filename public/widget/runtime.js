@@ -3448,114 +3448,42 @@
       if (!rootEl) return;
       var s = kbStore.get();
       var rtl = isRtl();
-      var dirAttr = rtl ? ' dir="rtl"' : '';
-      var html = '<div class="kb-root"' + dirAttr + '>';
+      var origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
+      var locSeg = encodeURIComponent(ctx.locale || 'en');
 
-      html += '<div class="kb-search-wrap">' +
-        '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
-        'placeholder="' + Util.escapeHtml(t('searchKb')) + '" value="' + Util.escapeHtml(currentQuery) + '" />' +
-        '</div>';
+      // Core owns state + data (and sanitization); the active template owns
+      // every byte of markup below this line.
+      var vm = {
+        rtl: rtl,
+        state: (view === 'article' && currentArticle) ? 'article' : view,
+        query: currentQuery,
+        article: currentArticle
+          ? {
+              title: currentArticle.title,
+              excerpt: currentArticle.excerpt,
+              contentHtml: sanitizeHtml(currentArticle.content || ''),
+              publicUrl: publicArticleUrl(currentArticle.slug),
+            }
+          : null,
+        results: (s.searchResults || []).map(function (a) {
+          return { slug: a.slug, title: a.title, excerpt: a.excerpt };
+        }),
+        articles: (s.articles || []).map(function (a) {
+          return { slug: a.slug, title: a.title, excerpt: a.excerpt };
+        }),
+        categories: (s.categories || []).map(function (c) {
+          return {
+            name: c.name,
+            description: c.description,
+            url: origin + '/help/' + locSeg + '/c/' + encodeURIComponent(c.slug),
+          };
+        }),
+      };
 
-      if (view === 'article' && currentArticle) {
-        var publicUrl = publicArticleUrl(currentArticle.slug);
-        html +=
-          '<div class="kb-article-view">' +
-            '<button type="button" class="kb-back" data-kb-action="back">' +
-              (rtl ? '→ ' : '← ') + Util.escapeHtml(t('kbBack')) +
-            '</button>' +
-            '<h2 class="kb-article-h">' + Util.escapeHtml(currentArticle.title) + '</h2>' +
-            (currentArticle.excerpt ? '<p class="kb-article-excerpt-full">' + Util.escapeHtml(currentArticle.excerpt) + '</p>' : '') +
-            '<div class="kb-article-body">' + sanitizeHtml(currentArticle.content || '') + '</div>' +
-            '<div class="kb-article-footer">' +
-              '<a class="kb-open-browser" href="' + Util.escapeHtml(publicUrl) + '" target="_blank" rel="noopener noreferrer">' +
-                Util.escapeHtml(t('kbOpenInBrowser')) +
-              '</a>' +
-            '</div>' +
-          '</div>';
-      } else if (view === 'searching') {
-        html += '<div class="kb-status">' + Util.escapeHtml(t('kbSearching')) + '</div>';
-      } else if (view === 'results') {
-        var results = s.searchResults || [];
-        if (!results.length) {
-          html += '<div class="kb-empty kb-empty-centered">' +
-            '<div class="kb-empty-icon" aria-hidden="true">' +
-              '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
-                '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' +
-              '</svg>' +
-            '</div>' +
-            '<p class="kb-empty-text">' + Util.escapeHtml(t('kbZeroResults')) + '</p>' +
-            '<button type="button" class="kb-cta kb-cta-pro" data-kb-action="switch-chat">' +
-              '<span class="kb-cta-icon" aria-hidden="true">' +
-                '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
-              '</span>' +
-              '<span>' + Util.escapeHtml(t('kbSwitchToChat')) + '</span>' +
-            '</button>' +
-          '</div>';
-        } else {
-          html += '<div class="kb-list">';
-          results.forEach(function (a) {
-            html +=
-              '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' +
-                Util.escapeHtml(a.slug) + '">' +
-                '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
-                (a.excerpt ? '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</div>' : '') +
-              '</button>';
-          });
-          html += '</div>';
-        }
-      } else {
-        // 'list' — published articles first, then categories.
-        var cats = s.categories || [];
-        var articles = s.articles || [];
-        if (!cats.length && !articles.length) {
-          html += '<div class="kb-empty kb-empty-centered">' +
-            '<div class="kb-empty-icon" aria-hidden="true">' +
-              '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
-                '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' +
-              '</svg>' +
-            '</div>' +
-            '<p class="kb-empty-text">' + Util.escapeHtml(t('noArticles')) + '</p>' +
-            '<button type="button" class="kb-cta kb-cta-pro" data-kb-action="switch-chat">' +
-              '<span class="kb-cta-icon" aria-hidden="true">' +
-                '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
-              '</span>' +
-              '<span>' + Util.escapeHtml(t('kbSwitchToChat')) + '</span>' +
-            '</button>' +
-          '</div>';
-        } else {
-          if (articles.length) {
-            html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
-            html += '<div class="kb-list">';
-            articles.forEach(function (a) {
-              html +=
-                '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' +
-                  Util.escapeHtml(a.slug) + '">' +
-                  '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
-                  (a.excerpt ? '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</div>' : '') +
-                '</button>';
-            });
-            html += '</div>';
-          }
-          if (cats.length) {
-          html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
-          html += '<div class="kb-list">';
-          cats.forEach(function (c) {
-            html +=
-              '<a class="kb-category" target="_blank" rel="noopener noreferrer" ' +
-                'href="' + Util.escapeHtml(window.location.origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/c/' + encodeURIComponent(c.slug)) + '">' +
-                '<div class="kb-article-title">' + Util.escapeHtml(c.name) + '</div>' +
-                (c.description ? '<div class="kb-article-excerpt">' + Util.escapeHtml(c.description) + '</div>' : '') +
-              '</a>';
-          });
-          html += '</div>';
-          }
-        }
-      }
-
-      html += '</div>';
-      rootEl.innerHTML = html;
+      rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(vm) : '';
       bindEvents();
     }
+
 
     // Defence-in-depth sanitizer for KB content displayed inside the widget
     // (the content was authored by an operator / an ingestion pipeline, so

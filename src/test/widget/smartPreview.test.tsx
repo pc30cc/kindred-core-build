@@ -65,8 +65,11 @@ describe('smart scenario preview', () => {
     expect(doc).toContain('/widget/presentation-registry.js');
     // Template assets are resolved via the registry, never named here.
     expect(doc).toContain('reg.resolve(GS_PREVIEW.templateId)');
-    expect(doc).toContain("'/widget/' + desc.script");
-    expect(doc).toContain("'/widget/' + desc.style");
+    // …and through the production manifest, so hashed assets are used.
+    expect(doc).toContain('/widget/widget-manifest.json');
+    expect(doc).toContain("'/widget/' + styleFile");
+    expect(doc).toContain("'/widget/' + scriptFile");
+
 
     expect(doc).toContain('R.shellHtml(GS_PREVIEW.shellVm)');
     expect(doc).toContain('R.homeHtml(GS_PREVIEW.homeVm)');

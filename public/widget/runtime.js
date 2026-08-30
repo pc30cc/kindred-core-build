@@ -5736,9 +5736,13 @@
     presenceStore.subscribe(renderPresence);
     renderPresence(presenceStore.get());
 
-    // Open immediately (user clicked launcher)
-    shellStore.set({ isOpen: true, mounted: true });
-    panel.classList.add('visible');
+    // LIFECYCLE CONTRACT: init() ONLY mounts. It never opens the panel.
+    // A silent Smart Engagement preload must leave the widget closed; the
+    // loader explicitly calls instance.open() when the visitor asked for it.
+    shellStore.set({ isOpen: false, mounted: true });
+    panel.classList.remove('visible');
+    if (launcher) launcher.classList.remove('open');
+
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');

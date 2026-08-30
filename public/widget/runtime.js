@@ -6311,9 +6311,17 @@
       bindViewHooks(body);
       var ctaBtn = body.querySelector('[data-home-action="chat"]');
       if (ctaBtn) ctaBtn.addEventListener('click', function () {
+        // When an unresolved thread exists the template labels this CTA
+        // "Start new", so it must genuinely force a new conversation.
+        // Otherwise it is just "Start chat" → resume normal resolution.
+        var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
+          return c.status !== 'resolved' && c.status !== 'closed';
+        });
+        if (hasUnresolved) { startNewConversation(); return; }
         chatStore.set({ conversationId: chatStore.get().conversationId });
         switchTab('chat');
       });
+
       var seeAll = body.querySelector('[data-home-action="help"]');
       if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {

@@ -3465,6 +3465,13 @@
               publicUrl: publicArticleUrl(currentArticle.slug),
             }
           : null,
+        // Article feedback is a real, persisted Knowledge Base capability
+        // (POST /api/widget/kb/articles/:slug/feedback). It is only offered
+        // while an article is open; the rating shown is the one this
+        // visitor actually submitted in this session.
+        feedback: (view === 'article' && currentArticle)
+          ? { enabled: true, rating: articleRatings[currentArticle.slug] || null }
+          : { enabled: false, rating: null },
         results: (s.searchResults || []).map(function (a) {
           return { slug: a.slug, title: a.title, excerpt: a.excerpt };
         }),
@@ -3479,6 +3486,7 @@
           };
         }),
       };
+
 
       rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(vm) : '';
       bindEvents();

@@ -39,6 +39,12 @@ function renderer(cfgExtra: Record<string, unknown> = {}) {
 }
 
 function chatDom(vm: Record<string, unknown> = {}) {
+  // jsdom has neither MediaRecorder nor getUserMedia; the design's mic button
+  // is gated on real voice support, so stub it for the markup contract.
+  (window as any).MediaRecorder = function () {};
+  if (!navigator.mediaDevices) {
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: () => {} }, configurable: true });
+  }
   const R = renderer();
   const el = document.createElement('div');
   el.innerHTML = R.chatFrameHtml({

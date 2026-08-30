@@ -872,11 +872,13 @@
     // renderer must be registered on window BEFORE runtime.init() runs.
     var regScript = document.createElement("script");
     regScript.src = presentationRegistryJs;
+    regScript.charset = "utf-8";
     regScript.async = true;
     regScript.setAttribute("data-gs-template", "registry");
     regScript.onload = function () {
       var tplScript = document.createElement("script");
       tplScript.src = presentationJs;
+      tplScript.charset = "utf-8";
       tplScript.async = true;
       tplScript.setAttribute("data-gs-template", "renderer");
       tplScript.onload = function () { templateJsLoaded = true; done(); };
@@ -888,6 +890,7 @@
 
     var script = document.createElement("script");
     script.src = runtimeJs;
+    script.charset = "utf-8";
     script.async = true;
     // Tag so runtime.js's lazy-inject fallback can locate this script
     // regardless of whether the filename is hashed.
@@ -928,6 +931,7 @@
           });
           var cs = document.createElement("script");
           cs.src = callJs;
+          cs.charset = "utf-8";
           cs.async = true;
           cs.setAttribute("data-gs-runtime-call", "true");
           cs.onload = function () {
@@ -1593,6 +1597,7 @@
     }
     var engineScript = document.createElement("script");
     engineScript.src = engineUrl;
+    engineScript.charset = "utf-8";
     engineScript.async = true;
     engineScript.setAttribute("data-gs-smart", "true");
     engineScript.onload = function () {

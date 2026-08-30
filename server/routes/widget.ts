@@ -141,6 +141,7 @@ const DEFAULT_WIDGET_SETTINGS = {
   secondary_color: '#6366f1',
   greeting_message: '',
   welcome_message: 'Hello! How can we help you?',
+  reply_time_text: '',
   placeholder_text: '',
   position: 'bottom-right',
   show_logo: true,
@@ -808,6 +809,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         )
         || platformWidget?.default_welcome_message
         || '',
+      // Workspace-authored reply-time note for the widget header. Empty
+      // string => presentation falls back to the locale default.
+      replyTimeText: typeof ws.reply_time_text === 'string' ? ws.reply_time_text.trim() : '',
       greetingMessage: ws.greeting_message || '',
       placeholderText: ws.placeholder_text || '',
       offlineMessage: ws.offline_message || '',

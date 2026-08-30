@@ -365,7 +365,6 @@
 .wy-empty { padding: 40px 16px; text-align: center; color: var(--wy-muted); font-size: 13px; }
 
 /* ─── Chat header + body ────────────────────────────────────────────── */
-.wy-head-chat .wy-avatar { width: 36px; height: 36px; font-size: 14px; }
 .body {
   flex: 1;
   min-height: 0;
@@ -412,7 +411,7 @@
 .msg.operator { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-text); border-bottom-left-radius: 0.25rem; }
 .msg.visitor { background: var(--wy-accent); color: #fff; border-bottom-right-radius: 0.25rem; }
 .msg-text { white-space: pre-wrap; }
-.msg-time { align-self: flex-start; font-size: 10px; opacity: 1; color: var(--wy-faint); }
+.msg-time { align-self: stretch; text-align: left; font-size: 10px; opacity: 1; color: var(--wy-faint); }
 .msg.visitor .msg-time { color: rgba(255, 255, 255, 0.75); }
 
 .msg-quote {

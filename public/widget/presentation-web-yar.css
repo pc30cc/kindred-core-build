@@ -614,6 +614,10 @@
 .send-btn:active, .attach-btn:active, .emoji-btn:active, .mic-btn:active { transform: scale(0.9); }
 .send-btn:disabled, .attach-btn:disabled { opacity: 0.45; }
 .escalate-btn { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-accent); margin-inline-end: 6px; }
+/* [hidden] must win over the flex display above — the design shows no
+   escalate affordance until the core unhides it. */
+.send-btn[hidden], .attach-btn[hidden], .emoji-btn[hidden], .escalate-btn[hidden], .mic-btn[hidden] { display: none; }
+
 .mic-btn.recording { background: transparent; color: #e5484d; }
 /* Chat footer sits directly under the composer (design source). */
 .composer-zone .wy-footer { padding: 10px 0 0; }

@@ -622,7 +622,7 @@
 .mic-btn.recording .mic-ring { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); animation: wy-load-pulse 1.4s infinite; }
 
 
-.attach-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px; }
+.attach-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 6px; }
 .attach-tray[hidden] { display: none; }
 .attach-chip {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 12px;
@@ -632,7 +632,7 @@
 .attach-chip.failed { border-color: #e5484d; color: #e5484d; }
 
 .reply-preview {
-  display: flex; align-items: center; gap: 8px; margin: 0 12px 6px; padding: 8px 10px;
+  display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 8px 10px;
   background: var(--wy-hover-2); border-radius: var(--wy-radius-sm); border-inline-start: 3px solid var(--wy-accent);
   font-size: 12px; color: var(--wy-muted);
 }
@@ -640,7 +640,7 @@
 .reply-preview-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .emoji-picker {
-  margin: 0 12px 6px; background: var(--wy-card); border: 1px solid var(--wy-border);
+  margin: 0 0 6px; background: var(--wy-card); border: 1px solid var(--wy-border);
   border-radius: var(--wy-radius-xl); padding: 0.25rem; display: grid;
   grid-template-columns: repeat(6, 1fr); max-height: 13.25rem; overflow-y: auto;
 }
@@ -651,7 +651,7 @@
 }
 .emoji-picker button:hover { background: var(--wy-hover-2); }
 
-.rec-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--wy-muted); }
+.rec-bar { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; font-size: 12px; color: var(--wy-muted); }
 
 /* ─── Pre-contact / fallback forms ──────────────────────────────────── */
 .prechat-subtitle, .prechat-intro { font-size: 13px; color: var(--wy-muted); margin: 0 0 14px; }

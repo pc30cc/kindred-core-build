@@ -5779,9 +5779,14 @@
         '</div>'
       : '';
 
+     // Design spec footer: always outside the scroll area, with a pulsing dot.
      var poweredHtml = brandName
-       ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
+       ? '<div class="powered" data-footer>' +
+           '<span class="powered-dot" aria-hidden="true"></span>' +
+           '<span>' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></span>' +
+         '</div>'
       : '';
+
 
     panel.innerHTML = headerHtml + bodyHtml + inputHtml + tabsHtml + poweredHtml +
       // Phase 6b — lightbox container, hidden by default.

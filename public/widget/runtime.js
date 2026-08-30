@@ -3215,7 +3215,11 @@
       wirePrechatForm(body, identity, onSubmitted, { autofocus: true });
     }
 
+    // One-shot "start a brand new thread" latch (see startNewConversation).
+    var forceNewConversation = false;
+
     function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
+
       var conn = transportStore.get().connectionState;
       if (conn !== 'online') return;
       var s = chatStore.get();

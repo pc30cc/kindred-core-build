@@ -353,7 +353,7 @@
 .wy-empty { padding: 40px 16px; text-align: center; color: var(--wy-muted); font-size: 13px; }
 
 /* ─── Chat header + body ────────────────────────────────────────────── */
-.wy-head-chat .wy-avatar { width: 2.25rem; height: 2.25rem; font-size: 14px; }
+.wy-head-chat .wy-avatar { width: 36px; height: 36px; font-size: 14px; }
 .body {
   flex: 1;
   min-height: 0;

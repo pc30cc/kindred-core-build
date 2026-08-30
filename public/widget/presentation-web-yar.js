@@ -643,10 +643,12 @@
       var chatEnabled = !!vm.chatEnabled;
       var rtl = String(vm.locale || 'en').toLowerCase().split('-')[0] === 'fa';
 
+      // Chat header — workspace identity ONLY. `launcherText` is never a
+      // header title (design §2): the launcher label is a launcher concern.
       var chatHeader = '<div class="header wy-head wy-head-chat" data-chat-header>' +
         headerIdentityHtml({
           back: 'home',
-          title: vm.headerTitle || vm.brandName,
+          title: vm.brandName || (config && config.brandName) || '',
           subtitle: tf('homeReplyFast', ''),
           online: true,
         }) +
@@ -665,8 +667,10 @@
 
       var inputHtml = chatEnabled
         ? '<div class="composer-zone" data-composer-zone>' +
-            '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
-              '<span class="typing-dots"><span></span><span></span><span></span></span>' +
+            // Typing state is preserved as a Core capability, but the design
+            // has NO visible "typing…" row above the composer — it is
+            // announced to assistive tech only.
+            '<div class="sr-only" data-typing-row hidden aria-live="polite">' +
               '<span class="typing-label" data-typing-label></span>' +
             '</div>' +
             '<div class="attach-tray" data-attach-tray hidden></div>' +
@@ -679,24 +683,32 @@
             '<div class="input-bar" data-input-bar>' +
               '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + esc(t('talkToHuman')) +
                 '" aria-label="' + esc(t('talkToHuman')) + '">' + ICON.human + '</button>' +
+              // Mic lives OUTSIDE the input container (design §4) and only
+              // shows while the draft is empty.
+              (voiceNotesEnabled && micSupported
+                ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
+                    '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
+                    '<span class="mic-ring" aria-hidden="true"></span></button>'
+                : '') +
               '<div class="input-wrap" data-input-wrap>' +
-                (voiceNotesEnabled && micSupported
-                  ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
-                      '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
-                      '<span class="mic-ring" aria-hidden="true"></span></button>'
-                  : '') +
                 '<textarea class="input" rows="1" data-msg-input placeholder="' + esc(t('typeMsg')) + '"></textarea>' +
-                (attachCfg.enabled
-                  ? '<button type="button" class="attach-btn" data-attach-btn title="' + esc(t('attachFile') || 'Attach file') +
-                      '" aria-label="' + esc(t('attachFile') || 'Attach file') + '">' + ICON.attach + '</button>' +
-                    '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
-                  : '') +
-                (emojiEnabled
-                  ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + esc(t('emojiPicker')) +
-                      '" aria-label="' + esc(t('emojiPicker')) + '">' + ICON.emoji + '</button>'
-                  : '') +
-                '<button type="button" class="send-btn" data-send-btn aria-label="' + esc(tf('send', 'Send')) +
-                  '" style="color:' + esc(vm.primaryColor || '') + '">' + ICON.send + '</button>' +
+                '<div class="composer-actions">' +
+                  '<div class="composer-actions-start">' +
+                    (attachCfg.enabled
+                      ? '<button type="button" class="attach-btn" data-attach-btn title="' + esc(t('attachFile') || 'Attach file') +
+                          '" aria-label="' + esc(t('attachFile') || 'Attach file') + '">' + ICON.attach + '</button>' +
+                        '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
+                      : '') +
+                    (emojiEnabled
+                      ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + esc(t('emojiPicker')) +
+                          '" aria-label="' + esc(t('emojiPicker')) + '">' + ICON.emoji + '</button>'
+                      : '') +
+                  '</div>' +
+                  '<div class="composer-actions-end">' +
+                    '<button type="button" class="send-btn" data-send-btn aria-label="' + esc(tf('send', 'Send')) + '">' +
+                      ICON.send + '</button>' +
+                  '</div>' +
+                '</div>' +
               '</div>' +
             '</div>' +
             footerHtml() +

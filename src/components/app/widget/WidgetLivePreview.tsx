@@ -293,33 +293,34 @@ export function WidgetLivePreview({
     const activeNav = view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat';
     // The scenario studio is a simulation of one moment, not a browsable
     // widget — generic navigation would let the operator leave the scenario.
-    const tabs = smartDoc ? '' : `<div class="tabs tabs-bottom">${navDefs
-      .map(
-        (n) => `<button type="button" data-preview-nav="${n.key}" class="tab${n.key === activeNav ? ' active' : ''}">
-           <svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[n.key]}</svg>
-           <span class="tab-label">${esc(n.label)}</span>
-         </button>`,
-      )
-      .join('')}</div>`;
+    // Design spec: no bottom tab bar — navigation lives in the home action
+    // row and the per-view header controls (mirrors runtime.js).
+    void NAV_ICONS; void navDefs; void activeNav; void smartDoc;
+    const tabs = '';
 
     // Header shows the uploaded workspace logo; falls back to nothing.
     const avatar = logo
-      ? `<span class="header-op-avatar has-img"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
+      ? `<span class="wy-header-logo"><img src="${esc(logo)}" alt="${esc(title)}" /></span>`
       : '';
 
+    const backChevron = rtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6';
+    const headerBack = view === 'home' ? '' : `
+        <button type="button" class="wy-header-back" data-preview-nav="home" aria-label="back">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${backChevron}"/></svg>
+        </button>`;
+
     const header = `
-      <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
-        <button type="button" class="header-back" id="gs-close" aria-label="back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${rtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6'}"/></svg>
-        </button>
-        <div class="header-brand">
-          ${avatar ? `<div class="header-op-stack">${avatar}</div>` : ''}
-          <div class="header-brand-text">
-            <div class="header-title">${esc(brandName || title)}</div>
-            <div class="header-subtitle"><span class="header-live-dot" aria-hidden="true"></span>${esc(d.homeReplyFast)}</div>
+      <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}" data-header data-view="${esc(view)}">
+        ${headerBack}
+        <div class="wy-header-brand">
+          ${avatar}
+          <div class="wy-header-text">
+            <div class="wy-header-title">${esc(brandName || title)}</div>
+            <div class="wy-header-sub"><span class="wy-dot is-online" aria-hidden="true"></span>${esc(d.homeReplyFast)}</div>
           </div>
         </div>
       </div>`;
+
 
 
     const fields = [
@@ -447,42 +448,47 @@ export function WidgetLivePreview({
       </div>` + prechatBody;
 
     // Operator avatars only — the workspace logo is not shown here.
-    const homeAvatar = operatorAvatar
-      ? `<span class="home-avatar has-img is-online"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
-      : `<span class="home-avatar is-online"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
+    const homeAvatarWy = operatorAvatar
+      ? `<span class="wy-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
+      : `<span class="wy-avatar"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
 
+
+    // Mirrors renderHome() in public/widget/runtime.js — keep in lockstep.
     const homeBody = `
-      <div class="home-root" dir="${dir}">
-        <section class="home-hero">
-          <div class="home-greeting">${esc(d.homeGreeting)}</div>
-          <p class="home-welcome">${esc(welcome || d.homeWelcome)}</p>
-        </section>
-        <section class="home-card">
-          <div class="home-card-top">
-            <div class="home-avatars">${homeAvatar}</div>
-            <div class="home-status is-online">
-              <span class="home-status-dot"></span>
-              <span>${esc(d.homeTeamOnline)}</span>
+      <div class="wy-home" dir="${dir}">
+        <div class="wy-scroll">
+          <section class="wy-hero">
+            <div class="wy-hero-greeting">${esc(d.homeGreeting)}</div>
+            <div class="wy-hero-question">${esc(welcome || d.homeWelcome)}</div>
+          </section>
+          <section class="wy-section">
+            <div class="wy-section-head">
+              <h4 class="wy-section-title">${esc(d.homeTeamOnline)}</h4>
             </div>
-          </div>
-          <button type="button" class="home-cta" style="background:${esc(primary)}">
-            <span class="home-cta-label">${esc(d.homeStartChat)}</span>
-            <span class="home-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
-          </button>
-        </section>
-        ${kbEnabled ? `<section class="home-section">
-          <div class="home-section-head">
-            <h4 class="home-section-title">${esc(d.homeHelpTitle)}</h4>
-            <button type="button" class="home-section-link">${esc(d.homeSeeAll)}</button>
-          </div>
-          <div class="home-kb-list">
-            ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="home-kb-item"${a.articleIndex !== undefined ? ` data-preview-article="${a.articleIndex}"` : ' data-preview-open-help'}>
-              <span class="home-kb-title">${esc(a.title)}</span>
-              <span class="home-kb-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
-            </button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
-          </div>
-        </section>` : ''}
+            <div class="wy-thread-list">
+              <button type="button" class="wy-thread" data-preview-nav="chat">
+                <span class="wy-thread-main">
+                  <span class="wy-thread-preview">${esc(welcome || d.homeWelcome)}</span>
+                  <span class="wy-thread-meta"><span class="wy-badge is-open">${esc(d.homeTeamOnline)}</span></span>
+                </span>
+                <span class="wy-chevron" aria-hidden="true">${rtl ? '‹' : '›'}</span>
+              </button>
+            </div>
+          </section>
+          ${kbEnabled ? `<section class="wy-section">
+            <p class="wy-section-hint">${esc(d.homeHelpTitle)}</p>
+            <div class="wy-chips">
+              ${(homeKbItems.length ? homeKbItems : []).map(a => `<button type="button" class="wy-chip"${a.articleIndex !== undefined ? ` data-preview-article="${a.articleIndex}"` : ' data-preview-open-help'}>${esc(a.title)}</button>`).join('') || `<div class="kb-empty"><p class="kb-empty-text">${esc(d.kbEmpty)}</p></div>`}
+            </div>
+            <button type="button" class="wy-link-btn" data-preview-open-help>${esc(d.homeSeeAll)}</button>
+          </section>` : ''}
+        </div>
+        <div class="wy-action-row">
+          <button type="button" class="wy-action wy-action-primary" data-preview-nav="chat" style="background:${esc(primary)}">${esc(d.homeStartChat)}</button>
+          ${kbEnabled ? `<button type="button" class="wy-action wy-action-ghost" data-preview-open-help>${esc(d.helpTab)}</button>` : ''}
+        </div>
       </div>`;
+
 
     const body =
       view === 'home' ? homeBody :
@@ -547,9 +553,8 @@ export function WidgetLivePreview({
     ).replace('<!--SMART_CHAT_SLOT-->', '');
 
     // Mirrors the composer built by __gs_runtime.init() in runtime.js:
-    // escalate (outside) -> input-wrap[input, attach, mic] -> emoji
-    // (outside) -> send (outside). Keep this in lockstep with that file —
-    // see its own comment pointing back here.
+    // input-wrap[escalate, mic, input, composer-actions[attach, emoji, send]].
+    // Keep this in lockstep with that file — see its comment pointing back here.
     const attachmentsOn = s.attachments_enabled === true;
     const voiceOn = s.voice_notes_enabled === true;
     const emojiOn = s.emoji_enabled !== false;
@@ -561,28 +566,28 @@ export function WidgetLivePreview({
       <div class="attach-tray" hidden></div>
       <div class="emoji-picker" hidden></div>
       <div class="input-bar">
-        <button type="button" class="escalate-btn" title="${esc(d.talkToHuman)}" aria-label="${esc(d.talkToHuman)}">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>
-        </button>
         <div class="input-wrap">
-          <input class="input" placeholder="${esc(placeholder)}" />
-          ${attachmentsOn ? `<button type="button" class="attach-btn" title="${esc(d.attachTitle)}" aria-label="${esc(d.attachTitle)}">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          </button>` : ''}
           ${voiceOn ? `<button type="button" class="mic-btn" title="${esc(d.micTitle)}" aria-label="${esc(d.micTitle)}">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>
             <span class="mic-ring" aria-hidden="true"></span>
           </button>` : ''}
+          <input class="input" placeholder="${esc(placeholder)}" />
+          <div class="composer-actions">
+            ${attachmentsOn ? `<button type="button" class="attach-btn" title="${esc(d.attachTitle)}" aria-label="${esc(d.attachTitle)}">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.48"/></svg>
+            </button>` : ''}
+            ${emojiOn ? `<button type="button" class="emoji-btn" title="${esc(d.emojiTitle)}" aria-label="${esc(d.emojiTitle)}">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8.5 14s1.2 2 3.5 2 3.5-2 3.5-2" stroke-linecap="round"/><circle cx="9" cy="10" r="0.9" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg>
+            </button>` : ''}
+            <button type="button" class="send-btn" aria-label="send">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4L3 11l6.5 2.5L12 20l8-16Z"/></svg>
+            </button>
+          </div>
         </div>
-        ${emojiOn ? `<button type="button" class="emoji-btn" title="${esc(d.emojiTitle)}" aria-label="${esc(d.emojiTitle)}">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-        </button>` : ''}
-        <button type="button" class="send-btn" style="background:${esc(primary)}">
-          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-        </button>
       </div>` : '';
 
-    const powered = `<div class="powered">${esc(d.poweredBy)} <a href="#">${esc(brandName || title)}</a></div>`;
+    const powered = `<div class="powered" data-footer><span class="powered-dot" aria-hidden="true"></span><span>${esc(d.poweredBy)} <a href="#">${esc(brandName || title)}</a></span></div>`;
+
 
     return `<!doctype html>
 <html dir="${dir}" lang="${esc(locale)}">

@@ -546,72 +546,81 @@
 [data-call-surface] video { width: 100%; border-radius: var(--wy-radius-md); background: #0d0d0f; }
 .gs-call-pip-off { display: none; }
 
-/* ─── Composer (fixed design spec — nothing here is configurable) ───── */
+/* ─── Composer (fixed design spec — nothing here is configurable) ─────
+   Design source: one single-row pill (padding 0 8px, radius 7px, white,
+   1px ring) that holds mic → textarea → action group. Nothing sits outside
+   the pill; the zone itself is 8px/16px on the panel surface. */
 .composer-zone {
   flex: none;
-  background: #ffffff;
-  border-top: 1px solid #f0f0f3;
-  padding-top: 0;
+  background: var(--wy-surface);
+  padding: 8px 16px;
 }
 .input-bar {
+  position: relative;
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 12px;
+  align-items: center;
+  gap: 0;
+  padding: 0;
 }
-/* Mic sits OUTSIDE the input container: 40×40 primary-blue circle. */
-.mic-btn {
-  width: 40px; height: 40px; border-radius: 9999px;
-  background: var(--wy-accent); color: #fff; flex: none;
-  display: flex; align-items: center; justify-content: center;
-  transition: filter 0.15s, transform 0.15s var(--wy-ease);
-}
-.mic-btn:hover { filter: brightness(1.06); background: var(--wy-accent); }
-.mic-btn svg { width: 19px; height: 19px; }
 .input-wrap {
-  position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0;
-  border: 1px solid #e0e1e6; border-radius: 10px; background: #ffffff;
-  transition: border-color 0.16s, box-shadow 0.16s;
+  position: relative; display: flex; flex-direction: row; align-items: center;
+  flex: 1; min-width: 0;
+  border: 0; border-radius: 7px; background: #ffffff;
+  padding: 0 8px;
+  box-shadow: 0 0 0 1px var(--wy-border);
+  transition: box-shadow 0.16s;
 }
-.input-wrap:focus-within { border-color: #1f93ff; box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.1); }
+.input-wrap:focus-within { box-shadow: 0 0 0 1px var(--wy-accent); }
+/* Mic lives INSIDE the pill, before the textarea (design source). */
+.mic-btn {
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px; flex: none;
+  margin-inline-end: 6px; border-radius: 9999px;
+  background: transparent; color: var(--wy-text);
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, background-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.mic-btn:hover { background: var(--wy-hover-2); }
+.mic-btn svg { width: 18px; height: 18px; }
 .input {
-  width: 100%; box-sizing: border-box; min-width: 0;
-  height: 42px; min-height: 42px; max-height: 96px;
+  width: 100%; box-sizing: border-box; min-width: 0; flex: 1;
+  height: 44px; min-height: 44px; max-height: 15rem;
   border: 0; outline: none; background: transparent; resize: none; overflow-y: auto;
-  padding: 10px 12px 6px; line-height: 20px;
-  font-size: 13px; color: #1c2024;
+  padding: 12px 0; line-height: 20px;
+  font-size: 14px; color: var(--wy-text);
 }
-.input::placeholder { color: #b9bbc1; }
-/* Action row inside the input container. */
+.input::placeholder { color: var(--wy-faint); }
+/* Action group at the end of the pill. */
 .composer-actions {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 8px 6px;
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0; padding-inline-start: 8px; flex: none;
 }
-.composer-actions-start { display: flex; align-items: center; gap: 2px; }
+.composer-actions-start { display: flex; align-items: center; }
 .composer-actions-end { display: flex; align-items: center; }
 /* Mic while the draft is empty, send once there is something to send. */
 .input-bar:not(.has-draft) .send-btn { display: none; }
 .input-bar.has-draft .mic-btn { display: none; }
 .send-btn, .attach-btn, .emoji-btn, .escalate-btn {
-  display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
-  border-radius: 9999px; color: #8b8d98; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px;
+  border-radius: 9999px; background: transparent; color: var(--wy-text); flex: none;
   transition: background-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
 }
 .attach-btn svg, .emoji-btn svg { width: 18px; height: 18px; }
-.send-btn { background: var(--wy-accent); color: #fff; }
-.send-btn svg { width: 15px; height: 15px; }
-.send-btn:hover { filter: brightness(1.06); }
-.attach-btn:hover, .emoji-btn:hover, .escalate-btn:hover { background: var(--wy-hover-2); color: var(--wy-text); }
+.emoji-btn[aria-expanded='true'] { color: var(--wy-accent); }
+.send-btn { color: var(--wy-accent); margin-inline-start: 4px; }
+.send-btn svg { width: 18px; height: 18px; transform: scaleX(-1); }
+[dir='ltr'] .send-btn svg { transform: none; }
+.send-btn:hover, .attach-btn:hover, .emoji-btn:hover, .escalate-btn:hover { background: var(--wy-hover-2); }
 .send-btn:active, .attach-btn:active, .emoji-btn:active, .mic-btn:active { transform: scale(0.9); }
 .send-btn:disabled, .attach-btn:disabled { opacity: 0.45; }
-[dir='rtl'] .send-btn svg { transform: scaleX(-1); }
-.escalate-btn { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-accent); width: 36px; height: 36px; }
-.mic-btn.recording { background: #e5484d; color: #fff; }
-/* Chat footer sits directly under the composer (design §5). */
-.composer-zone .wy-footer { padding: 0 16px 8px; }
-.composer-zone .wy-powered { font-size: 10px; }
+.escalate-btn { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-accent); margin-inline-end: 6px; }
+.mic-btn.recording { background: transparent; color: #e5484d; }
+/* Chat footer sits directly under the composer (design source). */
+.composer-zone .wy-footer { padding: 10px 0 0; }
+.composer-zone .wy-powered { font-size: 12px; }
 .mic-ring { position: absolute; inset: 0; border-radius: 9999px; pointer-events: none; }
 .mic-btn.recording .mic-ring { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); animation: wy-load-pulse 1.4s infinite; }
+
 
 .attach-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px; }
 .attach-tray[hidden] { display: none; }

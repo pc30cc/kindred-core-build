@@ -662,7 +662,7 @@
         headerIdentityHtml({
           back: 'home',
           title: vm.brandName || (config && config.brandName) || '',
-          subtitle: tf('homeReplyFast', ''),
+          subtitle: replyTimeText(true),
           online: true,
         }) +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
@@ -840,7 +840,7 @@
         '<div class="wy-head wy-head-home">' +
           headerIdentityHtml({
             title: vm.headerTitle || (config && config.brandName) || '',
-            subtitle: online ? tf('homeReplyFast', '') : tf('homeReplySlow', ''),
+            subtitle: replyTimeText(online),
             stack: stackHtml,
           }) +
         '</div>' +

@@ -593,7 +593,10 @@
 .send-btn:disabled, .attach-btn:disabled { opacity: 0.45; }
 [dir='rtl'] .send-btn svg { transform: scaleX(-1); }
 .escalate-btn { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-accent); width: 36px; height: 36px; }
-.mic-btn.recording { color: #e5484d; }
+.mic-btn.recording { background: #e5484d; color: #fff; }
+/* Chat footer sits directly under the composer (design §5). */
+.composer-zone .wy-footer { padding: 0 16px 8px; }
+.composer-zone .wy-powered { font-size: 10px; }
 .mic-ring { position: absolute; inset: 0; border-radius: 9999px; pointer-events: none; }
 .mic-btn.recording .mic-ring { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); animation: wy-load-pulse 1.4s infinite; }
 

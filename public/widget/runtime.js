@@ -6926,7 +6926,7 @@
         id: cs.conversationId || 'active',
         preview: preview || t('wyConnectOperator'),
         at: last && (last.createdAt || last.created_at || last.ts),
-        unread: (Notify && Notify.getUnread) ? 0 : 0,
+        unread: 0,
         resolved: false,
       }];
     }

@@ -320,9 +320,15 @@ function syncLoadManifest(): WidgetManifest {
 }
 
 export function getWidgetAssetName(logical: WidgetAssetKey): string {
+  // Security: presentation keys are dynamic (template ids come from
+  // configuration), so validate the shape before it can reach a URL.
+  if (logical.startsWith('presentation-') && !isPresentationAsset(logical)) {
+    throw new Error(`[widget-manifest] invalid presentation asset key: ${logical}`);
+  }
   const manifest = syncLoadManifest();
   return manifest[logical] || logical;
 }
+
 
 export function getLoaderVersion(): string {
   const manifest = syncLoadManifest();

@@ -282,7 +282,6 @@ export function WidgetLivePreview({
     const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
     const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
-    const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
     const smartDoc = previewMode === 'smart';
 
     /* ── Real published knowledge-base content (KB view markup still lives in

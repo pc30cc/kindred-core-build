@@ -284,64 +284,43 @@ export function WidgetLivePreview({
     const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
     const smartDoc = previewMode === 'smart';
 
-    /* ── Real published knowledge-base content (KB view markup still lives in
-       runtime-kb.js, which is outside the presentation contract, so the KB
-       list/article views stay local to the preview). ── */
+    /* ── Real published knowledge-base content. The preview builds only the
+       KB *view-model*; every byte of KB markup comes from the active
+       template renderer (kbHtml / kbArticleHtml), exactly like production. ── */
     const realArticles = (kbArticles || []).filter(a => a && a.title);
     const realCategories = (kbCategories || []).filter(c => c && c.name);
-    const hasRealKb = realArticles.length > 0 || realCategories.length > 0;
 
-    const articleTemplates = realArticles.map((a, index) => {
-      const bodyText = articleText(a.content) || articleText(a.excerpt);
-      return `<template id="preview-article-${index}">
-        <div class="kb-root kb-article-view" dir="${dir}">
-          <button type="button" class="kb-back" data-preview-kb-back>
-            <span aria-hidden="true">${rtl ? '→' : '←'}</span>
-            <span>${esc(d.kbBack)}</span>
-          </button>
-          <article>
-            <h2 class="kb-article-h">${esc(a.title)}</h2>
-            ${a.excerpt ? `<p class="kb-article-excerpt-full">${esc(a.excerpt)}</p>` : ''}
-            <div class="kb-article-body">${esc(bodyText).replace(/\n/g, '<br>')}</div>
-          </article>
-        </div>
-      </template>`;
-    }).join('');
+    const kbVm = {
+      rtl,
+      state: 'list',
+      query: '',
+      article: null,
+      results: [],
+      articles: realArticles.map((a, i) => ({
+        slug: String(i), title: a.title, excerpt: a.excerpt || '',
+      })),
+      categories: realCategories.map(c => ({
+        name: c.name, description: c.description || '', url: '',
+      })),
+      emptyText: d.kbEmpty,
+      hideChatCta: true,
+    };
 
-    const kbEmptyBlock = `
-      <div class="kb-empty kb-empty-centered">
-        <div class="kb-empty-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-        </div>
-        <p class="kb-empty-text">${esc(d.kbEmpty)}</p>
-      </div>`;
+    /** One article view-model per published article, opened on click. */
+    const kbArticleVms = realArticles.map(a => ({
+      rtl,
+      state: 'article',
+      hideSearch: true,
+      article: {
+        title: a.title,
+        excerpt: a.excerpt || '',
+        // Preview content is plain text — escaped here because the renderer
+        // takes `contentHtml` already sanitized (Core does that in production).
+        contentHtml: esc(articleText(a.content) || articleText(a.excerpt)).replace(/\n/g, '<br>'),
+        publicUrl: '',
+      },
+    }));
 
-    const kbBody = `
-      <div class="kb-root" dir="${dir}">
-        <div class="kb-search-wrap">
-          <input class="kb-search" type="search" placeholder="${esc(d.kbSearch)}" />
-        </div>
-        ${!hasRealKb ? kbEmptyBlock : `
-          ${realArticles.length ? `
-            <div class="kb-section-h">${esc(d.kbAllArticles)}</div>
-            <div class="kb-list">
-              ${realArticles.map((a, i) => `
-                <button type="button" class="kb-article" data-preview-article="${i}">
-                  <div class="kb-article-title">${esc(a.title)}</div>
-                  ${a.excerpt ? `<div class="kb-article-excerpt">${esc(a.excerpt)}</div>` : ''}
-                </button>`).join('')}
-            </div>` : ''}
-          ${realCategories.length ? `
-            <div class="kb-section-h">${esc(d.kbCategories)}</div>
-            <div class="kb-list">
-              ${realCategories.map(c => `
-                <a class="kb-category">
-                  <div class="kb-article-title">${esc(c.name)}</div>
-                  ${c.description ? `<div class="kb-article-excerpt">${esc(c.description)}</div>` : ''}
-                </a>`).join('')}
-            </div>` : ''}
-        `}
-      </div>`;
 
     /* ── Smart Engagement surface (rendered by the real renderer inside the
        frame — the preview only decides placement, exactly like Core does). ── */

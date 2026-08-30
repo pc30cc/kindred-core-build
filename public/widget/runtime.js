@@ -5133,12 +5133,10 @@
     var posClass = uiPrefsStore.get().position;
     var brandName = config.brandName || '';
      var welcomeMessage = config.welcomeMessage || t('welcomeFallback');
-    // Header title — show the workspace's "Launcher Text" (configurable per
-    // workspace under Widget settings). Falls back to brand name only if the
-    // workspace hasn't customized it.
-    var headerTitle = (config.launcherText && String(config.launcherText).trim())
-      || brandName
-      || t('support');
+    // Header title — the workspace identity (brand name). The launcher label
+    // (`launcher_text`) is a LAUNCHER concern and is deliberately NOT used as
+    // a chat/home header title (design §2).
+    var headerTitle = brandName || t('support');
     // Operator team — surfaced in the header as a stacked avatar row, the
     // way Intercom / Crisp / Drift do. Replaces the single workspace-logo
     // badge that used to sit there.

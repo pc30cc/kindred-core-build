@@ -727,11 +727,13 @@
       var hasThreads = convs.length > 0;
       var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
       var articles = (vm.articles || []);
-      // Design §7 — with 3 recent conversations the chips would push the
-      // home screen into an awkward scroll, so they collapse into the
-      // compact action button instead.
-      var showChips = vm.kbEnabled && articles.length > 0 && convs.length < 3;
-      var showArticlesButton = vm.kbEnabled && articles.length > 0 && !showChips;
+      // Design source of truth: the home screen shows EITHER article
+      // suggestions (no conversation yet) OR recent conversations (≥1
+      // thread) — never both. With threads present the articles collapse
+      // into the compact "Articles" action button.
+      var showChips = vm.kbEnabled && articles.length > 0 && !hasThreads;
+      var showArticlesButton = vm.kbEnabled && articles.length > 0 && hasThreads;
+
 
       var stack = (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
         .map(function (m) {

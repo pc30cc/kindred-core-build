@@ -3964,6 +3964,8 @@ const fa: TranslationKeys = {
       sampleMessage: 'سلام! چطور می‌توانیم کمکتان کنیم؟',
       sampleReply: 'یک سؤال دارم',
       inputPlaceholder: 'پیام خود را بنویسید…',
+      replyTimeLabel: 'متن زمان پاسخ‌گویی',
+      replyTimeHint: 'زیر نام فضای کاری در سربرگ ویجت نمایش داده می‌شود.',
       onlineNow: 'هم‌اکنون آنلاین',
     },
     prechat: {

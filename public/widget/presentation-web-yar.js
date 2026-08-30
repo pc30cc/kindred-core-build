@@ -75,13 +75,15 @@
     }
 
     function footerHtml() {
-      var brandName = (config && config.brandName) ? String(config.brandName) : '';
+      // The footer credits the PLATFORM, never the workspace brand.
+      var platform = (config && (config.platformName || config.brandName)) || '';
       if (config && config.showPoweredBy === false) return '';
-      if (!brandName) return '';
+      if (!platform) return '';
       return '<div class="wy-footer"><a class="wy-powered" href="#" data-powered>' +
         '<span class="wy-powered-dot" aria-hidden="true"></span>' +
-        '<span>' + esc(tf('poweredBy', 'Powered by')) + ' ' + esc(brandName) + '</span></a></div>';
+        '<span>' + esc(tf('poweredBy', 'Powered by')) + ' ' + esc(platform) + '</span></a></div>';
     }
+
 
     function headerIdentityHtml(opts) {
       opts = opts || {};

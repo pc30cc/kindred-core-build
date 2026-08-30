@@ -336,7 +336,8 @@ export function WidgetLivePreview({
       : null;
 
     /* ── View-models handed to the production renderer. Nothing below builds
-       widget markup: `presentation-classic.js` is the single source of it. ── */
+       widget markup: the active template is the single source of it. ── */
+
     const previewConfig = {
       brandName: brandName || title,
       welcomeMessage: welcome,

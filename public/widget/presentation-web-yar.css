@@ -93,7 +93,7 @@
   transition: opacity 0.22s var(--wy-ease), transform 0.28s var(--wy-ease);
 }
 .shell.pos-bottom-left .panel { transform-origin: bottom left; }
-.panel.open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.panel.visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
 .shell.no-anim .panel { transition: none; }
 
 @media (max-width: 440px) {
@@ -118,9 +118,8 @@
 .launcher:hover { transform: translateY(-2px) scale(1.04); }
 .launcher:active { transform: scale(0.96); }
 .launcher svg { width: 26px; height: 26px; }
-.launcher .launcher-close { display: none; }
-.shell.open .launcher .launcher-open { display: none; }
-.shell.open .launcher .launcher-close { display: block; }
+/* Icon swap (chat ⇄ close) is owned by the loader shell contract:
+   state lives on .launcher.open with svg.chat-icon / svg.close-icon. */
 .launcher-badge {
   position: absolute; top: -2px; inset-inline-end: -2px; min-width: 18px; height: 18px;
   padding: 0 5px; border-radius: 9999px; background: #e5484d; color: #fff;

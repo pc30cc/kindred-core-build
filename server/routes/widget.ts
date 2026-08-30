@@ -739,8 +739,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     // (and falls back to its own default when unknown).
     const templateId = resolveWidgetTemplateId(
       (ws as { widget_template_id?: string | null }).widget_template_id
-        ?? platformWidget?.widget_template_id,
+        ?? (platformWidget as { widget_template_id?: string | null } | null | undefined)?.widget_template_id,
     );
+
     const templateAssets = widgetTemplateAssetKeys(templateId);
     const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
     const presentationJsName = getWidgetAssetName(templateAssets.script);

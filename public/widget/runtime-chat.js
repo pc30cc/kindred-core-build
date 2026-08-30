@@ -137,6 +137,10 @@
         init.headers = h; return fetch(url, init);
       };
       var conversationId = opts.conversationId || null;
+      // Only meaningful when there is no conversationId: asks the server to
+      // create a fresh thread instead of reusing the visitor's open one.
+      var forceNewConversation = !conversationId && !!opts.forceNewConversation;
+
       var attachmentId = opts.attachmentId || null;
       var text = opts.text;
       var departmentId = opts.departmentId || null;

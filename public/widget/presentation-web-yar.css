@@ -191,29 +191,26 @@
   align-items: center;
   gap: 10px;
   padding: 16px 20px;
-  background: var(--wy-card);
+  background: var(--wy-surface);
   flex: none;
   box-sizing: border-box;
 }
-/* Home header is the only one with symmetric 20px padding (design §1). */
-.wy-head-home { padding: 20px; justify-content: space-between; }
-/* Chat header uses a tighter 16px box (design §5). */
-/* Chat header — exact design box: 68px tall, 16px inline padding, hairline
-   bottom rule. Every dimension here is fixed presentation spec (never
-   configurable). */
+/* Home header — symmetric 20px padding, 12px avatar gutter (design source). */
+.wy-head-home { padding: 20px; gap: 12px; justify-content: space-between; }
+.wy-head-home .wy-head-text { gap: 4px; }
+.wy-head-home .wy-head-title { font-size: 16px; font-weight: 500; line-height: 1.1; }
+/* Chat header — design box: 16px padding, panel surface, no bottom rule. */
 .wy-head-chat {
-  height: 68px;
-  min-height: 68px;
-  padding: 0 16px;
+  padding: 16px;
   gap: 10px;
-  border-bottom: 1px solid #f0f0f3;
 }
-.wy-head-chat .wy-back { width: 36px; height: 36px; }
-.wy-head-chat .wy-head-title { font-size: 13px; font-weight: 500; gap: 6px; }
-.wy-head-chat .wy-head-sub { font-size: 10px; color: #8b8d98; }
-.wy-head-chat .wy-online-dot {
-  width: 12px; height: 12px; border: 2px solid #fff; box-sizing: border-box;
+.wy-head-chat .wy-back {
+  width: auto; height: auto; padding: 4px; margin-inline-end: -6px;
+  border-radius: 6px; color: var(--wy-text);
 }
+.wy-head-chat .wy-head-title { font-size: 15px; font-weight: 600; gap: 6px; }
+.wy-head-chat .wy-head-sub { font-size: 12px; color: var(--wy-muted); }
+.wy-head-chat .wy-online-dot { width: 8px; height: 8px; border: 0; }
 .wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
 .wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -240,12 +237,17 @@
 .wy-avatar-sm { width: 2.25rem; height: 2.25rem; font-size: 14px; }
 .wy-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-.home-stack { display: inline-flex; align-items: center; margin-inline-start: 6px; }
+/* Online-operator stack — 16px circles overlapping by 6px, sitting BEFORE
+   the workspace name inside the home header title row (design source). */
+.home-stack { display: inline-flex; align-items: center; flex: none; }
 .home-stack-item {
-  width: 20px; height: 20px; border-radius: 50%; background: var(--wy-hover-2);
-  border: 2px solid var(--wy-card); margin-inline-start: -7px; overflow: hidden; display: inline-block;
+  width: 1rem; height: 1rem; border-radius: 50%; background: var(--wy-hover-2);
+  border: 1.5px solid var(--wy-surface); box-sizing: border-box;
+  margin-inline-end: -6px; overflow: hidden; display: inline-block;
 }
+.home-stack-item:last-child { margin-inline-end: 0; }
 .home-stack-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 
 .wy-fab {
   width: 32px; height: 32px; border-radius: 9999px; background: var(--wy-accent); color: #fff;

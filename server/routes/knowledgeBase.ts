@@ -158,7 +158,29 @@ knowledgeBaseRouter.get('/articles', async (req: Request, res: Response) => {
 
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: 'query_failed' });
-  return res.json({ articles: data ?? [] });
+  const articles = data ?? [];
+
+  // Attach helpful/not-helpful aggregate counts from the widget feedback
+  // extension (public.kb_article_feedback, migration 060) so the operator
+  // panel can surface them later without a second round-trip.
+  const articleIds = (articles as any[]).map((a) => a.id).filter(Boolean);
+  if (articleIds.length > 0) {
+    const { data: feedbackRows } = await getServiceClient(g.config)
+      .from('kb_article_feedback')
+      .select('article_id, rating')
+      .in('article_id', articleIds);
+    const counts: Record<string, { helpful: number; notHelpful: number }> = {};
+    for (const row of (feedbackRows || []) as any[]) {
+      const c = (counts[row.article_id] ||= { helpful: 0, notHelpful: 0 });
+      if (row.rating === 'up') c.helpful++;
+      else if (row.rating === 'down') c.notHelpful++;
+    }
+    for (const a of articles as any[]) {
+      a.feedback = counts[a.id] || { helpful: 0, notHelpful: 0 };
+    }
+  }
+
+  return res.json({ articles });
 });
 
 knowledgeBaseRouter.post('/articles', async (req: Request, res: Response) => {

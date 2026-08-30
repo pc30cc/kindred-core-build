@@ -1217,6 +1217,113 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
 });
 
 // ═══════════════════════════════════════════════
+// GET /conversations — Visitor's own conversation list
+// ───────────────────────────────────────────────
+// Returns ONLY conversations belonging to the resolved visitor session
+// (workspace + visitor identity), newest first. Identity is resolved the
+// same way as every other token-secured widget route: the HttpOnly `dvsid`
+// cookie (already copied into req.query.visitor_id by the middleware
+// mounted above) is authoritative; visitor_session_id / contact linkage is
+// used only to widen the match, never to narrow the workspace scope.
+// ═══════════════════════════════════════════════
+widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.json({ conversations: [] });
+
+  const visitorId = (req.query.visitor_id as string) || null;
+  if (!visitorId) return res.json({ conversations: [] });
+
+  const supabase = getServiceClient(config);
+
+  try {
+    // Every visitor_sessions row this browser has ever had for this
+    // workspace — a visitor can accumulate more than one session row over
+    // time (new tab, cookie renewal, etc).
+    const { data: sessions } = await supabase
+      .from('visitor_sessions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_id', visitorId)
+      .limit(50);
+    const sessionIds = (sessions || []).map((s: any) => s.id).filter(Boolean);
+
+    // Fallback linkage used elsewhere in this file (see /poll, /message):
+    // a contact whose metadata carries this visitor_id.
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .contains('metadata', { visitor_id: visitorId })
+      .limit(1)
+      .maybeSingle();
+
+    if (sessionIds.length === 0 && !contact) {
+      return res.json({ conversations: [] });
+    }
+
+    const orParts: string[] = [];
+    if (sessionIds.length > 0) orParts.push(`visitor_session_id.in.(${sessionIds.join(',')})`);
+    if (contact?.id) orParts.push(`contact_id.eq.${contact.id}`);
+
+    const { data: convos, error } = await supabase
+      .from('conversations')
+      .select('id, status, updated_at')
+      .eq('workspace_id', workspaceId)
+      .or(orParts.join(','))
+      .order('updated_at', { ascending: false })
+      .limit(20);
+    if (error) throw error;
+
+    const list = convos || [];
+    const convIds = list.map((c: any) => c.id);
+
+    // Last message per conversation, for the preview + lastMessageAt.
+    // conversation_messages has no visitor-side "read" marker (the
+    // existing `seen_at` column is the opposite direction — an operator
+    // marking a visitor's message seen), so unreadCount is always 0 here
+    // rather than inventing a signal that doesn't exist.
+    const lastByConv: Record<string, { body: string; created_at: string }> = {};
+    if (convIds.length > 0) {
+      const { data: msgs } = await supabase
+        .from('conversation_messages')
+        .select('conversation_id, body, created_at')
+        .in('conversation_id', convIds)
+        .order('created_at', { ascending: false })
+        .limit(500);
+      for (const m of (msgs || []) as any[]) {
+        if (!lastByConv[m.conversation_id]) {
+          lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at };
+        }
+      }
+    }
+
+    const truncate = (text: string, max = 120) => {
+      const flat = String(text || '').replace(/\s+/g, ' ').trim();
+      return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+    };
+
+    const conversations = list.map((c: any) => {
+      const last = lastByConv[c.id] || null;
+      return {
+        id: c.id,
+        status: c.status || 'unknown',
+        updatedAt: c.updated_at,
+        preview: last ? truncate(last.body) : '',
+        unreadCount: 0,
+        lastMessageAt: last ? last.created_at : c.updated_at,
+      };
+    });
+
+    return res.json({ conversations });
+  } catch (err: any) {
+    console.error('[widget-conversations] Error:', err.message);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════
 // GET /help-articles — Knowledge base articles
 // ═══════════════════════════════════════════════
 widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Request, res: Response) => {
@@ -2595,6 +2702,83 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal error' });
   }
 });
+
+// ═══════════════════════════════════════════════
+// POST /kb/articles/:slug/feedback — Article helpful / not helpful vote
+// ───────────────────────────────────────────────
+// Extends the existing Knowledge Base (public.knowledge_base_articles) —
+// resolves the article by slug within the caller's own workspace, then
+// upserts a single overwritable vote per visitor session (one row per
+// (article_id, visitor_session_id), see migration 060).
+// ═══════════════════════════════════════════════
+const kbFeedbackSchema = z.object({
+  rating: z.enum(['up', 'down']),
+});
+
+widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string || (req.body as any)?.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const parsed = kbFeedbackSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_rating' });
+
+  const slug = String(req.params.slug || '').trim();
+  if (!slug) return res.status(400).json({ error: 'invalid_slug' });
+
+  const supabase = getServiceClient(config);
+
+  try {
+    const { data: article } = await supabase
+      .from('knowledge_base_articles')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('slug', slug)
+      .maybeSingle();
+    if (!article) return res.status(404).json({ error: 'article_not_found' });
+
+    const visitorId = (req.query.visitor_id as string) || null;
+    let visitorSessionId: string | null = null;
+    if (visitorId) {
+      const { data: session } = await supabase
+        .from('visitor_sessions')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('visitor_id', visitorId)
+        .order('last_seen_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      visitorSessionId = session?.id || null;
+    }
+
+    const row = {
+      workspace_id: workspaceId,
+      article_id: article.id,
+      visitor_session_id: visitorSessionId,
+      rating: parsed.data.rating,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (visitorSessionId) {
+      const { error } = await supabase
+        .from('kb_article_feedback')
+        .upsert(row, { onConflict: 'article_id,visitor_session_id' });
+      if (error) throw error;
+    } else {
+      // No resolvable session — record an un-deduplicated anonymous vote
+      // rather than rejecting the feedback outright.
+      const { error } = await supabase.from('kb_article_feedback').insert(row);
+      if (error) throw error;
+    }
+
+    return res.json({ ok: true, rating: parsed.data.rating });
+  } catch (err: any) {
+    console.error('[widget-kb-feedback] Error:', err.message);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 
 // ═══════════════════════════════════════════════
 // POST /offline-messages — Capture a message while the workspace is offline

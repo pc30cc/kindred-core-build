@@ -360,6 +360,8 @@ export function WidgetLivePreview({
       rtl,
       primary,
       view,
+      /** Template id — resolved through the registry inside the frame. */
+      templateId: (s.widget_template_id as string | undefined) || null,
       smart: { enabled: smartDoc, mode: smartSurface?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' },
       smartSurface,
       config: previewConfig,
@@ -381,7 +383,12 @@ export function WidgetLivePreview({
         prechatNamePh: d.name, prechatEmailPh: d.email, prechatPhonePh: d.phone,
         required: '*', prechatTitle: d.prechatTitle, prechatSubtitle: d.prechatIntro,
         continue: d.start, prechatPrivacy: d.privacy,
+        // Knowledge Base strings — the KB surfaces are part of the contract.
+        searchKb: d.kbSearch, kbAllArticles: d.kbAllArticles, kbCategories: d.kbCategories,
+        noArticles: d.kbEmpty, kbZeroResults: d.kbEmpty, kbBack: d.kbBack,
+        kbSearching: d.kbSearch, kbSwitchToChat: d.chatTab, kbOpenInBrowser: d.homeSeeAll,
       },
+
       shellVm: {
         config: previewConfig,
         brandName: brandName || title,

@@ -6849,9 +6849,13 @@
     });
 
     // ─── Public API back to loader ───
+    // open/close/toggle ALWAYS return the real, final open state so the
+    // loader never has to guess (no `isOpen = !isOpen` dual-state drift).
     return {
+      /** Single source of truth for panel visibility. */
+      isOpen: function () { return !!shellStore.get().isOpen; },
       open: function () {
-        if (shellStore.get().isOpen) return;
+        if (shellStore.get().isOpen) return true;
         shellStore.set({ isOpen: true });
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
@@ -6864,18 +6868,21 @@
         if (msgInput && transportStore.get().connectionState === 'online' && !contextualNeedsPrechat()) {
           setTimeout(function () { msgInput.focus(); }, 300);
         }
+        return true;
       },
       close: function () {
-        if (!shellStore.get().isOpen) return;
+        if (!shellStore.get().isOpen) return false;
         // Capture any in-flight typed text before hiding
         syncDraftFromInput();
         shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
         panel.classList.remove('visible');
+        return false;
       },
       toggle: function () {
-        if (shellStore.get().isOpen) this.close(); else this.open();
+        return shellStore.get().isOpen ? this.close() : this.open();
       },
+
       setUnread: function (count) {
         // Public bridge: sets the global counter directly (loader API parity).
         notify.setUnread(count);

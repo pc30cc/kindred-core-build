@@ -6693,9 +6693,18 @@
       } catch (_) {}
     }
 
+    function syncHeaderNav() {
+      try {
+        var backBtn = panel.querySelector('[data-nav-home]');
+        if (backBtn) backBtn.hidden = (shellStore.get().activeTab === 'home');
+      } catch (_) {}
+    }
+
     function switchTab(key) {
-      if (shellStore.get().activeTab === key) { renderBody(); return; }
+      if (shellStore.get().activeTab === key) { renderBody(); syncHeaderNav(); return; }
       shellStore.set({ activeTab: key });
+      syncHeaderNav();
+
       try {
         var allT = panel.querySelectorAll('.tab');
         Array.prototype.forEach.call(allT, function (t2) {

@@ -1047,6 +1047,15 @@
       handoffPrechatCardHtml: handoffPrechatCardHtml,
       contactFallbackHtml: contactFallbackHtml,
       smartSurfaceHtml: smartSurfaceHtml,
+      // Knowledge Base surfaces
+      kbHtml: kbHtml,
+      kbSearchBarHtml: kbSearchBarHtml,
+      kbHomeHtml: kbHomeHtml,
+      kbSearchResultsHtml: kbSearchResultsHtml,
+      kbArticleHtml: kbArticleHtml,
+      kbEmptyHtml: kbEmptyHtml,
+      kbLoadingHtml: kbLoadingHtml,
+
       format: {
         msgTime: formatMsgTime,
         callDuration: fmtCallDuration,

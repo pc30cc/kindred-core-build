@@ -20,8 +20,12 @@ function handlerBody(startMarker: string): string {
   expect(start, `route not found: ${startMarker}`).toBeGreaterThan(-1);
   // Cut at the next route registration so we only inspect this handler.
   const next = source.indexOf('widgetRouter.', start + startMarker.length);
-  return source.slice(start, next === -1 ? source.length : next);
+  const slice = source.slice(start, next === -1 ? source.length : next);
+  // Strip comments — prose describing what the handler refuses to read must
+  // not be mistaken for the handler actually reading it.
+  return slice.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
+
 
 beforeAll(() => {
   source = readFileSync(resolve(process.cwd(), 'server/routes/widget.ts'), 'utf8');

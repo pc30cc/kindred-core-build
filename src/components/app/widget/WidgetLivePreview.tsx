@@ -773,7 +773,8 @@ export function WidgetLivePreview({
         parent.postMessage({ source: 'gs-widget-preview', nav: act === 'help' ? 'help' : 'chat' }, '*');
       }
     });
-  })();
+  }
+
 </script>
 </body>
 </html>`;

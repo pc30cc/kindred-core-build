@@ -650,8 +650,8 @@ export function WidgetLivePreview({
     if (!panel || !launcher) return;
     var label = document.querySelector('.fab-label');
     // LIFECYCLE PARITY: the preview uses the PRODUCTION contract —
-    // `.panel.visible` + `.launcher.open` — never a preview-only
-    // [hidden] attribute. Anything else masks real regressions.
+    // panel.visible + launcher.open — never a preview-only
+    // hidden attribute. Anything else masks real regressions.
     function isOpen() { return panel.classList.contains('visible'); }
     function setOpen(open) {
       panel.classList.toggle('visible', !!open);

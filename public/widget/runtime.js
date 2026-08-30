@@ -5977,7 +5977,21 @@
       } catch (_) {}
     }
 
+    // View chrome — the active template renders its OWN header for every
+    // full-screen view (home / list / help / article / pre-contact); the
+    // shell's chat header belongs to the chat view only. Core exposes the
+    // current view on the panel so templates can style per-view, and never
+    // makes template-specific decisions itself.
+    function syncViewChrome(key) {
+      try { panel.setAttribute('data-view', key); } catch (_) {}
+      try {
+        var chatHeader = panel.querySelector('[data-chat-header]');
+        if (chatHeader) chatHeader.hidden = key !== 'chat';
+      } catch (_) {}
+    }
+
     function switchTab(key) {
+      syncViewChrome(key);
       if (shellStore.get().activeTab === key) { renderBody(); return; }
       shellStore.set({ activeTab: key });
       try {
@@ -5992,6 +6006,118 @@
       }
     }
 
+    // ─── Visitor conversation list (server-backed) ───
+    // GET /api/widget/conversations returns ONLY the conversations that
+    // belong to this visitor. Core owns the state; the template owns markup.
+    var conversationsStore = createStore({ loaded: false, loading: false, items: [] });
+
+    function relativeTimeLabel(iso) {
+      try {
+        var ts = new Date(iso).getTime();
+        if (!isFinite(ts)) return '';
+        var diff = Math.max(0, Date.now() - ts);
+        var mins = Math.floor(diff / 60000);
+        if (mins < 1) return t('convJustNow') !== 'convJustNow' ? t('convJustNow') : 'now';
+        if (mins < 60) return mins + 'm';
+        var hrs = Math.floor(mins / 60);
+        if (hrs < 24) return hrs + 'h';
+        return Math.floor(hrs / 24) + 'd';
+      } catch (_) { return ''; }
+    }
+
+    function mapConversationVm(c) {
+      return {
+        id: c.id,
+        status: c.status,
+        preview: c.preview || '',
+        unreadCount: Number(c.unreadCount) || 0,
+        timeLabel: relativeTimeLabel(c.lastMessageAt || c.updatedAt),
+      };
+    }
+
+    function loadConversations(onDone) {
+      if (!chatEnabled) { if (onDone) onDone(); return; }
+      var st = conversationsStore.get();
+      if (st.loading) return;
+      conversationsStore.set({ loading: true });
+      var visitorId = (identityStore.get() || {}).visitorId
+        || ((window.__gs_identity || {}).visitorId) || '';
+      var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
+        encodeURIComponent(ctx.workspaceId || '') +
+        (visitorId ? ('&visitor_id=' + encodeURIComponent(visitorId)) : '');
+      ctx.fetchWith(url, { method: 'GET' })
+        .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
+        .catch(function () { return { conversations: [] }; })
+        .then(function (data) {
+          conversationsStore.set({
+            loaded: true,
+            loading: false,
+            items: (data && data.conversations ? data.conversations : []).map(mapConversationVm),
+          });
+          if (onDone) onDone();
+        });
+    }
+
+    // Opening an existing thread = make it the active conversation and go
+    // to chat. Business logic (history load, subscription) is reused.
+    function openConversation(conversationId) {
+      if (!conversationId) { switchTab('chat'); return; }
+      if (chatStore.get().conversationId !== conversationId) {
+        chatStore.set({ conversationId: conversationId, messages: [] });
+        try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
+        try { chatUI.bootstrapHistory(function () { if (shellStore.get().activeTab === 'chat') renderBody(); }); } catch (_) {}
+      }
+      switchTab('chat');
+    }
+
+    function bindViewHooks(root) {
+      if (!root) return;
+      Array.prototype.forEach.call(root.querySelectorAll('[data-view]'), function (el) {
+        el.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) {}
+          switchTab(el.getAttribute('data-view'));
+        });
+      });
+      Array.prototype.forEach.call(root.querySelectorAll('[data-view-back]'), function (el) {
+        el.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) {}
+          switchTab(el.getAttribute('data-view-back') || 'home');
+        });
+      });
+      Array.prototype.forEach.call(root.querySelectorAll('[data-conversation-open]'), function (el) {
+        el.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) {}
+          openConversation(el.getAttribute('data-conversation-open'));
+        });
+      });
+    }
+
+    function renderConversationList() {
+      if (!body) return;
+      var cs = conversationsStore.get();
+      body.innerHTML = Presentation.conversationListHtml
+        ? Presentation.conversationListHtml({
+            rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
+            loading: cs.loading && !cs.loaded,
+            conversations: cs.items,
+            chatEnabled: chatEnabled,
+          })
+        : '';
+      bindViewHooks(body);
+      var newBtn = body.querySelector('[data-home-action="chat"]');
+      if (newBtn) {
+        newBtn.addEventListener('click', function () {
+          chatStore.set({ conversationId: null, messages: [] });
+          switchTab('chat');
+        });
+      }
+      if (!cs.loaded && !cs.loading) {
+        loadConversations(function () {
+          if (shellStore.get().activeTab === 'list') renderConversationList();
+        });
+      }
+    }
+
     function renderHome() {
       if (!body) return;
       var pState = presenceStore.get();
@@ -6002,14 +6128,20 @@
         teamMembers: teamMembers,
         categories: kbState.categories || [],
         articles: kbState.articles || [],
+        conversations: (conversationsStore.get() || {}).items || [],
+        headerTitle: headerTitle,
         kbEnabled: kbEnabled,
         chatEnabled: chatEnabled,
         primaryColor: ctx.primaryColor,
         welcomeMessage: welcomeMessage,
         smartSurface: smartSurface,
       });
+      bindViewHooks(body);
       var ctaBtn = body.querySelector('[data-home-action="chat"]');
-      if (ctaBtn) ctaBtn.addEventListener('click', function () { switchTab('chat'); });
+      if (ctaBtn) ctaBtn.addEventListener('click', function () {
+        chatStore.set({ conversationId: chatStore.get().conversationId });
+        switchTab('chat');
+      });
       var seeAll = body.querySelector('[data-home-action="help"]');
       if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {
@@ -6023,7 +6155,13 @@
         el.addEventListener('click', function () { switchTab('help'); });
       });
       bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
+      if (!(conversationsStore.get() || {}).loaded) {
+        loadConversations(function () {
+          if (shellStore.get().activeTab === 'home') renderHome();
+        });
+      }
     }
+
 
     // Canonical entry-flow state names (spec §21). Internal naming only —
     // no visual/template redesign implied. See deriveChatTabState() below

@@ -3865,7 +3865,7 @@
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
     if (!shell || !shadowRoot) {
       Util.warn('FATAL: no shadowRoot provided by loader');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
 
      // Honor the workspace's "Widget Language" setting. When set to a
@@ -3894,7 +3894,7 @@
     Presentation = resolvePresentation(ctx, function (key) { return I18n.t(ctx.locale, key); });
     if (!Presentation) {
       Util.warn('FATAL: no presentation template registered');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
@@ -4911,7 +4911,7 @@
     }
     if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
       Util.warn('FATAL: no mount target available inside shadow root');
-      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+      return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
     var launcher = shell.launcher;
 

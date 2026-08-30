@@ -1003,80 +1003,6 @@
         onlineLabel: 'çevrimiçi',
       },
     };
-    // ── Web Yar design-spec strings (home / list / articles / article) ──
-    var WY = {
-      en: {
-        wyHelpQ: 'How can we help you?',
-        wyRecent: 'Recent conversations',
-        wyViewConvs: 'View conversations',
-        wyArticlesHint: 'Maybe one of these articles answers your question',
-        wyMoreArticles: 'More articles',
-        wyContinueLast: 'Continue last conversation',
-        wyStartNew: 'Start a new conversation',
-        wyArticles: 'Articles',
-        wyConversations: 'Conversations',
-        wyOpenStatus: 'Open',
-        wyResolvedStatus: 'Resolved',
-        wyUnread: 'new messages',
-        wyRateQ: 'Was this article helpful?',
-        wyRateUp: 'Helpful',
-        wyRateDown: 'Not helpful',
-        wyRateThanks: 'Thanks for your feedback!',
-        wyTalkSupport: 'Chat with support',
-        wyNewConversation: 'New conversation',
-        wyBack: 'Back',
-        wyConnectOperator: 'Connecting to an operator',
-      },
-      fa: {
-        wyHelpQ: 'چطور می‌توانیم کمکتون کنیم؟',
-        wyRecent: 'گفتگوهای اخیر',
-        wyViewConvs: 'مشاهده گفتگوها',
-        wyArticlesHint: 'شاید مقالات زیر جواب سوال شما باشد',
-        wyMoreArticles: 'مقالات بیشتر',
-        wyContinueLast: 'ادامه آخرین گفتگو',
-        wyStartNew: 'شروع گفتگوی جدید',
-        wyArticles: 'مقالات',
-        wyConversations: 'گفتگوها',
-        wyOpenStatus: 'باز',
-        wyResolvedStatus: 'حل‌شده',
-        wyUnread: 'پیام جدید',
-        wyRateQ: 'آیا این مقاله برای شما مفید بود؟',
-        wyRateUp: 'مفید بود',
-        wyRateDown: 'مفید نبود',
-        wyRateThanks: 'بازخورد شما ثبت شد. ممنون از راهنمایی‌تون!',
-        wyTalkSupport: 'گفتگو با پشتیبانی',
-        wyNewConversation: 'گفتگوی جدید',
-        wyBack: 'بازگشت',
-        wyConnectOperator: 'اتصال به اپراتور',
-      },
-      tr: {
-        wyHelpQ: 'Size nasıl yardımcı olabiliriz?',
-        wyRecent: 'Son görüşmeler',
-        wyViewConvs: 'Görüşmeleri gör',
-        wyArticlesHint: 'Belki bu makaleler sorunuzu yanıtlar',
-        wyMoreArticles: 'Daha fazla makale',
-        wyContinueLast: 'Son görüşmeye devam et',
-        wyStartNew: 'Yeni görüşme başlat',
-        wyArticles: 'Makaleler',
-        wyConversations: 'Görüşmeler',
-        wyOpenStatus: 'Açık',
-        wyResolvedStatus: 'Çözüldü',
-        wyUnread: 'yeni mesaj',
-        wyRateQ: 'Bu makale yardımcı oldu mu?',
-        wyRateUp: 'Yardımcı oldu',
-        wyRateDown: 'Yardımcı olmadı',
-        wyRateThanks: 'Geri bildiriminiz için teşekkürler!',
-        wyTalkSupport: 'Destek ile görüş',
-        wyNewConversation: 'Yeni görüşme',
-        wyBack: 'Geri',
-        wyConnectOperator: 'Operatöre bağlanılıyor',
-      },
-    };
-    Object.keys(WY).forEach(function (loc) {
-      if (!dict[loc]) dict[loc] = {};
-      Object.keys(WY[loc]).forEach(function (k) { dict[loc][k] = WY[loc][k]; });
-    });
-
     return {
       t: function (locale, key) {
         var l = dict[locale] ? locale : 'en';
@@ -5712,20 +5638,42 @@
       ? '<span class="header-logo"><img src="' + Util.escapeHtml(wsLogoUrl) + '" alt="' +
         Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span>'
       : '';
-    // Design spec: the header is fully view-driven (home / list / articles /
-    // article / chat each have their own header composition). It is painted
-    // by renderHeader() on every view change — here we only mount the shell
-    // container plus the sr-only presence live region.
-    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + ' data-header></div>' +
+    var headerCloseHtml = '<button type="button" class="header-close" data-panel-close aria-label="' +
+      Util.escapeHtml(t('closeWidget') || 'Close') + '" title="' + Util.escapeHtml(t('closeWidget') || 'Close') + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="m6 9 6 6 6-6"/></svg></button>';
+    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
+      headerCloseHtml +
+      '<div class="header-brand">' +
+        teamStackHtml +
+      '</div>' +
       '<div class="presence sr-only" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
         '<span class="presence-label" data-presence-label></span>' +
+      '</div>' +
       '</div>';
-
-    // Design spec: there is no bottom tab bar. Navigation happens through the
-    // home screen's action row and the per-view header controls.
+    // Visitor-initiated voice/video tabs were removed — calls are now only
+    // initiated from the operator side. Keep chat + help tabs only.
+    var NAV_ICONS = {
+      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.8"/>',
+      chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+      help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
+    };
+    var tabDefs = [{ key: 'home', label: t('home') }];
+    if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
+    if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
     var tabsHtml = '';
-
+    if (tabDefs.length > 1) {
+      var act = shellStore.get().activeTab;
+      tabsHtml = '<div class="tabs tabs-bottom">' + tabDefs.map(function (d) {
+        return '<button type="button" class="tab' + (act === d.key ? ' active' : '') +
+          '" data-tab="' + d.key + '">' +
+          '<svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+            NAV_ICONS[d.key] + '</svg>' +
+          '<span class="tab-label">' + Util.escapeHtml(d.label) + '</span>' +
+        '</button>';
+      }).join('') + '</div>';
+    }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
     var composerCfg = (ctx.config && ctx.config.composer) || {};
@@ -5744,49 +5692,41 @@
         '<div class="attach-tray" data-attach-tray hidden></div>' +
         '<div class="emoji-picker" data-emoji-picker hidden></div>' +
         '<div class="input-bar" data-input-bar>' +
-        // Design spec composer: one rounded box with a focus ring. The mic
-        // sits at the leading edge and is only visible while the draft is
-        // empty; attach + emoji + send sit at the trailing edge and the send
-        // button only appears once the visitor typed something.
+        '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + Util.escapeHtml(t('talkToHuman')) + '" aria-label="' + Util.escapeHtml(t('talkToHuman')) + '">' +
+          '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>' +
+        '</button>' +
+        // The text field, attach and the mic live INSIDE one pill
+        // (input-wrap) — mic + attach sit together at its trailing edge.
+        // Emoji is a separate button outside the pill (next to send),
+        // matching the requested layout.
         '<div class="input-wrap" data-input-wrap>' +
-          '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + Util.escapeHtml(t('talkToHuman')) + '" aria-label="' + Util.escapeHtml(t('talkToHuman')) + '">' +
-            '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>' +
-          '</button>' +
+          '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
+          (attachCfg.enabled
+            ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
+                '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
+              '</button>' +
+              '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
+            : '') +
           (voiceNotesEnabled && micSupported
             ? '<button type="button" class="mic-btn" data-mic-btn title="' + Util.escapeHtml(t('recordVoice')) + '" aria-label="' + Util.escapeHtml(t('recordVoice')) + '">' +
-                '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>' +
+                '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>' +
                 '<span class="mic-ring" aria-hidden="true"></span>' +
               '</button>'
             : '') +
-          '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
-          '<div class="composer-actions">' +
-            (attachCfg.enabled
-              ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
-                  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.48"/></svg>' +
-                '</button>' +
-                '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
-              : '') +
-            (emojiEnabled
-              ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + Util.escapeHtml(t('emojiPicker')) + '" aria-label="' + Util.escapeHtml(t('emojiPicker')) + '">' +
-                  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8.5 14s1.2 2 3.5 2 3.5-2 3.5-2" stroke-linecap="round"/><circle cx="9" cy="10" r="0.9" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg>' +
-                '</button>'
-              : '') +
-            '<button type="button" class="send-btn" data-send-btn aria-label="' + Util.escapeHtml(t('send') || 'Send') + '">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4L3 11l6.5 2.5L12 20l8-16Z"/></svg>' +
-            '</button>' +
-          '</div>' +
         '</div>' +
+        (emojiEnabled
+          ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + Util.escapeHtml(t('emojiPicker')) + '" aria-label="' + Util.escapeHtml(t('emojiPicker')) + '">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
+            '</button>'
+          : '') +
+        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
+        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
+        '</button>' +
         '</div>'
       : '';
-
-     // Design spec footer: always outside the scroll area, with a pulsing dot.
      var poweredHtml = brandName
-       ? '<div class="powered" data-footer>' +
-           '<span class="powered-dot" aria-hidden="true"></span>' +
-           '<span>' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></span>' +
-         '</div>'
+       ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
-
 
     panel.innerHTML = headerHtml + bodyHtml + inputHtml + tabsHtml + poweredHtml +
       // Phase 6b — lightbox container, hidden by default.
@@ -6012,16 +5952,6 @@
         try { if (window.__gs_runtime && window.__gs_runtime._instance) window.__gs_runtime._instance.close(); } catch (_) {}
       });
     }
-
-    // Contextual back-to-home control in the redesigned header.
-    var headerBackBtn = panel.querySelector('[data-nav-home]');
-    if (headerBackBtn) {
-      headerBackBtn.addEventListener('click', function (ev) {
-        try { ev.preventDefault(); ev.stopPropagation(); } catch (_) {}
-        try { switchTab('home'); } catch (_) {}
-      });
-    }
-
 
     var lightboxClose = panel.querySelector('[data-att-lightbox-close]');
     function closeLightbox() {
@@ -6418,25 +6348,10 @@
         sendBtn.style.opacity = '0.5';
         msgInput.style.opacity = '0.7';
       }
-      syncComposerDraftState();
-    }
-    // Design spec: the mic shows while the draft is empty and is replaced by
-    // the send button as soon as the visitor types.
-    function syncComposerDraftState() {
-      try {
-        var wrap = panel.querySelector('[data-input-wrap]');
-        if (!wrap || !msgInput) return;
-        wrap.classList.toggle('has-draft', String(msgInput.value || '').trim().length > 0);
-      } catch (_) {}
-    }
-    if (msgInput) {
-      msgInput.addEventListener('input', syncComposerDraftState);
-      msgInput.addEventListener('focus', syncComposerDraftState);
     }
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
     presenceStore.subscribe(applyComposerState);
-
 
     // ─── Draft preservation (in-memory only, per-conversation) ───
     // Drafts live in chatStore.drafts keyed by conversationId. Before a
@@ -6759,354 +6674,129 @@
         });
     }
 
-    // ════════════════════════════════════════════════════════════════
-    // Design-spec view layer
-    //
-    // Views: home | list | articles | article | chat  (pre-chat and the
-    // offline capture form still render inside the `chat` view exactly as
-    // before — no entry-flow logic changed here).
-    //
-    // Legacy tab keys are mapped onto views so every existing caller of
-    // switchTab('home'|'chat'|'help') keeps working untouched.
-    // ════════════════════════════════════════════════════════════════
-    var VIEW_ALIAS = { help: 'articles' };
-    var currentArticleSlug = null;
-    var articleFeedback = {};
-    var wyRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
-    var wyChevronBack = wyRtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6';
-    var wyChevronFwd = wyRtl ? 'm15 18-6-6 6-6' : 'm9 18 6-6-6-6';
-
-    function currentView() {
-      var v = shellStore.get().activeTab || 'home';
-      return VIEW_ALIAS[v] || v;
+    // Keep the header brand slot in sync with the active tab: operator
+    // avatars while chatting, workspace logo (when enabled) elsewhere.
+    function syncHeaderBrand() {
+      try {
+        var logoEl = panel.querySelector('[data-header-logo]');
+        if (logoEl) logoEl.hidden = false;
+      } catch (_) {}
     }
-
-    function chevronSvg(d, size) {
-      return '<svg viewBox="0 0 24 24" width="' + (size || 18) + '" height="' + (size || 18) +
-        '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>';
-    }
-
-    function teamAvatarsHtml(limit) {
-      return (teamMembers || []).filter(function (op) { return op && op.online !== false; })
-        .slice(0, limit || 3).map(function (op) {
-          var name = (op && op.name) ? String(op.name) : t('operator');
-          var av = op && op.avatar ? String(op.avatar) : '';
-          var cls = 'wy-avatar' + (av ? ' has-img' : '');
-          var inner = av
-            ? '<img src="' + Util.escapeHtml(av) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
-            : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
-          return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner + '</span>';
-        }).join('');
-    }
-
-    function isTeamOnline() {
-      var p = presenceStore.get();
-      return p.status === 'online' && p.liveChatEnabled !== false;
-    }
-
-    // Paints the header for the active view. Called by renderBody().
-    function renderHeader() {
-      var header = panel.querySelector('[data-header]');
-      if (!header) return;
-      var view = currentView();
-      var logo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
-      var title = headerTitle || brandName || t('support');
-      var online = isTeamOnline();
-
-      function backBtn(target) {
-        return '<button type="button" class="wy-header-back" data-nav-back="' + target + '" aria-label="' +
-          Util.escapeHtml(t('wyBack')) + '" title="' + Util.escapeHtml(t('wyBack')) + '">' +
-          chevronSvg(wyChevronBack, 20) + '</button>';
-      }
-
-      var html = '';
-      if (view === 'home') {
-        var stack = teamAvatarsHtml(3);
-        html =
-          '<div class="wy-header-brand">' +
-            (logo ? '<span class="wy-header-logo"><img src="' + Util.escapeHtml(logo) + '" alt="' + Util.escapeHtml(title) + '" loading="lazy" decoding="async" /></span>' : '') +
-            (stack ? '<div class="wy-avatar-stack">' + stack + '</div>' : '') +
-            '<div class="wy-header-text">' +
-              '<div class="wy-header-title">' + Util.escapeHtml(title) + '</div>' +
-              '<div class="wy-header-sub">' + Util.escapeHtml(online ? t('homeReplyFast') : t('homeReplySlow')) + '</div>' +
-            '</div>' +
-          '</div>';
-      } else if (view === 'list') {
-        html = backBtn('home') +
-          '<div class="wy-header-text wy-header-text-only">' +
-            '<div class="wy-header-title">' + Util.escapeHtml(t('wyConversations')) + '</div>' +
-          '</div>' +
-          '<button type="button" class="wy-header-new" data-nav-newchat aria-label="' + Util.escapeHtml(t('wyNewConversation')) + '" title="' + Util.escapeHtml(t('wyNewConversation')) + '">' +
-            '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
-          '</button>';
-      } else if (view === 'articles') {
-        html = backBtn('home') +
-          '<div class="wy-header-text wy-header-text-only">' +
-            '<div class="wy-header-title">' + Util.escapeHtml(t('wyArticles')) + '</div>' +
-          '</div>';
-      } else if (view === 'article') {
-        var a = findArticle(currentArticleSlug);
-        html = backBtn('articles') +
-          '<div class="wy-header-text wy-header-text-only">' +
-            '<div class="wy-header-title wy-truncate">' + Util.escapeHtml((a && a.title) || t('wyArticles')) + '</div>' +
-          '</div>';
-      } else {
-        // chat (incl. pre-chat / offline capture)
-        var stack2 = teamAvatarsHtml(2);
-        html = backBtn('home') +
-          '<div class="wy-header-brand">' +
-            (stack2 ? '<div class="wy-avatar-stack">' + stack2 + '</div>'
-              : (logo ? '<span class="wy-header-logo"><img src="' + Util.escapeHtml(logo) + '" alt="' + Util.escapeHtml(title) + '" loading="lazy" decoding="async" /></span>' : '')) +
-            '<div class="wy-header-text">' +
-              '<div class="wy-header-title">' + Util.escapeHtml(title) + '</div>' +
-              '<div class="wy-header-sub">' +
-                '<span class="wy-dot ' + (online ? 'is-online' : 'is-offline') + '" aria-hidden="true"></span>' +
-                Util.escapeHtml(online ? t('homeReplyFast') : t('homeReplySlow')) +
-              '</div>' +
-            '</div>' +
-          '</div>';
-      }
-      header.innerHTML = html;
-      header.setAttribute('data-view', view);
-
-      var back = header.querySelector('[data-nav-back]');
-      if (back) back.addEventListener('click', function () { switchTab(back.getAttribute('data-nav-back')); });
-      var newBtn = header.querySelector('[data-nav-newchat]');
-      if (newBtn) newBtn.addEventListener('click', function () { switchTab('chat'); });
-    }
-
-    function syncHeaderBrand() { renderHeader(); }
-    function syncHeaderNav() { renderHeader(); }
 
     function switchTab(key) {
-      var next = VIEW_ALIAS[key] || key;
-      if (currentView() === next) { renderBody(); return; }
-      shellStore.set({ activeTab: next });
+      if (shellStore.get().activeTab === key) { renderBody(); return; }
+      shellStore.set({ activeTab: key });
+      try {
+        var allT = panel.querySelectorAll('.tab');
+        Array.prototype.forEach.call(allT, function (t2) {
+          t2.classList.toggle('active', t2.getAttribute('data-tab') === key);
+        });
+      } catch (_) {}
       renderBody();
-      if (next === 'chat' && identityStore.get().loaded && !contextualNeedsPrechat()) {
+      if (key === 'chat' && identityStore.get().loaded && !contextualNeedsPrechat()) {
         restoreDraftToInput();
       }
     }
 
-    function findArticle(slug) {
-      if (!slug) return null;
-      var arts = (kbStore.get() && kbStore.get().articles) || [];
-      for (var i = 0; i < arts.length; i++) {
-        if (arts[i] && (arts[i].slug === slug || arts[i].id === slug)) return arts[i];
-      }
-      return null;
-    }
-
-    function openArticleView(slug) {
-      currentArticleSlug = slug || null;
-      shellStore.set({ activeTab: 'article' });
-      renderBody();
-    }
-
-    function relTime(ts) {
-      var d = ts ? new Date(ts) : null;
-      if (!d || isNaN(d.getTime())) return '';
-      try {
-        return d.toLocaleDateString(ctx.locale || 'en', { month: 'short', day: 'numeric' }) +
-          ' · ' + d.toLocaleTimeString(ctx.locale || 'en', { hour: '2-digit', minute: '2-digit' });
-      } catch (_) { return ''; }
-    }
-
-    // Derives the visitor-visible thread rows. The runtime keeps a single
-    // active conversation, so this is either zero or one row — the markup is
-    // list-shaped so multi-thread support needs no template change.
-    function threadRows() {
-      var cs = chatStore.get();
-      var msgs = cs.messages || [];
-      if (!cs.conversationId && !msgs.length) return [];
-      var last = msgs.length ? msgs[msgs.length - 1] : null;
-      var preview = '';
-      if (last) preview = String(last.text || last.body || last.content || '').replace(/\s+/g, ' ').slice(0, 90);
-      return [{
-        id: cs.conversationId || 'active',
-        preview: preview || t('wyConnectOperator'),
-        at: last && (last.createdAt || last.created_at || last.ts),
-        unread: 0,
-        resolved: false,
-      }];
-    }
-
-    function threadRowHtml(row) {
-      return '<button type="button" class="wy-thread" data-thread="' + Util.escapeHtml(String(row.id)) + '">' +
-          '<span class="wy-thread-main">' +
-            '<span class="wy-thread-preview">' + Util.escapeHtml(row.preview) + '</span>' +
-            '<span class="wy-thread-meta">' +
-              '<span class="wy-badge ' + (row.resolved ? 'is-resolved' : 'is-open') + '">' +
-                Util.escapeHtml(row.resolved ? t('wyResolvedStatus') : t('wyOpenStatus')) + '</span>' +
-              (row.at ? '<span class="wy-thread-time">' + Util.escapeHtml(relTime(row.at)) + '</span>' : '') +
-              (row.unread ? '<span class="wy-thread-unread">' + row.unread + ' ' + Util.escapeHtml(t('wyUnread')) + '</span>' : '') +
-            '</span>' +
-          '</span>' +
-          '<span class="wy-chevron" aria-hidden="true">' + chevronSvg(wyChevronFwd, 16) + '</span>' +
-        '</button>';
-    }
-
     function renderHome() {
       if (!body) return;
-      var rows = threadRows();
+      var rtlHome = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
+      var pState = presenceStore.get();
+      var isOnline = pState.status === 'online' && pState.liveChatEnabled !== false;
+      var avatars = (teamMembers || []).map(function (op) {
+        var name = (op && op.name) ? String(op.name) : t('operator');
+        var av = op && op.avatar ? String(op.avatar) : '';
+        var on = !!(op && op.online);
+        var cls = 'home-avatar' + (av ? ' has-img' : '') + (on ? ' is-online' : '');
+        var inner = av
+          ? '<img src="' + Util.escapeHtml(av) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />'
+          : '<span aria-hidden="true">' + Util.escapeHtml((name.trim().charAt(0) || 'O').toUpperCase()) + '</span>';
+        return '<span class="' + cls + '" title="' + Util.escapeHtml(name) + '">' + inner + '</span>';
+      }).join('');
+
       var kbState = kbStore.get();
+      var cats = (kbState && kbState.categories) || [];
       var arts = (kbState && kbState.articles) || [];
-
-      var recentHtml = rows.length
-        ? '<section class="wy-section">' +
-            '<div class="wy-section-head">' +
-              '<h4 class="wy-section-title">' + Util.escapeHtml(t('wyRecent')) + '</h4>' +
+      var kbHtml = '';
+      if (kbEnabled && (cats.length || arts.length)) {
+        var items = cats.length
+          ? cats.slice(0, 4).map(function (c) {
+              return '<button type="button" class="home-kb-item" data-home-cat="' +
+                Util.escapeHtml(c.slug || c.id || '') + '">' +
+                '<span class="home-kb-title">' + Util.escapeHtml(c.name || c.title || '') + '</span>' +
+                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
+              '</button>';
+            }).join('')
+          : arts.slice(0, 4).map(function (a) {
+              return '<button type="button" class="home-kb-item" data-home-article="' +
+                Util.escapeHtml(a.slug || '') + '">' +
+                '<span class="home-kb-title">' + Util.escapeHtml(a.title || '') + '</span>' +
+                '<span class="home-kb-chevron" aria-hidden="true">' + (rtlHome ? '‹' : '›') + '</span>' +
+              '</button>';
+            }).join('');
+        kbHtml =
+          '<section class="home-section">' +
+            '<div class="home-section-head">' +
+              '<h4 class="home-section-title">' + Util.escapeHtml(t('homeHelpTitle')) + '</h4>' +
+              '<button type="button" class="home-section-link" data-home-action="help">' +
+                Util.escapeHtml(t('homeSeeAll')) + '</button>' +
             '</div>' +
-            '<div class="wy-thread-list">' + rows.slice(0, 3).map(threadRowHtml).join('') + '</div>' +
-            '<button type="button" class="wy-link-btn" data-nav="list">' + Util.escapeHtml(t('wyViewConvs')) + '</button>' +
-          '</section>'
-        : '';
+            '<div class="home-kb-list">' + items + '</div>' +
+          '</section>';
+      }
 
-      var artHtml = (kbEnabled && arts.length)
-        ? '<section class="wy-section">' +
-            '<p class="wy-section-hint">' + Util.escapeHtml(t('wyArticlesHint')) + '</p>' +
-            '<div class="wy-chips">' +
-              arts.slice(0, 4).map(function (a) {
-                return '<button type="button" class="wy-chip" data-article="' + Util.escapeHtml(a.slug || a.id || '') + '">' +
-                  Util.escapeHtml(a.title || '') + '</button>';
-              }).join('') +
-            '</div>' +
-            '<button type="button" class="wy-link-btn" data-nav="articles">' + Util.escapeHtml(t('wyMoreArticles')) + '</button>' +
-          '</section>'
+      var ctaLabel = isOnline ? t('homeStartChat') : t('homeLeaveMessage');
+      var ctaHtml = chatEnabled
+        ? '<button type="button" class="home-cta" data-home-action="chat" style="background:' + ctx.primaryColor + '">' +
+            '<span class="home-cta-label">' + Util.escapeHtml(ctaLabel) + '</span>' +
+            '<span class="home-cta-icon" aria-hidden="true">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+            '</span>' +
+          '</button>'
         : '';
 
       var smartCardHtml = (smartSurface && smartSurface.mode === 'home_card')
         ? '<section class="smart-home-card">' + smartInnerHtml(smartSurface) + '</section>'
         : '';
 
-      var actions = '';
-      if (chatEnabled && rows.length) {
-        actions += '<button type="button" class="wy-action wy-action-ghost" data-nav="chat">' +
-          Util.escapeHtml(t('wyContinueLast')) + '</button>';
-      }
-      if (chatEnabled) {
-        actions += '<button type="button" class="wy-action wy-action-primary" data-nav-new="1" style="background:' + ctx.primaryColor + '">' +
-          Util.escapeHtml(isTeamOnline() ? t('wyStartNew') : t('homeLeaveMessage')) + '</button>';
-      }
-      if (kbEnabled && arts.length) {
-        actions += '<button type="button" class="wy-action wy-action-ghost" data-nav="articles">' +
-          Util.escapeHtml(t('wyArticles')) + '</button>';
-      }
-
       body.innerHTML =
-        '<div class="wy-home"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
-          '<div class="wy-scroll">' +
-            smartCardHtml +
-            '<section class="wy-hero">' +
-              '<div class="wy-hero-greeting">' + Util.escapeHtml(t('homeGreeting')) + '</div>' +
-              '<div class="wy-hero-question">' + Util.escapeHtml(welcomeMessage || t('wyHelpQ')) + '</div>' +
-            '</section>' +
-            recentHtml +
-            artHtml +
-          '</div>' +
-          (actions ? '<div class="wy-action-row">' + actions + '</div>' : '') +
+        '<div class="home-root"' + (rtlHome ? ' dir="rtl"' : '') + '>' +
+          smartCardHtml +
+          '<section class="home-hero">' +
+            '<div class="home-greeting">' + Util.escapeHtml(t('homeGreeting')) + '</div>' +
+            '<p class="home-welcome">' + Util.escapeHtml(welcomeMessage || t('homeWelcome')) + '</p>' +
+          '</section>' +
+          '<section class="home-card">' +
+            '<div class="home-card-top">' +
+              (avatars ? '<div class="home-avatars">' + avatars + '</div>' : '') +
+              '<div class="home-status ' + (isOnline ? 'is-online' : 'is-offline') + '">' +
+                '<span class="home-status-dot"></span>' +
+                '<span>' + Util.escapeHtml(isOnline ? t('homeTeamOnline') : t('homeTeamOffline')) + '</span>' +
+              '</div>' +
+              (isOnline ? '' : '<p class="home-hint">' + Util.escapeHtml(t('homeReplySlow')) + '</p>') +
+            '</div>' +
+            ctaHtml +
+          '</section>' +
+          kbHtml +
         '</div>';
 
-      bindNavTargets(body);
-      bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
-    }
-
-    function bindNavTargets(root) {
-      Array.prototype.forEach.call(root.querySelectorAll('[data-nav]'), function (el) {
-        el.addEventListener('click', function () { switchTab(el.getAttribute('data-nav')); });
-      });
-      Array.prototype.forEach.call(root.querySelectorAll('[data-nav-new]'), function (el) {
-        el.addEventListener('click', function () { switchTab('chat'); });
-      });
-      Array.prototype.forEach.call(root.querySelectorAll('[data-thread]'), function (el) {
-        el.addEventListener('click', function () { switchTab('chat'); });
-      });
-      Array.prototype.forEach.call(root.querySelectorAll('[data-article]'), function (el) {
-        el.addEventListener('click', function () { openArticleView(el.getAttribute('data-article')); });
-      });
-    }
-
-    function renderThreadList() {
-      if (!body) return;
-      var rows = threadRows();
-      body.innerHTML =
-        '<div class="wy-page"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
-          '<div class="wy-scroll">' +
-            (rows.length
-              ? '<div class="wy-thread-list">' + rows.map(threadRowHtml).join('') + '</div>'
-              : '<div class="wy-empty">' + Util.escapeHtml(t('wyStartNew')) + '</div>') +
-          '</div>' +
-          '<div class="wy-action-row">' +
-            '<button type="button" class="wy-action wy-action-primary" data-nav-new="1" style="background:' + ctx.primaryColor + '">' +
-              Util.escapeHtml(t('wyStartNew')) + '</button>' +
-          '</div>' +
-        '</div>';
-      bindNavTargets(body);
-    }
-
-    function renderArticlesList() {
-      if (!body) return;
-      var arts = (kbStore.get() && kbStore.get().articles) || [];
-      body.innerHTML =
-        '<div class="wy-page"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
-          '<div class="wy-scroll">' +
-            (arts.length
-              ? '<div class="wy-article-list">' + arts.map(function (a) {
-                  return '<button type="button" class="wy-article-row" data-article="' + Util.escapeHtml(a.slug || a.id || '') + '">' +
-                    '<span class="wy-article-title">' + Util.escapeHtml(a.title || '') + '</span>' +
-                    '<span class="wy-chevron" aria-hidden="true">' + chevronSvg(wyChevronFwd, 16) + '</span>' +
-                  '</button>';
-                }).join('') + '</div>'
-              : '<div class="wy-empty">' + Util.escapeHtml(t('wyArticles')) + '</div>') +
-          '</div>' +
-        '</div>';
-      bindNavTargets(body);
-    }
-
-    function renderArticleDetail() {
-      if (!body) return;
-      var a = findArticle(currentArticleSlug);
-      var voted = currentArticleSlug ? articleFeedback[currentArticleSlug] : null;
-      var contentHtml = '';
-      if (a) {
-        var raw = a.contentHtml || a.body_html || '';
-        contentHtml = raw
-          ? '<div class="wy-article-body">' + raw + '</div>'
-          : '<div class="wy-article-body">' + Util.escapeHtml(a.body || a.content || a.excerpt || '') + '</div>';
-      }
-      var rateHtml;
-      if (voted) {
-        rateHtml = '<div class="wy-rate wy-rate-done">' + Util.escapeHtml(t('wyRateThanks')) + '</div>' +
-          (voted === 'down'
-            ? '<button type="button" class="wy-action wy-action-primary" data-nav-new="1" style="background:' + ctx.primaryColor + '">' +
-                Util.escapeHtml(t('wyTalkSupport')) + '</button>'
-            : '');
-      } else {
-        rateHtml = '<div class="wy-rate">' +
-          '<span class="wy-rate-q">' + Util.escapeHtml(t('wyRateQ')) + '</span>' +
-          '<div class="wy-rate-btns">' +
-            '<button type="button" class="wy-rate-btn" data-rate="up">' + Util.escapeHtml(t('wyRateUp')) + '</button>' +
-            '<button type="button" class="wy-rate-btn" data-rate="down">' + Util.escapeHtml(t('wyRateDown')) + '</button>' +
-          '</div>' +
-        '</div>';
-      }
-      body.innerHTML =
-        '<div class="wy-page"' + (wyRtl ? ' dir="rtl"' : '') + '>' +
-          '<div class="wy-scroll">' +
-            (a ? '<h3 class="wy-article-heading">' + Util.escapeHtml(a.title || '') + '</h3>' + contentHtml
-               : '<div class="wy-empty">' + Util.escapeHtml(t('wyArticles')) + '</div>') +
-            rateHtml +
-          '</div>' +
-        '</div>';
-      bindNavTargets(body);
-      Array.prototype.forEach.call(body.querySelectorAll('[data-rate]'), function (el) {
+      var ctaBtn = body.querySelector('[data-home-action="chat"]');
+      if (ctaBtn) ctaBtn.addEventListener('click', function () { switchTab('chat'); });
+      var seeAll = body.querySelector('[data-home-action="help"]');
+      if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-article]'), function (el) {
         el.addEventListener('click', function () {
-          if (currentArticleSlug) articleFeedback[currentArticleSlug] = el.getAttribute('data-rate');
-          renderArticleDetail();
+          var slug = el.getAttribute('data-home-article');
+          switchTab('help');
+          if (slug && kbUI.openArticle) kbUI.openArticle(slug);
         });
       });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-cat]'), function (el) {
+        el.addEventListener('click', function () { switchTab('help'); });
+      });
+      bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
     }
-
 
     // Canonical entry-flow state names (spec §21). Internal naming only —
     // no visual/template redesign implied. See deriveChatTabState() below
@@ -7204,49 +6894,37 @@
 
     function renderBody() {
       if (!body) return;
-      renderHeader();
+      syncHeaderBrand();
       // Pass 2 — when an in-panel call surface is open it owns the
-      // entire body. The composer is hidden; we render the call view
+      // entire body. Tabs + composer are hidden; we render the call view
       // full-bleed inside the existing .body container (Shadow DOM).
       var __cs = callSurfaceStore.get();
       if (__cs.phase !== 'idle') {
         if (inputBar) inputBar.style.display = 'none';
+        try {
+          var allTabs = panel.querySelectorAll('.tab');
+          Array.prototype.forEach.call(allTabs, function (t2) { t2.style.display = 'none'; });
+        } catch (_) {}
         renderCallSurface(body, __cs);
         return;
       }
-      var tab = currentView();
+      // Restore tab visibility when the surface is closed.
+      try {
+        var allTabs2 = panel.querySelectorAll('.tab');
+        Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
+      } catch (_) {}
+      var tab = shellStore.get().activeTab;
       if (tab === 'home') {
         if (inputBar) inputBar.style.display = 'none';
         renderHome();
         if (kbEnabled && !kbStore.get().loaded) {
           kbUI.ensure(function () {
-            if (currentView() === 'home') renderHome();
+            if (shellStore.get().activeTab === 'home') renderHome();
           });
         }
-        return;
-      }
-      if (tab === 'list') {
-        if (inputBar) inputBar.style.display = 'none';
-        renderThreadList();
-        return;
-      }
-      if (tab === 'articles') {
-        if (inputBar) inputBar.style.display = 'none';
-        renderArticlesList();
-        if (kbEnabled && !kbStore.get().loaded) {
-          kbUI.ensure(function () {
-            if (currentView() === 'articles') renderArticlesList();
-          });
-        }
-        return;
-      }
-      if (tab === 'article') {
-        if (inputBar) inputBar.style.display = 'none';
-        renderArticleDetail();
         return;
       }
       if (tab === 'chat') {
-
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.
@@ -7321,8 +6999,10 @@
         } catch (_) {}
         chatUI.renderChat(body);
         renderSmartDock();
+      } else if (tab === 'help') {
+        if (inputBar) inputBar.style.display = 'none';
+        kbUI.ensure(function () { kbUI.render(body); });
       }
-
     }
 
     // Pass 2 — re-render whenever the in-panel call surface changes so

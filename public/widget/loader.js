@@ -168,7 +168,7 @@
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
     "width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;",
-    "box-shadow:0 12px 32px rgba(31,147,255,.4);",
+    "box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
@@ -177,7 +177,7 @@
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
-    ".launcher:hover{transform:scale(1.08);box-shadow:0 14px 36px rgba(31,147,255,.45);}",
+    ".launcher:hover{transform:scale(1.08);box-shadow:0 6px 28px -4px rgba(0,0,0,.3);}",
     ".launcher:active{transform:scale(.96);}",
     ".launcher.bottom-right{bottom:24px;right:24px;}",
     ".launcher.bottom-left{bottom:24px;left:24px;}",
@@ -187,11 +187,11 @@
     ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
     "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",
     "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
-    ".launcher svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
+    ".launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
-    /* Design spec: the launcher NEVER moves or hides — it is the only control
-       that closes the widget, and it swaps to an X icon while the panel is open. */
-    ".launcher.open{opacity:1;visibility:visible;pointer-events:auto;transform:none;animation:none;}",
+    /* When the panel is open the launcher steps aside — the panel now owns
+       its own close control in the header (top-left). */
+    ".launcher.open{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.85);animation:none;}",
     ".launcher.open ~ .gs-fab-label{opacity:0;visibility:hidden;pointer-events:none;}",
     ".gs-fab-label{transition:opacity .2s ease;}",
     ".badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;",

@@ -5712,52 +5712,20 @@
       ? '<span class="header-logo"><img src="' + Util.escapeHtml(wsLogoUrl) + '" alt="' +
         Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span>'
       : '';
-    // Design spec: no dismiss chevron in the header — the floating launcher
-    // stays visible while the panel is open and owns close. The header slot
-    // instead carries a contextual "back to home" control.
-    var headerBackHtml = '<button type="button" class="header-back" data-nav-home hidden aria-label="' +
-      Util.escapeHtml(t('home') || 'Home') + '" title="' + Util.escapeHtml(t('home') || 'Home') + '">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
-      '<path d="' + (headerRtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6') + '"/></svg></button>';
-    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
-      headerBackHtml +
-      '<div class="header-brand">' +
-        headerLogoHtml +
-        teamStackHtml +
-        '<div class="header-brand-text">' +
-          '<div class="header-title">' + Util.escapeHtml(headerTitle || brandName || t('support')) + '</div>' +
-          '<div class="header-subtitle"><span class="header-live-dot" aria-hidden="true"></span>' +
-            Util.escapeHtml(t('homeReplyFast')) + '</div>' +
-        '</div>' +
-      '</div>' +
+    // Design spec: the header is fully view-driven (home / list / articles /
+    // article / chat each have their own header composition). It is painted
+    // by renderHeader() on every view change — here we only mount the shell
+    // container plus the sr-only presence live region.
+    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + ' data-header></div>' +
       '<div class="presence sr-only" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
         '<span class="presence-label" data-presence-label></span>' +
-      '</div>' +
       '</div>';
 
-    // Visitor-initiated voice/video tabs were removed — calls are now only
-    // initiated from the operator side. Keep chat + help tabs only.
-    var NAV_ICONS = {
-      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.8"/>',
-      chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-      help: '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>',
-    };
-    var tabDefs = [{ key: 'home', label: t('home') }];
-    if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
-    if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
+    // Design spec: there is no bottom tab bar. Navigation happens through the
+    // home screen's action row and the per-view header controls.
     var tabsHtml = '';
-    if (tabDefs.length > 1) {
-      var act = shellStore.get().activeTab;
-      tabsHtml = '<div class="tabs tabs-bottom">' + tabDefs.map(function (d) {
-        return '<button type="button" class="tab' + (act === d.key ? ' active' : '') +
-          '" data-tab="' + d.key + '">' +
-          '<svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
-            NAV_ICONS[d.key] + '</svg>' +
-          '<span class="tab-label">' + Util.escapeHtml(d.label) + '</span>' +
-        '</button>';
-      }).join('') + '</div>';
-    }
+
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
     var composerCfg = (ctx.config && ctx.config.composer) || {};

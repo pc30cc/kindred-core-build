@@ -67,7 +67,7 @@ describe('widget presentation — web-yar renderer contract', () => {
 
   it('exposes every surface Core mounts', () => {
     for (const key of [
-      'shellHtml', 'homeHtml', 'emptyHtml', 'messagesHtml', 'aiThinkingRowHtml',
+      'shellHtml', 'chatFrameHtml', 'homeHtml', 'emptyHtml', 'messagesHtml', 'aiThinkingRowHtml',
       'qnaChipsHtml', 'messageAttachmentHtml', 'callInvitationCardHtml',
       'callEndedRowHtml', 'routingOutcomeRowHtml', 'prechatFieldRowHtml',
       'prechatFormHtml', 'handoffPrechatCardHtml', 'contactFallbackHtml',
@@ -77,7 +77,7 @@ describe('widget presentation — web-yar renderer contract', () => {
     }
   });
 
-  it('renders the panel shell with behaviour hooks and no tab bar / header close', () => {
+  it('renders a non-visual panel shell — no chat header, composer or footer', () => {
     const html = r.shellHtml({
       config: { attachments: { enabled: false }, composer: {} },
       locale: 'en',
@@ -90,7 +90,10 @@ describe('widget presentation — web-yar renderer contract', () => {
     });
     expect(html).toContain('data-body');
     expect(html).toContain('data-att-lightbox');
-    expect(html).toContain('data-chat-header');
+    // Single-view architecture: the chat header belongs to the chat VIEW.
+    expect(html).not.toContain('data-chat-header');
+    expect(html).not.toContain('composer-zone');
+    expect(html).not.toContain('wy-footer');
     // The launcher is the only close control and there is no bottom tab bar.
     expect(html).not.toContain('data-panel-close');
     expect(html).not.toContain('data-tab="chat"');

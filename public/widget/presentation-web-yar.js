@@ -365,7 +365,6 @@
       return '<div class="prechat-field" data-field="' + key + '">' +
           '<label class="prechat-label" for="prechat-' + key + '">' + esc(label) + badge + '</label>' +
           '<div class="prechat-control">' +
-            '<span class="prechat-icon" aria-hidden="true">' + PRECHAT_ICONS[key] + '</span>' +
             '<input id="prechat-' + key + '" class="prechat-input" data-prechat="' + key + '" type="' + type +
               '" autocomplete="' + ac + '"' + (inputDir ? ' dir="' + inputDir + '"' : '') +
               ' placeholder="' + esc(ph) + '"' + (req ? ' aria-required="true"' : '') +
@@ -537,9 +536,6 @@
         '<div class="wy-scroll wy-body-pad">' +
           '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
           '<div class="prechat-fields">' + fieldsHtml + '</div>' +
-          '<p class="prechat-privacy">' +
-            '<span class="prechat-privacy-icon" aria-hidden="true">' + PRECHAT_ICONS.lock + '</span>' +
-            esc(t('prechatPrivacy')) + '</p>' +
         '</div>' +
         '<div class="wy-actions">' +
           '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit" data-prechat-submit>' +
@@ -575,6 +571,9 @@
         (askPhone ? fieldRow('phone', 'tel', contact.phone, identity.isRequired('phone')) : '');
 
       return '<div class="wy-view wy-view-fallback prechat fallback" dir="' + dir + '">' +
+        '<div class="wy-head">' +
+          headerIdentityHtml({ back: 'home', subtitle: tf('wyLeaveMessage', t('homeLeaveMessage')) }) +
+        '</div>' +
         '<div class="wy-scroll wy-body-pad">' +
           '<p class="prechat-intro">' + esc(intro) + '</p>' +
           '<div class="prechat-fields">' + fieldsHtml +
@@ -608,18 +607,43 @@
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Shell — panel chrome, chat header, composer, footer
+    // Shell — NON-VISUAL infrastructure only (single-view architecture)
     // ══════════════════════════════════════════════════════════════════
+    //
+    // The panel is a bare container. At any moment EXACTLY ONE full view is
+    // rendered inside the view host, and that view owns its own header,
+    // body, composer and footer. The shell therefore carries no chat
+    // header, no composer and no powered-by footer — only the view host and
+    // the attachment lightbox (accessibility infrastructure Core needs).
     //
     // There is NO bottom tab bar and NO header close button: the launcher
     // is the only visual open/close control (design §15).
-    function shellHtml(vm) {
+    function shellHtml() {
+      return '<div class="body wy-scroll" data-body></div>' +
+        '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' +
+          esc(t('openFile')) + '">' +
+          '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' +
+            esc(t('closePreview')) + '">×</button>' +
+          '<img data-att-lightbox-img alt="" />' +
+        '</div>';
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Chat view (design §5) — the ONE generic chat surface
+    // ══════════════════════════════════════════════════════════════════
+    //
+    // Built exactly once by Core and mounted into the view host whenever the
+    // chat view is active: header → message scroll host → reply/emoji/
+    // attachment state → composer → powered-by footer. Core renders the
+    // message list into [data-chat-messages] and binds composer behaviour to
+    // the nodes in this frame.
+    function chatFrameHtml(vm) {
       vm = vm || {};
       var cfg = vm.config || {};
       var chatEnabled = !!vm.chatEnabled;
       var rtl = String(vm.locale || 'en').toLowerCase().split('-')[0] === 'fa';
 
-      var chatHeader = '<div class="header wy-head wy-head-chat"' + (rtl ? ' dir="rtl"' : '') + ' data-chat-header>' +
+      var chatHeader = '<div class="header wy-head wy-head-chat" data-chat-header>' +
         headerIdentityHtml({
           back: 'home',
           title: vm.headerTitle || vm.brandName,
@@ -631,8 +655,6 @@
           '<span class="presence-label" data-presence-label></span>' +
         '</div>' +
       '</div>';
-
-      var bodyHtml = '<div class="body wy-scroll" data-body></div>';
 
       var attachCfg = (cfg && cfg.attachments) || { enabled: false };
       var composerCfg = (cfg && cfg.composer) || {};
@@ -663,7 +685,7 @@
                       '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
                       '<span class="mic-ring" aria-hidden="true"></span></button>'
                   : '') +
-                '<input class="input" data-msg-input placeholder="' + esc(t('typeMsg')) + '" />' +
+                '<textarea class="input" rows="1" data-msg-input placeholder="' + esc(t('typeMsg')) + '"></textarea>' +
                 (attachCfg.enabled
                   ? '<button type="button" class="attach-btn" data-attach-btn title="' + esc(t('attachFile') || 'Attach file') +
                       '" aria-label="' + esc(t('attachFile') || 'Attach file') + '">' + ICON.attach + '</button>' +
@@ -679,16 +701,15 @@
             '</div>' +
             footerHtml() +
           '</div>'
-        : '';
+        : footerHtml();
 
-      return chatHeader + bodyHtml + inputHtml +
-        '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' +
-          esc(t('openFile')) + '">' +
-          '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' +
-            esc(t('closePreview')) + '">×</button>' +
-          '<img data-att-lightbox-img alt="" />' +
-        '</div>';
+      return '<div class="wy-view wy-view-chat"' + (rtl ? ' dir="rtl"' : '') + '>' +
+        chatHeader +
+        '<div class="wy-chat-scroll wy-scroll" data-chat-messages></div>' +
+        inputHtml +
+      '</div>';
     }
+
 
     // ══════════════════════════════════════════════════════════════════
     // Home (design §7)
@@ -725,16 +746,15 @@
       vm = vm || {};
       var rtl = !!vm.rtl;
       var online = !!vm.isOnline;
-      var convs = (vm.conversations || []).slice(0, 3);
+      var convs = (vm.conversations || []).slice(0, 2);
       var hasThreads = convs.length > 0;
       var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
       var articles = (vm.articles || []);
-      // Design source of truth: the home screen shows EITHER article
-      // suggestions (no conversation yet) OR recent conversations (≥1
-      // thread) — never both. With threads present the articles collapse
-      // into the compact "Articles" action button.
-      var showChips = vm.kbEnabled && articles.length > 0 && !hasThreads;
-      var showArticlesButton = vm.kbEnabled && articles.length > 0 && hasThreads;
+      // Design source of truth (renderVals(): showArticleChips true,
+      // showArticlesButton false): article chips stay visible even when the
+      // visitor already has recent conversations.
+      var showChips = vm.kbEnabled && articles.length > 0;
+      var showArticlesButton = false;
 
 
       var stack = (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
@@ -896,19 +916,12 @@
       if (!cats.length && !articles.length) {
         return kbEmptyHtml({ state: 'list', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
       }
-      var html = '';
-      if (articles.length) html += '<div class="kb-list">' + articles.map(kbArticleItemHtml).join('') + '</div>';
-      if (cats.length) {
-        html += '<div class="kb-section-h">' + esc(t('kbCategories')) + '</div><div class="kb-list">';
-        cats.forEach(function (c) {
-          var href = c.url ? ' href="' + esc(c.url) + '"' : '';
-          html += '<a class="kb-category" target="_blank" rel="noopener noreferrer"' + href + '>' +
-            '<span class="kb-article-title">' + esc(c.name) + '</span>' +
-            '<span class="kb-article-chevron" aria-hidden="true">' + ICON.chevron + '</span></a>';
-        });
-        html += '</div>';
+      // Design §10 — the widget Articles view is a plain list of article
+      // rows. Category navigation lives in the full Knowledge Base site.
+      if (!articles.length) {
+        return kbEmptyHtml({ state: 'list', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
       }
-      return html;
+      return '<div class="kb-list">' + articles.map(kbArticleItemHtml).join('') + '</div>';
     }
 
     /**
@@ -941,14 +954,8 @@
       vm = vm || {};
       var a = vm.article || {};
       return '<div class="kb-article-view">' +
-        '<h2 class="kb-article-h">' + esc(a.title || '') + '</h2>' +
-        (a.excerpt ? '<p class="kb-article-excerpt-full">' + esc(a.excerpt) + '</p>' : '') +
         '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
         kbArticleFeedbackHtml(vm.feedback) +
-        (a.publicUrl
-          ? '<div class="kb-article-footer"><a class="kb-open-browser" href="' + esc(a.publicUrl) +
-              '" target="_blank" rel="noopener noreferrer">' + esc(t('kbOpenInBrowser')) + '</a></div>'
-          : '') +
       '</div>';
     }
 
@@ -978,7 +985,7 @@
       return '<div class="wy-view wy-view-kb kb-root"' + (vm.rtl ? ' dir="rtl"' : '') + '>' + head +
         '<div class="wy-body-pad wy-kb-body">' +
           '<div class="wy-scroll wy-kb-scroll">' +
-            ((vm.hideSearch || isArticle) ? '' : kbSearchBarHtml(vm)) + inner +
+            inner +
           '</div>' + footerHtml() +
         '</div>' +
       '</div>';
@@ -987,6 +994,7 @@
     return {
       id: 'web-yar',
       shellHtml: shellHtml,
+      chatFrameHtml: chatFrameHtml,
       homeHtml: homeHtml,
       emptyHtml: emptyHtml,
       messagesHtml: messagesHtml,

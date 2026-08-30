@@ -95,14 +95,16 @@ describe('silent preload lifecycle', () => {
   });
 });
 
-describe('home surface exclusivity', () => {
-  it('shows article suggestions OR recent conversations, never both', () => {
+describe('home surface — design renderVals() contract', () => {
+  it('keeps article chips visible even with recent conversations', () => {
     const js = fs.readFileSync(
       path.resolve(process.cwd(), 'public/widget/presentation-web-yar.js'),
       'utf8',
     );
-    expect(js).toContain('var showChips = vm.kbEnabled && articles.length > 0 && !hasThreads;');
-    expect(js).toContain('var showArticlesButton = vm.kbEnabled && articles.length > 0 && hasThreads;');
+    // renderVals(): showArticleChips true, showArticlesButton false.
+    expect(js).toContain('var showChips = vm.kbEnabled && articles.length > 0;');
+    expect(js).toContain('var showArticlesButton = false;');
+    expect(js).toContain('slice(0, 2)');
   });
 
   it('the footer credits the platform, not the workspace brand', () => {

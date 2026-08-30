@@ -564,7 +564,7 @@ export function WidgetLivePreview({
       };
       body.innerHTML = R.prechatFormHtml(identity, {}, GS_PREVIEW.locale);
     } else if (view === 'kb') {
-      body.innerHTML = GS_PREVIEW.kbHtml;
+      body.innerHTML = R.kbHtml(GS_PREVIEW.kbVm);
     } else {
       body.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
     }

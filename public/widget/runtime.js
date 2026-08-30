@@ -5963,6 +5963,16 @@
       });
     }
 
+    // Contextual back-to-home control in the redesigned header.
+    var headerBackBtn = panel.querySelector('[data-nav-home]');
+    if (headerBackBtn) {
+      headerBackBtn.addEventListener('click', function (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (_) {}
+        try { switchTab('home'); } catch (_) {}
+      });
+    }
+
+
     var lightboxClose = panel.querySelector('[data-att-lightbox-close]');
     function closeLightbox() {
       if (!lightboxEl) return;

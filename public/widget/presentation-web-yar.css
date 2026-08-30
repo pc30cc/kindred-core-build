@@ -251,7 +251,8 @@
 .wy-btn-grow { flex: 1 1 auto; }
 
 .wy-actions-block { flex: none; }
-.wy-actions { display: flex; gap: 8px; padding: 10px 16px 6px; }
+.wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 6px; }
+.wy-actions .wy-btn { flex: 1 1 auto; min-width: 0; }
 .wy-view-precontact .wy-actions { padding: 10px 16px; }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */

@@ -39,6 +39,8 @@ import {
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
+import { resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
+
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import {
   createSessionToken,
@@ -733,11 +735,18 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
     // Presentation layer — registry + active template assets. Widget Core
     // ships no markup, so these are part of the required boot payload.
-    // `templateId` is the registry key; only 'classic' exists today.
-    const templateId = 'classic';
+    // The id is only shape-validated here; the browser registry resolves it
+    // (and falls back to its own default when unknown).
+    const templateId = resolveWidgetTemplateId(
+      (ws as { widget_template_id?: string | null }).widget_template_id
+        ?? (platformWidget as { widget_template_id?: string | null } | null | undefined)?.widget_template_id,
+    );
+
+    const templateAssets = widgetTemplateAssetKeys(templateId);
     const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
-    const presentationJsName = getWidgetAssetName(`presentation-${templateId}.js`);
-    const presentationCssName = getWidgetAssetName(`presentation-${templateId}.css`);
+    const presentationJsName = getWidgetAssetName(templateAssets.script);
+    const presentationCssName = getWidgetAssetName(templateAssets.style);
+
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const smartEngineName = getWidgetAssetName('smart-engine.js');

@@ -63,8 +63,11 @@ describe('smart scenario preview', () => {
   it('renders the panel through the production presentation renderer', () => {
     const doc = srcdoc(scenario('home_card'));
     expect(doc).toContain('/widget/presentation-registry.js');
-    expect(doc).toContain('/widget/presentation-classic.js');
-    expect(doc).toContain('/widget/presentation-classic.css');
+    // Template assets are resolved via the registry, never named here.
+    expect(doc).toContain('reg.resolve(GS_PREVIEW.templateId)');
+    expect(doc).toContain("'/widget/' + desc.script");
+    expect(doc).toContain("'/widget/' + desc.style");
+
     expect(doc).toContain('R.shellHtml(GS_PREVIEW.shellVm)');
     expect(doc).toContain('R.homeHtml(GS_PREVIEW.homeVm)');
     expect(doc).toContain('R.smartSurfaceHtml(surface)');

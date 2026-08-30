@@ -40,9 +40,39 @@ if (!existsSync(SRC_DIR)) {
 }
 
 // Files that get content-hashed filenames
-const HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js',
-  // Presentation layer (template system)
-  'presentation-registry.js', 'presentation-classic.js', 'presentation-classic.css'];
+const CORE_HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
+
+// Presentation layer (template system) — DISCOVERED, never hard-coded.
+// Any `presentation-<id>.js` / `presentation-<id>.css` dropped into
+// public/widget/ is picked up automatically, so adding a second template
+// requires no build-script edit. The naming convention is the whitelist:
+// only lowercase ids (a-z, 0-9, dashes) are accepted.
+const PRESENTATION_RE = /^presentation-[a-z0-9-]+\.(js|css)$/;
+
+function discoverPresentationFiles() {
+  return readdirSync(SRC_DIR)
+    .filter((f) => PRESENTATION_RE.test(f))
+    .sort();
+}
+
+const PRESENTATION_FILES = discoverPresentationFiles();
+if (!PRESENTATION_FILES.includes('presentation-registry.js')) {
+  console.error('[widget-hash] FATAL: presentation-registry.js missing from public/widget/');
+  process.exit(1);
+}
+// Every template must ship BOTH a renderer and a stylesheet.
+for (const f of PRESENTATION_FILES) {
+  if (f === 'presentation-registry.js' || !f.endsWith('.js')) continue;
+  const css = f.replace(/\.js$/, '.css');
+  if (!PRESENTATION_FILES.includes(css)) {
+    console.error(`[widget-hash] FATAL: template renderer ${f} has no matching stylesheet ${css}`);
+    process.exit(1);
+  }
+}
+console.log(`[widget-hash] discovered presentation assets: ${PRESENTATION_FILES.join(', ')}`);
+
+const HASHED_FILES = [...CORE_HASHED_FILES, ...PRESENTATION_FILES];
+
 
 // Files copied as-is (stable entry points)
 const STABLE_FILES = ['loader.js'];
@@ -151,12 +181,13 @@ console.log(JSON.stringify(manifest, null, 2));
 // Build must fail loudly if the visitor call runtime was omitted from the
 // widget output. The join flow now depends on an explicit manifest-backed URL,
 // so silently succeeding here would regress back to runtime URL guessing.
-for (const required of ['presentation-registry.js', 'presentation-classic.js', 'presentation-classic.css']) {
+for (const required of PRESENTATION_FILES) {
   if (!manifest[required] || !existsSync(join(OUT_DIR, manifest[required]))) {
     console.error(`[widget-hash] FATAL: presentation asset missing from build output: ${required}`);
     process.exit(1);
   }
 }
+
 
 if (!manifest['runtime-call.js']) {
   console.error('[widget-hash] FATAL: runtime-call.js missing from widget manifest');

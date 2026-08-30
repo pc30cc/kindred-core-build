@@ -153,3 +153,79 @@ describe('widget core — no markup left behind', () => {
     expect(template).toContain('.panel');
   });
 });
+
+describe('widget presentation — knowledge base surfaces', () => {
+  let r: any;
+  beforeAll(() => { r = loadPresentation(); });
+
+  it('exposes every KB surface', () => {
+    for (const key of [
+      'kbHtml', 'kbSearchBarHtml', 'kbHomeHtml', 'kbSearchResultsHtml',
+      'kbArticleHtml', 'kbEmptyHtml', 'kbLoadingHtml',
+    ]) {
+      expect(typeof r[key], `missing KB surface: ${key}`).toBe('function');
+    }
+  });
+
+  it('renders list, results, article and empty states from a view-model', () => {
+    const list = r.kbHtml({ state: 'list', articles: [{ slug: 'a', title: 'Alpha', excerpt: 'x' }], categories: [] });
+    expect(list).toContain('data-kb-action="open"');
+    expect(list).toContain('data-kb-slug="a"');
+
+    const article = r.kbHtml({ state: 'article', hideSearch: true, article: { title: 'Alpha', contentHtml: '<p>hi</p>' } });
+    expect(article).toContain('data-kb-action="back"');
+    expect(article).toContain('<p>hi</p>');
+
+    expect(r.kbHtml({ state: 'results', results: [] })).toContain('kb-empty');
+    expect(r.kbHtml({ state: 'searching' })).toContain('kb-status');
+  });
+
+  it('keeps KB markup out of Widget Core', () => {
+    expect(/class="kb-list"/.test(RUNTIME)).toBe(false);
+    expect(/class="kb-article/.test(RUNTIME)).toBe(false);
+    expect(/kb-empty/.test(RUNTIME)).toBe(false);
+    expect(RUNTIME).toContain('Presentation.kbHtml');
+  });
+});
+
+describe('widget preview — template-agnostic single source of truth', () => {
+  const PREVIEW = readFileSync('src/components/app/widget/WidgetLivePreview.tsx', 'utf8');
+
+  it('never hard-codes a template asset', () => {
+    expect(PREVIEW.includes('presentation-classic.js')).toBe(false);
+    expect(PREVIEW.includes('presentation-classic.css')).toBe(false);
+    expect(PREVIEW.includes('__gs_presentation_classic')).toBe(false);
+  });
+
+  it('resolves the template through the same registry path as production', () => {
+    expect(PREVIEW).toContain('presentation-registry.js');
+    expect(PREVIEW).toContain('reg.resolve(GS_PREVIEW.templateId)');
+    expect(PREVIEW).toContain("'/widget/' + desc.script");
+    expect(PREVIEW).toContain("'/widget/' + desc.style");
+  });
+
+  it('builds no widget markup of its own (KB included)', () => {
+    expect(/class="kb-list"/.test(PREVIEW)).toBe(false);
+    expect(/class="kb-article/.test(PREVIEW)).toBe(false);
+    expect(/data-preview-article/.test(PREVIEW)).toBe(false);
+    expect(PREVIEW).toContain('R.kbHtml(GS_PREVIEW.kbVm)');
+    expect(PREVIEW).toContain('R.kbArticleHtml(vm)');
+  });
+});
+
+describe('widget build pipeline — template-agnostic', () => {
+  it('discovers presentation assets instead of listing them', () => {
+    const hashScript = readFileSync('scripts/widget-hash.js', 'utf8');
+    expect(hashScript).toContain('presentation-');
+    expect(/['"]presentation-classic\.js['"]/.test(hashScript)).toBe(false);
+    expect(/['"]presentation-classic\.css['"]/.test(hashScript)).toBe(false);
+  });
+
+  it('names presentation assets from the resolved template id on the server', () => {
+    const route = readFileSync('server/routes/widget.ts', 'utf8');
+    expect(route).toContain('resolveWidgetTemplateId');
+    expect(route).toContain('widgetTemplateAssetKeys');
+    expect(/const templateId = ['"]classic['"]/.test(route)).toBe(false);
+  });
+});
+

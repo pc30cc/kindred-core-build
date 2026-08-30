@@ -284,64 +284,43 @@ export function WidgetLivePreview({
     const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
     const smartDoc = previewMode === 'smart';
 
-    /* ── Real published knowledge-base content (KB view markup still lives in
-       runtime-kb.js, which is outside the presentation contract, so the KB
-       list/article views stay local to the preview). ── */
+    /* ── Real published knowledge-base content. The preview builds only the
+       KB *view-model*; every byte of KB markup comes from the active
+       template renderer (kbHtml / kbArticleHtml), exactly like production. ── */
     const realArticles = (kbArticles || []).filter(a => a && a.title);
     const realCategories = (kbCategories || []).filter(c => c && c.name);
-    const hasRealKb = realArticles.length > 0 || realCategories.length > 0;
 
-    const articleTemplates = realArticles.map((a, index) => {
-      const bodyText = articleText(a.content) || articleText(a.excerpt);
-      return `<template id="preview-article-${index}">
-        <div class="kb-root kb-article-view" dir="${dir}">
-          <button type="button" class="kb-back" data-preview-kb-back>
-            <span aria-hidden="true">${rtl ? '→' : '←'}</span>
-            <span>${esc(d.kbBack)}</span>
-          </button>
-          <article>
-            <h2 class="kb-article-h">${esc(a.title)}</h2>
-            ${a.excerpt ? `<p class="kb-article-excerpt-full">${esc(a.excerpt)}</p>` : ''}
-            <div class="kb-article-body">${esc(bodyText).replace(/\n/g, '<br>')}</div>
-          </article>
-        </div>
-      </template>`;
-    }).join('');
+    const kbVm = {
+      rtl,
+      state: 'list',
+      query: '',
+      article: null,
+      results: [],
+      articles: realArticles.map((a, i) => ({
+        slug: String(i), title: a.title, excerpt: a.excerpt || '',
+      })),
+      categories: realCategories.map(c => ({
+        name: c.name, description: c.description || '', url: '',
+      })),
+      emptyText: d.kbEmpty,
+      hideChatCta: true,
+    };
 
-    const kbEmptyBlock = `
-      <div class="kb-empty kb-empty-centered">
-        <div class="kb-empty-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-        </div>
-        <p class="kb-empty-text">${esc(d.kbEmpty)}</p>
-      </div>`;
+    /** One article view-model per published article, opened on click. */
+    const kbArticleVms = realArticles.map(a => ({
+      rtl,
+      state: 'article',
+      hideSearch: true,
+      article: {
+        title: a.title,
+        excerpt: a.excerpt || '',
+        // Preview content is plain text — escaped here because the renderer
+        // takes `contentHtml` already sanitized (Core does that in production).
+        contentHtml: esc(articleText(a.content) || articleText(a.excerpt)).replace(/\n/g, '<br>'),
+        publicUrl: '',
+      },
+    }));
 
-    const kbBody = `
-      <div class="kb-root" dir="${dir}">
-        <div class="kb-search-wrap">
-          <input class="kb-search" type="search" placeholder="${esc(d.kbSearch)}" />
-        </div>
-        ${!hasRealKb ? kbEmptyBlock : `
-          ${realArticles.length ? `
-            <div class="kb-section-h">${esc(d.kbAllArticles)}</div>
-            <div class="kb-list">
-              ${realArticles.map((a, i) => `
-                <button type="button" class="kb-article" data-preview-article="${i}">
-                  <div class="kb-article-title">${esc(a.title)}</div>
-                  ${a.excerpt ? `<div class="kb-article-excerpt">${esc(a.excerpt)}</div>` : ''}
-                </button>`).join('')}
-            </div>` : ''}
-          ${realCategories.length ? `
-            <div class="kb-section-h">${esc(d.kbCategories)}</div>
-            <div class="kb-list">
-              ${realCategories.map(c => `
-                <a class="kb-category">
-                  <div class="kb-article-title">${esc(c.name)}</div>
-                  ${c.description ? `<div class="kb-article-excerpt">${esc(c.description)}</div>` : ''}
-                </a>`).join('')}
-            </div>` : ''}
-        `}
-      </div>`;
 
     /* ── Smart Engagement surface (rendered by the real renderer inside the
        frame — the preview only decides placement, exactly like Core does). ── */
@@ -357,7 +336,8 @@ export function WidgetLivePreview({
       : null;
 
     /* ── View-models handed to the production renderer. Nothing below builds
-       widget markup: `presentation-classic.js` is the single source of it. ── */
+       widget markup: the active template is the single source of it. ── */
+
     const previewConfig = {
       brandName: brandName || title,
       welcomeMessage: welcome,
@@ -380,6 +360,8 @@ export function WidgetLivePreview({
       rtl,
       primary,
       view,
+      /** Template id — resolved through the registry inside the frame. */
+      templateId: (s.widget_template_id as string | undefined) || null,
       smart: { enabled: smartDoc, mode: smartSurface?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' },
       smartSurface,
       config: previewConfig,
@@ -401,7 +383,12 @@ export function WidgetLivePreview({
         prechatNamePh: d.name, prechatEmailPh: d.email, prechatPhonePh: d.phone,
         required: '*', prechatTitle: d.prechatTitle, prechatSubtitle: d.prechatIntro,
         continue: d.start, prechatPrivacy: d.privacy,
+        // Knowledge Base strings — the KB surfaces are part of the contract.
+        searchKb: d.kbSearch, kbAllArticles: d.kbAllArticles, kbCategories: d.kbCategories,
+        noArticles: d.kbEmpty, kbZeroResults: d.kbEmpty, kbBack: d.kbBack,
+        kbSearching: d.kbSearch, kbSwitchToChat: d.chatTab, kbOpenInBrowser: d.homeSeeAll,
       },
+
       shellVm: {
         config: previewConfig,
         brandName: brandName || title,
@@ -444,7 +431,9 @@ export function WidgetLivePreview({
           phone: !!prechat?.require_phone,
         },
       },
-      kbHtml: kbBody,
+      kbVm,
+      kbArticleVms,
+
       typingLabel: `${title} ${d.typing}`,
       phase,
     };
@@ -454,7 +443,9 @@ export function WidgetLivePreview({
 <head>
 <meta charset="utf-8" />
 <link rel="stylesheet" href="/widget/runtime.css" />
-<link rel="stylesheet" href="/widget/presentation-classic.css" />
+<!-- The active template's stylesheet is injected at runtime from the
+     registry descriptor — the preview never names a template asset. -->
+
 <style>
   html,body{margin:0;height:100%;}
   body{background:#F1F5F9;overflow:hidden;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
@@ -509,22 +500,36 @@ export function WidgetLivePreview({
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
-    ${articleTemplates}
   </div>
-<!-- The preview loads the SAME presentation assets the visitor widget loads. -->
+<!-- The preview loads the SAME presentation assets the visitor widget loads,
+     resolved through the registry (no template name is hard-coded here). -->
 <script src="/widget/presentation-registry.js"></script>
-<script src="/widget/presentation-classic.js"></script>
 <script>
   var GS_PREVIEW = ${JSON.stringify(payload)};
   var GS_SMART = GS_PREVIEW.smart;
 
-  /* Render the panel with the production renderer — the preview never builds
-     widget markup itself. */
   (function () {
     var reg = window.__gs_presentation_registry;
-    var mod = (reg && reg.get) ? reg.get('classic') : window.__gs_presentation_classic;
-    mod = mod || window.__gs_presentation_classic;
-    if (!mod || !mod.create) return;
+    if (!reg || typeof reg.resolve !== 'function') return;
+    var desc = reg.resolve(GS_PREVIEW.templateId);
+    if (!desc) return;
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/widget/' + desc.style;
+    document.head.appendChild(link);
+    var scr = document.createElement('script');
+    scr.src = '/widget/' + desc.script;
+    scr.onload = function () {
+      var mod = window[desc.globalKey];
+      if (mod && mod.create) gsRenderPreview(mod);
+    };
+    document.body.appendChild(scr);
+  })();
+
+  /* Render the panel with the production renderer — the preview never builds
+     widget markup itself. */
+  function gsRenderPreview(mod) {
+
 
     function escapeHtml(v) {
       return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
@@ -559,7 +564,7 @@ export function WidgetLivePreview({
       };
       body.innerHTML = R.prechatFormHtml(identity, {}, GS_PREVIEW.locale);
     } else if (view === 'kb') {
-      body.innerHTML = GS_PREVIEW.kbHtml;
+      body.innerHTML = R.kbHtml(GS_PREVIEW.kbVm);
     } else {
       body.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
     }
@@ -620,10 +625,16 @@ export function WidgetLivePreview({
         panel.insertBefore(dock, bar || null);
       }
     }
-  })();
+
+    gsBindLauncher();
+    gsBindSmart();
+    gsBindTabs();
+    gsBindArticles(R);
+  }
 
   // Preview-only: let the operator open/close the widget exactly like a visitor.
-  (function () {
+  function gsBindLauncher() {
+
     var panel = document.querySelector('.panel');
     var launcher = document.getElementById('gs-launcher');
     if (!panel || !launcher) return;
@@ -654,10 +665,11 @@ export function WidgetLivePreview({
       setOpen(false);
       if (GS_SMART.enabled) parent.postMessage({ source: 'gs-smart-preview', type: 'smart-preview:widget-closed' }, '*');
     });
-  })();
+  }
 
   // Preview-only: drive the smart surface lifecycle from the parent studio.
-  (function () {
+  function gsBindSmart() {
+
     if (!GS_SMART.enabled) return;
     var surfaces = [].slice.call(document.querySelectorAll('[data-smart-surface]'));
     surfaces.forEach(function (el) { el.setAttribute('hidden', ''); el.classList.add('smart-enter'); });
@@ -707,10 +719,10 @@ export function WidgetLivePreview({
     });
 
     applyPhase(GS_PREVIEW.phase);
-  })();
+  }
 
   // Preview-only: the renderer's real tab hooks drive the parent's view state.
-  (function () {
+  function gsBindTabs() {
     if (GS_SMART.enabled) return;
     document.addEventListener('click', function (e) {
       var el = e.target && e.target.closest ? e.target.closest('[data-tab]') : null;
@@ -718,39 +730,42 @@ export function WidgetLivePreview({
       e.preventDefault();
       parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-tab') }, '*');
     });
-  })();
+  }
 
   // Preview-only: open a real article and support returning to the list.
-  (function () {
+  // The markup always comes from the renderer's KB surfaces.
+  function gsBindArticles(R) {
     var body = document.querySelector('.panel [data-body]');
     if (!body) return;
     var initialMarkup = body.innerHTML;
+    function openArticle(index) {
+      var vm = (GS_PREVIEW.kbArticleVms || [])[Number(index)];
+      if (!vm) return;
+      body.innerHTML = R.kbArticleHtml(vm);
+      body.scrollTop = 0;
+    }
     document.addEventListener('click', function (e) {
       var target = e.target && e.target.closest ? e.target : null;
       if (!target) return;
-      var article = target.closest('[data-preview-article]');
+      var article = target.closest('[data-kb-action="open"]');
       if (article) {
         e.preventDefault();
-        var template = document.getElementById('preview-article-' + article.getAttribute('data-preview-article'));
-        if (template) {
-          body.innerHTML = template.innerHTML;
-          body.scrollTop = 0;
-        }
+        openArticle(article.getAttribute('data-kb-slug'));
         return;
       }
       var homeArticle = target.closest('[data-home-article]');
       if (homeArticle) {
         e.preventDefault();
-        var tpl = document.getElementById('preview-article-' + homeArticle.getAttribute('data-home-article'));
-        if (tpl) { body.innerHTML = tpl.innerHTML; body.scrollTop = 0; }
+        openArticle(homeArticle.getAttribute('data-home-article'));
         return;
       }
-      if (target.closest('[data-preview-kb-back]')) {
+      if (target.closest('[data-kb-action="back"]')) {
         e.preventDefault();
         body.innerHTML = initialMarkup;
         body.scrollTop = 0;
         return;
       }
+
       var homeAction = target.closest('[data-home-action]');
       if (homeAction) {
         e.preventDefault();
@@ -758,7 +773,8 @@ export function WidgetLivePreview({
         parent.postMessage({ source: 'gs-widget-preview', nav: act === 'help' ? 'help' : 'chat' }, '*');
       }
     });
-  })();
+  }
+
 </script>
 </body>
 </html>`;

@@ -51,8 +51,12 @@
 .shell * {
   font-family: 'IRANSans', 'InterWY', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+/* LTR locales use Inter. `dir` lives on the panel (Core sets it there) and,
+   for previews, on the shell — both are honoured. */
 .shell[dir='ltr'],
-.shell[dir='ltr'] * {
+.shell[dir='ltr'] *,
+.panel[dir='ltr'],
+.panel[dir='ltr'] * {
   font-family: 'InterWY', 'IRANSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 

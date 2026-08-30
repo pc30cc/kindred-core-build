@@ -3428,8 +3428,19 @@
       bootstrapHistory: bootstrapHistory,
       mergeIncoming: mergeIncoming,
       startTypewriter: startTypewriter,
+      // "+ New conversation" — arms a one-shot flag so the *first* message of
+      // this flow is sent with force_new_conversation:true. The server then
+      // refuses to reuse an existing open thread. The flag is cleared as soon
+      // as the backend hands back a conversation id (or the send fails), so it
+      // can never leak into subsequent messages.
+      startNewConversation: function () {
+        forceNewConversation = true;
+        chatStore.set({ conversationId: null, messages: [] });
+      },
+      isForcingNewConversation: function () { return forceNewConversation; },
       getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
     };
+
   }
 
   // ════════════════════════════════════════════════════════════════════

@@ -161,6 +161,9 @@ export interface WidgetSettings {
   primary_color: string;
   launcher_text: string | null;
   welcome_message: string | null;
+  /** Reply-time note under the workspace name in the widget header. */
+  reply_time_text: string | null;
+
   logo_url: string | null;
   position: 'bottom-right' | 'bottom-left';
   allowed_domains: string[];

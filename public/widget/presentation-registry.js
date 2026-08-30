@@ -20,20 +20,19 @@
 (function () {
   'use strict';
 
-  var DEFAULT_ID = 'classic';
+  var DEFAULT_ID = 'web-yar';
 
   var TEMPLATES = {
-    // The original (and currently only) widget design, extracted verbatim
-    // out of runtime.js. It is the first official implementation of the
-    // template system — not a redesign.
-    classic: {
-      id: 'classic',
-      name: 'Classic',
-      globalKey: '__gs_presentation_classic',
-      script: 'presentation-classic.js',
-      style: 'presentation-classic.css',
+    // The official Web Yar widget design — the single, default template.
+    'web-yar': {
+      id: 'web-yar',
+      name: 'Web Yar',
+      globalKey: '__gs_presentation_web_yar',
+      script: 'presentation-web-yar.js',
+      style: 'presentation-web-yar.css',
     },
   };
+
 
   function resolve(id) {
     if (id && TEMPLATES[id]) return TEMPLATES[id];

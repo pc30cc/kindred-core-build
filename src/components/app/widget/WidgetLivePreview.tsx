@@ -447,13 +447,10 @@ export function WidgetLivePreview({
       </div>` + prechatBody;
 
     // Operator avatars only — the workspace logo is not shown here.
-    const homeAvatar = operatorAvatar
-      ? `<span class="home-avatar has-img is-online"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
-      : `<span class="home-avatar is-online"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
-
     const homeAvatarWy = operatorAvatar
       ? `<span class="wy-avatar has-img"><img src="${esc(String(operatorAvatar))}" alt="${esc(operatorName || '')}" /></span>`
       : `<span class="wy-avatar"><span aria-hidden="true">${esc(operatorName ? operatorName.trim().charAt(0).toUpperCase() : initial)}</span></span>`;
+
 
     // Mirrors renderHome() in public/widget/runtime.js — keep in lockstep.
     const homeBody = `

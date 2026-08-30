@@ -309,13 +309,18 @@ export function WidgetLivePreview({
 
     const header = `
       <div class="header${rtl ? ' header-rtl' : ''}" dir="${dir}">
-        <button type="button" class="header-close" id="gs-close" aria-label="close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        <button type="button" class="header-back" id="gs-close" aria-label="back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${rtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6'}"/></svg>
         </button>
         <div class="header-brand">
           ${avatar ? `<div class="header-op-stack">${avatar}</div>` : ''}
+          <div class="header-brand-text">
+            <div class="header-title">${esc(brandName || title)}</div>
+            <div class="header-subtitle"><span class="header-live-dot" aria-hidden="true"></span>${esc(d.homeReplyFast)}</div>
+          </div>
         </div>
       </div>`;
+
 
     const fields = [
       prechat?.ask_name !== false && { key: 'name', label: d.name, req: prechat?.require_name },

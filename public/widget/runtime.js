@@ -5638,20 +5638,30 @@
       ? '<span class="header-logo"><img src="' + Util.escapeHtml(wsLogoUrl) + '" alt="' +
         Util.escapeHtml(brandName || headerTitle) + '" loading="lazy" decoding="async" /></span>'
       : '';
-    var headerCloseHtml = '<button type="button" class="header-close" data-panel-close aria-label="' +
-      Util.escapeHtml(t('closeWidget') || 'Close') + '" title="' + Util.escapeHtml(t('closeWidget') || 'Close') + '">' +
+    // Design spec: no dismiss chevron in the header — the floating launcher
+    // stays visible while the panel is open and owns close. The header slot
+    // instead carries a contextual "back to home" control.
+    var headerBackHtml = '<button type="button" class="header-back" data-nav-home hidden aria-label="' +
+      Util.escapeHtml(t('home') || 'Home') + '" title="' + Util.escapeHtml(t('home') || 'Home') + '">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
-      '<path d="m6 9 6 6 6-6"/></svg></button>';
+      '<path d="' + (headerRtl ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6') + '"/></svg></button>';
     var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
-      headerCloseHtml +
+      headerBackHtml +
       '<div class="header-brand">' +
+        headerLogoHtml +
         teamStackHtml +
+        '<div class="header-brand-text">' +
+          '<div class="header-title">' + Util.escapeHtml(headerTitle || brandName || t('support')) + '</div>' +
+          '<div class="header-subtitle"><span class="header-live-dot" aria-hidden="true"></span>' +
+            Util.escapeHtml(t('homeReplyFast')) + '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="presence sr-only" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
         '<span class="presence-label" data-presence-label></span>' +
       '</div>' +
       '</div>';
+
     // Visitor-initiated voice/video tabs were removed — calls are now only
     // initiated from the operator side. Keep chat + help tabs only.
     var NAV_ICONS = {
@@ -5952,6 +5962,16 @@
         try { if (window.__gs_runtime && window.__gs_runtime._instance) window.__gs_runtime._instance.close(); } catch (_) {}
       });
     }
+
+    // Contextual back-to-home control in the redesigned header.
+    var headerBackBtn = panel.querySelector('[data-nav-home]');
+    if (headerBackBtn) {
+      headerBackBtn.addEventListener('click', function (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (_) {}
+        try { switchTab('home'); } catch (_) {}
+      });
+    }
+
 
     var lightboxClose = panel.querySelector('[data-att-lightbox-close]');
     function closeLightbox() {
@@ -6683,9 +6703,18 @@
       } catch (_) {}
     }
 
+    function syncHeaderNav() {
+      try {
+        var backBtn = panel.querySelector('[data-nav-home]');
+        if (backBtn) backBtn.hidden = (shellStore.get().activeTab === 'home');
+      } catch (_) {}
+    }
+
     function switchTab(key) {
-      if (shellStore.get().activeTab === key) { renderBody(); return; }
+      if (shellStore.get().activeTab === key) { renderBody(); syncHeaderNav(); return; }
       shellStore.set({ activeTab: key });
+      syncHeaderNav();
+
       try {
         var allT = panel.querySelectorAll('.tab');
         Array.prototype.forEach.call(allT, function (t2) {

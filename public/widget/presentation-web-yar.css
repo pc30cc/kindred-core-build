@@ -181,19 +181,24 @@
 .wy-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 10px;
+  padding: 16px 20px;
   background: var(--wy-card);
-  border-bottom: 1px solid var(--wy-border);
   flex: none;
+  box-sizing: border-box;
 }
-.wy-head-plain { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; }
-.wy-head-article-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wy-head-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+/* Home header is the only one with symmetric 20px padding (design §1). */
+.wy-head-home { padding: 20px; justify-content: space-between; }
+/* Chat header uses a tighter 16px box (design §5). */
+.wy-head-chat { padding: 16px; }
+.wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
+.wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wy-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .wy-head-title { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; }
 .wy-head-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-sub { font-size: 12px; color: var(--wy-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wy-online); flex: none; }
+
 
 .wy-back {
   width: 32px; height: 32px; border-radius: 9999px; display: flex; align-items: center;

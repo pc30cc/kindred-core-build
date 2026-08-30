@@ -15,10 +15,14 @@
      online         #30c46e
    ══════════════════════════════════════════════════════════════════════ */
 
-/* ─── Self-hosted typography (licensed) ─────────────────────────────── */
+/* ─── Self-hosted typography (licensed) ─────────────────────────────────
+   Presentation OWNS typography — Core (runtime.css) declares no font at all.
+   Only weights that have a REAL file are declared: 400 (Regular),
+   500 (Medium), 700 (Bold). There is no IRANSans 600 file, so 600 is never
+   declared (the design's few 600 usages resolve upward to the Bold face,
+   exactly as the design source itself renders them). */
 @font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/iransans-400.woff2') format('woff2'); }
 @font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/iransans-500.woff2') format('woff2'); }
-@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/iransans-700.woff2') format('woff2'); }
 @font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/iransans-700.woff2') format('woff2'); }
 @font-face { font-family: 'InterWY'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('fonts/inter-500.woff2') format('woff2'); }
 

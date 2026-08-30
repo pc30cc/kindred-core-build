@@ -7189,37 +7189,49 @@
 
     function renderBody() {
       if (!body) return;
-      syncHeaderBrand();
+      renderHeader();
       // Pass 2 — when an in-panel call surface is open it owns the
-      // entire body. Tabs + composer are hidden; we render the call view
+      // entire body. The composer is hidden; we render the call view
       // full-bleed inside the existing .body container (Shadow DOM).
       var __cs = callSurfaceStore.get();
       if (__cs.phase !== 'idle') {
         if (inputBar) inputBar.style.display = 'none';
-        try {
-          var allTabs = panel.querySelectorAll('.tab');
-          Array.prototype.forEach.call(allTabs, function (t2) { t2.style.display = 'none'; });
-        } catch (_) {}
         renderCallSurface(body, __cs);
         return;
       }
-      // Restore tab visibility when the surface is closed.
-      try {
-        var allTabs2 = panel.querySelectorAll('.tab');
-        Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
-      } catch (_) {}
-      var tab = shellStore.get().activeTab;
+      var tab = currentView();
       if (tab === 'home') {
         if (inputBar) inputBar.style.display = 'none';
         renderHome();
         if (kbEnabled && !kbStore.get().loaded) {
           kbUI.ensure(function () {
-            if (shellStore.get().activeTab === 'home') renderHome();
+            if (currentView() === 'home') renderHome();
           });
         }
         return;
       }
+      if (tab === 'list') {
+        if (inputBar) inputBar.style.display = 'none';
+        renderThreadList();
+        return;
+      }
+      if (tab === 'articles') {
+        if (inputBar) inputBar.style.display = 'none';
+        renderArticlesList();
+        if (kbEnabled && !kbStore.get().loaded) {
+          kbUI.ensure(function () {
+            if (currentView() === 'articles') renderArticlesList();
+          });
+        }
+        return;
+      }
+      if (tab === 'article') {
+        if (inputBar) inputBar.style.display = 'none';
+        renderArticleDetail();
+        return;
+      }
       if (tab === 'chat') {
+
         if (!identityStore.get().loaded) { renderLoading(); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.

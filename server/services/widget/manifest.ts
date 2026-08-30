@@ -31,17 +31,19 @@ interface WidgetManifest {
   'runtime-rt-centrifugo.js'?: string;
   'runtime-rt-supabase.js'?: string;
   'runtime-rt-resolver.js'?: string;
-  // Presentation layer (template registry + the 'classic' renderer/styles).
-  'presentation-registry.js'?: string;
-  'presentation-classic.js'?: string;
-  'presentation-classic.css'?: string;
   // Self-hosted vendor assets (Pass 1: LiveKit JS SDK).
   'vendor/livekit-client.umd.min.js'?: string;
   'loader.js'?: string;
   loaderVersion?: string;
+  // Presentation layer. Template assets are DISCOVERED by the build
+  // (`presentation-<id>.js` / `.css`), never enumerated here — adding a
+  // template must not require a manifest edit.
+  [presentationAsset: `presentation-${string}.js`]: string | undefined;
+  [presentationStyle: `presentation-${string}.css`]: string | undefined;
 }
 
-type WidgetAssetKey =
+/** Core (template-agnostic) widget assets. */
+type WidgetCoreAssetKey =
   | 'runtime.js'
   | 'runtime.css'
   | 'runtime-chat.js'
@@ -50,11 +52,26 @@ type WidgetAssetKey =
   | 'runtime-rt-centrifugo.js'
   | 'runtime-rt-supabase.js'
   | 'runtime-rt-resolver.js'
-  | 'presentation-registry.js'
-  | 'presentation-classic.js'
-  | 'presentation-classic.css'
   | 'smart-engine.js'
   | 'vendor/livekit-client.umd.min.js';
+
+/**
+ * Presentation assets follow a naming convention instead of a hard-coded
+ * list. The convention IS the security whitelist: `isPresentationAsset()`
+ * below rejects anything with a path separator, uppercase or unexpected
+ * characters, so a caller can never coerce this into serving an arbitrary
+ * file name.
+ */
+type WidgetPresentationAssetKey = `presentation-${string}.js` | `presentation-${string}.css`;
+
+type WidgetAssetKey = WidgetCoreAssetKey | WidgetPresentationAssetKey;
+
+const PRESENTATION_ASSET_RE = /^presentation-[a-z0-9-]+\.(js|css)$/;
+
+export function isPresentationAsset(name: string): name is WidgetPresentationAssetKey {
+  return PRESENTATION_ASSET_RE.test(name);
+}
+
 
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;

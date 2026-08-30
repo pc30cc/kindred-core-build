@@ -794,17 +794,21 @@
           });
           window.__gs_runtime._instance = instance;
           widgetApi = {
-            open: function () { instance.open(); isOpen = true; launcherEl.classList.add("open"); },
-            close: function () { instance.close(); isOpen = false; launcherEl.classList.remove("open"); },
-            toggle: function () { instance.toggle(); isOpen = !isOpen; launcherEl.classList.toggle("open", isOpen); },
+            open: function () { try { instance.open(); } catch (_) {} syncOpenStateFromRuntime(); },
+            close: function () { try { instance.close(); } catch (_) {} syncOpenStateFromRuntime(); },
+            toggle: function () { try { instance.toggle(); } catch (_) {} syncOpenStateFromRuntime(); },
             setUnread: setUnreadBadge,
           };
           ready = true;
+          // init() only MOUNTS. The panel opens here — and ONLY here — when
+          // something actually asked for it (a real launcher click). A silent
+          // Smart Engagement preload leaves the widget mounted but closed.
           if (wantRuntimeOpen) {
-            isOpen = true;
-            launcherEl.classList.add("open");
+            try { instance.open(); } catch (_) {}
           }
+          syncOpenStateFromRuntime();
           processQueue();
+
         } catch (e) {
           warn("Runtime init failed", e);
           if (wantRuntimeOpen) showShellError(lt("couldNotStart"));

@@ -500,22 +500,36 @@ export function WidgetLivePreview({
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
-    ${articleTemplates}
   </div>
-<!-- The preview loads the SAME presentation assets the visitor widget loads. -->
+<!-- The preview loads the SAME presentation assets the visitor widget loads,
+     resolved through the registry (no template name is hard-coded here). -->
 <script src="/widget/presentation-registry.js"></script>
-<script src="/widget/presentation-classic.js"></script>
 <script>
   var GS_PREVIEW = ${JSON.stringify(payload)};
   var GS_SMART = GS_PREVIEW.smart;
 
-  /* Render the panel with the production renderer — the preview never builds
-     widget markup itself. */
   (function () {
     var reg = window.__gs_presentation_registry;
-    var mod = (reg && reg.get) ? reg.get('classic') : window.__gs_presentation_classic;
-    mod = mod || window.__gs_presentation_classic;
-    if (!mod || !mod.create) return;
+    if (!reg || typeof reg.resolve !== 'function') return;
+    var desc = reg.resolve(GS_PREVIEW.templateId);
+    if (!desc) return;
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/widget/' + desc.style;
+    document.head.appendChild(link);
+    var scr = document.createElement('script');
+    scr.src = '/widget/' + desc.script;
+    scr.onload = function () {
+      var mod = window[desc.globalKey];
+      if (mod && mod.create) gsRenderPreview(mod);
+    };
+    document.body.appendChild(scr);
+  })();
+
+  /* Render the panel with the production renderer — the preview never builds
+     widget markup itself. */
+  function gsRenderPreview(mod) {
+
 
     function escapeHtml(v) {
       return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {

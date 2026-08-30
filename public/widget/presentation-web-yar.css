@@ -160,14 +160,16 @@
 
 .wy-scroll {
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: hidden !important;
   scrollbar-width: thin;
   scrollbar-color: #e0e1e6 transparent;
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
-.wy-scroll::-webkit-scrollbar { width: 8px; }
+.wy-scroll::-webkit-scrollbar { width: 6px; }
 .wy-scroll::-webkit-scrollbar-thumb { background: #e0e1e6; border-radius: 4px; }
 .wy-scroll::-webkit-scrollbar-track { background: transparent; }
+
 
 .wy-body-pad { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wy-home-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }

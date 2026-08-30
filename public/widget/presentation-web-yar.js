@@ -683,14 +683,14 @@
             '<div class="input-bar" data-input-bar>' +
               '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + esc(t('talkToHuman')) +
                 '" aria-label="' + esc(t('talkToHuman')) + '">' + ICON.human + '</button>' +
-              // Mic lives OUTSIDE the input container (design §4) and only
-              // shows while the draft is empty.
-              (voiceNotesEnabled && micSupported
-                ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
-                    '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
-                    '<span class="mic-ring" aria-hidden="true"></span></button>'
-                : '') +
               '<div class="input-wrap" data-input-wrap>' +
+                // Mic is the FIRST child inside the input pill and only shows
+                // while the draft is empty (design source).
+                (voiceNotesEnabled && micSupported
+                  ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
+                      '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
+                      '<span class="mic-ring" aria-hidden="true"></span></button>'
+                  : '') +
                 '<textarea class="input" rows="1" data-msg-input placeholder="' + esc(t('typeMsg')) + '"></textarea>' +
                 '<div class="composer-actions">' +
                   '<div class="composer-actions-start">' +
@@ -700,7 +700,7 @@
                         '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
                       : '') +
                     (emojiEnabled
-                      ? '<button type="button" class="emoji-btn" data-emoji-btn title="' + esc(t('emojiPicker')) +
+                      ? '<button type="button" class="emoji-btn" data-emoji-btn aria-expanded="false" title="' + esc(t('emojiPicker')) +
                           '" aria-label="' + esc(t('emojiPicker')) + '">' + ICON.emoji + '</button>'
                       : '') +
                   '</div>' +
@@ -711,6 +711,7 @@
                 '</div>' +
               '</div>' +
             '</div>' +
+
             footerHtml() +
           '</div>'
         : footerHtml();

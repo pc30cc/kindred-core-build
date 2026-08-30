@@ -1003,6 +1003,80 @@
         onlineLabel: 'çevrimiçi',
       },
     };
+    // ── Web Yar design-spec strings (home / list / articles / article) ──
+    var WY = {
+      en: {
+        wyHelpQ: 'How can we help you?',
+        wyRecent: 'Recent conversations',
+        wyViewConvs: 'View conversations',
+        wyArticlesHint: 'Maybe one of these articles answers your question',
+        wyMoreArticles: 'More articles',
+        wyContinueLast: 'Continue last conversation',
+        wyStartNew: 'Start a new conversation',
+        wyArticles: 'Articles',
+        wyConversations: 'Conversations',
+        wyOpenStatus: 'Open',
+        wyResolvedStatus: 'Resolved',
+        wyUnread: 'new messages',
+        wyRateQ: 'Was this article helpful?',
+        wyRateUp: 'Helpful',
+        wyRateDown: 'Not helpful',
+        wyRateThanks: 'Thanks for your feedback!',
+        wyTalkSupport: 'Chat with support',
+        wyNewConversation: 'New conversation',
+        wyBack: 'Back',
+        wyConnectOperator: 'Connecting to an operator',
+      },
+      fa: {
+        wyHelpQ: 'چطور می‌توانیم کمکتون کنیم؟',
+        wyRecent: 'گفتگوهای اخیر',
+        wyViewConvs: 'مشاهده گفتگوها',
+        wyArticlesHint: 'شاید مقالات زیر جواب سوال شما باشد',
+        wyMoreArticles: 'مقالات بیشتر',
+        wyContinueLast: 'ادامه آخرین گفتگو',
+        wyStartNew: 'شروع گفتگوی جدید',
+        wyArticles: 'مقالات',
+        wyConversations: 'گفتگوها',
+        wyOpenStatus: 'باز',
+        wyResolvedStatus: 'حل‌شده',
+        wyUnread: 'پیام جدید',
+        wyRateQ: 'آیا این مقاله برای شما مفید بود؟',
+        wyRateUp: 'مفید بود',
+        wyRateDown: 'مفید نبود',
+        wyRateThanks: 'بازخورد شما ثبت شد. ممنون از راهنمایی‌تون!',
+        wyTalkSupport: 'گفتگو با پشتیبانی',
+        wyNewConversation: 'گفتگوی جدید',
+        wyBack: 'بازگشت',
+        wyConnectOperator: 'اتصال به اپراتور',
+      },
+      tr: {
+        wyHelpQ: 'Size nasıl yardımcı olabiliriz?',
+        wyRecent: 'Son görüşmeler',
+        wyViewConvs: 'Görüşmeleri gör',
+        wyArticlesHint: 'Belki bu makaleler sorunuzu yanıtlar',
+        wyMoreArticles: 'Daha fazla makale',
+        wyContinueLast: 'Son görüşmeye devam et',
+        wyStartNew: 'Yeni görüşme başlat',
+        wyArticles: 'Makaleler',
+        wyConversations: 'Görüşmeler',
+        wyOpenStatus: 'Açık',
+        wyResolvedStatus: 'Çözüldü',
+        wyUnread: 'yeni mesaj',
+        wyRateQ: 'Bu makale yardımcı oldu mu?',
+        wyRateUp: 'Yardımcı oldu',
+        wyRateDown: 'Yardımcı olmadı',
+        wyRateThanks: 'Geri bildiriminiz için teşekkürler!',
+        wyTalkSupport: 'Destek ile görüş',
+        wyNewConversation: 'Yeni görüşme',
+        wyBack: 'Geri',
+        wyConnectOperator: 'Operatöre bağlanılıyor',
+      },
+    };
+    Object.keys(WY).forEach(function (loc) {
+      if (!dict[loc]) dict[loc] = {};
+      Object.keys(WY[loc]).forEach(function (k) { dict[loc][k] = WY[loc][k]; });
+    });
+
     return {
       t: function (locale, key) {
         var l = dict[locale] ? locale : 'en';

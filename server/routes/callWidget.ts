@@ -622,6 +622,8 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   // resolves, so the bytes exist exactly once and are cached once.
   const fontAssetUrl = (() => {
     try {
+      const key = widgetTemplateAssetKeys(resolveWidgetTemplateId(null)).fonts;
+      const name = getWidgetAssetName(key);
       const base = resolveWidgetAssetBase({
         widgetBaseUrl: null,
         widgetLoaderBaseUrl: null,
@@ -629,9 +631,9 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
         assetBaseUrl: null,
         loaderAssetBase: getLoaderAssetBase(req as any),
       });
-      if (!base) return null;
-      const key = widgetTemplateAssetKeys(resolveWidgetTemplateId(null)).fonts;
-      return `${base}/widget/${getWidgetAssetName(key)}`;
+      // Relative when no explicit asset base is configured — the runtime
+      // resolves it against its own origin, exactly like its other assets.
+      return base ? `${base}/widget/${name}` : `/widget/${name}`;
     } catch { return null; }
   })();
   res.json({

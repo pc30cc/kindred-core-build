@@ -416,6 +416,43 @@ export default function InboxPage() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
   const [showMobileList, setShowMobileList] = useState(true);
+
+  // Resizable conversation list width (desktop only)
+  const [listWidth, setListWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('inbox.listWidth'));
+    return saved >= 260 && saved <= 640 ? saved : 340;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  useEffect(() => {
+    if (!isResizing) return;
+    const isRtl = document.documentElement.dir === 'rtl';
+    const onMove = (e: MouseEvent) => {
+      const w = isRtl ? window.innerWidth - e.clientX : e.clientX;
+      setListWidth(Math.min(640, Math.max(260, w)));
+    };
+    const onUp = () => setIsResizing(false);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizing]);
+  useEffect(() => {
+    localStorage.setItem('inbox.listWidth', String(listWidth));
+  }, [listWidth]);
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handler = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
   const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);

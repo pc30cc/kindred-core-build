@@ -18,6 +18,7 @@ import {
 } from '../../services/ai-agent/testHarness.js';
 import { decideStrategy as e7_decideStrategy } from '../../services/ai-agent/answerStrategy.js';
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../../services/ai-agent/prompt.js';
+import { detectInputLanguage, languageDisplayName } from '../../services/ai-agent/language.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';

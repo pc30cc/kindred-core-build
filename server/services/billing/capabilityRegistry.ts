@@ -46,6 +46,8 @@ export interface CapabilityDefinition {
   userVisible: boolean;
   /** Internal/admin-only — never shown to end users. */
   internalOnly?: boolean;
+  /** Legacy key kept only for backward compatibility — never offered in UI. */
+  deprecated?: boolean;
   /** Unit hint for `limit` types. */
   unit?: CapabilityUnit;
   /** Sort order within group (ascending). */

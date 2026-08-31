@@ -7894,6 +7894,7 @@ export type Database = {
           attachments_max_size_mb: number
           auto_open_delay: number | null
           availability_labels: Json
+          brand_name: string | null
           business_hours: Json
           chat_enabled: boolean | null
           created_at: string | null
@@ -7928,6 +7929,7 @@ export type Database = {
           read_receipts_enabled: boolean
           round_robin_cursor_user_id: string | null
           secondary_color: string | null
+          shadow_color: string | null
           show_logo: boolean | null
           show_team_avatars: boolean
           smart_engagement_enabled: boolean
@@ -7950,6 +7952,7 @@ export type Database = {
           attachments_max_size_mb?: number
           auto_open_delay?: number | null
           availability_labels?: Json
+          brand_name?: string | null
           business_hours?: Json
           chat_enabled?: boolean | null
           created_at?: string | null
@@ -7984,6 +7987,7 @@ export type Database = {
           read_receipts_enabled?: boolean
           round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
+          shadow_color?: string | null
           show_logo?: boolean | null
           show_team_avatars?: boolean
           smart_engagement_enabled?: boolean
@@ -8006,6 +8010,7 @@ export type Database = {
           attachments_max_size_mb?: number
           auto_open_delay?: number | null
           availability_labels?: Json
+          brand_name?: string | null
           business_hours?: Json
           chat_enabled?: boolean | null
           created_at?: string | null
@@ -8040,6 +8045,7 @@ export type Database = {
           read_receipts_enabled?: boolean
           round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
+          shadow_color?: string | null
           show_logo?: boolean | null
           show_team_avatars?: boolean
           smart_engagement_enabled?: boolean

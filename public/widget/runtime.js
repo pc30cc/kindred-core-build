@@ -7514,7 +7514,14 @@
     applyComposerState();
 
     // 1) Identity → 2) Transport connect → 3) History (if supported)
+    // The visitor's thread list is fetched in parallel (cookie-authenticated,
+    // independent of identity resolution) so the home surface can paint its
+    // final shape on the very first real render instead of flipping.
+    loadConversations(function () {
+      if (shellStore.get().activeTab === 'home') renderBody();
+    });
     identity.fetchMe(function () {
+
       // FSM: identity resolved → restoring_session
       if (fsm.get() === 'bootstrapping') fsm.transition('restoring_session', 'identity:resolved');
       renderBody();

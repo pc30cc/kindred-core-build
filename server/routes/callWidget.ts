@@ -52,7 +52,7 @@ import {
   setContinuityCookie,
 } from '../services/widget/continuity.js';
 import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
-import { getWidgetAssetName } from '../services/widget/manifest.js';
+import { getWidgetAssetName, getOptionalWidgetAssetName } from '../services/widget/manifest.js';
 import { resolveWidgetAssetBase, getLoaderAssetBase } from '../services/widget/public.js';
 import { widgetTemplateAssetKeys, resolveWidgetTemplateId } from '../services/widget/presentationAssets.js';
 import crypto from 'crypto';

@@ -782,8 +782,7 @@ a.wy-powered:hover { color: var(--wy-text); }
   box-shadow: 0 0 0 1px var(--wy-border-strong, #d5d7dd), 0 1px 3px rgba(16, 24, 40, 0.06);
   transition: box-shadow 0.16s;
 }
-/* Focus stays neutral — the accent-colored ring read as an error/link state. */
-.input-wrap:focus-within { box-shadow: 0 0 0 1px var(--wy-border-strong, #c8cbd3), 0 2px 6px rgba(16, 24, 40, 0.10); }
+/* No focus state — the composer keeps its resting border when typing. */
 
 /* Mic lives INSIDE the pill, before the textarea (design source). */
 .mic-btn {

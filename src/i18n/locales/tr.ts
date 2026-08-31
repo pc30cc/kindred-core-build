@@ -3562,6 +3562,15 @@ const tr: TranslationKeys = {
       currentPlan: 'Ücretsiz plan',
       action: 'Planı yükselt',
       back: 'Geri',
+      feature: {
+        widget_smart_engagement: 'Akıllı Etkileşim',
+        widget_business_hours: 'Çalışma Saatleri',
+        widget_domain_allowlist: 'Alan Adı Listesi',
+        widget_attachments: 'Dosya Paylaşımı',
+        widget_voice_notes: 'Sesli Notlar',
+        widget_emoji: 'Emoji Seçici',
+      },
+      upgradeHint: 'Planınıza dahil değil',
       module: {
         ai_assistant: 'AI Asistanı',
         call_center: 'Çağrı Merkezi',
@@ -3957,6 +3966,7 @@ const tr: TranslationKeys = {
       remove: 'Kaldır',
       invalid: 'Lütfen geçerli bir alan adı girin (örn. example.com)',
       duplicate: 'Bu alan adı zaten eklenmiş',
+      limitReached: 'Planınız yalnızca {max} alan adına izin veriyor',
       allowSubdomains: 'Alt alan adlarına izin ver',
       allowSubdomainsHint: 'örn. app.example.com, shop.example.com',
     },

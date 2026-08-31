@@ -29,6 +29,18 @@ import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
 import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
+import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+
+/** Widget behaviour switch → plan capability key. Mirrors the server map in
+ *  `server/services/widget/entitlements.ts` (that file is the authority). */
+const BEHAVIOR_CAPABILITY: Record<string, string> = {
+  chat_enabled: 'chat',
+  kb_enabled: 'knowledge_base',
+  visitor_tracking_enabled: 'visitor_tracking',
+  attachments_enabled: 'widget_attachments',
+  voice_notes_enabled: 'widget_voice_notes',
+  emoji_enabled: 'widget_emoji',
+};
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -91,6 +103,17 @@ function WidgetPageContent() {
   const regionLocales = allowedLocales.length ? allowedLocales : ['en'];
   const effectiveLocale =
     live?.locale && regionLocales.includes(live.locale) ? live.locale : regionLocales[0];
+  /** Plan truth for widget behaviours. Unknown key => allowed (server decides). */
+  const capAllowed = (key: string): boolean => {
+    if (!effectiveEnts) return true;
+    const f = (effectiveEnts.features as any)?.[key] ?? (effectiveEnts.modules as any)?.[key];
+    return f ? f.value !== false : true;
+  };
+  const maxDomains = (() => {
+    const l = (effectiveEnts?.limits as any)?.max_widget_domains?.value;
+    return typeof l === 'number' ? l : -1;
+  })();
+
   const previewSettings = useMemo(
     () => ({
       ...live,
@@ -236,6 +259,12 @@ function WidgetPageContent() {
     const current = widget?.allowed_domains || [];
     if (current.includes(normalized)) {
       setDomainError(t('widgetPage.domains.duplicate'));
+      return;
+    }
+    if (maxDomains >= 0 && current.length >= maxDomains) {
+      setDomainError(
+        String(t('widgetPage.domains.limitReached')).replace('{max}', String(maxDomains)),
+      );
       return;
     }
     setDomainError('');
@@ -564,10 +593,18 @@ function WidgetPageContent() {
                           {feature.hint && (
                             <p className="text-xs text-muted-foreground mt-0.5">{feature.hint}</p>
                           )}
+                          {!capAllowed(BEHAVIOR_CAPABILITY[feature.key] || feature.key) && (
+                            <p className="text-xs text-primary mt-0.5">{t('plan.locked.upgradeHint')}</p>
+                          )}
                         </div>
                       </div>
                       <Switch
-                        checked={(widget as any)?.[feature.key] ?? feature.default}
+                        disabled={!capAllowed(BEHAVIOR_CAPABILITY[feature.key] || feature.key)}
+                        checked={
+                          capAllowed(BEHAVIOR_CAPABILITY[feature.key] || feature.key)
+                            ? ((widget as any)?.[feature.key] ?? feature.default)
+                            : false
+                        }
                         onCheckedChange={v => handleToggle(feature.key, v)}
                       />
                     </div>
@@ -635,6 +672,7 @@ function WidgetPageContent() {
 
             {/* ─── Smart actions ─── */}
             <TabsContent value="smart">
+              <PlanLockedOverlay featureKey="widget_smart_engagement">
               <SmartRulesTab
                 workspaceId={workspace?.id}
                 masterEnabled={(live as any)?.smart_engagement_enabled === true}
@@ -648,10 +686,12 @@ function WidgetPageContent() {
                 studioKbArticles={previewKbArticles}
                 studioKbCategories={previewKbCategories}
               />
+              </PlanLockedOverlay>
             </TabsContent>
 
             {/* ─── Availability ─── */}
             <TabsContent value="availability">
+              <PlanLockedOverlay featureKey="widget_business_hours">
               {widget && (
                 <AvailabilitySection
                   workspaceId={workspace?.id}
@@ -660,6 +700,7 @@ function WidgetPageContent() {
                   saving={updateWidget.isPending}
                 />
               )}
+              </PlanLockedOverlay>
             </TabsContent>
 
             {/* ─── Pre-chat ─── */}
@@ -669,6 +710,7 @@ function WidgetPageContent() {
 
             {/* ─── Domains ─── */}
             <TabsContent value="domains">
+              <PlanLockedOverlay featureKey="widget_domain_allowlist">
               <Card className="card-elevated">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -723,6 +765,7 @@ function WidgetPageContent() {
                   </div>
                 </CardContent>
               </Card>
+              </PlanLockedOverlay>
             </TabsContent>
 
             {/* Deployment tab moved to Super Admin → Widget Settings */}

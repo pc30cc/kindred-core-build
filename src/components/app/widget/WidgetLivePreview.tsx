@@ -308,7 +308,10 @@ export function WidgetLivePreview({
     const logo = s.show_logo !== false && s.logo_url ? String(s.logo_url) : '';
     const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
-    const kbEnabled = s.kb_enabled !== false || s.knowledge_base_enabled !== false;
+    // Strict AND: either column being explicitly false hides the KB surface,
+    // exactly like the production bootstrap (`features.knowledgeBase`).
+    const kbEnabled = s.kb_enabled !== false && s.knowledge_base_enabled !== false;
+    const chatEnabled = s.chat_enabled !== false && s.live_chat_enabled !== false;
     const smartDoc = previewMode === 'smart';
 
     /* ── Real published knowledge-base content. The preview builds only the
@@ -431,7 +434,7 @@ export function WidgetLivePreview({
         brandName: title,
         workspaceName: title,
         headerTitle: title,
-        chatEnabled: true,
+        chatEnabled,
         kbEnabled,
         locale,
         activeTab: view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat',
@@ -440,7 +443,7 @@ export function WidgetLivePreview({
       homeVm: {
         rtl,
         isOnline: view !== 'offline',
-        chatEnabled: true,
+        chatEnabled,
         kbEnabled,
         welcomeMessage: welcome,
         primaryColor: primary,

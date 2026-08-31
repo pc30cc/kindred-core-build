@@ -18,7 +18,15 @@ type ModuleKey =
   | 'contacts';
 
 interface Props {
-  moduleKey: ModuleKey;
+  /** Locks on a plan module (Sidebar-level product areas). */
+  moduleKey?: ModuleKey;
+  /**
+   * Locks on a plan *feature* capability key (e.g. `widget_smart_engagement`).
+   * Used for tab-level surfaces inside an otherwise available module.
+   */
+  featureKey?: string;
+  /** Human label shown in the upgrade message when using `featureKey`. */
+  featureLabel?: string;
   children: ReactNode;
   /** Render mode: 'block' for full-page wrap, 'inline' for inline section */
   className?: string;
@@ -29,18 +37,24 @@ interface Props {
  * given module, the content is rendered behind a blurred / disabled
  * layer and an upgrade card overlay is shown on top.
  */
-export function PlanLockedOverlay({ moduleKey, children, className }: Props) {
+export function PlanLockedOverlay({ moduleKey, featureKey, featureLabel, children, className }: Props) {
   const { workspace } = useActiveWorkspace();
   const { data, loading } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
   const { t, dir, locale } = useTranslation();
   const wsPath = useWorkspacePath();
 
-  const moduleState = data?.modules?.[moduleKey];
-  const enabled = !data || loading ? true : moduleState?.value !== false;
+  const state = featureKey
+    ? data?.features?.[featureKey]
+    : moduleKey
+      ? data?.modules?.[moduleKey]
+      : undefined;
+  const enabled = !data || loading ? true : state?.value !== false;
 
   if (enabled) return <>{children}</>;
 
-  const moduleLabel = t(`plan.locked.module.${moduleKey}` as any) || moduleKey;
+  const moduleLabel = featureKey
+    ? (featureLabel || t(`plan.locked.feature.${featureKey}` as any) || featureKey)
+    : t(`plan.locked.module.${moduleKey}` as any) || moduleKey;
   const localized = (data?.plan?.localized || {}) as Record<string, { name?: string; description?: string }>;
   const planName =
     localized[locale]?.name?.trim() ||

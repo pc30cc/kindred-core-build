@@ -3571,6 +3571,15 @@ const en = {
       currentPlan: 'Free plan',
       action: 'Upgrade plan',
       back: 'Back',
+      feature: {
+        widget_smart_engagement: 'Smart Engagement',
+        widget_business_hours: 'Business Hours',
+        widget_domain_allowlist: 'Domain Allowlist',
+        widget_attachments: 'File Sharing',
+        widget_voice_notes: 'Voice Notes',
+        widget_emoji: 'Emoji Picker',
+      },
+      upgradeHint: 'Not included in your plan',
       module: {
         ai_assistant: 'AI Agent',
         call_center: 'Call Center',
@@ -3966,6 +3975,7 @@ const en = {
       remove: 'Remove',
       invalid: 'Please enter a valid domain (e.g. example.com)',
       duplicate: 'This domain has already been added',
+      limitReached: 'Your plan allows only {max} domain(s)',
       allowSubdomains: 'Allow subdomains',
       allowSubdomainsHint: 'e.g. app.example.com, shop.example.com',
     },

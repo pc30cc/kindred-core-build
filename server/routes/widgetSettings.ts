@@ -16,6 +16,10 @@ import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
+import {
+  resolveWidgetEntitlements,
+  guardWidgetSettingsPatch,
+} from '../services/widget/entitlements.js';
 
 export const widgetSettingsRouter = Router();
 
@@ -71,6 +75,20 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
+
+  // Plan enforcement — never let the operator UI (or a crafted request) turn
+  // on a widget behaviour the workspace plan does not grant, or exceed the
+  // embed-domain cap.
+  const entitlements = await resolveWidgetEntitlements(config, workspaceId);
+  const guard = guardWidgetSettingsPatch(parsed.data as Record<string, any>, entitlements);
+  if (!guard.ok) {
+    return res.status(403).json({
+      error: 'plan_upgrade_required',
+      denied: guard.denied,
+      maxWidgetDomains: entitlements.maxDomains,
+    });
+  }
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_settings')

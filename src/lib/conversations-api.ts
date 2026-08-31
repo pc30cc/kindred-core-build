@@ -31,7 +31,17 @@ export interface SendMessageResult {
     };
   };
   realtime: { published: boolean; reason: string | null };
+  /** Split Send outcome — status transition applied after a successful send. */
+  post_send?: {
+    action: PostSendAction;
+    changed: boolean;
+    status: string | null;
+    reason: string | null;
+  };
 }
+
+/** Split Send actions available in the operator composer. */
+export type PostSendAction = 'none' | 'wait_for_customer' | 'resolve';
 
 export interface OperatorAttachmentInit {
   attachment_id: string;
@@ -47,6 +57,7 @@ export const conversationsApi = {
     body: string;
     metadata?: Record<string, unknown>;
     attachment_id?: string | null;
+    post_send_action?: PostSendAction;
   }): Promise<SendMessageResult> {
     const res = await fetch(`${API_BASE}/api/conversations/send-message`, {credentials: 'include', 
       method: 'POST',

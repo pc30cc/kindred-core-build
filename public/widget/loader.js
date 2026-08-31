@@ -167,7 +167,7 @@
     "*,*::before,*::after{box-sizing:border-box;}",
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
-    "width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;",
+    "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",

@@ -3901,7 +3901,7 @@ const tr: TranslationKeys = {
       shadowColorHint: 'Kayan başlatıcı düğmesinin arkasındaki gölgeyi renklendirir.',
       fabLabel: 'Başlatıcı balon metni',
       fabLabelHint: 'Kayan düğmenin yanında görünen kısa metin. Gizlemek için boş bırakın.',
-      fabLabelPlaceholder: 'Örn: Size özel asistanınız'
+      fabLabelPlaceholder: 'Örn: Size özel asistanınız',
       colorsSection: 'Renkler',
       textsSection: 'Metinler',
       logoSection: 'Logo ve marka',

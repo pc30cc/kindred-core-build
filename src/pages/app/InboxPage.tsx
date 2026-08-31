@@ -1727,6 +1727,22 @@ export default function InboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-0.5 shrink-0">
+                {(selected.status === 'open' || selected.status === 'pending') && (
+                  <button
+                    aria-label={t('inbox.markAwaitingReply') || 'Awaiting customer reply'}
+                    onClick={() => workspace?.id && selectedId && updateConv.mutate({
+                      id: selectedId,
+                      workspace_id: workspace.id,
+                      status: selected.status === 'pending' ? 'open' : 'pending',
+                    })}
+                    className={cn(
+                      'p-2 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      selected.status === 'pending' ? 'text-warning bg-warning/10' : 'text-muted-foreground hover:bg-warning/10 hover:text-warning',
+                    )}
+                  >
+                    <Clock className="w-5 h-5" />
+                  </button>
+                )}
                 {selected.status === 'open' && (
                   <button
                     aria-label={t('inbox.resolve') || 'Resolve'}
@@ -1736,6 +1752,7 @@ export default function InboxPage() {
                     <CheckCircle2 className="w-5 h-5" />
                   </button>
                 )}
+
                 <button
                   aria-label={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}
                   aria-expanded={showSidebar}
@@ -2443,7 +2460,41 @@ export default function InboxPage() {
                       </Button>
                     )}
                   </div>
+
+                  {/* Awaiting-customer-reply parking. The thread leaves the
+                      active queue until the customer writes again — the
+                      server flips it back to Open automatically. */}
+                  {(selected.status === 'open' || selected.status === 'pending') && (
+                    <div className="mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={cn(
+                          'h-8 w-full px-2 text-[11.5px] font-semibold transition-colors',
+                          selected.status === 'pending'
+                            ? 'bg-warning/15 border-warning/30 text-warning hover:bg-warning/25'
+                            : '',
+                        )}
+                        title={
+                          selected.status === 'pending'
+                            ? (t('inbox.awaitingReplyActiveHint') || 'Waiting for the customer. Returns to Active automatically when they reply.')
+                            : (t('inbox.markAwaitingReplyHint') || 'Park this thread until the customer replies.')
+                        }
+                        onClick={() => workspace?.id && selectedId && updateConv.mutate({
+                          id: selectedId,
+                          workspace_id: workspace.id,
+                          status: selected.status === 'pending' ? 'open' : 'pending',
+                        })}
+                      >
+                        <Clock className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                        {selected.status === 'pending'
+                          ? (t('inbox.backToActive') || 'Back to Active')
+                          : (t('inbox.markAwaitingReply') || 'Awaiting customer reply')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
+
 
                 {/* Contact Details */}
                 <div className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">

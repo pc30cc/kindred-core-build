@@ -64,7 +64,7 @@ export const activityApi = {
         body,
       })) as { ok: boolean };
     } catch (e: any) {
-      if (!String(e?.message || '').includes('404')) throw e;
+      if (e?.status !== 404) throw e;
       return (await jsonFetch(`/api/ai-agent/conversations/${conversationId}/take-over`, {
         method: 'POST',
         body,

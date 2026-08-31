@@ -570,6 +570,18 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg.visitor.has-tail { border-bottom-right-radius: 0.25rem; }
 .msg-text { white-space: pre-wrap; }
 
+/* Message text must stay selectable (double-click a word, drag a range) and
+   the highlight must be clearly visible inside the shadow root. */
+.msg, .msg-text, .msg-quote, .kb-article, .kb-article-body {
+  -webkit-user-select: text; user-select: text; cursor: text;
+}
+.msg ::selection, .msg-text::selection, .msg-quote ::selection,
+.kb-article ::selection { background: rgba(31, 147, 255, 0.28); color: inherit; }
+.msg-row.visitor .msg ::selection, .msg-row.visitor .msg-text::selection {
+  background: rgba(255, 255, 255, 0.35); color: inherit;
+}
+
+
 /* Meta line under the last bubble of a run: time + delivery ticks. */
 .msg-meta {
   display: inline-flex; align-items: center; gap: 5px;

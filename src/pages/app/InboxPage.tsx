@@ -1021,7 +1021,7 @@ export default function InboxPage() {
                   (stableCounts.needs_human || 0) === 0 && 'hidden',
                 )}
               >{stableCounts.needs_human || 0}</span>
-              <span className={headTabUnderline(extraChip === 'needs_human', 'destructive')} />
+              <span className={headTabSeam(extraChip === 'needs_human')} />
             </button>
             {/* Colleagues — internal operator-to-operator chat */}
             <button

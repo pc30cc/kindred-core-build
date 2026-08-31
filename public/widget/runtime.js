@@ -6293,7 +6293,16 @@
           : (att.mimeType && /^audio\//.test(att.mimeType)) ? 'audio' : 'file',
       } : null;
       if (hasReadyAttach) resetAttachment();
-      chatUI.sendMessage(text, renderBody, attachmentId, optimisticAtt);
+      // Forwarded/quoted context travels inside the message body so the
+      // operator (and any channel bridge) sees exactly what was quoted.
+      var outText = text;
+      if (pendingQuote && pendingQuote.text) {
+        var qLine = String(pendingQuote.text).replace(/\s*\n+\s*/g, ' ').trim();
+        if (pendingQuote.author) qLine = pendingQuote.author + ': ' + qLine;
+        outText = '> ' + qLine + '\n\n' + text;
+        setPendingQuote(null);
+      }
+      chatUI.sendMessage(outText, renderBody, attachmentId, optimisticAtt);
       try {
         if (sendState.aiOwnsThread) showAiThinking();
       } catch (_) {}

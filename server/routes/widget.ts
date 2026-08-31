@@ -2910,15 +2910,37 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
   const supabase = getServiceClient(config);
 
   try {
-    const { data: article } = await supabase
-      .from('knowledge_base_articles')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('slug', slug)
-      .maybeSingle();
+    // A slug is unique per (workspace, locale) — the SAME slug can exist in
+    // several locales, so resolving with .maybeSingle() on slug alone throws
+    // on multi-row and the vote 404s. Prefer the caller's locale, then fall
+    // back to any locale that owns the slug.
+    const locale = String(req.query.locale || '').toLowerCase().split('-')[0];
+    let article: { id: string } | null = null;
+    if (locale) {
+      const { data } = await supabase
+        .from('knowledge_base_articles')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('slug', slug)
+        .eq('locale', locale)
+        .limit(1);
+      article = data?.[0] || null;
+    }
+    if (!article) {
+      const { data } = await supabase
+        .from('knowledge_base_articles')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('slug', slug)
+        .limit(1);
+      article = data?.[0] || null;
+    }
     if (!article) return res.status(404).json({ error: 'article_not_found' });
 
-    const visitorId = (req.query.visitor_id as string) || null;
+    // Identity is HttpOnly-cookie owned; the query param is only a legacy
+    // fallback for embeds that still pass it explicitly.
+    const cookie = readVisitorCookie(req, workspaceId);
+    const visitorId = cookie?.v || (req.query.visitor_id as string) || null;
     let visitorSessionId: string | null = null;
     if (visitorId) {
       const { data: session } = await supabase
@@ -2931,6 +2953,7 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
         .maybeSingle();
       visitorSessionId = session?.id || null;
     }
+
 
     const row = {
       workspace_id: workspaceId,

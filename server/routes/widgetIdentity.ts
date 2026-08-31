@@ -343,7 +343,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     workspaceId,
     cookie.v,
     session?.contact_id || null,
-    prechat.history_continue_window_hours
+    HISTORY_CONTINUE_WINDOW_HOURS,
   );
 
   if (!conv) {

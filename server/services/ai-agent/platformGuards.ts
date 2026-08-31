@@ -348,6 +348,12 @@ export async function isAutoAnswerAllowedForWorkspace(
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
   try {
     const platform = await getPlatformAiAgentSettings(config) as any;
+    // P0-AI-2 — an UNRESOLVED platform lookup is not "enabled". Without this
+    // a transient settings-read failure silently turned the visitor-facing
+    // AI gate back ON.
+    if (isPlatformSettingsLookupFailed(platform)) {
+      return { allowed: false, reason: PLATFORM_STATUS_UNAVAILABLE };
+    }
     if (!platform.ai_agent_enabled) {
       return { allowed: false, reason: 'ai_agent_platform_disabled' };
     }
@@ -375,16 +381,22 @@ export async function isAutoAnswerAllowedForWorkspace(
     }
     if (workspaceId) {
       const sb = getServiceClient(config);
-      const { data: row } = await sb
+      const { data: row, error } = await sb
         .from('ai_agent_settings')
         .select('metadata')
         .eq('workspace_id', workspaceId)
         .maybeSingle();
+      // P0-AI-2 — fail CLOSED: a failed read cannot prove the workspace is
+      // not platform-disabled.
+      if (error) {
+        return { allowed: false, reason: PLATFORM_STATUS_UNAVAILABLE };
+      }
       const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
       if (meta.platform_disabled === true) {
         return { allowed: false, reason: 'ai_agent_platform_disabled' };
       }
     }
+
     return { allowed: true };
   } catch {
     // Fail-closed: an unexpected error must not enable AI auto-answer.

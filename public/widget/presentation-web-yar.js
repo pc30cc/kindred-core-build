@@ -609,7 +609,7 @@
               '</div>' +
               actionsHtml +
             '</div>' +
-            '<div class="msg-footline">' + metaHtml + '</div>' +
+            (metaHtml ? '<div class="msg-footline">' + metaHtml + '</div>' : '') +
           '</div>' +
         '</div>';
 

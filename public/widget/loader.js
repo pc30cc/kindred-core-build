@@ -167,7 +167,7 @@
     "*,*::before,*::after{box-sizing:border-box;}",
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
-    "width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;",
+    "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
@@ -187,7 +187,8 @@
     ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
     "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",
     "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
-    ".launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
+    /* Icon box is derived from the launcher size so chat ⇄ close never differ. */
+    ".launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     /* The launcher is the ONLY open/close control: it stays in place while the
        panel is open and simply swaps the chat icon for a close (X) icon. */
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
@@ -200,7 +201,7 @@
     "background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;color:#991B1B;font-size:12px;",
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
     ".error-toast.visible{display:block;}",
-    "@media(max-width:480px){.launcher{width:50px;height:50px;}}",
+    /* Mobile keeps the configured size — parity between closed and open. */
     /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
     /* Values mirror .smart-nudge / .smart-title / .smart-body / .smart-cta / */
     /* .smart-dismiss in runtime.css exactly — same look, no runtime.css load. */
@@ -402,12 +403,14 @@
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
     var size = Math.round(56 * scale);
-    launcherEl.style.width = size + "px";
-    launcherEl.style.height = size + "px";
-    // Publish the REAL launcher size to the shell so the presentation layer
-    // can anchor the panel above it without re-deriving FAB geometry.
+    // ONE source of truth for the launcher box: the CSS variable. The button,
+    // its icons (chat AND close) and the panel anchor all derive from it, so
+    // the closed and open states can never drift apart in size.
     var shellForVar = shadowRoot && shadowRoot.querySelector(".shell");
     if (shellForVar) shellForVar.style.setProperty("--gs-fab-size", size + "px");
+    launcherEl.style.width = "";
+    launcherEl.style.height = "";
+
 
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
     if (fab.animation === true) launcherEl.classList.add("pulse");
@@ -434,6 +437,16 @@
     }
   }
 
+  /** Launcher shadow is DERIVED from the brand colour — never configured. */
+  function shadowFromPrimary(hex) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || "").trim());
+    if (!m) return "rgba(0,0,0,.22)";
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + ",.34)";
+  }
+
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
@@ -444,10 +457,9 @@
         "--gs-secondary",
         config.secondaryColor || config.primaryColor || "#6366F1"
       );
-      if (config.shadowColor) {
-        shellDiv.style.setProperty("--gs-shadow", config.shadowColor);
-      }
+      shellDiv.style.setProperty("--gs-shadow", shadowFromPrimary(config.primaryColor));
     }
+
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong

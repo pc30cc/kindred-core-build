@@ -145,7 +145,6 @@ const DEFAULT_WIDGET_SETTINGS = {
   welcome_message: 'Hello! How can we help you?',
   reply_time_text: '',
   brand_name: '',
-  shadow_color: '',
   placeholder_text: '',
   position: 'bottom-right',
   show_logo: true,
@@ -827,8 +826,6 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',
-      // Optional panel shadow tint; empty => template default.
-      shadowColor: typeof ws.shadow_color === 'string' ? ws.shadow_color.trim() : '',
       logoUrl: ws.logo_url || branding?.logo_url || null,
       launcherText: resolveLocalizedDefault(
         ws.launcher_text,

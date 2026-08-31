@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Users } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -20,7 +21,7 @@ import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection
 import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
-import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
+import { WidgetLivePreview, FAB_ICONS, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
@@ -180,10 +181,13 @@ function WidgetPageContent() {
   );
 
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
-  /** Colour input needs a hex value; non-hex (rgba) shadows fall back to black. */
-  const shadowColor = /^#[0-9a-f]{6}$/i.test(String((live as any)?.shadow_color || ''))
-    ? String((live as any).shadow_color)
-    : '#000000';
+  /** Launcher size is stored as a percentage (80–140) or a multiplier (0.8–1.4). */
+  const fabScalePct = (() => {
+    const raw = Number((live as any)?.fab_scale);
+    if (!isFinite(raw) || raw <= 0) return 100;
+    const pct = raw <= 3 ? raw * 100 : raw;
+    return Math.min(140, Math.max(80, Math.round(pct / 5) * 5));
+  })();
 
   const previewView: PreviewView =
     manualView ??
@@ -388,42 +392,8 @@ function WidgetPageContent() {
                         ))}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium">{t('widgetPage.appearance.shadowColor')}</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="color"
-                          value={shadowColor}
-                          onChange={e => setField('shadow_color' as any, e.target.value)}
-                          className="h-10 w-12 shrink-0 cursor-pointer p-1"
-                        />
-                        <Input
-                          value={(live as any)?.shadow_color || ''}
-                          dir="ltr"
-                          onChange={e => setField('shadow_color' as any, e.target.value)}
-                          className="text-start font-mono text-xs"
-                          placeholder="rgba(0, 0, 0, 0.25)"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {['rgba(0, 0, 0, 0.25)', '#3B82F6', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444'].map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            aria-label={c}
-                            onClick={() => setField('shadow_color' as any, c, 0)}
-                            className={cn(
-                              'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110',
-                              ((live as any)?.shadow_color || '').toLowerCase() === c.toLowerCase()
-                                ? 'border-foreground'
-                                : 'border-transparent',
-                            )}
-                            style={{ background: c }}
-                          />
-                        ))}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.shadowColorHint')}</p>
-                    </div>
+                    {/* The launcher shadow is derived from the primary colour —
+                        no separate shadow setting. */}
                   </div>
 
                   {/* 5 — Position + language */}
@@ -469,6 +439,54 @@ function WidgetPageContent() {
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
                   </div>
 
+                  {/* 7 — Launcher size + icon */}
+                  <div className="space-y-4 rounded-lg border border-border/70 p-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-medium">{t('widgetPage.appearance.fabScale')}</Label>
+                        <span className="font-mono text-[11px] text-muted-foreground" dir="ltr">
+                          {Math.round(56 * fabScalePct / 100)}px
+                        </span>
+                      </div>
+                      <Slider
+                        value={[fabScalePct]}
+                        min={80}
+                        max={140}
+                        step={5}
+                        onValueChange={v => setField('fab_scale' as any, v[0], 300)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIcon')}</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.keys(FAB_ICONS).map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            aria-label={key}
+                            onClick={() => setField('fab_icon' as any, key, 0)}
+                            className={cn(
+                              'flex h-10 w-10 items-center justify-center rounded-xl border-2 transition-transform hover:scale-105',
+                              ((live as any)?.fab_icon || 'chat') === key
+                                ? 'border-foreground bg-muted'
+                                : 'border-border/70',
+                            )}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              dangerouslySetInnerHTML={{ __html: FAB_ICONS[key] }}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
 
 
                   {/* 6 — Composer placeholder */}

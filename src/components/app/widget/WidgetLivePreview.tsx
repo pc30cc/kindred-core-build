@@ -135,7 +135,17 @@ const DICTS: Record<string, Dict> = {
   },
 };
 
-const FAB_ICONS: Record<string, string> = {
+/** Launcher shadow derived from the brand colour — mirrors loader.js exactly. */
+export function shadowFromPrimary(hex: string): string {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return 'rgba(0,0,0,.22)';
+  let h = m[1];
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},.34)`;
+}
+
+export const FAB_ICONS: Record<string, string> = {
   chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
   message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
@@ -270,7 +280,8 @@ export function WidgetLivePreview({
 
     const primary: string = s.primary_color || '#3B82F6';
     const secondary: string = s.secondary_color || s.primary_color || '#6366F1';
-    const shadowColor: string = typeof s.shadow_color === 'string' ? s.shadow_color.trim() : '';
+    /* Launcher shadow is derived from the brand colour (same rule as loader.js). */
+    const shadowColor: string = shadowFromPrimary(primary);
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     /* Header titles use workspace identity only — launcher_text is a launcher
        concern and is not consumed by the Web Yar presentation. */
@@ -491,14 +502,14 @@ export function WidgetLivePreview({
      visitor's browser, so layout regressions surface here too. */
   .header-op-avatar.has-img img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
-  .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
-    width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;
+  .shell .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
+    width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:${fabRadius};border:none;cursor:pointer;
     box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);
     transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;
      background:${esc(primary)};color:${esc(fabIconColor)};z-index:2147483646;}
   .launcher.bottom-right{bottom:24px;right:24px;}
   .launcher.bottom-left{bottom:24px;left:24px;}
-  .launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .shell .launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
   .launcher.open svg.chat-icon{display:none;}
   .launcher:not(.open) svg.close-icon{display:none;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}

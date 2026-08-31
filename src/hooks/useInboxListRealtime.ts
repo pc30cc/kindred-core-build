@@ -138,6 +138,16 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               return;
             }
 
+            // A permanently failed outbound delivery changes DERIVED state
+            // (needs_reply) that the client cannot recompute from the patch
+            // payload, so the list must be re-fetched rather than patched.
+            if ((payload as { reason?: string }).reason === 'outbound_delivery_failed') {
+              qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+              qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
+              qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
+              return;
+            }
+
             // Patch every cached `['conversations', workspaceId, …]` query.
             // Filter chips share workspaceId but vary by status, so we
             // iterate. Fallback to invalidation if patch can't apply.

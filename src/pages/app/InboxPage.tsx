@@ -933,6 +933,17 @@ export default function InboxPage() {
       const na = a.needs_reply ? 1 : 0;
       const nb = b.needs_reply ? 1 : 0;
       if (na !== nb) return nb - na;
+      // Inside the needs-reply group, the customer who has waited LONGEST
+      // comes first. `waiting_since` is the first unanswered customer turn,
+      // so unlike updated_at it is not bumped by assignment, routing metadata
+      // or delivery receipts.
+      if (na === 1 && nb === 1) {
+        const wa = a.waiting_since ?? '';
+        const wb = b.waiting_since ?? '';
+        if (wa && wb && wa !== wb) return wa < wb ? -1 : 1;
+        if (wa && !wb) return -1;
+        if (!wa && wb) return 1;
+      }
       const ua = (a.unread_count ?? 0) > 0 ? 1 : 0;
       const ub = (b.unread_count ?? 0) > 0 ? 1 : 0;
       if (ua !== ub) return ub - ua;

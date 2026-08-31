@@ -335,6 +335,11 @@ async function resolveIntegrationToken(integrationId: string, secretKey: string)
   return decryptPluginSecret(secret as any, masterKey);
 }
 
+/** Outbound jobs that carry a canonical `conversation_messages` row. */
+function isOutboundMessageJob(jobType: string): boolean {
+  return /_outbound_(message|media)$/.test(jobType);
+}
+
 /** Reports a delivery outcome to Core, which owns the canonical message row. */
 async function reportOutbound(
   job: ChannelJob,
@@ -552,6 +557,24 @@ async function processBatch(): Promise<number> {
         errorMessage: message,
         latencyMs: Date.now() - startedAt,
       });
+
+      // RETRY EXHAUSTION = permanent delivery failure. Until now only an
+      // immediately non-retryable provider error told Core the customer never
+      // got the message; a job that died after N retries left the message row
+      // looking delivered forever (and the Inbox showing it as answered).
+      // Core owns the canonical write — we only report the terminal outcome.
+      if (outcome === 'failed' && isOutboundMessageJob(job.job_type)) {
+        const failedMessageId = (job.payload as any)?.message_id ?? null;
+        await reportOutbound(
+          job,
+          failedMessageId,
+          'failed',
+          null,
+          telegramError ? `${job.provider}_${telegramError.httpStatus}` : `${job.provider}_retries_exhausted`,
+        ).catch((reportErr) => {
+          console.error(`[channels-worker] outbound failure report failed for job ${job.id}:`, reportErr);
+        });
+      }
       console.error(`[channels-worker] job ${job.id} (${job.job_type}) ${outcome}: ${message}`);
     }
 

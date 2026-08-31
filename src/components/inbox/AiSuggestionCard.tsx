@@ -204,65 +204,19 @@ export function AiSuggestionCard({
               <ArrowDownToLine className="w-3.5 h-3.5" />
               {tr('aiAgent.insertIntoComposer', 'Insert into composer')}
             </Button>
-            <div className="flex items-stretch">
-              <Button
-                size="sm"
-                onClick={() => handleSendNow()}
-                disabled={sending || useMut.isPending}
-                title={actionMeta[sendAction].label}
-                className={cn(
-                  'h-7 gap-1.5 text-[12px]',
-                  dir === 'rtl' ? 'rounded-s-none rounded-e-md' : 'rounded-e-none rounded-s-md',
-                )}
-              >
-                <Send className="w-3.5 h-3.5" />
-                {sendAction === 'none'
-                  ? tr('aiAgent.sendNow', 'Send now')
-                  : `${tr('aiAgent.sendNow', 'Send now')} · ${actionMeta[sendAction].short}`}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    disabled={sending || useMut.isPending}
-                    aria-label={tr('inbox.sendActions', 'Send actions')}
-                    className={cn(
-                      'h-7 w-6 p-0 border-s border-primary-foreground/20',
-                      dir === 'rtl' ? 'rounded-e-none rounded-s-md' : 'rounded-s-none rounded-e-md',
-                    )}
-                  >
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" side="top" className="w-64">
-                  <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-                    {tr('inbox.sendActions', 'Send actions')}
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {(['none', 'wait_for_customer', 'resolve'] as PostSendAction[]).map((a) => {
-                    const Icon = actionMeta[a].icon;
-                    return (
-                      <DropdownMenuItem
-                        key={a}
-                        onSelect={() => { onSendActionChange?.(a); handleSendNow(a); }}
-                        className="gap-2 items-start"
-                      >
-                        <Icon className="w-4 h-4 mt-0.5 shrink-0" />
-                        <div className="min-w-0">
-                          <div className="text-[13px] font-medium flex items-center gap-1.5">
-                            {actionMeta[a].label}
-                            {a === sendAction && <CheckCircle2 className="w-3 h-3 text-primary shrink-0" />}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground leading-snug">
-                            {actionMeta[a].hint}
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <Button
+              size="sm"
+              onClick={() => handleSendNow()}
+              disabled={sending || useMut.isPending}
+              title={actionMeta[sendAction].label}
+              className="h-7 gap-1.5 text-[12px]"
+            >
+              <Send className="w-3.5 h-3.5" />
+              {sendAction === 'none'
+                ? tr('aiAgent.sendNow', 'Send now')
+                : `${tr('aiAgent.sendNow', 'Send now')} · ${actionMeta[sendAction].short}`}
+            </Button>
+
 
             <span className="text-[10px] text-muted-foreground ml-auto">
               {tr('aiAgent.notVisibleToVisitor', 'Not visible to visitor until you send')}

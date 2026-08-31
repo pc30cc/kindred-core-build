@@ -83,13 +83,14 @@ export async function applyProviderDeliveryStatuses(
         status.status,
       );
 
-      if (!transition.apply) {
+      if (transition.apply === false) {
+        const reason = transition.reason;
         outcomes.push(
-          transition.reason === 'duplicate'
+          reason === 'duplicate'
             ? 'ignored_duplicate'
-            : transition.reason === 'out_of_order'
+            : reason === 'out_of_order'
               ? 'ignored_out_of_order'
-              : transition.reason === 'already_terminal'
+              : reason === 'already_terminal'
                 ? 'ignored_already_terminal'
                 : 'ignored_not_failable',
         );

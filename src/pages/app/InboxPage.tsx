@@ -2313,11 +2313,11 @@ export default function InboxPage() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={att.status === 'uploading'}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 self-center disabled:opacity-40 disabled:cursor-not-allowed"
                   title={t('inbox.attachFile') || 'Attach file'}
                   aria-label={t('inbox.attachFile') || 'Attach file'}
                 >
-                  <Paperclip className="w-4 h-4" />
+                  <Paperclip className="w-[18px] h-[18px]" />
                 </button>
                 <button
                   type="button"
@@ -2329,7 +2329,7 @@ export default function InboxPage() {
                     setPickerOpen(true);
                   }}
                   className={cn(
-                    'p-1.5 rounded-lg transition-colors shrink-0',
+                    'h-9 w-9 flex items-center justify-center rounded-lg transition-colors shrink-0 self-center',
                     pickerOpen && !pickerSlash
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
@@ -2337,7 +2337,7 @@ export default function InboxPage() {
                   title={t('inbox.cannedResponsesTip') || 'Canned responses'}
                   aria-label={t('inbox.cannedResponses') || 'Canned responses'}
                 >
-                  <Sparkles className="w-4 h-4" />
+                  <Sparkles className="w-[18px] h-[18px]" />
                 </button>
                 <Textarea
                   ref={messageInputRef}

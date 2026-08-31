@@ -54,7 +54,9 @@ export function PrechatSection({ workspaceId }: Props) {
     ask_name: true, ask_email: true, ask_phone: false,
     require_name: true, require_email: true, require_phone: false,
     verify_email: false, verify_phone: false,
+    prechat_timing: 'after_handoff',
     history_continue_window_hours: 24,
+
   };
 
   const policyByField: Record<FieldKey, PreChatPolicy | undefined> = {

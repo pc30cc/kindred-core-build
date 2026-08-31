@@ -429,6 +429,18 @@ function WidgetPageContent() {
                       onCheckedChange={v => setField('show_logo', v, 0)}
                     />
                   </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">{t('widgetPage.appearance.showTeamAvatars')}</Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('widgetPage.appearance.showTeamAvatarsHint')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={live?.show_team_avatars ?? true}
+                      onCheckedChange={v => setField('show_team_avatars', v, 0)}
+                    />
+                  </div>
                 </CardContent>
               </Card>
 

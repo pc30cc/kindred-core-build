@@ -814,13 +814,16 @@
       var showArticlesButton = false;
 
 
-      var stack = (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
+      // Online-operator avatars are opt-out via widget settings and now live
+      // INSIDE the "start chat" CTA (before its label), never in the header.
+      var showStack = vm.showTeamAvatars !== false;
+      var stack = !showStack ? '' : (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
         .map(function (m) {
           var av = m.avatar ? String(m.avatar) : '';
           return '<span class="home-stack-item' + (av ? ' has-img' : '') + '" title="' + esc(m.name || '') + '">' +
             (av ? '<img src="' + esc(av) + '" alt="" loading="lazy" decoding="async" />' : '') + '</span>';
         }).join('');
-      var stackHtml = stack ? '<span class="home-stack">' + stack + '</span>' : '';
+      var stackHtml = stack ? '<span class="home-stack" aria-hidden="true">' + stack + '</span>' : '';
 
       var smartCardHtml = vm.smartSurface && vm.smartSurface.mode === 'home_card'
         ? '<section class="smart-home-card">' + smartSurfaceHtml(vm.smartSurface) + '</section>'
@@ -858,7 +861,7 @@
             esc(tf('wyContinueLast', 'Continue last conversation')) + '</button>';
         }
         actions += '<button type="button" class="wy-btn ' + (unresolved ? 'wy-btn-outline' : 'wy-btn-primary') +
-          ' wy-btn-grow" data-home-action="chat">' +
+          ' wy-btn-grow" data-home-action="chat">' + stackHtml +
           esc(unresolved ? tf('wyStartNew', t('homeStartChat')) : (online ? t('homeStartChat') : t('homeLeaveMessage'))) +
           '</button>';
       }
@@ -872,7 +875,6 @@
           headerIdentityHtml({
              title: vm.workspaceName || vm.headerTitle || workspaceName,
             subtitle: replyTimeText(online),
-            stack: stackHtml,
           }) +
         '</div>' +
         '<div class="wy-home-body">' +
@@ -1122,7 +1124,7 @@
     function skeletonHomeHtml(vm) {
       vm = vm || {};
       return '<div class="wy-view wy-view-home home-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44, stack: true }) +
+        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44 }) +
         '<div class="wy-home-body">' +
           '<div class="wy-scroll wy-home-scroll" aria-hidden="true">' +
             '<section class="home-greeting-block">' +

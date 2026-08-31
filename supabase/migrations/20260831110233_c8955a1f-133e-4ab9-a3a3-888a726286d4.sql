@@ -1,0 +1,1 @@
+ALTER TABLE public.widget_settings ADD COLUMN IF NOT EXISTS show_team_avatars boolean NOT NULL DEFAULT true;

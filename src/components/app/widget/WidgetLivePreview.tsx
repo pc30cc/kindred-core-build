@@ -366,6 +366,7 @@ export function WidgetLivePreview({
       welcomeMessage: welcome,
       logoUrl: logo || null,
       showLogo: s.show_logo !== false,
+      showTeamAvatars: s.show_team_avatars !== false,
       attachments: {
         enabled: s.attachments_enabled === true,
         voiceNotesEnabled: s.voice_notes_enabled === true,
@@ -430,6 +431,7 @@ export function WidgetLivePreview({
         kbEnabled,
         welcomeMessage: welcome,
         primaryColor: primary,
+        showTeamAvatars: s.show_team_avatars !== false,
         teamMembers: (teamMembers && teamMembers.length)
           ? teamMembers
           : [{ name: operatorName || title, avatar: operatorAvatar || '', online: true }],

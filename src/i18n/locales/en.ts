@@ -3917,6 +3917,8 @@ const en = {
       showLogo: 'Show your workspace logo in the chat widget header',
       logoUrl: 'Logo URL',
       logoHint: 'Uses the logo uploaded for your workspace.',
+      showTeamAvatars: 'Show online operator photos',
+      showTeamAvatarsHint: 'Displays the avatars of online operators inside the “Start chat” button.',
       fabShape: 'Launcher shape',
       shapeRound: 'Round',
       shapeSquare: 'Rounded square',

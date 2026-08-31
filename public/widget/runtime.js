@@ -6802,6 +6802,7 @@
         chatEnabled: chatEnabled,
         primaryColor: ctx.primaryColor,
         welcomeMessage: welcomeMessage,
+        showTeamAvatars: config.showTeamAvatars !== false,
         smartSurface: smartSurface,
       });
       bindViewHooks(body);

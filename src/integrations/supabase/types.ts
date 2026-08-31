@@ -7929,6 +7929,7 @@ export type Database = {
           round_robin_cursor_user_id: string | null
           secondary_color: string | null
           show_logo: boolean | null
+          show_team_avatars: boolean
           smart_engagement_enabled: boolean
           store_raw_ip: boolean
           support_mode: string | null
@@ -7984,6 +7985,7 @@ export type Database = {
           round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
           show_logo?: boolean | null
+          show_team_avatars?: boolean
           smart_engagement_enabled?: boolean
           store_raw_ip?: boolean
           support_mode?: string | null
@@ -8039,6 +8041,7 @@ export type Database = {
           round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
           show_logo?: boolean | null
+          show_team_avatars?: boolean
           smart_engagement_enabled?: boolean
           store_raw_ip?: boolean
           support_mode?: string | null

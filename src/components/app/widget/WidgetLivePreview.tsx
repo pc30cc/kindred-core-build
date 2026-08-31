@@ -531,6 +531,16 @@ export function WidgetLivePreview({
     function boot(manifest) {
       var styleFile = (manifest && manifest[desc.style]) || desc.style;
       var scriptFile = (manifest && manifest[desc.script]) || desc.script;
+      // Optional template-owned font asset — the SAME hashed stylesheet the
+      // visitor loader injects, so preview and live share one cache entry.
+      if (desc.fonts && !document.getElementById('gs-presentation-fonts')) {
+        var fontsFile = (manifest && manifest[desc.fonts]) || desc.fonts;
+        var fl = document.createElement('link');
+        fl.id = 'gs-presentation-fonts';
+        fl.rel = 'stylesheet';
+        fl.href = '/widget/' + fontsFile;
+        document.head.appendChild(fl);
+      }
       var styleReady = false;
       var scriptReady = false;
       var mod = null;
@@ -545,6 +555,7 @@ export function WidgetLivePreview({
       link.onload = function () { styleReady = true; prepareAndRender(); };
       link.onerror = function () { styleReady = true; prepareAndRender(); };
       document.head.appendChild(link);
+
       var scr = document.createElement('script');
       scr.src = '/widget/' + scriptFile;
       scr.onload = function () {

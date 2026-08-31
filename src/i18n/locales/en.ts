@@ -3912,6 +3912,7 @@ const en = {
       replyTimeDefault: 'Typically replies in a few minutes',
       shadowColor: 'Launcher shadow color',
       shadowColorHint: 'Tints the shadow behind the floating launcher button.',
+      fabLabelPlaceholder: 'e.g. Your personal assistant',
       colorsSection: 'Colors',
       textsSection: 'Texts',
       logoSection: 'Logo & branding',

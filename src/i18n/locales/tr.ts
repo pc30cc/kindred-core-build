@@ -451,6 +451,7 @@ const tr: TranslationKeys = {
     aiAssistant: 'Yapay zekâ asistanı',
     operator: 'Operatör',
     seen: 'Görüldü',
+    reply: 'Yanıtla',
     copy: 'Mesajı kopyala',
     copied: 'Panoya kopyalandı',
     today: 'Bugün',

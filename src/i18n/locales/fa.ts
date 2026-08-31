@@ -447,6 +447,7 @@ const fa: TranslationKeys = {
     aiAssistant: 'دستیار هوش مصنوعی',
     operator: 'اپراتور',
     seen: 'دیده شد',
+    reply: 'پاسخ',
     copy: 'کپی پیام',
     copied: 'در کلیپ‌بورد کپی شد',
     today: 'امروز',

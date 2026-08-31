@@ -1059,7 +1059,7 @@ export default function InboxPage() {
      views stay here as tabs, next to a compact unread indicator. */
   const topBarSummary = (
     <ToolbarPortal>
-      <div className="flex h-full items-center gap-2 px-1" dir={dir}>
+      <div className="flex h-full items-end gap-2 px-1 pb-0" dir={dir}>
         {toolbarTabsNode}
         {totalUnread > 0 && (
           <span className="text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold tabular-nums">

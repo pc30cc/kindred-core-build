@@ -46,6 +46,8 @@ import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
+import { applyPostSendAction } from '../services/conversationPostSend.js';
+
 
 export const conversationsRouter = Router();
 
@@ -58,10 +60,13 @@ const sendMessageSchema = z.object({
   body: z.string().max(50_000).optional().default(''),
   metadata: z.record(z.unknown()).optional(),
   attachment_id: z.string().uuid().nullable().optional(),
+  /** Split Send: status transition applied AFTER a successful send. */
+  post_send_action: z.enum(['none', 'wait_for_customer', 'resolve']).optional().default('none'),
 }).refine(
   d => (d.body && d.body.trim().length > 0) || !!d.attachment_id,
   { message: 'body or attachment_id required' }
 );
+
 
 /**
  * Schema for starting a proactive conversation from the Visitors page.
@@ -344,11 +349,31 @@ conversationsRouter.post('/send-message', async (req, res) => {
       );
     }
 
+    // Split Send — optional status transition, applied ONLY now that the
+    // message really exists. Shared by every channel (widget / Telegram /
+    // WhatsApp / …) because they all send through this route.
+    const postSend = await applyPostSendAction(config, {
+      action: parsed.data.post_send_action,
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      actorId: auth.userId,
+      messageId: inserted.id,
+      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+        || req.socket?.remoteAddress || null,
+    });
+
     return res.json({
       ok: true,
       message: enriched,
       realtime: { published: pub.ok, reason: pub.reason ?? null },
+      post_send: {
+        action: parsed.data.post_send_action,
+        changed: postSend.changed,
+        status: postSend.status ?? null,
+        reason: postSend.reason ?? null,
+      },
     });
+
   } catch (err: any) {
     console.error('[conversations/send-message] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

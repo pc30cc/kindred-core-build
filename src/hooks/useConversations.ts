@@ -210,13 +210,15 @@ export function useSendMessage(
     mutationFn: async ({
       body,
       attachmentId,
-    }: { body: string; senderId?: string; attachmentId?: string | null }) => {
+      postSendAction,
+    }: { body: string; senderId?: string; attachmentId?: string | null; postSendAction?: 'none' | 'wait_for_customer' | 'resolve' }) => {
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
       const result = await conversationsApi.sendMessage({
         workspace_id: workspaceId,
         conversation_id: conversationId,
         body,
         attachment_id: attachmentId ?? null,
+        post_send_action: postSendAction ?? 'none',
         metadata: { source: 'inbox' },
       });
       return result;

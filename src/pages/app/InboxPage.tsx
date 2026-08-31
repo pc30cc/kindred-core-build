@@ -37,6 +37,13 @@ import {
   MessageCircle, Hash, FileText, Download, ImageIcon,
   PhoneOff, Ban, ShieldOff, Users,
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import {
+  readSendActionPref, writeSendActionPref, type PostSendAction,
+} from '@/lib/send-action-pref';
 import { cn } from '@/lib/utils';
 import { VisitorNetworkCard } from '@/features/visitors/VisitorNetworkCard';
 import { contactDisplayName } from '@/lib/contact-display';
@@ -777,7 +784,42 @@ export default function InboxPage() {
   const [guidanceRequestId, setGuidanceRequestId] = useState<string | null>(null);
   const [guidanceRefresh, setGuidanceRefresh] = useState(0);
 
-  const handleSend = async () => {
+  /* Split Send — the agent's preferred action is remembered per agent
+     (localStorage, user-scoped). Enter runs exactly this action. */
+  const [sendAction, setSendAction] = useState<PostSendAction>('none');
+  useEffect(() => { setSendAction(readSendActionPref(user?.id)); }, [user?.id]);
+  const chooseSendAction = (action: PostSendAction) => {
+    setSendAction(action);
+    writeSendActionPref(user?.id, action);
+  };
+
+  const sendActionMeta: Record<PostSendAction, { label: string; short: string; hint: string; icon: typeof Send }> = {
+    none: {
+      label: t('inbox.sendOnly') || 'Send',
+      short: t('inbox.sendOnlyShort') || 'Send',
+      hint: t('inbox.sendOnlyHint') || 'Send the reply. Conversation status stays unchanged.',
+      icon: Send,
+    },
+    wait_for_customer: {
+      label: t('inbox.sendAndWait') || 'Send & wait for customer',
+      short: t('inbox.sendAndWaitShort') || 'Wait',
+      hint: t('inbox.sendAndWaitHint') || 'Send, then move the conversation to Waiting for customer.',
+      icon: Clock,
+    },
+    resolve: {
+      label: t('inbox.sendAndResolve') || 'Send & resolve',
+      short: t('inbox.sendAndResolveShort') || 'Resolve',
+      hint: t('inbox.sendAndResolveHint') || 'Send, then mark the conversation resolved.',
+      icon: CheckCircle2,
+    },
+  };
+
+  const sendDisabled =
+    sendMessage.isPending ||
+    att.status === 'uploading' ||
+    (!message.trim() && att.status !== 'ready');
+
+  const handleSend = async (actionOverride?: PostSendAction) => {
     if (!selectedId || !user) return;
     const hasText = message.trim().length > 0;
     const hasAttachment = att.status === 'ready' && !!att.attachmentId;
@@ -793,7 +835,14 @@ export default function InboxPage() {
     resetAttachment();
     flushPendingTrackUse(draftBody);
     sendMessage.mutate(
-      { body: draftBody, attachmentId: draftAttachmentId },
+      {
+        body: draftBody,
+        attachmentId: draftAttachmentId,
+        // Internal notes never travel through this composer path, and the
+        // status transition is applied server-side only after the message row
+        // really exists — a failed send leaves the status untouched.
+        postSendAction: actionOverride ?? sendAction,
+      },
       {
         onError: () => {
           // Restore draft on failure so the operator can retry without
@@ -2271,18 +2320,72 @@ export default function InboxPage() {
                   rows={1}
                   dir={dir}
                 />
-                <Button
-                  onClick={handleSend}
-                  size="icon"
-                  disabled={
-                    sendMessage.isPending ||
-                    att.status === 'uploading' ||
-                    (!message.trim() && att.status !== 'ready')
-                  }
-                  className="h-9 w-9 rounded-lg shrink-0 transition-transform active:scale-95"
-                >
-                  {sendMessage.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                </Button>
+                {/* Split Send — main button runs the agent's preferred action,
+                    the caret opens the other send actions. */}
+                <div className="flex items-stretch shrink-0">
+                  <Button
+                    onClick={() => handleSend()}
+                    disabled={sendDisabled}
+                    title={sendActionMeta[sendAction].label}
+                    aria-label={sendActionMeta[sendAction].label}
+                    className={cn(
+                      'h-9 gap-1.5 px-2.5 transition-transform active:scale-95',
+                      dir === 'rtl' ? 'rounded-s-none rounded-e-lg' : 'rounded-e-none rounded-s-lg',
+                    )}
+                  >
+                    {sendMessage.isPending
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Send className="w-4 h-4" />}
+                    {sendAction !== 'none' && (
+                      <span className="hidden md:inline text-[11px] font-medium max-w-[9rem] truncate">
+                        {sendActionMeta[sendAction].short}
+                      </span>
+                    )}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        disabled={sendDisabled}
+                        aria-label={t('inbox.sendActions') || 'Send actions'}
+                        className={cn(
+                          'h-9 w-7 p-0 border-s border-primary-foreground/20 transition-transform active:scale-95',
+                          dir === 'rtl' ? 'rounded-e-none rounded-s-lg' : 'rounded-s-none rounded-e-lg',
+                        )}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="top" className="w-64">
+                      <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                        {t('inbox.sendActions') || 'Send actions'}
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {(['none', 'wait_for_customer', 'resolve'] as PostSendAction[]).map((a) => {
+                        const Icon = sendActionMeta[a].icon;
+                        return (
+                          <DropdownMenuItem
+                            key={a}
+                            onSelect={() => { chooseSendAction(a); handleSend(a); }}
+                            className="gap-2 items-start"
+                          >
+                            <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="text-[13px] font-medium flex items-center gap-1.5">
+                                {sendActionMeta[a].label}
+                                {a === sendAction && (
+                                  <CheckCircle2 className="w-3 h-3 text-primary shrink-0" />
+                                )}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground leading-snug">
+                                {sendActionMeta[a].hint}
+                              </div>
+                            </div>
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
               <div className="text-[10px] text-muted-foreground/60 mt-1.5 px-1 flex items-center gap-2">
                 <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">Enter</kbd>

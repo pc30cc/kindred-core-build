@@ -118,23 +118,8 @@ export function PrechatSection({ workspaceId }: Props) {
                         onCheckedChange={(v) => update({ [requireField]: v } as any)}
                       />
                     </div>
-                    {meta.canVerify && (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">
-                            {t('widgetPage.prechat.verify', { field: fieldLabel })}
-                          </Label>
-                          <p className="text-[11px] text-muted-foreground/80">
-                            {t('widgetPage.prechat.verifyHint')}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={verifyValue}
-                          disabled={updateMut.isPending}
-                          onCheckedChange={(v) => update({ [verifyField]: v } as any)}
-                        />
-                      </div>
-                    )}
+                    {/* OTP verification toggles removed by product decision. */}
+
                   </div>
                 )}
               </div>

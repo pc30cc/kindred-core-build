@@ -97,6 +97,8 @@ export function OperatorAssistPanel({
     try {
       const r = await aiAgentApi.suggestReply({
         workspaceId, conversationId, tone,
+        // Draft must follow the operator's active UI language (fa/tr/en).
+        locale,
         instruction: instruction.trim() || undefined,
         callLLM: true,
       });

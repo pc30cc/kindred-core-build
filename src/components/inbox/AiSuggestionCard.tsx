@@ -10,11 +10,19 @@
  * Visitor never sees this card. The "Send now" path delivers the text as
  * a regular operator message — not as an AI message.
  */
-import { Sparkles, Send, X, ChevronDown, ChevronUp, ArrowDownToLine } from 'lucide-react';
+import { Sparkles, Send, X, ChevronDown, ChevronUp, ArrowDownToLine, Clock, CheckCircle2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   useConversationSuggestions,
   useUseSuggestion,
@@ -23,16 +31,21 @@ import {
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { toast } from '@/hooks/use-toast';
+import type { PostSendAction } from '@/lib/send-action-pref';
 
 interface Props {
   conversationId: string;
   /** Fill the composer textarea with the suggestion text. */
   onInsert: (text: string) => void;
   /** Send the suggestion as a normal operator reply. Returns success. */
-  onSendNow: (text: string) => Promise<boolean> | boolean;
+  onSendNow: (text: string, action?: PostSendAction) => Promise<boolean> | boolean;
+  /** Operator's remembered post-send action (shared with the composer). */
+  sendAction?: PostSendAction;
+  onSendActionChange?: (action: PostSendAction) => void;
   dir?: 'ltr' | 'rtl';
   t?: (k: string) => string;
 }
+
 
 export function AiSuggestionCard({ conversationId, onInsert, onSendNow, dir = 'ltr', t }: Props) {
   const { workspace } = useActiveWorkspace();

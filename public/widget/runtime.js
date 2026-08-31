@@ -3419,9 +3419,10 @@
       var subtitle = resolveHandoffPrechatSubtitle(locale);
       var animateSubtitle = !handoffPrechatSubtitleAnimated;
       var cardHtml = renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle);
+      paintMessages(body, buildMessagesHtml(s, cardHtml));
       lastRenderedBody = body;
       lastRenderedChatHtml = null;
-      body.innerHTML = buildMessagesHtml(s, cardHtml);
+
       wireChatEvents(body);
       wirePrechatForm(body, identity, onSubmitted, { autofocus: false });
       if (animateSubtitle) {

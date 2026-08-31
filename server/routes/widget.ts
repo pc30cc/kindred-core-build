@@ -864,9 +864,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         )
         || platformWidget?.default_welcome_message
         || '',
-      // Workspace-authored reply-time note for the widget header. Empty
-      // string => presentation falls back to the locale default.
-      replyTimeText: typeof ws.reply_time_text === 'string' ? ws.reply_time_text.trim() : '',
+      // Workspace-authored reply-time note for the widget header. An explicit
+      // empty string means "hide it"; NULL (never configured) falls back to
+      // the locale default in the presentation layer.
+      replyTimeText: typeof ws.reply_time_text === 'string' ? ws.reply_time_text.trim() : null,
+
       greetingMessage: ws.greeting_message || '',
       placeholderText: ws.placeholder_text || '',
       offlineMessage: ws.offline_message || '',

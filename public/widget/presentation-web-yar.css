@@ -75,9 +75,9 @@
   /* Below the loader's launcher (2147483646) so the FAB is always clickable. */
   z-index: 2147483000;
   /* Intentional product override: source canvas is 380×600; components and
-     typography remain unscaled while the product canvas is 400×640. */
-  width: 400px;
-  height: 640px;
+     typography remain unscaled while the product canvas is 420×680. */
+  width: 420px;
+  height: 680px;
   max-height: calc(100dvh - 118px);
   max-width: calc(100vw - 24px);
   display: flex;
@@ -709,9 +709,11 @@ a.wy-powered:hover { color: var(--wy-text); }
   padding: 14px 12px; text-align: start; text-decoration: none;
   border: 1px solid var(--wy-border); border-radius: var(--wy-radius-md); background: var(--wy-card);
   color: var(--wy-text);
-  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--wy-ease);
+  transition: background-color 0.15s, border-color 0.15s;
 }
-.kb-article:hover, .kb-category:hover { background: var(--wy-hover); border-color: var(--wy-border-strong); transform: translateY(-1px); }
+/* P1 — no hover lift on article rows: the design uses a flat fill/border
+   change only, and the translate made long lists feel jittery. */
+.kb-article:hover, .kb-category:hover { background: var(--wy-hover); border-color: var(--wy-border-strong); }
 .kb-article-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kb-article-chevron { color: var(--wy-faint); display: inline-flex; }
 [dir='rtl'] .kb-article-chevron svg { transform: scaleX(-1); }
@@ -735,22 +737,24 @@ a.wy-powered:hover { color: var(--wy-text); }
 .kb-open-browser { font-size: 12px; color: var(--wy-accent); text-decoration: none; }
 
 .kb-feedback {
-  margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--wy-border);
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  /* P1 — tighter, evenly-spaced feedback block. The old 24/16 pair pushed
+     the prompt a full row away from the article and left a dead gap. */
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--wy-border);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
   animation: wy-view-in 0.24s var(--wy-ease) both;
 }
-.kb-feedback-q { font-size: 13px; color: var(--wy-muted); }
+.kb-feedback-q { font-size: 13px; font-weight: 500; color: var(--wy-text); }
 .kb-feedback-actions { display: flex; gap: 8px; }
 .kb-rate {
   display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 12.5px;
   border: 1px solid var(--wy-border); border-radius: 9999px; background: var(--wy-surface); color: var(--wy-text);
   transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
 }
-.kb-rate:hover { background: var(--wy-hover-2); transform: translateY(-1px); }
+.kb-rate:hover { background: var(--wy-hover-2); border-color: var(--wy-border-strong); }
 .kb-rate.is-up { border-color: var(--wy-online); color: var(--wy-online); background: rgba(48, 196, 110, 0.08); }
 .kb-rate.is-down { border-color: #e5484d; color: #e5484d; background: rgba(229, 72, 77, 0.08); }
-.kb-feedback-thanks { font-size: 12px; color: var(--wy-online); }
-.kb-feedback-cta { align-self: center; margin-top: 4px; padding: 9px 18px; border-radius: 9999px; font-size: 13px; }
+.kb-feedback-thanks { font-size: 12.5px; font-weight: 500; color: var(--wy-online); }
+.kb-feedback-cta { align-self: center; margin-top: 2px; padding: 9px 18px; border-radius: 9999px; font-size: 13px; }
 
 /* ─── Reduced motion ────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

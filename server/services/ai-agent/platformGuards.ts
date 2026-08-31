@@ -333,8 +333,14 @@ export function aiAgentPlatformGuard() {
 /**
  * Visitor-runtime helper (used by the engine, not by the Express middleware).
  * Returns whether AI auto-answer is allowed RIGHT NOW for this workspace.
- * Honors the global kill switch AND the auto_answer feature toggle. Never
- * throws — always returns a verdict so the engine can record skip reasons.
+ *
+ * P0-G — this is the ONE canonical visitor-facing gate. It honors the global
+ * kill switch, the customer-surface toggle, the auto_answer feature toggle,
+ * the plan module, and the per-workspace platform_disabled latch. Callers
+ * must not re-implement any of these checks locally: a second copy is how
+ * the widget and the engine drifted into disagreeing about whether AI was
+ * live. Never throws — always returns a verdict so the engine can record
+ * skip reasons.
  */
 export async function isAutoAnswerAllowedForWorkspace(
   config: ServerConfig,
@@ -345,9 +351,15 @@ export async function isAutoAnswerAllowedForWorkspace(
     if (!platform.ai_agent_enabled) {
       return { allowed: false, reason: 'ai_agent_platform_disabled' };
     }
+    // Customer-facing surface switch: when off, AI must be invisible to
+    // visitors even though operator-side suggestions may still run.
+    if (platform.customer_ai_agent_visible === false) {
+      return { allowed: false, reason: 'customer_ai_agent_hidden_by_platform' };
+    }
     if (!platform.auto_answer_enabled) {
       return { allowed: false, reason: 'auto_answer_disabled_by_platform' };
     }
+
     if (workspaceId) {
       // Phase 6-S5 — plan gate: no AI auto-answer without the `ai_assistant`
       // module. Fail-closed on lookup problems.

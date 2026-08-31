@@ -249,6 +249,52 @@
         });
     },
 
+    /**
+     * Explicit, thread-scoped history load. Unlike `loadHistory` (which asks
+     * the server "what is this visitor's most recent conversation?"), this
+     * loads exactly the conversation the caller named and never adopts a
+     * different one. Used when the visitor picks a thread from the list.
+     */
+    loadConversationHistory: function (opts) {
+      var apiBase = opts.apiBase;
+      var workspaceId = opts.workspaceId;
+      var conversationId = opts.conversationId;
+      var fetchWith = opts.fetchWith || function (url, init) {
+        init = init || {}; init.credentials = init.credentials || 'include';
+        var h = init.headers || {}; h['X-Widget-Token'] = opts.sessionToken || '';
+        init.headers = h; return fetch(url, init);
+      };
+      var onResult = opts.onResult; // ({ conversationId, messages })
+
+      if (!apiBase || !workspaceId || !conversationId) {
+        if (onResult) onResult({ conversationId: conversationId || null, messages: [] });
+        return;
+      }
+
+      fetchWith(buildUrl(apiBase, '/api/widget/history', {
+        workspace_id: workspaceId,
+        conversation_id: conversationId,
+      }), {})
+        .then(function (r) {
+          if (!r.ok) throw new Error('history_http_' + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          if (onResult) {
+            onResult({
+              // Authoritative: the requested thread, never a server-resolved one.
+              conversationId: conversationId,
+              messages: data.messages || [],
+            });
+          }
+        })
+        .catch(function () {
+          if (onResult) onResult({ conversationId: conversationId, messages: [] });
+        });
+    },
+
+
+
     startPolling: function (opts) {
       var apiBase = opts.apiBase;
       var workspaceId = opts.workspaceId;

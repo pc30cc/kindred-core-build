@@ -82,14 +82,18 @@ describe('widget runtime — new conversation & identity hygiene', () => {
     expect(snippet).not.toMatch(/visitor_id/);
   });
 
-  it('"+ new conversation" arms a one-shot force-new latch', () => {
+  it('"+ new conversation" arms the canonical fresh-intent latch in the store', () => {
     const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
     expect(runtime).toMatch(/function startNewConversation\(\)/);
     expect(runtime).toMatch(/chatUI\.startNewConversation/);
-    expect(runtime).toMatch(/forceNewConversation = true/);
-    // Cleared as soon as the backend returns a conversation id.
-    expect(runtime).toMatch(/forceNewConversation = false/);
+    // P0-A/P0-B — the latch lives in chatStore (not a closure boolean) so
+    // transport, polling and history bootstrap all observe the same truth.
+    expect(runtime).toMatch(/freshIntent: true/);
+    expect(runtime).toMatch(/function freshIntentArmed\(\)/);
+    // Disarmed only when a real id for the NEW thread comes back.
+    expect(runtime).toMatch(/freshIntent: false/);
   });
+
 
   it('the chat transport forwards force_new_conversation only without a conversation id', () => {
     const chat = readFileSync(resolve(process.cwd(), 'public/widget/runtime-chat.js'), 'utf8');

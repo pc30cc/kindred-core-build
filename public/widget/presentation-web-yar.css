@@ -802,6 +802,17 @@ a.wy-powered:hover { color: var(--wy-text); }
 
   font-size: 14px; color: var(--wy-text);
 }
+/* Override Core's more-specific `textarea:focus-visible` accessibility ring.
+   The pill itself already has a permanent visible boundary, so focus must not
+   add a second stroke or alter its appearance in Chromium, Firefox or Safari. */
+.input-wrap .input:focus,
+.input-wrap .input:focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
 .input::placeholder { color: var(--wy-faint); }
 /* Action group at the end of the pill. */
 .composer-actions {

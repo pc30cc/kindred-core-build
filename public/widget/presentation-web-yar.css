@@ -844,7 +844,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 .prechat-privacy { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 11.5px; color: var(--wy-faint); }
 .prechat-privacy-icon svg { width: 13px; height: 13px; }
 .fallback-status { margin-top: 10px; font-size: 12.5px; color: var(--wy-muted); }
-.wy-view-fallback .wy-scroll { padding: 16px; }
+.wy-view-fallback .wy-scroll { padding: 16px 10px; }
 .wy-view-fallback .prechat-submit { margin-top: 16px; }
 
 /* Inline handoff card inside the chat stream */

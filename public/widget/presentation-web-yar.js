@@ -936,7 +936,7 @@
             esc(tf('wyContinueLast', 'Continue last conversation')) + '</button>';
         }
         actions += '<button type="button" class="wy-btn ' + (unresolved ? 'wy-btn-outline' : 'wy-btn-primary') +
-          ' wy-btn-grow" data-home-action="chat">' + stackHtml +
+          ' wy-btn-grow" data-home-action="chat">' + (unresolved ? '' : stackHtml) +
           esc(unresolved ? tf('wyStartNew', t('homeStartChat')) : (online ? t('homeStartChat') : t('homeLeaveMessage'))) +
           '</button>';
       }

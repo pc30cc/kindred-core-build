@@ -1797,19 +1797,27 @@ export default function InboxPage() {
                         )}>
                           {(() => {
                             const last = (conv as any).last_message as
-                              | { body: string; sender_type: string }
+                              | { body: string; sender_type: string; attachment_kind?: string | null }
                               | null
                               | undefined;
-                            if (last?.body) {
-                              const prefix =
-                                last.sender_type === 'agent' ? `${t('inbox.previewYou') || 'You'}: `
-                                : (last.sender_type === 'ai' || last.sender_type === 'bot') ? `${t('inbox.previewAi') || 'AI'}: `
-                                : '';
-                              return `${prefix}${last.body}`;
+                            const prefix = !last ? '' :
+                              last.sender_type === 'agent' ? `${t('inbox.previewYou') || 'You'}: `
+                              : (last.sender_type === 'ai' || last.sender_type === 'bot') ? `${t('inbox.previewAi') || 'AI'}: `
+                              : '';
+                            if (last?.body) return `${prefix}${last.body}`;
+                            // Attachment-only turn: describe the media instead
+                            // of falling through to "no messages yet".
+                            if (last?.attachment_kind) {
+                              const key = last.attachment_kind === 'image' ? 'inbox.previewImage'
+                                : last.attachment_kind === 'audio' ? 'inbox.previewAudio'
+                                : last.attachment_kind === 'video' ? 'inbox.previewVideo'
+                                : 'inbox.previewFile';
+                              return `${prefix}${t(key) || 'sent a file'}`;
                             }
                             return isPlaceholderSubject(conv.subject)
                               ? (t('inbox.noMessages') || 'No messages yet')
                               : conv.subject;
+
                           })()}
                         </p>
                         {hasUnread && unreadCount > 0 && (

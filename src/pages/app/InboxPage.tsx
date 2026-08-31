@@ -2778,6 +2778,32 @@ export default function InboxPage() {
             onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
+          {/* Resize divider (desktop only) — real flex column so the whole panel resizes */}
+          <div
+            onPointerDown={(event) => {
+              event.preventDefault();
+              (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+              sidebarResizeStartRef.current = { pointerX: event.clientX, width: sidebarWidth };
+              setIsResizingSidebar(true);
+            }}
+            onPointerMove={(event) => {
+              if (!isResizingSidebar) return;
+              const delta = event.clientX - sidebarResizeStartRef.current.pointerX;
+              const next = sidebarResizeStartRef.current.width + (dir === 'rtl' ? delta : -delta);
+              setSidebarWidth(Math.min(600, Math.max(240, next)));
+            }}
+            onPointerUp={(event) => {
+              (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
+              setIsResizingSidebar(false);
+            }}
+            onDoubleClick={() => setSidebarWidth(300)}
+            className={cn(
+              'hidden lg:block shrink-0 w-1.5 cursor-col-resize touch-none select-none z-30 bg-border/40 hover:bg-primary/40 transition-colors',
+              isResizingSidebar && 'bg-primary/60'
+            )}
+            role="separator"
+            aria-orientation="vertical"
+          />
           <div
             className={cn(
               'flex max-w-[88vw] border-s border-border flex-col bg-card shrink-0 overflow-hidden relative',
@@ -2793,28 +2819,11 @@ export default function InboxPage() {
               minWidth: sidebarWidth,
               maxWidth: sidebarWidth,
               flexBasis: sidebarWidth,
+              flexGrow: 0,
+              flexShrink: 0,
             } : undefined}
           >
-          {/* Resize handle (desktop) */}
-          <div
-            onPointerDown={(event) => {
-              event.preventDefault();
-              sidebarResizeStartRef.current = {
-                pointerX: event.clientX,
-                width: sidebarWidth,
-              };
-              setIsResizingSidebar(true);
-            }}
-            onDoubleClick={() => setSidebarWidth(300)}
-            className={cn(
-              'hidden lg:block absolute inset-y-0 w-2 cursor-col-resize touch-none z-30 hover:bg-primary/30 transition-colors',
-              isResizingSidebar && 'bg-primary/40'
-            )}
-            style={{ insetInlineStart: 0 }}
 
-            role="separator"
-            aria-orientation="vertical"
-          />
 
           {/* Invitation-first call entry point (replaces legacy queue dock + panel) */}
           {workspace?.id && selectedId && (

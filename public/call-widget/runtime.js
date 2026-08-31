@@ -637,13 +637,19 @@
     link.rel = 'stylesheet';
     link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
-    // Load Vazirmatn from Google Fonts for Persian rendering (idempotent).
+    // Self-hosted font faces (no third-party CDN). Only @font-face rules are
+    // injected at document level so the shadow root can use them; idempotent.
     try {
-      if (!document.getElementById('ccw-vazirmatn-font')) {
-        var pre1 = document.createElement('link'); pre1.id = 'ccw-vazirmatn-font';
-        pre1.rel = 'stylesheet';
-        pre1.href = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800;900&display=swap';
-        document.head.appendChild(pre1);
+      if (!document.getElementById('ccw-widget-fonts')) {
+        var fs = document.createElement('style'); fs.id = 'ccw-widget-fonts';
+        var fb = this.origin + '/widget/fonts/';
+        fs.textContent =
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:400;font-display:swap;src:url('" + fb + "iransans-400.woff2') format('woff2')}" +
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:500;font-display:swap;src:url('" + fb + "iransans-500.woff2') format('woff2')}" +
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:600;font-display:swap;src:url('" + fb + "iransans-700.woff2') format('woff2')}" +
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:700;font-display:swap;src:url('" + fb + "iransans-700.woff2') format('woff2')}" +
+          "@font-face{font-family:'InterWY';font-style:normal;font-weight:500;font-display:swap;src:url('" + fb + "inter-500.woff2') format('woff2')}";
+        document.head.appendChild(fs);
       }
     } catch (_) {}
     var root = document.createElement('div');

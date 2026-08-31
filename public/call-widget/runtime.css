@@ -1,4 +1,12 @@
 /* Call Center widget — Shadow DOM scoped styles (loaded inside shadow root) */
+
+/* Self-hosted fonts — no third-party CDN. Files live in /widget/fonts. */
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 400; font-display: swap; src: url('../widget/fonts/iransans-400.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 500; font-display: swap; src: url('../widget/fonts/iransans-500.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 600; font-display: swap; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 700; font-display: swap; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); }
+@font-face { font-family: 'InterWY'; font-style: normal; font-weight: 500; font-display: swap; src: url('../widget/fonts/inter-500.woff2') format('woff2'); }
+
 :host, .ccw-root {
   all: initial;
   --ccw-ink: 222 47% 9%;
@@ -13,7 +21,7 @@
   --ccw-rose: 348 83% 47%;
   --ccw-danger: 0 72% 51%;
   --ccw-shadow: 222 47% 11%;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: 'InterWY', 'IRANSans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 .ccw-root *, .ccw-root *::before, .ccw-root *::after { box-sizing: border-box; letter-spacing: 0; }
 .ccw-launcher {
@@ -54,8 +62,8 @@
 .ccw-close { margin-inline-start: auto; width: 28px; height: 28px; border-radius: 10px; background: hsl(0 0% 100% / .12); color: hsl(0 0% 100%); border: 1px solid hsl(0 0% 100% / .18); cursor: pointer; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 .ccw-lang { flex: 0 0 auto; min-width: 40px; height: 28px; padding: 0 6px; border-radius: 10px; border: 1px solid hsl(0 0% 100% / .18); background: hsl(0 0% 100% / .12); color: hsl(0 0% 100%); font-family: inherit; font-size: 10px; font-weight: 800; cursor: pointer; outline: 0; }
 .ccw-lang option { color: hsl(var(--ccw-ink)); background: hsl(0 0% 100%); }
-.ccw-root[dir="rtl"] { direction: rtl; text-align: right; font-family: "Vazirmatn", "Tahoma", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-.ccw-root[lang="fa"], .ccw-root[lang="fa"] * { font-family: "Vazirmatn", "Tahoma", Inter, sans-serif; }
+.ccw-root[dir="rtl"] { direction: rtl; text-align: right; font-family: 'IRANSans', 'InterWY', Tahoma, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.ccw-root[lang="fa"], .ccw-root[lang="fa"] * { font-family: 'IRANSans', 'InterWY', Tahoma, sans-serif; }
 .ccw-root[dir="rtl"] .ccw-launcher-copy { align-items: flex-end; }
 .ccw-root[dir="rtl"] .ccw-queue-head { text-align: right; }
 .ccw-root[dir="rtl"] .ccw-ref-row, .ccw-root[dir="rtl"] .ccw-queue-pos, .ccw-root[dir="rtl"] .ccw-queue-eta, .ccw-root[dir="rtl"] .ccw-wait-wrap { direction: rtl; }

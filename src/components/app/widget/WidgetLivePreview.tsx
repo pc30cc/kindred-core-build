@@ -181,7 +181,13 @@ function localizedValue(
 export interface WidgetLivePreviewProps {
   settings: Record<string, any> | null | undefined;
   prechat?: WidgetPrechatSettings | null;
-  brandName: string;
+  /** Workspace identity shown in every widget header. */
+  workspaceName?: string;
+  /** Platform identity used only by the powered-by footer. */
+  platformName?: string;
+  /** @deprecated Compatibility alias; prefer workspaceName. */
+  brandName?: string;
+  teamMembers?: { name: string; avatar?: string | null; online: boolean }[];
   view: PreviewView;
   /** Real published knowledge-base data so the preview matches the live widget. */
   kbArticles?: { title: string; excerpt?: string | null; content?: string | null }[];
@@ -205,7 +211,7 @@ export interface WidgetLivePreviewProps {
 }
 
 export function WidgetLivePreview({
-  settings, prechat, brandName, view, kbArticles, kbCategories, onViewChange,
+  settings, prechat, workspaceName, platformName, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
   operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent,
 }: WidgetLivePreviewProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -261,7 +267,7 @@ export function WidgetLivePreview({
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     /* Header titles use workspace identity only — launcher_text is a launcher
        concern and is not consumed by the Web Yar presentation. */
-    const title = (brandName || d.brandFallback) as string;
+    const title = (workspaceName || brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
       || localizedValue(s.greeting_message, 'welcome', locale)
       || d.welcomeFallback) as string;
@@ -321,6 +327,7 @@ export function WidgetLivePreview({
         contentHtml: esc(articleText(a.content) || articleText(a.excerpt)).replace(/\n/g, '<br>'),
         publicUrl: '',
       },
+      feedback: { enabled: true, rating: null },
     }));
 
 
@@ -342,6 +349,9 @@ export function WidgetLivePreview({
 
     const previewConfig = {
       brandName: brandName || title,
+      workspaceName: title,
+      platformName: platformName || brandName || d.brandFallback,
+      replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : '',
       welcomeMessage: welcome,
       logoUrl: logo || null,
       showLogo: s.show_logo !== false,
@@ -393,7 +403,8 @@ export function WidgetLivePreview({
 
       shellVm: {
         config: previewConfig,
-        brandName: brandName || title,
+        brandName: title,
+        workspaceName: title,
         headerTitle: title,
         chatEnabled: true,
         kbEnabled,
@@ -408,7 +419,9 @@ export function WidgetLivePreview({
         kbEnabled,
         welcomeMessage: welcome,
         primaryColor: primary,
-        teamMembers: [{ name: operatorName || title, avatar: operatorAvatar || '', online: true }],
+        teamMembers: (teamMembers && teamMembers.length)
+          ? teamMembers
+          : [{ name: operatorName || title, avatar: operatorAvatar || '', online: true }],
         articles: realArticles.map((a, i) => ({ title: a.title, slug: String(i) })),
         categories: [],
       },
@@ -518,15 +531,26 @@ export function WidgetLivePreview({
     function boot(manifest) {
       var styleFile = (manifest && manifest[desc.style]) || desc.style;
       var scriptFile = (manifest && manifest[desc.script]) || desc.script;
+      var styleReady = false;
+      var scriptReady = false;
+      var mod = null;
+      function prepareAndRender() {
+        if (!styleReady || !scriptReady || !mod || !mod.create) return;
+        var preparation = typeof mod.prepare === 'function' ? mod.prepare() : null;
+        Promise.resolve(preparation).catch(function () {}).then(function () { gsRenderPreview(mod); });
+      }
       var link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = '/widget/' + styleFile;
+      link.onload = function () { styleReady = true; prepareAndRender(); };
+      link.onerror = function () { styleReady = true; prepareAndRender(); };
       document.head.appendChild(link);
       var scr = document.createElement('script');
       scr.src = '/widget/' + scriptFile;
       scr.onload = function () {
-        var mod = window[desc.globalKey];
-        if (mod && mod.create) gsRenderPreview(mod);
+        mod = window[desc.globalKey];
+        scriptReady = true;
+        prepareAndRender();
       };
       document.body.appendChild(scr);
     }
@@ -746,7 +770,7 @@ export function WidgetLivePreview({
     function openArticle(index) {
       var vm = (GS_PREVIEW.kbArticleVms || [])[Number(index)];
       if (!vm) return;
-      body.innerHTML = R.kbArticleHtml(vm);
+      body.innerHTML = R.kbHtml(vm);
       body.scrollTop = 0;
     }
     document.addEventListener('click', function (e) {
@@ -787,7 +811,7 @@ export function WidgetLivePreview({
     // via postMessage so the frame animates instead of being re-created.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    settings, prechat, brandName, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    settings, prechat, workspaceName, platformName, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
     smartScenario?.rtl,
   ]);

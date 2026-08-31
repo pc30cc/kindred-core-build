@@ -22,6 +22,7 @@ import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
+import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
@@ -45,6 +46,7 @@ function WidgetPageContent() {
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
   // Chat bubbles in the preview show a real operator profile picture.
   const { data: workspaceMembers } = useWorkspaceMembers(workspace?.id);
+  const { data: teamPresence } = useTeamPresence(workspace?.id);
   const previewOperator = (workspaceMembers || []).find((m) => m.avatar_url) || (workspaceMembers || [])[0];
   const { branding, platformName } = useBrandingContext();
   // Single source of truth — widget URLs come from platform widget settings only.
@@ -95,6 +97,14 @@ function WidgetPageContent() {
     }),
     [live, branding, effectiveLocale],
   );
+  const previewTeamMembers = useMemo(() => {
+    const byUser = presenceMap(teamPresence?.presence);
+    return (workspaceMembers || []).map(member => ({
+      name: member.full_name || member.email || '',
+      avatar: member.avatar_url,
+      online: byUser.get(member.user_id)?.state === 'online',
+    }));
+  }, [workspaceMembers, teamPresence]);
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
@@ -268,7 +278,7 @@ function WidgetPageContent() {
             sidebar steps aside and the builder takes the full width. */}
         <div className={cn(
           'grid grid-cols-1 gap-6',
-          tab !== 'smart' && 'xl:grid-cols-[minmax(0,1fr)_420px]',
+          tab !== 'smart' && 'xl:grid-cols-[minmax(0,1fr)_500px]',
         )}>
           {/* Main config area */}
           <div className="space-y-6">
@@ -508,7 +518,7 @@ function WidgetPageContent() {
                 localeLabels={LOCALE_LABELS}
                 kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a: any) => ({ title: a.title, slug: a.slug }))}
                 previewSettings={previewSettings}
-                brandName={platformName || t('widgetPage.preview.brandFallback')}
+                brandName={workspace?.name || t('widgetPage.preview.brandFallback')}
                 studioKbArticles={previewKbArticles}
                 studioKbCategories={previewKbCategories}
               />
@@ -674,11 +684,13 @@ function WidgetPageContent() {
               ))}
             </div>
 
-            <div style={{ height: 'calc(100vh - 190px)', minHeight: 560 }}>
+            <div style={{ height: 'max(820px, calc(100vh - 190px))', minHeight: 820 }}>
               <WidgetLivePreview
                 settings={previewSettings}
                 prechat={prechat}
-                brandName={platformName || t('widgetPage.preview.brandFallback')}
+                workspaceName={workspace?.name || t('widgetPage.preview.brandFallback')}
+                platformName={platformName || t('widgetPage.preview.brandFallback')}
+                teamMembers={previewTeamMembers}
                 view={previewView}
                 kbArticles={previewKbArticles}
                 kbCategories={previewKbCategories}

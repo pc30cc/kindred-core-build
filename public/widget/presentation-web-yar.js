@@ -24,6 +24,7 @@
     env = env || {};
     var t = env.t || function (k) { return k; };
     var config = env.config || {};
+    var workspaceName = String(config.workspaceName || config.brandName || '');
     var Util = { escapeHtml: env.escapeHtml || function (v) { return String(v == null ? '' : v); } };
     var ctx = {
       config: config,
@@ -48,7 +49,6 @@
       attach: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.48"/></svg>',
       emoji: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8.5 14s1.2 2 3.5 2 3.5-2 3.5-2" stroke-linecap="round"/><circle cx="9" cy="10" r="0.9" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg>',
       mic: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>',
-      human: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>',
       thumbUp: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h6.28a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.75 20H7a1 1 0 0 1-1-1v-9a1 1 0 0 1 .29-.71l6.06-6.06a.5.5 0 0 1 .85.35L13 5.88Z"/></svg>',
       thumbDown: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12 10 14H3.72a2 2 0 0 1-1.94-2.5l1.54-6A2 2 0 0 1 5.25 4H17a1 1 0 0 1 1 1v9a1 1 0 0 1-.29.71l-6.06 6.06a.5.5 0 0 1-.85-.35L11 18.12Z"/></svg>',
       close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -59,7 +59,7 @@
     // from config/view-model.
     function identityAvatarHtml(size) {
       var logo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
-      var brand = String((config && config.brandName) || '');
+      var brand = workspaceName;
       var cls = 'wy-avatar wy-avatar-' + (size || 'md');
       if (logo) {
         return '<span class="' + cls + ' has-img"><img src="' + esc(logo) + '" alt="' + esc(brand) +
@@ -98,7 +98,7 @@
 
     function headerIdentityHtml(opts) {
       opts = opts || {};
-      var title = esc(opts.title || (config && config.brandName) || '');
+      var title = esc(opts.title || workspaceName);
       var subtitle = opts.subtitle ? '<span class="wy-head-sub">' + esc(opts.subtitle) + '</span>' : '';
       var dot = opts.online ? '<span class="wy-online-dot" aria-hidden="true"></span>' : '';
       return (opts.back ? backButtonHtml(opts.back) : '') +
@@ -549,11 +549,10 @@
         '<div class="wy-scroll wy-body-pad">' +
           '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
           '<div class="prechat-fields">' + fieldsHtml + '</div>' +
-        '</div>' +
-        '<div class="wy-actions">' +
+          '<div class="prechat-spacer" aria-hidden="true"></div>' +
           '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit" data-prechat-submit>' +
             esc(tf('wyConnectOperator', t('continue'))) + '</button>' +
-        '</div>' + footerHtml() +
+        '</div>' +
       '</div>';
     }
 
@@ -661,7 +660,7 @@
       var chatHeader = '<div class="header wy-head wy-head-chat" data-chat-header>' +
         headerIdentityHtml({
           back: 'home',
-          title: vm.brandName || (config && config.brandName) || '',
+          title: vm.workspaceName || vm.brandName || workspaceName,
           subtitle: replyTimeText(true),
           online: true,
         }) +
@@ -694,8 +693,6 @@
             '</div>' +
             '<div class="emoji-picker" data-emoji-picker hidden></div>' +
             '<div class="input-bar" data-input-bar>' +
-              '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + esc(t('talkToHuman')) +
-                '" aria-label="' + esc(t('talkToHuman')) + '">' + ICON.human + '</button>' +
               '<div class="input-wrap" data-input-wrap>' +
                 // Mic is the FIRST child inside the input pill and only shows
                 // while the draft is empty (design source).
@@ -757,7 +754,7 @@
         identityAvatarHtml('sm') +
         '<span class="conv-main">' +
           '<span class="conv-line">' +
-            '<span class="conv-name">' + esc(c.title || (config && config.brandName) || '') + '</span>' + timeHtml +
+            '<span class="conv-name">' + esc(c.title || workspaceName) + '</span>' + timeHtml +
           '</span>' +
           '<span class="conv-line">' +
             '<span class="conv-preview">' + esc(c.preview || tf('wyNoPreview', '…')) + '</span>' + unreadHtml +
@@ -839,7 +836,7 @@
       return '<div class="wy-view wy-view-home home-root"' + (rtl ? ' dir="rtl"' : '') + '>' +
         '<div class="wy-head wy-head-home">' +
           headerIdentityHtml({
-            title: vm.headerTitle || (config && config.brandName) || '',
+             title: vm.workspaceName || vm.headerTitle || workspaceName,
             subtitle: replyTimeText(online),
             stack: stackHtml,
           }) +
@@ -1057,5 +1054,17 @@
     };
   }
 
-  window.__gs_presentation_web_yar = { id: 'web-yar', create: create };
+  function prepare() {
+    if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
+    var sample = 'سلام وب یار';
+    var loads = [400, 500, 600].map(function (weight) {
+      return document.fonts.load(String(weight) + ' 16px IRANSans', sample).catch(function () { return []; });
+    });
+    return Promise.race([
+      Promise.all(loads).then(function () {}),
+      new Promise(function (resolve) { setTimeout(resolve, 500); }),
+    ]);
+  }
+
+  window.__gs_presentation_web_yar = { id: 'web-yar', create: create, prepare: prepare };
 })();

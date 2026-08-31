@@ -140,10 +140,10 @@ describe('every view renders exactly one header/footer', () => {
     expect(el.querySelectorAll('[data-kb-rate]').length).toBe(2);
   });
 
-  it('Precontact: full-screen view, no chat chrome, no chat composer', () => {
+  it('Precontact: source-faithful full-screen view, no footer or chat composer', () => {
     const html = r.prechatFormHtml(identity, {}, 'en');
     const c = counts(html);
-    expect(c).toMatchObject({ headers: 1, footers: 1, composers: 0, inputs: 0, chatHeaders: 0 });
+    expect(c).toMatchObject({ headers: 1, footers: 0, composers: 0, inputs: 0, chatHeaders: 0 });
     expect(html).not.toContain('prechat-privacy');
     expect(html).not.toContain('prechat-icon');
     expect(dom(html).querySelectorAll('[data-prechat-submit]').length).toBe(1);
@@ -174,10 +174,12 @@ describe('every view renders exactly one header/footer', () => {
       r.contactFallbackHtml(identity, {}, 'en', {}),
       r.chatFrameHtml({ config: {}, locale: 'en', chatEnabled: true }),
     ];
-    for (const html of views) {
+    for (const [index, html] of views.entries()) {
       const c = counts(html);
       expect(c.headers).toBe(1);
-      expect(c.footers).toBe(1);
+      // The uploaded source intentionally has no powered-by footer on the
+      // full-screen precontact form; every other complete view has one.
+      expect(c.footers).toBe(index === 4 ? 0 : 1);
       expect(c.chatHeaders).toBeLessThanOrEqual(1);
       expect(c.composers).toBeLessThanOrEqual(1);
     }

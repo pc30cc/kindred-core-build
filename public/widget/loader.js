@@ -778,10 +778,28 @@
     var jsLoaded = false;
     var templateCssLoaded = false;
     var templateJsLoaded = false;
+    var presentationPreparing = false;
     var failed = false;
 
     function done() {
       if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateJsLoaded) return;
+      if (presentationPreparing) return;
+      presentationPreparing = true;
+      var registry = window.__gs_presentation_registry;
+      var descriptor = registry && typeof registry.resolve === "function"
+        ? registry.resolve(configData.templateId)
+        : null;
+      var presentationModule = descriptor ? window[descriptor.globalKey] : null;
+      var preparation = presentationModule && typeof presentationModule.prepare === "function"
+        ? presentationModule.prepare()
+        : null;
+      Promise.resolve(preparation).catch(function () {
+        // Readiness is best-effort. A template must never make the widget
+        // permanently unavailable because a font or other visual asset failed.
+      }).then(initRuntime);
+    }
+
+    function initRuntime() {
       runtimeLoaded = true;
       runtimeLoading = false;
       if (window.__gs_runtime && window.__gs_runtime.init) {

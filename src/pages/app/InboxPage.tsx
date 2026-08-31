@@ -178,26 +178,8 @@ function conversationTitle(conv: any, t: (k: string, vars?: Record<string, strin
 type ExtraChip = 'needs_human' | 'assigned_to_me' | 'colleagues';
 type SidebarTab = 'info' | 'activity';
 
-/**
- * Renders children into the app top bar slot when available.
- * The slot node is re-resolved whenever the DOM changes so the portal never
- * points at a detached element (which silently hides the filter tabs after a
- * navigation / re-render of the top bar).
- */
-function ToolbarPortal({ children }: { children: React.ReactNode }) {
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    const resolve = () => {
-      const el = document.getElementById('topbar-page-slot');
-      setSlot((prev) => (prev === el && el && el.isConnected ? prev : el));
-    };
-    resolve();
-    const mo = new MutationObserver(resolve);
-    mo.observe(document.body, { childList: true, subtree: true });
-    return () => mo.disconnect();
-  }, []);
-  return slot && slot.isConnected ? createPortal(children, slot) : <>{children}</>;
-}
+
+
 
 export default function InboxPage() {
   const { t, dir, locale } = useTranslation();

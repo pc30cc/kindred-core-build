@@ -3897,8 +3897,6 @@ const fa: TranslationKeys = {
       brandNamePlaceholder: 'نام فضای کاری شما',
       brandNameHint: 'در بالای ویجت نمایش داده می‌شود. به‌صورت پیش‌فرض نام فضای کاری است.',
       replyTimeDefault: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
-      fabScale: 'اندازه دکمه شناور',
-      fabIcon: 'شکلک دکمه شناور',
       fabLabelPlaceholder: 'مثلاً: وب یار دستیار ویژه شما',
       colorsSection: 'رنگ‌ها',
       textsSection: 'متن‌ها',

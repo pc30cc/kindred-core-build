@@ -3897,8 +3897,6 @@ const tr: TranslationKeys = {
       brandNamePlaceholder: 'Çalışma alanı adınız',
       brandNameHint: "Widget'ın üstünde görünür. Varsayılan olarak çalışma alanı adıdır.",
       replyTimeDefault: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
-      fabScale: 'Başlatıcı boyutu',
-      fabIcon: 'Başlatıcı simgesi',
       fabLabelPlaceholder: 'Örn: Size özel asistanınız',
       colorsSection: 'Renkler',
       textsSection: 'Metinler',

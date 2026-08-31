@@ -38,7 +38,7 @@ interface Props {
 export function OperatorAssistPanel({
   workspaceId, conversationId, composerHasText, onInsert, dir = 'ltr',
 }: Props) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { data: capabilities } = useAiAgentCapabilities(workspaceId);
   const [open, setOpen] = useState(false);
   const [tone, setTone] = useState<Tone>('friendly');
@@ -97,6 +97,8 @@ export function OperatorAssistPanel({
     try {
       const r = await aiAgentApi.suggestReply({
         workspaceId, conversationId, tone,
+        // Draft must follow the operator's active UI language (fa/tr/en).
+        locale,
         instruction: instruction.trim() || undefined,
         callLLM: true,
       });

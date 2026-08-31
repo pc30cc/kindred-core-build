@@ -18,6 +18,7 @@ import {
 } from '../../services/ai-agent/testHarness.js';
 import { decideStrategy as e7_decideStrategy } from '../../services/ai-agent/answerStrategy.js';
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../../services/ai-agent/prompt.js';
+import { detectInputLanguage, languageDisplayName } from '../../services/ai-agent/language.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
@@ -219,7 +220,29 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     .join('\n');
 
   const settings = await getOrCreateSettings(config, workspaceId);
-  const responseLocale = locale || settings.allowed_locales?.[0] || 'en';
+  // Response language policy:
+  //  - Workspace restricted to a single locale (e.g. only fa or only tr) →
+  //    that locale wins, even when the caller asks for something else.
+  //  - Otherwise the requested (operator UI) locale wins when it is allowed.
+  //  - Fall back to the first allowed locale, then to the detected visitor
+  //    language, then to 'en'.
+  const normalizeLocale = (v?: string | null) =>
+    (v || '').trim().toLowerCase().split(/[-_]/)[0];
+  const allowed = (settings.allowed_locales || [])
+    .map((l: string) => normalizeLocale(l))
+    .filter(Boolean);
+  const requested = normalizeLocale(locale);
+  const detected = detectInputLanguage(inputMessage);
+  let responseLocale: string;
+  if (allowed.length === 1) {
+    responseLocale = allowed[0];
+  } else if (requested && (allowed.length === 0 || allowed.includes(requested))) {
+    responseLocale = requested;
+  } else if (allowed.length > 0) {
+    responseLocale = allowed.includes(detected) ? detected : allowed[0];
+  } else {
+    responseLocale = detected !== 'unknown' ? detected : 'en';
+  }
 
   const safetyNotes: string[] = [];
   let hybrid: any;
@@ -310,6 +333,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     'OPERATOR-ASSIST MODE:',
     '- You are drafting a reply that a HUMAN support operator will review before sending.',
     '- Write the reply text directly, in the response language. No preamble like "Here is a draft".',
+    `- MANDATORY OUTPUT LANGUAGE: ${languageDisplayName(responseLocale)} (${responseLocale}). Write the ENTIRE draft in ${languageDisplayName(responseLocale)} — every sentence, greeting and closing line. Never mix in another language, never add a translation, and never answer in the language of the sources or of the operator instruction if it differs. Translate any source content into ${languageDisplayName(responseLocale)} before using it.`,
     '- Never expose internal storage paths, signed URLs, tokens, or credentials. Cite sources only by title if needed.',
     '- If the sources do not support a fact, do not invent it; suggest collecting more info instead.',
     tone ? `- Operator-selected tone: ${tone}. ${TONE_HINTS[tone] || ''}` : '',

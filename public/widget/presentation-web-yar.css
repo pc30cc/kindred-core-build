@@ -592,12 +592,20 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 .msg-sender { font-size: 10.5px; color: var(--wy-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Bottom line of every bubble: meta (time/ticks/AI) + hover actions. */
+/* Bubble line: the bubble plus its hover actions, sitting BESIDE the bubble
+   (never underneath it). Actions hug the free side, away from the avatar. */
+.msg-line { display: flex; align-items: flex-end; gap: 4px; max-width: 100%; }
+.msg-row.visitor .msg-line { flex-direction: row-reverse; }
+/* Bottom line of every bubble: meta (time / ticks / AI). */
 .msg-footline { display: flex; align-items: center; gap: 2px; min-height: 16px; }
 .msg-row.visitor .msg-footline { flex-direction: row-reverse; }
 [dir='rtl'] .msg-row.visitor .msg-footline { flex-direction: row-reverse; }
-.msg-actions { display: inline-flex; align-items: center; gap: 1px; opacity: 0; transition: opacity 0.15s; }
+.msg-actions {
+  display: inline-flex; align-items: center; gap: 1px; flex: none;
+  padding-bottom: 2px; opacity: 0; transition: opacity 0.15s;
+}
 .msg-row:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+
 .msg-act {
   color: var(--wy-faint); padding: 3px; border-radius: 6px; display: inline-flex;
   transition: background-color 0.15s, color 0.15s;

@@ -209,9 +209,11 @@ describe('channel ingest wiring (Telegram / Bale / WhatsApp / Instagram)', () =>
   const src = read('server/services/channels/inboundProcessing.ts');
 
   it('reuses only open/pending/resolved threads → closed spawns a new conversation', () => {
-    expect(src).toContain(".in('status', INBOUND_REUSABLE_STATUSES");
+    // The status filter moved into the atomic get-or-create RPC (migration 071).
+    expect(src).toContain("rpc('ensure_active_conversation'");
     expect(src).not.toContain(".in('status', ['open', 'pending'])");
   });
+
 
   it('applies the shared lifecycle AFTER the message insert', () => {
     const insertAt = src.indexOf("from('conversation_messages')");

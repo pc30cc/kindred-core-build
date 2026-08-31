@@ -15,10 +15,8 @@
  * that one reason. Every other failure (missing plan, RPC error) stays denied.
  */
 import type { ServerConfig } from '../../config.js';
-import {
-  checkEntitlementFromDB,
-  checkModuleAccess,
-} from '../../middleware/featureGating.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { getServiceClient } from '../../supabase.js';
 import { CAPABILITY_REGISTRY } from '../billing/capabilityRegistry.js';
 
 /** Widget setting column → capability key. Modules are reused, not cloned. */
@@ -72,21 +70,26 @@ async function resolveBoolean(
   key: string,
 ): Promise<boolean> {
   if (MODULE_KEYS.has(key)) {
-    const mod = await checkModuleAccess(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      key,
-    );
     // A workspace-level module override is authoritative on its own.
-    if (mod.reason === 'override') return mod.allowed === true;
+    try {
+      const sb = getServiceClient(config);
+      const { data } = await sb
+        .from('workspace_module_overrides')
+        .select('enabled')
+        .eq('workspace_id', workspaceId)
+        .eq('module_key', key)
+        .maybeSingle();
+      if (data) return data.enabled === true;
+    } catch {
+      /* fall through to the plan check */
+    }
   }
   const res = await checkEntitlementFromDB(
     config.supabaseUrl,
     config.supabaseServiceRoleKey,
     workspaceId,
     key,
-    { selfHostBillingUnlimited: (config as any).selfHostBillingUnlimited === true },
+    { selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
   );
   if (res.allowed) return true;
   if (isUnknownToPlan(res.reason)) return registryDefault(key) === true;
@@ -109,7 +112,7 @@ export async function resolveWidgetEntitlements(
     config.supabaseServiceRoleKey,
     workspaceId,
     'max_widget_domains',
-    { numeric: true, selfHostBillingUnlimited: (config as any).selfHostBillingUnlimited === true },
+    { numeric: true, selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
   );
   let maxDomains: number;
   if (limitRes.allowed && limitRes.limitValid && typeof limitRes.limit === 'number') {

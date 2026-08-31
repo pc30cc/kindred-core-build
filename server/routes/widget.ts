@@ -528,22 +528,28 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       { data: widget, error },
       { data: branding },
       { data: platformWidget },
+      { data: platformBranding },
+      poweredByPlanAllows,
       originRules,
       platformPreChatPolicy,
       { data: workspacePreChatFlags },
     ] = await Promise.all([
       supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
       supabase.from('workspace_branding')
-        .select('platform_name, logo_url, primary_color')
+        .select('logo_url, primary_color')
         .eq('workspace_id', workspaceId).maybeSingle(),
       // Single source of truth for widget URLs — never read platform_domains/branding for these.
       supabase.from('widget_platform_settings')
-        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message')
+        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url')
         .limit(1).maybeSingle(),
+      // Platform identity for the powered-by footer. NEVER the workspace row.
+      supabase.from('platform_branding').select('platform_name').limit(1).maybeSingle(),
+      isPoweredByAllowedForPlan(supabase, workspaceId),
       getWorkspaceOriginRules(config, workspaceId),
       loadPlatformPreChatPolicy(supabase),
       supabase.from('feature_flags').select('key, enabled').eq('workspace_id', workspaceId).in('key', Object.values(PRECHAT_FIELD_KEYS)),
     ]);
+
 
     if (error || !widget) {
       return res.status(404).json({ error: 'Widget not found or not configured' });

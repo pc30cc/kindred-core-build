@@ -207,7 +207,7 @@
 /* Home header — symmetric 20px padding, 12px avatar gutter (design source). */
 .wy-head-home { padding: 20px; gap: 12px; justify-content: space-between; }
 .wy-head-home .wy-head-text { gap: 4px; }
-.wy-head-home .wy-head-title { font-size: 16px; font-weight: 700; line-height: 1.1; }
+.wy-head-home .wy-head-title { font-size: 17px; font-weight: 700; line-height: 1.1; }
 /* Chat header — design box: 16px padding, panel surface, no bottom rule. */
 .wy-head-chat {
   padding: 16px;
@@ -217,7 +217,7 @@
   width: auto; height: auto; padding: 4px; margin-inline-end: -6px;
   border-radius: 6px; color: var(--wy-text);
 }
-.wy-head-chat .wy-head-title { font-size: 15px; font-weight: 700; gap: 6px; }
+.wy-head-chat .wy-head-title { font-size: 16px; font-weight: 700; gap: 6px; }
 .wy-head-chat .wy-head-sub { font-size: 12px; color: var(--wy-muted); }
 .wy-head-chat .wy-online-dot { width: 8px; height: 8px; border: 0; }
 .wy-head-list { padding: 20px; gap: 8px; justify-content: space-between; }
@@ -226,7 +226,7 @@
 .wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
 .wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.wy-head-title { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; }
+.wy-head-title { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; }
 .wy-head-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-sub { font-size: 12px; color: var(--wy-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wy-online); flex: none; }

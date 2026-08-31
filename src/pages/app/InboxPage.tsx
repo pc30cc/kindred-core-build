@@ -453,6 +453,43 @@ export default function InboxPage() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
+  // Resizable right details panel (desktop only)
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('inbox.sidebarWidth'));
+    return saved >= 240 && saved <= 600 ? saved : 300;
+  });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [isLgDesktop, setIsLgDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = () => setIsLgDesktop(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  useEffect(() => {
+    if (!isResizingSidebar) return;
+    const isRtl = document.documentElement.dir === 'rtl';
+    const onMove = (e: MouseEvent) => {
+      const w = isRtl ? e.clientX : window.innerWidth - e.clientX;
+      setSidebarWidth(Math.min(600, Math.max(240, w)));
+    };
+    const onUp = () => setIsResizingSidebar(false);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizingSidebar]);
+  useEffect(() => {
+    localStorage.setItem('inbox.sidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+
   const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -2737,14 +2774,31 @@ export default function InboxPage() {
             onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
-          <div className={cn(
-            'flex w-[300px] max-w-[88vw] border-s border-border flex-col bg-card shrink-0 overflow-hidden',
-            // Mobile/tablet: drawer
-            'fixed top-0 bottom-0 z-50 shadow-elevated lg:shadow-none',
-            dir === 'rtl' ? 'left-0' : 'right-0',
-            // Desktop: inline
-            'lg:static lg:z-auto lg:w-[280px]',
-          )}>
+          <div
+            className={cn(
+              'flex max-w-[88vw] border-s border-border flex-col bg-card shrink-0 overflow-hidden relative',
+              // Mobile/tablet: drawer
+              'fixed top-0 bottom-0 z-50 shadow-elevated lg:shadow-none',
+              dir === 'rtl' ? 'left-0' : 'right-0',
+              // Desktop: inline
+              'lg:static lg:z-auto',
+              !isLgDesktop && 'w-[300px]',
+            )}
+            style={isLgDesktop ? { width: sidebarWidth } : undefined}
+          >
+          {/* Resize handle (desktop) */}
+          <div
+            onMouseDown={() => setIsResizingSidebar(true)}
+            onDoubleClick={() => setSidebarWidth(300)}
+            className={cn(
+              'hidden lg:block absolute inset-y-0 w-1.5 cursor-col-resize z-20 hover:bg-primary/30 transition-colors',
+              isResizingSidebar && 'bg-primary/40'
+            )}
+            style={{ insetInlineStart: -3 }}
+            role="separator"
+            aria-orientation="vertical"
+          />
+
           {/* Invitation-first call entry point (replaces legacy queue dock + panel) */}
           {workspace?.id && selectedId && (
             <div className="p-2.5 border-b border-border bg-card/40">

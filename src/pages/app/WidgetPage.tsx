@@ -116,17 +116,38 @@ function WidgetPageContent() {
     return typeof l === 'number' ? l : -1;
   })();
 
+  /** Appearance field → plan capability. Mirrors WIDGET_CUSTOMIZATION_CAPABILITY. */
+  const APPEARANCE_CAPABILITY: Record<string, { capability: string; reset: any }> = {
+    reply_time_text: { capability: 'widget_reply_time_text', reset: null },
+    welcome_message: { capability: 'widget_welcome_message', reset: null },
+    fab_label: { capability: 'widget_launcher_label', reset: null },
+    fab_scale: { capability: 'widget_launcher_size', reset: 100 },
+    fab_icon: { capability: 'widget_launcher_icon', reset: 'chat' },
+    placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
+  };
+
   const previewSettings = useMemo(
-    () => ({
-      ...live,
-      // Logo is no longer a widget-level URL field: fall back to the logo the
-      // workspace owner uploaded in Settings → General.
-      logo_url: (live as any)?.logo_url || (branding as any)?.logo_url || null,
-      locale: effectiveLocale,
-      widget_language: effectiveLocale,
-    }),
-    [live, branding, effectiveLocale],
+    () => {
+      const base: Record<string, any> = {
+        ...live,
+        // Logo is no longer a widget-level URL field: fall back to the logo the
+        // workspace owner uploaded in Settings → General.
+        logo_url: (live as any)?.logo_url || (branding as any)?.logo_url || null,
+        locale: effectiveLocale,
+        widget_language: effectiveLocale,
+      };
+      // The preview must show exactly what the plan lets production render.
+      for (const [column, def] of Object.entries(APPEARANCE_CAPABILITY)) {
+        if (!capAllowed(def.capability)) base[column] = def.reset;
+      }
+      if (!capAllowed('widget_team_avatars')) base.show_team_avatars = false;
+      if (!capAllowed('widget_workspace_logo')) base.show_logo = false;
+      return base;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [live, branding, effectiveLocale, effectiveEnts],
   );
+
   /**
    * Mirror of `server/services/widget/poweredBy.ts`: platform master switch AND
    * the `widget_powered_by` plan entitlement decide visibility; wording, brand

@@ -1350,10 +1350,26 @@ export default function InboxPage() {
       {topBarSummary}
 
       {/* ═══════ LEFT: Conversation List ═══════ */}
-      <div className={cn(
-        'w-full md:w-[300px] lg:w-[340px] xl:w-[380px] shrink-0 border-e border-border flex flex-col bg-card',
-        selectedId && !showMobileList ? 'hidden md:flex' : 'flex'
-      )}>
+      <div
+        className={cn(
+          'w-full shrink-0 border-e border-border flex flex-col bg-card relative',
+          selectedId && !showMobileList ? 'hidden md:flex' : 'flex'
+        )}
+        style={isDesktop ? { width: listWidth } : undefined}
+      >
+        {/* Resize handle (desktop) */}
+        <div
+          onMouseDown={() => setIsResizing(true)}
+          onDoubleClick={() => setListWidth(340)}
+          className={cn(
+            'hidden md:block absolute inset-y-0 -inset-inline-end-0 w-1.5 cursor-col-resize z-20 hover:bg-primary/30 transition-colors',
+            isResizing && 'bg-primary/40'
+          )}
+          style={{ insetInlineEnd: -3 }}
+          role="separator"
+          aria-orientation="vertical"
+        />
+
         {/* Header */}
         <div className="p-3 border-b border-border space-y-2.5">
           <div className="flex items-center justify-between">

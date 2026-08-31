@@ -325,7 +325,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
   }
 
   const supabase = getServiceClient(config);
-  const prechat = await getPrechatSettings(supabase, workspaceId);
+
 
   // Find linked contact
   const { data: session } = await supabase

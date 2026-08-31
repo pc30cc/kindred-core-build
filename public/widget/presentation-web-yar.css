@@ -36,7 +36,7 @@
   --wy-radius-md: 0.75rem;
   --wy-radius-lg: 1rem;
   --wy-radius-xl: 1.25rem;
-  --wy-shadow: 0 25px 50px -12px var(--gs-shadow, rgba(0, 0, 0, 0.25));
+  --wy-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   --wy-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -132,7 +132,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 12px 32px rgba(31, 147, 255, 0.4);
+  box-shadow: 0 12px 32px var(--gs-shadow, rgba(31, 147, 255, 0.4));
   cursor: pointer;
   transition: transform 0.22s var(--wy-ease), box-shadow 0.22s var(--wy-ease);
 }
@@ -478,8 +478,13 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 .conv-time { font-size: 11px; color: var(--wy-faint); flex: none; }
 .conv-unread {
-  padding: 1px 7px; font-size: 11px; font-weight: 500; color: #fff;
-  border-radius: 9999px; background: var(--wy-accent); flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  font-size: 11px; line-height: 1; font-weight: 700;
+  font-variant-numeric: tabular-nums; letter-spacing: 0;
+  color: #fff; border-radius: 9999px; background: var(--wy-accent);
+  box-shadow: 0 1px 3px rgba(31, 147, 255, 0.35);
+  flex: none;
 }
 .conv-status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--wy-faint); }
 .conv-status.is-resolved { color: var(--wy-faint); }

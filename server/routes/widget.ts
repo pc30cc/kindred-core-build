@@ -41,6 +41,11 @@ import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import { resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from '../services/widget/poweredBy.js';
+import {
+  resolveWidgetEntitlements,
+  applyWidgetEntitlementsToSettings,
+  type WidgetEntitlements,
+} from '../services/widget/entitlements.js';
 
 
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
@@ -565,7 +570,17 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       return res.json({ enabled: false });
     }
 
-    const ws = { ...DEFAULT_WIDGET_SETTINGS, ...widget };
+    // Plan intersection — a downgrade must disable behaviours in widgets that
+    // are already embedded on customer sites, not just hide the operator UI.
+    let widgetEntitlements: WidgetEntitlements | null = null;
+    try {
+      widgetEntitlements = await resolveWidgetEntitlements(config, workspaceId);
+    } catch (err) {
+      console.error('[widget/config] entitlement resolution failed', err);
+    }
+    const ws = widgetEntitlements
+      ? applyWidgetEntitlementsToSettings({ ...DEFAULT_WIDGET_SETTINGS, ...widget }, widgetEntitlements)
+      : { ...DEFAULT_WIDGET_SETTINGS, ...widget };
 
     // Smart Engagement rules (active + published only). Failure here must
     // never take down /config — the helper already degrades to an empty list.

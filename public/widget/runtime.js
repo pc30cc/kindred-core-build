@@ -6944,12 +6944,22 @@
       var flow = aiOwnsThread ? 'ai_entry' : (aiActiveNow ? 'ai_handoff' : 'human_entry');
 
       if (identity.shouldRequirePrechat(flow)) {
+        // Presentation choice — a full-page form may only take over the tab
+        // when there is genuinely nothing to hide behind it. The moment the
+        // thread already has messages (the classic case: the AI just handed
+        // off to a human), the form MUST render as an inline card inside the
+        // chat so the conversation the visitor already had stays visible —
+        // this is the designed handoff experience. `handedOff` alone is not
+        // enough: once a human takes over, `aiActiveNow` can flip to false
+        // and the flow degrades to 'human_entry' mid-thread.
+        var inlineCard = handedOff || hasMsgs;
         return {
-          name: flow === 'ai_handoff' ? ENTRY_FLOW_STATE.HANDOFF_PRECHAT : ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN,
+          name: inlineCard ? ENTRY_FLOW_STATE.HANDOFF_PRECHAT : ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN,
           aiActiveNow: aiActiveNow,
           hasMsgs: hasMsgs,
           aiOwnsThread: aiOwnsThread,
         };
+
       }
       if (aiOwnsThread) {
         return { name: ENTRY_FLOW_STATE.AI_CHAT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };

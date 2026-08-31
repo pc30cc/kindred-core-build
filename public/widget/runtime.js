@@ -4048,7 +4048,9 @@
       try { visitorId = (window.__gs_identity && window.__gs_identity.visitorId) || ''; } catch (_) {}
       var url = ctx.apiBase + '/api/widget/kb/articles/' + encodeURIComponent(slug) + '/feedback' +
         '?workspace_id=' + encodeURIComponent(ctx.workspaceId || '') +
+        '&locale=' + encodeURIComponent(ctx.locale || 'en') +
         (visitorId ? ('&visitor_id=' + encodeURIComponent(visitorId)) : '');
+
       ctx.fetchWith(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

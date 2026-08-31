@@ -5274,6 +5274,9 @@
       // createChatUI), not as a separate bar above the composer. Toggled by
       // showAiThinking()/hideThinkingIndicator() further down this file.
       aiThinking: false,
+      // True while an explicitly selected thread's history is in flight —
+      // the chat surface holds its skeleton instead of painting empty.
+      historyLoading: false,
     });
     var DRAFT_PENDING_KEY = '__pending__';
 
@@ -6880,14 +6883,16 @@
           messages: [],
           seenIds: {},
           aiThinking: false,
+          historyLoading: true,
         });
         try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
 
         try {
           chatUI.loadConversationHistory(conversationId, function () {
+            chatStore.set({ historyLoading: false });
             if (shellStore.get().activeTab === 'chat') renderBody();
           });
-        } catch (_) {}
+        } catch (_) { chatStore.set({ historyLoading: false }); }
       }
       markConversationRead(conversationId);
       switchTab('chat');
@@ -7298,7 +7303,9 @@
         // KB skeleton first and swap it for the real list when it resolves.
         if (!(kbStore.get() || {}).loaded) renderLoading('articles');
         kbUI.ensure(function () {
-          if (shellStore.get().activeTab === 'help') kbUI.render(body);
+          if (shellStore.get().activeTab !== 'help') return;
+          kbUI.render(body);
+          markUsableContent('articles');
         });
       }
 

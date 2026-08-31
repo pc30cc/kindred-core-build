@@ -392,23 +392,35 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
                     <Input
-                      value={(live as any)?.reply_time_text || ''}
+                      disabled={!capAllowed('widget_reply_time_text')}
+                      value={capAllowed('widget_reply_time_text') ? ((live as any)?.reply_time_text || '') : ''}
                       onChange={e => setField('reply_time_text' as any, e.target.value)}
                       placeholder={t('widgetPage.appearance.replyTimeDefault')}
                     />
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
+                    {capAllowed('widget_reply_time_text') ? (
+                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
+                    ) : (
+                      <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
                   </div>
 
                   {/* 3 — Welcome message */}
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
-                      value={widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)}
+                      disabled={!capAllowed('widget_welcome_message')}
+                      value={capAllowed('widget_welcome_message')
+                        ? widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)
+                        : widgetTextDefault('welcome', effectiveLocale)}
                       onChange={e => setField('welcome_message', e.target.value)}
                       rows={3}
                       placeholder={widgetTextDefault('welcome', effectiveLocale)}
                     />
+                    {!capAllowed('widget_welcome_message') && (
+                      <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
                   </div>
+
 
                   {/* 4 — Primary + shadow colour */}
                   <div className="grid gap-4 sm:grid-cols-2">

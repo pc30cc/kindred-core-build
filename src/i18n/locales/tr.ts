@@ -544,6 +544,8 @@ const tr: TranslationKeys = {
     aiManaged: 'YZ yönetiyor',
     aiManagedTip: 'Bu görüşmeyi şu anda yapay zekâ yönetiyor',
     needsHumanTip: 'Yapay zekâ devretti — temsilci gerekiyor',
+    needsReply: 'Yanıt bekliyor',
+    needsReplyTip: 'Müşteri yanıt bekliyor',
     handoffReason: 'Devretme nedeni',
     humanActive: 'Temsilci aktif',
     humanActiveTip: 'Temsilci görüşmeyi devraldı',

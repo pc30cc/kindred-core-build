@@ -435,6 +435,7 @@ const en = {
     previewAudio: 'sent a voice message',
     previewVideo: 'sent a video',
     previewFile: 'sent a file',
+    receivingFile: 'Receiving…',
 
     noMessages: 'No messages yet',
     emptyNoMatches: 'No matches found',

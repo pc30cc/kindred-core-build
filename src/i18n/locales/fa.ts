@@ -437,6 +437,7 @@ const fa: TranslationKeys = {
     previewAudio: 'یک پیام صوتی ارسال کرد',
     previewVideo: 'یک ویدیو ارسال کرد',
     previewFile: 'یک فایل ارسال کرد',
+    receivingFile: 'در حال دریافت…',
 
     noMessages: 'هنوز پیامی نیست',
     emptyNoMatches: 'موردی یافت نشد',

@@ -437,6 +437,7 @@ const tr: TranslationKeys = {
     previewAudio: 'bir sesli mesaj gönderdi',
     previewVideo: 'bir video gönderdi',
     previewFile: 'bir dosya gönderdi',
+    receivingFile: 'Alınıyor…',
 
     noMessages: 'Henüz mesaj yok',
     emptyNoMatches: 'Sonuç bulunamadı',

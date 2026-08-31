@@ -356,7 +356,12 @@ export function WidgetLivePreview({
     const previewConfig = {
       brandName: brandName || title,
       workspaceName: title,
-      platformName: platformName || brandName || d.brandFallback,
+      platformName: poweredBy?.brand || platformName || brandName || d.brandFallback,
+      // Platform-owned footer payload — mirrors the production bootstrap so the
+      // preview reflects super-admin wording/link and plan visibility exactly.
+      ...(poweredBy !== undefined
+        ? { poweredBy, showPoweredBy: poweredBy !== null }
+        : {}),
       replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : '',
       welcomeMessage: welcome,
       logoUrl: logo || null,

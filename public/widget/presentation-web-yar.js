@@ -467,14 +467,17 @@
     }
 
     function renderAiThinkingRow() {
+      // Single affordance only: the three bouncing dots. No pulsing spark and
+      // no duplicated "Thinking…" label (the dots carry the meaning; the
+      // label stays for assistive tech only).
       return '<div class="msg-row operator ai-thinking-row">' +
         '<div class="msg operator ai-thinking-bubble">' +
-          '<span class="ai-thinking-spark" aria-hidden="true"></span>' +
-          '<span class="typing-dots"><span></span><span></span><span></span></span>' +
-          '<span class="ai-thinking-label">' + esc(t('aiThinking') || 'Thinking…') + '</span>' +
+          '<span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
+          '<span class="sr-only">' + esc(t('aiThinking') || 'Thinking…') + '</span>' +
         '</div>' +
       '</div>';
     }
+
 
     function messagesHtml(s, extraRowHtml, view) {
       view = view || {};
@@ -565,13 +568,18 @@
 
         var isTypingThis = !!(typewriter && typewriter.id === m.__id);
         var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
-        var displayText = (isTypingThis && !typingDone)
-          ? typewriter.tokens.slice(0, typewriter.revealedCount).join('')
+        var isRevealing = isTypingThis && !typingDone;
+        var displayText = isRevealing
+          ? typewriter.tokens.slice(0, Math.max(1, typewriter.revealedCount)).join('')
           : bodyText;
-        var textHtml = (displayText && String(displayText).length)
-          ? '<span class="msg-text"' + (isTypingThis && !typingDone ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
+        // While revealing, the target span MUST exist even at zero revealed
+        // tokens — otherwise the reveal timer finds no node and the bubble
+        // stays visibly empty until the next full re-render.
+        var textHtml = (isRevealing || (displayText && String(displayText).length))
+          ? '<span class="msg-text"' + (isRevealing ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
               esc(displayText) + '</span>'
           : '';
+
 
         var quoted = quoteText
           ? '<span class="msg-quote">' + esc(String(quoteText)) + '</span>'

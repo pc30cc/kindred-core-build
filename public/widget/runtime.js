@@ -2682,6 +2682,12 @@
           if (host) host.removeAttribute('data-typing-active');
         }
         chatScrollToBottom(body, false, true);
+        typewriter.misses = 0;
+      } else if (++typewriter.misses > 3) {
+        // The reveal target vanished (re-render, view switch). Bail out so the
+        // next paint shows the complete text instead of an empty bubble.
+        stopTypewriter();
+        return;
       }
       if (done) stopTypewriter();
     }
@@ -2698,7 +2704,9 @@
       if (typewriter && typewriter.id === id) return; // already animating this one
       stopTypewriter(true);
       var tokens = str.match(/\S+\s*/g) || [str];
-      typewriter = { id: id, tokens: tokens, revealedCount: 0, timer: null };
+      // Start with the first token already revealed so the bubble never
+      // paints empty for a frame (or forever, if the reveal node is missing).
+      typewriter = { id: id, tokens: tokens, revealedCount: 1, timer: null, misses: 0 };
       typewriter.timer = setInterval(tickTypewriter, 85);
     }
 

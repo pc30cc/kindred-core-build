@@ -168,7 +168,7 @@
     ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
     "width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;",
-    "box-shadow:0 4px 20px -4px var(--gs-shadow,rgba(0,0,0,.25)),0 0 0 1px rgba(0,0,0,.05);",
+    "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
     "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
@@ -177,7 +177,7 @@
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
-    ".launcher:hover{transform:scale(1.08);box-shadow:0 6px 28px -4px var(--gs-shadow,rgba(0,0,0,.3));}",
+    ".launcher:hover{transform:scale(1.08);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));}",
     ".launcher:active{transform:scale(.96);}",
     ".launcher.bottom-right{bottom:24px;right:24px;}",
     ".launcher.bottom-left{bottom:24px;left:24px;}",

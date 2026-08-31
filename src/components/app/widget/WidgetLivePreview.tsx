@@ -833,7 +833,7 @@ export function WidgetLivePreview({
     // via postMessage so the frame animates instead of being re-created.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    settings, prechat, workspaceName, platformName, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
     smartScenario?.rtl,
   ]);

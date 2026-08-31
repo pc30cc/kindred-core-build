@@ -287,12 +287,13 @@
 .wy-btn-block { width: 100%; }
 .wy-btn-grow { flex: 1 1 auto; }
 
-/* Online-operator stack inside the "start chat" CTA — avatars match the
-   button's own font-size so they read as part of the label. */
-.wy-btn .home-stack { margin-inline-end: 8px; vertical-align: middle; }
+/* Online-operator stack inside the "start chat" CTA — 2x the label size for a
+   crisp render, without growing the button's own font-size. */
+.wy-btn .home-stack { margin-inline-end: 8px; vertical-align: middle; line-height: 0; }
 .wy-btn .home-stack-item {
-  width: 1em; height: 1em; border-color: currentColor; margin-inline-end: -0.32em;
+  width: 2em; height: 2em; border-color: currentColor; margin-inline-end: -0.6em;
 }
+
 .wy-btn-primary .home-stack-item { background: rgba(255, 255, 255, 0.35); }
 .wy-btn .home-stack-item:last-child { margin-inline-end: 0; }
 

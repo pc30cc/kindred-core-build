@@ -677,8 +677,21 @@ a.wy-powered:hover { color: var(--wy-text); }
 .typing-row { display: flex; align-items: center; gap: 6px; padding: 2px 16px 6px; font-size: 11.5px; color: var(--wy-muted); }
 
 /* Attachments in messages */
-.msg-att-image .msg-att-img-btn { display: block; padding: 0; border-radius: var(--wy-radius-md); overflow: hidden; }
-.msg-att-image img { display: block; max-width: 100%; border-radius: var(--wy-radius-md); }
+.msg-att-image .msg-att-img-btn {
+  display: block; padding: 0; border-radius: var(--wy-radius-md); overflow: hidden;
+  background: rgba(0, 0, 0, 0.05); line-height: 0; cursor: zoom-in;
+  max-width: 240px;
+}
+/* Thumbnail must never deform: intrinsic ratio is preserved and the image is
+   only bounded by a max box. `height:auto` + `object-fit:contain` keeps
+   portrait screenshots and wide photos both undistorted. */
+.msg-att-image img {
+  display: block; width: auto; height: auto;
+  max-width: 240px; max-height: 260px; object-fit: contain;
+  border-radius: var(--wy-radius-md);
+  transition: transform 0.25s var(--wy-ease);
+}
+.msg-att-image .msg-att-img-btn:hover img { transform: scale(1.02); }
 .msg-att-img-fallback { display: none; font-size: 12px; color: var(--wy-muted); }
 .msg-att-file {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px;
@@ -690,7 +703,77 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-att-sub { font-size: 11px; opacity: 0.7; }
 .msg-att-action { color: inherit; display: inline-flex; opacity: 0.8; }
 .msg-att-action:hover { opacity: 1; }
-.msg-att-audio audio { width: 100%; }
+
+/* ── Voice / audio player ─────────────────────────────────────────
+   Always LTR (see presentation JS): play on the left, timeline running
+   left→right, download on the right — in every locale. */
+.msg-att-audio {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 214px; max-width: 260px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+.msg.visitor .msg-att-audio { background: rgba(255, 255, 255, 0.18); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22); }
+.wy-ap-play {
+  flex: 0 0 auto; width: 32px; height: 32px; border: 0; padding: 0;
+  border-radius: 50%; cursor: pointer; position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--wy-primary, #1f93ff); color: #fff;
+  transition: transform 0.16s var(--wy-ease), filter 0.16s var(--wy-ease);
+}
+.msg.visitor .wy-ap-play { background: rgba(255, 255, 255, 0.9); color: var(--wy-primary, #1f93ff); }
+.wy-ap-play:hover { filter: brightness(1.05); transform: scale(1.05); }
+.wy-ap-play:active { transform: scale(0.95); }
+.wy-ap-ico { display: none; line-height: 0; }
+.wy-ap-ico-play { display: inline-flex; margin-inline-start: 2px; }
+.msg-att-audio.is-playing .wy-ap-ico-play { display: none; }
+.msg-att-audio.is-playing .wy-ap-ico-pause { display: inline-flex; }
+.wy-ap-spinner { display: none; position: absolute; inset: 4px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: currentColor;
+  animation: wy-ap-spin 0.8s linear infinite; }
+.msg-att-audio.is-loading .wy-ap-spinner { display: block; }
+.msg-att-audio.is-loading .wy-ap-ico { opacity: 0.25; }
+@keyframes wy-ap-spin { to { transform: rotate(360deg); } }
+.wy-ap-body { flex: 1 1 auto; min-width: 0; }
+.wy-ap-track {
+  position: relative; height: 4px; border-radius: 999px; cursor: pointer;
+  background: rgba(0, 0, 0, 0.14);
+}
+.msg.visitor .wy-ap-track { background: rgba(255, 255, 255, 0.32); }
+.wy-ap-track::before { content: ''; position: absolute; inset: -8px 0; }
+.wy-ap-buffer {
+  position: absolute; inset-block: 0; left: 0; width: 0%;
+  border-radius: 999px; background: rgba(0, 0, 0, 0.12);
+  transition: width 0.25s linear;
+}
+.msg.visitor .wy-ap-buffer { background: rgba(255, 255, 255, 0.28); }
+.wy-ap-progress {
+  position: absolute; inset-block: 0; left: 0; width: 0%;
+  border-radius: 999px; background: var(--wy-primary, #1f93ff);
+}
+.msg.visitor .wy-ap-progress { background: #fff; }
+.wy-ap-knob {
+  position: absolute; right: -5px; top: 50%; width: 10px; height: 10px;
+  transform: translateY(-50%); border-radius: 50%;
+  background: inherit; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  opacity: 0; transition: opacity 0.15s var(--wy-ease);
+}
+.msg-att-audio:hover .wy-ap-knob, .msg-att-audio.is-playing .wy-ap-knob { opacity: 1; }
+.wy-ap-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 5px; font-size: 10.5px; opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.wy-ap-rate {
+  border: 0; background: transparent; color: inherit; cursor: pointer;
+  font-size: 10.5px; padding: 0 3px; border-radius: 5px; opacity: 0.85;
+}
+.wy-ap-rate:hover { background: rgba(0, 0, 0, 0.08); opacity: 1; }
+.wy-ap-dl { flex: 0 0 auto; color: inherit; display: inline-flex; opacity: 0.65; transition: opacity 0.15s var(--wy-ease); }
+.wy-ap-dl:hover { opacity: 1; }
+
 
 /* Attachment lightbox */
 .att-lightbox {

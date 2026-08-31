@@ -1,4 +1,12 @@
 /* Call Center widget — Shadow DOM scoped styles (loaded inside shadow root) */
+
+/* Self-hosted fonts — no third-party CDN. Files live in /widget/fonts. */
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 400; font-display: swap; src: url('../widget/fonts/iransans-400.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 500; font-display: swap; src: url('../widget/fonts/iransans-500.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 600; font-display: swap; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 700; font-display: swap; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); }
+@font-face { font-family: 'InterWY'; font-style: normal; font-weight: 500; font-display: swap; src: url('../widget/fonts/inter-500.woff2') format('woff2'); }
+
 :host, .ccw-root {
   all: initial;
   --ccw-ink: 222 47% 9%;

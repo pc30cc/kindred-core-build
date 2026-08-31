@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Trash2, Copy, Clock, Globe2, Mail, AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { WidgetSettings, BusinessHoursConfig } from '@/types/models';
 import { toast } from '@/hooks/use-toast';
+import { API_BASE } from '@/lib/apiBase';
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 type DayKey = (typeof DAY_KEYS)[number];

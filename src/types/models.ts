@@ -163,6 +163,10 @@ export interface WidgetSettings {
   welcome_message: string | null;
   /** Reply-time note under the workspace name in the widget header. */
   reply_time_text: string | null;
+  /** Widget header display name; empty => workspace name. */
+  brand_name: string | null;
+  /** Optional widget panel shadow tint; empty => template default. */
+  shadow_color: string | null;
 
   logo_url: string | null;
   position: 'bottom-right' | 'bottom-left';

@@ -2384,22 +2384,25 @@ export default function InboxPage() {
                   >
                     {sendMessage.isPending
                       ? <Loader2 className="w-4 h-4 animate-spin" />
-                      : <Send className="w-4 h-4" />}
+                      : <Send className="w-4 h-4 rtl:-scale-x-100" />}
                     {sendAction !== 'none' && (
                       <span className="hidden md:inline text-[11px] font-medium max-w-[9rem] truncate">
                         {sendActionMeta[sendAction].short}
                       </span>
                     )}
                   </Button>
-                  <DropdownMenu>
+                  <DropdownMenu open={sendMenuOpen} onOpenChange={setSendMenuOpen}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         disabled={sendMessage.isPending}
                         aria-label={t('inbox.sendActions') || 'Send actions'}
                         className="h-9 w-7 px-0 rounded-none border-s border-primary-foreground/20"
                       >
-                        <ChevronDown className="w-3.5 h-3.5" />
+                        {sendMenuOpen
+                          ? <ChevronDown className="w-3.5 h-3.5" />
+                          : <ChevronUp className="w-3.5 h-3.5" />}
                       </Button>
+
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" side="top" className="w-64">
                       <DropdownMenuLabel className="text-[11px] text-muted-foreground">

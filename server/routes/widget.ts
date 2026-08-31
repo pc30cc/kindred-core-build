@@ -144,6 +144,8 @@ const DEFAULT_WIDGET_SETTINGS = {
   greeting_message: '',
   welcome_message: 'Hello! How can we help you?',
   reply_time_text: '',
+  brand_name: '',
+  shadow_color: '',
   placeholder_text: '',
   position: 'bottom-right',
   show_logo: true,
@@ -814,7 +816,8 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       debugMode: ws.debug_mode ?? false,
       // Workspace identity owns all widget headers. Platform identity is
       // intentionally separate and is used only by the powered-by footer.
-      brandName: workspace?.name || 'Support',
+      brandName: (typeof ws.brand_name === 'string' && ws.brand_name.trim())
+        || workspace?.name || 'Support',
       // Explicit platform brand for the "powered by" footer. The footer must
       // ALWAYS name the platform, never the workspace's own brand.
       platformName: poweredBy?.brand || '',
@@ -824,6 +827,8 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',
+      // Optional panel shadow tint; empty => template default.
+      shadowColor: typeof ws.shadow_color === 'string' ? ws.shadow_color.trim() : '',
       logoUrl: ws.logo_url || branding?.logo_url || null,
       launcherText: resolveLocalizedDefault(
         ws.launcher_text,
@@ -910,7 +915,8 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       autoOpenDelay: ws.auto_open_delay || 0,
       showLogo: ws.show_logo ?? true,
       showTeamAvatars: ws.show_team_avatars !== false,
-      workspaceName: workspace?.name || '',
+      workspaceName: (typeof ws.brand_name === 'string' && ws.brand_name.trim())
+        || workspace?.name || '',
       teamMembers,
       onlineOperators: 0, // Resolved client-side from realtime presence when supported.
       runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),

@@ -444,6 +444,9 @@
         "--gs-secondary",
         config.secondaryColor || config.primaryColor || "#6366F1"
       );
+      if (config.shadowColor) {
+        shellDiv.style.setProperty("--gs-shadow", config.shadowColor);
+      }
     }
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {

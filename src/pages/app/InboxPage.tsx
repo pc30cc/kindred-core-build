@@ -991,6 +991,10 @@ export default function InboxPage() {
             >
               <Inbox className="w-4 h-4" />
               {t('inbox.all') || 'All'}
+              <span
+                aria-hidden={(stableCounts.all || 0) === 0}
+                className={cn(pillCount(allActive), (stableCounts.all || 0) === 0 && 'hidden')}
+              >{stableCounts.all || 0}</span>
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
@@ -1004,9 +1008,14 @@ export default function InboxPage() {
             >
               <Bot className="w-4 h-4" />
               {t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI'}
+              <span
+                aria-hidden={(stableCounts.automated || 0) === 0}
+                className={cn(pillCount(queue === 'automated'), (stableCounts.automated || 0) === 0 && 'hidden')}
+              >{stableCounts.automated || 0}</span>
               <span className={headTabAccent(queue === 'automated')} />
               <span className={headTabSeam(queue === 'automated')} />
             </button>
+
 
             {/* Needs human */}
             <button

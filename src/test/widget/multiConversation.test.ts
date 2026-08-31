@@ -95,17 +95,19 @@ describe('P0-E/F — the AI intro is thread-scoped and understands force-new', (
     expect(runtime).not.toMatch(/var __aiIntroRequested = false/);
     expect(runtime).toMatch(/var __aiIntroKeys = \{\}/);
     expect(runtime).toMatch(/function aiIntroKey\(\)/);
-    // Two successive fresh intents must not collide on the same slot.
-    expect(runtime).toMatch(/__freshIntentGeneration/);
+    // Two successive fresh intents must not collide on the same slot — the
+    // canonical monotonic epoch is what keeps them apart (P0-1).
+    expect(runtime).toMatch(/'fresh:' \+ ConvEpoch\.get\(\)/);
   });
 
   it('sends force_new_conversation and withholds the stale id when armed', () => {
     const idx = runtime.indexOf('function requestAiAgentIntro(source)');
     const body = runtime.slice(idx, idx + 1400);
-    expect(body).toMatch(/var forceNew = snap\.freshIntent === true/);
+    expect(body).toMatch(/var forceNew = ConvEpoch\.isFresh\(\) \|\| snap\.freshIntent === true/);
     expect(body).toMatch(/forceNew \? null :/);
     expect(body).toMatch(/force_new_conversation: forceNew \|\| undefined/);
   });
+
 
   it('a failed intro only frees its own thread slot', () => {
     const idx = runtime.indexOf('function requestAiAgentIntro(source)');

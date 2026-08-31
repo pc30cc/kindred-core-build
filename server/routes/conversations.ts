@@ -310,6 +310,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
 
 
     // Phase 2 — Bind operator-uploaded attachment to this message + conversation.
+    let attachmentBound = false;
     if (!duplicate && parsed.data.attachment_id && inserted?.id) {
       const ok = await attachUploadedFileToMessage(
         config,
@@ -318,6 +319,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
         parsed.data.conversation_id,
         inserted.id,
       );
+      attachmentBound = ok;
       if (!ok) {
         console.warn('[conversations/send-message] failed to attach',
           parsed.data.attachment_id, 'to', inserted.id);
@@ -336,14 +338,37 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // (Telegram / Bale / WhatsApp / Instagram), make the delivery intent
     // durable. No-op for widget conversations. AWAITED, because Split Send may
     // only change the status once the transport accepted the reply.
-    const dispatch = duplicate
-      ? { accepted: true, result: 'already_enqueued' as const }
-      : await dispatchOutboundIfChannelConversation(config, {
+    //
+    // An attachment reply takes the MEDIA path: the DB trigger only enqueues
+    // text, so a file-only (or file+caption) reply would otherwise never leave
+    // the platform.
+    let dispatch: { accepted: boolean; result: string };
+    if (duplicate) {
+      dispatch = { accepted: true, result: 'already_enqueued' };
+    } else if (attachmentBound && parsed.data.attachment_id) {
+      try {
+        const mediaResult = await enqueueOutboundMediaIfChannelConversation(config, {
           workspaceId: parsed.data.workspace_id,
           conversationId: parsed.data.conversation_id,
           messageId: inserted.id,
-          body: messageBody,
+          attachmentId: parsed.data.attachment_id,
+          caption: messageBody,
+          req: req as any,
         });
+        dispatch = { accepted: true, result: mediaResult };
+      } catch (err: any) {
+        console.warn('[conversations/send-message] outbound media enqueue failed:', err?.message);
+        dispatch = { accepted: false, result: 'failed' };
+      }
+    } else {
+      dispatch = await dispatchOutboundIfChannelConversation(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        messageId: inserted.id,
+        body: messageBody,
+      });
+    }
+
 
 
 

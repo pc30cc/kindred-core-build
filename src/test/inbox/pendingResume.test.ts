@@ -231,15 +231,16 @@ describe('ingest wiring', () => {
 
   it('widget resumes only after the visitor message row exists', () => {
     const insert = widget.indexOf("sender_type: 'contact'");
-    const resume = widget.indexOf('await resumeConversationIfPending');
+    const resume = widget.indexOf('await applyInboundConversationLifecycle');
     expect(resume).toBeGreaterThan(insert);
     expect(widget).toContain('if (convId && insertedMsg?.id) {');
   });
 
-  it('widget continuity no longer silently flips pending to open', () => {
-    expect(widget).toContain("if (['closed', 'resolved'].includes(conv.status))");
+  it('widget continuity performs no silent status change at all', () => {
     expect(widget).not.toContain("['closed', 'resolved', 'pending'].includes(conv.status)");
-    expect(widget).toContain(".in('status', ['resolved', 'closed'])");
+    expect(widget).not.toContain("if (['closed', 'resolved'].includes(conv.status))");
+    expect(widget).not.toContain(".in('status', ['resolved', 'closed'])");
+    expect(widget).toContain("if (conv.status === 'closed') convId = null;");
   });
 
   it('WhatsApp statuses (sent/delivered/read/failed) never become messages', () => {

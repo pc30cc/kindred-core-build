@@ -388,42 +388,8 @@ function WidgetPageContent() {
                         ))}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium">{t('widgetPage.appearance.shadowColor')}</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="color"
-                          value={shadowColor}
-                          onChange={e => setField('shadow_color' as any, e.target.value)}
-                          className="h-10 w-12 shrink-0 cursor-pointer p-1"
-                        />
-                        <Input
-                          value={(live as any)?.shadow_color || ''}
-                          dir="ltr"
-                          onChange={e => setField('shadow_color' as any, e.target.value)}
-                          className="text-start font-mono text-xs"
-                          placeholder="rgba(0, 0, 0, 0.25)"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {['rgba(0, 0, 0, 0.25)', '#3B82F6', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444'].map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            aria-label={c}
-                            onClick={() => setField('shadow_color' as any, c, 0)}
-                            className={cn(
-                              'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110',
-                              ((live as any)?.shadow_color || '').toLowerCase() === c.toLowerCase()
-                                ? 'border-foreground'
-                                : 'border-transparent',
-                            )}
-                            style={{ background: c }}
-                          />
-                        ))}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.shadowColorHint')}</p>
-                    </div>
+                    {/* The launcher shadow is derived from the primary colour —
+                        no separate shadow setting. */}
                   </div>
 
                   {/* 5 — Position + language */}

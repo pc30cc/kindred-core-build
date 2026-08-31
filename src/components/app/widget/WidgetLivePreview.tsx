@@ -531,17 +531,26 @@ export function WidgetLivePreview({
     function boot(manifest) {
       var styleFile = (manifest && manifest[desc.style]) || desc.style;
       var scriptFile = (manifest && manifest[desc.script]) || desc.script;
+      var styleReady = false;
+      var scriptReady = false;
+      var mod = null;
+      function prepareAndRender() {
+        if (!styleReady || !scriptReady || !mod || !mod.create) return;
+        var preparation = typeof mod.prepare === 'function' ? mod.prepare() : null;
+        Promise.resolve(preparation).catch(function () {}).then(function () { gsRenderPreview(mod); });
+      }
       var link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = '/widget/' + styleFile;
+      link.onload = function () { styleReady = true; prepareAndRender(); };
+      link.onerror = function () { styleReady = true; prepareAndRender(); };
       document.head.appendChild(link);
       var scr = document.createElement('script');
       scr.src = '/widget/' + scriptFile;
       scr.onload = function () {
-        var mod = window[desc.globalKey];
-        if (!mod || !mod.create) return;
-        var preparation = typeof mod.prepare === 'function' ? mod.prepare() : null;
-        Promise.resolve(preparation).catch(function () {}).then(function () { gsRenderPreview(mod); });
+        mod = window[desc.globalKey];
+        scriptReady = true;
+        prepareAndRender();
       };
       document.body.appendChild(scr);
     }

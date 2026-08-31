@@ -9609,6 +9609,24 @@ export type Database = {
         Returns: string
       }
       enqueue_kb_catchup: { Args: { _workspace_id: string }; Returns: number }
+      ensure_active_conversation: {
+        Args: {
+          p_contact_id?: string
+          p_lock_key: string
+          p_match_contact_id?: string
+          p_match_session_id?: string
+          p_match_thread_key?: string
+          p_metadata?: Json
+          p_subject?: string
+          p_visitor_session_id?: string
+          p_workspace_id: string
+        }
+        Returns: {
+          created: boolean
+          id: string
+          matched_by: string
+        }[]
+      }
       evaluate_alert_rules: { Args: never; Returns: Json }
       expire_stale_trials: { Args: never; Returns: number }
       fail_entitlement_fanout: {

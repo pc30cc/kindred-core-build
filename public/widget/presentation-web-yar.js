@@ -1124,7 +1124,7 @@
     function skeletonHomeHtml(vm) {
       vm = vm || {};
       return '<div class="wy-view wy-view-home home-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44, stack: true }) +
+        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44 }) +
         '<div class="wy-home-body">' +
           '<div class="wy-scroll wy-home-scroll" aria-hidden="true">' +
             '<section class="home-greeting-block">' +

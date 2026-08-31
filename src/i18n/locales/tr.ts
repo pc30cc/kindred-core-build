@@ -433,6 +433,11 @@ const tr: TranslationKeys = {
     newConversation: 'Yeni konuşma',
     previewYou: 'Siz',
     previewAi: 'Yapay zekâ',
+    previewImage: 'bir görsel gönderdi',
+    previewAudio: 'bir sesli mesaj gönderdi',
+    previewVideo: 'bir video gönderdi',
+    previewFile: 'bir dosya gönderdi',
+
     noMessages: 'Henüz mesaj yok',
     emptyNoMatches: 'Sonuç bulunamadı',
     emptyAutomated: 'Yapay zekâ tarafından yönetilen görüşme yok',

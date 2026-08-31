@@ -945,15 +945,24 @@ export default function InboxPage() {
           </div>
   );
 
-  /* Secondary views live in the app top bar as header tabs (underline style). */
+  /* Secondary views sit on the bottom edge of the top bar as folder tabs
+     that visually connect to the inbox surface below. */
   const headTabBase =
-    'group relative flex h-full items-center gap-1.5 px-3 text-[13px] font-semibold whitespace-nowrap ' +
-    'transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm';
-  const headTabUnderline = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
-    'pointer-events-none absolute inset-x-2 bottom-0 h-[2px] rounded-full transition-all duration-200',
+    'group relative flex h-[34px] items-center gap-1.5 px-3.5 -mb-px text-[13px] font-semibold whitespace-nowrap ' +
+    'rounded-t-lg border border-b-0 transition-all duration-150 ' +
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+  const headTabState = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
     active
-      ? (tone === 'destructive' ? 'bg-destructive opacity-100' : 'bg-primary opacity-100')
-      : 'bg-foreground/30 opacity-0 group-hover:opacity-60',
+      ? cn(
+          'bg-card border-border shadow-[0_-1px_2px_hsl(var(--foreground)/0.04)]',
+          tone === 'destructive' ? 'text-destructive' : 'text-primary',
+        )
+      : 'bg-transparent border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+  );
+  /* Covers the 1px bottom border of the bar so the active tab merges with the panel. */
+  const headTabSeam = (active: boolean) => cn(
+    'pointer-events-none absolute inset-x-0 -bottom-px h-[2px] transition-opacity duration-150',
+    active ? 'bg-card opacity-100' : 'opacity-0',
   );
 
   const allActive = !isQueueMode && !extraChip && filter === 'all';
@@ -962,18 +971,18 @@ export default function InboxPage() {
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
-            className="flex h-full items-stretch gap-0.5"
+            className="flex h-full items-end gap-1"
             dir={dir}
           >
             <button
               role="tab"
               aria-selected={allActive}
               onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
-              className={cn(headTabBase, allActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
+              className={cn(headTabBase, headTabState(allActive))}
             >
               <Inbox className="w-4 h-4" />
               {t('inbox.all') || 'All'}
-              <span className={headTabUnderline(allActive)} />
+              <span className={headTabSeam(allActive)} />
             </button>
             {/* AI (Automated queue) — AI-managed conversations */}
             <button
@@ -981,18 +990,19 @@ export default function InboxPage() {
               aria-selected={queue === 'automated'}
               onClick={() => setQueueTab(queue === 'automated' ? null : 'automated')}
               title={t('inbox.automatedInbox') || 'AI'}
-              className={cn(headTabBase, queue === 'automated' ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
+              className={cn(headTabBase, headTabState(queue === 'automated'))}
             >
               <Bot className="w-4 h-4" />
               {t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI'}
-              <span className={headTabUnderline(queue === 'automated')} />
+              <span className={headTabSeam(queue === 'automated')} />
             </button>
+
             {/* Needs human */}
             <button
               role="tab"
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
-              className={cn(headTabBase, extraChip === 'needs_human' ? 'text-destructive' : 'text-muted-foreground hover:text-foreground')}
+              className={cn(headTabBase, headTabState(extraChip === 'needs_human', 'destructive'))}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
               {liveTabs.needs_human ? (
@@ -1011,14 +1021,14 @@ export default function InboxPage() {
                   (stableCounts.needs_human || 0) === 0 && 'hidden',
                 )}
               >{stableCounts.needs_human || 0}</span>
-              <span className={headTabUnderline(extraChip === 'needs_human', 'destructive')} />
+              <span className={headTabSeam(extraChip === 'needs_human')} />
             </button>
             {/* Colleagues — internal operator-to-operator chat */}
             <button
               role="tab"
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
-              className={cn(headTabBase, extraChip === 'colleagues' ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
+              className={cn(headTabBase, headTabState(extraChip === 'colleagues'))}
               title={t('inbox.colleagues') || 'Colleagues'}
             >
               {colleagueUnread > 0 && extraChip !== 'colleagues' ? (
@@ -1038,7 +1048,7 @@ export default function InboxPage() {
                   extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground',
                 )}
               >{colleagueUnread > 99 ? '99+' : colleagueUnread}</span>
-              <span className={headTabUnderline(extraChip === 'colleagues')} />
+              <span className={headTabSeam(extraChip === 'colleagues')} />
             </button>
           </div>
   );
@@ -1049,10 +1059,10 @@ export default function InboxPage() {
      views stay here as tabs, next to a compact unread indicator. */
   const topBarSummary = (
     <ToolbarPortal>
-      <div className="flex h-full items-center gap-2 px-1" dir={dir}>
+      <div className="flex h-full items-end gap-2 px-1 pb-0" dir={dir}>
         {toolbarTabsNode}
         {totalUnread > 0 && (
-          <span className="text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold tabular-nums">
+          <span className="mb-2 text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold tabular-nums">
             {totalUnread > 99 ? '99+' : totalUnread}
           </span>
         )}

@@ -596,9 +596,13 @@ function WidgetPageContent() {
                       <p className="text-[11px] text-muted-foreground">
                         {t('widgetPage.appearance.logoHint')}
                       </p>
+                      {!capAllowed('widget_workspace_logo') && (
+                        <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                      )}
                     </div>
                     <Switch
-                      checked={live?.show_logo ?? true}
+                      disabled={!capAllowed('widget_workspace_logo')}
+                      checked={capAllowed('widget_workspace_logo') && (live?.show_logo ?? true)}
                       onCheckedChange={v => setField('show_logo', v, 0)}
                     />
                   </div>
@@ -608,12 +612,17 @@ function WidgetPageContent() {
                       <p className="text-[11px] text-muted-foreground">
                         {t('widgetPage.appearance.showTeamAvatarsHint')}
                       </p>
+                      {!capAllowed('widget_team_avatars') && (
+                        <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                      )}
                     </div>
                     <Switch
-                      checked={live?.show_team_avatars ?? true}
+                      disabled={!capAllowed('widget_team_avatars')}
+                      checked={capAllowed('widget_team_avatars') && (live?.show_team_avatars ?? true)}
                       onCheckedChange={v => setField('show_team_avatars', v, 0)}
                     />
                   </div>
+
                 </CardContent>
               </Card>
 

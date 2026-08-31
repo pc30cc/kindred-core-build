@@ -47,7 +47,7 @@ import { enforceMaxConversationsLimit } from '../services/billing/conversationLi
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { applyPostSendAction } from '../services/conversationPostSend.js';
-import { isActionableCustomerTurn, isQualifiedReply } from '../services/needsReply.js';
+import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer } from '../services/needsReply.js';
 
 
 export const conversationsRouter = Router();
@@ -954,6 +954,10 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       // conversation decides the obligation (see services/needsReply.ts).
       const needsReplyByConv: Record<string, boolean> = {};
       const needsReplyDecided = new Set<string>();
+      // Oldest actionable customer turn of the CURRENT unanswered streak, so
+      // the Inbox can rank by real waiting age instead of `updated_at` (which
+      // assignment, routing metadata and delivery receipts also bump).
+      const waitingSinceByConv: Record<string, string | null> = {};
       for (const m of (msgs || []) as any[]) {
         if (!m.conversation_id) continue;
         // Channel menu/button taps are navigation, not conversation content:
@@ -969,13 +973,21 @@ conversationsRouter.get('/', async (req: any, res: any) => {
           lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, sender_type: m.sender_type };
         }
 
-        if (!needsReplyDecided.has(m.conversation_id)) {
-          if (isActionableCustomerTurn(m as any)) {
-            needsReplyByConv[m.conversation_id] = true;
-            needsReplyDecided.add(m.conversation_id);
-          } else if (isQualifiedReply(m as any)) {
+        // Rows arrive newest-first. The first conversational turn decides the
+        // obligation; we then keep walking back over the customer streak to
+        // find when the wait actually started.
+        if (isQualifiedCustomerFacingAnswer(m as any)) {
+          if (!needsReplyDecided.has(m.conversation_id)) {
             needsReplyByConv[m.conversation_id] = false;
-            needsReplyDecided.add(m.conversation_id);
+          }
+          needsReplyDecided.add(m.conversation_id);
+        } else if (isActionableCustomerTurn(m as any)) {
+          if (!needsReplyDecided.has(m.conversation_id)) {
+            needsReplyByConv[m.conversation_id] = true;
+            waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
+          } else if (needsReplyByConv[m.conversation_id]) {
+            // Still inside the unanswered streak → the wait began earlier.
+            waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
           }
         }
 
@@ -994,6 +1006,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         // Only an `open` thread can owe the customer an answer: `pending`
         // means we are waiting for THEM, `resolved`/`closed` are done.
         c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
+        c.waiting_since = c.needs_reply ? (waitingSinceByConv[c.id] ?? null) : null;
       }
     }
 

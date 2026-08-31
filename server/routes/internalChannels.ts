@@ -59,6 +59,7 @@ import { whatsappToBotUpdates } from '../services/channels/whatsapp/toBotUpdate.
 import { instagramToBotUpdates } from '../services/channels/instagram/toBotUpdate.js';
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
+import { publishOperatorEvent } from '../services/realtime/publish.js';
 
 export const internalChannelsRouter = Router();
 

@@ -991,6 +991,7 @@ export default function InboxPage() {
             >
               <Inbox className="w-4 h-4" />
               {t('inbox.all') || 'All'}
+              <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
             {/* AI (Automated queue) — AI-managed conversations */}
@@ -1003,6 +1004,7 @@ export default function InboxPage() {
             >
               <Bot className="w-4 h-4" />
               {t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI'}
+              <span className={headTabAccent(queue === 'automated')} />
               <span className={headTabSeam(queue === 'automated')} />
             </button>
 
@@ -1030,6 +1032,7 @@ export default function InboxPage() {
                   (stableCounts.needs_human || 0) === 0 && 'hidden',
                 )}
               >{stableCounts.needs_human || 0}</span>
+              <span className={headTabAccent(extraChip === 'needs_human', 'destructive')} />
               <span className={headTabSeam(extraChip === 'needs_human')} />
             </button>
             {/* Colleagues — internal operator-to-operator chat */}
@@ -1057,6 +1060,7 @@ export default function InboxPage() {
                   extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground',
                 )}
               >{colleagueUnread > 99 ? '99+' : colleagueUnread}</span>
+              <span className={headTabAccent(extraChip === 'colleagues')} />
               <span className={headTabSeam(extraChip === 'colleagues')} />
             </button>
           </div>

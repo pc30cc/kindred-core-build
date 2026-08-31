@@ -458,6 +458,19 @@ function WidgetPageContent() {
                     </div>
                   </div>
 
+                  {/* 6 — Launcher bubble text (beside the floating button) */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.fabLabel')}</Label>
+                    <Input
+                      value={(live as any)?.fab_label || ''}
+                      onChange={e => setField('fab_label' as any, e.target.value)}
+                      placeholder={t('widgetPage.appearance.fabLabelPlaceholder')}
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
+                  </div>
+
+
+
                   {/* 6 — Composer placeholder */}
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.preview.inputPlaceholder')}</Label>

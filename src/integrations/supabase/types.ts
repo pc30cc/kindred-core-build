@@ -7838,6 +7838,7 @@ export type Database = {
           ask_phone: boolean
           created_at: string
           history_continue_window_hours: number
+          prechat_timing: string
           require_email: boolean
           require_name: boolean
           require_phone: boolean
@@ -7852,6 +7853,7 @@ export type Database = {
           ask_phone?: boolean
           created_at?: string
           history_continue_window_hours?: number
+          prechat_timing?: string
           require_email?: boolean
           require_name?: boolean
           require_phone?: boolean
@@ -7866,6 +7868,7 @@ export type Database = {
           ask_phone?: boolean
           created_at?: string
           history_continue_window_hours?: number
+          prechat_timing?: string
           require_email?: boolean
           require_name?: boolean
           require_phone?: boolean

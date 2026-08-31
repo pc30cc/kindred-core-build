@@ -1,12 +1,13 @@
 import { useTranslation } from '@/i18n';
-import { useWidgetPrechatSettings, useUpdateWidgetPrechatSettings, type WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
+import { useWidgetPrechatSettings, useUpdateWidgetPrechatSettings, type WidgetPrechatSettings, type PrechatTiming } from '@/hooks/useWidgetIdentity';
 import { useWidgetPlatformSettings, type PreChatPolicy } from '@/hooks/useWidgetPlatformSettings';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { User, Mail, Phone, ShieldCheck, Lock, Info } from 'lucide-react';
+import { User, Mail, Phone, ShieldCheck, Lock, Info, Clock, Sparkles, UserCheck, EyeOff } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+
 
 interface Props {
   workspaceId: string | undefined;
@@ -53,7 +54,9 @@ export function PrechatSection({ workspaceId }: Props) {
     ask_name: true, ask_email: true, ask_phone: false,
     require_name: true, require_email: true, require_phone: false,
     verify_email: false, verify_phone: false,
+    prechat_timing: 'after_handoff',
     history_continue_window_hours: 24,
+
   };
 
   const policyByField: Record<FieldKey, PreChatPolicy | undefined> = {
@@ -62,11 +65,67 @@ export function PrechatSection({ workspaceId }: Props) {
     phone: platform?.prechat_phone_policy,
   };
 
+  const anyFieldAsked = !!(s.ask_name || s.ask_email || s.ask_phone);
+  const timing: PrechatTiming = (['always', 'after_handoff', 'never'] as const).includes(s.prechat_timing as PrechatTiming)
+    ? (s.prechat_timing as PrechatTiming)
+    : 'after_handoff';
+
+  const TIMING_OPTIONS: { value: PrechatTiming; icon: React.ComponentType<{ className?: string }> }[] = [
+    { value: 'always', icon: Sparkles },
+    { value: 'after_handoff', icon: UserCheck },
+    { value: 'never', icon: EyeOff },
+  ];
+
   return (
     <div className="space-y-4" dir={dir}>
       <Card className="card-elevated">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="h-4 w-4" /> {t('widgetPage.prechat.timingTitle')}
+          </CardTitle>
+          <CardDescription>{t('widgetPage.prechat.timingDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2.5">
+          {TIMING_OPTIONS.map((opt) => {
+            const Icon = opt.icon;
+            const selected = timing === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={updateMut.isPending}
+                onClick={() => { if (!selected) update({ prechat_timing: opt.value }); }}
+                className={`w-full text-start rounded-lg border p-3.5 transition-all flex items-start gap-3 ${
+                  selected
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                    : 'border-border hover:border-primary/40 hover:bg-muted/40'
+                } disabled:opacity-60`}
+              >
+                <div className={`p-2 rounded-lg shrink-0 ${selected ? 'bg-primary/15' : 'bg-muted'}`}>
+                  <Icon className={`h-4 w-4 ${selected ? 'text-primary' : 'text-muted-foreground'}`} />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{t(`widgetPage.prechat.timing_${opt.value}` as any)}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {t(`widgetPage.prechat.timing_${opt.value}_hint` as any)}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+          {timing !== 'never' && !anyFieldAsked && (
+            <div className="flex items-start gap-2 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-lg p-3 text-xs">
+              <Info className="h-4 w-4 mt-0.5 shrink-0" />
+              <p>{t('widgetPage.prechat.timingNoFields')}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className={`card-elevated transition-opacity ${timing === 'never' ? 'opacity-60' : ''}`}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+
             <ShieldCheck className="h-4 w-4" /> {t('widgetPage.prechat.title')}
           </CardTitle>
           <CardDescription>

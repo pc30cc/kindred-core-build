@@ -121,8 +121,14 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   const workspaceId = req.params.workspaceId;
   const parsed = widgetSettingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  // Whitelisted enum — never let an arbitrary string reach the CHECK constraint.
+  const patch = parsed.data as Record<string, any>;
+  if ('prechat_timing' in patch && !['always', 'after_handoff', 'never'].includes(patch.prechat_timing)) {
+    return res.status(400).json({ error: 'invalid_prechat_timing' });
+  }
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_prechat_settings')

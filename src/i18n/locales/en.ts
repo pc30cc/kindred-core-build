@@ -4003,6 +4003,16 @@ const en = {
     prechat: {
       title: 'Pre-chat form fields',
       description: 'Choose what visitors must provide before sending their first message. Fields locked by your platform admin cannot be changed here.',
+      timingTitle: 'When is the pre-chat form shown?',
+      timingDescription: 'Pick the exact moment visitors are asked for their contact details.',
+      timing_always: 'Right at the start',
+      timing_always_hint: 'The form appears before the conversation begins, even when the AI agent answers first.',
+      timing_after_handoff: 'Only after handoff to an operator',
+      timing_after_handoff_hint: 'Visitors chat with the AI friction-free; the form only appears once a human takes over (or when AI is off). Recommended.',
+      timing_never: 'Never show it',
+      timing_never_hint: 'Contact details are never requested, unless the visitor is already identified.',
+      timingNoFields: 'No field is enabled, so the form will never appear. Enable at least one field below.',
+
       name: 'Name',
       email: 'Email',
       phone: 'Phone',

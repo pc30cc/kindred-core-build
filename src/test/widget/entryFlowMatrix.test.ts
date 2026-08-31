@@ -23,11 +23,42 @@ import { rankAutoCandidates, rotateFromCursor } from '../../../server/services/c
 import { hasOfflineContactCapability, pickHandoffOfflineMessage } from '../../../server/services/ai-agent/runtime/templates';
 
 type Flow = 'ai_entry' | 'ai_handoff' | 'human_entry';
+type Timing = 'always' | 'after_handoff' | 'never';
 
-function shouldRequirePrechat(flow: Flow, fieldPresenceNeedsPrechat: boolean): boolean {
-  if (flow === 'ai_entry') return false;
+function shouldRequirePrechat(
+  flow: Flow,
+  fieldPresenceNeedsPrechat: boolean,
+  timing: Timing = 'after_handoff',
+): boolean {
+  if (timing === 'never') return false;
+  if (flow === 'ai_entry' && timing !== 'always') return false;
   return fieldPresenceNeedsPrechat;
 }
+
+describe('pre-chat timing setting', () => {
+  it("'never' suppresses the form in every flow, even with fields configured", () => {
+    for (const flow of ['ai_entry', 'ai_handoff', 'human_entry'] as Flow[]) {
+      expect(shouldRequirePrechat(flow, true, 'never')).toBe(false);
+    }
+  });
+
+  it("'always' shows the form on AI entry too", () => {
+    expect(shouldRequirePrechat('ai_entry', true, 'always')).toBe(true);
+    expect(shouldRequirePrechat('ai_handoff', true, 'always')).toBe(true);
+    expect(shouldRequirePrechat('human_entry', true, 'always')).toBe(true);
+  });
+
+  it("'always' still requires at least one configured field", () => {
+    expect(shouldRequirePrechat('ai_entry', false, 'always')).toBe(false);
+  });
+
+  it("'after_handoff' (default) keeps AI entry friction-free", () => {
+    expect(shouldRequirePrechat('ai_entry', true, 'after_handoff')).toBe(false);
+    expect(shouldRequirePrechat('ai_handoff', true, 'after_handoff')).toBe(true);
+    expect(shouldRequirePrechat('human_entry', true, 'after_handoff')).toBe(true);
+  });
+});
+
 
 describe('entry-flow matrix', () => {
   it('1. AI on (auto), Human online, Prechat off → AI_CHAT, no prechat', () => {

@@ -2036,7 +2036,7 @@ export default function InboxPage() {
                     className={cn(
                       'flex gap-2.5 group items-end',
                       isAgent ? 'flex-row-reverse' : 'flex-row',
-                      sameSenderAsPrev ? 'mt-1' : 'mt-3',
+                      sameSenderAsPrev ? 'mt-0.5' : 'mt-3',
                     )}
                   >
                     {/* Avatar column — beside the last bubble of each streak */}
@@ -2090,7 +2090,8 @@ export default function InboxPage() {
                       </div>
                       {/* Name + time strip below the (last) bubble of a streak */}
                       <div className={cn(
-                        'flex items-center gap-1.5 mt-1 min-h-[18px]',
+                        'flex items-center gap-1.5',
+                        showMeta ? 'mt-1 min-h-[18px]' : 'h-0 overflow-hidden group-hover:h-4 group-hover:mt-0.5',
                         isAgent ? 'flex-row-reverse' : 'flex-row',
                       )}>
                         {showMeta ? (

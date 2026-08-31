@@ -94,13 +94,24 @@ describe('worker boundary', () => {
     expect(workerSource).toContain('/internal/channels/outbound-result');
   });
 
-  it('keeps the conversation insert aligned with the deployed schema', () => {
-    const conversationInsert = inboundSource.match(
-      /\.from\('conversations'\)\s*\.insert\(\{([\s\S]*?)\}\)\s*\.select/,
+  it('keeps channel conversation creation aligned with the deployed schema', () => {
+    // Creation moved into the atomic public.ensure_active_conversation RPC
+    // (migration 071). The schema contract is unchanged: channel identity
+    // lives in `metadata`, there is no `conversations.channel` column.
+    expect(inboundSource).toContain("sb.rpc('ensure_active_conversation'");
+    const rpcArgs = inboundSource.match(
+      /sb\.rpc\('ensure_active_conversation',\s*\{([\s\S]*?)\n\s*\}\);/,
     )?.[1] ?? '';
-    expect(conversationInsert).not.toContain('\n      channel: input.provider,');
-    expect(conversationInsert).toContain('metadata:');
+    expect(rpcArgs).toContain('p_metadata:');
+    expect(rpcArgs).toContain('channel: input.provider,');
+    expect(rpcArgs).not.toMatch(/^\s*channel:/m);
+    const sqlInsert = ensureConversationMigrationSource.match(
+      /INSERT INTO public\.conversations\s*\(([\s\S]*?)\)/,
+    )?.[1] ?? '';
+    expect(sqlInsert).toContain('metadata');
+    expect(sqlInsert).not.toMatch(/(^|,)\s*channel\s*(,|$)/);
   });
+
 
   it('does not acknowledge conversation creation failures as ignored', () => {
     expect(inboundSource).not.toContain("last_error: 'conversation_creation_failed'");

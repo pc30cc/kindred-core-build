@@ -239,7 +239,7 @@
         // left→right everywhere. Core wires the [data-audio-*] hooks.
         return '<div class="msg-att msg-att-audio" data-audio-player dir="ltr">' +
           '<audio preload="metadata" data-att-media-src="' + id + '" data-audio-el></audio>' +
-          '<button type="button" class="wy-ap-play" data-audio-toggle aria-label="' + esc(t('play') || 'Play') + '">' +
+          '<button type="button" class="wy-ap-play" data-audio-toggle aria-label="' + esc(t('playAudio')) + '">' +
             '<span class="wy-ap-ico wy-ap-ico-play"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7L9.53 4.35A1 1 0 0 0 8 5.2Z"/></svg></span>' +
             '<span class="wy-ap-ico wy-ap-ico-pause"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg></span>' +
             '<span class="wy-ap-spinner" aria-hidden="true"></span>' +

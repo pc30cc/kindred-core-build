@@ -700,6 +700,7 @@
         retry: 'Retry',
         download: 'Download',
         openFile: 'Open',
+        playAudio: 'Play voice message',
         closePreview: 'Close preview',
         imageUnavailable: 'Image unavailable',
         // Phase 7 — message lifecycle
@@ -906,6 +907,7 @@
         retry: 'تلاش مجدد',
         download: 'دانلود',
         openFile: 'باز کردن',
+        playAudio: 'پخش پیام صوتی',
         closePreview: 'بستن پیش‌نمایش',
         imageUnavailable: 'تصویر در دسترس نیست',
         // Phase 7 — message lifecycle
@@ -1106,6 +1108,7 @@
         retry: 'Yeniden dene',
         download: 'İndir',
         openFile: 'Aç',
+        playAudio: 'Sesli mesajı oynat',
         closePreview: 'Önizlemeyi kapat',
         imageUnavailable: 'Görsel kullanılamıyor',
         // Phase 7 — message lifecycle

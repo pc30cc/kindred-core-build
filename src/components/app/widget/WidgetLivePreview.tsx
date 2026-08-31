@@ -381,7 +381,7 @@ export function WidgetLivePreview({
       ...(poweredBy !== undefined
         ? { poweredBy, showPoweredBy: poweredBy !== null }
         : {}),
-      replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : '',
+      replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : null,
       welcomeMessage: welcome,
       logoUrl: logo || null,
       showLogo: s.show_logo !== false,

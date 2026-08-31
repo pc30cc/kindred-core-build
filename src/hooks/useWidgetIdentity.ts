@@ -10,6 +10,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
 
+export type PrechatTiming = 'always' | 'after_handoff' | 'never';
+
 export interface WidgetPrechatSettings {
   workspace_id: string;
   ask_name: boolean;
@@ -20,8 +22,10 @@ export interface WidgetPrechatSettings {
   require_phone: boolean;
   verify_email: boolean;
   verify_phone: boolean;
+  prechat_timing: PrechatTiming;
   history_continue_window_hours: number;
 }
+
 
 export function useWidgetPrechatSettings(workspaceId: string | undefined) {
   return useQuery({

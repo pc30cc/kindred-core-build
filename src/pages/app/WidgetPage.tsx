@@ -180,6 +180,11 @@ function WidgetPageContent() {
   );
 
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
+  /** Colour input needs a hex value; non-hex (rgba) shadows fall back to black. */
+  const shadowColor = /^#[0-9a-f]{6}$/i.test(String((live as any)?.shadow_color || ''))
+    ? String((live as any).shadow_color)
+    : '#000000';
+
   const previewView: PreviewView =
     manualView ??
     (tab === 'prechat' ? 'prechat'

@@ -218,6 +218,17 @@
     font-family: var(--font-primary, var(--font-family-base, 'IRANSans', 'InterWY', system-ui, sans-serif));
   }
 
+  /* Native form controls default to the browser UI font — lock them to the
+     inherited app typography so no control escapes IRANSans. */
+  button,
+  input,
+  textarea,
+  select,
+  option {
+    font-family: inherit;
+  }
+
+
   html, body {
     @apply bg-background text-foreground antialiased;
     font-size: 15px;

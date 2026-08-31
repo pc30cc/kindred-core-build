@@ -1481,6 +1481,16 @@ export default function InboxPage() {
                             {t(`inbox.priority_${conv.priority}`) || conv.priority}
                           </span>
                         )}
+                        {/* Needs Reply — the customer is waiting for US. Independent
+                            of unread: opening the thread clears unread, not this. */}
+                        {(conv as any).needs_reply && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                            title={t('inbox.needsReplyTip') || 'Customer is waiting for a reply'}
+                          >
+                            <Clock className="w-3 h-3" /> {t('inbox.needsReply') || 'Needs reply'}
+                          </span>
+                        )}
                         {conv.assigned_to && (
                           <span className="text-[11px] text-muted-foreground/60 flex items-center" title={t('inbox.assigned') || 'Assigned'}>
                             <UserCheck className="w-3.5 h-3.5" />

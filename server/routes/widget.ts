@@ -154,6 +154,7 @@ const DEFAULT_WIDGET_SETTINGS = {
   position: 'bottom-right',
   show_logo: true,
   show_team_avatars: true,
+  show_powered_by: true,
   offline_message: '',
   auto_open_delay: 0,
   theme: 'modern',
@@ -816,11 +817,16 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       return `${url}${separator}v=${encodeURIComponent(loaderVersion)}`;
     };
     // Powered-by footer — platform admin owns wording, brand and link;
-    // plans decide who sees it. Workspace settings have no say here.
+    // plans decide who sees it. The workspace may only hide it when its plan
+    // grants `widget_powered_by_toggle` (default preference: shown).
+    const workspaceMayHidePoweredBy = widgetEntitlements?.features?.widget_powered_by_toggle === true;
+    const workspaceWantsPoweredBy = workspaceMayHidePoweredBy
+      ? (ws as any).show_powered_by !== false
+      : true;
     const poweredBy = buildPoweredByConfig(
       platformWidget as any,
       (platformBranding as any)?.platform_name || '',
-      poweredByPlanAllows,
+      poweredByPlanAllows && workspaceWantsPoweredBy,
     );
     const widgetConfig = {
       enabled: true,

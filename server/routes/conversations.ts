@@ -46,6 +46,8 @@ import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
+import { applyPostSendAction } from '../services/conversationPostSend.js';
+
 
 export const conversationsRouter = Router();
 

@@ -4,6 +4,7 @@
  * Pure read-only aggregation across configuration tables and ai_agent_runs.
  * No side effects. Used by GET /api/ai-agent/overview.
  */
+import { resolveHumanRequestSignal } from './humanRequest.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { getOrCreateSettings } from './settings.js';
@@ -325,7 +326,12 @@ export async function runDryRun(
   };
   const triggerEvents: Array<'visitor_first_message' | 'topic_detected' | 'human_requested'> = ['visitor_first_message'];
   if ((topicResult.detectedTopics || []).length) triggerEvents.push('topic_detected');
-  if ((topTopic as any)?.slug === 'human-request') triggerEvents.push('human_requested');
+  // Preview must mirror runtime: topic alone is not a human request.
+  if (resolveHumanRequestSignal({
+    text: input.message,
+    configuredKeywords: (settings as any)?.handoff_keywords || [],
+    topicHumanRequest: (topTopic as any)?.slug === 'human-request',
+  }).explicit) triggerEvents.push('human_requested');
 
   let triggerMatched: any[] = [];
   let triggerExec: any[] = [];

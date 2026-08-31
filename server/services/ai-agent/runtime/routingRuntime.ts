@@ -8,12 +8,14 @@
  *
  * Self-host only. No external API calls. No LLM calls.
  */
+import { resolveHumanRequestSignal } from '../humanRequest.js';
 import type { RoutingRule } from '../runtimeConfig.js';
 import type { RuntimeEvaluationContext, RuntimeAction } from './types.js';
 import { readRuntimeFlags } from './conversationState.js';
 
-const HUMAN_REQUEST_RE =
-  /\b(operator|human|agent|representative|human agent|live agent)\b|وصل|انسان|پشتیبان|اپراتور|insan|destek|temsilci/i;
+// P0-9 — the old bare-noun regex (`پشتیبان|destek|agent|…`) matched ordinary
+// questions such as "پشتیبانی شما چطور کار می‌کنه؟" and routed them straight
+// to a human. Explicit transfer intent is resolved centrally instead.
 
 // Follow-up 9E series — the pre-strategy and post-strategy lifecycle phases
 // evaluate structurally disjoint trigger-type allowlists (see
@@ -129,8 +131,15 @@ function ruleMatches(rule: RoutingRule, ctx: RuntimeEvaluationContext): MatchRes
   const cond = (rule.conditions_json as any) || {};
   switch (rule.trigger_type) {
     case 'human_request': {
-      if (ctx.topTopic?.slug === 'human-request') return match(true);
-      return match(HUMAN_REQUEST_RE.test(ctx.visitorText || ''));
+      // Topic evidence is SUPPORTING only — it can no longer match by itself.
+      // Owner-configured keywords on the rule are still honoured, routed
+      // through the canonical intent resolver.
+      const signal = resolveHumanRequestSignal({
+        text: ctx.visitorText || '',
+        configuredKeywords: Array.isArray(cond.keywords) ? cond.keywords : [],
+        topicHumanRequest: ctx.topTopic?.slug === 'human-request',
+      });
+      return match(signal.explicit);
     }
     case 'topic_detected': {
       // Follow-up 9F.1 — fail-closed: a missing/invalid/ambiguous/

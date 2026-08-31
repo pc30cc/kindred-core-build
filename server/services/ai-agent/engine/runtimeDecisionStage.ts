@@ -63,7 +63,7 @@ export async function runRuntimeDecisionStage(
   const { settings, decisionTimeline } = pre;
   const {
     locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
-    humanRequestFromTopics, guidanceMeta, toolMeta, pageContextMetaRef,
+    humanRequestFromTopics, humanRequest, guidanceMeta, toolMeta, pageContextMetaRef,
     state, availability,
   } = ctxStage;
   const { routingMeta, triggerMeta, workflowMeta } = auto;
@@ -80,6 +80,15 @@ export async function runRuntimeDecisionStage(
     workflows: workflowMeta,
     tools: toolMeta,
     decision_timeline: decisionTimeline,
+    // P0-18 — safe, non-PII evidence for every handoff decision.
+    human_request: {
+      explicit: humanRequest.explicit,
+      reason: humanRequest.reason,
+      confidence: humanRequest.confidence,
+      matched_phrase: humanRequest.matchedPhrase ? String(humanRequest.matchedPhrase).slice(0, 120) : null,
+      topic_support: humanRequest.supporting.topicHumanRequest,
+      generic_keyword_mention: humanRequest.supporting.genericKeywordMention,
+    },
     runtime_warnings: runtimeCfg?.warnings || [],
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
@@ -87,22 +96,24 @@ export async function runRuntimeDecisionStage(
   const operatorForcedReply = input.operatorReplyNow === true;
   const decision = decideRuntime({ settings, state, availability, visitorText: question, operatorForcedReply });
   if (operatorForcedReply) decisionTimeline.push('operator_reply_now');
-  // If the visitor's intent matched the configured "human-request" topic but
-  // the legacy keyword check did not fire, upgrade the decision to handoff so
-  // we never miss an explicit "وصل کن" / "operatör".
-  // Skipped for an operator-forced turn: the human is already in the loop and
-  // has explicitly chosen to let the AI answer this message.
+  // P0-4/P0-7 — the `human-request` TOPIC is a supporting signal, never an
+  // authority to transfer. Only the canonical resolver (explicit transfer
+  // intent, bot rejection, or an owner-configured intent phrase) may upgrade
+  // a normal turn into a handoff. A topic-only match is recorded and the AI
+  // answers normally.
+  // Skipped for an operator-forced turn: the human is already in the loop.
   if (
     !operatorForcedReply &&
     settings.handoff_on_human_request &&
-    humanRequestFromTopics &&
+    humanRequest.explicit &&
     decision.action !== 'handoff' &&
     decision.action !== 'skip'
   ) {
-
     (decision as any).action = 'handoff';
     (decision as any).reason = 'human_request';
-    decisionTimeline.push('immediate_intent_human_request');
+    decisionTimeline.push(`immediate_intent_human_request:${humanRequest.reason}`);
+  } else if (!operatorForcedReply && humanRequestFromTopics && !humanRequest.explicit) {
+    decisionTimeline.push('human_request_topic_not_escalated');
   }
 
   // Routing rule with action=handoff overrides the legacy decision.
@@ -301,6 +312,12 @@ export async function runRuntimeDecisionStage(
         ...(handoffPolicyDecision ? handoffPolicyMeta(handoffPolicyDecision) : {}),
         ...ctxStage.memoryMetaBundle,
         handoff_committed: handoffDurable,
+        final_handoff_source:
+          triggerForcesHandoff ? 'message_trigger'
+          : workflowHandoffExecuted ? 'workflow'
+          : routingResult?.hardHandoff ? 'routing_rule'
+          : (decision as any).reason === 'human_request' ? `explicit_human_request:${humanRequest.reason}`
+          : String((decision as any).reason || 'runtime_decision'),
         ...(handoffDurable ? {} : { handoff_failure: 'handoff_state_commit_failed' }),
       },
     });

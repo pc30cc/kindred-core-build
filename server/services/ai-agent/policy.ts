@@ -3,6 +3,7 @@
  */
 import type { AgentSettings } from './settings.js';
 import type { RetrievedSource } from './retrieval.js';
+import { resolveHumanRequestSignal } from './humanRequest.js';
 
 export type DecisionAction = 'answer' | 'handoff' | 'no_answer' | 'blocked';
 
@@ -19,10 +20,13 @@ export interface Decision {
   topScore: number;
 }
 
+/**
+ * Explicit human request. Delegates to the canonical intent resolver — raw
+ * substring matching over generic keyword lists caused false handoffs on
+ * ordinary questions that merely mention "پشتیبان" / "agent".
+ */
 export function isHumanRequest(text: string, keywords: string[]): boolean {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  return (keywords || []).some((k) => k && lower.includes(k.toLowerCase()));
+  return resolveHumanRequestSignal({ text, configuredKeywords: keywords || [] }).explicit;
 }
 
 export function decide({ settings, question, sources }: DecisionInput): Decision {

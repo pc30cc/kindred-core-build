@@ -568,13 +568,18 @@
 
         var isTypingThis = !!(typewriter && typewriter.id === m.__id);
         var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
-        var displayText = (isTypingThis && !typingDone)
-          ? typewriter.tokens.slice(0, typewriter.revealedCount).join('')
+        var isRevealing = isTypingThis && !typingDone;
+        var displayText = isRevealing
+          ? typewriter.tokens.slice(0, Math.max(1, typewriter.revealedCount)).join('')
           : bodyText;
-        var textHtml = (displayText && String(displayText).length)
-          ? '<span class="msg-text"' + (isTypingThis && !typingDone ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
+        // While revealing, the target span MUST exist even at zero revealed
+        // tokens — otherwise the reveal timer finds no node and the bubble
+        // stays visibly empty until the next full re-render.
+        var textHtml = (isRevealing || (displayText && String(displayText).length))
+          ? '<span class="msg-text"' + (isRevealing ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
               esc(displayText) + '</span>'
           : '';
+
 
         var quoted = quoteText
           ? '<span class="msg-quote">' + esc(String(quoteText)) + '</span>'

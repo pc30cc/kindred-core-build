@@ -340,6 +340,10 @@ conversationAttachmentsRouter.get('/:id/file', async (req: any, res: any) => {
     res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    // The SPA and the API live on different subdomains, so <img>/<audio>/<video>
+    // loads are cross-origin. Helmet's default CORP (same-origin) makes the
+    // browser discard the response even though the request itself succeeded.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader(
       'Content-Disposition',

@@ -416,6 +416,43 @@ export default function InboxPage() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
   const [showMobileList, setShowMobileList] = useState(true);
+
+  // Resizable conversation list width (desktop only)
+  const [listWidth, setListWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('inbox.listWidth'));
+    return saved >= 260 && saved <= 640 ? saved : 340;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  useEffect(() => {
+    if (!isResizing) return;
+    const isRtl = document.documentElement.dir === 'rtl';
+    const onMove = (e: MouseEvent) => {
+      const w = isRtl ? window.innerWidth - e.clientX : e.clientX;
+      setListWidth(Math.min(640, Math.max(260, w)));
+    };
+    const onUp = () => setIsResizing(false);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizing]);
+  useEffect(() => {
+    localStorage.setItem('inbox.listWidth', String(listWidth));
+  }, [listWidth]);
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handler = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
   const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -1313,10 +1350,26 @@ export default function InboxPage() {
       {topBarSummary}
 
       {/* ═══════ LEFT: Conversation List ═══════ */}
-      <div className={cn(
-        'w-full md:w-[300px] lg:w-[340px] xl:w-[380px] shrink-0 border-e border-border flex flex-col bg-card',
-        selectedId && !showMobileList ? 'hidden md:flex' : 'flex'
-      )}>
+      <div
+        className={cn(
+          'w-full shrink-0 border-e border-border flex flex-col bg-card relative',
+          selectedId && !showMobileList ? 'hidden md:flex' : 'flex'
+        )}
+        style={isDesktop ? { width: listWidth } : undefined}
+      >
+        {/* Resize handle (desktop) */}
+        <div
+          onMouseDown={() => setIsResizing(true)}
+          onDoubleClick={() => setListWidth(340)}
+          className={cn(
+            'hidden md:block absolute inset-y-0 w-1.5 cursor-col-resize z-20 hover:bg-primary/30 transition-colors',
+            isResizing && 'bg-primary/40'
+          )}
+          style={{ insetInlineEnd: -3 }}
+          role="separator"
+          aria-orientation="vertical"
+        />
+
         {/* Header */}
         <div className="p-3 border-b border-border space-y-2.5">
           <div className="flex items-center justify-between">

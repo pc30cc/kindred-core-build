@@ -123,8 +123,8 @@
 
 /* ─── Launcher (the ONLY open/close control) ────────────────────────── */
 .launcher {
-  width: 56px;
-  height: 56px;
+  width: var(--gs-fab-size, 56px);
+  height: var(--gs-fab-size, 56px);
   border-radius: 9999px;
   background: var(--wy-accent);
   color: #fff;
@@ -138,7 +138,8 @@
 }
 .launcher:hover { transform: translateY(-2px) scale(1.04); }
 .launcher:active { transform: scale(0.96); }
-.launcher svg { width: 26px; height: 26px; }
+/* Icons scale with the launcher so chat and close are always the same box. */
+.launcher svg { width: calc(var(--gs-fab-size, 56px) * 0.46); height: calc(var(--gs-fab-size, 56px) * 0.46); }
 /* Icon swap (chat ⇄ close) is owned by the loader shell contract:
    state lives on .launcher.open with svg.chat-icon / svg.close-icon. */
 .launcher-badge {

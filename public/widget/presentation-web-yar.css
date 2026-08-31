@@ -287,6 +287,15 @@
 .wy-btn-block { width: 100%; }
 .wy-btn-grow { flex: 1 1 auto; }
 
+/* Online-operator stack inside the "start chat" CTA — avatars match the
+   button's own font-size so they read as part of the label. */
+.wy-btn .home-stack { margin-inline-end: 8px; vertical-align: middle; }
+.wy-btn .home-stack-item {
+  width: 1em; height: 1em; border-color: currentColor; margin-inline-end: -0.32em;
+}
+.wy-btn-primary .home-stack-item { background: rgba(255, 255, 255, 0.35); }
+.wy-btn .home-stack-item:last-child { margin-inline-end: 0; }
+
 .wy-actions-block { flex: none; display: flex; flex-direction: column; gap: 8px; }
 .wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }
 .wy-actions .wy-btn { flex: 1 1 auto; min-width: 0; }

@@ -233,13 +233,29 @@ internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
 
     const { data: existing, error: readError } = await sb
       .from('conversation_messages')
-      .select('id, metadata')
+      .select('id, conversation_id, metadata')
       .eq('id', data.message_id)
       .maybeSingle();
     if (readError) throw new Error(readError.message);
     if (!existing) return res.status(404).json({ error: 'unknown_message' });
 
-    const metadata = { ...(((existing as any).metadata ?? {}) as Record<string, unknown>) };
+    const previousMetadata = (((existing as any).metadata ?? {}) as Record<string, unknown>);
+    const previousOutcome = String(previousMetadata.channel_delivery ?? '');
+
+    // IDEMPOTENCY — the worker can legitimately report the same terminal
+    // outcome twice (immediate non-retryable error, then retry exhaustion on
+    // the same job). Re-writing the row would emit a duplicate realtime event
+    // and bump the conversation for no reason.
+    if (previousOutcome === data.outcome && data.outcome === 'failed') {
+      return res.json({ ok: true, deduped: true });
+    }
+    // A delivery that already succeeded is terminal: a late failure report for
+    // the same message must never downgrade it.
+    if (previousOutcome === 'sent' && data.outcome === 'failed') {
+      return res.json({ ok: true, ignored: 'already_sent' });
+    }
+
+    const metadata = { ...previousMetadata };
     metadata.channel_delivery = data.outcome;
     metadata.channel_delivery_at = new Date().toISOString();
     if (data.external_message_id != null) metadata.channel_message_id = String(data.external_message_id);
@@ -251,6 +267,27 @@ internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
       .update({ metadata })
       .eq('id', data.message_id);
     if (writeError) throw new Error(writeError.message);
+
+    if (data.outcome === 'failed') {
+      // The customer never received this answer, so the derived Needs Reply
+      // obligation may have just come back. Needs Reply is computed on read
+      // from the message stream, so the Inbox only has to re-fetch — no
+      // column, no backfill. `reason` tells the client to invalidate rather
+      // than to patch a field it cannot recompute locally.
+      const conversationId = (existing as any)?.conversation_id ?? null;
+      if (conversationId) {
+        void publishOperatorEvent(config, {
+          kind: 'conversation_updated',
+          conversation_id: conversationId,
+          workspace_id: data.workspace_id,
+          actor_id: null,
+          changes: {},
+          reason: 'outbound_delivery_failed',
+          message_id: data.message_id,
+          updated_at: new Date().toISOString(),
+        } as any);
+      }
+    }
 
     if (data.outcome === 'sent') {
       await updateIntegration(config, data.integration_id, {

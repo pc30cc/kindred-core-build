@@ -3,7 +3,7 @@
  * All work runs through the project's own Express backend (no edge functions).
  */
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '';
+import { API_BASE } from './apiBase';
 
 /**
  * Phase 6-S5-R7.2 — review mutations return real HTTP status codes:

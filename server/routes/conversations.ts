@@ -974,7 +974,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .limit(2000);
 
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
       const unreadByConv: Record<string, number> = {};
       // Needs Reply is derived from the message stream, never stored. Rows
       // arrive newest-first, so the FIRST conversational turn we see per

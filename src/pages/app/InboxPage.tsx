@@ -945,27 +945,35 @@ export default function InboxPage() {
           </div>
   );
 
-  /* Secondary views live in the app top bar as pretty tabs. */
+  /* Secondary views live in the app top bar as header tabs (underline style). */
+  const headTabBase =
+    'group relative flex h-full items-center gap-1.5 px-3 text-[13px] font-semibold whitespace-nowrap ' +
+    'transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm';
+  const headTabUnderline = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
+    'pointer-events-none absolute inset-x-2 bottom-0 h-[2px] rounded-full transition-all duration-200',
+    active
+      ? (tone === 'destructive' ? 'bg-destructive opacity-100' : 'bg-primary opacity-100')
+      : 'bg-foreground/30 opacity-0 group-hover:opacity-60',
+  );
+
+  const allActive = !isQueueMode && !extraChip && filter === 'all';
+
   const toolbarTabsNode = (
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
-            className="flex items-center gap-1"
+            className="flex h-full items-stretch gap-0.5"
             dir={dir}
           >
             <button
               role="tab"
-              aria-selected={!isQueueMode && !extraChip && filter === 'all'}
+              aria-selected={allActive}
               onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
-              className={cn(
-                pillBase,
-                !isQueueMode && !extraChip && filter === 'all'
-                  ? 'bg-primary/10 text-primary border-primary/30'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-              )}
+              className={cn(headTabBase, allActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
             >
               <Inbox className="w-4 h-4" />
               {t('inbox.all') || 'All'}
+              <span className={headTabUnderline(allActive)} />
             </button>
             {/* AI (Automated queue) — AI-managed conversations */}
             <button
@@ -973,27 +981,18 @@ export default function InboxPage() {
               aria-selected={queue === 'automated'}
               onClick={() => setQueueTab(queue === 'automated' ? null : 'automated')}
               title={t('inbox.automatedInbox') || 'AI'}
-              className={cn(
-                pillBase,
-                queue === 'automated'
-                  ? 'bg-primary/10 text-primary border-primary/30'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-              )}
+              className={cn(headTabBase, queue === 'automated' ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
             >
               <Bot className="w-4 h-4" />
               {t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI'}
+              <span className={headTabUnderline(queue === 'automated')} />
             </button>
-            {/* Extra chips: Needs human + Colleagues */}
+            {/* Needs human */}
             <button
               role="tab"
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
-              className={cn(
-                pillBase,
-                extraChip === 'needs_human'
-                  ? 'bg-destructive/10 text-destructive border-destructive/30'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-              )}
+              className={cn(headTabBase, extraChip === 'needs_human' ? 'text-destructive' : 'text-muted-foreground hover:text-foreground')}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
               {liveTabs.needs_human ? (
@@ -1009,21 +1008,17 @@ export default function InboxPage() {
                 aria-hidden={(stableCounts.needs_human || 0) === 0}
                 className={cn(
                   pillCount(extraChip === 'needs_human', 'destructive'),
-                  (stableCounts.needs_human || 0) === 0 && 'opacity-0',
+                  (stableCounts.needs_human || 0) === 0 && 'hidden',
                 )}
               >{stableCounts.needs_human || 0}</span>
+              <span className={headTabUnderline(extraChip === 'needs_human', 'destructive')} />
             </button>
             {/* Colleagues — internal operator-to-operator chat */}
             <button
               role="tab"
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
-              className={cn(
-                pillBase,
-                extraChip === 'colleagues'
-                  ? 'bg-primary/10 text-primary border-primary/30'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-              )}
+              className={cn(headTabBase, extraChip === 'colleagues' ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
               title={t('inbox.colleagues') || 'Colleagues'}
             >
               {colleagueUnread > 0 && extraChip !== 'colleagues' ? (
@@ -1038,14 +1033,16 @@ export default function InboxPage() {
               <span
                 aria-hidden={colleagueUnread === 0}
                 className={cn(
-                  'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
-                  colleagueUnread === 0 && 'opacity-0',
+                  'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums',
+                  colleagueUnread === 0 && 'hidden',
                   extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground',
                 )}
               >{colleagueUnread > 99 ? '99+' : colleagueUnread}</span>
+              <span className={headTabUnderline(extraChip === 'colleagues')} />
             </button>
           </div>
   );
+
 
 
   /* Top bar — only the three status tabs moved into the list; the other

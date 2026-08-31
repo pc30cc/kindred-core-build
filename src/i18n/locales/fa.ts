@@ -3918,7 +3918,7 @@ const fa: TranslationKeys = {
       shapeSquare: 'مربع گردشده',
       fabScale: 'اندازه دکمه شناور',
       fabIconColor: 'رنگ آیکون دکمه',
-      fabLabel: 'برچسب کنار دکمه',
+      fabLabel: 'متن حباب کنار دکمه شناور',
       fabLabelHint: 'متن کوتاهی که کنار دکمه شناور نمایش داده می‌شود.',
       fabIcon: 'آیکون دکمه شناور',
       iconChat: 'حباب گفتگو',

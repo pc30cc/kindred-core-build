@@ -2611,6 +2611,7 @@
     // can't fight the interval: buildMessagesHtml() always renders the
     // CURRENTLY revealed slice for the active id, so the two stay in sync.
     var lastRenderedBody = null;
+    var lastRenderedChatHtml = null;
     var lastMergedNewAiMessage = null;
     var typewriter = null; // { id, tokens, revealedCount, timer }
     // The handoff pre-chat card's prompt line animates once, the very
@@ -3365,10 +3366,17 @@
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
+      var html = buildMessagesHtml(s);
+      // Idempotent paint: a poll/refresh that produces byte-identical markup
+      // must NOT rewrite the DOM — rewriting kills the visitor's text
+      // selection and replays the row entrance animation (visible "shake").
+      if (body === lastRenderedBody && html === lastRenderedChatHtml) return;
       lastRenderedBody = body;
-      body.innerHTML = buildMessagesHtml(s);
+      lastRenderedChatHtml = html;
+      body.innerHTML = html;
       wireChatEvents(body);
     }
+
 
     // Inline handoff pre-chat — HANDOFF_PRECHAT state only (spec: identify
     // the visitor mid-thread, without hiding the conversation that already
@@ -3381,6 +3389,7 @@
       var animateSubtitle = !handoffPrechatSubtitleAnimated;
       var cardHtml = renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle);
       lastRenderedBody = body;
+      lastRenderedChatHtml = null;
       body.innerHTML = buildMessagesHtml(s, cardHtml);
       wireChatEvents(body);
       wirePrechatForm(body, identity, onSubmitted, { autofocus: false });

@@ -814,6 +814,11 @@ export default function InboxPage() {
     },
   };
 
+  const sendDisabled =
+    sendMessage.isPending ||
+    att.status === 'uploading' ||
+    (!message.trim() && att.status !== 'ready');
+
   const handleSend = async (actionOverride?: PostSendAction) => {
     if (!selectedId || !user) return;
     const hasText = message.trim().length > 0;

@@ -165,6 +165,21 @@ export function OperatorAssistPanel({
     : confidencePct >= 40 ? 'bg-warning/15 text-warning'
     : 'bg-destructive/10 text-destructive';
 
+  // Safety notes come back as machine codes — show a localized label instead.
+  const KNOWN_NOTES = [
+    'no_eligible_knowledge_sources',
+    'usage_increment_failed',
+    'llm_call_skipped',
+    'ai_provider_not_configured',
+    'retrieval_failed',
+    'low_confidence',
+  ];
+  const noteLabel = (note: string) => {
+    const code = note.split(':')[0];
+    if (KNOWN_NOTES.includes(code)) return t(`inbox.aiAssist.notes.${code}`);
+    return t('inbox.aiAssist.notes.generic');
+  };
+
   const noKnowledge =
     !!result && (
       (result.selected_sources?.length ?? 0) === 0 ||

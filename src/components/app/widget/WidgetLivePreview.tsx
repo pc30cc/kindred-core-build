@@ -185,6 +185,12 @@ export interface WidgetLivePreviewProps {
   workspaceName?: string;
   /** Platform identity used only by the powered-by footer. */
   platformName?: string;
+  /**
+   * Platform-owned powered-by footer payload, exactly as the widget bootstrap
+   * emits it. `null` => the footer must not render (platform switch off or the
+   * plan hides it), matching production.
+   */
+  poweredBy?: { text: string; brand: string; url: string | null } | null;
   /** @deprecated Compatibility alias; prefer workspaceName. */
   brandName?: string;
   teamMembers?: { name: string; avatar?: string | null; online: boolean }[];

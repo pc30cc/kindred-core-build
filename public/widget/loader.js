@@ -875,20 +875,26 @@
       shadowRoot.appendChild(link);
     }
 
-    // Self-hosted fonts — injected at DOCUMENT level (not the shadow root)
-    // because `document.fonts.load()` (used by the template's prepare() gate)
-    // only sees document-level faces. The stylesheet inlines the .woff2 bytes
-    // as data: URLs, so no cross-origin font fetch happens and a missing
-    // CORS header on the .woff2 files can never break typography.
-    try {
-      if (!document.getElementById("gs-widget-fonts")) {
-        var fontsLink = document.createElement("link");
-        fontsLink.id = "gs-widget-fonts";
-        fontsLink.rel = "stylesheet";
-        fontsLink.href = presentationCss.replace(/\/widget\/[^/]*$/, "/widget/fonts.css");
-        (document.head || document.documentElement).appendChild(fontsLink);
-      }
-    } catch (_) { /* noop */ }
+    // Optional presentation-owned font asset — a hashed, immutable stylesheet
+    // named by the active template's registry descriptor. The loader is
+    // deliberately generic: it knows no font family, no template id and no
+    // fixed path — only that the bootstrap may hand it one extra stylesheet.
+    //
+    // It is injected at DOCUMENT level (not the shadow root) because
+    // `document.fonts.load()` — used by the template's own prepare() gate —
+    // only sees document-level faces.
+    if (presentationFontsCss) {
+      try {
+        if (!document.getElementById("gs-presentation-fonts")) {
+          var fontsLink = document.createElement("link");
+          fontsLink.id = "gs-presentation-fonts";
+          fontsLink.rel = "stylesheet";
+          fontsLink.href = presentationFontsCss;
+          (document.head || document.documentElement).appendChild(fontsLink);
+        }
+      } catch (_) { /* noop */ }
+    }
+
 
     // Template stylesheet — injected AFTER runtime.css so template rules
     // keep their original cascade position. Core CSS stays template-agnostic.

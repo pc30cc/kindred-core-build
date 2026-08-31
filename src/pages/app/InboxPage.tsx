@@ -1359,13 +1359,6 @@ export default function InboxPage() {
               >
                 {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               </button>
-              <button
-                aria-label={t('inbox.newConversation') || 'New conversation'}
-                title={t('inbox.newConversation') || 'New conversation'}
-                className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
               {isGlobalAdmin && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>

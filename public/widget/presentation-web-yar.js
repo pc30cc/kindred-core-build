@@ -54,11 +54,21 @@
       close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     };
 
+    // Delivery ticks: one tick = sent, two ticks = delivered, two accent
+    // ticks = read. No textual label (design decision).
+    var TICKS = {
+      single: '<svg viewBox="0 0 20 12" width="15" height="10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.6l3 3L14.5 3"/></svg>',
+      double: '<svg viewBox="0 0 20 12" width="18" height="10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 6.6l3 3L11 3"/><path d="M8 9.6L14.5 3"/></svg>',
+    };
+
     // Workspace identity block reused by every header (home/list/articles/
     // article/precontact/chat). Never hardcodes a brand — everything comes
     // from config/view-model.
     function identityAvatarHtml(size) {
-      var logo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+      // Logo explicitly disabled by the workspace => render NO avatar layer at
+      // all (no initial-letter fallback circle behind it).
+      if (config && config.showLogo === false) return '';
+      var logo = (config && config.logoUrl) ? String(config.logoUrl) : '';
       var brand = workspaceName;
       var cls = 'wy-avatar wy-avatar-' + (size || 'md');
       if (logo) {
@@ -68,6 +78,7 @@
       var initial = (brand.trim().charAt(0) || 'W').toUpperCase();
       return '<span class="' + cls + '" aria-hidden="true">' + esc(initial) + '</span>';
     }
+
 
     function backButtonHtml(target) {
       return '<button type="button" class="wy-back" data-view-back="' + esc(target || 'home') +

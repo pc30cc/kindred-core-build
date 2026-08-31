@@ -82,6 +82,14 @@ export const WIDGET_CAPABILITY_KEYS = [
   'widget_domain_allowlist',
   'widget_assignment_routing',
   'widget_raw_ip_storage',
+  'widget_reply_time_text',
+  'widget_welcome_message',
+  'widget_launcher_label',
+  'widget_launcher_size',
+  'widget_launcher_icon',
+  'widget_composer_placeholder',
+  'widget_team_avatars',
+  'widget_workspace_logo',
 ] as const;
 
 async function resolveBoolean(

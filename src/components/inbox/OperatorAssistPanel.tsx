@@ -205,11 +205,6 @@ export function OperatorAssistPanel({
               {t('inbox.aiAssist.confidence', { value: String(confidencePct) })}
             </Badge>
           )}
-          {result?.provider && (
-            <span className="text-[10px] text-muted-foreground">
-              {result.provider}/{result.model}
-            </span>
-          )}
         </div>
         <button
           type="button"

@@ -637,14 +637,19 @@
     link.rel = 'stylesheet';
     link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
-    // Self-hosted font faces (no third-party CDN). Injected at document level
-    // so the shadow root can use them; idempotent per page.
+    // Self-hosted font faces (no third-party CDN). Only @font-face rules are
+    // injected at document level so the shadow root can use them; idempotent.
     try {
       if (!document.getElementById('ccw-widget-fonts')) {
-        var fl = document.createElement('link'); fl.id = 'ccw-widget-fonts';
-        fl.rel = 'stylesheet';
-        fl.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
-        document.head.appendChild(fl);
+        var fs = document.createElement('style'); fs.id = 'ccw-widget-fonts';
+        var fb = this.origin + '/widget/fonts/';
+        fs.textContent =
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:400;font-display:swap;src:url('" + fb + "iransans-400.woff2') format('woff2')}" +
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:500;font-display:swap;src:url('" + fb + "iransans-500.woff2') format('woff2')}" +
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:600;font-display:swap;src:url('" + fb + "iransans-700.woff2') format('woff2')}" +
+          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:700;font-display:swap;src:url('" + fb + "iransans-700.woff2') format('woff2')}" +
+          "@font-face{font-family:'InterWY';font-style:normal;font-weight:500;font-display:swap;src:url('" + fb + "inter-500.woff2') format('woff2')}";
+        document.head.appendChild(fs);
       }
     } catch (_) {}
     var root = document.createElement('div');

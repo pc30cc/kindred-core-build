@@ -180,6 +180,11 @@ function WidgetPageContent() {
   );
 
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
+  /** Colour input needs a hex value; non-hex (rgba) shadows fall back to black. */
+  const shadowColor = /^#[0-9a-f]{6}$/i.test(String((live as any)?.shadow_color || ''))
+    ? String((live as any).shadow_color)
+    : '#000000';
+
   const previewView: PreviewView =
     manualView ??
     (tab === 'prechat' ? 'prechat'
@@ -316,6 +321,40 @@ function WidgetPageContent() {
                   <CardDescription>{t('widgetPage.tabDesc.appearance')}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5 p-6 pt-0">
+                  {/* 1 — Display name (defaults to the workspace name) */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.appearance.brandName')}</Label>
+                    <Input
+                      value={(live as any)?.brand_name || ''}
+                      onChange={e => setField('brand_name' as any, e.target.value)}
+                      placeholder={workspace?.name || t('widgetPage.appearance.brandNamePlaceholder')}
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.brandNameHint')}</p>
+                  </div>
+
+                  {/* 2 — Reply-time note */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
+                    <Input
+                      value={(live as any)?.reply_time_text || ''}
+                      onChange={e => setField('reply_time_text' as any, e.target.value)}
+                      placeholder={t('widgetPage.appearance.replyTimeDefault')}
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
+                  </div>
+
+                  {/* 3 — Welcome message */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
+                    <Textarea
+                      value={widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)}
+                      onChange={e => setField('welcome_message', e.target.value)}
+                      rows={3}
+                      placeholder={widgetTextDefault('welcome', effectiveLocale)}
+                    />
+                  </div>
+
+                  {/* 4 — Primary + shadow colour */}
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widget.primaryColor')}</Label>
@@ -350,6 +389,46 @@ function WidgetPageContent() {
                       </div>
                     </div>
                     <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.shadowColor')}</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="color"
+                          value={shadowColor}
+                          onChange={e => setField('shadow_color' as any, e.target.value)}
+                          className="h-10 w-12 shrink-0 cursor-pointer p-1"
+                        />
+                        <Input
+                          value={(live as any)?.shadow_color || ''}
+                          dir="ltr"
+                          onChange={e => setField('shadow_color' as any, e.target.value)}
+                          className="text-start font-mono text-xs"
+                          placeholder="rgba(0, 0, 0, 0.25)"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {['rgba(0, 0, 0, 0.25)', '#3B82F6', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444'].map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            aria-label={c}
+                            onClick={() => setField('shadow_color' as any, c, 0)}
+                            className={cn(
+                              'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110',
+                              ((live as any)?.shadow_color || '').toLowerCase() === c.toLowerCase()
+                                ? 'border-foreground'
+                                : 'border-transparent',
+                            )}
+                            style={{ background: c }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.shadowColorHint')}</p>
+                    </div>
+                  </div>
+
+                  {/* 5 — Position + language */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widget.position')}</Label>
                       <Select
                         value={live?.position || 'bottom-right'}
@@ -362,19 +441,24 @@ function WidgetPageContent() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
+                      <Select
+                        value={effectiveLocale}
+                        disabled={!canSwitchLanguage}
+                        onValueChange={v => setField('locale', v, 0)}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {regionLocales.map((l) => (
+                            <SelectItem key={l} value={l}>{LOCALE_LABELS[l] || l}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
 
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
-                    <Textarea
-                      value={widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)}
-                      onChange={e => setField('welcome_message', e.target.value)}
-                      rows={3}
-                      placeholder={widgetTextDefault('welcome', effectiveLocale)}
-                    />
-                  </div>
-
+                  {/* 6 — Composer placeholder */}
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.preview.inputPlaceholder')}</Label>
                     <Input
@@ -383,32 +467,8 @@ function WidgetPageContent() {
                       placeholder={t('widgetPage.preview.inputPlaceholder')}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
-                    <Input
-                      value={(live as any)?.reply_time_text || ''}
-                      onChange={e => setField('reply_time_text' as any, e.target.value)}
-                      placeholder={t('widgetPage.preview.replyTimeLabel')}
-                    />
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
-                    <Select
-                      value={effectiveLocale}
-                      disabled={!canSwitchLanguage}
-                      onValueChange={v => setField('locale', v, 0)}
-                    >
-                      <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {regionLocales.map((l) => (
-                          <SelectItem key={l} value={l}>{LOCALE_LABELS[l] || l}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </CardContent>
+
               </Card>
 
               {/* ── Logo & branding ── */}

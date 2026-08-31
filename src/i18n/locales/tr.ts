@@ -3893,6 +3893,12 @@ const tr: TranslationKeys = {
       updateFailed: 'Şablon değiştirilemedi',
     },
     appearance: {
+      brandName: 'Görünen ad',
+      brandNamePlaceholder: 'Çalışma alanı adınız',
+      brandNameHint: "Widget'ın üstünde görünür. Varsayılan olarak çalışma alanı adıdır.",
+      replyTimeDefault: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
+      shadowColor: 'Gölge rengi',
+      shadowColorHint: 'Widget panelinin arkasındaki gölgeyi renklendirir.',
       colorsSection: 'Renkler',
       textsSection: 'Metinler',
       logoSection: 'Logo ve marka',

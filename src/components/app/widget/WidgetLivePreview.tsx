@@ -270,10 +270,12 @@ export function WidgetLivePreview({
 
     const primary: string = s.primary_color || '#3B82F6';
     const secondary: string = s.secondary_color || s.primary_color || '#6366F1';
+    const shadowColor: string = typeof s.shadow_color === 'string' ? s.shadow_color.trim() : '';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     /* Header titles use workspace identity only — launcher_text is a launcher
        concern and is not consumed by the Web Yar presentation. */
-    const title = (workspaceName || brandName || d.brandFallback) as string;
+    const title = ((typeof s.brand_name === 'string' && s.brand_name.trim())
+      || workspaceName || brandName || d.brandFallback) as string;
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
       || localizedValue(s.greeting_message, 'welcome', locale)
       || d.welcomeFallback) as string;
@@ -399,7 +401,7 @@ export function WidgetLivePreview({
         intro: welcome || d.welcomeFallback,
         homeGreeting: d.homeGreeting, homeWelcome: d.homeWelcome,
         homeTeamOnline: d.homeTeamOnline, homeTeamOffline: d.homeTeamOffline,
-        homeReplySlow: d.homeReplySlow, homeStartChat: d.homeStartChat,
+        homeReplyFast: d.homeReplyFast, homeReplySlow: d.homeReplySlow, homeStartChat: d.homeStartChat,
         homeLeaveMessage: d.homeLeaveMessage, homeHelpTitle: d.homeHelpTitle,
         homeSeeAll: d.homeSeeAll,
         msgSeen: d.msgSeen, msgSent: d.msgSeen, msgSending: d.msgSeen, msgFailed: d.msgSeen,
@@ -482,7 +484,7 @@ export function WidgetLivePreview({
   .site .bar.w2{width:62%}.site .bar.w3{width:78%}.site .bar.w4{width:45%}
   .site .block{height:120px;border-radius:14px;background:#E2E8F0;margin:16px 0;}
   .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:#E2E8F0}
-  .shell{--gs-primary:${esc(primary)};--gs-secondary:${esc(secondary)};--gs-fab-size:${fabSize}px;color:#1F2937;}
+  .shell{--gs-primary:${esc(primary)};--gs-secondary:${esc(secondary)};--gs-fab-size:${fabSize}px;${shadowColor ? `--gs-shadow:${esc(shadowColor)};` : ''}color:#1F2937;}
   /* PARITY RULE: the preview provides ONLY the fake page + viewport. It must
      NOT redefine panel geometry or lifecycle — the panel is positioned and
      toggled by the production presentation stylesheet, exactly like a real

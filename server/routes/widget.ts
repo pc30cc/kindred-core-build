@@ -938,8 +938,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       autoOpenDelay: ws.auto_open_delay || 0,
       showLogo: ws.show_logo ?? true,
       showTeamAvatars: ws.show_team_avatars !== false,
-      workspaceName: (typeof ws.brand_name === 'string' && ws.brand_name.trim())
-        || workspace?.name || '',
+      workspaceName: typeof ws.brand_name === 'string'
+        ? ws.brand_name.trim()
+        : (workspace?.name || ''),
+
       teamMembers,
       onlineOperators: 0, // Resolved client-side from realtime presence when supported.
       runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),

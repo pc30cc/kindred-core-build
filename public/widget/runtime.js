@@ -6370,15 +6370,25 @@
     //  * Core NEVER paints loading copy ("Loading…", "Searching…") and never
     //    builds template markup. It asks the active presentation for a
     //    skeleton by a normalized view key and renders whatever comes back.
-    //  * A skeleton is a COLD-BOOT affordance only. Once a surface has shown
-    //    real content, later refreshes keep that content on screen and the
-    //    only signal is the template's footer indicator (`data-conn-state`).
+    //  * A skeleton is a COLD-BOOT affordance PER SURFACE. Once a given
+    //    surface has shown real content, later refreshes of THAT surface keep
+    //    the content on screen and the only signal is the template's footer
+    //    indicator (`data-conn-state`). Surfaces the visitor has not opened
+    //    yet still get their own first-paint skeleton.
     //  * If the template implements no skeleton, nothing is painted — the
     //    visitor sees an empty surface rather than technical text.
-    var hadUsableContent = false;
+    var usableByView = {};
+
+    /** Normalized skeleton key for the surface currently owning the body. */
+    function currentViewKey() {
+      var tab = (shellStore.get() || {}).activeTab || 'home';
+      if (tab === 'help') return 'articles';
+      return tab;
+    }
 
     /** Marks that a real, non-skeleton surface has been painted. */
-    function markUsableContent() { hadUsableContent = true; }
+    function markUsableContent(view) { usableByView[view || currentViewKey()] = true; }
+
 
     function skeletonFor(view) {
       if (!Presentation || typeof Presentation.skeletonHtml !== 'function') return '';

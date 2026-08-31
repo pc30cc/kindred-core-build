@@ -13,7 +13,10 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { recordConversationEvent } from '../conversationEvents.js';
-import { resumeConversationIfPending } from '../conversationPending.js';
+import {
+  applyInboundConversationLifecycle,
+  INBOUND_REUSABLE_STATUSES,
+} from '../conversationLifecycle.js';
 import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publish.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
 import { handleTelegramInboundFlow } from './telegram/runtime.js';
@@ -127,7 +130,9 @@ async function ensureChannelConversation(
     .select('id')
     .eq('workspace_id', input.workspaceId)
     .contains('metadata', { channel_thread_key: threadKey })
-    .in('status', ['open', 'pending'])
+    // resolved threads are continued (they reopen once the message lands);
+    // closed threads are archived and MUST spawn a new conversation.
+    .in('status', INBOUND_REUSABLE_STATUSES as unknown as string[])
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -387,12 +392,12 @@ export async function processInboundMessage(
         .eq('id', conversation.id);
     }
 
-    // Customer replied on a channel thread parked as "awaiting reply" — put it
-    // back in the active queue. Runs AFTER the message is committed and AFTER
+    // Customer replied on a channel thread parked as "awaiting reply", or on a
+    // thread the operator had marked resolved — put it back in the active queue. Runs AFTER the message is committed and AFTER
     // the menu router verdict, so a `/start` or menu-keyboard tap (navigation,
     // not content) can never un-park a thread. Provider status/echo events
     // never reach this far: they are dropped by the normalizers.
-    await resumeConversationIfPending(config, {
+    await applyInboundConversationLifecycle(config, {
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
       source: input.provider,

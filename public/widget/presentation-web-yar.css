@@ -292,7 +292,7 @@
    fractional sampling made otherwise high-resolution profile photos soft. */
 .wy-btn .home-stack { margin-inline-end: 8px; vertical-align: middle; line-height: 0; }
 .wy-btn .home-stack-item {
-  width: 2rem; height: 2rem; border-width: 1px; border-color: currentColor;
+  width: 2rem; height: 2rem; border: none;
   margin-inline-end: -0.55rem;
 }
 

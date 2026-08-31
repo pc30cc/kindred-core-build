@@ -834,7 +834,7 @@
           back: 'home',
           title: vm.workspaceName || vm.brandName || workspaceName,
           subtitle: replyTimeText(true),
-          online: true,
+
         }) +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
           '<span class="presence-dot" data-presence-dot></span>' +

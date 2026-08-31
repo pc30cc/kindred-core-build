@@ -223,9 +223,11 @@ describe('channel ingest wiring (Telegram / Bale / WhatsApp / Instagram)', () =>
   });
 
   it('new conversations are born open and record a created event', () => {
-    expect(src).toContain("status: 'open'");
+    // status 'open' is set by the RPC; the ingest still records the event.
+    expect(src).toContain("rpc('ensure_active_conversation'");
     expect(src).toContain("eventType: 'created'");
   });
+
 });
 
 describe('widget ingest wiring', () => {

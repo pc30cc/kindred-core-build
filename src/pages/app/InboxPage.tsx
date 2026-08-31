@@ -37,6 +37,13 @@ import {
   MessageCircle, Hash, FileText, Download, ImageIcon,
   PhoneOff, Ban, ShieldOff, Users,
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import {
+  readSendActionPref, writeSendActionPref, type PostSendAction,
+} from '@/lib/send-action-pref';
 import { cn } from '@/lib/utils';
 import { VisitorNetworkCard } from '@/features/visitors/VisitorNetworkCard';
 import { contactDisplayName } from '@/lib/contact-display';
@@ -777,7 +784,16 @@ export default function InboxPage() {
   const [guidanceRequestId, setGuidanceRequestId] = useState<string | null>(null);
   const [guidanceRefresh, setGuidanceRefresh] = useState(0);
 
-  const handleSend = async () => {
+  /* Split Send — the agent's preferred action is remembered per agent
+     (localStorage, user-scoped). Enter runs exactly this action. */
+  const [sendAction, setSendAction] = useState<PostSendAction>('none');
+  useEffect(() => { setSendAction(readSendActionPref(user?.id)); }, [user?.id]);
+  const chooseSendAction = (action: PostSendAction) => {
+    setSendAction(action);
+    writeSendActionPref(user?.id, action);
+  };
+
+  const handleSend = async (actionOverride?: PostSendAction) => {
     if (!selectedId || !user) return;
     const hasText = message.trim().length > 0;
     const hasAttachment = att.status === 'ready' && !!att.attachmentId;
@@ -793,7 +809,14 @@ export default function InboxPage() {
     resetAttachment();
     flushPendingTrackUse(draftBody);
     sendMessage.mutate(
-      { body: draftBody, attachmentId: draftAttachmentId },
+      {
+        body: draftBody,
+        attachmentId: draftAttachmentId,
+        // Internal notes never travel through this composer path, and the
+        // status transition is applied server-side only after the message row
+        // really exists — a failed send leaves the status untouched.
+        postSendAction: actionOverride ?? sendAction,
+      },
       {
         onError: () => {
           // Restore draft on failure so the operator can retry without

@@ -997,8 +997,17 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         if (isMenuEvent) continue;
 
         if (!lastByConv[m.conversation_id]) {
-          lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, sender_type: m.sender_type };
+          lastByConv[m.conversation_id] = {
+            body: m.body ?? '',
+            created_at: m.created_at,
+            sender_type: m.sender_type,
+            // A file-only message has an empty body: the list preview must
+            // describe the media instead of claiming "no messages yet".
+            attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
+            attachment_kind: null,
+          };
         }
+
 
         // Rows arrive newest-first. The first conversational turn decides the
         // obligation; we then keep walking back over the customer streak to

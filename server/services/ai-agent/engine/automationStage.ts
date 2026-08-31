@@ -52,7 +52,7 @@ export async function runAutomationStage(
   const { workspaceId, conversationId, visitorMessageId } = input;
   const question = (input.question || '').trim();
   const { settings, runtimeCfg, decisionTimeline } = pre;
-  const { locale, inputLanguage, detectedTopicsMeta, humanRequestFromTopics, state, availability } = ctxStage;
+  const { locale, inputLanguage, detectedTopicsMeta, humanRequest, state, availability } = ctxStage;
   let { routingMeta, triggerMeta, workflowMeta } = ctxStage;
 
   // ─── C2A — evaluate routing rules ────────────────────────────────────
@@ -122,11 +122,21 @@ export async function runAutomationStage(
   let workflowMessageId: string | null = null;
   if (runtimeCfg) {
     try {
-      const isFirstVisitorMessage = (state.aiRepliesCountInConversation === 0);
+      // P0-8 — "first visitor message" must be measured on VISITOR turns.
+      // `aiRepliesCountInConversation === 0` stayed true for every turn of a
+      // conversation the AI never answered, so first-message triggers and
+      // workflows (including handoff ones) could re-fire on message #2, #3…
+      // The current visitor message is already persisted, so 1 means first.
+      const visitorTurns = state.visitorMessagesCountInConversation;
+      const isFirstVisitorMessage = visitorTurns > 0
+        ? visitorTurns <= 1
+        : state.aiRepliesCountInConversation === 0;
       const triggerEvents: Array<'visitor_first_message' | 'topic_detected' | 'human_requested'> = [];
       if (isFirstVisitorMessage) triggerEvents.push('visitor_first_message');
       if ((detectedTopicsMeta as any)?.topTopic) triggerEvents.push('topic_detected');
-      if (humanRequestFromTopics) triggerEvents.push('human_requested');
+      // P0-9 — only a proven explicit request fires `human_requested`
+      // automations; topic evidence alone must not trigger a handoff rule.
+      if (humanRequest.explicit) triggerEvents.push('human_requested');
 
       const aggExec: any[] = [];
       const aggPlan: any[] = [];
@@ -146,7 +156,7 @@ export async function runAutomationStage(
       const wfEvents: Array<'visitor_first_message' | 'topic_detected' | 'human_requested'> = [];
       if (isFirstVisitorMessage) wfEvents.push('visitor_first_message');
       if ((detectedTopicsMeta as any)?.topTopic) wfEvents.push('topic_detected');
-      if (humanRequestFromTopics) wfEvents.push('human_requested');
+      if (humanRequest.explicit) wfEvents.push('human_requested');
       for (const ev of wfEvents) {
         const w = evaluateWorkflows(buildEvalCtx(), ev as any);
         if (!w.matchedWorkflowIds.length) continue;

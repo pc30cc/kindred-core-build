@@ -144,6 +144,24 @@ export function usesCompletionTokenParam(model: string): boolean {
   return /^(gpt-5|o1|o3|o4)/i.test(String(model || '').trim());
 }
 
+/**
+ * Reasoning models spend `max_completion_tokens` on hidden reasoning tokens
+ * FIRST and only then emit visible output. With a tight cap (e.g. 600) the
+ * whole budget can be consumed by reasoning, the response comes back with
+ * `finish_reason: 'length'` and an EMPTY message — which downstream code
+ * misread as "the AI refused to answer" and escalated to a human.
+ *
+ * So the caller's budget is treated as *visible output* budget and reasoning
+ * headroom is added on top, with a sane floor.
+ */
+export const REASONING_TOKEN_HEADROOM = 2048;
+export const REASONING_MIN_COMPLETION_TOKENS = 2500;
+
+export function reasoningCompletionTokens(maxTokens: number): number {
+  return Math.max(REASONING_MIN_COMPLETION_TOKENS, (maxTokens || 0) + REASONING_TOKEN_HEADROOM);
+}
+
+
 async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetch): Promise<AIResponse> {
   const start = Date.now();
   const baseUrl = config.baseUrl || PROVIDER_BASE_URLS.openai;
@@ -165,7 +183,10 @@ async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetc
     ],
   };
   if (usesCompletionTokenParam(model)) {
-    body.max_completion_tokens = maxTokens;
+    body.max_completion_tokens = reasoningCompletionTokens(maxTokens);
+    // Keep latency and reasoning-token spend low for support answers; the
+    // caller can still override via req.reasoningEffort.
+    body.reasoning_effort = (req as any).reasoningEffort || 'low';
   } else {
     body.max_tokens = maxTokens;
     body.temperature = req.temperature ?? config.temperature ?? 0.7;

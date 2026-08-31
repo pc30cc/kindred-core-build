@@ -246,7 +246,7 @@ const ACCOUNT_TOPIC = {
 } as any;
 
 describe('C8.2 — topic-detected human-request handoff', () => {
-  it('a configured "human-request" topic match forces handoff even without a literal keyword hit', async () => {
+  it('an explicit transfer request ("talk to someone") hands off even without a configured keyword', async () => {
     settingsFixture = makeSettings({ mode: 'auto_reply_always', handoff_on_human_request: true, handoff_keywords: [] });
     runtimeCfgFixture = makeRuntimeConfig({
       topics: [

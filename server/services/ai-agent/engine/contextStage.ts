@@ -30,6 +30,7 @@ import {
 } from '../workingMemory.js';
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
+import { resolveHumanRequestSignal, NO_HUMAN_REQUEST, type HumanRequestSignal } from '../humanRequest.js';
 
 export interface ContextStageResult {
   sb: ReturnType<typeof getServiceClient>;
@@ -40,7 +41,10 @@ export interface ContextStageResult {
   languageMeta: Record<string, unknown>;
   detectedTopicsMeta: Record<string, unknown>;
   topTopicSlug: string | null;
+  /** Supporting-only topic evidence. NOT authority to hand off. */
   humanRequestFromTopics: boolean;
+  /** Canonical, authoritative explicit-human-request signal (P0-5). */
+  humanRequest: HumanRequestSignal;
   guidanceMeta: Record<string, unknown>;
   routingMeta: ReturnType<typeof buildRoutingMetadata>;
   triggerMeta: ReturnType<typeof buildTriggerMetadata>;
@@ -262,9 +266,21 @@ export async function runContextStage(
   if (operatorGuidance.items.length) decisionTimeline.push('operator_guidance_loaded');
   if (memoryBlock) decisionTimeline.push('conversation_memory_loaded');
 
+  // Canonical explicit human-request resolution. Topic evidence is passed in
+  // as SUPPORTING context only — it can never flip `explicit` on its own.
+  const humanRequest: HumanRequestSignal = settings.handoff_on_human_request === false
+    ? { ...NO_HUMAN_REQUEST, supporting: { topicHumanRequest: humanRequestFromTopics, genericKeywordMention: null } }
+    : resolveHumanRequestSignal({
+        text: question,
+        configuredKeywords: settings.handoff_keywords || [],
+        topicHumanRequest: humanRequestFromTopics,
+      });
+  if (humanRequest.explicit) decisionTimeline.push(`human_request_explicit:${humanRequest.reason}`);
+  else if (humanRequest.supporting.topicHumanRequest) decisionTimeline.push('human_request_topic_support_only');
+
   return {
     sb, locale, workspaceName, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
-    humanRequestFromTopics, guidanceMeta, routingMeta, triggerMeta, workflowMeta,
+    humanRequestFromTopics, humanRequest, guidanceMeta, routingMeta, triggerMeta, workflowMeta,
     toolMeta, pageContextMetaRef, state, availability,
     operatorGuidance, memory, memoryTurnPatch, memoryBlock, memoryMetaBundle,
     previousAssistantText,

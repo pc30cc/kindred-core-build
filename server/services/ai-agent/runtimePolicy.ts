@@ -8,6 +8,7 @@
 import type { AgentSettings, AgentMode } from './settings.js';
 import type { ConversationState } from './conversationState.js';
 import type { AvailabilityInfo } from './availability.js';
+import { resolveHumanRequestSignal, type HumanRequestSignal } from './humanRequest.js';
 
 export type RuntimeAction =
   | 'skip'
@@ -38,10 +39,22 @@ export interface RuntimeDecision {
   notes: Record<string, unknown>;
 }
 
+/**
+ * Explicit human-request check (P0-6).
+ *
+ * Raw `text.includes(keyword)` is not a safe authorization for a
+ * state-changing handoff: owner keyword lists almost always contain generic
+ * nouns ("پشتیبان", "agent", "insan") that appear in ordinary questions.
+ * The configured keywords are still honoured — they are routed through the
+ * canonical resolver, which normalizes Persian characters/ZWNJ, respects word
+ * boundaries and requires real transfer intent.
+ */
 export function isHumanRequest(text: string, keywords: string[]): boolean {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  return (keywords || []).some((k) => k && lower.includes(k.toLowerCase()));
+  return resolveHumanRequestSignal({ text, configuredKeywords: keywords || [] }).explicit;
+}
+
+export function humanRequestSignal(text: string, keywords: string[], topicHumanRequest = false): HumanRequestSignal {
+  return resolveHumanRequestSignal({ text, configuredKeywords: keywords || [], topicHumanRequest });
 }
 
 export interface RuntimePolicyInput {

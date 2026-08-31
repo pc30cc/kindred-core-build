@@ -20,7 +20,7 @@ import { toModelMessages } from '../conversationContext.js';
 import { postValidateAnswer } from '../policy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markNeedsHuman } from '../handoffState.js';
+import { markNeedsHuman, commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { runLimitHandoff, detectLimitErrorReason } from '../limitHandoff.js';
 import { loadWorkspaceContext } from '../workspaceContext.js';
@@ -253,6 +253,8 @@ export async function runGenerationStage(
     : '');
 
   let aiResult;
+  /** Observability for the empty-output retry (P0-18). */
+  const generationMeta: Record<string, unknown> = {};
   try {
     // P2: aiConfig was already resolved above — reuse it instead of paying for
     // a second provider-config lookup inside executeAICompletion().
@@ -266,6 +268,36 @@ export async function runGenerationStage(
         settings.answer_guidance === 'creative' ? 0.6 :
         settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
     });
+    // ROOT CAUSE GUARD — reasoning models (gpt-5*, o-series) can burn the
+    // whole completion budget on hidden reasoning and return EMPTY text with
+    // finish_reason === 'length'. That is a transient generation failure, NOT
+    // the AI declining to answer, and it must never escalate to a human.
+    // One bounded retry with a larger visible-output budget.
+    const emptyOutput = !String(aiResult?.text || '').trim();
+    const lengthCapped = String((aiResult as any)?.finishReason || '') === 'length';
+    if (emptyOutput) {
+      generationMeta.empty_first_attempt = true;
+      generationMeta.first_attempt_finish_reason = (aiResult as any)?.finishReason || null;
+      generationMeta.first_attempt_completion_tokens = aiResult?.completionTokens ?? null;
+      const retry = await executeAICompletionWithConfig(config, aiConfig, {
+        workspaceId,
+        prompt: userPrompt,
+        systemPrompt,
+        messages: historyMessages,
+        maxTokens: lengthCapped ? 1600 : 900,
+        temperature:
+          settings.answer_guidance === 'creative' ? 0.6 :
+          settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
+      }).catch(() => null);
+      if (retry && String(retry.text || '').trim()) {
+        aiResult = retry;
+        generationMeta.empty_output_retry = 'recovered';
+        decisionTimeline.push('generation_empty_retry_recovered');
+      } else {
+        generationMeta.empty_output_retry = 'failed';
+        decisionTimeline.push('generation_empty_retry_failed');
+      }
+    }
   } catch (err: any) {
     // Credit / plan-limit errors → human-friendly limit handoff (no LLM,
     // 0 credits, route to Needs human).
@@ -470,12 +502,27 @@ export async function runGenerationStage(
       completionTokens: aiResult.completionTokens,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: {
+        ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta,
+        retrieval: queryMeta, generation: generationMeta,
+        final_handoff_source: 'post_validation_failed',
+      },
     });
     if (decision.canAutoReply) {
-      await markHandoffRequested(config, conversationId).catch(() => {});
-      // Insert the fallback/ack message BEFORE markNeedsHuman() — see the
-      // ordering note on the human-request handoff branch above.
+      // P0-12 — commit-first. The durable handoff state must exist BEFORE the
+      // visitor is told a human is taking over; otherwise a failed commit
+      // leaves a promise nobody can keep. No pre-marker is written either:
+      // commitNeedsHuman() persists the whole transition atomically.
+      const commit = await commitNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'low_confidence',
+      }).catch(() => ({ ok: false, routingDeferred: false } as HandoffCommit));
+      decisionTimeline.push(commit.ok ? 'handoff_state_committed' : 'handoff_state_commit_failed');
+      if (!commit.ok) {
+        decisionTimeline.push('handoff_ack_suppressed_commit_failed');
+        return { terminal: { ran: true, action: 'handoff', reason: 'handoff_state_commit_failed', runId } };
+      }
       const display = deriveAgentDisplay(settings);
       const handoffAckBody = settings.fallback_message
         || await resolveHandoffAckMessage(
@@ -495,11 +542,7 @@ export async function runGenerationStage(
         agentName: display.agentName,
         agentLogoUrl: display.agentLogoUrl,
       });
-      await markNeedsHuman(config, {
-        workspaceId,
-        conversationId,
-        reason: 'low_confidence',
-      }).catch(() => {});
+      await routeAfterHandoff(config, { workspaceId, conversationId, commit });
       return { terminal: { ran: true, action: 'handoff', reason: valid.reason, runId, messageId: inserted.id } };
     }
     return { terminal: { ran: true, action: 'handoff', reason: valid.reason, runId } };

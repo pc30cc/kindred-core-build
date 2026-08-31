@@ -17,6 +17,8 @@ export interface ConversationState {
   lastHumanReplyAt: string | null;
   lastVisitorMessageAt: string | null;
   aiRepliesCountInConversation: number;
+  /** Visitor-authored messages in this conversation (incl. the current one). */
+  visitorMessagesCountInConversation: number;
   aiRepliesInLastHour: number;
   pendingHandoffRequested: boolean;
   aiState: string | null;
@@ -41,6 +43,7 @@ export async function getConversationState(
     lastHumanReplyAt: null,
     lastVisitorMessageAt: null,
     aiRepliesCountInConversation: 0,
+    visitorMessagesCountInConversation: 0,
     aiRepliesInLastHour: 0,
     pendingHandoffRequested: false,
     aiState: null,
@@ -67,6 +70,7 @@ export async function getConversationState(
   let lastHumanReplyAt: string | null = null;
   let lastVisitorMessageAt: string | null = null;
   let aiRepliesCountInConversation = 0;
+  let visitorMessagesCountInConversation = 0;
   let aiRepliesInLastHour = 0;
   const oneHourAgo = Date.now() - 3600_000;
 
@@ -80,6 +84,7 @@ export async function getConversationState(
         aiRepliesInLastHour++;
       }
     } else if (m.sender_type === 'contact') {
+      visitorMessagesCountInConversation++;
       if (!lastVisitorMessageAt) lastVisitorMessageAt = m.created_at;
     }
   }
@@ -106,6 +111,7 @@ export async function getConversationState(
     lastHumanReplyAt,
     lastVisitorMessageAt,
     aiRepliesCountInConversation,
+    visitorMessagesCountInConversation,
     aiRepliesInLastHour,
     pendingHandoffRequested,
     aiState,

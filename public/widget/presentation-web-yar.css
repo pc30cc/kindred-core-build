@@ -81,9 +81,9 @@
   /* Below the loader's launcher (2147483646) so the FAB is always clickable. */
   z-index: 2147483000;
   /* Intentional product override: source canvas is 380×600; components and
-     typography remain unscaled while the product canvas is 420×680. */
-  width: 420px;
-  height: 680px;
+     typography remain unscaled while the product canvas is 400×640. */
+  width: 400px;
+  height: 640px;
   max-height: calc(100dvh - 118px);
   max-width: calc(100vw - 24px);
   display: flex;

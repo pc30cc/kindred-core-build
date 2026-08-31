@@ -56,8 +56,8 @@ describe('production panel positioning contract', () => {
     expect(css).toContain('bottom: calc(24px + var(--gs-fab-size, 56px) + 14px)');
     expect(css).toMatch(/\.panel\.bottom-right\s*\{[\s\S]*?right:\s*24px/);
     expect(css).toMatch(/\.panel\.bottom-left\s*\{[\s\S]*?left:\s*24px/);
-    expect(css).toMatch(/width:\s*420px/);
-    expect(css).toMatch(/height:\s*680px/);
+    expect(css).toMatch(/width:\s*400px/);
+    expect(css).toMatch(/height:\s*640px/);
     expect(css).toMatch(/max-height:\s*calc\(100dvh - 118px\)/);
   });
 

@@ -53,9 +53,23 @@ export const activityApi = {
     jsonFetch(`/api/ai-agent/suggestions/${id}/use`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: AgentSuggestion }>,
   dismissSuggestion: (id: string) =>
     jsonFetch(`/api/ai-agent/suggestions/${id}/dismiss`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: AgentSuggestion }>,
-  takeOverConversation: (workspaceId: string, conversationId: string, assignToMe = true) =>
-    jsonFetch(`/api/ai-agent/conversations/${conversationId}/take-over`, {
-      method: 'POST',
-      body: JSON.stringify({ workspaceId, assign_to_me: assignToMe }),
-    }) as Promise<{ ok: boolean }>,
+  // Takeover goes through the inbox-owned route, which is not behind the AI
+  // Agent platform/plan guard. Falls back to the legacy AI route on 404 so
+  // older backends keep working.
+  takeOverConversation: async (workspaceId: string, conversationId: string, assignToMe = true) => {
+    const body = JSON.stringify({ workspaceId, assign_to_me: assignToMe });
+    try {
+      return (await jsonFetch(`/api/conversations/${conversationId}/take-over`, {
+        method: 'POST',
+        body,
+      })) as { ok: boolean };
+    } catch (e: any) {
+      if (!String(e?.message || '').includes('404')) throw e;
+      return (await jsonFetch(`/api/ai-agent/conversations/${conversationId}/take-over`, {
+        method: 'POST',
+        body,
+      })) as { ok: boolean };
+    }
+  },
 };
+

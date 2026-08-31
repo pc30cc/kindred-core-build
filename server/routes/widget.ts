@@ -585,6 +585,13 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       mode: string;
       introEnabled: boolean;
       suppressGreeting: boolean;
+      /** AI will actually converse with the visitor (provider proven). */
+      visitorFacing: boolean;
+      /** AI may send the static intro first (no provider required). */
+      introCapable: boolean;
+      providerReady: boolean;
+      /** Coarse, non-sensitive diagnosis. Never a provider/model/key. */
+      reason: string;
       agentName: string | null;
       agentLogoUrl: string | null;
       disabledByPlatform: boolean;
@@ -598,6 +605,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       mode: 'off',
       introEnabled: false,
       suppressGreeting: false,
+      visitorFacing: false,
+      introCapable: false,
+      providerReady: false,
+      reason: 'platform_disabled',
       agentName: null,
       agentLogoUrl: null,
       disabledByPlatform: false,
@@ -618,6 +629,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           mode: 'off',
           introEnabled: false,
           suppressGreeting: false,
+          visitorFacing: false,
+          introCapable: false,
+          providerReady: false,
+          reason: 'platform_disabled',
           agentName: null,
           agentLogoUrl: null,
           disabledByPlatform: true,
@@ -625,6 +640,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           handoffPrechatMessageLocalized: {},
         };
       } else {
+
       const { data: aiSettings } = await supabase
         .from('ai_agent_settings')
         .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url')
@@ -652,42 +668,29 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       } catch (_) { /* column may not exist yet — fine, client has its own fallback copy */ }
       if (aiSettings) {
         const mode = String(aiSettings.mode || 'off');
-        const isAuto = mode === 'auto_reply_when_offline'
-          || mode === 'auto_reply_until_human_joins'
-          || mode === 'auto_reply_always';
         const introEnabled = aiSettings.ai_intro_enabled !== false;
-        // Effective AI Mode — a toggle+auto-mode being set is not sufficient
-        // on its own; also require the platform kill-switch/feature/
-        // entitlement gates before treating the AI as visitor-facing.
-        // Deliberately NOT requiring a resolvable AI provider here: the
-        // intro message this flag gates is static/templated
-        // (server/services/ai-agent/intro.ts never calls resolveAIConfig),
-        // so it doesn't need one. Gating pre-chat-skip on provider
-        // resolvability caused prechat to show (and the intro to never
-        // fire) for workspaces with the AI toggle correctly on whenever
-        // provider resolution had ANY hiccup — worse than before. Whether
-        // the AI can actually generate a conversational reply is enforced
-        // independently, deeper in engine.ts's own reply pipeline.
-        let visitorFacing = !!aiSettings.enabled && isAuto;
-        try {
-          const { classifyEffectiveAiMode } = await import('../services/ai-agent/effectiveMode.js');
-          const { isAutoAnswerAllowedForWorkspace } = await import('../services/ai-agent/platformGuards.js');
-          const platformGate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
-          const classified = classifyEffectiveAiMode(platformGate.allowed === true, {
-            enabled: !!aiSettings.enabled,
-            mode: mode as any,
-          });
-          // 'provider_pending' means every non-provider gate passed —
-          // exactly what this greeting-suppression decision needs.
-          visitorFacing = classified.visitorFacing || classified.reason === 'provider_pending';
-        } catch (_) { /* keep toggle-only fallback */ }
+        // P0-AI — ONE authoritative visitor-facing AI snapshot. `visitorFacing`
+        // now genuinely means "the AI will converse with this visitor": it
+        // requires a resolvable provider, so `provider_pending` no longer
+        // suppresses the greeting for a workspace whose AI can only ever emit
+        // a single canned line and then go silent. `introCapable` (all gates
+        // except the provider) is what governs the static intro itself.
+        const { resolveVisitorAiSnapshot } = await import('../services/ai-agent/visitorAiSnapshot.js');
+        const aiSnapshot = await resolveVisitorAiSnapshot(config, workspaceId, {
+          enabled: !!aiSettings.enabled,
+          mode: mode as any,
+        });
         aiAgentInfo = {
           enabled: !!aiSettings.enabled,
           mode,
           introEnabled,
-          // Suppress the generic greeting only when AI will actually speak
-          // first to the visitor — i.e. effectively enabled + intro enabled.
-          suppressGreeting: visitorFacing && introEnabled,
+          // Suppress the generic greeting only when the AI will actually
+          // speak first AND can carry the conversation afterwards.
+          suppressGreeting: aiSnapshot.visitorFacing && aiSnapshot.introCapable && introEnabled,
+          visitorFacing: aiSnapshot.visitorFacing,
+          introCapable: aiSnapshot.introCapable && introEnabled,
+          providerReady: aiSnapshot.providerReady,
+          reason: aiSnapshot.reason,
           agentName: aiSettings.agent_name || null,
           agentLogoUrl: aiSettings.agent_logo_url || null,
           disabledByPlatform: false,
@@ -695,6 +698,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           handoffPrechatMessageLocalized: handoffPrechatMessageLocalized,
         };
       }
+
       }
     } catch (e: any) {
       console.warn('[widget-config] ai_agent_settings lookup failed:', e?.message || e);

@@ -495,6 +495,109 @@
   })();
 
   // ════════════════════════════════════════════════════════════════════
+  // ConvEpoch — the ONE canonical conversation epoch (P0-1)
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // `freshIntent` alone could not express "this async result belongs to a
+  // conversation context that no longer exists". Every explicit change of
+  // the active conversation context (start-new, open-existing, reset)
+  // bumps a monotonic epoch. Async operations capture `ConvEpoch.get()`
+  // at START and must drop their result when `ConvEpoch.valid(captured)`
+  // is false at COMPLETION. That single rule makes intro responses,
+  // history responses, send responses, polling adoption and realtime
+  // frames all stale-safe without any of them knowing about each other.
+  //
+  // It is module-level (not per-instance) on purpose: the transport is
+  // created long before the chat store exists, and the previous
+  // `chatStore.get()` reference inside createTransport() was a dead
+  // closure (ReferenceError, silently swallowed), so the transport-level
+  // fresh-intent guards never actually ran.
+  var ConvEpoch = (function () {
+    var epoch = 1;
+    var activeId = null;
+    var fresh = false;
+    var listeners = [];
+
+    function notify() {
+      var snap = { epoch: epoch, activeId: activeId, fresh: fresh };
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](snap); } catch (_) {}
+      }
+    }
+
+    return {
+      /** Current epoch. Capture this before any async conversation work. */
+      get: function () { return epoch; },
+      /** True when `captured` is still the live conversation context. */
+      valid: function (captured) { return captured === epoch; },
+      activeId: function () { return activeId; },
+      isFresh: function () { return fresh === true; },
+      snapshot: function () { return { epoch: epoch, activeId: activeId, fresh: fresh }; },
+
+      /**
+       * Explicit active-context change. `reason` is diagnostic only.
+       *   bump('start_new', { fresh: true })
+       *   bump('open', { conversationId: cid })
+       * Returns the NEW epoch.
+       */
+      bump: function (reason, opts) {
+        opts = opts || {};
+        epoch += 1;
+        activeId = opts.conversationId || null;
+        fresh = opts.fresh === true;
+        notify();
+        return epoch;
+      },
+
+      /**
+       * A server-resolved id landing INSIDE the current epoch (the thread
+       * we just asked to be created / the one we already selected). This is
+       * not a context change, so it must NOT bump — bumping here would
+       * invalidate the very operation that produced the id.
+       */
+      adopt: function (cid) {
+        if (!cid) return;
+        if (activeId === cid && fresh === false) return;
+        activeId = cid;
+        fresh = false;
+        notify();
+      },
+
+      /**
+       * Ownership test for an inbound frame (P0-4). Frames belonging to a
+       * different conversation must never reach the active chat store —
+       * they may still drive per-conversation unread counters.
+       */
+      ownsFrame: function (cid) {
+        if (fresh && !activeId) return false; // fresh thread not created yet
+        if (!activeId) return true;           // no active thread pinned yet
+        if (!cid) return true;                // envelope carries no cid
+        return String(cid) === String(activeId);
+      },
+
+      onChange: function (fn) {
+        listeners.push(fn);
+        return function () {
+          var i = listeners.indexOf(fn);
+          if (i !== -1) listeners.splice(i, 1);
+        };
+      },
+
+      /** Test-only reset. */
+      __reset: function () { epoch = 1; activeId = null; fresh = false; notify(); },
+    };
+  })();
+  try { if (typeof window !== 'undefined') window.__gs_conv_epoch = ConvEpoch; } catch (_) {}
+
+  /** Conversation id of an inbound message frame, whatever shape it has. */
+  function frameConversationId(m) {
+    if (!m) return null;
+    return m.conversation_id || m.conversationId || null;
+  }
+
+
+
+  // ════════════════════════════════════════════════════════════════════
   // i18n
   // ════════════════════════════════════════════════════════════════════
   var I18n = (function () {
@@ -1139,11 +1242,25 @@
       };
     }
     function emit(event, payload) {
+      // P0-4 — ONE choke point for inbound conversation frames, whatever
+      // produced them (centrifugo, supabase broadcast, polling, replay).
+      // `messages` = frames the ACTIVE conversation owns (safe to merge into
+      // the chat store). `allMessages` = every frame, so unread counters and
+      // call-invitation scanning still see other threads.
+      if (event === 'message' && payload && payload.messages) {
+        var all = payload.messages || [];
+        var owned = [];
+        for (var f = 0; f < all.length; f++) {
+          if (ConvEpoch.ownsFrame(frameConversationId(all[f]))) owned.push(all[f]);
+        }
+        payload = Object.assign({}, payload, { messages: owned, allMessages: all });
+      }
       var arr = subs[event] || [];
       for (var i = 0; i < arr.length; i++) {
         try { arr[i](payload); } catch (e) { Util.warn('transport listener err', e); }
       }
     }
+
 
     // Legacy bridge: external callers (chat UI, banner, composer) still
     // subscribe to transportStore.connectionState. We compute the legacy
@@ -1298,8 +1415,11 @@
      * disarm it, by handing back the id of the thread it just created.
      */
     function freshIntentArmed() {
-      try { return chatStore.get().freshIntent === true; } catch (_) { return false; }
+      // Canonical, module-level source of truth. (Previously this read
+      // `chatStore`, which is not in scope here — the guard never ran.)
+      return ConvEpoch.isFresh();
     }
+
 
     function loadHistory(opts) {
       // Hard guard at the transport boundary (P0-B): a fresh intent must never
@@ -1308,6 +1428,10 @@
         if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
         return;
       }
+      // P0-1 — epoch captured at START; the result is dropped if the visitor
+      // changed the active conversation context while the request was in
+      // flight (start-new, open-other, reset).
+      var startEpoch = ConvEpoch.get();
       ensureChatModule(function (mod) {
         if (!mod || !mod.loadHistory) {
           markPollFailure();
@@ -1325,8 +1449,8 @@
           onResult: function (result) {
             historyLoaded = true;
             markPollSuccess();
-            if (freshIntentArmed()) {
-              if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
+            if (!ConvEpoch.valid(startEpoch) || freshIntentArmed()) {
+              if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [], stale: true });
               return;
             }
             if (opts && opts.onResult) opts.onResult(result);
@@ -1336,14 +1460,17 @@
     }
 
     /**
-     * P0-C — load exactly the named conversation. Explicit selection always
-     * wins: it disarms any fresh intent and never adopts a different thread.
+     * P0-C / P0-3 — load exactly the named conversation. Explicit selection
+     * always wins, never adopts a different thread, and a response that
+     * arrives after the visitor already moved on (epoch changed, or another
+     * conversation became active) is discarded instead of repainting.
      */
     function loadConversationHistory(cid, opts) {
       if (!cid) {
         if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
         return;
       }
+      var startEpoch = ConvEpoch.get();
       ensureChatModule(function (mod) {
         if (!mod || !mod.loadConversationHistory) {
           markPollFailure();
@@ -1359,6 +1486,15 @@
           onResult: function (result) {
             historyLoaded = true;
             markPollSuccess();
+            if (!ConvEpoch.valid(startEpoch)) {
+              if (opts && opts.onStale) opts.onStale(cid);
+              return;
+            }
+            var active = ConvEpoch.activeId();
+            if (active && String(active) !== String(cid)) {
+              if (opts && opts.onStale) opts.onStale(cid);
+              return;
+            }
             if (opts && opts.onResult) opts.onResult(result);
           },
         });
@@ -1366,8 +1502,13 @@
     }
 
 
+
     function sendMessage(payload, hooks) {
       hooks = hooks || {};
+      // P0-1 — a send belongs to the conversation context it was issued in.
+      // If the visitor starts a new thread (or opens another) mid-flight, the
+      // reply/ack for the OLD thread must not land in the new one.
+      var startEpoch = ConvEpoch.get();
       ensureChatModule(function (mod) {
         if (!mod || !mod.sendMessage) {
           if (hooks.onError) hooks.onError('module_unavailable');
@@ -1385,8 +1526,11 @@
 
           text: payload.text,
           onConversation: function (cid) {
+            if (!ConvEpoch.valid(startEpoch)) return;
             if (cid) {
               subscribedConversation = cid;
+              // The thread this epoch was waiting for now exists.
+              ConvEpoch.adopt(cid);
               if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
             }
             if (hooks.onConversation) hooks.onConversation(cid);
@@ -1394,19 +1538,23 @@
           // Phase 7 — backend confirmation. Carries the canonical message id
           // so the widget can transition its optimistic bubble to "sent".
           onAccepted: function (info) {
+            if (!ConvEpoch.valid(startEpoch)) return;
             if (hooks.onAccepted) hooks.onAccepted(info || {});
           },
           onReply: function (reply) {
-            if (hooks.onReply) hooks.onReply(reply);
             markPollSuccess();
+            if (!ConvEpoch.valid(startEpoch)) return;
+            if (hooks.onReply) hooks.onReply(reply);
           },
           onError: function (err) {
             markPollFailure();
+            if (!ConvEpoch.valid(startEpoch)) return;
             if (hooks.onError) hooks.onError(err);
           },
         });
       });
     }
+
 
     function markPollSuccess() {
       lastSuccessAt = Date.now();
@@ -1432,12 +1580,16 @@
     function subscribeConversation(cid) {
       if (!cid) return;
       if (subscribedConversation !== cid) subscribedConversation = cid;
+      // Subscribing IS the moment a thread becomes the active context, so
+      // this is the single place where the epoch adopts a resolved id.
+      ConvEpoch.adopt(cid);
       // Canonical cid lives in the FSM — survives driver swaps, BFCache
       // restores, and rt→polling fallbacks. Any future driver reload
       // re-subscribes from this value, eliminating the lost-subscription race.
       if (fsm) fsm.setConversation(cid);
       if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
     }
+
     function unsubscribeConversation(cid) {
       if (subscribedConversation === cid) subscribedConversation = null;
       if (fsm && fsm.getConversation() === cid) fsm.setConversation(null);
@@ -3280,7 +3432,7 @@
     // "Start a brand new thread" latch. Canonical state lives in chatStore
     // (`freshIntent`) so the transport layer can enforce it too; this local
     // mirror only exists for readability inside chatUI.
-    function forcingNew() { return chatStore.get().freshIntent === true; }
+    function forcingNew() { return ConvEpoch.isFresh() || chatStore.get().freshIntent === true; }
 
 
     function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
@@ -3378,11 +3530,12 @@
       // would offer. Bail before the request so no old thread can be
       // adopted on reconnect, visibilitychange, or a re-open.
       if (forcingNew()) return;
+      var startEpoch = ConvEpoch.get();
       transport.loadHistory({
         onResult: function (result) {
-          // Re-check: the visitor may have hit "new conversation" while the
-          // request was in flight.
-          if (forcingNew()) return;
+          // Re-check: the visitor may have hit "new conversation" (or opened
+          // another thread) while the request was in flight.
+          if (!ConvEpoch.valid(startEpoch) || forcingNew() || result.stale) return;
           if (result.conversationId) {
             chatStore.set({ conversationId: result.conversationId });
             try { document.cookie = 'gs_active=1; path=/; max-age=86400; SameSite=Lax'; } catch (_) {}
@@ -3393,6 +3546,7 @@
       });
 
     }
+
 
     // ─── Phase 5: Contact fallback (offline_mode === 'contact_fallback') ───
     // Lightweight in-panel form. Reuses the existing identity prechat backend
@@ -3512,18 +3666,24 @@
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
       bootstrapHistory: bootstrapHistory,
-      // P0-C — explicit thread selection. Loads exactly `cid` and never lets
-      // the server pick a different conversation.
+      // P0-C / P0-3 — explicit thread selection. Loads exactly `cid`, never
+      // lets the server pick a different conversation, and drops its own
+      // response if the visitor moved to another context meanwhile.
       loadConversationHistory: function (cid, onChange) {
         if (!cid) return;
+        var startEpoch = ConvEpoch.get();
         transport.loadConversationHistory(cid, {
           onResult: function (result) {
+            if (!ConvEpoch.valid(startEpoch)) return;
+            var active = ConvEpoch.activeId();
+            if (active && String(active) !== String(cid)) return;
             // Explicit selection wins over any pending "new conversation".
             chatStore.set({ freshIntent: false, conversationId: cid });
             transport.subscribeConversation(cid);
             if (mergeIncoming(result.messages || [])) onChange();
             else onChange();
           },
+          onStale: function () { /* superseded selection — drop silently */ },
         });
       },
       mergeIncoming: mergeIncoming,
@@ -3540,6 +3700,9 @@
         if (previous) {
           try { transport.unsubscribeConversation(previous); } catch (_) {}
         }
+        // P0-1 — new conversation context: every in-flight async operation
+        // captured the previous epoch and is now stale by construction.
+        ConvEpoch.bump('start_new_conversation', { fresh: true });
         // Ephemeral, per-conversation UI state must not bleed across threads.
         try { stopTypewriter(false); } catch (_) {}
         chatStore.set({
@@ -3552,6 +3715,7 @@
         lastMergedNewAiMessage = null;
       },
       isForcingNewConversation: forcingNew,
+
 
       getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
     };
@@ -6177,14 +6341,14 @@
     // conversation never got greeted. The key is the conversation id, or
     // the literal 'fresh' slot while a new thread is still being created.
     var __aiIntroKeys = {};
-    // Bumped on every explicit "start new conversation" so two successive
-    // fresh intents never share an intro slot.
-    var __freshIntentGeneration = 0;
 
+    // The dedupe slot is derived from the canonical epoch, so two successive
+    // fresh intents can never share a slot (P0-E) and a slot can never be
+    // confused across threads.
     function aiIntroKey() {
       var s = chatStore.get() || {};
-      if (s.freshIntent === true) return 'fresh:' + (__freshIntentGeneration || 0);
-      return 'conv:' + (s.conversationId || 'pending');
+      if (ConvEpoch.isFresh() || s.freshIntent === true) return 'fresh:' + ConvEpoch.get();
+      return 'conv:' + (ConvEpoch.activeId() || s.conversationId || 'pending');
     }
     function requestAiAgentIntro(source) {
       var key = aiIntroKey();
@@ -6193,8 +6357,13 @@
         return;
       }
       __aiIntroKeys[key] = true;
+      // P0-2 — dedupe alone is not enough: the intro RESPONSE mutates active
+      // conversation state, so it must be generation-safe. Capture the epoch
+      // at request time and drop the whole response when it no longer matches.
+      var startEpoch = ConvEpoch.get();
       var snap = chatStore.get() || {};
-      var forceNew = snap.freshIntent === true;
+      var forceNew = ConvEpoch.isFresh() || snap.freshIntent === true;
+
       // P0-F — while a fresh intent is armed we must NOT hand the server a
       // conversation id, and we must tell it not to resolve an existing one.
       var conversationId = forceNew ? null : (snap.conversationId || null);
@@ -6216,7 +6385,15 @@
         .then(function (r) { return r.json().catch(function () { return {}; }); })
         .then(function (resp) {
           try { console.debug('[Widget AI Agent] intro response', { sent: resp && resp.sent, reason: resp && resp.reason, messageId: resp && resp.messageId, conversationId: resp && resp.conversationId }); } catch (_) {}
+          // P0-2 — the visitor started/opened another conversation while the
+          // intro was in flight. This greeting belongs to a dead context:
+          // never adopt its conversation id, never paint its bubble.
+          if (!ConvEpoch.valid(startEpoch)) {
+            try { console.debug('[Widget AI Agent] intro dropped (stale epoch)', startEpoch); } catch (_) {}
+            return;
+          }
           if (!resp || resp.sent !== true) {
+
             // Adopt conversationId even on already_sent so the next message
             // lands in the same conversation. This is a REAL fresh thread id
             // when force_new_conversation was requested, so it also disarms
@@ -6421,17 +6598,17 @@
     // arm Core's fresh intent so nothing can resurrect it, then let the
     // first message (or the AI intro) create the real new thread.
     function startNewConversation() {
-      __freshIntentGeneration += 1;
       try { if (chatUI.startNewConversation) chatUI.startNewConversation(); }
       catch (_) {
+        ConvEpoch.bump('start_new_conversation_fallback', { fresh: true });
         chatStore.set({ freshIntent: true, conversationId: null, messages: [], seenIds: {}, aiThinking: false });
       }
       // Per-conversation escalation state must not leak into the new thread.
       try { ctx.__handoffRequested = false; } catch (_) {}
       switchTab('chat');
       // renderBody() fires requestAiAgentIntro('chat_open') for the AI_CHAT
-      // entry flow; because the intro guard is keyed by thread (P0-E), the
-      // new conversation gets its own greeting instead of being skipped.
+      // entry flow; because the intro guard is keyed by the conversation
+      // epoch (P0-E/P0-2), the new conversation gets its own greeting.
 
     }
 
@@ -6445,6 +6622,9 @@
         if (current) {
           try { if (transport && transport.unsubscribeConversation) transport.unsubscribeConversation(current); } catch (_) {}
         }
+        // P0-1/P0-3 — new active context. Anything still in flight for the
+        // previous thread (history, intro, send) is now stale by epoch.
+        ConvEpoch.bump('open_conversation', { conversationId: conversationId });
         chatStore.set({
           freshIntent: false,
           conversationId: conversationId,
@@ -6453,6 +6633,7 @@
           aiThinking: false,
         });
         try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
+
         try {
           chatUI.loadConversationHistory(conversationId, function () {
             if (shellStore.get().activeTab === 'chat') renderBody();
@@ -6833,8 +7014,14 @@
     //   3. show in-shell toast (panel closed)
     //   4. play optional sound (if user-enabled + has interacted)
     transport.on('message', function (payload) {
+      // P0-4 — `payload.messages` is already filtered by the transport to the
+      // ACTIVE conversation. `allMessages` still carries every frame so
+      // unread counters and call-invitation scanning keep working for other
+      // threads without those frames ever entering the active chat store.
       var incoming = (payload && payload.messages) || [];
+      var allIncoming = (payload && payload.allMessages) || incoming;
       var changed = chatUI.mergeIncoming(incoming);
+
       // Word-by-word reveal only for a message that just arrived live over
       // realtime/poll — never for bootstrapHistory's replay of the past,
       // which calls mergeIncoming directly and never touches this marker.
@@ -6843,7 +7030,7 @@
         if (freshAiMsg) chatUI.startTypewriter(freshAiMsg);
       }
       if (changed && shellStore.get().activeTab === 'chat') renderBody();
-      if (!incoming.length) return;
+      if (!allIncoming.length) return;
 
       var ns = notifyStore.get();
       var seen = ns.lastMessageIds;
@@ -6861,8 +7048,8 @@
       var newCount = 0;
       var lastIncoming = null;
 
-      for (var i = 0; i < incoming.length; i++) {
-        var m = incoming[i] || {};
+      for (var i = 0; i < allIncoming.length; i++) {
+        var m = allIncoming[i] || {};
         // Skip own messages (visitor/contact = the user themselves).
         var sender = m.role || m.sender || m.sender_type || 'agent';
         if (sender === 'visitor' || sender === 'contact') continue;
@@ -6901,8 +7088,8 @@
       // the invitation arrives fresh or as a status patch (joined /
       // expired / cancelled / declined).
       try {
-        for (var ri = 0; ri < incoming.length; ri++) {
-          var rm = incoming[ri] || {};
+        for (var ri = 0; ri < allIncoming.length; ri++) {
+          var rm = allIncoming[ri] || {};
           var rmSender = rm.role || rm.sender || rm.sender_type || '';
           var rmMeta = rm.metadata || (rm.message && rm.message.metadata) || null;
           if (rmSender !== 'system' || !rmMeta || rmMeta.kind !== 'call_invitation') continue;

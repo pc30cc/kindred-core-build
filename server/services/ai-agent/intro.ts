@@ -221,6 +221,21 @@ export async function maybeSendIntro(
 
 
     if (!conversationId) {
+      // P0-BILLING — creating a thread here is a real conversation creation
+      // and must respect `max_conversations` exactly like the widget and
+      // operator HTTP surfaces do. This is a non-HTTP caller, so it uses the
+      // shared transport-free checker rather than the Express middleware —
+      // same entitlement RPC, same usage counter, no second limit system.
+      const { checkMaxConversationsAllowance } = await import('../billing/conversationLimit.js');
+      const allowance = await checkMaxConversationsAllowance(config, input.workspaceId);
+      if (!allowance.allowed) {
+        console.warn('[ai-agent] intro suppressed by conversation limit', {
+          workspaceId: input.workspaceId,
+          reason: allowance.reason,
+        });
+        return { sent: false, reason: `conversation_limit_${allowance.reason}` };
+      }
+
       // Every conversation gets a contact — even AI-only threads started
       // before the visitor has identified themselves. The placeholder is
       // upgraded in place once the pre-chat / identity form is submitted.
@@ -229,6 +244,7 @@ export async function maybeSendIntro(
         visitorId: input.visitorId || null,
         sessionId: input.visitorSessionId || null,
       });
+
 
       const { data: created, error: createErr } = await sb
         .from('conversations')

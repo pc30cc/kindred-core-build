@@ -13,7 +13,7 @@ into existing conversations remain ungated by design._
 | `POST /api/conversations/start-from-visitor` (`server/routes/conversations.ts`, line ~378) | Operator, authenticated workspace member | Sometimes — only when no open/pending conversation is reused | **GATED** on the creation branch (after the reuse short-circuit) |
 | `POST /api/conversations/send-message` | Operator | No — replies into an existing conversation | NEVER gated by `max_conversations` |
 | Existing-conversation branch of `POST /api/widget/message` | Visitor / public widget | No — reuses an open thread | NEVER gated by `max_conversations` |
-| `services/ai-agent/intro.ts` (internal) | Server-side AI intro | Yes (rare) | Not gated — internal helper, not an HTTP entry point. Tracked as future work. |
+| `services/ai-agent/intro.ts` (internal) | Server-side AI intro | Yes | **GATED** via the transport-free `checkMaxConversationsAllowance()` |
 
 ## How enforcement is wired
 
@@ -58,13 +58,21 @@ already-verified workspace in every gated branch:
   operators is correct: a workspace at cap should not be able to
   spawn new conversations from any surface.
 
-## Edge cases / future work
+## Non-HTTP callers
 
-- `services/ai-agent/intro.ts` is a non-HTTP internal helper that may
-  occasionally insert a conversation. It is intentionally **not**
-  gated yet — it requires deciding whether AI-intro insertions count
-  toward the cap and how to surface a denial back into the agent
-  pipeline. Tracked for a follow-up phase.
+`services/ai-agent/intro.ts` has no req/res, so it calls the pure
+checker that backs the same decision:
+
+```ts
+const allowance = await checkMaxConversationsAllowance(config, workspaceId);
+if (!allowance.allowed) return { sent: false, reason: `conversation_limit_${allowance.reason}` };
+```
+
+Same entitlement RPC, same `usage_counters` resolver, fail-closed on an
+unreadable entitlement or unreadable usage. The intro is simply not sent
+when the workspace is at cap; nothing is inserted.
+
+## Edge cases / future work
 - The shared `usage_counters.conversations_count` increment is owned
   by existing DB triggers / handlers; this phase does not change
   counting, only enforcement.

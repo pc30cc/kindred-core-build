@@ -3994,6 +3994,16 @@ const tr: TranslationKeys = {
     prechat: {
       title: 'Sohbet öncesi form alanları',
       description: 'Ziyaretçilerin ilk mesajı göndermeden önce hangi bilgileri vereceğini seçin. Platform yöneticisi tarafından kilitlenen alanlar burada değiştirilemez.',
+      timingTitle: 'Sohbet öncesi form ne zaman gösterilsin?',
+      timingDescription: 'Ziyaretçiden iletişim bilgilerinin tam olarak hangi anda isteneceğini seçin.',
+      timing_always: 'Hemen başlangıçta',
+      timing_always_hint: 'Form, yapay zekâ ilk yanıtı verse bile sohbet başlamadan önce gösterilir.',
+      timing_after_handoff: 'Yalnızca operatöre devredildikten sonra',
+      timing_after_handoff_hint: 'Ziyaretçi yapay zekâ ile sürtünmesiz sohbet eder; form yalnızca bir operatör devraldığında (veya yapay zekâ kapalıysa) gösterilir. Önerilir.',
+      timing_never: 'Hiçbir zaman gösterme',
+      timing_never_hint: 'Ziyaretçi zaten tanınmıyorsa bile iletişim bilgileri hiçbir zaman istenmez.',
+      timingNoFields: 'Hiçbir alan etkin değil, bu yüzden form görünmez. Aşağıdan en az bir alanı etkinleştirin.',
+
       name: 'Ad',
       email: 'E-posta',
       phone: 'Telefon',

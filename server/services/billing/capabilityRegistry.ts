@@ -46,6 +46,8 @@ export interface CapabilityDefinition {
   userVisible: boolean;
   /** Internal/admin-only — never shown to end users. */
   internalOnly?: boolean;
+  /** Legacy key kept only for backward compatibility — never offered in UI. */
+  deprecated?: boolean;
   /** Unit hint for `limit` types. */
   unit?: CapabilityUnit;
   /** Sort order within group (ascending). */
@@ -93,7 +95,11 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'sso',                   type: 'feature', label: 'SSO / SAML',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },
   { key: 'audit_logs',            type: 'feature', label: 'Audit Logs',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'white_label',           type: 'feature', label: 'White-label Branding',   group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
-  { key: 'remove_powered_by',     type: 'feature', label: 'Remove "Powered by"',    group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
+  // DEPRECATED legacy inverse of `widget_powered_by`. Kept in the registry so
+  // historical plan JSON stays known (no "unknown key" warnings) but never
+  // shown as a second toggle in the admin plan editor or customer billing UI,
+  // and never overridable per workspace.
+  { key: 'remove_powered_by',     type: 'feature', label: 'Remove "Powered by" (legacy)', description: 'Deprecated — superseded by `widget_powered_by`. Read only as a fallback for plans that were never migrated.', group: 'branding', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, internalOnly: true, deprecated: true, sortOrder: 20 },
   { key: 'widget_powered_by',     type: 'feature', label: 'Show Widget "Powered by" Footer', group: 'branding', description: 'Whether the chat widget shows the platform credit footer. Wording, brand label and link are platform-admin owned (Admin → Widget Settings → Powered by). Turn OFF for a plan to hide the footer entirely — the widget content then extends to the bottom edge.', defaultValue: true, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 25 },
 
 

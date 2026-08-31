@@ -158,13 +158,18 @@ function PlanFormDialog({
   const isEdit = !!plan?.id;
   const isPending = createPlan.isPending || updatePlan.isPending;
 
-  // Partition capabilities by type
-  const byType = useMemo(() => ({
-    module: capabilities.filter((c) => c.type === 'module').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
-    channel: capabilities.filter((c) => c.type === 'channel').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
-    feature: capabilities.filter((c) => c.type === 'feature'),
-    limit: capabilities.filter((c) => c.type === 'limit'),
-  }), [capabilities]);
+  // Partition capabilities by type. Deprecated / non-plan-configurable keys
+  // (e.g. the legacy `remove_powered_by` inverse) never render a toggle —
+  // the canonical key is the only thing a plan can set.
+  const byType = useMemo(() => {
+    const editable = capabilities.filter((c) => !(c as any).deprecated && c.planConfigurable !== false);
+    return {
+      module: editable.filter((c) => c.type === 'module').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+      channel: editable.filter((c) => c.type === 'channel').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+      feature: editable.filter((c) => c.type === 'feature'),
+      limit: editable.filter((c) => c.type === 'limit'),
+    };
+  }, [capabilities]);
 
   const featuresByGroup = useMemo(() => groupCapabilities(byType.feature), [byType.feature]);
   const limitsByGroup = useMemo(() => groupCapabilities(byType.limit), [byType.limit]);

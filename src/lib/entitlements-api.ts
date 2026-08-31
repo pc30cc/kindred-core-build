@@ -30,6 +30,8 @@ export interface CapabilityDefinition {
   userVisible: boolean;
   internalOnly?: boolean;
   unit?: string;
+  /** Legacy key kept for compatibility only — never render a toggle for it. */
+  deprecated?: boolean;
   sortOrder?: number;
 }
 

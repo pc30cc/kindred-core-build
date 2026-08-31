@@ -86,12 +86,14 @@
       if (!platform) return '';
       var label = (pb && pb.text) || tf('poweredBy', 'Powered by');
       var url = (pb && pb.url) || '';
-      var attrs = url
-        ? ' href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"'
-        : ' href="#" data-powered';
-      return '<div class="wy-footer"><a class="wy-powered"' + attrs + '>' +
-        '<span class="wy-powered-dot" aria-hidden="true"></span>' +
-        '<span>' + esc(label) + ' ' + esc(platform) + '</span></a></div>';
+      // No URL => a genuinely non-interactive element: no href, no data hook,
+      // no link semantics. Appearance is identical (same class).
+      var inner = '<span class="wy-powered-dot" aria-hidden="true"></span>' +
+        '<span>' + esc(label) + ' ' + esc(platform) + '</span>';
+      var body = url
+        ? '<a class="wy-powered" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
+        : '<span class="wy-powered">' + inner + '</span>';
+      return '<div class="wy-footer">' + body + '</div>';
     }
 
 

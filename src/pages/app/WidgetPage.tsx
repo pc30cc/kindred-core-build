@@ -4,6 +4,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useWidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +52,9 @@ function WidgetPageContent() {
   const { branding, platformName } = useBrandingContext();
   // Single source of truth — widget URLs come from platform widget settings only.
   const { data: platformWidget } = useWidgetPlatformSettings();
+  // Powered-by footer is platform-owned + plan-gated; the preview must show
+  // exactly what production renders.
+  const { data: effectiveEnts } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
@@ -97,6 +101,25 @@ function WidgetPageContent() {
     }),
     [live, branding, effectiveLocale],
   );
+  /**
+   * Mirror of `server/services/widget/poweredBy.ts`: platform master switch AND
+   * the `widget_powered_by` plan entitlement decide visibility; wording, brand
+   * label and URL come only from platform settings. `null` => no footer.
+   */
+  const previewPoweredBy = useMemo(() => {
+    const planAllows = effectiveEnts?.features?.widget_powered_by?.value !== false;
+    if (!planAllows) return null;
+    if (platformWidget && platformWidget.powered_by_enabled === false) return null;
+    const brand = (platformWidget?.powered_by_brand_text || '').trim()
+      || (platformName || '').trim();
+    if (!brand) return null;
+    const rawUrl = (platformWidget?.powered_by_url || '').trim();
+    return {
+      text: (platformWidget?.powered_by_text || '').trim(),
+      brand,
+      url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
+    };
+  }, [effectiveEnts, platformWidget, platformName]);
   const previewTeamMembers = useMemo(() => {
     const byUser = presenceMap(teamPresence?.presence);
     return (workspaceMembers || []).map(member => ({
@@ -690,6 +713,7 @@ function WidgetPageContent() {
                 prechat={prechat}
                 workspaceName={workspace?.name || t('widgetPage.preview.brandFallback')}
                 platformName={platformName || t('widgetPage.preview.brandFallback')}
+                poweredBy={previewPoweredBy}
                 teamMembers={previewTeamMembers}
                 view={previewView}
                 kbArticles={previewKbArticles}

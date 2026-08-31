@@ -185,6 +185,12 @@ export interface WidgetLivePreviewProps {
   workspaceName?: string;
   /** Platform identity used only by the powered-by footer. */
   platformName?: string;
+  /**
+   * Platform-owned powered-by footer payload, exactly as the widget bootstrap
+   * emits it. `null` => the footer must not render (platform switch off or the
+   * plan hides it), matching production.
+   */
+  poweredBy?: { text: string; brand: string; url: string | null } | null;
   /** @deprecated Compatibility alias; prefer workspaceName. */
   brandName?: string;
   teamMembers?: { name: string; avatar?: string | null; online: boolean }[];
@@ -211,7 +217,7 @@ export interface WidgetLivePreviewProps {
 }
 
 export function WidgetLivePreview({
-  settings, prechat, workspaceName, platformName, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
+  settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
   operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent,
 }: WidgetLivePreviewProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -350,7 +356,12 @@ export function WidgetLivePreview({
     const previewConfig = {
       brandName: brandName || title,
       workspaceName: title,
-      platformName: platformName || brandName || d.brandFallback,
+      platformName: poweredBy?.brand || platformName || brandName || d.brandFallback,
+      // Platform-owned footer payload — mirrors the production bootstrap so the
+      // preview reflects super-admin wording/link and plan visibility exactly.
+      ...(poweredBy !== undefined
+        ? { poweredBy, showPoweredBy: poweredBy !== null }
+        : {}),
       replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : '',
       welcomeMessage: welcome,
       logoUrl: logo || null,
@@ -822,7 +833,7 @@ export function WidgetLivePreview({
     // via postMessage so the frame animates instead of being re-created.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    settings, prechat, workspaceName, platformName, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
     smartScenario?.rtl,
   ]);

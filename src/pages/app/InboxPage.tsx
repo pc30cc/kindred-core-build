@@ -35,7 +35,7 @@ import {
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, CornerUpLeft, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
-  PhoneOff, Ban, ShieldOff, Users,
+  PhoneOff, Ban, ShieldOff, Users, Play, Pause, Mic,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,

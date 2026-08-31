@@ -1901,8 +1901,17 @@ export default function InboxPage() {
                   : (senderName || t('inbox.support') || 'Support');
                 // One identity marker per consecutive sender group. A different
                 // operator, AI/visitor switch, or new day starts a fresh group.
-                const showAvatar = !sameSenderAsPrev;
-                const showMeta = !sameSenderAsPrev;
+                // Identity marker (avatar + name + time) sits *below* the last
+                // message of each consecutive sender group.
+                const next = idx < (rawMessages?.length || 0) - 1 ? rawMessages[idx + 1] : null;
+                const nextStartsNewDay = !!next && dayKey(next.created_at) !== dayKey(msg.created_at);
+                const sameSenderAsNext = !!next
+                  && !nextStartsNewDay
+                  && !isMenuEvent(next)
+                  && !isMenuEvent(msg)
+                  && senderKey(next) === senderKey(msg);
+                const showAvatar = !sameSenderAsNext;
+                const showMeta = !sameSenderAsNext;
                 // Pass A — system call_ended summary renders as a centered
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};
@@ -2025,65 +2034,12 @@ export default function InboxPage() {
                   <div
                     dir="ltr"
                     className={cn(
-                      'flex gap-2.5 group',
-                      isAgent ? 'flex-row-reverse' : 'flex-row',
-                      sameSenderAsPrev ? '-mt-3' : '',
+                      'flex flex-col group',
+                      isAgent ? 'items-end' : 'items-start',
+                      sameSenderAsPrev ? 'mt-1' : 'mt-3',
                     )}
                   >
-                    {/* Avatar — hidden on grouped follow-ups, replaced by spacer */}
-                    {showAvatar ? (
-                      isAgent ? (
-                        <div className={cn(
-                          'w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1 overflow-hidden text-[12px] font-bold',
-                          isAi
-                            ? 'bg-accent/30 text-accent-foreground ring-accent/40'
-                            : 'bg-primary/15 text-primary ring-primary/20',
-                        )}
-                          title={agentLabel}
-                        >
-                          {!isAi && senderAvatar ? (
-                            <img src={senderAvatar} alt={agentLabel} className="w-full h-full object-cover" />
-                          ) : isAi ? (
-                            <Bot className="w-[18px] h-[18px]" />
-                          ) : senderName ? (
-                            <span>{getInitials(senderName)}</span>
-                          ) : (
-                            <User className="w-[18px] h-[18px]" />
-                          )}
-                        </div>
-                      ) : (
-                        <ContactAvatar
-                          name={selected?.contacts?.name}
-                          email={selected?.contacts?.email}
-                          avatarUrl={selected?.contacts?.avatar_url}
-                          os={(selected as any)?.visitor_os}
-                          device={(selected as any)?.visitor_device}
-                          countryCode={(selected as any)?.visitor_country_code}
-                          countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
-                          size="sm"
-                          className="mt-0.5"
-                        />
-                      )
-                    ) : (
-                      <div className="w-9 shrink-0" aria-hidden />
-                    )}
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
-                      {showMeta && (
-                        <div dir={dir} className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1.5">
-                          <span className="font-medium">
-                            {isAgent
-                              ? agentLabel
-                              : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale)}
-                          </span>
-                          {isAi && (
-                            <span className="px-1.5 py-px rounded bg-accent/40 text-accent-foreground text-[10px] font-semibold uppercase tracking-wide">
-                              {t('inbox.auto') || 'AUTO'}
-                            </span>
-                          )}
-                          <span className="opacity-30">•</span>
-                          <bdi title={formatDateTime(msg.created_at)}>{formatTime(msg.created_at)}</bdi>
-                        </div>
-                      )}
                       <div dir={dir} className={cn(
                         'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent
@@ -2095,11 +2051,70 @@ export default function InboxPage() {
                         )}
                         {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{msg.body}</p>}
                       </div>
-                      {/* Hover actions + seen state */}
+                      {/* Identity + time strip below the (last) bubble of a streak */}
                       <div className={cn(
-                        'flex items-center gap-2 mt-1 h-3.5',
+                        'flex items-center gap-1.5 mt-1 min-h-[18px]',
                         isAgent ? 'flex-row-reverse' : 'flex-row',
                       )}>
+                        {showAvatar && (
+                          isAgent ? (
+                            <div className={cn(
+                              'w-6 h-6 rounded-full flex items-center justify-center shrink-0 ring-1 overflow-hidden text-[10px] font-bold',
+                              isAi
+                                ? 'bg-accent/30 text-accent-foreground ring-accent/40'
+                                : 'bg-primary/15 text-primary ring-primary/20',
+                            )}
+                              title={agentLabel}
+                            >
+                              {!isAi && senderAvatar ? (
+                                <img src={senderAvatar} alt={agentLabel} className="w-full h-full object-cover" />
+                              ) : isAi ? (
+                                <Bot className="w-3.5 h-3.5" />
+                              ) : senderName ? (
+                                <span>{getInitials(senderName)}</span>
+                              ) : (
+                                <User className="w-3.5 h-3.5" />
+                              )}
+                            </div>
+                          ) : (
+                            <ContactAvatar
+                              name={selected?.contacts?.name}
+                              email={selected?.contacts?.email}
+                              avatarUrl={selected?.contacts?.avatar_url}
+                              os={(selected as any)?.visitor_os}
+                              device={(selected as any)?.visitor_device}
+                              countryCode={(selected as any)?.visitor_country_code}
+                              countryName={localizedCountryName((selected as any)?.visitor_country_code, locale, (selected as any)?.visitor_country_name)}
+                              size="xs"
+                            />
+                          )
+                        )}
+                        {showMeta && (
+                          <div dir={dir} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                            <span className="font-medium">
+                              {isAgent
+                                ? agentLabel
+                                : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale)}
+                            </span>
+                            {isAi && (
+                              <span className="px-1.5 py-px rounded bg-accent/40 text-accent-foreground text-[10px] font-semibold uppercase tracking-wide">
+                                {t('inbox.auto') || 'AUTO'}
+                              </span>
+                            )}
+                            <span className="opacity-30">•</span>
+                            <bdi title={formatDateTime(msg.created_at)}>{formatTime(msg.created_at)}</bdi>
+                          </div>
+                        )}
+                        {!showMeta && (
+                          <bdi dir={dir} className="text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" title={formatDateTime(msg.created_at)}>
+                            {formatTime(msg.created_at)}
+                          </bdi>
+                        )}
+                        {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
+                          <span className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
+                          </span>
+                        )}
                         <button
                           onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-0.5 rounded"
@@ -2108,11 +2123,6 @@ export default function InboxPage() {
                         >
                           <Copy className="w-3 h-3" />
                         </button>
-                        {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
-                          <span className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>

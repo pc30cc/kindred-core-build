@@ -125,43 +125,38 @@ async function ensureChannelConversation(
 ): Promise<{ id: string; created: boolean }> {
   const threadKey = `${input.provider}:${input.integrationId}:${input.externalChatId}`;
 
-  const { data: open } = await sb
-    .from('conversations')
-    .select('id')
-    .eq('workspace_id', input.workspaceId)
-    .contains('metadata', { channel_thread_key: threadKey })
-    // resolved threads are continued (they reopen once the message lands);
-    // closed threads are archived and MUST spawn a new conversation.
-    .in('status', INBOUND_REUSABLE_STATUSES as unknown as string[])
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (open?.id) return { id: open.id as string, created: false };
-
-  const { data: conv, error } = await sb
-    .from('conversations')
-    .insert({
-      workspace_id: input.workspaceId,
-      contact_id: contactId,
-      status: 'open',
-      subject: null,
-      metadata: {
-        channel: input.provider,
-        channel_thread_key: threadKey,
-        channel_integration_id: input.integrationId,
-        channel_chat_id: input.externalChatId,
-        ...extraMetadata,
-      },
-      updated_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-  if (error) {
-    console.error('[channels] conversation creation failed:', error.message);
-    throw new Error(`conversation creation failed: ${error.message}`);
+  // Atomic match-or-create under a per-(workspace, thread) advisory lock.
+  // Two genuinely different messages arriving at the same instant on a thread
+  // whose previous conversation is `closed` converge on ONE new conversation:
+  // the loser of the race blocks on the lock and then matches the winner's
+  // row. `closed` is never matched (see migration 071) so archived threads
+  // still stay archived.
+  const { data, error } = await sb.rpc('ensure_active_conversation', {
+    p_workspace_id: input.workspaceId,
+    p_lock_key: threadKey,
+    p_match_thread_key: threadKey,
+    p_match_session_id: null,
+    p_match_contact_id: null,
+    p_contact_id: contactId,
+    p_visitor_session_id: null,
+    p_subject: null,
+    p_metadata: {
+      channel: input.provider,
+      channel_thread_key: threadKey,
+      channel_integration_id: input.integrationId,
+      channel_chat_id: input.externalChatId,
+      ...extraMetadata,
+    },
+  });
+  const row = Array.isArray(data) ? data[0] : data;
+  if (error || !row?.id) {
+    const reason = error?.message || 'no row returned';
+    console.error('[channels] conversation creation failed:', reason);
+    throw new Error(`conversation creation failed: ${reason}`);
   }
-  return { id: (conv as any).id as string, created: true };
+  return { id: row.id as string, created: Boolean(row.created) };
 }
+
 
 /**
  * Whether the AI will own this thread from its very first message. Resolved

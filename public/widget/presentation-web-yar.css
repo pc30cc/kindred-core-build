@@ -517,7 +517,9 @@ a.wy-powered:hover { color: var(--wy-text); }
 
 /* Chat view scroll host — the chat frame owns its own scrolling now that the
    panel no longer wraps a persistent chat body. Design: 16px box on white. */
-.wy-chat-scroll { flex: 1; min-height: 0; padding: 16px; background: var(--wy-card); }
+/* 10px box + 6px reserved gutter on both edges = a real, symmetric 16px. */
+.wy-chat-scroll { flex: 1; min-height: 0; padding: 16px 10px; background: var(--wy-card); }
+
 
 /* ─── Messages ──────────────────────────────────────────────────────── */
 /* Physical sides are IDENTICAL in LTR and RTL: operator/AI on the left,

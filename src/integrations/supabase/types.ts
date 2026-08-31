@@ -7930,7 +7930,7 @@ export type Database = {
           position: string | null
           primary_color: string | null
           read_receipts_enabled: boolean
-          reply_time_text: string
+          reply_time_text: string | null
           round_robin_cursor_user_id: string | null
           secondary_color: string | null
           shadow_color: string | null
@@ -7989,7 +7989,7 @@ export type Database = {
           position?: string | null
           primary_color?: string | null
           read_receipts_enabled?: boolean
-          reply_time_text?: string
+          reply_time_text?: string | null
           round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
           shadow_color?: string | null
@@ -8048,7 +8048,7 @@ export type Database = {
           position?: string | null
           primary_color?: string | null
           read_receipts_enabled?: boolean
-          reply_time_text?: string
+          reply_time_text?: string | null
           round_robin_cursor_user_id?: string | null
           secondary_color?: string | null
           shadow_color?: string | null

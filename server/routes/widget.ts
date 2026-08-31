@@ -148,8 +148,11 @@ const DEFAULT_WIDGET_SETTINGS = {
   secondary_color: '#6366f1',
   greeting_message: '',
   welcome_message: 'Hello! How can we help you?',
-  reply_time_text: '',
-  brand_name: '',
+  // NULL (not '') = "never authored" → the UI/widget uses its default text.
+  // An explicit '' is an authored "hide this line" signal.
+  reply_time_text: null as string | null,
+  brand_name: null as string | null,
+
   placeholder_text: '',
   position: 'bottom-right',
   show_logo: true,

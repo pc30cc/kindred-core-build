@@ -30,6 +30,7 @@ export const WIDGET_SETTING_CAPABILITY: Record<string, string> = {
   voice_notes_enabled: 'widget_voice_notes',
   emoji_enabled: 'widget_emoji',
   smart_engagement_enabled: 'widget_smart_engagement',
+  store_raw_ip: 'widget_raw_ip_storage',
 };
 
 const MODULE_KEYS = new Set(['chat', 'knowledge_base', 'visitor_tracking']);
@@ -62,6 +63,8 @@ export const WIDGET_CAPABILITY_KEYS = [
   'widget_smart_engagement',
   'widget_business_hours',
   'widget_domain_allowlist',
+  'widget_assignment_routing',
+  'widget_raw_ip_storage',
 ] as const;
 
 async function resolveBoolean(
@@ -139,6 +142,10 @@ export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>
   if (ent.features.widget_business_hours === false && out.business_hours) {
     out.business_hours = { ...(out.business_hours as any), enabled: false };
   }
+  // Plans without automatic routing fall back to manual assignment.
+  if (ent.features.widget_assignment_routing === false && 'assignment_mode' in out) {
+    out.assignment_mode = 'manual';
+  }
   return out as T;
 }
 
@@ -161,6 +168,12 @@ export function guardWidgetSettingsPatch(
   for (const [column, capability] of Object.entries(WIDGET_SETTING_CAPABILITY)) {
     if (!(column in patch)) continue;
     if (patch[column] === true && ent.features[capability] === false) denied.push(capability);
+  }
+
+  if ('assignment_mode' in patch
+      && patch.assignment_mode !== 'manual'
+      && ent.features.widget_assignment_routing === false) {
+    denied.push('widget_assignment_routing');
   }
 
   if (patch.business_hours && (patch.business_hours as any).enabled === true

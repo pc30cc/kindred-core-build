@@ -89,10 +89,17 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
     });
   }
 
+  // The powered-by footer may only be switched OFF by the workspace when the
+  // plan grants that right; otherwise it stays forced ON.
+  const patch = { ...(parsed.data as Record<string, any>) };
+  if ('show_powered_by' in patch && entitlements.features.widget_powered_by_toggle !== true) {
+    patch.show_powered_by = true;
+  }
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_settings')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('workspace_id', workspaceId)
     .select()
     .single();

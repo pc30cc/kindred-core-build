@@ -90,6 +90,9 @@ export const WIDGET_CAPABILITY_KEYS = [
   'widget_composer_placeholder',
   'widget_team_avatars',
   'widget_workspace_logo',
+  // Grants the workspace switch that may hide the powered-by footer. Never
+  // mapped in WIDGET_SETTING_CAPABILITY: denial forces `show_powered_by` ON.
+  'widget_powered_by_toggle',
 ] as const;
 
 async function resolveBoolean(

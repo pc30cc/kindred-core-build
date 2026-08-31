@@ -270,7 +270,8 @@ export function WidgetLivePreview({
 
     const primary: string = s.primary_color || '#3B82F6';
     const secondary: string = s.secondary_color || s.primary_color || '#6366F1';
-    const shadowColor: string = typeof s.shadow_color === 'string' ? s.shadow_color.trim() : '';
+    /* Launcher shadow is derived from the brand colour (same rule as loader.js). */
+    const shadowColor: string = shadowFromPrimary(primary);
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     /* Header titles use workspace identity only — launcher_text is a launcher
        concern and is not consumed by the Web Yar presentation. */

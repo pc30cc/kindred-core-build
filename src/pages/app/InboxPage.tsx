@@ -1727,6 +1727,22 @@ export default function InboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-0.5 shrink-0">
+                {(selected.status === 'open' || selected.status === 'pending') && (
+                  <button
+                    aria-label={t('inbox.markAwaitingReply') || 'Awaiting customer reply'}
+                    onClick={() => workspace?.id && selectedId && updateConv.mutate({
+                      id: selectedId,
+                      workspace_id: workspace.id,
+                      status: selected.status === 'pending' ? 'open' : 'pending',
+                    })}
+                    className={cn(
+                      'p-2 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      selected.status === 'pending' ? 'text-warning bg-warning/10' : 'text-muted-foreground hover:bg-warning/10 hover:text-warning',
+                    )}
+                  >
+                    <Clock className="w-5 h-5" />
+                  </button>
+                )}
                 {selected.status === 'open' && (
                   <button
                     aria-label={t('inbox.resolve') || 'Resolve'}
@@ -1736,6 +1752,7 @@ export default function InboxPage() {
                     <CheckCircle2 className="w-5 h-5" />
                   </button>
                 )}
+
                 <button
                   aria-label={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}
                   aria-expanded={showSidebar}

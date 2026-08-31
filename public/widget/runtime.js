@@ -2611,6 +2611,7 @@
     // can't fight the interval: buildMessagesHtml() always renders the
     // CURRENTLY revealed slice for the active id, so the two stay in sync.
     var lastRenderedBody = null;
+    var lastRenderedChatHtml = null;
     var lastMergedNewAiMessage = null;
     var typewriter = null; // { id, tokens, revealedCount, timer }
     // The handoff pre-chat card's prompt line animates once, the very
@@ -3388,6 +3389,7 @@
       var animateSubtitle = !handoffPrechatSubtitleAnimated;
       var cardHtml = renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle);
       lastRenderedBody = body;
+      lastRenderedChatHtml = null;
       body.innerHTML = buildMessagesHtml(s, cardHtml);
       wireChatEvents(body);
       wirePrechatForm(body, identity, onSubmitted, { autofocus: false });

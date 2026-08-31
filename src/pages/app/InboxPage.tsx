@@ -29,7 +29,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import {
-  Inbox, Send, CheckCircle2, Filter, Plus, MessageSquare,
+  Inbox, Send, CheckCircle2, Filter, MessageSquare,
   ChevronDown, ChevronUp, Search, MoreHorizontal, Archive,
   UserCheck, AlertCircle, Clock, Star, X,
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
@@ -1358,13 +1358,6 @@ export default function InboxPage() {
                 )}
               >
                 {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              </button>
-              <button
-                aria-label={t('inbox.newConversation') || 'New conversation'}
-                title={t('inbox.newConversation') || 'New conversation'}
-                className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Plus className="w-4 h-4" />
               </button>
               {isGlobalAdmin && (
               <AlertDialog>

@@ -219,7 +219,29 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     .join('\n');
 
   const settings = await getOrCreateSettings(config, workspaceId);
-  const responseLocale = locale || settings.allowed_locales?.[0] || 'en';
+  // Response language policy:
+  //  - Workspace restricted to a single locale (e.g. only fa or only tr) →
+  //    that locale wins, even when the caller asks for something else.
+  //  - Otherwise the requested (operator UI) locale wins when it is allowed.
+  //  - Fall back to the first allowed locale, then to the detected visitor
+  //    language, then to 'en'.
+  const normalizeLocale = (v?: string | null) =>
+    (v || '').trim().toLowerCase().split(/[-_]/)[0];
+  const allowed = (settings.allowed_locales || [])
+    .map((l: string) => normalizeLocale(l))
+    .filter(Boolean);
+  const requested = normalizeLocale(locale);
+  const detected = detectInputLanguage(inputMessage);
+  let responseLocale: string;
+  if (allowed.length === 1) {
+    responseLocale = allowed[0];
+  } else if (requested && (allowed.length === 0 || allowed.includes(requested))) {
+    responseLocale = requested;
+  } else if (allowed.length > 0) {
+    responseLocale = allowed.includes(detected) ? detected : allowed[0];
+  } else {
+    responseLocale = detected !== 'unknown' ? detected : 'en';
+  }
 
   const safetyNotes: string[] = [];
   let hybrid: any;

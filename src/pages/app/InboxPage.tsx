@@ -271,8 +271,12 @@ function AudioAttachmentPlayer({
  * max box) that opens a JS lightbox instead of navigating to a new tab.
  */
 function ImageAttachment({ att, url }: { att: { id: string; file_name: string }; url: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+
 
   useEffect(() => {
     if (!open) return;

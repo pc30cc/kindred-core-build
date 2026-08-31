@@ -363,16 +363,27 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdR
 
 const brandingUpdateSchema = z.object({}).passthrough();
 
+/**
+ * Platform-owned branding columns. Workspace owners/admins must never be able
+ * to write these — the widget "powered by" credit and platform identity are
+ * configured exclusively by the platform admin (widget_platform_settings /
+ * platform_branding). Silently stripped so older clients keep working.
+ */
+const PLATFORM_OWNED_BRANDING_FIELDS = ['platform_name'] as const;
+
 workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const parsed = brandingUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
+  const updates = { ...(parsed.data as Record<string, unknown>) };
+  for (const field of PLATFORM_OWNED_BRANDING_FIELDS) delete updates[field];
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('workspace_branding')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update({ ...updates, updated_at: new Date().toISOString() })
+
     .eq('workspace_id', req.params.workspaceId)
     .select()
     .single();

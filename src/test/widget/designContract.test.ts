@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 
 const RUNTIME_CSS = readFileSync('public/widget/runtime.css', 'utf8');
 const PRES_CSS = readFileSync('public/widget/presentation-web-yar.css', 'utf8');
+const PRES_FONTS_CSS = readFileSync('public/widget/presentation-web-yar-fonts.css', 'utf8');
 const RUNTIME_JS = readFileSync('public/widget/runtime.js', 'utf8');
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
 const RENDERER_SRC = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
@@ -65,22 +66,28 @@ describe('typography ownership', () => {
     expect(RUNTIME_CSS).not.toMatch(/Vazirmatn/);
   });
 
-  it('presentation owns IRANSans (fa) and Inter (ltr), with the bytes inlined (CORS-proof)', () => {
-    const faces = PRES_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
-    expect(faces.length).toBeGreaterThanOrEqual(4);
-    // No cross-origin .woff2 fetch may remain — that is what broke fonts in prod.
+  it('keeps ALL font bytes in ONE presentation-owned asset, never in the template CSS', () => {
+    // Template stylesheet: typography rules only — zero font bytes.
+    expect(PRES_CSS).not.toMatch(/@font-face/);
+    expect(PRES_CSS).not.toMatch(/base64,/);
     expect(PRES_CSS).not.toMatch(/url\(['"]?[^)]*\.woff2/);
-    for (const w of [400, 500, 700]) {
+    expect(PRES_CSS).toMatch(/\.shell \*\s*\{\s*\n?\s*font-family: 'IRANSans'/);
+    expect(PRES_CSS).toMatch(/font-family: 'InterWY'/);
+
+    // Font asset: the faces, with the bytes inlined (CORS-proof) exactly once.
+    const faces = PRES_FONTS_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
+    expect(faces.length).toBe(4);
+    expect(PRES_FONTS_CSS).not.toMatch(/url\(['"]?[^)]*\.woff2/);
+    for (const w of [400, 500, 600, 700]) {
       expect(
         faces.some((f) => new RegExp(`font-weight:\\s*${w}\\b`).test(f) && /url\(data:font\/woff2;base64,/.test(f)),
       ).toBe(true);
     }
-    expect(PRES_CSS).toMatch(/\.shell \*\s*\{\s*\n?\s*font-family: 'IRANSans'/);
-    expect(PRES_CSS).toMatch(/font-family: 'InterWY'/);
+    expect(PRES_FONTS_CSS).toMatch(/font-family: 'InterWY'[^}]*font-weight: 500/);
   });
 
   it('maps the design 600 and 700 weights to the same licensed Bold asset', () => {
-    const faces = PRES_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
+    const faces = PRES_FONTS_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
     const src = (w: number) => {
       const f = faces.find((x) => new RegExp(`font-weight:\\s*${w}\\b`).test(x));
       return f ? (f.match(/base64,([A-Za-z0-9+/=]{64})/) || [])[1] : undefined;
@@ -89,6 +96,20 @@ describe('typography ownership', () => {
     expect(src(600)).toBe(src(700));
   });
 
+  it('exposes the font asset generically through the registry descriptor', () => {
+    expect(REGISTRY_SRC).toContain("fonts: 'presentation-web-yar-fonts.css'");
+    const loader = readFileSync('public/widget/loader.js', 'utf8');
+    // The loader must stay template-agnostic: no font family, no fixed path.
+    expect(loader).not.toContain('IRANSans');
+    expect(loader).not.toContain('/widget/fonts.css');
+    expect(loader).toContain('presentationFontsUrl');
+    // Call widget consumes a server-provided asset URL, not the chat path.
+    const callRuntime = readFileSync('public/call-widget/runtime.js', 'utf8');
+    expect(callRuntime).not.toContain('/widget/fonts.css');
+    expect(callRuntime).toContain('font_style_url');
+    const callCss = readFileSync('public/call-widget/runtime.css', 'utf8');
+    expect(callCss).not.toMatch(/@font-face/);
+  });
 
   it('keeps all controls on presentation-owned inherited typography', () => {
     expect(PRES_CSS).toMatch(/\.shell \*\s*\{[^}]*font-family:\s*'IRANSans'/);

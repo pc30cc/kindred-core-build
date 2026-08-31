@@ -747,6 +747,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
     const presentationJsName = getWidgetAssetName(templateAssets.script);
     const presentationCssName = getWidgetAssetName(templateAssets.style);
+    // Optional, template-owned font asset (hashed). The loader stays generic:
+    // it just injects whatever stylesheet this points at, if any.
+    const presentationFontsCssName = getWidgetAssetName(templateAssets.fonts);
 
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
@@ -889,6 +892,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       presentationRegistryUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationRegistryJsName}` : null),
       presentationUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationJsName}` : null),
       presentationStyleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationCssName}` : null),
+      presentationFontsUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationFontsCssName}` : null),
       // Pass 1 — explicit LiveKit SDK URL. Self-hosted, hashed asset. The
       // call runtime MUST consume this and never fall back to a CDN. When
       // assetBase is unresolved (very unusual — most likely a misconfigured

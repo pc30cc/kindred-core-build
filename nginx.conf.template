@@ -113,10 +113,32 @@ server {
 
     # All other widget assets (hashed runtime js/css) — immutable long cache.
     # Uses regex prefix so it wins over the SPA fallback `location /`.
+    #
+    # ─── WIDGET-FONT-CORS (post-mortem) ──────────────────────────────
+    # Symptom: customer pages logged "CORS error" for
+    # /widget/fonts/iransans-*.woff2 even though this block sets
+    # `Access-Control-Allow-Origin: *`. The origin config was correct —
+    # the responses customers received did not come from this block:
+    #   1. .woff2 is in the CDN's default "cache everything by extension"
+    #      list. Copies fetched BEFORE the ACAO header was added here were
+    #      still being served from the edge, header-less. `CDN-Cache-Control`
+    #      / `Cloudflare-CDN-Cache-Control` (set below) are honoured only on
+    #      Enterprise plans, so origin `no-store` did not evict them.
+    #   2. `/widget/fonts/` is not content-addressed, so the stale edge copy
+    #      never rotated on deploy — unlike hashed assets.
+    # Fix (architectural, not a workaround): font bytes now ship inside a
+    # CONTENT-HASHED presentation asset (presentation-<id>-fonts.css) with
+    # the faces inlined as data: URLs. No font subresource request is made
+    # at all, and any future byte change produces a new URL, so a stale edge
+    # copy is impossible. The raw .woff2 files stay on disk only as build
+    # inputs. If they are ever served directly again, purge the CDN cache
+    # for /widget/fonts/* after any header change.
+    # ─────────────────────────────────────────────────────────────────
     location ^~ /widget/ {
         root /usr/share/nginx/html;
         add_header Access-Control-Allow-Origin "*" always;
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
+
 
         # ─────────────────────────────────────────────────────────────
         # Cache policy split:

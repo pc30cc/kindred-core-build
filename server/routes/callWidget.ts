@@ -52,6 +52,9 @@ import {
   setContinuityCookie,
 } from '../services/widget/continuity.js';
 import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
+import { getWidgetAssetName } from '../services/widget/manifest.js';
+import { resolveWidgetAssetBase, getLoaderAssetBase } from '../services/widget/public.js';
+import { widgetTemplateAssetKeys, resolveWidgetTemplateId } from '../services/widget/presentationAssets.js';
 import crypto from 'crypto';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
@@ -614,10 +617,30 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       queue_urls: queueUrls,
     };
   })();
+  // Shared, hashed font asset. The call widget does NOT hard-code a font
+  // path: it consumes the same immutable descriptor asset the chat widget
+  // resolves, so the bytes exist exactly once and are cached once.
+  const fontAssetUrl = (() => {
+    try {
+      const key = widgetTemplateAssetKeys(resolveWidgetTemplateId(null)).fonts;
+      const name = getWidgetAssetName(key);
+      const base = resolveWidgetAssetBase({
+        widgetBaseUrl: null,
+        widgetLoaderBaseUrl: null,
+        widgetPublicBaseUrl: null,
+        assetBaseUrl: null,
+        loaderAssetBase: getLoaderAssetBase(req as any),
+      });
+      // Relative when no explicit asset base is configured — the runtime
+      // resolves it against its own origin, exactly like its other assets.
+      return base ? `${base}/widget/${name}` : `/widget/${name}`;
+    } catch { return null; }
+  })();
   res.json({
     status: 'ok',
     session,
     assets_version: CALL_WIDGET_ASSETS_VERSION,
+    assets: { font_style_url: fontAssetUrl },
     workspace_id: ws.workspace_id,
     visitor: visitorBlock,
     config: {

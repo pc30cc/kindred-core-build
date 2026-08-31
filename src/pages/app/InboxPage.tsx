@@ -1062,7 +1062,7 @@ export default function InboxPage() {
       <div className="flex h-full items-end gap-2 px-1 pb-0" dir={dir}>
         {toolbarTabsNode}
         {totalUnread > 0 && (
-          <span className="text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold tabular-nums">
+          <span className="mb-2 text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold tabular-nums">
             {totalUnread > 99 ? '99+' : totalUnread}
           </span>
         )}

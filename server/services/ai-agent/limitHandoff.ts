@@ -108,73 +108,140 @@ export interface RunLimitHandoffResult {
 /**
  * Execute the limit-handoff flow. Idempotent per (conversation, reason):
  * subsequent visitor messages will not re-send the template.
+ *
+ * COMMIT-FIRST contract: no dedupe marker, no visitor acknowledgement and no
+ * routing may happen until `commitNeedsHuman()` durably persisted the
+ * needs_human transition. A failed commit logs a `failed` run and returns
+ * `committed:false`, so the next visitor message retries the whole flow.
  */
 export async function runLimitHandoff(
   config: ServerConfig,
   input: RunLimitHandoffInput,
 ): Promise<RunLimitHandoffResult> {
   const fallbackBehavior = (input.settings as any).fallback_behavior || 'handoff';
+  const suppressMessage = fallbackBehavior === 'silent' || input.suppressVisitorMessage === true;
   const meta = await readMeta(config, input.conversationId);
-  const alreadySent =
-    meta.ai_limit_handoff_sent === true &&
-    meta.ai_limit_handoff_reason === input.reason;
 
-  // Always log the run (so analytics reflect every limit hit), but mark
-  // duplicates so the engine can short-circuit.
-  const runId = await logRun(config, {
-    workspaceId: input.workspaceId,
-    conversationId: input.conversationId,
-    visitorMessageId: input.visitorMessageId,
-    runType: 'handoff',
-    mode: input.settings.mode,
-    status: 'handoff',
-    inputText: input.question,
-    skipReason: input.reason,
-    creditsUsed: 0,
-    metadata: {
-      ...(input.extraMetadata || {}),
-      limit_handoff: true,
-      limit_reason: input.reason,
-      duplicate: alreadySent,
-      fallback_behavior: fallbackBehavior,
-    },
-  });
+  const reasonMatches = meta.ai_limit_handoff_reason === input.reason;
+  // Post-commit marker — written ONLY after a durable commit succeeded.
+  const committedMarker = reasonMatches && meta.ai_limit_handoff_committed === true;
+  // Legacy marker (pre commit-first implementations): ambiguous, it may have
+  // been written before a commit that never landed. Verify durable state.
+  const legacyMarker = reasonMatches && meta.ai_limit_handoff_sent === true && !committedMarker;
+  const durableNeedsHuman = meta.ai_state === 'needs_human';
+  const messageAlreadySent =
+    reasonMatches &&
+    (meta.ai_limit_handoff_message_sent === true || meta.ai_limit_handoff_sent === true);
 
-  if (alreadySent) {
+  const logHandoffRun = (opts: {
+    status: 'handoff' | 'failed';
+    duplicate: boolean;
+    extra?: Record<string, unknown>;
+    skipReason?: string;
+  }) =>
+    logRun(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      visitorMessageId: input.visitorMessageId,
+      runType: 'handoff',
+      mode: input.settings.mode,
+      status: opts.status,
+      inputText: input.question,
+      skipReason: opts.skipReason || input.reason,
+      creditsUsed: 0,
+      metadata: {
+        ...(input.extraMetadata || {}),
+        limit_handoff: true,
+        limit_reason: input.reason,
+        duplicate: opts.duplicate,
+        fallback_behavior: fallbackBehavior,
+        ...(opts.extra || {}),
+      },
+    });
+
+  // ── Duplicate paths ────────────────────────────────────────────────────
+  if (committedMarker || (legacyMarker && durableNeedsHuman)) {
+    const runId = await logHandoffRun({ status: 'handoff', duplicate: true });
     return { committed: true, sentMessage: false, duplicate: true, runId, messageId: null };
   }
 
-  // Always route to human queue, even when fallback_behavior='silent'.
+  if (legacyMarker) {
+    // Ambiguous historical marker with no durable state — re-run the
+    // idempotent commit instead of trusting it.
+    const recommit = await commitNeedsHuman(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      reason: input.reason as HandoffReason,
+    }).catch(() => ({ ok: false, routingDeferred: false }));
+    if (!recommit.ok) {
+      const runId = await logHandoffRun({
+        status: 'failed',
+        duplicate: false,
+        skipReason: 'commit_failed',
+        extra: { commit_failed: true, legacy_marker: true },
+      });
+      return { committed: false, sentMessage: false, duplicate: false, runId, messageId: null };
+    }
+    await patchMeta(config, input.conversationId, {
+      ai_limit_handoff_committed: true,
+      ai_limit_handoff_reason: input.reason,
+      ai_limit_handoff_at: new Date().toISOString(),
+    });
+    const runId = await logHandoffRun({
+      status: 'handoff',
+      duplicate: true,
+      extra: { legacy_marker_recommitted: true },
+    });
+    await routeAfterHandoff(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      commit: recommit,
+    });
+    return {
+      committed: true,
+      sentMessage: false,
+      duplicate: messageAlreadySent,
+      runId,
+      messageId: null,
+    };
+  }
 
-  const nowIso = new Date().toISOString();
-  await patchMeta(config, input.conversationId, {
-    ai_limit_handoff_sent: true,
-    ai_limit_handoff_reason: input.reason,
-    ai_limit_handoff_at: nowIso,
-  });
-
-  // vNext blocker 1 — the durable needs_human commit always happens FIRST.
+  // ── Commit FIRST ───────────────────────────────────────────────────────
   const commit = await commitNeedsHuman(config, {
     workspaceId: input.workspaceId,
     conversationId: input.conversationId,
     reason: input.reason as HandoffReason,
   }).catch(() => ({ ok: false, routingDeferred: false }));
 
+  if (!commit.ok) {
+    // Nothing persisted: no dedupe marker, no acknowledgement, no routing.
+    const runId = await logHandoffRun({
+      status: 'failed',
+      duplicate: false,
+      skipReason: 'commit_failed',
+      extra: { commit_failed: true },
+    });
+    return { committed: false, sentMessage: false, duplicate: false, runId, messageId: null };
+  }
+
+  const nowIso = new Date().toISOString();
+  await patchMeta(config, input.conversationId, {
+    ai_limit_handoff_committed: true,
+    ai_limit_handoff_reason: input.reason,
+    ai_limit_handoff_at: nowIso,
+  });
+
+  const runId = await logHandoffRun({ status: 'handoff', duplicate: false });
+
   // Suppress visitor-facing message when fallback_behavior='silent' or
-  // mode=suggest_only.
-  if (fallbackBehavior === 'silent' || input.suppressVisitorMessage) {
+  // mode=suggest_only — committed:true / sentMessage:false is valid.
+  if (suppressMessage) {
     await routeAfterHandoff(config, {
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
       commit,
     });
-    return { committed: commit.ok === true, sentMessage: false, duplicate: false, runId, messageId: null };
-  }
-
-  // No acknowledgement when the state transition did not persist — the
-  // visitor must never be told they were queued when they were not.
-  if (!commit.ok) {
-    return { committed: false, sentMessage: false, duplicate: false, runId, messageId: null };
+    return { committed: true, sentMessage: false, duplicate: false, runId, messageId: null };
   }
 
   // The ack is inserted AFTER the commit but BEFORE routing, so the routing
@@ -193,6 +260,11 @@ export async function runLimitHandoff(
     handoff: true,
     agentName: display.agentName,
     agentLogoUrl: display.agentLogoUrl,
+  });
+  await patchMeta(config, input.conversationId, {
+    ai_limit_handoff_message_sent: true,
+    // Legacy key kept for backward compatibility with older readers.
+    ai_limit_handoff_sent: true,
   });
   await routeAfterHandoff(config, {
     workspaceId: input.workspaceId,
@@ -228,6 +300,7 @@ export async function runLimitHandoff(
 
   return { committed: true, sentMessage: true, duplicate: false, runId, messageId: inserted.id };
 }
+
 
 /** Detect credit / plan limit errors coming from the AI provider layer. */
 export function detectLimitErrorReason(message: string | undefined | null): LimitReason | null {

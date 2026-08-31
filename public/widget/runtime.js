@@ -1627,8 +1627,14 @@
           onMessages: function (msgs) {
             markPollSuccess();
             if (freshIntentArmed() && !subscribedConversation) return;
-            if (msgs && msgs.length) emit('message', { messages: msgs });
+            // P0-4 — a frame only reaches the view when the ACTIVE
+            // conversation owns it. Untargeted frames stay allowed.
+            var owned = (msgs || []).filter(function (m) {
+              return ConvEpoch.ownsFrame(frameConversationId(m));
+            });
+            if (owned.length) emit('message', { messages: owned });
           },
+
 
           onTick: function (ok) { if (ok) markPollSuccess(); else markPollFailure(); },
           // 403 from /poll on an unknown / foreign / closed conversation id
@@ -7340,8 +7346,23 @@
     // open/close/toggle ALWAYS return the real, final open state so the
     // loader never has to guess (no `isOpen = !isOpen` dual-state drift).
     return {
+      // Test-only surface. Published ONLY when the page opted into test
+      // instrumentation before the runtime loaded (same gate as the epoch);
+      // production embeds never get these handles.
+      __test: (typeof window !== 'undefined' && window.__GS_WIDGET_TEST_HOOKS__ === true) ? {
+        send: function (text) {
+          chatUI.sendMessage(text, function () {
+            if (shellStore.get().activeTab === 'chat') renderBody();
+          });
+        },
+        startNew: function () { startNewConversation(); },
+        openConversation: function (cid) { openConversation(cid); },
+        chatState: function () { return chatStore.get(); },
+        setConnectionState: function (state) { transportStore.set({ connectionState: state }); },
+      } : undefined,
       /** Single source of truth for panel visibility. */
       isOpen: function () { return !!shellStore.get().isOpen; },
+
       open: function () {
         if (shellStore.get().isOpen) return true;
         shellStore.set({ isOpen: true });

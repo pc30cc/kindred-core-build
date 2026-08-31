@@ -538,6 +538,8 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-col { display: flex; flex-direction: column; gap: 3px; max-width: 80%; min-width: 0; }
 .msg-row.operator .msg-col { align-items: flex-start; }
 .msg-row.visitor .msg-col { align-items: flex-end; }
+[dir='rtl'] .msg-row.operator .msg-col { align-items: flex-end; }
+[dir='rtl'] .msg-row.visitor .msg-col { align-items: flex-start; }
 
 .msg {
   position: relative;

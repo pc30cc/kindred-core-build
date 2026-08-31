@@ -453,6 +453,43 @@ export default function InboxPage() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
+  // Resizable right details panel (desktop only)
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('inbox.sidebarWidth'));
+    return saved >= 240 && saved <= 600 ? saved : 300;
+  });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [isLgDesktop, setIsLgDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = () => setIsLgDesktop(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  useEffect(() => {
+    if (!isResizingSidebar) return;
+    const isRtl = document.documentElement.dir === 'rtl';
+    const onMove = (e: MouseEvent) => {
+      const w = isRtl ? e.clientX : window.innerWidth - e.clientX;
+      setSidebarWidth(Math.min(600, Math.max(240, w)));
+    };
+    const onUp = () => setIsResizingSidebar(false);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizingSidebar]);
+  useEffect(() => {
+    localStorage.setItem('inbox.sidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+
   const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);

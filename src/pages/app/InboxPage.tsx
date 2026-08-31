@@ -906,7 +906,7 @@ export default function InboxPage() {
             className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5"
             dir={dir}
           >
-            {(['open', 'pending', 'resolved', 'all'] as FilterStatus[]).map(s => {
+            {(['open', 'pending', 'resolved'] as FilterStatus[]).map(s => {
               const count = stableCounts[s] || 0;
               const isActive = !isQueueMode && !extraChip && filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
@@ -942,6 +942,31 @@ export default function InboxPage() {
                 </button>
               );
             })}
+          </div>
+  );
+
+  /* Secondary views live in the app top bar as pretty tabs. */
+  const toolbarTabsNode = (
+          <div
+            role="tablist"
+            aria-label={t('inbox.title') || 'Inbox'}
+            className="flex items-center gap-1"
+            dir={dir}
+          >
+            <button
+              role="tab"
+              aria-selected={!isQueueMode && !extraChip && filter === 'all'}
+              onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
+              className={cn(
+                pillBase,
+                !isQueueMode && !extraChip && filter === 'all'
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
+              )}
+            >
+              <Inbox className="w-4 h-4" />
+              {t('inbox.all') || 'All'}
+            </button>
             {/* AI (Automated queue) — AI-managed conversations */}
             <button
               role="tab"
@@ -1022,26 +1047,13 @@ export default function InboxPage() {
           </div>
   );
 
-  /* Top bar context summary — the filter tabs moved into the list, so the
-     app top bar keeps a compact "where am I / how many unread" indicator. */
+
+  /* Top bar — only the three status tabs moved into the list; the other
+     views stay here as tabs, next to a compact unread indicator. */
   const topBarSummary = (
     <ToolbarPortal>
       <div className="flex h-full items-center gap-2 px-1" dir={dir}>
-        <Inbox className="w-4 h-4 text-primary" />
-        <span className="text-[13px] font-semibold text-foreground">{t('inbox.title') || 'Inbox'}</span>
-        <span className="text-[12px] text-muted-foreground">
-          {queue === 'automated'
-            ? (t('inbox.automatedInbox') || 'Automated')
-            : queue === 'spam'
-              ? (t('inbox.spamInbox') || 'Spam')
-              : extraChip === 'needs_human'
-                ? (t('inbox.needsHuman') || 'Needs human')
-                : extraChip === 'colleagues'
-                  ? (t('inbox.colleagues') || 'Colleagues')
-                  : filter === 'all'
-                    ? (t('inbox.all') || 'All')
-                    : statusLabels[filter]}
-        </span>
+        {toolbarTabsNode}
         {totalUnread > 0 && (
           <span className="text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold tabular-nums">
             {totalUnread > 99 ? '99+' : totalUnread}
@@ -1050,6 +1062,7 @@ export default function InboxPage() {
       </div>
     </ToolbarPortal>
   );
+
 
   if (extraChip === 'colleagues') {
     return (

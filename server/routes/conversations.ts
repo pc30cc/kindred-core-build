@@ -47,6 +47,7 @@ import { enforceMaxConversationsLimit } from '../services/billing/conversationLi
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { applyPostSendAction } from '../services/conversationPostSend.js';
+import { isActionableCustomerTurn, isQualifiedReply } from '../services/needsReply.js';
 
 
 export const conversationsRouter = Router();

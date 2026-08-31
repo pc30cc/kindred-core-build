@@ -2086,7 +2086,41 @@ export default function InboxPage() {
                         {(msg as { attachment?: MessageAttachment | null }).attachment && (
                           <MessageAttachmentView att={(msg as { attachment: MessageAttachment }).attachment} t={t} />
                         )}
-                        {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{msg.body}</p>}
+                        {(() => {
+                          // Quoted replies arrive as leading "> author: text" lines.
+                          const raw = msg.body || '';
+                          const lines = raw.split('\n');
+                          const quoteLines: string[] = [];
+                          let i = 0;
+                          while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+                            quoteLines.push(lines[i].replace(/^\s*>\s?/, ''));
+                            i++;
+                          }
+                          const rest = lines.slice(i).join('\n').replace(/^\n+/, '');
+                          if (!quoteLines.length) {
+                            return raw ? (
+                              <p className={cn((msg as any).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{raw}</p>
+                            ) : null;
+                          }
+                          const qText = quoteLines.join('\n').trim();
+                          const m = qText.match(/^([^:\n]{1,40}):\s([\s\S]+)$/);
+                          const qAuthor = m ? m[1] : null;
+                          const qBody = m ? m[2] : qText;
+                          return (
+                            <>
+                              <div className={cn(
+                                'rounded-lg px-2.5 py-1.5 mb-1.5 text-[12.5px] leading-[1.6] border-s-2',
+                                isAgent
+                                  ? 'bg-primary-foreground/10 border-primary-foreground/50 text-primary-foreground/80'
+                                  : 'bg-background/70 border-primary/60 text-muted-foreground',
+                              )}>
+                                {qAuthor && <div className="font-semibold text-[11px] mb-0.5 opacity-90">{qAuthor}</div>}
+                                <div className="line-clamp-3 whitespace-pre-wrap break-words">{qBody}</div>
+                              </div>
+                              {rest && <p className="whitespace-pre-wrap break-words">{rest}</p>}
+                            </>
+                          );
+                        })()}
                       </div>
                       {/* Name + time strip below the (last) bubble of a streak */}
                       <div className={cn(

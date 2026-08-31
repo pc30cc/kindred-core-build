@@ -2791,10 +2791,11 @@ export default function InboxPage() {
             onMouseDown={() => setIsResizingSidebar(true)}
             onDoubleClick={() => setSidebarWidth(300)}
             className={cn(
-              'hidden lg:block absolute inset-y-0 w-1.5 cursor-col-resize z-20 hover:bg-primary/30 transition-colors',
+              'hidden lg:block absolute inset-y-0 w-2 cursor-col-resize z-30 hover:bg-primary/30 transition-colors',
               isResizingSidebar && 'bg-primary/40'
             )}
-            style={{ insetInlineStart: -3 }}
+            style={{ insetInlineStart: 0 }}
+
             role="separator"
             aria-orientation="vertical"
           />

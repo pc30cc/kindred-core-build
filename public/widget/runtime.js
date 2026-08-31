@@ -628,6 +628,7 @@
         homeSeeAll: 'See all',
         voiceCall: 'Voice', videoCall: 'Video',
         typeMsg: 'Type a message...',
+        reply: 'Quote', copy: 'Copy', you: 'You', wyAiAssistant: 'AI assistant', wyAiShort: 'AI',
         intro: "Send us a message and we'll get back to you shortly.",
         name: 'Name', email: 'Email', phone: 'Phone number',
         continue: 'Continue', back: 'Back',
@@ -834,6 +835,7 @@
         homeSeeAll: 'مشاهده همه',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         typeMsg: 'پیام خود را بنویسید...',
+        reply: 'نقل‌قول', copy: 'کپی', you: 'شما', wyAiAssistant: 'دستیار هوش مصنوعی', wyAiShort: 'AI',
         intro: 'سوالی دارید؟ اینجا بنویسید.',
         name: 'نام', email: 'ایمیل', phone: 'شماره تلفن',
         continue: 'ادامه', back: 'بازگشت',
@@ -1033,6 +1035,7 @@
         homeSeeAll: 'Tümünü gör',
         voiceCall: 'Sesli', videoCall: 'Görüntülü',
         typeMsg: 'Mesajınızı yazın...',
+        reply: 'Alıntıla', copy: 'Kopyala', you: 'Siz', wyAiAssistant: 'Yapay zekâ asistanı', wyAiShort: 'YZ',
         intro: 'Bir soru mu var? Buraya yazın.',
         name: 'İsim', email: 'E-posta', phone: 'Telefon',
         continue: 'Devam', back: 'Geri',
@@ -5513,6 +5516,67 @@
     var emojiPickerEl = chatQ('[data-emoji-picker]');
     var escalateBtn = chatQ('[data-escalate-btn]');
 
+    // ─── Quote (forward) + copy affordances ────────────────────────────
+    // The presentation renders the buttons on each bubble's bottom line and
+    // the quote preview above the composer; Core owns the state and makes
+    // sure the quoted text travels WITH the message so the operator sees
+    // exactly what the visitor forwarded.
+    var replyPreviewEl = chatQ('[data-reply-preview]');
+    var replyPreviewTextEl = chatQ('[data-reply-preview-text]');
+    var replyPreviewAuthorEl = chatQ('[data-reply-preview-author]');
+    var replyCancelBtn = chatQ('[data-reply-cancel]');
+    var pendingQuote = null;
+
+    function setPendingQuote(q) {
+      pendingQuote = q && q.text ? q : null;
+      if (!replyPreviewEl) return;
+      if (!pendingQuote) { replyPreviewEl.hidden = true; return; }
+      if (replyPreviewTextEl) replyPreviewTextEl.textContent = pendingQuote.text;
+      if (replyPreviewAuthorEl) replyPreviewAuthorEl.textContent = pendingQuote.author || '';
+      replyPreviewEl.hidden = false;
+      try { if (msgInput) msgInput.focus(); } catch (_) {}
+    }
+    if (replyCancelBtn) {
+      replyCancelBtn.addEventListener('click', function () { setPendingQuote(null); });
+    }
+    if (chatFrame) {
+      chatFrame.addEventListener('click', function (ev) {
+        var el = ev.target && ev.target.closest ? ev.target.closest('[data-msg-reply],[data-msg-copy]') : null;
+        if (!el) return;
+        if (el.hasAttribute('data-msg-reply')) {
+          ev.preventDefault();
+          setPendingQuote({
+            id: el.getAttribute('data-msg-reply') || '',
+            text: el.getAttribute('data-msg-reply-text') || '',
+            author: el.getAttribute('data-msg-reply-author') || '',
+          });
+          return;
+        }
+        ev.preventDefault();
+        var txt = el.getAttribute('data-msg-copy') || '';
+        var done = function () {
+          el.classList.add('is-done');
+          setTimeout(function () { try { el.classList.remove('is-done'); } catch (_) {} }, 1200);
+        };
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(done, function () {});
+            return;
+          }
+        } catch (_) {}
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = txt; ta.setAttribute('readonly', '');
+          ta.style.position = 'absolute'; ta.style.left = '-9999px';
+          (chatFrame || document.body).appendChild(ta);
+          ta.select(); document.execCommand('copy'); ta.parentNode.removeChild(ta);
+          done();
+        } catch (_) {}
+      });
+    }
+
+
+
     // ─── Smart Engagement bridge ───────────────────────────────────────
     // The loader owns rule evaluation (it runs before the runtime is even
     // loaded). Panel-bound surfaces — home card, chat message, plain open —
@@ -6232,7 +6296,16 @@
           : (att.mimeType && /^audio\//.test(att.mimeType)) ? 'audio' : 'file',
       } : null;
       if (hasReadyAttach) resetAttachment();
-      chatUI.sendMessage(text, renderBody, attachmentId, optimisticAtt);
+      // Forwarded/quoted context travels inside the message body so the
+      // operator (and any channel bridge) sees exactly what was quoted.
+      var outText = text;
+      if (pendingQuote && pendingQuote.text) {
+        var qLine = String(pendingQuote.text).replace(/\s*\n+\s*/g, ' ').trim();
+        if (pendingQuote.author) qLine = pendingQuote.author + ': ' + qLine;
+        outText = '> ' + qLine + '\n\n' + text;
+        setPendingQuote(null);
+      }
+      chatUI.sendMessage(outText, renderBody, attachmentId, optimisticAtt);
       try {
         if (sendState.aiOwnsThread) showAiThinking();
       } catch (_) {}

@@ -52,6 +52,9 @@
       thumbUp: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h6.28a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.75 20H7a1 1 0 0 1-1-1v-9a1 1 0 0 1 .29-.71l6.06-6.06a.5.5 0 0 1 .85.35L13 5.88Z"/></svg>',
       thumbDown: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12 10 14H3.72a2 2 0 0 1-1.94-2.5l1.54-6A2 2 0 0 1 5.25 4H17a1 1 0 0 1 1 1v9a1 1 0 0 1-.29.71l-6.06 6.06a.5.5 0 0 1-.85-.35L11 18.12Z"/></svg>',
       close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+      copy: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
+      check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
+      quote: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h10a5 5 0 0 1 5 5v2"/></svg>',
     };
 
     // Delivery ticks: one tick = sent, two ticks = delivered, two accent
@@ -442,6 +445,27 @@
         '</div>';
     }
 
+    /**
+     * Splits a plain-text body that carries a leading quote block
+     * ("> quoted line(s)" followed by a blank line) into { quote, rest }.
+     * This is the wire format used when the visitor forwards/quotes a
+     * message, so operators reading plain text still see the context.
+     */
+    function splitQuotedBody(body) {
+      var raw = body == null ? '' : String(body);
+      if (raw.charAt(0) !== '>') return { quote: '', rest: raw };
+      var lines = raw.split('\n');
+      var quoteLines = [];
+      var i = 0;
+      for (; i < lines.length; i++) {
+        if (lines[i].charAt(0) !== '>') break;
+        quoteLines.push(lines[i].replace(/^>\s?/, ''));
+      }
+      if (!quoteLines.length) return { quote: '', rest: raw };
+      while (i < lines.length && !lines[i].trim()) i++;
+      return { quote: quoteLines.join(' ').trim(), rest: lines.slice(i).join('\n') };
+    }
+
     function renderAiThinkingRow() {
       return '<div class="msg-row operator ai-thinking-row">' +
         '<div class="msg operator ai-thinking-bubble">' +
@@ -481,7 +505,6 @@
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var isAi = m.senderType === 'ai';
-        var aiBadgeHtml = isAi ? '<span class="msg-ai-badge" aria-label="AI assistant" title="AI assistant">AI</span>' : '';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
         var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
@@ -517,44 +540,66 @@
           }
         }
 
+        // AI attribution lives on the meta line UNDER the bubble, next to the
+        // time — never as a badge floating above the text.
+        var aiMetaHtml = (isAi && isLastInStreak)
+          ? '<span class="msg-ai-badge" title="' + esc(tf('wyAiAssistant', 'AI assistant')) + '">' +
+              esc(tf('wyAiShort', 'AI')) + '</span>' +
+            (m.senderName ? '<span class="msg-sender">' + esc(m.senderName) + '</span>' : '')
+          : '';
+
         var timeStr = formatMsgTime(m.time);
-        var metaHtml = isLastInStreak && (timeStr || statusHtml)
-          ? '<div class="msg-meta">' +
+        var metaHtml = isLastInStreak && (timeStr || statusHtml || aiMetaHtml)
+          ? '<div class="msg-meta">' + aiMetaHtml +
               (timeStr ? '<span class="msg-time">' + esc(timeStr) + '</span>' : '') + statusHtml +
             '</div>'
           : '';
+
+        // A quote can arrive either as a structured replyTo (realtime payload)
+        // or, for messages that travelled through the plain-text pipeline, as
+        // a leading "> …" block inside the body. Both render identically, so
+        // the operator and the visitor always see the same quoted context.
+        var parsed = splitQuotedBody(m.body);
+        var quoteText = (m.replyTo && (m.replyTo.text || m.replyTo.body)) || parsed.quote || '';
+        var bodyText = parsed.quote ? parsed.rest : m.body;
 
         var isTypingThis = !!(typewriter && typewriter.id === m.__id);
         var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
         var displayText = (isTypingThis && !typingDone)
           ? typewriter.tokens.slice(0, typewriter.revealedCount).join('')
-          : m.body;
-        var textHtml = hasText
+          : bodyText;
+        var textHtml = (displayText && String(displayText).length)
           ? '<span class="msg-text"' + (isTypingThis && !typingDone ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
               esc(displayText) + '</span>'
           : '';
 
-        // Reply affordance (design §12) — Core binds data-msg-reply when it
-        // supports quoting; the button is inert-safe otherwise.
-        var replyBtn = hasText
-          ? '<button type="button" class="msg-reply" data-msg-reply="' + esc(m.__id || '') +
-              '" data-msg-reply-text="' + esc(String(m.body || '').slice(0, 160)) +
-              '" aria-label="' + esc(tf('reply', 'Reply')) + '">' +
-              '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h10a5 5 0 0 1 5 5v2"/></svg>' +
-            '</button>'
+        var quoted = quoteText
+          ? '<span class="msg-quote">' + esc(String(quoteText)) + '</span>'
           : '';
 
-        var quoted = (m.replyTo && (m.replyTo.text || m.replyTo.body))
-          ? '<span class="msg-quote">' + esc(String(m.replyTo.text || m.replyTo.body)) + '</span>'
+        // Message actions sit on the bubble's bottom line (never centered on
+        // the bubble): quote/forward + copy, revealed on hover/focus.
+        var actionsHtml = hasText
+          ? '<span class="msg-actions">' +
+              '<button type="button" class="msg-act" data-msg-reply="' + esc(m.__id || '') +
+                '" data-msg-reply-text="' + esc(String(bodyText || m.body || '').slice(0, 200)) +
+                '" data-msg-reply-author="' + esc(m.sender === 'visitor' ? tf('you', 'You') : (m.senderName || t('operator'))) +
+                '" title="' + esc(tf('reply', 'Reply')) + '" aria-label="' + esc(tf('reply', 'Reply')) + '">' +
+                ICON.quote + '</button>' +
+              '<button type="button" class="msg-act" data-msg-copy="' + esc(String(bodyText || m.body || '')) +
+                '" title="' + esc(tf('copy', 'Copy')) + '" aria-label="' + esc(tf('copy', 'Copy')) + '">' +
+                ICON.copy + '</button>' +
+            '</span>'
           : '';
 
         html += '<div class="msg-row ' + cls + (isLastInStreak ? ' is-last' : '') + '">' + avatarHtml +
           '<div class="msg-col">' +
             '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
               (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
-              aiBadgeHtml + quoted + textHtml + attHtml +
-            '</div>' + metaHtml +
-          '</div>' + replyBtn +
+              quoted + textHtml + attHtml +
+            '</div>' +
+            '<div class="msg-footline">' + metaHtml + actionsHtml + '</div>' +
+          '</div>' +
         '</div>';
 
 
@@ -747,7 +792,12 @@
             '</div>' +
             '<div class="attach-tray" data-attach-tray hidden></div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
-              '<span class="reply-preview-text" data-reply-preview-text></span>' +
+              '<span class="reply-preview-bar" aria-hidden="true"></span>' +
+              '<span class="reply-preview-icon" aria-hidden="true">' + ICON.quote + '</span>' +
+              '<span class="reply-preview-body">' +
+                '<span class="reply-preview-author" data-reply-preview-author></span>' +
+                '<span class="reply-preview-text" data-reply-preview-text></span>' +
+              '</span>' +
               '<button type="button" class="reply-preview-cancel" data-reply-cancel aria-label="' +
                 esc(tf('cancel', 'Cancel')) + '">' + ICON.close + '</button>' +
             '</div>' +
@@ -891,7 +941,7 @@
             esc(tf('wyContinueLast', 'Continue last conversation')) + '</button>';
         }
         actions += '<button type="button" class="wy-btn ' + (unresolved ? 'wy-btn-outline' : 'wy-btn-primary') +
-          ' wy-btn-grow" data-home-action="chat">' + stackHtml +
+          ' wy-btn-grow" data-home-action="chat">' + (unresolved ? '' : stackHtml) +
           esc(unresolved ? tf('wyStartNew', t('homeStartChat')) : (online ? t('homeStartChat') : t('homeLeaveMessage'))) +
           '</button>';
       }

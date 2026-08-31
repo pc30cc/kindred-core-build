@@ -228,6 +228,17 @@
     font-family: inherit;
   }
 
+  /* Persian locale: every digit (counters, badges, dates, monospace-ish
+     numeric labels) must render in IRANSans instead of a fallback face. */
+  [dir="rtl"] .font-mono,
+  [dir="rtl"] .tabular-nums,
+  [dir="rtl"] time,
+  [dir="rtl"] [class*="tabular"] {
+    font-family: var(--font-family-base, 'IRANSans', 'InterWY', system-ui, sans-serif) !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+
 
   html, body {
     @apply bg-background text-foreground antialiased;

@@ -228,7 +228,7 @@ describe('async lifecycle — stale responses can never reach the visitor', () =
 
     // Poll frames for another thread must never be merged into the view.
     harness.chat.emitMessages([
-      { id: 'm-x', conversation_id: 'conv-b', sender_type: 'operator', content: 'FOREIGN-THREAD-TEXT' },
+      { id: 'm-x', conversation_id: 'conv-b', sender_type: 'operator', body: 'FOREIGN-THREAD-TEXT' },
     ]);
     await flush();
     expect(harness.bodyText()).not.toContain('FOREIGN-THREAD-TEXT');
@@ -239,7 +239,7 @@ describe('async lifecycle — stale responses can never reach the visitor', () =
     const epoch = (window as any).__gs_conv_epoch;
     epoch.bump('start-new', { fresh: true });
     harness.chat.emitMessages([
-      { id: 'm-y', conversation_id: 'conv-a', sender_type: 'operator', content: 'RESURRECTED-TEXT' },
+      { id: 'm-y', conversation_id: 'conv-a', sender_type: 'operator', body: 'RESURRECTED-TEXT' },
     ]);
     await flush();
     expect(harness.bodyText()).not.toContain('RESURRECTED-TEXT');
@@ -269,4 +269,125 @@ describe('async lifecycle — AI intro', () => {
     expect(harness.intros.length).toBeGreaterThan(1);
 
   });
+
+  it('B — a LATE SUCCESSFUL intro for a dead context is never adopted or rendered', async () => {
+    harness = boot();
+    harness.runtime.open();
+    harness.runtime.setTab('chat');
+    await flush();
+    expect(harness.intros.length).toBe(1);
+    const pending = harness.intros[0];
+
+    // Visitor moves on before the intro lands.
+    harness.runtime.__test.startNew();
+    await flush();
+
+    pending.settle({ sent: true, conversationId: 'conv-a', body: 'OLD INTRO' });
+    await flush();
+
+    const st = harness.runtime.__test.chatState();
+    expect(st.conversationId).toBeNull();
+    expect(st.freshIntent).toBe(true);
+    expect(harness.bodyText()).not.toContain('OLD INTRO');
+  });
 });
+
+describe('async lifecycle — real runtime callbacks (not epoch primitives)', () => {
+  function bootChat() {
+    const h = boot();
+    h.runtime.open();
+    h.runtime.setTab('chat');
+    return h;
+  }
+
+  it('A — a send response captured before "start new conversation" is ignored', async () => {
+    harness = bootChat();
+    await flush();
+    harness.runtime.__test.setConnectionState('online');
+    harness.runtime.__test.send('hello');
+    await flush();
+    // eslint-disable-next-line no-console
+    expect(harness.chat.sends.length).toBe(1);
+    const oldSend = harness.chat.sends[0];
+
+    // Visitor starts a new conversation while the send is still in flight.
+    harness.runtime.__test.startNew();
+    await flush();
+
+    // The OLD request finally answers.
+    oldSend.onConversation('conv-a');
+    oldSend.onAccepted({ messageId: 'm-old' });
+    oldSend.onReply('OLD REPLY TEXT');
+    await flush();
+
+    const st = harness.runtime.__test.chatState();
+    expect(st.conversationId).toBeNull();
+    expect(st.freshIntent).toBe(true);
+    expect(harness.bodyText()).not.toContain('OLD REPLY TEXT');
+  });
+
+  it('C — out-of-order selected-thread history keeps only the last selection', async () => {
+    harness = bootChat();
+    await flush();
+
+    harness.runtime.__test.openConversation('conv-a');
+    await flush();
+    harness.runtime.__test.openConversation('conv-b');
+    await flush();
+
+    const reqA = harness.chat.threadHistories.find((r: any) => r.conversationId === 'conv-a');
+    const reqB = harness.chat.threadHistories.find((r: any) => r.conversationId === 'conv-b');
+    expect(reqA).toBeTruthy();
+    expect(reqB).toBeTruthy();
+
+    // B resolves first, then the stale A response arrives.
+    reqB.onResult({
+      conversationId: 'conv-b',
+      messages: [{ id: 'b-1', conversation_id: 'conv-b', sender_type: 'operator', body: 'B-THREAD-TEXT' }],
+    });
+    await flush();
+    reqA.onResult({
+      conversationId: 'conv-a',
+      messages: [{ id: 'a-1', conversation_id: 'conv-a', sender_type: 'operator', body: 'A-THREAD-TEXT' }],
+    });
+    await flush();
+
+    expect(harness.runtime.__test.chatState().conversationId).toBe('conv-b');
+    expect(harness.bodyText()).toContain('B-THREAD-TEXT');
+    expect(harness.bodyText()).not.toContain('A-THREAD-TEXT');
+  });
+
+  it('D — a failed first send keeps the fresh intent, and the retry creates the new thread', async () => {
+    harness = bootChat();
+    await flush();
+    harness.runtime.__test.startNew();
+    await flush();
+
+    harness.runtime.__test.setConnectionState('online');
+    harness.runtime.__test.send('first try');
+    await flush();
+    const failing = harness.chat.sends[harness.chat.sends.length - 1];
+    expect(failing.forceNewConversation).toBe(true);
+    failing.onError('network');
+    await flush();
+
+    let st = harness.runtime.__test.chatState();
+    expect(st.freshIntent).toBe(true);
+    expect(st.conversationId).toBeNull();
+
+    // Retry — this one succeeds and must adopt the NEW thread.
+    harness.runtime.__test.setConnectionState('online');
+    harness.runtime.__test.send('first try');
+    await flush();
+    const retry = harness.chat.sends[harness.chat.sends.length - 1];
+    expect(retry).not.toBe(failing);
+    retry.onConversation('conv-b');
+    retry.onAccepted({ messageId: 'm-b' });
+    await flush();
+
+    st = harness.runtime.__test.chatState();
+    expect(st.freshIntent).toBe(false);
+    expect(st.conversationId).toBe('conv-b');
+  });
+});
+

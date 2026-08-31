@@ -948,22 +948,31 @@ export default function InboxPage() {
   /* Secondary views sit on the bottom edge of the top bar as folder tabs
      that visually connect to the inbox surface below. */
   const headTabBase =
-    'group relative flex h-[34px] items-center gap-1.5 px-3.5 -mb-px text-[13px] font-semibold whitespace-nowrap ' +
-    'rounded-t-lg border border-b-0 transition-all duration-150 ' +
+    'group relative flex h-[40px] items-center gap-2 px-4 -mb-px text-[14px] font-bold whitespace-nowrap ' +
+    'rounded-t-xl border border-b-0 transition-all duration-150 ' +
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
   const headTabState = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
     active
       ? cn(
-          'bg-card border-border shadow-[0_-1px_2px_hsl(var(--foreground)/0.04)]',
-          tone === 'destructive' ? 'text-destructive' : 'text-primary',
+          'bg-card shadow-[0_-2px_6px_hsl(var(--foreground)/0.06)]',
+          tone === 'destructive'
+            ? 'border-destructive/40 text-destructive'
+            : 'border-primary/40 text-primary',
         )
-      : 'bg-transparent border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+      : 'bg-muted/40 border-border/60 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
   );
   /* Covers the 1px bottom border of the bar so the active tab merges with the panel. */
   const headTabSeam = (active: boolean) => cn(
     'pointer-events-none absolute inset-x-0 -bottom-px h-[2px] transition-opacity duration-150',
     active ? 'bg-card opacity-100' : 'opacity-0',
   );
+  /* Top accent line on the active tab, like a colored folder edge. */
+  const headTabAccent = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
+    'pointer-events-none absolute inset-x-0 top-0 h-[3px] rounded-t-xl transition-opacity duration-150',
+    tone === 'destructive' ? 'bg-destructive' : 'bg-primary',
+    active ? 'opacity-100' : 'opacity-0',
+  );
+
 
   const allActive = !isQueueMode && !extraChip && filter === 'all';
 

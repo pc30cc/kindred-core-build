@@ -1362,7 +1362,7 @@ export default function InboxPage() {
           onMouseDown={() => setIsResizing(true)}
           onDoubleClick={() => setListWidth(340)}
           className={cn(
-            'hidden md:block absolute inset-y-0 -inset-inline-end-0 w-1.5 cursor-col-resize z-20 hover:bg-primary/30 transition-colors',
+            'hidden md:block absolute inset-y-0 w-1.5 cursor-col-resize z-20 hover:bg-primary/30 transition-colors',
             isResizing && 'bg-primary/40'
           )}
           style={{ insetInlineEnd: -3 }}

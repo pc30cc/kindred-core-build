@@ -164,6 +164,11 @@ export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>
     if (!(column in out)) continue;
     if (ent.features[capability] === false) out[column] = false;
   }
+  // Appearance fields the plan does not allow authoring fall back to default.
+  for (const [column, def] of Object.entries(WIDGET_CUSTOMIZATION_CAPABILITY)) {
+    if (!(column in out)) continue;
+    if (ent.features[def.capability] === false) out[column] = def.reset;
+  }
   if (ent.features.widget_business_hours === false && out.business_hours) {
     out.business_hours = { ...(out.business_hours as any), enabled: false };
   }

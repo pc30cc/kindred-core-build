@@ -942,6 +942,31 @@ export default function InboxPage() {
                 </button>
               );
             })}
+          </div>
+  );
+
+  /* Secondary views live in the app top bar as pretty tabs. */
+  const toolbarTabsNode = (
+          <div
+            role="tablist"
+            aria-label={t('inbox.title') || 'Inbox'}
+            className="flex items-center gap-1"
+            dir={dir}
+          >
+            <button
+              role="tab"
+              aria-selected={!isQueueMode && !extraChip && filter === 'all'}
+              onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
+              className={cn(
+                pillBase,
+                !isQueueMode && !extraChip && filter === 'all'
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
+              )}
+            >
+              <Inbox className="w-4 h-4" />
+              {t('inbox.all') || 'All'}
+            </button>
             {/* AI (Automated queue) — AI-managed conversations */}
             <button
               role="tab"
@@ -1021,6 +1046,7 @@ export default function InboxPage() {
             </button>
           </div>
   );
+
 
   /* Top bar context summary — the filter tabs moved into the list, so the
      app top bar keeps a compact "where am I / how many unread" indicator. */

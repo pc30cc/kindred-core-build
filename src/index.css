@@ -205,14 +205,14 @@
   }
 
   [dir="rtl"] {
-    --font-family-base: 'Vazirmatn', 'Manrope', system-ui, sans-serif;
-    --font-heading: 'Vazirmatn', 'Manrope', system-ui, sans-serif;
+    --font-family-base: 'IRANSans', 'InterWY', system-ui, sans-serif;
+    --font-heading: 'IRANSans', 'InterWY', system-ui, sans-serif;
     font-family: var(--font-family-base);
   }
 
   * {
     @apply border-border;
-    font-family: var(--font-primary, var(--font-family-base, 'Manrope', system-ui, sans-serif));
+    font-family: var(--font-primary, var(--font-family-base, 'IRANSans', 'InterWY', system-ui, sans-serif));
   }
 
   html, body {
@@ -245,7 +245,7 @@
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold tracking-tight;
-    font-family: var(--font-heading, var(--font-primary, 'Sora', system-ui, sans-serif));
+    font-family: var(--font-heading, var(--font-primary, 'IRANSans', 'InterWY', system-ui, sans-serif));
     letter-spacing: -0.018em;
   }
 

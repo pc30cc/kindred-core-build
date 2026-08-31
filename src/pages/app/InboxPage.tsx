@@ -1048,7 +1048,7 @@ export default function InboxPage() {
                   extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground',
                 )}
               >{colleagueUnread > 99 ? '99+' : colleagueUnread}</span>
-              <span className={headTabUnderline(extraChip === 'colleagues')} />
+              <span className={headTabSeam(extraChip === 'colleagues')} />
             </button>
           </div>
   );

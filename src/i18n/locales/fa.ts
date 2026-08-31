@@ -433,6 +433,12 @@ const fa: TranslationKeys = {
     newConversation: 'مکالمه جدید',
     previewYou: 'شما',
     previewAi: 'دستیار هوش مصنوعی',
+    previewImage: 'یک تصویر ارسال کرد',
+    previewAudio: 'یک پیام صوتی ارسال کرد',
+    previewVideo: 'یک ویدیو ارسال کرد',
+    previewFile: 'یک فایل ارسال کرد',
+    receivingFile: 'در حال دریافت…',
+
     noMessages: 'هنوز پیامی نیست',
     emptyNoMatches: 'موردی یافت نشد',
     emptyAutomated: 'گفتگوی مدیریت‌شده توسط هوش مصنوعی وجود ندارد',

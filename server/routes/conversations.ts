@@ -46,6 +46,8 @@ import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
+import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
+
 import { applyPostSendAction } from '../services/conversationPostSend.js';
 import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer } from '../services/needsReply.js';
 
@@ -310,6 +312,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
 
 
     // Phase 2 — Bind operator-uploaded attachment to this message + conversation.
+    let attachmentBound = false;
     if (!duplicate && parsed.data.attachment_id && inserted?.id) {
       const ok = await attachUploadedFileToMessage(
         config,
@@ -318,6 +321,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
         parsed.data.conversation_id,
         inserted.id,
       );
+      attachmentBound = ok;
       if (!ok) {
         console.warn('[conversations/send-message] failed to attach',
           parsed.data.attachment_id, 'to', inserted.id);
@@ -336,14 +340,37 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // (Telegram / Bale / WhatsApp / Instagram), make the delivery intent
     // durable. No-op for widget conversations. AWAITED, because Split Send may
     // only change the status once the transport accepted the reply.
-    const dispatch = duplicate
-      ? { accepted: true, result: 'already_enqueued' as const }
-      : await dispatchOutboundIfChannelConversation(config, {
+    //
+    // An attachment reply takes the MEDIA path: the DB trigger only enqueues
+    // text, so a file-only (or file+caption) reply would otherwise never leave
+    // the platform.
+    let dispatch: { accepted: boolean; result: string };
+    if (duplicate) {
+      dispatch = { accepted: true, result: 'already_enqueued' };
+    } else if (attachmentBound && parsed.data.attachment_id) {
+      try {
+        const mediaResult = await enqueueOutboundMediaIfChannelConversation(config, {
           workspaceId: parsed.data.workspace_id,
           conversationId: parsed.data.conversation_id,
           messageId: inserted.id,
-          body: messageBody,
+          attachmentId: parsed.data.attachment_id,
+          caption: messageBody,
+          req: req as any,
         });
+        dispatch = { accepted: true, result: mediaResult };
+      } catch (err: any) {
+        console.warn('[conversations/send-message] outbound media enqueue failed:', err?.message);
+        dispatch = { accepted: false, result: 'failed' };
+      }
+    } else {
+      dispatch = await dispatchOutboundIfChannelConversation(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        messageId: inserted.id,
+        body: messageBody,
+      });
+    }
+
 
 
 
@@ -947,7 +974,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .limit(2000);
 
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
       const unreadByConv: Record<string, number> = {};
       // Needs Reply is derived from the message stream, never stored. Rows
       // arrive newest-first, so the FIRST conversational turn we see per
@@ -970,8 +997,17 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         if (isMenuEvent) continue;
 
         if (!lastByConv[m.conversation_id]) {
-          lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, sender_type: m.sender_type };
+          lastByConv[m.conversation_id] = {
+            body: m.body ?? '',
+            created_at: m.created_at,
+            sender_type: m.sender_type,
+            // A file-only message has an empty body: the list preview must
+            // describe the media instead of claiming "no messages yet".
+            attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
+            attachment_kind: null,
+          };
         }
+
 
         // Rows arrive newest-first. The first conversational turn decides the
         // obligation; we then keep walking back over the customer streak to
@@ -999,6 +1035,35 @@ conversationsRouter.get('/', async (req: any, res: any) => {
           unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
         }
       }
+
+      // Resolve the media kind of every attachment-only preview in one query,
+      // so the Inbox list can say "sent a photo / voice message / file".
+      const previewAttachmentIds = Array.from(new Set(
+        Object.values(lastByConv)
+          .filter((l) => l.attachment_id && !String(l.body || '').trim())
+          .map((l) => l.attachment_id as string),
+      ));
+      if (previewAttachmentIds.length) {
+        const { data: atts } = await sb
+          .from('conversation_attachments')
+          .select('id, mime_type')
+          .in('id', previewAttachmentIds);
+        const mimeById = new Map<string, string>(
+          ((atts || []) as any[]).map((a) => [String(a.id), String(a.mime_type || '')]),
+        );
+        for (const last of Object.values(lastByConv)) {
+          if (!last.attachment_id) continue;
+          const mime = mimeById.get(last.attachment_id) || '';
+          last.attachment_kind = mime.startsWith('image/')
+            ? 'image'
+            : mime.startsWith('audio/')
+              ? 'audio'
+              : mime.startsWith('video/')
+                ? 'video'
+                : 'file';
+        }
+      }
+
       for (const c of convos) {
         c.last_visitor_message = byConv[c.id] ?? null;
         c.last_message = lastByConv[c.id] ?? null;

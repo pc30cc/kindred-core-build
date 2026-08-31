@@ -29,8 +29,60 @@ import { uploadFile, downloadFileRange } from '../services/storage/index.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { verifyAttachmentAccess } from '../services/channels/mediaOutbound.js';
 
 export const conversationAttachmentsRouter = Router();
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /:id/public?exp=&sig= — signed, short-lived, unauthenticated read.
+//
+// ONLY used so messaging providers (Telegram / Bale / WhatsApp / Instagram)
+// can fetch an operator-sent file by URL: they cannot present our session
+// cookie. The signature is scoped to one attachment id and expires, so this
+// is not a general public bucket.
+// ═══════════════════════════════════════════════════════════════════
+conversationAttachmentsRouter.get('/:id/public', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const exp = Number(req.query.exp);
+    const sig = String(req.query.sig || '');
+    if (!verifyAttachmentAccess(String(req.params.id), exp, sig)) {
+      return res.status(403).json({ error: 'invalid_or_expired_signature' });
+    }
+
+    const sb = getServiceClient(config);
+    const { data: row } = await sb
+      .from('conversation_attachments')
+      .select('id, workspace_id, storage_path, mime_type, file_name, status')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (!row) return res.status(404).json({ error: 'not_found' });
+    if (row.status !== 'uploaded' && row.status !== 'attached') {
+      return res.status(404).json({ error: 'attachment_not_available' });
+    }
+    const expectedPrefix = `workspace/${row.workspace_id}/`;
+    if (!String(row.storage_path).startsWith(expectedPrefix) || String(row.storage_path).includes('..')) {
+      return res.status(500).json({ error: 'invalid_storage_path' });
+    }
+
+    const dl = await downloadFileRange(config, row.workspace_id as string, row.storage_path as string, undefined);
+    if (!dl.success || !dl.data) return res.status(502).json({ error: 'provider_download_failed' });
+
+    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${String(row.file_name || 'file').replace(/"/g, '')}"`,
+    );
+    return res.status(200).send(dl.data);
+  } catch (err: any) {
+    console.error('[conversationAttachments/public]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 
 // ─── Hard global bounds (mirrors widgetAttachments.ts) ──────────
 const HARD_MAX_BYTES = 25 * 1024 * 1024;

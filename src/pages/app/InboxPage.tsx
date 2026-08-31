@@ -271,8 +271,12 @@ function AudioAttachmentPlayer({
  * max box) that opens a JS lightbox instead of navigating to a new tab.
  */
 function ImageAttachment({ att, url }: { att: { id: string; file_name: string }; url: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+
 
   useEffect(() => {
     if (!open) return;
@@ -293,15 +297,29 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
             <FileText className="w-4 h-4" /> {att.file_name}
           </span>
         ) : (
-          <img
-            src={url}
-            alt={att.file_name}
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed(true)}
-            className="block w-auto h-auto max-w-[260px] max-h-[280px] object-contain"
-          />
+          <>
+            {/* Never show an empty bubble while the authenticated fetch runs. */}
+            {!loaded && (
+              <span className="flex items-center justify-center gap-2 w-[168px] h-[96px] text-[12px] text-muted-foreground">
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70" />
+                {t('inbox.receivingFile') || 'Receiving…'}
+              </span>
+            )}
+            <img
+              src={url}
+              alt={att.file_name}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setLoaded(true)}
+              onError={() => { setLoaded(true); setFailed(true); }}
+              className={cn(
+                'block w-auto h-auto max-w-[260px] max-h-[280px] object-contain',
+                loaded ? '' : 'hidden',
+              )}
+            />
+          </>
         )}
+
       </button>
 
       {open &&
@@ -1797,19 +1815,27 @@ export default function InboxPage() {
                         )}>
                           {(() => {
                             const last = (conv as any).last_message as
-                              | { body: string; sender_type: string }
+                              | { body: string; sender_type: string; attachment_kind?: string | null }
                               | null
                               | undefined;
-                            if (last?.body) {
-                              const prefix =
-                                last.sender_type === 'agent' ? `${t('inbox.previewYou') || 'You'}: `
-                                : (last.sender_type === 'ai' || last.sender_type === 'bot') ? `${t('inbox.previewAi') || 'AI'}: `
-                                : '';
-                              return `${prefix}${last.body}`;
+                            const prefix = !last ? '' :
+                              last.sender_type === 'agent' ? `${t('inbox.previewYou') || 'You'}: `
+                              : (last.sender_type === 'ai' || last.sender_type === 'bot') ? `${t('inbox.previewAi') || 'AI'}: `
+                              : '';
+                            if (last?.body) return `${prefix}${last.body}`;
+                            // Attachment-only turn: describe the media instead
+                            // of falling through to "no messages yet".
+                            if (last?.attachment_kind) {
+                              const key = last.attachment_kind === 'image' ? 'inbox.previewImage'
+                                : last.attachment_kind === 'audio' ? 'inbox.previewAudio'
+                                : last.attachment_kind === 'video' ? 'inbox.previewVideo'
+                                : 'inbox.previewFile';
+                              return `${prefix}${t(key) || 'sent a file'}`;
                             }
                             return isPlaceholderSubject(conv.subject)
                               ? (t('inbox.noMessages') || 'No messages yet')
                               : conv.subject;
+
                           })()}
                         </p>
                         {hasUnread && unreadCount > 0 && (

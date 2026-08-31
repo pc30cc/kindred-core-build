@@ -782,7 +782,9 @@
     function conversationRowHtml(c, compact) {
       var unread = Number(c.unreadCount) || 0;
       var unreadHtml = unread > 0
-        ? '<span class="conv-unread">' + esc(String(unread)) + '</span>' : '';
+        ? '<span class="conv-unread" aria-label="' + esc(tf('wyUnread', 'Unread messages')) + '">' +
+            esc(unread > 99 ? fmtNum(99) + '+' : fmtNum(unread)) + '</span>' : '';
+
       var timeHtml = c.timeLabel ? '<span class="conv-time">' + esc(c.timeLabel) + '</span>' : '';
       if (compact) {
         return '<button type="button" class="conv-row conv-row-compact" data-conversation-open="' + esc(c.id) + '">' +

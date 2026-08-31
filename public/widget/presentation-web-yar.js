@@ -381,6 +381,15 @@
       '</div>';
     }
 
+    /** Locale-aware digits (Persian numerals for fa). */
+    function fmtNum(n) {
+      try {
+        var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+        var tag = l === 'fa' ? 'fa-IR' : l === 'tr' ? 'tr-TR' : 'en-US';
+        return new Intl.NumberFormat(tag).format(Number(n) || 0);
+      } catch (_) { return String(n); }
+    }
+
     function formatMsgTime(d) {
       try {
         var date = (d instanceof Date) ? d : new Date(d);
@@ -388,6 +397,7 @@
         return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
       } catch (_) { return ''; }
     }
+
 
     var PRECHAT_ICONS = {
       name: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',

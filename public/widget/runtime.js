@@ -2074,6 +2074,8 @@
       isRequired: isRequired,
       shouldRequirePrechat: shouldRequirePrechat,
       needsPrechat: needsPrechat,
+      prechatTiming: prechatTiming,
+
     };
   }
 

@@ -35,6 +35,21 @@ interface Props {
   dir?: 'ltr' | 'rtl';
 }
 
+// Safety notes come back as machine codes — show a localized label instead.
+const KNOWN_NOTES = [
+  'no_eligible_knowledge_sources',
+  'usage_increment_failed',
+  'llm_call_skipped',
+  'ai_provider_not_configured',
+  'retrieval_failed',
+  'low_confidence',
+];
+function safetyNoteLabel(t: (k: string, v?: any) => string, note: string): string {
+  const code = (note || '').split(':')[0];
+  if (KNOWN_NOTES.includes(code)) return t(`inbox.aiAssist.notes.${code}`);
+  return t('inbox.aiAssist.notes.generic');
+}
+
 export function OperatorAssistPanel({
   workspaceId, conversationId, composerHasText, onInsert, dir = 'ltr',
 }: Props) {
@@ -106,7 +121,9 @@ export function OperatorAssistPanel({
       if (!r.suggestion) {
         toast({
           title: t('inbox.aiAssist.noSuggestionTitle'),
-          description: r.safety_notes?.join(', ') || t('inbox.aiAssist.noSuggestionDesc'),
+          description: r.safety_notes?.length
+            ? r.safety_notes.map((n) => safetyNoteLabel(t, n)).join(' • ')
+            : t('inbox.aiAssist.noSuggestionDesc'),
         });
       }
     } catch (e: any) {
@@ -204,11 +221,6 @@ export function OperatorAssistPanel({
             <Badge className={cn('text-[10px] h-4 px-1.5 border-0', confTone)}>
               {t('inbox.aiAssist.confidence', { value: String(confidencePct) })}
             </Badge>
-          )}
-          {result?.provider && (
-            <span className="text-[10px] text-muted-foreground">
-              {result.provider}/{result.model}
-            </span>
           )}
         </div>
         <button
@@ -312,7 +324,7 @@ export function OperatorAssistPanel({
               <div className="mt-2 flex flex-wrap gap-1">
                 {result.safety_notes.map((n) => (
                   <Badge key={n} variant="outline" className="text-[10px] font-normal text-warning border-warning/40">
-                    {n}
+                    {safetyNoteLabel(t, n)}
                   </Badge>
                 ))}
               </div>

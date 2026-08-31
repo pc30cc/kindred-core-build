@@ -17,14 +17,13 @@
 
 /* ─── Self-hosted typography (licensed) ─────────────────────────────────
    Presentation OWNS typography — Core (runtime.css) declares no font at all.
-   Only weights that have a REAL file are declared: 400 (Regular),
-   500 (Medium), 700 (Bold). There is no IRANSans 600 file, so 600 is never
-   declared (the design's few 600 usages resolve upward to the Bold face,
-   exactly as the design source itself renders them). */
+   The licensed Bold asset is intentionally mapped to both 600 and 700,
+   exactly like the design source. */
 @font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/iransans-400.woff2') format('woff2'); }
 @font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/iransans-500.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/iransans-700.woff2') format('woff2'); }
 @font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/iransans-700.woff2') format('woff2'); }
-@font-face { font-family: 'InterWY'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('fonts/inter-500.woff2') format('woff2'); }
+@font-face { font-family: 'InterWY'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/inter-500.woff2') format('woff2'); }
 
 :host,
 .shell {
@@ -81,10 +80,12 @@
   position: fixed;
   /* Below the loader's launcher (2147483646) so the FAB is always clickable. */
   z-index: 2147483000;
-  width: 380px;
-  height: 600px;
-  max-height: calc(100vh - 120px);
-  max-width: calc(100vw - 32px);
+  /* Intentional product override: source canvas is 380×600; components and
+     typography remain unscaled while the product canvas is 420×680. */
+  width: 420px;
+  height: 680px;
+  max-height: calc(100dvh - 118px);
+  max-width: calc(100vw - 24px);
   display: flex;
   flex-direction: column;
   background: var(--wy-surface);
@@ -184,8 +185,9 @@
    action block (design source). */
 .wy-home-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 16px; gap: 16px; box-sizing: border-box; }
 .wy-home-scroll { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
-.wy-list-scroll,
-.wy-kb-scroll { flex: 1; min-height: 0; padding: 14px 16px 8px; }
+.wy-list-body, .wy-kb-body { padding: 16px; gap: 12px; }
+.wy-list-scroll { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wy-kb-scroll { flex: 1; min-height: 0; padding: 0 0 0 6px; }
 
 
 /* ─── Headers ───────────────────────────────────────────────────────── */
@@ -282,7 +284,7 @@
 .wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }
 .wy-actions .wy-btn { flex: 1 1 auto; min-width: 0; }
 .wy-view-home .wy-actions .wy-btn { padding: 8px; }
-.wy-view-precontact .wy-actions { padding: 10px 16px; }
+.wy-view-precontact .wy-actions { padding: 0 20px 20px; }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */
 /* `flex: none` keeps the footer pinned OUTSIDE the scroll area. */
@@ -599,7 +601,7 @@
 /* Mic while the draft is empty, send once there is something to send. */
 .input-bar:not(.has-draft) .send-btn { display: none; }
 .input-bar.has-draft .mic-btn { display: none; }
-.send-btn, .attach-btn, .emoji-btn, .escalate-btn {
+.send-btn, .attach-btn, .emoji-btn {
   display: flex; align-items: center; justify-content: center;
   min-width: 32px; min-height: 32px; width: 32px; height: 32px;
   border-radius: 9999px; background: transparent; color: var(--wy-text); flex: none;
@@ -610,13 +612,10 @@
 .send-btn { color: var(--wy-accent); margin-inline-start: 4px; }
 .send-btn svg { width: 18px; height: 18px; transform: scaleX(-1); }
 [dir='ltr'] .send-btn svg { transform: none; }
-.send-btn:hover, .attach-btn:hover, .emoji-btn:hover, .escalate-btn:hover { background: var(--wy-hover-2); }
+.send-btn:hover, .attach-btn:hover, .emoji-btn:hover { background: var(--wy-hover-2); }
 .send-btn:active, .attach-btn:active, .emoji-btn:active, .mic-btn:active { transform: scale(0.9); }
 .send-btn:disabled, .attach-btn:disabled { opacity: 0.45; }
-.escalate-btn { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-accent); margin-inline-end: 6px; }
-/* [hidden] must win over the flex display above — the design shows no
-   escalate affordance until the core unhides it. */
-.send-btn[hidden], .attach-btn[hidden], .emoji-btn[hidden], .escalate-btn[hidden], .mic-btn[hidden] { display: none; }
+.send-btn[hidden], .attach-btn[hidden], .emoji-btn[hidden], .mic-btn[hidden] { display: none; }
 
 .mic-btn.recording { background: transparent; color: #e5484d; }
 /* Chat footer sits directly under the composer (design source). */
@@ -658,25 +657,22 @@
 .rec-bar { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; font-size: 12px; color: var(--wy-muted); }
 
 /* ─── Pre-contact / fallback forms ──────────────────────────────────── */
-.prechat-subtitle, .prechat-intro { font-size: 13px; color: var(--wy-muted); margin: 0 0 14px; }
-.prechat-fields { display: flex; flex-direction: column; gap: 12px; }
-.prechat-field { display: flex; flex-direction: column; gap: 5px; }
+.wy-view-precontact > .wy-body-pad { padding: 20px; gap: 16px; overflow-y: auto; }
+.prechat-subtitle, .prechat-intro { font-size: 13.5px; line-height: 1.7; color: var(--wy-muted); margin: 0; }
+.prechat-fields { display: flex; flex-direction: column; gap: 14px; }
+.prechat-field { display: flex; flex-direction: column; gap: 6px; }
 .prechat-label { font-size: 12.5px; font-weight: 500; color: var(--wy-text); }
 .prechat-req-mark { color: #e5484d; margin-inline-start: 3px; }
 .prechat-control { position: relative; display: flex; align-items: center; }
-.prechat-icon {
-  position: absolute; inset-inline-start: 10px; width: 16px; height: 16px; color: var(--wy-faint);
-  display: flex; align-items: center; pointer-events: none;
-}
-.prechat-icon svg { width: 16px; height: 16px; }
 .prechat-input {
-  box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px 0 12px;
-  padding-inline-start: 32px; border-radius: var(--wy-radius-sm); border: 1px solid var(--wy-border);
+  box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px;
+  border-radius: var(--wy-radius-sm); border: 1px solid var(--wy-border);
   font-size: 14px; color: var(--wy-text); background: var(--wy-card); outline: none;
   transition: border-color 0.16s, box-shadow 0.16s;
 }
 .prechat-input:focus { border-color: var(--wy-accent); box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.14); }
 .prechat-input[aria-invalid='true'] { border-color: #e5484d; }
+.prechat-input[dir='ltr'] { text-align: right; }
 .prechat-textarea { height: auto; padding: 10px 12px; resize: vertical; }
 .prechat-error { font-size: 11.5px; color: #e5484d; min-height: 0; }
 .prechat-error:empty { display: none; }
@@ -706,7 +702,7 @@
 }
 .kb-search:focus { border-color: var(--wy-accent); box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.14); }
 
-.kb-list { display: flex; flex-direction: column; gap: 8px; }
+.kb-list { display: flex; flex-direction: column; gap: 6px; }
 .kb-article, .kb-category {
   display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
   padding: 14px 12px; text-align: start; text-decoration: none;
@@ -715,7 +711,7 @@
   transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--wy-ease);
 }
 .kb-article:hover, .kb-category:hover { background: var(--wy-hover); border-color: var(--wy-border-strong); transform: translateY(-1px); }
-.kb-article-title { flex: 1; min-width: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-article-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kb-article-chevron { color: var(--wy-faint); display: inline-flex; }
 [dir='rtl'] .kb-article-chevron svg { transform: scaleX(-1); }
 .kb-section-h { font-size: 12px; font-weight: 600; color: var(--wy-muted); margin: 16px 0 8px; }
@@ -724,10 +720,12 @@
 .kb-empty-icon { color: var(--wy-border-strong); }
 .kb-empty-text { font-size: 13px; color: var(--wy-muted); margin: 0; }
 
-.kb-article-view { display: flex; flex-direction: column; gap: 10px; }
+.wy-view-kb:has(.kb-article-view) .wy-kb-body { padding: 20px; gap: 12px; }
+.wy-view-kb:has(.kb-article-view) .wy-kb-scroll { padding: 0; }
+.kb-article-view { display: flex; flex-direction: column; gap: 0; }
 .kb-article-h { font-size: 17px; font-weight: 700; margin: 0; }
 .kb-article-excerpt-full { font-size: 13px; color: var(--wy-muted); margin: 0; }
-.kb-article-body { font-size: 13.5px; line-height: 1.9; color: var(--wy-text); }
+.kb-article-body { font-size: 14px; line-height: 1.9; color: var(--wy-text); }
 .kb-article-body img { max-width: 100%; border-radius: var(--wy-radius-md); }
 .kb-article-body a { color: var(--wy-accent); }
 .kb-article-body h2, .kb-article-body h3 { font-size: 14.5px; font-weight: 600; margin: 14px 0 6px; }
@@ -736,11 +734,11 @@
 .kb-open-browser { font-size: 12px; color: var(--wy-accent); text-decoration: none; }
 
 .kb-feedback {
-  margin-top: 18px; padding: 14px; border: 1px solid var(--wy-border); border-radius: var(--wy-radius-md);
-  background: var(--wy-card); display: flex; flex-direction: column; gap: 10px;
+  margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--wy-border);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
   animation: wy-view-in 0.24s var(--wy-ease) both;
 }
-.kb-feedback-q { font-size: 12.5px; color: var(--wy-muted); }
+.kb-feedback-q { font-size: 13px; color: var(--wy-muted); }
 .kb-feedback-actions { display: flex; gap: 8px; }
 .kb-rate {
   display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 12.5px;
@@ -751,7 +749,7 @@
 .kb-rate.is-up { border-color: var(--wy-online); color: var(--wy-online); background: rgba(48, 196, 110, 0.08); }
 .kb-rate.is-down { border-color: #e5484d; color: #e5484d; background: rgba(229, 72, 77, 0.08); }
 .kb-feedback-thanks { font-size: 12px; color: var(--wy-online); }
-.kb-feedback-cta { align-self: flex-start; }
+.kb-feedback-cta { align-self: center; margin-top: 4px; padding: 9px 18px; border-radius: 9999px; font-size: 13px; }
 
 /* ─── Reduced motion ────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

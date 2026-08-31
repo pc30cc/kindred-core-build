@@ -48,7 +48,6 @@
       attach: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.48"/></svg>',
       emoji: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8.5 14s1.2 2 3.5 2 3.5-2 3.5-2" stroke-linecap="round"/><circle cx="9" cy="10" r="0.9" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg>',
       mic: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>',
-      human: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M20 15.5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3z"/><path d="M4 15.5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H4z"/></svg>',
       thumbUp: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h6.28a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.75 20H7a1 1 0 0 1-1-1v-9a1 1 0 0 1 .29-.71l6.06-6.06a.5.5 0 0 1 .85.35L13 5.88Z"/></svg>',
       thumbDown: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12 10 14H3.72a2 2 0 0 1-1.94-2.5l1.54-6A2 2 0 0 1 5.25 4H17a1 1 0 0 1 1 1v9a1 1 0 0 1-.29.71l-6.06 6.06a.5.5 0 0 1-.85-.35L11 18.12Z"/></svg>',
       close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -694,8 +693,6 @@
             '</div>' +
             '<div class="emoji-picker" data-emoji-picker hidden></div>' +
             '<div class="input-bar" data-input-bar>' +
-              '<button type="button" class="escalate-btn" data-escalate-btn hidden title="' + esc(t('talkToHuman')) +
-                '" aria-label="' + esc(t('talkToHuman')) + '">' + ICON.human + '</button>' +
               '<div class="input-wrap" data-input-wrap>' +
                 // Mic is the FIRST child inside the input pill and only shows
                 // while the draft is empty (design source).
@@ -1057,5 +1054,17 @@
     };
   }
 
-  window.__gs_presentation_web_yar = { id: 'web-yar', create: create };
+  function prepare() {
+    if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
+    var sample = 'سلام وب یار';
+    var loads = [400, 500, 600].map(function (weight) {
+      return document.fonts.load(String(weight) + ' 16px IRANSans', sample).catch(function () { return []; });
+    });
+    return Promise.race([
+      Promise.all(loads).then(function () {}),
+      new Promise(function (resolve) { setTimeout(resolve, 500); }),
+    ]);
+  }
+
+  window.__gs_presentation_web_yar = { id: 'web-yar', create: create, prepare: prepare };
 })();

@@ -3778,6 +3778,7 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
+    var articleLoading = false;
     // slug -> 'up' | 'down' for votes this visitor submitted in this session.
     var articleRatings = {};
 
@@ -3852,6 +3853,14 @@
       if (!rootEl) return;
       var s = kbStore.get();
       var rtl = isRtl();
+      if (articleLoading) {
+        var skel = '';
+        try {
+          skel = (Presentation && Presentation.skeletonHtml)
+            ? (Presentation.skeletonHtml('article', { rtl: rtl }) || '') : '';
+        } catch (_) { skel = ''; }
+        if (skel) { rootEl.innerHTML = skel; return; }
+      }
       var origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
       var locSeg = encodeURIComponent(ctx.locale || 'en');
 
@@ -4100,6 +4109,10 @@
     function openArticle(slug) {
       if (!slug) return;
       pendingSlug = slug;
+      // Article bodies are fetched on demand — show the article skeleton
+      // immediately so the surface never sits on the previous list.
+      articleLoading = true;
+      paint();
       ModuleLoader.load('kb', moduleUrl(), function () {
         var mod = ModuleLoader.modules.kb;
         if (!mod || !mod.loadArticle) return;
@@ -4111,11 +4124,12 @@
           slug: slug,
           onResult: function (r) {
             if (pendingSlug !== slug) return;
+            articleLoading = false;
             if (r.ok && r.article) {
               currentArticle = r.article;
               view = 'article';
-              paint();
             }
+            paint();
           },
         });
       });
@@ -4147,7 +4161,7 @@
         }
         return false;
       },
-      resetToList: function () { view = 'list'; currentArticle = null; },
+      resetToList: function () { view = 'list'; currentArticle = null; articleLoading = false; pendingSlug = null; },
     };
 
   }

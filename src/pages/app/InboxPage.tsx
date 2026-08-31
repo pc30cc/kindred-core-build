@@ -1065,6 +1065,8 @@ export default function InboxPage() {
 
   return (
     <div className="flex h-full" dir={dir}>
+      {topBarSummary}
+
       {/* ═══════ LEFT: Conversation List ═══════ */}
       <div className={cn(
         'w-full md:w-[300px] lg:w-[340px] xl:w-[380px] shrink-0 border-e border-border flex flex-col bg-card',

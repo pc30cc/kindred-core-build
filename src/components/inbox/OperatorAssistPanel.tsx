@@ -23,6 +23,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
+import { useTranslation } from '@/i18n';
 
 type Tone = 'friendly' | 'professional' | 'short' | 'detailed';
 
@@ -37,6 +38,7 @@ interface Props {
 export function OperatorAssistPanel({
   workspaceId, conversationId, composerHasText, onInsert, dir = 'ltr',
 }: Props) {
+  const { t } = useTranslation();
   const { data: capabilities } = useAiAgentCapabilities(workspaceId);
   const [open, setOpen] = useState(false);
   const [tone, setTone] = useState<Tone>('friendly');
@@ -70,10 +72,10 @@ export function OperatorAssistPanel({
         operatorAction: payload.operatorAction ?? null,
         finalComposerText: payload.finalComposerText ?? null,
       });
-      if (!silent) toast({ title: 'Feedback sent' });
+      if (!silent) toast({ title: t('inbox.aiAssist.feedbackSent') });
     } catch (e: any) {
       if (!silent) {
-        toast({ title: 'Could not save feedback', description: e?.message || 'unknown', variant: 'destructive' });
+        toast({ title: t('inbox.aiAssist.feedbackFailed'), description: e?.message || 'unknown', variant: 'destructive' });
       } else {
         // Non-blocking failure.
         console.warn('[ai-assist] feedback failed:', e?.message);
@@ -101,14 +103,14 @@ export function OperatorAssistPanel({
       setResult(r);
       if (!r.suggestion) {
         toast({
-          title: 'No suggestion',
-          description: r.safety_notes?.join(', ') || 'The model returned no draft.',
+          title: t('inbox.aiAssist.noSuggestionTitle'),
+          description: r.safety_notes?.join(', ') || t('inbox.aiAssist.noSuggestionDesc'),
         });
       }
     } catch (e: any) {
       const msg = e?.message || 'request_failed';
       setError(msg);
-      toast({ title: 'AI Assist failed', description: msg, variant: 'destructive' });
+      toast({ title: t('inbox.aiAssist.failedTitle'), description: msg, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -134,7 +136,7 @@ export function OperatorAssistPanel({
       operatorAction: action,
       finalComposerText: result.suggestion,
     });
-    toast({ title: mode === 'append' ? 'Appended to composer' : 'Inserted into composer' });
+    toast({ title: t(mode === 'append' ? 'inbox.aiAssist.appended' : 'inbox.aiAssist.inserted') });
   };
 
   const submitRating = async (r: 'positive' | 'negative') => {
@@ -181,7 +183,7 @@ export function OperatorAssistPanel({
           onClick={() => setOpen(true)}
         >
           <Sparkles className="w-3.5 h-3.5 text-primary" />
-          AI Suggest Reply
+          {t('inbox.aiAssist.trigger')}
         </Button>
       </div>
     );
@@ -195,10 +197,10 @@ export function OperatorAssistPanel({
       <div className="flex items-center justify-between px-3 py-2 border-b border-primary/20 bg-primary/10">
         <div className="flex items-center gap-2 min-w-0">
           <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="text-[12px] font-semibold">AI Assist (operator draft)</span>
+          <span className="text-[12px] font-semibold">{t('inbox.aiAssist.title')}</span>
           {confidencePct != null && (
             <Badge className={cn('text-[10px] h-4 px-1.5 border-0', confTone)}>
-              {confidencePct}% confidence
+              {t('inbox.aiAssist.confidence', { value: String(confidencePct) })}
             </Badge>
           )}
           {result?.provider && (
@@ -211,7 +213,7 @@ export function OperatorAssistPanel({
           type="button"
           onClick={dismiss}
           className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-          aria-label="Close"
+          aria-label={t('inbox.aiAssist.close')}
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -225,14 +227,14 @@ export function OperatorAssistPanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="friendly">Friendly</SelectItem>
-              <SelectItem value="professional">Professional</SelectItem>
-              <SelectItem value="short">Short</SelectItem>
-              <SelectItem value="detailed">Detailed</SelectItem>
+              <SelectItem value="friendly">{t('inbox.aiAssist.tone.friendly')}</SelectItem>
+              <SelectItem value="professional">{t('inbox.aiAssist.tone.professional')}</SelectItem>
+              <SelectItem value="short">{t('inbox.aiAssist.tone.short')}</SelectItem>
+              <SelectItem value="detailed">{t('inbox.aiAssist.tone.detailed')}</SelectItem>
             </SelectContent>
           </Select>
           <Input
-            placeholder="Add custom instruction… (optional)"
+            placeholder={t('inbox.aiAssist.instructionPlaceholder')}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             className="h-7 text-[12px] flex-1 min-w-[160px]"
@@ -248,7 +250,7 @@ export function OperatorAssistPanel({
             {loading
               ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
               : result ? <RefreshCw className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {result ? 'Regenerate' : 'Generate'}
+            {result ? t('inbox.aiAssist.regenerate') : t('inbox.aiAssist.generate')}
           </Button>
         </div>
 
@@ -256,7 +258,7 @@ export function OperatorAssistPanel({
         {loading && (
           <div className="text-[12px] text-muted-foreground flex items-center gap-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Drafting reply from your knowledge sources…
+            {t('inbox.aiAssist.drafting')}
           </div>
         )}
 
@@ -264,16 +266,16 @@ export function OperatorAssistPanel({
         {error && !loading && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[12px] text-destructive">
             {error === 'feature_not_available'
-              ? 'AI Operator Assist is not enabled on your current plan.'
+              ? t('inbox.aiAssist.errFeature')
               : error === 'operator_permission_required'
-              ? 'Your role does not have permission to use AI Operator Assist.'
+              ? t('inbox.aiAssist.errPermission')
               : error === 'ai_provider_not_configured'
-              ? 'No AI provider is configured for this workspace.'
+              ? t('inbox.aiAssist.errProvider')
               : error === 'no_visitor_message'
-              ? 'No visitor message in this conversation yet.'
+              ? t('inbox.aiAssist.errNoVisitor')
               : error === 'rate_limited'
-              ? 'Too many AI Assist requests. Please wait a moment and try again.'
-              : `Could not generate a suggestion: ${error}`}
+              ? t('inbox.aiAssist.errRateLimited')
+              : t('inbox.aiAssist.errGeneric', { msg: error })}
           </div>
         )}
 
@@ -283,7 +285,7 @@ export function OperatorAssistPanel({
             {noKnowledge && (
               <div className="mb-2">
                 <Badge variant="outline" className="text-[10px] font-normal text-warning border-warning/40">
-                  No knowledge source used
+                  {t('inbox.aiAssist.noKnowledge')}
                 </Badge>
               </div>
             )}
@@ -294,7 +296,7 @@ export function OperatorAssistPanel({
             {result.selected_sources.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mr-1">
-                  Sources:
+                  {t('inbox.aiAssist.sources')}
                 </span>
                 {result.selected_sources.slice(0, 5).map((s) => (
                   <Badge key={s.id} variant="secondary" className="text-[10px] font-normal">
@@ -326,7 +328,7 @@ export function OperatorAssistPanel({
               className="h-7 gap-1.5 text-[12px]"
             >
               <ArrowDownToLine className="w-3.5 h-3.5" />
-              {composerHasText ? 'Append to composer' : 'Insert into composer'}
+              {composerHasText ? t('inbox.aiAssist.append') : t('inbox.aiAssist.insert')}
             </Button>
             {composerHasText && (
               <Button
@@ -335,7 +337,7 @@ export function OperatorAssistPanel({
                 onClick={() => insert('replace')}
                 className="h-7 gap-1.5 text-[12px]"
               >
-                Replace composer
+                {t('inbox.aiAssist.replace')}
               </Button>
             )}
             <Button
@@ -345,16 +347,16 @@ export function OperatorAssistPanel({
               className="h-7 gap-1.5 text-[12px]"
             >
               <Eye className="w-3.5 h-3.5" />
-              View debug
+              {t('inbox.aiAssist.viewDebug')}
             </Button>
             <span className="text-[10px] text-muted-foreground ml-auto">
-              Not visible to visitor until you send.
+              {t('inbox.aiAssist.notVisible')}
             </span>
           </div>
 
           {/* Feedback row */}
           <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-border/40">
-            <span className="text-[11px] text-muted-foreground">Was this useful?</span>
+            <span className="text-[11px] text-muted-foreground">{t('inbox.aiAssist.wasUseful')}</span>
             <Button
               type="button"
               size="sm"
@@ -363,7 +365,7 @@ export function OperatorAssistPanel({
               disabled={feedbackSent}
               onClick={() => submitRating('positive')}
             >
-              <ThumbsUp className="w-3.5 h-3.5" /> Useful
+              <ThumbsUp className="w-3.5 h-3.5" /> {t('inbox.aiAssist.useful')}
             </Button>
             <Button
               type="button"
@@ -373,10 +375,10 @@ export function OperatorAssistPanel({
               disabled={feedbackSent}
               onClick={() => submitRating('negative')}
             >
-              <ThumbsDown className="w-3.5 h-3.5" /> Not useful
+              <ThumbsDown className="w-3.5 h-3.5" /> {t('inbox.aiAssist.notUseful')}
             </Button>
             {feedbackSent && (
-              <span className="text-[11px] text-success">Thanks for the feedback.</span>
+              <span className="text-[11px] text-success">{t('inbox.aiAssist.thanks')}</span>
             )}
           </div>
 
@@ -384,21 +386,21 @@ export function OperatorAssistPanel({
             <div className="flex items-center gap-2 flex-wrap pt-1">
               <Select value={reason} onValueChange={(v) => setReason(v as OperatorAssistFeedbackReason)}>
                 <SelectTrigger className="h-7 w-[170px] text-[12px]">
-                  <SelectValue placeholder="Reason (optional)" />
+                  <SelectValue placeholder={t('inbox.aiAssist.reasonPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="wrong_answer">Wrong answer</SelectItem>
-                  <SelectItem value="missing_context">Missing context</SelectItem>
-                  <SelectItem value="bad_tone">Bad tone</SelectItem>
-                  <SelectItem value="too_long">Too long</SelectItem>
-                  <SelectItem value="too_short">Too short</SelectItem>
-                  <SelectItem value="unsafe">Unsafe</SelectItem>
-                  <SelectItem value="not_grounded">Not grounded</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="wrong_answer">{t('inbox.aiAssist.reasons.wrong_answer')}</SelectItem>
+                  <SelectItem value="missing_context">{t('inbox.aiAssist.reasons.missing_context')}</SelectItem>
+                  <SelectItem value="bad_tone">{t('inbox.aiAssist.reasons.bad_tone')}</SelectItem>
+                  <SelectItem value="too_long">{t('inbox.aiAssist.reasons.too_long')}</SelectItem>
+                  <SelectItem value="too_short">{t('inbox.aiAssist.reasons.too_short')}</SelectItem>
+                  <SelectItem value="unsafe">{t('inbox.aiAssist.reasons.unsafe')}</SelectItem>
+                  <SelectItem value="not_grounded">{t('inbox.aiAssist.reasons.not_grounded')}</SelectItem>
+                  <SelectItem value="other">{t('inbox.aiAssist.reasons.other')}</SelectItem>
                 </SelectContent>
               </Select>
               <Input
-                placeholder="Optional comment…"
+                placeholder={t('inbox.aiAssist.commentPlaceholder')}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 maxLength={2000}
@@ -410,7 +412,7 @@ export function OperatorAssistPanel({
                 className="h-7 text-[12px]"
                 onClick={submitNegativeDetails}
               >
-                Submit
+                {t('inbox.aiAssist.submit')}
               </Button>
             </div>
           )}

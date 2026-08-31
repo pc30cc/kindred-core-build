@@ -792,7 +792,12 @@
             '</div>' +
             '<div class="attach-tray" data-attach-tray hidden></div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
-              '<span class="reply-preview-text" data-reply-preview-text></span>' +
+              '<span class="reply-preview-bar" aria-hidden="true"></span>' +
+              '<span class="reply-preview-icon" aria-hidden="true">' + ICON.quote + '</span>' +
+              '<span class="reply-preview-body">' +
+                '<span class="reply-preview-author" data-reply-preview-author></span>' +
+                '<span class="reply-preview-text" data-reply-preview-text></span>' +
+              '</span>' +
               '<button type="button" class="reply-preview-cancel" data-reply-cancel aria-label="' +
                 esc(tf('cancel', 'Cancel')) + '">' + ICON.close + '</button>' +
             '</div>' +

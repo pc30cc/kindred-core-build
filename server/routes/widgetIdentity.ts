@@ -139,6 +139,17 @@ async function emitIdentifiedEvents(
 
 export const widgetIdentityRouter = Router();
 
+/**
+ * Platform-fixed conversation-continuity window (30 days).
+ *
+ * This used to be a per-workspace operator setting, but an identified visitor
+ * whose HttpOnly cookie is still valid should simply resume — re-asking for
+ * details they already gave only creates duplicate contacts. The value now
+ * governs history restore only, and is not workspace-configurable.
+ */
+const HISTORY_CONTINUE_WINDOW_HOURS = 720;
+
+
 // All identity routes require valid session token (HMAC) + matching origin
 widgetIdentityRouter.use(enforceWidgetToken);
 widgetIdentityRouter.use(enforceOrigin);

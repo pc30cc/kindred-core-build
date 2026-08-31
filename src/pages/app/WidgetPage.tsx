@@ -384,7 +384,9 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.brandName')}</Label>
                     <Input
-                      value={(live as any)?.brand_name || ''}
+                      value={typeof (live as any)?.brand_name === 'string'
+                        ? (live as any).brand_name
+                        : (workspace?.name || '')}
                       onChange={e => setField('brand_name' as any, e.target.value)}
                       placeholder={workspace?.name || t('widgetPage.appearance.brandNamePlaceholder')}
                     />
@@ -396,10 +398,15 @@ function WidgetPageContent() {
                     <Label className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
                     <Input
                       disabled={!capAllowed('widget_reply_time_text')}
-                      value={capAllowed('widget_reply_time_text') ? ((live as any)?.reply_time_text || '') : ''}
+                      value={capAllowed('widget_reply_time_text')
+                        ? (typeof (live as any)?.reply_time_text === 'string'
+                            ? (live as any).reply_time_text
+                            : t('widgetPage.appearance.replyTimeDefault'))
+                        : ''}
                       onChange={e => setField('reply_time_text' as any, e.target.value)}
                       placeholder={t('widgetPage.appearance.replyTimeDefault')}
                     />
+
                     {capAllowed('widget_reply_time_text') ? (
                       <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
                     ) : (

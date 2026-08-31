@@ -836,8 +836,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       debugMode: ws.debug_mode ?? false,
       // Workspace identity owns all widget headers. Platform identity is
       // intentionally separate and is used only by the powered-by footer.
-      brandName: (typeof ws.brand_name === 'string' && ws.brand_name.trim())
-        || workspace?.name || 'Support',
+      // An explicit empty string means the workspace cleared the display name.
+      brandName: typeof ws.brand_name === 'string'
+        ? ws.brand_name.trim()
+        : (workspace?.name || 'Support'),
+
       // Explicit platform brand for the "powered by" footer. The footer must
       // ALWAYS name the platform, never the workspace's own brand.
       platformName: poweredBy?.brand || '',
@@ -864,9 +867,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         )
         || platformWidget?.default_welcome_message
         || '',
-      // Workspace-authored reply-time note for the widget header. Empty
-      // string => presentation falls back to the locale default.
-      replyTimeText: typeof ws.reply_time_text === 'string' ? ws.reply_time_text.trim() : '',
+      // Workspace-authored reply-time note for the widget header. An explicit
+      // empty string means "hide it"; NULL (never configured) falls back to
+      // the locale default in the presentation layer.
+      replyTimeText: typeof ws.reply_time_text === 'string' ? ws.reply_time_text.trim() : null,
+
       greetingMessage: ws.greeting_message || '',
       placeholderText: ws.placeholder_text || '',
       offlineMessage: ws.offline_message || '',
@@ -933,8 +938,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       autoOpenDelay: ws.auto_open_delay || 0,
       showLogo: ws.show_logo ?? true,
       showTeamAvatars: ws.show_team_avatars !== false,
-      workspaceName: (typeof ws.brand_name === 'string' && ws.brand_name.trim())
-        || workspace?.name || '',
+      workspaceName: typeof ws.brand_name === 'string'
+        ? ws.brand_name.trim()
+        : (workspace?.name || ''),
+
       teamMembers,
       onlineOperators: 0, // Resolved client-side from realtime presence when supported.
       runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),

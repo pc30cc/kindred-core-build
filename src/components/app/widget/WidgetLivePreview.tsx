@@ -285,8 +285,11 @@ export function WidgetLivePreview({
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     /* Header titles use workspace identity only — launcher_text is a launcher
        concern and is not consumed by the Web Yar presentation. */
-    const title = ((typeof s.brand_name === 'string' && s.brand_name.trim())
-      || workspaceName || brandName || d.brandFallback) as string;
+    // An explicit empty brand_name means "cleared" — show no name at all.
+    const title = (typeof s.brand_name === 'string'
+      ? s.brand_name.trim()
+      : (workspaceName || brandName || d.brandFallback)) as string;
+
     const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
       || localizedValue(s.greeting_message, 'welcome', locale)
       || d.welcomeFallback) as string;
@@ -378,7 +381,7 @@ export function WidgetLivePreview({
       ...(poweredBy !== undefined
         ? { poweredBy, showPoweredBy: poweredBy !== null }
         : {}),
-      replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : '',
+      replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : null,
       welcomeMessage: welcome,
       logoUrl: logo || null,
       showLogo: s.show_logo !== false,

@@ -1736,7 +1736,7 @@ export default function InboxPage() {
               placeholder={t('inbox.search') || 'Search conversations...'}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className={cn('h-9 text-[13px] bg-secondary/50 border-transparent focus:border-primary/30', dir === 'rtl' ? 'pr-8' : 'pl-8')}
+              className={cn('h-9 text-[13px] bg-secondary/50 border-transparent focus:border-transparent', dir === 'rtl' ? 'pr-8' : 'pl-8')}
               dir={dir}
             />
           </div>

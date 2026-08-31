@@ -12,6 +12,10 @@
  *     globalKey: window key the renderer registers itself under
  *     script:    renderer asset file name (hashed at build time)
  *     style:     template stylesheet file name (hashed at build time)
+ *     fonts:     OPTIONAL font asset file name (hashed at build time). The
+ *                single source of this template's font bytes. Consumers
+ *                (loader, live preview) treat it as an opaque stylesheet —
+ *                they know nothing about which font families it defines.
  *   }
  *
  * Adding a template later = add ONE entry here + two asset files.
@@ -30,6 +34,8 @@
       globalKey: '__gs_presentation_web_yar',
       script: 'presentation-web-yar.js',
       style: 'presentation-web-yar.css',
+      // Single source of font bytes for this template (base64-inlined faces).
+      fonts: 'presentation-web-yar-fonts.css',
     },
   };
 

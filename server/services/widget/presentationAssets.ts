@@ -22,11 +22,18 @@ export function resolveWidgetTemplateId(input?: string | null): string {
   return DEFAULT_WIDGET_TEMPLATE_ID;
 }
 
-/** Logical manifest keys for a template's renderer + stylesheet. */
+/**
+ * Logical manifest keys for a template's renderer, stylesheet and font asset.
+ *
+ * `fonts` is the single source of the template's font bytes. It is optional
+ * at runtime (a template may ship none), so callers must tolerate the
+ * manifest lacking the key.
+ */
 export function widgetTemplateAssetKeys(templateId: string) {
   const id = resolveWidgetTemplateId(templateId);
   return {
     script: `presentation-${id}.js` as const,
     style: `presentation-${id}.css` as const,
+    fonts: `presentation-${id}-fonts.css` as const,
   };
 }

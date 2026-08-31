@@ -493,7 +493,7 @@ export function WidgetLivePreview({
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
   .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
     width:${fabSize}px;height:${fabSize}px;border-radius:${fabRadius};border:none;cursor:pointer;
-    box-shadow:0 4px 20px -4px var(--gs-shadow,rgba(0,0,0,.25)),0 0 0 1px rgba(0,0,0,.05);
+    box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);
     transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;
      background:${esc(primary)};color:${esc(fabIconColor)};z-index:2147483646;}
   .launcher.bottom-right{bottom:24px;right:24px;}

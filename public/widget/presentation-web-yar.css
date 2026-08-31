@@ -132,7 +132,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 12px 32px var(--gs-shadow, rgba(31, 147, 255, 0.4));
+  box-shadow: 0 4px 14px -4px var(--gs-shadow, rgba(31, 147, 255, 0.22));
   cursor: pointer;
   transition: transform 0.22s var(--wy-ease), box-shadow 0.22s var(--wy-ease);
 }

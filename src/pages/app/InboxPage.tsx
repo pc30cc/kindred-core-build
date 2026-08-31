@@ -2155,11 +2155,18 @@ export default function InboxPage() {
                       messageInputRef.current?.focus();
                     });
                   }}
-                  onSendNow={(text) =>
+                  sendAction={sendAction}
+                  onSendActionChange={chooseSendAction}
+                  onSendNow={(text, action) =>
                     new Promise<boolean>((resolve) => {
                       if (!user) { resolve(false); return; }
                       sendMessage.mutate(
-                        { body: text, attachmentId: null },
+                        {
+                          body: text,
+                          attachmentId: null,
+                          clientMessageId: newClientMessageId(),
+                          postSendAction: action ?? sendAction,
+                        },
                         {
                           onSuccess: () => resolve(true),
                           onError: () => resolve(false),
@@ -2167,6 +2174,7 @@ export default function InboxPage() {
                       );
                     })
                   }
+
                 />
               )}
               {selectedId && workspace?.id && (

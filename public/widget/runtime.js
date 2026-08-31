@@ -3346,8 +3346,12 @@
         (function (el) {
           var mid = el.getAttribute('data-att-media-src');
           if (!mid) return;
+          var loadingHost = el.closest ? el.closest('.msg-att-img-btn') : null;
+          var clearLoading = function () { if (loadingHost) loadingHost.classList.remove('is-loading'); };
+          el.addEventListener('load', clearLoading);
+          el.addEventListener('error', clearLoading);
           ctx.loadAuthedMediaBlobUrl(mid).then(function (blobUrl) {
-            if (blobUrl) { el.src = blobUrl; } else { el.dispatchEvent(new Event('error')); }
+            if (blobUrl) { el.src = blobUrl; } else { clearLoading(); el.dispatchEvent(new Event('error')); }
           });
         })(mediaEls[me]);
       }

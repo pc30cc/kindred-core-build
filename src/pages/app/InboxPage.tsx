@@ -2405,7 +2405,7 @@ export default function InboxPage() {
                       </Button>
 
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="top" className="w-64">
+                    <DropdownMenuContent align={dir === 'rtl' ? 'start' : 'end'} side="top" className="w-64">
                       <DropdownMenuLabel className="text-[11px] text-muted-foreground">
                         {t('inbox.sendActions') || 'Send actions'}
                       </DropdownMenuLabel>

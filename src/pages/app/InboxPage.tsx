@@ -1692,16 +1692,22 @@ export default function InboxPage() {
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 if (!workspace?.id) return;
+                                // Open the conversation immediately so the
+                                // operator can reply right away.
+                                setSelectedId(conv.id);
+                                setShowMobileList(false);
                                 try {
                                   await aiAgentApi.takeOverConversation(workspace.id, conv.id, true);
                                   toast({ title: t('inbox.takenOverTitle') || 'Taken over', description: t('inbox.takenOverDesc') || 'AI will stop auto-replying.' });
                                   qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['conversation', conv.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                                 } catch (err: any) {
                                   toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: err?.message || '—', variant: 'destructive' });
                                 }
                               }}
+
                               className="text-[11px] px-2 py-0.5 rounded-md font-semibold bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground/70 transition-colors"
                               title={t('inbox.takeOverTip') || 'Take over this conversation'}
                             >

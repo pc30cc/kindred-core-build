@@ -3904,6 +3904,8 @@ const tr: TranslationKeys = {
       showLogo: 'Çalışma alanı logonuzu sohbet widget başlığında göster',
       logoUrl: 'Logo URL',
       logoHint: 'Çalışma alanınız için yüklediğiniz logo kullanılır.',
+      showTeamAvatars: 'Çevrimiçi operatör fotoğraflarını göster',
+      showTeamAvatarsHint: 'Çevrimiçi operatörlerin avatarları “Sohbeti başlat” düğmesinde gösterilir.',
       fabShape: 'Başlatıcı şekli',
       shapeRound: 'Yuvarlak',
       shapeSquare: 'Yuvarlatılmış kare',

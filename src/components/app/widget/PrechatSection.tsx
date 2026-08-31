@@ -1,12 +1,13 @@
 import { useTranslation } from '@/i18n';
-import { useWidgetPrechatSettings, useUpdateWidgetPrechatSettings, type WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
+import { useWidgetPrechatSettings, useUpdateWidgetPrechatSettings, type WidgetPrechatSettings, type PrechatTiming } from '@/hooks/useWidgetIdentity';
 import { useWidgetPlatformSettings, type PreChatPolicy } from '@/hooks/useWidgetPlatformSettings';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { User, Mail, Phone, ShieldCheck, Lock, Info } from 'lucide-react';
+import { User, Mail, Phone, ShieldCheck, Lock, Info, Clock, Sparkles, UserCheck, EyeOff } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+
 
 interface Props {
   workspaceId: string | undefined;

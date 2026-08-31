@@ -533,12 +533,19 @@
       var html = '<div class="messages">';
 
       var groupKeys = s.messages.map(function (m) {
-        return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+        var author = m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+        // A new calendar day always breaks the streak so the meta line (time +
+        // ticks) closes the previous day's run.
+        return author + '@' + dayKeyOf(m.time);
       });
       var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
+      var lastDayKey = '';
 
       s.messages.forEach(function (m, idx) {
+        var dk = dayKeyOf(m.time);
+        if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
+
           html += renderCallInvitationCard(m); return;
         }
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_ended') {

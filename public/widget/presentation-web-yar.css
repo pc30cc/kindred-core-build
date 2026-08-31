@@ -212,7 +212,7 @@
 .wy-head-chat .wy-head-sub { font-size: 12px; color: var(--wy-muted); }
 .wy-head-chat .wy-online-dot { width: 8px; height: 8px; border: 0; }
 .wy-head-list { padding: 20px; gap: 8px; justify-content: space-between; }
-.wy-head-list .wy-back { width: auto; height: auto; padding: 8px; margin-inline-end: -12px; border-radius: 6px; }
+.wy-head-list .wy-back { width: auto; height: auto; padding: 4px; margin-inline-end: -6px; border-radius: 6px; }
 .wy-head-article { padding: 16px 20px; gap: 8px; }
 .wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
 .wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -226,7 +226,11 @@
 .wy-back {
   /* P1 — the source has NO circular chrome on back controls: it is a bare
      23x23 SVG affordance. The 32px pill + hover fill was our invention. */
-  width: auto; height: auto; padding: 0; border-radius: 0; background: none;
+  /* Source spacing contract, shared by Articles / Article Detail / full-screen
+     Pre-chat / Chat: 23x23 SVG (stroke 1.8), 4px padding, -6px inline-end
+     margin so the glyph optically aligns with the view's content edge. */
+  width: auto; height: auto; padding: 4px; margin-inline-end: -6px;
+  border-radius: 0; background: none;
   display: flex; align-items: center; justify-content: center;
   color: var(--wy-muted); flex: none;
   transition: color 0.16s, transform 0.16s var(--wy-ease);
@@ -746,13 +750,13 @@ a.wy-powered:hover { color: var(--wy-text); }
   /* P1 — EXACT source geometry. A previous pass "tightened" this to 16/14;
      the design file is 24/16 and that is the source of truth. */
   margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--wy-border);
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
   animation: wy-view-in 0.24s var(--wy-ease) both;
 }
-.kb-feedback-q { font-size: 13px; font-weight: 500; color: var(--wy-text); }
-.kb-feedback-actions { display: flex; gap: 8px; }
+.kb-feedback-q { font-size: 13px; font-weight: 400; color: var(--wy-muted); }
+.kb-feedback-actions { display: flex; gap: 6px; }
 .kb-rate {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 12.5px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 13px;
   border: 1px solid var(--wy-border); border-radius: 9999px; background: var(--wy-surface); color: var(--wy-text);
   transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
 }
@@ -760,8 +764,8 @@ a.wy-powered:hover { color: var(--wy-text); }
 /* Source selects the positive rating with the ACCENT colour, not green. */
 .kb-rate.is-up { border-color: var(--wy-accent); color: var(--wy-accent); background: rgba(31, 147, 255, 0.08); }
 .kb-rate.is-down { border-color: #e5484d; color: #e5484d; background: rgba(229, 72, 77, 0.08); }
-.kb-feedback-thanks { font-size: 12.5px; font-weight: 500; color: var(--wy-muted); }
-.kb-feedback-cta { align-self: center; margin-top: 2px; padding: 9px 18px; border-radius: 9999px; font-size: 13px; }
+.kb-feedback-thanks { font-size: 12px; font-weight: 400; color: var(--wy-muted); }
+.kb-feedback-cta { align-self: center; margin-top: 4px; padding: 9px 18px; border-radius: 9999px; font-size: 13px; font-weight: 500; }
 
 /* ─── Reduced motion ────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

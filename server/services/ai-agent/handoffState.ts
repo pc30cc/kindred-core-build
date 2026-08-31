@@ -38,6 +38,7 @@ export type HandoffReason =
   | 'rate_limited'
   | 'no_credits'
   | 'plan_limit_reached'
+  | 'no_ai_provider'
   | 'fallback'
   | 'manual';
 

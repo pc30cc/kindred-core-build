@@ -15,10 +15,10 @@ interface Props {
 
 type FieldKey = 'name' | 'email' | 'phone';
 
-const FIELD_META: Record<FieldKey, { icon: React.ComponentType<{ className?: string }>; canVerify: boolean }> = {
-  name: { icon: User, canVerify: false },
-  email: { icon: Mail, canVerify: true },
-  phone: { icon: Phone, canVerify: true },
+const FIELD_META: Record<FieldKey, { icon: React.ComponentType<{ className?: string }> }> = {
+  name: { icon: User },
+  email: { icon: Mail },
+  phone: { icon: Phone },
 };
 
 /**

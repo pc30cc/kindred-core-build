@@ -78,7 +78,10 @@ import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
-import { resumeConversationIfPending } from '../services/conversationPending.js';
+import {
+  applyInboundConversationLifecycle,
+  INBOUND_REUSABLE_STATUSES,
+} from '../services/conversationLifecycle.js';
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
@@ -1705,16 +1708,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         convId = null; // Will create new conversation
       } else {
         const conv = ownership.conversation;
-        // Reopening a resolved/closed thread keeps its existing (silent)
-        // behaviour. `pending` is deliberately NOT touched here: it is a
-        // customer-reply transition and must go through
-        // resumeConversationIfPending so it emits the timeline event.
-        if (['closed', 'resolved'].includes(conv.status)) {
-          await supabase.from('conversations')
-            .update({ status: 'open', updated_at: new Date().toISOString() })
-            .eq('id', convId);
-        }
-
+        // Shared lifecycle: `closed` is archived and must never be revived —
+        // the message below starts a brand new conversation instead.
+        // `pending`/`resolved` stay untouched here: those transitions are
+        // customer-reply transitions applied AFTER the message is committed
+        // (applyInboundConversationLifecycle), so they emit a timeline event
+        // and a realtime update instead of changing status silently.
+        if (conv.status === 'closed') convId = null;
       }
     }
 
@@ -1725,7 +1725,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         const { data: existingConv } = await supabase
           .from('conversations').select('id')
           .eq('workspace_id', workspaceId).eq('visitor_session_id', body.session_id)
-          .in('status', ['open', 'pending'])
+          .in('status', INBOUND_REUSABLE_STATUSES as unknown as string[])
           .order('updated_at', { ascending: false }).limit(1).maybeSingle();
         if (existingConv) convId = existingConv.id;
       }
@@ -1742,29 +1742,18 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           // Prefer an existing open/pending thread for this contact so
           // returning visitors land in the same conversation instead of
           // spawning a new one each visit.
-          let { data: existingConv } = await supabase
+          // open / pending / resolved are continuable; `closed` is archived
+          // and deliberately excluded so it spawns a new conversation.
+          const { data: existingConv } = await supabase
             .from('conversations').select('id')
             .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
-            .in('status', ['open', 'pending'])
+            .in('status', INBOUND_REUSABLE_STATUSES as unknown as string[])
             .order('updated_at', { ascending: false }).limit(1).maybeSingle();
-          // Fallback to most recent (any status) — caller may reopen.
-          if (!existingConv) {
-            const r = await supabase
-              .from('conversations').select('id')
-              .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
-              .order('updated_at', { ascending: false }).limit(1).maybeSingle();
-            existingConv = r.data || null;
-          }
           if (existingConv) {
+            // No silent status change: pending/resolved transition after the
+            // message is committed, with timeline event + realtime echo.
             convId = existingConv.id;
-            // Only resolved/closed threads are silently reopened here;
-            // `pending` belongs to the customer-reply transition below.
-            await supabase.from('conversations')
-              .update({ status: 'open', updated_at: new Date().toISOString() })
-              .eq('id', convId)
-              .in('status', ['resolved', 'closed']);
           }
-
         }
       }
 
@@ -1794,7 +1783,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           const { data: openConv } = await supabase
             .from('conversations').select('id')
             .eq('workspace_id', workspaceId).eq('contact_id', contactRow.id)
-            .in('status', ['open', 'pending'])
+            .in('status', INBOUND_REUSABLE_STATUSES as unknown as string[])
             .order('updated_at', { ascending: false }).limit(1).maybeSingle();
           if (openConv) {
             convId = openConv.id;
@@ -1921,7 +1910,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // the customer writes again. Conditional, atomic and idempotent; the
     // shared guard rejects anything that is not a real inbound customer message.
     if (convId && insertedMsg?.id) {
-      await resumeConversationIfPending(config, {
+      await applyInboundConversationLifecycle(config, {
         workspaceId,
         conversationId: convId,
         source: 'widget',
@@ -2389,12 +2378,29 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
       if (!ownership.valid) return res.json({ ok: false, not_found: true });
       const conv = ownership.conversation;
       // `pending` is intentionally excluded: reopening the panel is not a
-      // reply. The visitor's next actual message resumes the thread through
-      // resumeConversationIfPending, which records the timeline event.
-      if (['closed', 'resolved'].includes(conv.status)) {
-        await supabase.from('conversations')
+      // reply. The visitor's next actual message transitions the thread
+      // through applyInboundConversationLifecycle, which records the event.
+      // `closed` is archived — the panel must start a new conversation.
+      if (conv.status === 'closed') {
+        return res.json({ ok: false, closed: true, status: 'closed' });
+      }
+      if (conv.status === 'resolved') {
+        const { data: reopened } = await supabase.from('conversations')
           .update({ status: 'open', updated_at: new Date().toISOString() })
-          .eq('id', conversation_id);
+          .eq('id', conversation_id)
+          .eq('status', 'resolved')
+          .select('id')
+          .maybeSingle();
+        if (reopened) {
+          void recordConversationEvent(config, {
+            workspaceId,
+            conversationId: conversation_id,
+            eventType: 'reopened',
+            actorType: 'visitor',
+            actorId: null,
+            payload: { from: 'resolved', to: 'open', reason: 'manual_reopen_by_visitor', source: 'widget' },
+          });
+        }
       }
 
       return res.json({ ok: true, status: 'open' });

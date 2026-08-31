@@ -948,6 +948,11 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
       const lastByConv: Record<string, { body: string; created_at: string; sender_type: string }> = {};
       const unreadByConv: Record<string, number> = {};
+      // Needs Reply is derived from the message stream, never stored. Rows
+      // arrive newest-first, so the FIRST conversational turn we see per
+      // conversation decides the obligation (see services/needsReply.ts).
+      const needsReplyByConv: Record<string, boolean> = {};
+      const needsReplyDecided = new Set<string>();
       for (const m of (msgs || []) as any[]) {
         if (!m.conversation_id) continue;
         // Channel menu/button taps are navigation, not conversation content:
@@ -963,6 +968,16 @@ conversationsRouter.get('/', async (req: any, res: any) => {
           lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, sender_type: m.sender_type };
         }
 
+        if (!needsReplyDecided.has(m.conversation_id)) {
+          if (isActionableCustomerTurn(m as any)) {
+            needsReplyByConv[m.conversation_id] = true;
+            needsReplyDecided.add(m.conversation_id);
+          } else if (isQualifiedReply(m as any)) {
+            needsReplyByConv[m.conversation_id] = false;
+            needsReplyDecided.add(m.conversation_id);
+          }
+        }
+
         if (m.sender_type !== 'contact') continue;
         if (!byConv[m.conversation_id]) {
           byConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, seen_at: m.seen_at ?? null };
@@ -975,6 +990,9 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         c.last_visitor_message = byConv[c.id] ?? null;
         c.last_message = lastByConv[c.id] ?? null;
         c.unread_count = unreadByConv[c.id] ?? 0;
+        // Only an `open` thread can owe the customer an answer: `pending`
+        // means we are waiting for THEM, `resolved`/`closed` are done.
+        c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
       }
     }
 

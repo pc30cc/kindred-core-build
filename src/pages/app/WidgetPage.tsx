@@ -4,6 +4,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useWidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +52,9 @@ function WidgetPageContent() {
   const { branding, platformName } = useBrandingContext();
   // Single source of truth — widget URLs come from platform widget settings only.
   const { data: platformWidget } = useWidgetPlatformSettings();
+  // Powered-by footer is platform-owned + plan-gated; the preview must show
+  // exactly what production renders.
+  const { data: effectiveEnts } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
@@ -690,6 +694,7 @@ function WidgetPageContent() {
                 prechat={prechat}
                 workspaceName={workspace?.name || t('widgetPage.preview.brandFallback')}
                 platformName={platformName || t('widgetPage.preview.brandFallback')}
+                poweredBy={previewPoweredBy}
                 teamMembers={previewTeamMembers}
                 view={previewView}
                 kbArticles={previewKbArticles}

@@ -1035,6 +1035,35 @@ conversationsRouter.get('/', async (req: any, res: any) => {
           unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
         }
       }
+
+      // Resolve the media kind of every attachment-only preview in one query,
+      // so the Inbox list can say "sent a photo / voice message / file".
+      const previewAttachmentIds = Array.from(new Set(
+        Object.values(lastByConv)
+          .filter((l) => l.attachment_id && !String(l.body || '').trim())
+          .map((l) => l.attachment_id as string),
+      ));
+      if (previewAttachmentIds.length) {
+        const { data: atts } = await sb
+          .from('conversation_attachments')
+          .select('id, mime_type')
+          .in('id', previewAttachmentIds);
+        const mimeById = new Map<string, string>(
+          ((atts || []) as any[]).map((a) => [String(a.id), String(a.mime_type || '')]),
+        );
+        for (const last of Object.values(lastByConv)) {
+          if (!last.attachment_id) continue;
+          const mime = mimeById.get(last.attachment_id) || '';
+          last.attachment_kind = mime.startsWith('image/')
+            ? 'image'
+            : mime.startsWith('audio/')
+              ? 'audio'
+              : mime.startsWith('video/')
+                ? 'video'
+                : 'file';
+        }
+      }
+
       for (const c of convos) {
         c.last_visitor_message = byConv[c.id] ?? null;
         c.last_message = lastByConv[c.id] ?? null;

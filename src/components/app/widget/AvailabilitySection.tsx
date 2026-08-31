@@ -319,7 +319,7 @@ export function AvailabilitySection({
     if (!testEmail || !workspaceId) return;
     setTesting(true);
     try {
-      const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || window.location.origin;
+      const apiBase = API_BASE;
       const res = await fetch(`${apiBase}/api/widget/admin/test-offline-email`, {
         method: 'POST',
         credentials: 'include',

@@ -186,7 +186,7 @@ describe('composer design contract', () => {
     expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*border-radius:\s*7px/);
     expect(PRES_CSS).toMatch(/\.input-wrap\s*\{[^}]*padding:\s*0 8px/);
     expect(PRES_CSS).toMatch(/\.input-wrap:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--wy-accent\)/);
-    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*height:\s*44px/);
+    expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*height:\s*46px/);
     expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*max-height:\s*15rem/);
     expect(PRES_CSS).toMatch(/\.input\s*\{[^}]*font-size:\s*14px/);
     expect(PRES_CSS).toMatch(/\.attach-btn svg, \.emoji-btn svg\s*\{[^}]*width:\s*18px/);

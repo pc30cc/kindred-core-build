@@ -33,7 +33,7 @@ import {
   ChevronDown, ChevronUp, Search, MoreHorizontal, Archive,
   UserCheck, AlertCircle, Clock, Star, X,
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
-  Loader2, Bot, Copy, Paperclip, RefreshCw,
+  Loader2, Bot, Copy, CornerUpLeft, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
   PhoneOff, Ban, ShieldOff, Users,
 } from 'lucide-react';

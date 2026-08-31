@@ -445,6 +445,27 @@
         '</div>';
     }
 
+    /**
+     * Splits a plain-text body that carries a leading quote block
+     * ("> quoted line(s)" followed by a blank line) into { quote, rest }.
+     * This is the wire format used when the visitor forwards/quotes a
+     * message, so operators reading plain text still see the context.
+     */
+    function splitQuotedBody(body) {
+      var raw = body == null ? '' : String(body);
+      if (raw.charAt(0) !== '>') return { quote: '', rest: raw };
+      var lines = raw.split('\n');
+      var quoteLines = [];
+      var i = 0;
+      for (; i < lines.length; i++) {
+        if (lines[i].charAt(0) !== '>') break;
+        quoteLines.push(lines[i].replace(/^>\s?/, ''));
+      }
+      if (!quoteLines.length) return { quote: '', rest: raw };
+      while (i < lines.length && !lines[i].trim()) i++;
+      return { quote: quoteLines.join(' ').trim(), rest: lines.slice(i).join('\n') };
+    }
+
     function renderAiThinkingRow() {
       return '<div class="msg-row operator ai-thinking-row">' +
         '<div class="msg operator ai-thinking-bubble">' +

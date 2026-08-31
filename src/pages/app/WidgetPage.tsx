@@ -435,6 +435,54 @@ function WidgetPageContent() {
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
                   </div>
 
+                  {/* 7 — Launcher size + icon */}
+                  <div className="space-y-4 rounded-lg border border-border/70 p-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-medium">{t('widgetPage.appearance.fabScale')}</Label>
+                        <span className="font-mono text-[11px] text-muted-foreground" dir="ltr">
+                          {Math.round(56 * fabScalePct / 100)}px
+                        </span>
+                      </div>
+                      <Slider
+                        value={[fabScalePct]}
+                        min={80}
+                        max={140}
+                        step={5}
+                        onValueChange={v => setField('fab_scale' as any, v[0], 300)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIcon')}</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.keys(FAB_ICONS).map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            aria-label={key}
+                            onClick={() => setField('fab_icon' as any, key, 0)}
+                            className={cn(
+                              'flex h-10 w-10 items-center justify-center rounded-xl border-2 transition-transform hover:scale-105',
+                              ((live as any)?.fab_icon || 'chat') === key
+                                ? 'border-foreground bg-muted'
+                                : 'border-border/70',
+                            )}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              dangerouslySetInnerHTML={{ __html: FAB_ICONS[key] }}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
 
 
                   {/* 6 — Composer placeholder */}

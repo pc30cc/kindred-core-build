@@ -264,8 +264,14 @@ export default function InboxPage() {
   const setExtraChip = useCallback((c: ExtraChip | null) => {
     // Special tabs start from the main/open inbox and are mutually exclusive
     // with the status tabs, so one click always has one deterministic query.
-    updateUrl({ filter: c, status: null });
+    updateUrl({ filter: c, status: null, queue: null });
   }, [updateUrl]);
+  // AI tab — the Automated queue is a peer of the status tabs now that the
+  // tab strip lives inside the conversation list.
+  const setQueueTab = useCallback((q: 'automated' | 'spam' | null) => {
+    updateUrl({ queue: q, filter: null, status: q ? 'all' : null });
+  }, [updateUrl]);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');

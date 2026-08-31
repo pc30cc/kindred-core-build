@@ -875,8 +875,24 @@
       shadowRoot.appendChild(link);
     }
 
+    // Self-hosted fonts — injected at DOCUMENT level (not the shadow root)
+    // because `document.fonts.load()` (used by the template's prepare() gate)
+    // only sees document-level faces. The stylesheet inlines the .woff2 bytes
+    // as data: URLs, so no cross-origin font fetch happens and a missing
+    // CORS header on the .woff2 files can never break typography.
+    try {
+      if (!document.getElementById("gs-widget-fonts")) {
+        var fontsLink = document.createElement("link");
+        fontsLink.id = "gs-widget-fonts";
+        fontsLink.rel = "stylesheet";
+        fontsLink.href = presentationCss.replace(/\/widget\/[^/]*$/, "/widget/fonts.css");
+        (document.head || document.documentElement).appendChild(fontsLink);
+      }
+    } catch (_) { /* noop */ }
+
     // Template stylesheet — injected AFTER runtime.css so template rules
     // keep their original cascade position. Core CSS stays template-agnostic.
+
     var tplLink = document.createElement("link");
     tplLink.rel = "stylesheet";
     tplLink.href = presentationCss;

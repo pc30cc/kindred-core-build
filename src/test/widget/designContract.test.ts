@@ -65,19 +65,30 @@ describe('typography ownership', () => {
     expect(RUNTIME_CSS).not.toMatch(/Vazirmatn/);
   });
 
-  it('presentation owns IRANSans (fa) and Inter (ltr)', () => {
-    expect(PRES_CSS).toMatch(/@font-face[^}]*'IRANSans'[^}]*font-weight:\s*400[^}]*iransans-400\.woff2/);
-    expect(PRES_CSS).toMatch(/@font-face[^}]*'IRANSans'[^}]*font-weight:\s*500[^}]*iransans-500\.woff2/);
-    expect(PRES_CSS).toMatch(/@font-face[^}]*'IRANSans'[^}]*font-weight:\s*700[^}]*iransans-700\.woff2/);
+  it('presentation owns IRANSans (fa) and Inter (ltr), with the bytes inlined (CORS-proof)', () => {
+    const faces = PRES_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
+    expect(faces.length).toBeGreaterThanOrEqual(4);
+    // No cross-origin .woff2 fetch may remain — that is what broke fonts in prod.
+    expect(PRES_CSS).not.toMatch(/url\(['"]?[^)]*\.woff2/);
+    for (const w of [400, 500, 700]) {
+      expect(
+        faces.some((f) => new RegExp(`font-weight:\\s*${w}\\b`).test(f) && /url\(data:font\/woff2;base64,/.test(f)),
+      ).toBe(true);
+    }
     expect(PRES_CSS).toMatch(/\.shell \*\s*\{\s*\n?\s*font-family: 'IRANSans'/);
     expect(PRES_CSS).toMatch(/font-family: 'InterWY'/);
   });
 
-  it('maps the design 600 and 700 weights to the licensed Bold asset', () => {
+  it('maps the design 600 and 700 weights to the same licensed Bold asset', () => {
     const faces = PRES_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
-    expect(faces.some((f) => /font-weight:\s*600/.test(f) && /iransans-700\.woff2/.test(f))).toBe(true);
-    expect(faces.some((f) => /font-weight:\s*700/.test(f) && /iransans-700\.woff2/.test(f))).toBe(true);
+    const src = (w: number) => {
+      const f = faces.find((x) => new RegExp(`font-weight:\\s*${w}\\b`).test(x));
+      return f ? (f.match(/base64,([A-Za-z0-9+/=]{64})/) || [])[1] : undefined;
+    };
+    expect(src(600)).toBeDefined();
+    expect(src(600)).toBe(src(700));
   });
+
 
   it('keeps all controls on presentation-owned inherited typography', () => {
     expect(PRES_CSS).toMatch(/\.shell \*\s*\{[^}]*font-family:\s*'IRANSans'/);

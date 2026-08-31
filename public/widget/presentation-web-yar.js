@@ -412,6 +412,51 @@
       } catch (_) { return ''; }
     }
 
+    /**
+     * Day dividers. Persian renders the Jalali calendar in Tehran time, so a
+     * conversation continued the next day shows "امروز" above the new run and
+     * keeps the earlier messages under their own dated divider.
+     */
+    function dateLocaleTag() {
+      var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+      return l === 'fa' ? 'fa-IR-u-ca-persian' : l === 'tr' ? 'tr-TR' : 'en-US';
+    }
+
+    function dayKeyOf(d) {
+      var date = (d instanceof Date) ? d : new Date(d);
+      if (!date || isNaN(date.getTime())) return '';
+      try {
+        return new Intl.DateTimeFormat('en-CA', {
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          timeZone: dateLocaleTag().indexOf('fa') === 0 ? 'Asia/Tehran' : undefined,
+        }).format(date);
+      } catch (_) { return date.toDateString(); }
+    }
+
+    function dayLabelOf(d) {
+      var date = (d instanceof Date) ? d : new Date(d);
+      if (!date || isNaN(date.getTime())) return '';
+      var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+      var key = dayKeyOf(date);
+      var now = new Date();
+      if (key === dayKeyOf(now)) return l === 'fa' ? 'امروز' : l === 'tr' ? 'Bugün' : 'Today';
+      if (key === dayKeyOf(new Date(now.getTime() - 86400000))) {
+        return l === 'fa' ? 'دیروز' : l === 'tr' ? 'Dün' : 'Yesterday';
+      }
+      try {
+        var opts = { year: 'numeric', month: 'long', day: 'numeric' };
+        if (l === 'fa') opts.timeZone = 'Asia/Tehran';
+        return new Intl.DateTimeFormat(dateLocaleTag(), opts).format(date);
+      } catch (_) { return key; }
+    }
+
+    function dayDividerHtml(d) {
+      var label = dayLabelOf(d);
+      if (!label) return '';
+      return '<div class="msg-day"><span>' + esc(label) + '</span></div>';
+    }
+
+
 
     var PRECHAT_ICONS = {
       name: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',

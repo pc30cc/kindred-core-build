@@ -752,6 +752,10 @@
     var presentationRegistryJs = configData.presentationRegistryUrl || "";
     var presentationJs = configData.presentationUrl || "";
     var presentationCss = configData.presentationStyleUrl || "";
+    // OPTIONAL generic descriptor asset (currently the template's font
+    // stylesheet). Absent → nothing extra is loaded; never required.
+    var presentationFontsCss = configData.presentationFontsUrl || "";
+
     var callRuntimeJs = configData.callRuntimeUrl || "";
     // Pass 2 — vendor LiveKit SDK URL (hashed, self-hosted). Set BEFORE
     // any runtime-call.js script runs so its strict loadSdk() never has

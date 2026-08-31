@@ -732,10 +732,13 @@ a.wy-powered:hover { color: var(--wy-text); }
   flex: 1; min-width: 0;
   border: 0; border-radius: 7px; background: #ffffff;
   padding: 0 8px;
-  box-shadow: 0 0 0 1px var(--wy-border);
+  /* Slightly stronger ring + a very soft lift so the composer reads as the
+     primary action surface. */
+  box-shadow: 0 0 0 1px var(--wy-border-strong, #d5d7dd), 0 1px 3px rgba(16, 24, 40, 0.06);
   transition: box-shadow 0.16s;
 }
-.input-wrap:focus-within { box-shadow: 0 0 0 1px var(--wy-accent); }
+.input-wrap:focus-within { box-shadow: 0 0 0 1px var(--wy-accent), 0 1px 3px rgba(16, 24, 40, 0.08); }
+
 /* Mic lives INSIDE the pill, before the textarea (design source). */
 .mic-btn {
   min-width: 32px; min-height: 32px; width: 32px; height: 32px; flex: none;

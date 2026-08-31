@@ -343,12 +343,14 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     res.set('CDN-Cache-Control', 'no-store');
     res.set('Cloudflare-CDN-Cache-Control', 'no-store');
 
-    // Get branding for platform display name
+    // Platform display name — owned by platform branding (super admin only).
+    // Workspace rows must never influence how the platform is credited.
     const { data: branding } = await supabase
-      .from('workspace_branding')
+      .from('platform_branding')
       .select('platform_name')
-      .eq('workspace_id', resolvedWorkspaceId)
+      .limit(1)
       .maybeSingle();
+
 
     // Phase 8 — server-authoritative availability snapshot. Additive;
     // existing widget runtimes ignore unknown fields.

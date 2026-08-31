@@ -2036,7 +2036,7 @@ export default function InboxPage() {
                     className={cn(
                       'flex gap-2.5 group items-end',
                       isAgent ? 'flex-row-reverse' : 'flex-row',
-                      sameSenderAsPrev ? 'mt-px' : 'mt-3',
+                      sameSenderAsPrev ? 'mt-0' : 'mt-3',
                     )}
                   >
                     {/* Avatar column — beside the last bubble of each streak */}

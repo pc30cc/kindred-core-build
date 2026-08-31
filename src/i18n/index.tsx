@@ -98,7 +98,11 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     loadFontsForLocale(locale);
     installLocalizedDateDefaults();
     setAppDateLocale(locale);
+    if (locale === 'fa') installPersianDigits();
+    else uninstallPersianDigits();
+    return () => { if (locale === 'fa') uninstallPersianDigits(); };
   }, [locale, dir]);
+
 
   const loadLocale = useCallback(async (newLocale: Locale) => {
     setIsLoading(true);

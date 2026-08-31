@@ -78,6 +78,7 @@ import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
+import { resumeConversationIfPending } from '../services/conversationPending.js';
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
@@ -1878,6 +1879,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           },
         });
       }
+    }
+
+    // "Awaiting customer reply" threads return to the active queue as soon
+    // as the customer writes again. Conditional + idempotent.
+    if (convId) {
+      await resumeConversationIfPending(config, {
+        workspaceId,
+        conversationId: convId,
+        source: 'widget',
+      });
     }
 
     // Insert visitor message (body may be empty when only an attachment is sent)

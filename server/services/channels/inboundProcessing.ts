@@ -13,6 +13,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { recordConversationEvent } from '../conversationEvents.js';
+import { resumeConversationIfPending } from '../conversationPending.js';
 import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publish.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
 import { handleTelegramInboundFlow } from './telegram/runtime.js';
@@ -274,6 +275,14 @@ export async function processInboundMessage(
         payload: { source: input.provider },
       });
     }
+
+    // Customer replied on a channel thread parked as "awaiting reply" —
+    // put it back in the active queue before the message lands.
+    await resumeConversationIfPending(config, {
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+      source: input.provider,
+    });
 
     const { data: insertedMsg, error: msgError } = await sb
       .from('conversation_messages')

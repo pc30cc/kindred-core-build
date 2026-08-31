@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Users } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -20,7 +21,7 @@ import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection
 import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
-import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
+import { WidgetLivePreview, FAB_ICONS, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
@@ -180,10 +181,13 @@ function WidgetPageContent() {
   );
 
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
-  /** Colour input needs a hex value; non-hex (rgba) shadows fall back to black. */
-  const shadowColor = /^#[0-9a-f]{6}$/i.test(String((live as any)?.shadow_color || ''))
-    ? String((live as any).shadow_color)
-    : '#000000';
+  /** Launcher size is stored as a percentage (80–140) or a multiplier (0.8–1.4). */
+  const fabScalePct = (() => {
+    const raw = Number((live as any)?.fab_scale);
+    if (!isFinite(raw) || raw <= 0) return 100;
+    const pct = raw <= 3 ? raw * 100 : raw;
+    return Math.min(140, Math.max(80, Math.round(pct / 5) * 5));
+  })();
 
   const previewView: PreviewView =
     manualView ??

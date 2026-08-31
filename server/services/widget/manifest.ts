@@ -329,6 +329,27 @@ export function getWidgetAssetName(logical: WidgetAssetKey): string {
   return manifest[logical] || logical;
 }
 
+/**
+ * Existence-aware resolver for OPTIONAL assets (e.g. a template's font
+ * stylesheet). Unlike `getWidgetAssetName()`, this never falls back to the
+ * logical file name: if the manifest has no entry AND no such file exists in
+ * any known widget directory, it returns `null` so callers can omit the URL
+ * entirely instead of pointing the browser at a 404.
+ */
+export function getOptionalWidgetAssetName(logical: WidgetAssetKey): string | null {
+  if (logical.startsWith('presentation-') && !isPresentationAsset(logical)) return null;
+  const manifest = syncLoadManifest();
+  const hashed = manifest[logical];
+  if (hashed) return hashed;
+  for (const dir of WIDGET_DIR_PATHS) {
+    try {
+      if (existsSync(join(dir, logical))) return logical;
+    } catch { /* unreadable dir — keep looking */ }
+  }
+  return null;
+}
+
+
 
 export function getLoaderVersion(): string {
   const manifest = syncLoadManifest();

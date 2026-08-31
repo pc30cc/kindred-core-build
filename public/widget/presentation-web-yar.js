@@ -88,11 +88,16 @@
       var url = (pb && pb.url) || '';
       // No URL => a genuinely non-interactive element: no href, no data hook,
       // no link semantics. Appearance is identical (same class).
+      // With a URL => a native anchor (no JS navigation): `nofollow` keeps this
+      // widely distributed attribution link compliant with search-engine link
+      // policies, `noopener` protects the opener, and a strict-origin referrer
+      // still lets the platform see the referring origin in analytics.
       var inner = '<span class="wy-powered-dot" aria-hidden="true"></span>' +
         '<span>' + esc(label) + ' ' + esc(platform) + '</span>';
       var body = url
-        ? '<a class="wy-powered" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
+        ? '<a class="wy-powered" href="' + esc(url) + '" target="_blank" rel="noopener nofollow" referrerpolicy="strict-origin-when-cross-origin">' + inner + '</a>'
         : '<span class="wy-powered">' + inner + '</span>';
+
       return '<div class="wy-footer">' + body + '</div>';
     }
 

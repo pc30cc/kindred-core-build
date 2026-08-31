@@ -6414,18 +6414,22 @@
     }
 
     /**
-     * Paints the cold-boot skeleton for `view`. A refresh over existing
-     * content is a no-op: never replace real content with a skeleton.
+     * Paints the cold-boot skeleton for `view`. A refresh over content this
+     * surface already showed is a no-op: never replace real content with a
+     * skeleton. Every surface keeps its own first-paint budget.
      */
     function renderLoading(view) {
       if (!body) return;
-      if (hadUsableContent) return;
-      var html = skeletonFor(view || shellStore.get().activeTab || 'chat');
+      var key = view || currentViewKey() || 'chat';
+      if (usableByView[key]) return;
+      var html = skeletonFor(key);
+      if (!html) return;
       __paintedSkeleton = true;
       body.innerHTML = html;
       // One-shot crossfade marker consumed by the next real render.
       try { body.classList.add('wy-crossfade'); } catch (_) {}
     }
+
     // Phase 8H — Department gate. Returns true when the gate rendered
     // (caller must NOT render any further body content for this pass).
     // Resolves the channel-specific mode lazily; while in-flight shows

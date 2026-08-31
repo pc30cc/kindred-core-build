@@ -892,7 +892,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       presentationRegistryUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationRegistryJsName}` : null),
       presentationUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationJsName}` : null),
       presentationStyleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationCssName}` : null),
-      presentationFontsUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationFontsCssName}` : null),
+      presentationFontsUrl: presentationFontsCssName && assetBase
+        ? versionedAssetUrl(`${assetBase}/widget/${presentationFontsCssName}`)
+        : null,
+
       // Pass 1 — explicit LiveKit SDK URL. Self-hosted, hashed asset. The
       // call runtime MUST consume this and never fall back to a CDN. When
       // assetBase is unresolved (very unusual — most likely a misconfigured

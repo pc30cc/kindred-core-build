@@ -2,14 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Self-hosted fonts (no third-party CDN) ─────────────────────── */
-@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 300; font-display: swap; src: url('/widget/fonts/iransans-400.woff2') format('woff2'); }
-@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 400; font-display: swap; src: url('/widget/fonts/iransans-400.woff2') format('woff2'); }
-@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 500; font-display: swap; src: url('/widget/fonts/iransans-500.woff2') format('woff2'); }
-@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 600; font-display: swap; src: url('/widget/fonts/iransans-700.woff2') format('woff2'); }
-@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 700; font-display: swap; src: url('/widget/fonts/iransans-700.woff2') format('woff2'); }
-@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 800; font-display: swap; src: url('/widget/fonts/iransans-700.woff2') format('woff2'); }
-@font-face { font-family: 'InterWY'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('/widget/fonts/inter-500.woff2') format('woff2'); }
+/* ── Self-hosted fonts (Vite-managed app assets, no CDN, no /widget/*) ──
+   Three real IRANSans files back the app: Regular (400), Medium (500) and
+   Bold. 600 and 700 both map to Bold intentionally; 800 is mapped to Bold as
+   well because a few headings use `font-extrabold`. No 300 face is declared —
+   nothing in the UI requests it. */
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/iransans-400.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 500; font-display: swap; src: url('./assets/fonts/iransans-500.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 600; font-display: swap; src: url('./assets/fonts/iransans-700.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 700; font-display: swap; src: url('./assets/fonts/iransans-700.woff2') format('woff2'); }
+@font-face { font-family: 'IRANSans'; font-style: normal; font-weight: 800; font-display: swap; src: url('./assets/fonts/iransans-700.woff2') format('woff2'); }
+@font-face { font-family: 'InterWY'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('./assets/fonts/inter-500.woff2') format('woff2'); }
 
 @layer base {
   :root {
@@ -214,6 +217,17 @@
     @apply border-border;
     font-family: var(--font-primary, var(--font-family-base, 'IRANSans', 'InterWY', system-ui, sans-serif));
   }
+
+  /* Native form controls default to the browser UI font — lock them to the
+     inherited app typography so no control escapes IRANSans. */
+  button,
+  input,
+  textarea,
+  select,
+  option {
+    font-family: inherit;
+  }
+
 
   html, body {
     @apply bg-background text-foreground antialiased;

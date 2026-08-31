@@ -1,19 +1,23 @@
 /**
- * Centralized Font Configuration — fully self-hosted.
+ * Centralized Font Configuration — Main App (React panel) only.
  *
- * The whole panel uses IRANSans (fa/ar/all locales) with InterWY as the
- * Latin companion. Both are served from `/widget/fonts/*.woff2` inside this
- * project — no Google Fonts, no third-party CDN, no Vazirmatn.
+ * The whole panel uses IRANSans with InterWY as the Latin companion.
  *
- * The @font-face declarations live in `src/index.css` so they are part of the
- * bundled stylesheet (no FOUT from a runtime <style> injection). This module
- * only resolves the CSS custom properties per locale.
+ * Ownership contract:
+ *  - `@font-face` declarations live in the bundled `src/index.css`.
+ *  - The physical `.woff2` files live in `src/assets/fonts/` and are emitted
+ *    as content-hashed assets by Vite's own asset pipeline.
+ *  - This module ONLY resolves CSS custom properties per locale. It never
+ *    injects a `<link>`/`<style>`, never builds a font URL at runtime, and has
+ *    no dependency on the widget font delivery (`/widget/fonts/*`,
+ *    the widget manifest or the presentation registry).
  */
 
 export interface FontConfig {
   family: string;
+  /** Real, declared weights (see the @font-face block in src/index.css). */
   weights: number[];
-  /** Self-hosted files only */
+  /** Self-hosted, bundled by Vite */
   source: 'local';
   display: 'swap' | 'block' | 'fallback' | 'optional';
 }
@@ -26,15 +30,18 @@ export interface LocaleFontSet {
 
 // ─── Font Definitions ────────────────────────────────────────────
 
-/** Primary UI font — IRANSans (300/400/500/600/700/800 mapped to 3 real files) */
+/**
+ * Primary UI font — IRANSans, backed by three real files:
+ * 400 → Regular, 500 → Medium, 600/700/800 → Bold.
+ */
 const iranSansFont: FontConfig = {
   family: 'IRANSans',
-  weights: [300, 400, 500, 600, 700, 800],
+  weights: [400, 500, 600, 700, 800],
   source: 'local',
   display: 'swap',
 };
 
-/** Latin companion — Inter (self-hosted, variable-ish single file) */
+/** Latin companion — Inter (self-hosted, single variable file, 400–700) */
 const interFont: FontConfig = {
   family: 'InterWY',
   weights: [400, 500, 600, 700],
@@ -42,7 +49,7 @@ const interFont: FontConfig = {
   display: 'swap',
 };
 
-const FALLBACK_STACK = "'InterWY', system-ui, -apple-system, 'Segoe UI', sans-serif";
+const FALLBACK_STACK = "'InterWY', system-ui, -apple-system, sans-serif";
 
 // ─── Locale → Font Mapping ───────────────────────────────────────
 

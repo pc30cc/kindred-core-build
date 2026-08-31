@@ -106,9 +106,12 @@ function clockTime(sec: number): string {
 }
 
 /**
- * WhatsApp-style voice/audio player for inbound and outbound audio
- * attachments. Streams from the operator proxy (Range-enabled) so seeking
- * works on long recordings.
+ * Voice/audio player for inbound and outbound audio attachments. Streams from
+ * the operator proxy (Range-enabled) so seeking works on long recordings.
+ *
+ * The transport is FORCED LTR (`dir="ltr"`): a timeline reads left→right in
+ * every locale, so play stays on the left, the progress bar fills to the
+ * right and download sits on the right — also in Persian/RTL.
  */
 function AudioAttachmentPlayer({
   att,
@@ -118,15 +121,18 @@ function AudioAttachmentPlayer({
   isAgent: boolean;
 }) {
   const ref = useRef<HTMLAudioElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [buffered, setBuffered] = useState(0);
   const [rate, setRate] = useState(1);
 
   const toggle = () => {
     const el = ref.current;
     if (!el) return;
-    if (el.paused) { void el.play(); } else { el.pause(); }
+    if (el.paused) { void el.play()?.catch(() => setPlaying(false)); } else { el.pause(); }
   };
   const cycleRate = () => {
     const next = rate === 1 ? 1.5 : rate === 1.5 ? 2 : 1;
@@ -134,13 +140,37 @@ function AudioAttachmentPlayer({
     if (ref.current) ref.current.playbackRate = next;
   };
 
+  const seekFromClientX = (clientX: number) => {
+    const el = ref.current;
+    const box = trackRef.current?.getBoundingClientRect();
+    if (!el || !box || !box.width || !Number.isFinite(el.duration) || el.duration <= 0) return;
+    const ratio = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
+    el.currentTime = ratio * el.duration;
+    setCurrent(el.currentTime);
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    seekFromClientX(e.clientX);
+    const move = (ev: PointerEvent) => seekFromClientX(ev.clientX);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
   const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
+  const bufPct = duration > 0 ? Math.min(100, (buffered / duration) * 100) : 0;
 
   return (
     <div
+      dir="ltr"
       className={cn(
-        'flex items-center gap-2.5 rounded-xl px-2.5 py-2 min-w-[230px] max-w-[300px] border',
-        isAgent ? 'bg-primary-foreground/10 border-primary-foreground/20' : 'bg-background/70 border-border',
+        'group/audio flex items-center gap-2.5 rounded-full ps-1.5 pe-3 py-1.5 w-[264px] max-w-full border shadow-sm transition-colors',
+        isAgent
+          ? 'bg-primary-foreground/10 border-primary-foreground/20'
+          : 'bg-background/80 border-border hover:bg-background',
       )}
     >
       <audio
@@ -150,7 +180,17 @@ function AudioAttachmentPlayer({
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => { setPlaying(false); setCurrent(0); }}
-        onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration || 0)}
+        onWaiting={() => setLoading(true)}
+        onCanPlay={() => setLoading(false)}
+        onError={() => setLoading(false)}
+        onLoadedMetadata={(e) => {
+          setDuration((e.target as HTMLAudioElement).duration || 0);
+          setLoading(false);
+        }}
+        onProgress={(e) => {
+          const el = e.target as HTMLAudioElement;
+          if (el.buffered.length) setBuffered(el.buffered.end(el.buffered.length - 1));
+        }}
         onTimeUpdate={(e) => setCurrent((e.target as HTMLAudioElement).currentTime || 0)}
         className="hidden"
       />
@@ -159,51 +199,149 @@ function AudioAttachmentPlayer({
         onClick={toggle}
         aria-label={playing ? 'Pause' : 'Play'}
         className={cn(
-          'w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors',
-          isAgent ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-primary/10 text-primary hover:bg-primary/20',
+          'relative w-9 h-9 rounded-full flex items-center justify-center shrink-0',
+          'transition-transform duration-150 hover:scale-105 active:scale-95',
+          isAgent
+            ? 'bg-primary-foreground text-primary'
+            : 'bg-primary text-primary-foreground shadow-sm shadow-primary/25',
         )}
       >
-        {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ms-0.5" />}
+        {loading && (
+          <span className="absolute inset-[3px] rounded-full border-2 border-current/25 border-t-current animate-spin" />
+        )}
+        {playing ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 ms-0.5 fill-current" />}
       </button>
+
       <div className="flex-1 min-w-0">
-        <input
-          type="range"
-          min={0}
-          max={duration || 0}
-          step={0.1}
-          value={current}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            setCurrent(v);
-            if (ref.current) ref.current.currentTime = v;
-          }}
-          className={cn(
-            'w-full h-1 appearance-none rounded-full cursor-pointer',
-            isAgent ? 'accent-primary-foreground' : 'accent-primary',
-          )}
-          style={{
-            background: `linear-gradient(to right, currentColor ${pct}%, rgba(127,127,127,.28) ${pct}%)`,
-          }}
-        />
-        <div className="flex items-center justify-between mt-1 text-[10px] opacity-80">
+        <div
+          ref={trackRef}
+          onPointerDown={onPointerDown}
+          role="slider"
+          aria-label="Seek"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(current)}
+          tabIndex={0}
+          className="relative h-1 rounded-full cursor-pointer bg-current/15 before:absolute before:inset-x-0 before:-inset-y-2 before:content-['']"
+        >
+          <div className="absolute inset-y-0 left-0 rounded-full bg-current/20" style={{ width: `${bufPct}%` }} />
+          <div
+            className={cn('absolute inset-y-0 left-0 rounded-full', isAgent ? 'bg-primary-foreground' : 'bg-primary')}
+            style={{ width: `${pct}%` }}
+          >
+            <span
+              className={cn(
+                'absolute -right-[5px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full shadow',
+                'opacity-0 group-hover/audio:opacity-100 transition-opacity',
+                isAgent ? 'bg-primary-foreground' : 'bg-primary',
+                playing && 'opacity-100',
+              )}
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-between mt-1.5 text-[10px] tabular-nums opacity-75">
           <span className="inline-flex items-center gap-1">
             <Mic className="w-3 h-3" />
-            <bdi>{clockTime(current)} / {clockTime(duration)}</bdi>
+            <span>{clockTime(current)}{duration > 0 ? ` / ${clockTime(duration)}` : ''}</span>
           </span>
-          <button type="button" onClick={cycleRate} className="px-1 rounded hover:bg-black/10">
+          <button
+            type="button"
+            onClick={cycleRate}
+            className="px-1 rounded transition-colors hover:bg-current/10"
+          >
             {rate}×
           </button>
         </div>
       </div>
+
       <a
         href={attachmentUrl(att.id, 'attachment')}
         download={att.file_name}
-        className="shrink-0 opacity-70 hover:opacity-100"
+        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
         aria-label="Download"
       >
         <Download className="w-3.5 h-3.5" />
       </a>
     </div>
+  );
+}
+
+/**
+ * Image attachment — undistorted thumbnail (intrinsic ratio preserved inside a
+ * max box) that opens a JS lightbox instead of navigating to a new tab.
+ */
+function ImageAttachment({ att, url }: { att: { id: string; file_name: string }; url: string }) {
+  const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="block rounded-lg overflow-hidden border border-border bg-muted/40 cursor-zoom-in leading-none transition-transform hover:scale-[1.01]"
+      >
+        {failed ? (
+          <span className="flex items-center gap-2 px-3 py-2 text-[12px] text-muted-foreground">
+            <FileText className="w-4 h-4" /> {att.file_name}
+          </span>
+        ) : (
+          <img
+            src={url}
+            alt={att.file_name}
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+            className="block w-auto h-auto max-w-[260px] max-h-[280px] object-contain"
+          />
+        )}
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6 animate-in fade-in duration-150"
+            onClick={() => setOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label={att.file_name}
+          >
+            <img
+              src={url}
+              alt={att.file_name}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-150"
+            />
+            <div className="absolute top-4 end-4 flex items-center gap-2">
+              <a
+                href={attachmentUrl(att.id, 'attachment')}
+                download={att.file_name}
+                onClick={(e) => e.stopPropagation()}
+                className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
+                aria-label="Download"
+              >
+                <Download className="w-4 h-4" />
+              </a>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -229,11 +367,7 @@ function MessageAttachmentView({
   const isVideo = att.kind === 'video' || /^video\//.test(mime);
 
   if (isImage) {
-    return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="block max-w-[280px] rounded-lg overflow-hidden border border-border">
-        <img src={url} alt={att.file_name} loading="lazy" className="block w-full h-auto" />
-      </a>
-    );
+    return <ImageAttachment att={att} url={url} />;
   }
   if (isAudio) {
     return <AudioAttachmentPlayer att={att} isAgent={isAgent} />;
@@ -243,6 +377,7 @@ function MessageAttachmentView({
       <video src={url} controls preload="metadata" className="block max-w-[300px] rounded-lg border border-border" />
     );
   }
+
   return (
     <a
       href={attachmentUrl(att.id, 'attachment')}

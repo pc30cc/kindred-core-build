@@ -2197,37 +2197,8 @@ export default function InboxPage() {
                       />
                     </div>
                   )}
-                  {/* Send mode — radio-style segmented control. The composer's
-                      Send button (and Enter) applies exactly this action. */}
-                  <div
-                    role="radiogroup"
-                    aria-label={t('inbox.sendActions') || 'Send actions'}
-                    className="inline-flex items-center rounded-lg border border-border/60 bg-secondary/40 p-0.5 text-[11px] font-medium"
-                  >
-                    {(['none', 'wait_for_customer', 'resolve'] as PostSendAction[]).map((a) => {
-                      const Icon = sendActionMeta[a].icon;
-                      const active = a === sendAction;
-                      return (
-                        <button
-                          key={a}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          title={sendActionMeta[a].hint}
-                          onClick={() => chooseSendAction(a)}
-                          className={cn(
-                            'px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5',
-                            active
-                              ? 'bg-background text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          <Icon className={cn('w-3.5 h-3.5', active && 'text-primary')} />
-                          <span>{sendActionMeta[a].short}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {/* Send mode lives on the Send button itself (split button). */}
+
                 </div>
               )}
 

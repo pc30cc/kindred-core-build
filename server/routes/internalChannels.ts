@@ -56,6 +56,8 @@ import { BOT_PROVIDER_IDS } from '../../shared/channels/botProviders.js';
 import { processInboundMessage } from '../services/channels/inboundProcessing.js';
 import { normalizeTelegramUpdate } from '../services/channels/telegram/normalize.js';
 import { whatsappToBotUpdates } from '../services/channels/whatsapp/toBotUpdate.js';
+import { extractWhatsAppDeliveryStatuses } from '../services/channels/whatsapp/deliveryStatus.js';
+import { applyProviderDeliveryStatuses } from '../services/channels/deliveryStatus.js';
 import { instagramToBotUpdates } from '../services/channels/instagram/toBotUpdate.js';
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
@@ -142,6 +144,23 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
           ? instagramToBotUpdates(parsed.data.update as Record<string, any>)
           : [parsed.data.update];
 
+
+    // DELIVERY STATUSES take a separate, narrow path. They are outbound
+    // receipts, not customer content: they must never enter the inbound job
+    // pipeline (no conversation resume, no unread, no AI routing). Handled
+    // inline because Core owns the write and no provider call is needed.
+    if (dialect === 'whatsapp-cloud') {
+      const statuses = extractWhatsAppDeliveryStatuses(parsed.data.update as Record<string, any>);
+      if (statuses.length) {
+        await applyProviderDeliveryStatuses(config, {
+          provider: parsed.data.provider,
+          workspaceId: integration.workspace_id,
+          integrationId: integration.id,
+          statuses,
+        });
+      }
+    }
+
     for (const update of updates) {
       await enqueueChannelJob(sb, {
         provider: parsed.data.provider,
@@ -155,9 +174,12 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
       });
     }
 
-    await updateIntegration(config, integration.id, { last_inbound_at: new Date().toISOString() });
+    if (updates.length) {
+      await updateIntegration(config, integration.id, { last_inbound_at: new Date().toISOString() });
+    }
 
     res.status(202).json({ status: 'queued' });
+
   } catch (err) {
     console.error('[internal-channels] ingest failed:', err);
     res.status(500).json({ error: 'ingest_failed' });
@@ -250,10 +272,21 @@ internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
     if (previousOutcome === data.outcome && data.outcome === 'failed') {
       return res.json({ ok: true, deduped: true });
     }
-    // A delivery that already succeeded is terminal: a late failure report for
-    // the same message must never downgrade it.
+    // TRANSPORT-level failure after the transport already accepted the message
+    // is not a fact the worker can know: the send returned 2xx. (A genuine
+    // async provider rejection arrives on the provider's own status webhook
+    // and travels the delivery-status path, which MAY downgrade 'sent'.)
     if (previousOutcome === 'sent' && data.outcome === 'failed') {
       return res.json({ ok: true, ignored: 'already_sent' });
+    }
+    // The provider's async ladder is ahead of this report (a delayed worker
+    // callback must never pull 'delivered'/'read' back down to 'sent', nor
+    // resurrect a terminally failed message).
+    if (
+      (previousOutcome === 'delivered' || previousOutcome === 'read' || previousOutcome === 'failed') &&
+      data.outcome === 'sent'
+    ) {
+      return res.json({ ok: true, ignored: 'stale_outcome' });
     }
 
     const metadata = { ...previousMetadata };

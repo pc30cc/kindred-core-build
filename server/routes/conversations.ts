@@ -1153,23 +1153,32 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
       if (typeof aid === 'string') fromMeta.add(aid);
     }
     const attMap: Record<string, any> = {};
-    const byMsg: Record<string, any> = {};
+    // A single inbound channel message can carry SEVERAL media parts
+    // (WhatsApp album, Telegram document + caption, …) so this is a list.
+    const byMsg: Record<string, any[]> = {};
     if (ids.size || fromMeta.size) {
       const orFilters: string[] = [];
       if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
       if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
       const { data: atts } = await sb
         .from('conversation_attachments')
-        .select('id, file_name, mime_type, size_bytes, status, message_id')
+        .select('id, file_name, mime_type, size_bytes, status, message_id, created_at')
         .or(orFilters.join(','));
       for (const a of (atts || []) as any[]) {
         if (a.status !== 'attached' && a.status !== 'uploaded') continue;
+        const mime = String(a.mime_type || '');
         const meta = {
           id: a.id, file_name: a.file_name, mime_type: a.mime_type, size_bytes: a.size_bytes,
-          kind: String(a.mime_type).startsWith('image/') ? 'image' : 'file',
+          kind: mime.startsWith('image/')
+            ? 'image'
+            : mime.startsWith('audio/')
+              ? 'audio'
+              : mime.startsWith('video/')
+                ? 'video'
+                : 'file',
         };
         attMap[a.id] = meta;
-        if (a.message_id) byMsg[a.message_id] = meta;
+        if (a.message_id) (byMsg[a.message_id] ||= []).push(meta);
       }
     }
 
@@ -1186,15 +1195,22 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
 
     const enriched = messages.map((m) => {
       const aid = (m?.metadata as any)?.attachment_id;
-      const att = (typeof aid === 'string' && attMap[aid]) || (m.id && byMsg[m.id]) || null;
+      const list: any[] = [];
+      const seen = new Set<string>();
+      if (typeof aid === 'string' && attMap[aid]) { list.push(attMap[aid]); seen.add(aid); }
+      for (const a of (m.id && byMsg[m.id]) || []) {
+        if (!seen.has(a.id)) { list.push(a); seen.add(a.id); }
+      }
       const prof = m.sender_id ? senderMap[m.sender_id] : null;
       return {
         ...m,
-        ...(att ? { attachment: att } : {}),
+        // `attachment` kept for backwards compatibility with older clients.
+        ...(list.length ? { attachment: list[0], attachments: list } : {}),
         sender_name: prof?.name ?? null,
         sender_avatar: prof?.avatar ?? null,
       };
     });
+
 
     return res.json({ messages: enriched });
   } catch (err: any) {

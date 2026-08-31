@@ -1912,6 +1912,10 @@ export default function InboxPage() {
                   && senderKey(next) === senderKey(msg);
                 const showAvatar = !sameSenderAsNext;
                 const showMeta = !sameSenderAsNext;
+                // Inside a streak, show the timestamp beside the hover actions
+                // when this message came notably later than the previous one.
+                const timeGapFromPrev = !!prev && sameSenderAsPrev && !showMeta
+                  && (new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime()) > 5 * 60 * 1000;
                 // Pass A — system call_ended summary renders as a centered
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};

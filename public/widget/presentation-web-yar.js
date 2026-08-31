@@ -594,13 +594,17 @@
 
         html += '<div class="msg-row ' + cls + (isLastInStreak ? ' is-last' : '') + '">' + avatarHtml +
           '<div class="msg-col">' +
-            '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
-              (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
-              quoted + textHtml + attHtml +
+            '<div class="msg-line">' +
+              '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
+                (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
+                quoted + textHtml + attHtml +
+              '</div>' +
+              actionsHtml +
             '</div>' +
-            '<div class="msg-footline">' + metaHtml + actionsHtml + '</div>' +
+            '<div class="msg-footline">' + metaHtml + '</div>' +
           '</div>' +
         '</div>';
+
 
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';

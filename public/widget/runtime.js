@@ -5459,12 +5459,17 @@
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
-    var brandName = config.workspaceName || config.brandName || '';
+    // An explicit empty display name means the workspace cleared the field —
+    // the header then shows no name at all instead of a generic fallback.
+    var brandName = typeof config.workspaceName === 'string'
+      ? config.workspaceName
+      : (typeof config.brandName === 'string' ? config.brandName : '');
      var welcomeMessage = config.welcomeMessage || t('welcomeFallback');
     // Header title — the workspace identity (brand name). The launcher label
     // (`launcher_text`) is a LAUNCHER concern and is deliberately NOT used as
     // a chat/home header title (design §2).
-    var headerTitle = brandName || t('support');
+    var headerTitle = brandName;
+
     // Operator team — surfaced in the header as a stacked avatar row, the
     // way Intercom / Crisp / Drift do. Replaces the single workspace-logo
     // badge that used to sit there.

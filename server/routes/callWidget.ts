@@ -623,7 +623,9 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   const fontAssetUrl = (() => {
     try {
       const key = widgetTemplateAssetKeys(resolveWidgetTemplateId(null)).fonts;
-      const name = getWidgetAssetName(key);
+      const name = getOptionalWidgetAssetName(key);
+      if (!name) return null;
+
       const base = resolveWidgetAssetBase({
         widgetBaseUrl: null,
         widgetLoaderBaseUrl: null,

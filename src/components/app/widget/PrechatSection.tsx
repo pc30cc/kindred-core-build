@@ -15,10 +15,10 @@ interface Props {
 
 type FieldKey = 'name' | 'email' | 'phone';
 
-const FIELD_META: Record<FieldKey, { icon: React.ComponentType<{ className?: string }>; canVerify: boolean }> = {
-  name: { icon: User, canVerify: false },
-  email: { icon: Mail, canVerify: true },
-  phone: { icon: Phone, canVerify: true },
+const FIELD_META: Record<FieldKey, { icon: React.ComponentType<{ className?: string }> }> = {
+  name: { icon: User },
+  email: { icon: Mail },
+  phone: { icon: Phone },
 };
 
 /**
@@ -82,10 +82,8 @@ export function PrechatSection({ workspaceId }: Props) {
             const lock = resolveLock(policyByField[key]);
             const askField = `ask_${key}` as keyof WidgetPrechatSettings;
             const requireField = `require_${key}` as keyof WidgetPrechatSettings;
-            const verifyField = `verify_${key}` as keyof WidgetPrechatSettings;
             const askValue = lock.askLocked ? lock.askValue! : (s[askField] as boolean);
             const requireValue = lock.requireLocked ? lock.requireValue! : (s[requireField] as boolean);
-            const verifyValue = (s[verifyField as keyof WidgetPrechatSettings] as boolean) ?? false;
 
             return (
               <div key={key} className="rounded-lg border border-border p-4 space-y-3">
@@ -118,23 +116,8 @@ export function PrechatSection({ workspaceId }: Props) {
                         onCheckedChange={(v) => update({ [requireField]: v } as any)}
                       />
                     </div>
-                    {meta.canVerify && (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">
-                            {t('widgetPage.prechat.verify', { field: fieldLabel })}
-                          </Label>
-                          <p className="text-[11px] text-muted-foreground/80">
-                            {t('widgetPage.prechat.verifyHint')}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={verifyValue}
-                          disabled={updateMut.isPending}
-                          onCheckedChange={(v) => update({ [verifyField]: v } as any)}
-                        />
-                      </div>
-                    )}
+                    {/* OTP verification toggles removed by product decision. */}
+
                   </div>
                 )}
               </div>

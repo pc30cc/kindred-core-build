@@ -20,7 +20,7 @@ import { toModelMessages } from '../conversationContext.js';
 import { postValidateAnswer } from '../policy.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markNeedsHuman, commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
+import { commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { runLimitHandoff, detectLimitErrorReason } from '../limitHandoff.js';
 import { loadWorkspaceContext } from '../workspaceContext.js';
@@ -485,17 +485,30 @@ export async function runGenerationStage(
           escalateOnUncertainty: settings.handoff_when_no_kb_match !== false,
         });
   if (!valid.ok) {
-    // Treat as handoff when AI itself bailed out.
+    // The AI itself bailed out. This becomes a handoff ONLY if the durable
+    // needs_human transition actually persists — same invariant as
+    // runtimeDecisionStage: commit → derive durability → truthful log →
+    // ack only if committed → routing only if committed.
+    let commit: HandoffCommit | null = null;
+    if (decision.canAutoReply) {
+      commit = await commitNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'low_confidence',
+      }).catch(() => ({ ok: false, routingDeferred: false } as HandoffCommit));
+      decisionTimeline.push(commit.ok ? 'handoff_state_committed' : 'handoff_state_commit_failed');
+    }
+    const handoffDurable = !!commit?.ok;
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
       visitorMessageId,
-      runType: 'handoff',
+      runType: handoffDurable ? 'handoff' : 'auto_reply',
       mode: settings.mode,
-      status: 'handoff',
+      status: handoffDurable ? 'handoff' : 'failed',
       inputText: question,
       outputText: aiResult.text,
-      skipReason: valid.reason,
+      skipReason: handoffDurable ? valid.reason : 'handoff_state_commit_failed',
       provider: aiResult.provider,
       model: aiResult.model,
       promptTokens: aiResult.promptTokens,
@@ -505,48 +518,48 @@ export async function runGenerationStage(
       metadata: {
         ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta,
         retrieval: queryMeta, generation: generationMeta,
-        final_handoff_source: 'post_validation_failed',
+        handoff_attempt_source: 'post_validation_failed',
+        handoff_committed: handoffDurable,
+        // Only a committed transition may claim to be the final handoff source.
+        ...(handoffDurable
+          ? { final_handoff_source: 'post_validation_failed' }
+          : { handoff_failure: 'handoff_state_commit_failed' }),
       },
     });
-    if (decision.canAutoReply) {
-      // P0-12 — commit-first. The durable handoff state must exist BEFORE the
-      // visitor is told a human is taking over; otherwise a failed commit
-      // leaves a promise nobody can keep. No pre-marker is written either:
-      // commitNeedsHuman() persists the whole transition atomically.
-      const commit = await commitNeedsHuman(config, {
-        workspaceId,
-        conversationId,
-        reason: 'low_confidence',
-      }).catch(() => ({ ok: false, routingDeferred: false } as HandoffCommit));
-      decisionTimeline.push(commit.ok ? 'handoff_state_committed' : 'handoff_state_commit_failed');
-      if (!commit.ok) {
-        decisionTimeline.push('handoff_ack_suppressed_commit_failed');
-        return { terminal: { ran: true, action: 'handoff', reason: 'handoff_state_commit_failed', runId } };
-      }
-      const display = deriveAgentDisplay(settings);
-      const handoffAckBody = settings.fallback_message
-        || await resolveHandoffAckMessage(
-          config, workspaceId, locale,
-          availability.state === 'offline',
-          pickHandoffAck(locale, display.agentName),
-          conversationId,
-        );
-      const inserted = await insertAiMessage(config, {
-        workspaceId,
-        conversationId,
-        body: handoffAckBody,
-        source: 'ai_agent_fallback',
-        runId,
-        mode: settings.mode,
-        handoff: true,
-        agentName: display.agentName,
-        agentLogoUrl: display.agentLogoUrl,
-      });
-      await routeAfterHandoff(config, { workspaceId, conversationId, commit });
-      return { terminal: { ran: true, action: 'handoff', reason: valid.reason, runId, messageId: inserted.id } };
+    if (!handoffDurable) {
+      if (commit && !commit.ok) decisionTimeline.push('handoff_ack_suppressed_commit_failed');
+      return {
+        terminal: {
+          ran: false,
+          action: commit ? 'failed' : 'no_answer',
+          reason: commit ? 'handoff_state_commit_failed' : valid.reason,
+          runId,
+        },
+      };
     }
-    return { terminal: { ran: true, action: 'handoff', reason: valid.reason, runId } };
+    const display = deriveAgentDisplay(settings);
+    const handoffAckBody = settings.fallback_message
+      || await resolveHandoffAckMessage(
+        config, workspaceId, locale,
+        availability.state === 'offline',
+        pickHandoffAck(locale, display.agentName),
+        conversationId,
+      );
+    const inserted = await insertAiMessage(config, {
+      workspaceId,
+      conversationId,
+      body: handoffAckBody,
+      source: 'ai_agent_fallback',
+      runId,
+      mode: settings.mode,
+      handoff: true,
+      agentName: display.agentName,
+      agentLogoUrl: display.agentLogoUrl,
+    });
+    if (commit) await routeAfterHandoff(config, { workspaceId, conversationId, commit });
+    return { terminal: { ran: true, action: 'handoff', reason: valid.reason, runId, messageId: inserted.id } };
   }
+
 
   // ─── vNext — freshness checkpoint #2 (post-generation) ────────────────
   const freshPost = await checkGenerationFreshness(config, {

@@ -835,7 +835,7 @@
         homeSeeAll: 'مشاهده همه',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         typeMsg: 'پیام خود را بنویسید...',
-        reply: 'نقل‌قول', copy: 'کپی', you: 'شما', wyAiAssistant: 'دستیار هوش مصنوعی', wyAiShort: 'هوش مصنوعی',
+        reply: 'نقل‌قول', copy: 'کپی', you: 'شما', wyAiAssistant: 'دستیار هوش مصنوعی', wyAiShort: 'AI',
         intro: 'سوالی دارید؟ اینجا بنویسید.',
         name: 'نام', email: 'ایمیل', phone: 'شماره تلفن',
         continue: 'ادامه', back: 'بازگشت',

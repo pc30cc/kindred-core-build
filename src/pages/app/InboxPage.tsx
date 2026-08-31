@@ -1136,9 +1136,12 @@ export default function InboxPage() {
             />
           </div>
 
-          {/* Queue header (Automated / Needs human) — replaces status tabs */}
-          {isQueueMode ? (
-            <div className="flex items-center gap-2 px-1 py-1">
+          {/* Filter tabs (status + AI + extra chips) — live inside the list */}
+          {filterTabsNode}
+
+          {/* Queue context line (Automated / Spam) */}
+          {isQueueMode && (
+            <div className="flex items-center gap-2 px-1">
               {queue === 'automated' ? (
                 <>
                   <Bot className="w-3.5 h-3.5 text-primary" />
@@ -1156,10 +1159,8 @@ export default function InboxPage() {
                 {conversations?.length || 0}
               </span>
             </div>
-          ) : (
-          /* Filter tabs (status + extra chips) — hosted in the app top bar */
-          filterTabsNode
           )}
+
         </div>
 
         {/* Conversation items */}

@@ -75,14 +75,25 @@
     }
 
     function footerHtml() {
-      // The footer credits the PLATFORM, never the workspace brand.
-      var platform = (config && (config.platformName || config.brandName)) || '';
+      // The footer credits the PLATFORM, never the workspace brand. Wording,
+      // brand label and outbound link are platform-admin owned and arrive as
+      // `config.poweredBy` ({ text, brand, url }); plans decide visibility, so
+      // an absent payload means "do not render" — the view then extends to the
+      // bottom edge on its own.
+      var pb = (config && config.poweredBy) || null;
       if (config && config.showPoweredBy === false) return '';
+      var platform = (pb && pb.brand) || (config && config.platformName) || '';
       if (!platform) return '';
-      return '<div class="wy-footer"><a class="wy-powered" href="#" data-powered>' +
+      var label = (pb && pb.text) || tf('poweredBy', 'Powered by');
+      var url = (pb && pb.url) || '';
+      var attrs = url
+        ? ' href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"'
+        : ' href="#" data-powered';
+      return '<div class="wy-footer"><a class="wy-powered"' + attrs + '>' +
         '<span class="wy-powered-dot" aria-hidden="true"></span>' +
-        '<span>' + esc(tf('poweredBy', 'Powered by')) + ' ' + esc(platform) + '</span></a></div>';
+        '<span>' + esc(label) + ' ' + esc(platform) + '</span></a></div>';
     }
+
 
 
     /**

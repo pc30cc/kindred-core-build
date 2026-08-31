@@ -3899,6 +3899,9 @@ const fa: TranslationKeys = {
       replyTimeDefault: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
       shadowColor: 'رنگ سایه دکمه شناور',
       shadowColorHint: 'رنگ سایه پشت دکمه شناور ویجت را تعیین می‌کند.',
+      fabLabel: 'متن حباب کنار دکمه شناور',
+      fabLabelHint: 'متن کوتاهی که کنار دکمه شناور ویجت نمایش داده می‌شود. خالی بگذارید تا نمایش داده نشود.',
+      fabLabelPlaceholder: 'مثلاً: وب یار دستیار ویژه شما'
       colorsSection: 'رنگ‌ها',
       textsSection: 'متن‌ها',
       logoSection: 'لوگو و برندینگ',

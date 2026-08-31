@@ -3899,6 +3899,9 @@ const tr: TranslationKeys = {
       replyTimeDefault: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
       shadowColor: 'Başlatıcı gölge rengi',
       shadowColorHint: 'Kayan başlatıcı düğmesinin arkasındaki gölgeyi renklendirir.',
+      fabLabel: 'Başlatıcı balon metni',
+      fabLabelHint: 'Kayan düğmenin yanında görünen kısa metin. Gizlemek için boş bırakın.',
+      fabLabelPlaceholder: 'Örn: Size özel asistanınız'
       colorsSection: 'Renkler',
       textsSection: 'Metinler',
       logoSection: 'Logo ve marka',

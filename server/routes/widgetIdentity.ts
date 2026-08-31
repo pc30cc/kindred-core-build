@@ -218,7 +218,9 @@ widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request,
       require_phone: prechat.require_phone,
       verify_email: prechat.verify_email,
       verify_phone: prechat.verify_phone,
+      timing: normalizePrechatTiming(prechat.prechat_timing),
     },
+
   });
 });
 

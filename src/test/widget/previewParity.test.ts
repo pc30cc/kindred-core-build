@@ -86,7 +86,10 @@ describe('generic presentation readiness', () => {
 
   it('passes distinct workspace/platform identity and custom reply time to preview', () => {
     expect(preview).toContain('workspaceName: title');
-    expect(preview).toContain('platformName: platformName');
+    // Brand label is platform-owned: the resolved powered-by brand wins, with
+    // the platform identity as fallback.
+    expect(preview).toContain('platformName: poweredBy?.brand || platformName');
+    expect(preview).toContain('showPoweredBy: poweredBy !== null');
     expect(preview).toContain('replyTimeText:');
   });
 

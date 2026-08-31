@@ -249,8 +249,10 @@ widgetIdentityRouter.get('/prechat', widgetRateLimit('default'), async (req: Req
     require_phone: prechat.require_phone,
     verify_email: prechat.verify_email,
     verify_phone: prechat.verify_phone,
+    timing: normalizePrechatTiming(prechat.prechat_timing),
   });
 });
+
 
 // ═══════════════════════════════════════════════
 // POST /identity/prechat — Submit pre-chat → merge

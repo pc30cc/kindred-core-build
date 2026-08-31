@@ -1222,10 +1222,14 @@
     };
     return {
       t: function (locale, key) {
-        var l = dict[locale] ? locale : 'en';
+        // Accept region-tagged locales ("fa-IR", "tr-TR") — otherwise every
+        // string silently falls back to English.
+        var base = String(locale || 'en').toLowerCase().split('-')[0];
+        var l = dict[locale] ? locale : (dict[base] ? base : 'en');
         return (dict[l] && dict[l][key]) || dict.en[key] || key;
       },
     };
+
   })();
 
   // ════════════════════════════════════════════════════════════════════

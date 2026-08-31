@@ -82,10 +82,8 @@ export function PrechatSection({ workspaceId }: Props) {
             const lock = resolveLock(policyByField[key]);
             const askField = `ask_${key}` as keyof WidgetPrechatSettings;
             const requireField = `require_${key}` as keyof WidgetPrechatSettings;
-            const verifyField = `verify_${key}` as keyof WidgetPrechatSettings;
             const askValue = lock.askLocked ? lock.askValue! : (s[askField] as boolean);
             const requireValue = lock.requireLocked ? lock.requireValue! : (s[requireField] as boolean);
-            const verifyValue = (s[verifyField as keyof WidgetPrechatSettings] as boolean) ?? false;
 
             return (
               <div key={key} className="rounded-lg border border-border p-4 space-y-3">

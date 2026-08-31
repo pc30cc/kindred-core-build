@@ -226,13 +226,20 @@
       var isImage = att.kind === 'image' || (att.mime_type && /^image\//.test(att.mime_type));
       var isAudio = att.kind === 'audio' || (att.mime_type && /^audio\//.test(att.mime_type));
       if (isImage) {
+        // `is-loading` shows an in-bubble spinner + "Receiving…" until Core
+        // finishes the authenticated fetch, so the bubble is never blank.
         return '<div class="msg-att msg-att-image">' +
-          '<button type="button" class="msg-att-img-btn" data-att-preview="' + id + '" aria-label="' + esc(t('openFile')) + '">' +
+          '<button type="button" class="msg-att-img-btn is-loading" data-att-preview="' + id + '" aria-label="' + esc(t('openFile')) + '">' +
+            '<span class="msg-att-loading" aria-live="polite">' +
+              '<span class="msg-att-spinner" aria-hidden="true"></span>' +
+              '<span class="msg-att-loading-text">' + esc(tf('receivingFile', 'Receiving…')) + '</span>' +
+            '</span>' +
             '<img loading="lazy" decoding="async" data-att-media-src="' + id + '" alt="' + name + '" />' +
             '<span class="msg-att-img-fallback">' + esc(t('imageUnavailable')) + '</span>' +
           '</button>' +
         '</div>';
       }
+
       if (isAudio) {
         // Custom player: transport controls are ALWAYS LTR (play left,
         // download right) even in RTL locales — audio timelines run

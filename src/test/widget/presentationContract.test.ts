@@ -262,7 +262,7 @@ describe('widget preview — template-agnostic single source of truth', () => {
     expect(/class="kb-article/.test(PREVIEW)).toBe(false);
     expect(/data-preview-article/.test(PREVIEW)).toBe(false);
     expect(PREVIEW).toContain('R.kbHtml(GS_PREVIEW.kbVm)');
-    expect(PREVIEW).toContain('R.kbArticleHtml(vm)');
+    expect(PREVIEW).toContain('R.kbHtml(vm)');
   });
 });
 

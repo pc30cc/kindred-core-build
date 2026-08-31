@@ -1028,7 +1028,7 @@ export default function InboxPage() {
               role="tab"
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
-              className={cn(headTabBase, extraChip === 'colleagues' ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
+              className={cn(headTabBase, headTabState(extraChip === 'colleagues'))}
               title={t('inbox.colleagues') || 'Colleagues'}
             >
               {colleagueUnread > 0 && extraChip !== 'colleagues' ? (

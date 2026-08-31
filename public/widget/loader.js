@@ -403,12 +403,14 @@
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
     var size = Math.round(56 * scale);
-    launcherEl.style.width = size + "px";
-    launcherEl.style.height = size + "px";
-    // Publish the REAL launcher size to the shell so the presentation layer
-    // can anchor the panel above it without re-deriving FAB geometry.
+    // ONE source of truth for the launcher box: the CSS variable. The button,
+    // its icons (chat AND close) and the panel anchor all derive from it, so
+    // the closed and open states can never drift apart in size.
     var shellForVar = shadowRoot && shadowRoot.querySelector(".shell");
     if (shellForVar) shellForVar.style.setProperty("--gs-fab-size", size + "px");
+    launcherEl.style.width = "";
+    launcherEl.style.height = "";
+
 
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
     if (fab.animation === true) launcherEl.classList.add("pulse");

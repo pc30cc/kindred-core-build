@@ -177,7 +177,25 @@ function conversationTitle(conv: any, t: (k: string, vars?: Record<string, strin
 type ExtraChip = 'needs_human' | 'assigned_to_me' | 'colleagues';
 type SidebarTab = 'info' | 'activity';
 
-
+/**
+ * Renders children into the app top bar slot when available.
+ * Now that the filter tabs live inside the conversation list, the slot only
+ * carries a compact context summary (current view + unread count).
+ */
+function ToolbarPortal({ children }: { children: React.ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const resolve = () => {
+      const el = document.getElementById('topbar-page-slot');
+      setSlot((prev) => (prev === el && el && el.isConnected ? prev : el));
+    };
+    resolve();
+    const mo = new MutationObserver(resolve);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
+  return slot && slot.isConnected ? createPortal(children, slot) : null;
+}
 
 
 export default function InboxPage() {

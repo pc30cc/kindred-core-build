@@ -47,7 +47,15 @@ interface Props {
 }
 
 
-export function AiSuggestionCard({ conversationId, onInsert, onSendNow, dir = 'ltr', t }: Props) {
+export function AiSuggestionCard({
+  conversationId,
+  onInsert,
+  onSendNow,
+  sendAction = 'none',
+  onSendActionChange,
+  dir = 'ltr',
+  t,
+}: Props) {
   const { workspace } = useActiveWorkspace();
   const { data: capabilities } = useAiAgentCapabilities(workspace?.id);
   const { data, isLoading } = useConversationSuggestions(conversationId);
@@ -71,16 +79,37 @@ export function AiSuggestionCard({ conversationId, onInsert, onSendNow, dir = 'l
     return !v || v === k ? fb : v;
   };
 
+  const actionMeta: Record<PostSendAction, { label: string; short: string; hint: string; icon: typeof Send }> = {
+    none: {
+      label: tr('inbox.sendOnly', 'Send'),
+      short: tr('inbox.sendOnlyShort', 'Send'),
+      hint: tr('inbox.sendOnlyHint', 'Send the reply. Conversation status stays unchanged.'),
+      icon: Send,
+    },
+    wait_for_customer: {
+      label: tr('inbox.sendAndWait', 'Send & wait for customer'),
+      short: tr('inbox.sendAndWaitShort', 'Wait'),
+      hint: tr('inbox.sendAndWaitHint', 'Send, then move the conversation to Waiting for customer.'),
+      icon: Clock,
+    },
+    resolve: {
+      label: tr('inbox.sendAndResolve', 'Send & resolve'),
+      short: tr('inbox.sendAndResolveShort', 'Resolve'),
+      hint: tr('inbox.sendAndResolveHint', 'Send, then mark the conversation resolved.'),
+      icon: CheckCircle2,
+    },
+  };
+
   const handleInsert = () => {
     onInsert(suggestion.suggested_reply);
     toast({ title: tr('aiAgent.suggestionInserted', 'Inserted into composer') });
   };
 
-  const handleSendNow = async () => {
+  const handleSendNow = async (action: PostSendAction = sendAction) => {
     if (sending) return;
     setSending(true);
     try {
-      const ok = await Promise.resolve(onSendNow(suggestion.suggested_reply));
+      const ok = await Promise.resolve(onSendNow(suggestion.suggested_reply, action));
       if (ok) {
         await useMut.mutateAsync(suggestion.id).catch(() => { /* non-blocking */ });
       }
@@ -88,6 +117,7 @@ export function AiSuggestionCard({ conversationId, onInsert, onSendNow, dir = 'l
       setSending(false);
     }
   };
+
 
   const handleDismiss = async () => {
     try {

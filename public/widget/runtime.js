@@ -696,6 +696,7 @@
         chatUnavailable: 'Chat is currently unavailable',
         attachmentsDisabled: 'File attachments are not enabled',
         voiceNotesDisabled: 'Voice messages are not enabled',
+        receivingFile: 'Receiving…',
         // Phase 6b — preview / file actions
         retry: 'Retry',
         download: 'Download',
@@ -903,6 +904,7 @@
         chatUnavailable: 'چت در حال حاضر در دسترس نیست',
         attachmentsDisabled: 'ارسال فایل فعال نیست',
         voiceNotesDisabled: 'ارسال پیام صوتی فعال نیست',
+        receivingFile: 'در حال دریافت…',
         // Phase 6b — preview / file actions
         retry: 'تلاش مجدد',
         download: 'دانلود',
@@ -1104,6 +1106,7 @@
         chatUnavailable: 'Sohbet şu anda kullanılamıyor',
         attachmentsDisabled: 'Dosya paylaşımı etkin değil',
         voiceNotesDisabled: 'Sesli mesajlar etkin değil',
+        receivingFile: 'Alınıyor…',
         // Phase 6b — preview / file actions
         retry: 'Yeniden dene',
         download: 'İndir',

@@ -127,7 +127,7 @@ describe('home surface — design renderVals() contract', () => {
     // renderVals(): showArticleChips true, showArticlesButton false.
     expect(js).toContain('var showChips = vm.kbEnabled && articles.length > 0;');
     expect(js).toContain('var showArticlesButton = false;');
-    expect(js).toContain('slice(0, 2)');
+    expect(js).toContain('slice(0, 3)');
   });
 
   it('the footer credits the platform, not the workspace brand', () => {

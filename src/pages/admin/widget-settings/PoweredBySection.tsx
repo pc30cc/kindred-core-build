@@ -91,11 +91,19 @@ export function PoweredBySection({ settings, onSave, saving }: Props) {
           />
           <p className="text-[11px] text-muted-foreground">
             Opened in a new tab when a visitor clicks the footer. Must start with http:// or
-            https://. Leave empty to make the footer non-clickable.
+            https://. Leave empty to make the footer non-clickable. The link is rendered as a
+            native <code>nofollow</code> anchor on every customer site.
           </p>
           {urlInvalid && (
             <p className="text-[11px] text-destructive">Enter a full URL starting with https://</p>
           )}
+          {!urlInvalid && /^http:\/\//i.test(url.trim()) && (
+            <p className="text-[11px] text-amber-600">
+              HTTPS is strongly recommended — an http:// destination may be blocked or downgraded
+              on secure customer sites.
+            </p>
+          )}
+
         </div>
 
         <div className="rounded-lg border border-border p-4 bg-background">

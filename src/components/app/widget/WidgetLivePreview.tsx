@@ -845,7 +845,12 @@ export function WidgetLivePreview({
         title="widget-preview"
         srcDoc={srcDoc}
         className="h-full w-full border-0"
-        sandbox="allow-scripts"
+        // Preview-only: the frame stays sandboxed (no same-origin), but the
+        // platform-owned "Powered by" anchor must be able to open a real new
+        // tab whose destination is NOT itself sandboxed. The live customer
+        // widget never depends on this — it uses a plain native anchor.
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+
         onLoad={() => {
           if (!isSmart) return;
           frameRef.current?.contentWindow?.postMessage(

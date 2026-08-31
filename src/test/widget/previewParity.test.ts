@@ -140,3 +140,16 @@ describe('home surface — design renderVals() contract', () => {
     expect(js).not.toContain('config.platformName || config.brandName');
   });
 });
+
+describe('preview sandbox allows the powered-by link to open', () => {
+  it('grants popups (and popup escape) but never same-origin', () => {
+    const m = preview.match(/sandbox="([^"]+)"/);
+    expect(m).toBeTruthy();
+    const tokens = m![1].split(/\s+/);
+    expect(tokens).toContain('allow-scripts');
+    expect(tokens).toContain('allow-popups');
+    expect(tokens).toContain('allow-popups-to-escape-sandbox');
+    expect(tokens).not.toContain('allow-same-origin');
+    expect(tokens).not.toContain('allow-top-navigation');
+  });
+});

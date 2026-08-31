@@ -3778,6 +3778,7 @@
     var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
     var currentArticle = null;
     var pendingSlug = null;
+    var articleLoading = false;
     // slug -> 'up' | 'down' for votes this visitor submitted in this session.
     var articleRatings = {};
 
@@ -3852,6 +3853,14 @@
       if (!rootEl) return;
       var s = kbStore.get();
       var rtl = isRtl();
+      if (articleLoading) {
+        var skel = '';
+        try {
+          skel = (Presentation && Presentation.skeletonHtml)
+            ? (Presentation.skeletonHtml('article', { rtl: rtl }) || '') : '';
+        } catch (_) { skel = ''; }
+        if (skel) { rootEl.innerHTML = skel; return; }
+      }
       var origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
       var locSeg = encodeURIComponent(ctx.locale || 'en');
 
@@ -4100,6 +4109,10 @@
     function openArticle(slug) {
       if (!slug) return;
       pendingSlug = slug;
+      // Article bodies are fetched on demand — show the article skeleton
+      // immediately so the surface never sits on the previous list.
+      articleLoading = true;
+      paint();
       ModuleLoader.load('kb', moduleUrl(), function () {
         var mod = ModuleLoader.modules.kb;
         if (!mod || !mod.loadArticle) return;
@@ -4111,11 +4124,12 @@
           slug: slug,
           onResult: function (r) {
             if (pendingSlug !== slug) return;
+            articleLoading = false;
             if (r.ok && r.article) {
               currentArticle = r.article;
               view = 'article';
-              paint();
             }
+            paint();
           },
         });
       });
@@ -4147,7 +4161,7 @@
         }
         return false;
       },
-      resetToList: function () { view = 'list'; currentArticle = null; },
+      resetToList: function () { view = 'list'; currentArticle = null; articleLoading = false; pendingSlug = null; },
     };
 
   }
@@ -5274,6 +5288,9 @@
       // createChatUI), not as a separate bar above the composer. Toggled by
       // showAiThinking()/hideThinkingIndicator() further down this file.
       aiThinking: false,
+      // True while an explicitly selected thread's history is in flight —
+      // the chat surface holds its skeleton instead of painting empty.
+      historyLoading: false,
     });
     var DRAFT_PENDING_KEY = '__pending__';
 
@@ -6370,15 +6387,25 @@
     //  * Core NEVER paints loading copy ("Loading…", "Searching…") and never
     //    builds template markup. It asks the active presentation for a
     //    skeleton by a normalized view key and renders whatever comes back.
-    //  * A skeleton is a COLD-BOOT affordance only. Once a surface has shown
-    //    real content, later refreshes keep that content on screen and the
-    //    only signal is the template's footer indicator (`data-conn-state`).
+    //  * A skeleton is a COLD-BOOT affordance PER SURFACE. Once a given
+    //    surface has shown real content, later refreshes of THAT surface keep
+    //    the content on screen and the only signal is the template's footer
+    //    indicator (`data-conn-state`). Surfaces the visitor has not opened
+    //    yet still get their own first-paint skeleton.
     //  * If the template implements no skeleton, nothing is painted — the
     //    visitor sees an empty surface rather than technical text.
-    var hadUsableContent = false;
+    var usableByView = {};
+
+    /** Normalized skeleton key for the surface currently owning the body. */
+    function currentViewKey() {
+      var tab = (shellStore.get() || {}).activeTab || 'home';
+      if (tab === 'help') return 'articles';
+      return tab;
+    }
 
     /** Marks that a real, non-skeleton surface has been painted. */
-    function markUsableContent() { hadUsableContent = true; }
+    function markUsableContent(view) { usableByView[view || currentViewKey()] = true; }
+
 
     function skeletonFor(view) {
       if (!Presentation || typeof Presentation.skeletonHtml !== 'function') return '';
@@ -6404,18 +6431,22 @@
     }
 
     /**
-     * Paints the cold-boot skeleton for `view`. A refresh over existing
-     * content is a no-op: never replace real content with a skeleton.
+     * Paints the cold-boot skeleton for `view`. A refresh over content this
+     * surface already showed is a no-op: never replace real content with a
+     * skeleton. Every surface keeps its own first-paint budget.
      */
     function renderLoading(view) {
       if (!body) return;
-      if (hadUsableContent) return;
-      var html = skeletonFor(view || shellStore.get().activeTab || 'chat');
+      var key = view || currentViewKey() || 'chat';
+      if (usableByView[key]) return;
+      var html = skeletonFor(key);
+      if (!html) return;
       __paintedSkeleton = true;
       body.innerHTML = html;
       // One-shot crossfade marker consumed by the next real render.
       try { body.classList.add('wy-crossfade'); } catch (_) {}
     }
+
     // Phase 8H — Department gate. Returns true when the gate rendered
     // (caller must NOT render any further body content for this pass).
     // Resolves the channel-specific mode lazily; while in-flight shows
@@ -6866,14 +6897,16 @@
           messages: [],
           seenIds: {},
           aiThinking: false,
+          historyLoading: true,
         });
         try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
 
         try {
           chatUI.loadConversationHistory(conversationId, function () {
+            chatStore.set({ historyLoading: false });
             if (shellStore.get().activeTab === 'chat') renderBody();
           });
-        } catch (_) {}
+        } catch (_) { chatStore.set({ historyLoading: false }); }
       }
       markConversationRead(conversationId);
       switchTab('chat');
@@ -7180,12 +7213,28 @@
       }
       if (tab === 'list') {
         if (inputBar) inputBar.style.display = 'none';
+        // Same contract as home: never flash an "empty list" before the
+        // visitor's threads arrive — hold the list skeleton instead.
+        if (!(conversationsStore.get() || {}).loaded) {
+          renderLoading('list');
+          loadConversations(function () {
+            if (shellStore.get().activeTab === 'list') renderBody();
+          });
+          return;
+        }
         renderConversationList();
         return;
       }
 
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading('chat'); return; }
+        // Opening an existing thread: hold the chat skeleton until that
+        // conversation's history lands, instead of painting an empty thread.
+        if (chatStore.get().historyLoading && !(chatStore.get().messages || []).length) {
+          renderLoading('chat');
+          return;
+        }
+
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.
         // General mode is a no-op. Resolved-once-per-session via store.
@@ -7264,8 +7313,16 @@
         renderSmartDock();
       } else if (tab === 'help') {
         if (inputBar) inputBar.style.display = 'none';
-        kbUI.ensure(function () { kbUI.render(body); });
+        // Knowledge Base cold entry: articles are fetched lazily, so paint the
+        // KB skeleton first and swap it for the real list when it resolves.
+        if (!(kbStore.get() || {}).loaded) renderLoading('articles');
+        kbUI.ensure(function () {
+          if (shellStore.get().activeTab !== 'help') return;
+          kbUI.render(body);
+          markUsableContent('articles');
+        });
       }
+
     }
 
     // Pass 2 — re-render whenever the in-panel call surface changes so

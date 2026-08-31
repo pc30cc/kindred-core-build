@@ -33,10 +33,13 @@ describe('Core owns loading state, never loading presentation', () => {
     expect(core).toMatch(/typeof Presentation\.skeletonHtml !== 'function'\) return ''/);
   });
 
-  it('never replaces real content with a skeleton', () => {
-    expect(core).toContain('if (hadUsableContent) return;');
-    expect(core).toContain('function markUsableContent()');
+  it('never replaces real content with a skeleton, per surface', () => {
+    expect(core).toContain('if (usableByView[key]) return;');
+    expect(core).toContain('function markUsableContent(view)');
+    // Each surface keeps its own first-paint budget (home/list/chat/articles).
+    expect(core).toContain('function currentViewKey()');
   });
+
 
   it('normalizes every transport state onto the visitor vocabulary', () => {
     // Internal states must not leak to the template.

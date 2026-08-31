@@ -2127,6 +2127,37 @@ export default function InboxPage() {
                           );
                         })()}
                       </div>
+                      {/* Side actions — hugging the bubble */}
+                      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {timeGapFromPrev && (
+                          <bdi dir={dir} className="text-[11px] text-muted-foreground" title={formatDateTime(msg.created_at)}>
+                            {formatTime(msg.created_at)}
+                          </bdi>
+                        )}
+                        <button
+                          onClick={() => {
+                            const author = isAgent
+                              ? agentLabel
+                              : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale);
+                            const snippet = String(msg.body || '').replace(/\s*\n+\s*/g, ' ').trim().slice(0, 180);
+                            setMessage((prevDraft) => `> ${author}: ${snippet}\n\n${prevDraft}`);
+                          }}
+                          className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
+                          aria-label={t('inbox.reply') || 'Reply'}
+                          title={t('inbox.reply') || 'Reply'}
+                        >
+                          <CornerUpLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
+                          className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
+                          aria-label={t('inbox.copy') || 'Copy message'}
+                          title={t('inbox.copy') || 'Copy message'}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      </div>
                       {/* Name + time strip below the LAST bubble of a streak */}
                       {showMeta && (
                         <div className={cn(
@@ -2154,36 +2185,6 @@ export default function InboxPage() {
                           )}
                         </div>
                       )}
-                    </div>
-                    {/* Side actions — right of visitor bubbles, left of operator bubbles */}
-                    <div className="flex items-center gap-1 shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      {timeGapFromPrev && (
-                        <bdi dir={dir} className="text-[11px] text-muted-foreground" title={formatDateTime(msg.created_at)}>
-                          {formatTime(msg.created_at)}
-                        </bdi>
-                      )}
-                      <button
-                        onClick={() => {
-                          const author = isAgent
-                            ? agentLabel
-                            : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale);
-                          const snippet = String(msg.body || '').replace(/\s*\n+\s*/g, ' ').trim().slice(0, 180);
-                          setMessage((prevDraft) => `> ${author}: ${snippet}\n\n${prevDraft}`);
-                        }}
-                        className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
-                        aria-label={t('inbox.reply') || 'Reply'}
-                        title={t('inbox.reply') || 'Reply'}
-                      >
-                        <CornerUpLeft className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
-                        className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
-                        aria-label={t('inbox.copy') || 'Copy message'}
-                        title={t('inbox.copy') || 'Copy message'}
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                   </div>

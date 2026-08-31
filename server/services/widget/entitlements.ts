@@ -200,6 +200,15 @@ export function guardWidgetSettingsPatch(
     if (patch[column] === true && ent.features[capability] === false) denied.push(capability);
   }
 
+  for (const [column, def] of Object.entries(WIDGET_CUSTOMIZATION_CAPABILITY)) {
+    if (!(column in patch)) continue;
+    if (ent.features[def.capability] !== false) continue;
+    const value = patch[column];
+    const isDefault = value === def.reset || value === null || value === '' || value === undefined;
+    if (!isDefault) denied.push(def.capability);
+  }
+
+
   if ('assignment_mode' in patch
       && patch.assignment_mode !== 'manual'
       && ent.features.widget_assignment_routing === false) {

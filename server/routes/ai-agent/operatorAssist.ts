@@ -333,6 +333,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     'OPERATOR-ASSIST MODE:',
     '- You are drafting a reply that a HUMAN support operator will review before sending.',
     '- Write the reply text directly, in the response language. No preamble like "Here is a draft".',
+    `- MANDATORY OUTPUT LANGUAGE: ${languageDisplayName(responseLocale)} (${responseLocale}). Write the ENTIRE draft in ${languageDisplayName(responseLocale)} — every sentence, greeting and closing line. Never mix in another language, never add a translation, and never answer in the language of the sources or of the operator instruction if it differs. Translate any source content into ${languageDisplayName(responseLocale)} before using it.`,
     '- Never expose internal storage paths, signed URLs, tokens, or credentials. Cite sources only by title if needed.',
     '- If the sources do not support a fact, do not invent it; suggest collecting more info instead.',
     tone ? `- Operator-selected tone: ${tone}. ${TONE_HINTS[tone] || ''}` : '',

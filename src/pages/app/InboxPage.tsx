@@ -1855,7 +1855,7 @@ export default function InboxPage() {
                 Mirrors WhatsApp/Intercom/Crisp behavior so operators read their
                 own replies on the side closest to the composer. */}
             <div
-              className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-4 bg-background overscroll-contain"
+              className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 bg-background overscroll-contain"
               ref={messagesContainerRef}
               role="log"
               aria-live="polite"
@@ -2081,6 +2081,7 @@ export default function InboxPage() {
                       <div className="w-9 shrink-0" aria-hidden />
                     )}
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
+                      <div className={cn('flex items-center gap-1 min-w-0 max-w-full', isAgent ? 'flex-row-reverse' : 'flex-row')}>
                       <div dir={dir} className={cn(
                         'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent
@@ -2126,6 +2127,37 @@ export default function InboxPage() {
                           );
                         })()}
                       </div>
+                      {/* Side actions — hugging the bubble */}
+                      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {timeGapFromPrev && (
+                          <bdi dir={dir} className="text-[11px] text-muted-foreground" title={formatDateTime(msg.created_at)}>
+                            {formatTime(msg.created_at)}
+                          </bdi>
+                        )}
+                        <button
+                          onClick={() => {
+                            const author = isAgent
+                              ? agentLabel
+                              : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale);
+                            const snippet = String(msg.body || '').replace(/\s*\n+\s*/g, ' ').trim().slice(0, 180);
+                            setMessage((prevDraft) => `> ${author}: ${snippet}\n\n${prevDraft}`);
+                          }}
+                          className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
+                          aria-label={t('inbox.reply') || 'Reply'}
+                          title={t('inbox.reply') || 'Reply'}
+                        >
+                          <CornerUpLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
+                          className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
+                          aria-label={t('inbox.copy') || 'Copy message'}
+                          title={t('inbox.copy') || 'Copy message'}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      </div>
                       {/* Name + time strip below the LAST bubble of a streak */}
                       {showMeta && (
                         <div className={cn(
@@ -2153,36 +2185,6 @@ export default function InboxPage() {
                           )}
                         </div>
                       )}
-                    </div>
-                    {/* Side actions — right of visitor bubbles, left of operator bubbles */}
-                    <div className="flex items-center gap-1 shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      {timeGapFromPrev && (
-                        <bdi dir={dir} className="text-[11px] text-muted-foreground" title={formatDateTime(msg.created_at)}>
-                          {formatTime(msg.created_at)}
-                        </bdi>
-                      )}
-                      <button
-                        onClick={() => {
-                          const author = isAgent
-                            ? agentLabel
-                            : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale);
-                          const snippet = String(msg.body || '').replace(/\s*\n+\s*/g, ' ').trim().slice(0, 180);
-                          setMessage((prevDraft) => `> ${author}: ${snippet}\n\n${prevDraft}`);
-                        }}
-                        className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
-                        aria-label={t('inbox.reply') || 'Reply'}
-                        title={t('inbox.reply') || 'Reply'}
-                      >
-                        <CornerUpLeft className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
-                        className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
-                        aria-label={t('inbox.copy') || 'Copy message'}
-                        title={t('inbox.copy') || 'Copy message'}
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                   </div>

@@ -75,9 +75,39 @@ export function normalizeForIntent(text: string): string {
     .trim();
 }
 
-/** Human nouns. Mentioning one is NEVER sufficient on its own. */
-const HUMAN_NOUN =
-  /(اپراتور|پشتیبان|کارشناس|انسان|ادم|آدم|همکار|نماینده|temsilci|yetkili|insan|canli destek|canlı destek|musteri temsilcisi|human|humans|agent|agents|operator|operators|representative|real person|someone real|someone|somebody|live support|live agent|support person)/u;
+/**
+ * Human nouns / roles. Matched with word-phrase boundaries (see `nounHit`) so
+ * an inflected or compound form ("پشتیبانی‌مان", "اپراتورها") never counts as
+ * a bare role mention. Mentioning one is NEVER sufficient on its own.
+ */
+const HUMAN_NOUN_PHRASES = [
+  'اپراتور', 'اپراتورها', 'پشتیبان', 'پشتیبانی', 'کارشناس', 'کارشناس فروش',
+  'انسان', 'ادم', 'آدم', 'همکار', 'نماینده', 'ادم واقعی', 'آدم واقعی',
+  'انسان واقعی', 'نیروی انسانی',
+  // Turkish is agglutinative: the common case-inflected forms are listed so
+  // boundary-aware matching still recognises the role.
+  'temsilci', 'temsilciye', 'temsilciyle', 'temsilcisi', 'temsilcisiyle',
+  'yetkili', 'yetkiliye', 'yetkiliyle', 'insan', 'insana', 'insanla',
+  'operator', 'operatore', 'operatöre', 'operatörle', 'operatör', 'canli destek', 'canlı destek',
+  'musteri temsilcisi', 'müşteri temsilcisi', 'gercek bir insan', 'gerçek bir insan',
+  'human', 'humans', 'agent', 'agents', 'operator', 'operators', 'representative',
+  'real person', 'real human', 'actual human', 'someone real', 'someone', 'somebody',
+  'live support', 'live agent', 'support person', 'support agent', 'person',
+];
+
+/**
+ * Boundary-aware human-noun detection. Returns the longest matched phrase so
+ * callers can subtract it from the message when testing "bare request" shape.
+ */
+export function matchHumanNoun(norm: string): string | null {
+  let best: string | null = null;
+  for (const raw of HUMAN_NOUN_PHRASES) {
+    const p = normalizeForIntent(raw);
+    if (!p || !phraseHit(norm, p)) continue;
+    if (!best || p.length > best.length) best = p;
+  }
+  return best;
+}
 
 /** "A real person" style nouns — strong enough to pair with a plain want-verb. */
 const STRONG_HUMAN_NOUN =
@@ -98,6 +128,28 @@ const AI_REJECTION =
 /** Bare "operator please" style messages. */
 const BARE_REQUEST_MAX_TOKENS = 4;
 
+/**
+ * Polite / request filler allowed to surround a bare human-role request.
+ * Anything outside this closed set (a verb, an adjective, a question word,
+ * a time expression …) means the message is a sentence ABOUT the role, not a
+ * request FOR it — e.g. "اپراتور آنلاین دارید؟", "operator working today?".
+ * This is a whitelist of request shape, not a blacklist of question words.
+ */
+const REQUEST_FILLER = new Set([
+  // fa
+  'لطفا', 'لطفن', 'خواهشا', 'میخوام', 'میخواهم', 'می', 'خواهم', 'بده', 'بدید',
+  'یک', 'یه', 'با', 'به', 'من', 'منو', 'مرا', 'سلام', 'ممنون', 'مرسی',
+  // tr
+  'lutfen', 'lütfen', 'istiyorum', 'rica', 'ederim', 'bir', 'ben', 'merhaba',
+  'tesekkurler', 'teşekkürler',
+  // en
+  'please', 'plz', 'kindly', 'thanks', 'thank', 'you', 'hi', 'hello',
+  'i', 'want', 'need', 'a', 'an', 'the', 'to', 'me', 'my', 'now',
+]);
+
+/** Raw-text question punctuation (normalization strips it, so test raw). */
+const QUESTION_PUNCT = /[?？؟]/u;
+
 function tokenCount(norm: string): number {
   return norm ? norm.split(' ').filter(Boolean).length : 0;
 }
@@ -112,23 +164,42 @@ export function phraseHit(textNorm: string, phraseNorm: string): boolean {
 }
 
 /**
- * An owner-configured handoff keyword is a STRONG signal only when it is a
- * real phrase that itself expresses transfer intent (e.g. "وصل کن به
- * پشتیبانی", "connect me to an agent"). A bare generic noun ("پشتیبان",
- * "agent") is downgraded to supporting evidence — it must never transfer a
- * conversation on its own. Backward compatible: the keyword list is still
- * read and honoured, only its authority is scoped.
+ * "Bare human-role request" shape: the ENTIRE message is the human role plus
+ * polite/request filler ("اپراتور", "اپراتور لطفا", "agent please",
+ * "temsilci lütfen"). Any other token, or question punctuation in the raw
+ * text, disqualifies it — a short sentence that merely contains a human noun
+ * is informational, never an explicit transfer request.
+ */
+export function isBareHumanRoleRequest(rawText: string, norm: string, noun: string | null): boolean {
+  if (!noun) return false;
+  if (QUESTION_PUNCT.test(String(rawText || ''))) return false;
+  if (tokenCount(norm) > BARE_REQUEST_MAX_TOKENS) return false;
+  const nounTokens = noun.split(' ').filter(Boolean);
+  const rest = norm.split(' ').filter(Boolean);
+  // Remove one occurrence of the matched noun phrase.
+  for (const t of nounTokens) {
+    const i = rest.indexOf(t);
+    if (i >= 0) rest.splice(i, 1);
+  }
+  return rest.every((t) => REQUEST_FILLER.has(t));
+}
+
+/**
+ * An owner-configured handoff keyword is a STRONG signal only when the phrase
+ * itself expresses human-request semantics: transfer/talk intent combined
+ * with a human role, an explicit AI rejection, or a strong "real person"
+ * noun. Length alone never makes a phrase strong — a descriptive sentence
+ * configured by the owner stays supporting evidence.
  */
 export function classifyConfiguredKeyword(keyword: string): 'strong' | 'supporting' | 'ignored' {
   const norm = normalizeForIntent(keyword);
   if (!norm || norm.length < 3) return 'ignored';
-  const tokens = tokenCount(norm);
-  if (tokens >= 2 && (TRANSFER_VERB.test(norm) || AI_REJECTION.test(norm) || STRONG_HUMAN_NOUN.test(norm))) {
-    return 'strong';
-  }
-  if (tokens >= 3) return 'strong'; // deliberate full sentence configured by the owner
+  if (AI_REJECTION.test(norm)) return 'strong';
+  if (STRONG_HUMAN_NOUN.test(norm)) return 'strong';
+  if (TRANSFER_VERB.test(norm) && matchHumanNoun(norm)) return 'strong';
   return 'supporting';
 }
+
 
 export interface ResolveHumanRequestInput {
   text: string;
@@ -152,7 +223,8 @@ export function resolveHumanRequestSignal(input: ResolveHumanRequestInput): Huma
   };
   if (!norm) return { ...NO_HUMAN_REQUEST, supporting };
 
-  const hasHumanNoun = HUMAN_NOUN.test(norm);
+  const matchedNoun = matchHumanNoun(norm);
+  const hasHumanNoun = !!matchedNoun;
   const hasStrongNoun = STRONG_HUMAN_NOUN.test(norm);
   const hasTransferVerb = TRANSFER_VERB.test(norm);
   const hasWantVerb = WANT_VERB.test(norm);
@@ -182,7 +254,7 @@ export function resolveHumanRequestSignal(input: ResolveHumanRequestInput): Huma
   }
 
   // 4. Bare request: the whole message is essentially the noun ("اپراتور لطفا").
-  if (hasHumanNoun && tokenCount(norm) <= BARE_REQUEST_MAX_TOKENS && !/\?|چطور|چگونه|چه|کی|nasil|nasıl|ne zaman|how|when|what/u.test(norm)) {
+  if (isBareHumanRoleRequest(input.text, norm, matchedNoun)) {
     return {
       explicit: true, confidence: 0.75, reason: 'explicit_phrase',
       matchedPhrase: input.text.trim().slice(0, 160), supporting,

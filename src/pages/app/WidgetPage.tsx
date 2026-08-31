@@ -40,6 +40,8 @@ const BEHAVIOR_CAPABILITY: Record<string, string> = {
   attachments_enabled: 'widget_attachments',
   voice_notes_enabled: 'widget_voice_notes',
   emoji_enabled: 'widget_emoji',
+  store_raw_ip: 'widget_raw_ip_storage',
+  assignment_mode: 'widget_assignment_routing',
 };
 
 function normalizeDomainInput(input: string): string {
@@ -624,8 +626,16 @@ function WidgetPageContent() {
                         <p className="text-xs text-muted-foreground mt-0.5 mb-2">
                           {t('widgetPage.behavior.assignmentModeHint')}
                         </p>
+                        {!capAllowed('widget_assignment_routing') && (
+                          <p className="text-xs text-primary mt-0.5 mb-2">{t('plan.locked.upgradeHint')}</p>
+                        )}
                         <Select
-                          value={(widget as any)?.assignment_mode || 'auto'}
+                          disabled={!capAllowed('widget_assignment_routing')}
+                          value={
+                            capAllowed('widget_assignment_routing')
+                              ? ((widget as any)?.assignment_mode || 'auto')
+                              : 'manual'
+                          }
                           onValueChange={(v) => handleToggle('assignment_mode', v as any)}
                         >
                           <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
@@ -651,14 +661,18 @@ function WidgetPageContent() {
                           <p className="text-xs text-muted-foreground mt-1">
                             {t('visitors.storeRawIpHint')}
                           </p>
+                          {!capAllowed('widget_raw_ip_storage') && (
+                            <p className="text-xs text-primary mt-0.5">{t('plan.locked.upgradeHint')}</p>
+                          )}
                         </div>
                       </div>
                       <Switch
-                        checked={(widget as any)?.store_raw_ip ?? false}
+                        disabled={!capAllowed('widget_raw_ip_storage')}
+                        checked={capAllowed('widget_raw_ip_storage') && ((widget as any)?.store_raw_ip ?? false)}
                         onCheckedChange={(v) => handleToggle('store_raw_ip', v)}
                       />
                     </div>
-                    {(widget as any)?.store_raw_ip && (
+                    {capAllowed('widget_raw_ip_storage') && (widget as any)?.store_raw_ip && (
                       <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-warning">
                         <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                         <span>{t('visitors.storeRawIpWarning')}</span>

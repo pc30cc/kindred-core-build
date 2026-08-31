@@ -3565,6 +3565,8 @@ const fa: TranslationKeys = {
         widget_attachments: 'اشتراک فایل',
         widget_voice_notes: 'پیام صوتی',
         widget_emoji: 'انتخابگر ایموجی',
+        widget_assignment_routing: 'واگذاری خودکار گفتگو',
+        widget_raw_ip_storage: 'ذخیره IP خام بازدیدکننده',
       },
       upgradeHint: 'در پلن شما موجود نیست',
       module: {

@@ -3578,6 +3578,8 @@ const en = {
         widget_attachments: 'File Sharing',
         widget_voice_notes: 'Voice Notes',
         widget_emoji: 'Emoji Picker',
+        widget_assignment_routing: 'Automatic Chat Assignment',
+        widget_raw_ip_storage: 'Raw Visitor IP Storage',
       },
       upgradeHint: 'Not included in your plan',
       module: {

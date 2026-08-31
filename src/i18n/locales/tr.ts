@@ -3569,6 +3569,8 @@ const tr: TranslationKeys = {
         widget_attachments: 'Dosya Paylaşımı',
         widget_voice_notes: 'Sesli Notlar',
         widget_emoji: 'Emoji Seçici',
+        widget_assignment_routing: 'Otomatik Sohbet Atama',
+        widget_raw_ip_storage: 'Ham Ziyaretçi IP Saklama',
       },
       upgradeHint: 'Planınıza dahil değil',
       module: {

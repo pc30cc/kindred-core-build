@@ -124,8 +124,47 @@ export async function runGenerationStage(
       confidence: strategy.confidence,
       metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
+
+    // P0-AI — the provider disappeared after /widget/config said the AI was
+    // ready (key deleted, provider disabled, plan change). The engine has
+    // DEFINITIVELY established that no provider can answer this turn, so the
+    // conversation must not stay silently in ai_state=ai_managed: hand it to
+    // humans through the same durable machinery every other terminal
+    // "AI cannot continue" reason uses (commit needs_human FIRST, only then
+    // acknowledge, then route). Idempotent per conversation+reason, so a
+    // second visitor message does not re-send the template.
+    // In suggest_only the AI is operator-facing, so no visitor message.
+    const fallback = await runLimitHandoff(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      question,
+      locale,
+      reason: 'no_ai_provider',
+      settings,
+      suppressVisitorMessage: settings.mode === 'suggest_only',
+      extraMetadata: {
+        language: languageMeta,
+        retrieval: queryMeta,
+        provider_unavailable: true,
+      },
+    }).catch(() => null);
+
+    // Only claim a handoff when the durable transition actually happened.
+    if (fallback && fallback.committed === true) {
+      return {
+        terminal: {
+          ran: true,
+          action: 'handoff',
+          reason: 'no_ai_provider_handoff',
+          runId: fallback.runId || runId,
+          messageId: fallback.messageId,
+        },
+      };
+    }
     return { terminal: { ran: true, action: 'failed', reason: 'no_ai_provider_configured', runId } };
   }
+
 
   // Suggestion dedupe (Phase 2 contract).
   if (decision.canSuggest) {

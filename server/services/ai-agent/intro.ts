@@ -175,7 +175,21 @@ export async function maybeSendIntro(
       return { sent: false, reason: 'suggest_only_no_intro' };
     }
 
+    // P0-AI (BLOCKER) — the client guard is not enough: a direct POST to
+    // /api/widget/ai-agent/intro must not be able to create an AI-managed
+    // conversation the AI cannot actually service. The intro text promises
+    // "I can answer your questions", so it requires a REAL provider, not
+    // just the gates. Fail closed BEFORE conversation creation,
+    // ai_state=ai_managed, the intro message insert and the intro log.
+    // Coarse reason only — never provider/model/key details.
+    const { resolveVisitorAiSnapshot } = await import('./visitorAiSnapshot.js');
+    const aiSnapshot = await resolveVisitorAiSnapshot(config, input.workspaceId, settings);
+    if (aiSnapshot.visitorFacing !== true || aiSnapshot.providerReady !== true) {
+      return { sent: false, reason: 'ai_not_visitor_facing' };
+    }
+
     const sb = getServiceClient(config);
+
 
     // ─── Resolve or create a real conversation ───
     // The intro must live in a real conversation_messages row so it appears

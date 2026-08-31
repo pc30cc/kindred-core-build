@@ -26,7 +26,12 @@ export type LimitReason =
   | 'max_replies_reached'
   | 'rate_limited'
   | 'no_credits'
-  | 'plan_limit_reached';
+  | 'plan_limit_reached'
+  // P0-AI — the provider vanished (deleted/disabled) between the widget
+  // config snapshot and this turn. The AI definitively cannot answer, so
+  // the conversation must leave AI ownership through the same durable
+  // machinery instead of sitting silently in ai_state=ai_managed.
+  | 'no_ai_provider';
 
 /** Localized template — independent of the LLM. */
 export function pickLimitHandoffMessage(
@@ -92,6 +97,8 @@ export interface RunLimitHandoffInput {
 }
 
 export interface RunLimitHandoffResult {
+  /** True only when needs_human was durably persisted (or already was). */
+  committed: boolean;
   sentMessage: boolean;
   duplicate: boolean;
   runId: string | null;
@@ -134,7 +141,7 @@ export async function runLimitHandoff(
   });
 
   if (alreadySent) {
-    return { sentMessage: false, duplicate: true, runId, messageId: null };
+    return { committed: true, sentMessage: false, duplicate: true, runId, messageId: null };
   }
 
   // Always route to human queue, even when fallback_behavior='silent'.
@@ -161,13 +168,13 @@ export async function runLimitHandoff(
       conversationId: input.conversationId,
       commit,
     });
-    return { sentMessage: false, duplicate: false, runId, messageId: null };
+    return { committed: commit.ok === true, sentMessage: false, duplicate: false, runId, messageId: null };
   }
 
   // No acknowledgement when the state transition did not persist — the
   // visitor must never be told they were queued when they were not.
   if (!commit.ok) {
-    return { sentMessage: false, duplicate: false, runId, messageId: null };
+    return { committed: false, sentMessage: false, duplicate: false, runId, messageId: null };
   }
 
   // The ack is inserted AFTER the commit but BEFORE routing, so the routing
@@ -219,7 +226,7 @@ export async function runLimitHandoff(
     }
   } catch { /* best-effort */ }
 
-  return { sentMessage: true, duplicate: false, runId, messageId: inserted.id };
+  return { committed: true, sentMessage: true, duplicate: false, runId, messageId: inserted.id };
 }
 
 /** Detect credit / plan limit errors coming from the AI provider layer. */

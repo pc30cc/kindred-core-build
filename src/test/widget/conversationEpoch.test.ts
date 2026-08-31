@@ -28,6 +28,10 @@ interface Epoch {
 function loadEpoch(): Epoch {
   const win: any = {};
   win.window = win;
+  // P0-4 — the coordinator is only published under an explicit test-hook
+  // opt-in; production embeds never set this, so the customer page cannot
+  // reach bump/adopt/__reset.
+  win.__GS_WIDGET_TEST_HOOKS__ = true;
   win.document = { addEventListener() {}, readyState: 'complete' };
   win.navigator = { userAgent: 'node' };
   win.location = { href: 'http://localhost/', origin: 'http://localhost' };

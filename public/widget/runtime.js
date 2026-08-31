@@ -587,7 +587,17 @@
       __reset: function () { epoch = 1; activeId = null; fresh = false; notify(); },
     };
   })();
-  try { if (typeof window !== 'undefined') window.__gs_conv_epoch = ConvEpoch; } catch (_) {}
+  // P0-4 — the coordinator is INTERNAL. Publishing `bump/adopt/__reset` on
+  // `window` would hand the embedding customer page mutable control over the
+  // visitor's conversation context. It is exposed ONLY when the page has
+  // explicitly opted into test instrumentation before the runtime loads
+  // (`window.__GS_WIDGET_TEST_HOOKS__ = true`), which production embeds never do.
+  try {
+    if (typeof window !== 'undefined' && window.__GS_WIDGET_TEST_HOOKS__ === true) {
+      window.__gs_conv_epoch = ConvEpoch;
+    }
+  } catch (_) {}
+
 
   /** Conversation id of an inbound message frame, whatever shape it has. */
   function frameConversationId(m) {
@@ -6350,9 +6360,35 @@
       if (ConvEpoch.isFresh() || s.freshIntent === true) return 'fresh:' + ConvEpoch.get();
       return 'conv:' + (ConvEpoch.activeId() || s.conversationId || 'pending');
     }
+    /**
+     * P0-AI — the ONE condition under which a visitor-facing AI greeting may
+     * be requested. A greeting claims "the AI can answer you", so it is only
+     * honest when the AI will ACTUALLY converse: gates passed (introCapable),
+     * a resolvable provider (providerReady) and a real visitor-facing mode
+     * (visitorFacing). `introCapable` alone must never put the visitor into
+     * an AI-owned experience — that produced a greeting followed by silence
+     * when no provider was configured.
+     * Every entry flow (chat_open, prechat_submit, future ones) funnels here.
+     */
+    function canRequestVisitorAiIntro() {
+      var ai = ctx.config && ctx.config.aiAgent;
+      return !!(
+        ai &&
+        ai.visitorFacing === true &&
+        ai.providerReady === true &&
+        ai.introCapable === true &&
+        ai.introEnabled !== false
+      );
+    }
     function requestAiAgentIntro(source) {
+      // Fail-closed even if a future call site forgets the guard.
+      if (!canRequestVisitorAiIntro()) {
+        try { console.debug('[Widget AI Agent] intro suppressed (AI not visitor-facing)', source || 'auto'); } catch (_) {}
+        return;
+      }
       var key = aiIntroKey();
       if (__aiIntroKeys[key]) {
+
         try { console.debug('[Widget AI Agent] intro skipped (already requested for this thread)', key); } catch (_) {}
         return;
       }
@@ -6382,7 +6418,14 @@
         }),
       })
 
-        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (r) {
+          // A server-side failure (5xx/4xx) is a RETRYABLE outcome, exactly
+          // like a network error: free this thread's slot now so the next
+          // entry into the chat view can try again instead of leaving the
+          // visitor permanently ungreeted.
+          if (!r || r.ok !== true) { delete __aiIntroKeys[key]; }
+          return r.json().catch(function () { return {}; });
+        })
         .then(function (resp) {
           try { console.debug('[Widget AI Agent] intro response', { sent: resp && resp.sent, reason: resp && resp.reason, messageId: resp && resp.messageId, conversationId: resp && resp.conversationId }); } catch (_) {}
           // P0-2 — the visitor started/opened another conversation while the
@@ -6552,7 +6595,19 @@
     }
 
     function loadConversations(onDone) {
-      if (!chatEnabled) { if (onDone) onDone(); return; }
+      if (!chatEnabled) {
+        // Chat is off for this workspace: there is no thread list to fetch.
+        // Latch `loaded` anyway — renderHome() calls us whenever it is
+        // false and our callback re-renders, so leaving it false made the
+        // pair recurse synchronously until the stack blew (a hard widget
+        // crash on chat-disabled workspaces).
+        if (!(conversationsStore.get() || {}).loaded) {
+          conversationsStore.set({ loaded: true, loading: false, items: [] });
+        }
+        if (onDone) onDone();
+        return;
+      }
+
       var st = conversationsStore.get();
       if (st.loading) return;
       conversationsStore.set({ loading: true });
@@ -6938,7 +6993,10 @@
             // Phase 3 — AI Agent pre-chat intro. Fire-and-forget; never
             // blocks the chat. Backend enforces mode/intro_enabled and
             // dedupes by (conversation_id | session_id).
-            try { requestAiAgentIntro('prechat_submit'); } catch (_) {}
+            // P0-AI — human pre-chat must NOT hand the visitor to an AI that
+            // cannot answer. Same single guard as every other entry flow.
+            try { if (canRequestVisitorAiIntro()) requestAiAgentIntro('prechat_submit'); } catch (_) {}
+
           };
           // HANDOFF_PRECHAT (mid-thread, after an AI conversation already
           // happened) renders fields inline, inside the message list, so the
@@ -6974,7 +7032,7 @@
           // not have the AI cut in front of it. Once that surface is
           // dismissed, the next render (smartSurface null) fires normally.
           if (state.name === ENTRY_FLOW_STATE.AI_CHAT && !smartSurface) {
-            requestAiAgentIntro('chat_open');
+            if (canRequestVisitorAiIntro()) requestAiAgentIntro('chat_open');
           }
         } catch (_) {}
         chatUI.renderChat(mountChatFrame() || body);

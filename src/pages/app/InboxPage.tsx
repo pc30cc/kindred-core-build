@@ -2219,9 +2219,19 @@ export default function InboxPage() {
                           ? 'bg-primary text-primary-foreground rounded-br-sm'
                           : 'bg-secondary text-foreground rounded-bl-sm'
                       )}>
-                        {(msg as { attachment?: MessageAttachment | null }).attachment && (
-                          <MessageAttachmentView att={(msg as { attachment: MessageAttachment }).attachment} t={t} />
-                        )}
+                        {(() => {
+                          const m = msg as { attachment?: MessageAttachment | null; attachments?: MessageAttachment[] | null };
+                          const list = (m.attachments && m.attachments.length ? m.attachments : m.attachment ? [m.attachment] : []);
+                          if (!list.length) return null;
+                          return (
+                            <div className="flex flex-col gap-1.5 mb-1">
+                              {list.map((a) => (
+                                <MessageAttachmentView key={a.id} att={a} t={t} isAgent={isAgent} />
+                              ))}
+                            </div>
+                          );
+                        })()}
+
                         {(() => {
                           // Quoted replies arrive as leading "> author: text" lines.
                           const raw = msg.body || '';

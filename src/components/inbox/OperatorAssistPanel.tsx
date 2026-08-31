@@ -106,7 +106,9 @@ export function OperatorAssistPanel({
       if (!r.suggestion) {
         toast({
           title: t('inbox.aiAssist.noSuggestionTitle'),
-          description: r.safety_notes?.join(', ') || t('inbox.aiAssist.noSuggestionDesc'),
+          description: r.safety_notes?.length
+            ? r.safety_notes.map((n) => noteLabelRef.current(n)).join(' • ')
+            : t('inbox.aiAssist.noSuggestionDesc'),
         });
       }
     } catch (e: any) {
@@ -322,7 +324,7 @@ export function OperatorAssistPanel({
               <div className="mt-2 flex flex-wrap gap-1">
                 {result.safety_notes.map((n) => (
                   <Badge key={n} variant="outline" className="text-[10px] font-normal text-warning border-warning/40">
-                    {n}
+                    {noteLabel(n)}
                   </Badge>
                 ))}
               </div>

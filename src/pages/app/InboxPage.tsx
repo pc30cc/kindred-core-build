@@ -2197,37 +2197,8 @@ export default function InboxPage() {
                       />
                     </div>
                   )}
-                  {/* Send mode — radio-style segmented control. The composer's
-                      Send button (and Enter) applies exactly this action. */}
-                  <div
-                    role="radiogroup"
-                    aria-label={t('inbox.sendActions') || 'Send actions'}
-                    className="inline-flex items-center rounded-lg border border-border/60 bg-secondary/40 p-0.5 text-[11px] font-medium"
-                  >
-                    {(['none', 'wait_for_customer', 'resolve'] as PostSendAction[]).map((a) => {
-                      const Icon = sendActionMeta[a].icon;
-                      const active = a === sendAction;
-                      return (
-                        <button
-                          key={a}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          title={sendActionMeta[a].hint}
-                          onClick={() => chooseSendAction(a)}
-                          className={cn(
-                            'px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5',
-                            active
-                              ? 'bg-background text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          <Icon className={cn('w-3.5 h-3.5', active && 'text-primary')} />
-                          <span>{sendActionMeta[a].short}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {/* Send mode lives on the Send button itself (split button). */}
+
                 </div>
               )}
 
@@ -2402,14 +2373,14 @@ export default function InboxPage() {
                   rows={1}
                   dir={dir}
                 />
-                {/* Send — runs the mode chosen in the radio group above. */}
-                <div className="flex items-stretch shrink-0">
+                {/* Send — split button: main action + mode chooser. */}
+                <div className="flex items-stretch shrink-0 rounded-lg overflow-hidden">
                   <Button
                     onClick={() => handleSend()}
                     disabled={sendDisabled}
                     title={sendActionMeta[sendAction].label}
                     aria-label={sendActionMeta[sendAction].label}
-                    className="h-9 gap-1.5 px-2.5 rounded-lg transition-transform active:scale-95"
+                    className="h-9 gap-1.5 px-2.5 rounded-none transition-transform active:scale-95"
                   >
                     {sendMessage.isPending
                       ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -2420,7 +2391,46 @@ export default function InboxPage() {
                       </span>
                     )}
                   </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        disabled={sendMessage.isPending}
+                        aria-label={t('inbox.sendActions') || 'Send actions'}
+                        className="h-9 w-7 px-0 rounded-none border-s border-primary-foreground/20"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="top" className="w-64">
+                      <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                        {t('inbox.sendActions') || 'Send actions'}
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {(['none', 'wait_for_customer', 'resolve'] as PostSendAction[]).map((a) => {
+                        const Icon = sendActionMeta[a].icon;
+                        const active = a === sendAction;
+                        return (
+                          <DropdownMenuItem
+                            key={a}
+                            onSelect={() => chooseSendAction(a)}
+                            className="gap-2 items-start"
+                          >
+                            <Icon className={cn('w-4 h-4 mt-0.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                            <div className="min-w-0">
+                              <div className={cn('text-[12px]', active && 'font-semibold text-primary')}>
+                                {sendActionMeta[a].label}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground leading-snug">
+                                {sendActionMeta[a].hint}
+                              </div>
+                            </div>
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+
 
               </div>
               <div className="text-[10px] text-muted-foreground/60 mt-1.5 px-1 flex items-center gap-2">

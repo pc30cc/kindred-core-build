@@ -431,6 +431,11 @@ const en = {
     newConversation: 'New conversation',
     previewYou: 'You',
     previewAi: 'AI',
+    previewImage: 'sent a photo',
+    previewAudio: 'sent a voice message',
+    previewVideo: 'sent a video',
+    previewFile: 'sent a file',
+
     noMessages: 'No messages yet',
     emptyNoMatches: 'No matches found',
     emptyAutomated: 'No AI-managed conversations',

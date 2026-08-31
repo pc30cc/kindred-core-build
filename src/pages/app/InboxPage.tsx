@@ -925,14 +925,20 @@ export default function InboxPage() {
       const name = conversationTitle(c, t, locale);
       return name.toLowerCase().includes(search.toLowerCase());
     });
-    // Float unread conversations to the top — within each group keep the
-    // existing updated_at descending order (already applied server-side).
+    // Actionable first: threads where the customer is waiting for US
+    // (needs_reply, derived server-side from the message stream) outrank
+    // merely-unread ones; within each group the server's updated_at DESC
+    // order is preserved (stable sort).
     return [...filtered].sort((a: any, b: any) => {
+      const na = a.needs_reply ? 1 : 0;
+      const nb = b.needs_reply ? 1 : 0;
+      if (na !== nb) return nb - na;
       const ua = (a.unread_count ?? 0) > 0 ? 1 : 0;
       const ub = (b.unread_count ?? 0) > 0 ? 1 : 0;
       if (ua !== ub) return ub - ua;
       return 0;
     });
+
   }, [conversations, search, t, locale]);
 
   const totalUnread = useMemo(() => {

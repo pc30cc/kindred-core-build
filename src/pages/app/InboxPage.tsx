@@ -2156,7 +2156,7 @@ export default function InboxPage() {
                     });
                   }}
                   sendAction={sendAction}
-                  onSendActionChange={chooseSendAction}
+                  
                   onSendNow={(text, action) =>
                     new Promise<boolean>((resolve) => {
                       if (!user) { resolve(false); return; }

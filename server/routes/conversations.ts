@@ -90,6 +90,51 @@ async function authorizeWorkspaceMember(
 }
 
 /**
+ * POST /api/conversations/:conversationId/take-over
+ *
+ * Inbox-owned human takeover. Intentionally lives here (and NOT only under
+ * /api/ai-agent) so an operator can always grab a conversation even when the
+ * AI Agent module is off at platform level or missing from the workspace
+ * plan — otherwise an AI-managed thread could never be handed back to a human.
+ */
+const inboxTakeOverSchema = z.object({
+  workspaceId: z.string().uuid(),
+  assign_to_me: z.boolean().optional().default(true),
+});
+conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const conversationId = String(req.params.conversationId || '');
+  const parsed = inboxTakeOverSchema.safeParse(req.body);
+  if (!conversationId || !parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId, assign_to_me } = parsed.data;
+
+  const sb = getServiceClient(config);
+  const { data: conv } = await sb
+    .from('conversations')
+    .select('id, workspace_id, assigned_to')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (!conv || conv.workspace_id !== workspaceId) {
+    return res.status(404).json({ error: 'conversation_not_found' });
+  }
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  if (assign_to_me && !conv.assigned_to) {
+    await sb.from('conversations').update({ assigned_to: auth.userId }).eq('id', conversationId);
+  }
+  await markHumanTakeover(config, {
+    workspaceId,
+    conversationId,
+    operatorId: auth.userId,
+    reason: 'manual_takeover',
+  });
+  return res.json({ ok: true });
+});
+
+
+
+/**
  * Operator typing — ephemeral realtime-only event.
  *
  * Phase 1 contract:

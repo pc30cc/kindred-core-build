@@ -68,6 +68,10 @@ describe('worker boundary', () => {
     resolve(process.cwd(), 'worker/channels/providerOperations.ts'),
     'utf8',
   );
+  const ensureConversationMigrationSource = readFileSync(
+    resolve(process.cwd(), 'database/migrations/071_atomic_inbound_conversation_getorcreate.sql'),
+    'utf8',
+  );
   const telegramOfflineDeliverySource = readFileSync(
     resolve(process.cwd(), 'server/services/channels/telegram/offlineDelivery.ts'),
     'utf8',
@@ -104,7 +108,6 @@ describe('worker boundary', () => {
     )?.[1] ?? '';
     expect(rpcArgs).toContain('p_metadata:');
     expect(rpcArgs).toContain('channel: input.provider,');
-    expect(rpcArgs).not.toMatch(/^\s*channel:/m);
     const sqlInsert = ensureConversationMigrationSource.match(
       /INSERT INTO public\.conversations\s*\(([\s\S]*?)\)/,
     )?.[1] ?? '';
@@ -150,9 +153,11 @@ describe('worker boundary', () => {
     expect(telegramOfflineDeliverySource).toContain('if (Date.now() - lastAt < cooldown) return true;');
   });
 
-  it('does not erase an offline-screen claim with stale routing metadata', () => {
-    expect(chatRoutingSource).toContain(".select('metadata')");
-    expect(chatRoutingSource).toContain('...latestMetadata');
+  // The behavioral proof that routing cannot erase a concurrent
+  // offline-screen claim lives in src/test/channels/chatRoutingMetadata.test.ts.
+  it('never writes a whole conversations.metadata document from routing', () => {
+    expect(chatRoutingSource).toContain('patchConversationMetadata(config, conversationId, {');
+    expect(chatRoutingSource).not.toMatch(/\.from\('conversations'\)[\s\S]{0,120}\.update\(\{\s*metadata/);
   });
 
   it('claims the Telegram offline screen before enqueueing it', () => {

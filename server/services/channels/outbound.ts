@@ -78,18 +78,27 @@ export async function ensureOutboundIntent(
 }
 
 /**
- * @deprecated Kept as a no-throw compatibility shim for the message send
- * path. The durable intent comes from the DB trigger; this only reconciles
- * environments where migration 049 has not been applied yet.
+ * Reconciles the durable delivery intent for an operator reply and reports
+ * whether the send was ACCEPTED by the transport.
+ *
+ * Success boundary (per project semantics): a widget conversation has no
+ * provider hop, so it is accepted as soon as the message row exists. For a bot
+ * channel (Telegram / Bale / WhatsApp / Instagram) acceptance means a durable
+ * `channel_jobs` row exists — created by the DB trigger in the message's own
+ * transaction, or by this backstop. Actual provider HTTP delivery is the
+ * Channels Worker's retrying concern and is deliberately NOT awaited.
  */
 export async function dispatchOutboundIfChannelConversation(
   config: ServerConfig,
   input: { workspaceId: string; conversationId: string; messageId: string; body: string },
-): Promise<void> {
-  if (!input.body?.trim()) return;
+): Promise<{ accepted: boolean; result: OutboundIntentResult | 'failed' }> {
+  if (!input.body?.trim()) return { accepted: true, result: 'not_a_channel_conversation' };
   try {
-    await ensureOutboundIntent(config, input);
+    const result = await ensureOutboundIntent(config, input);
+    return { accepted: true, result };
   } catch (err) {
     console.warn('[channels] outbound reconciliation failed:', (err as Error).message);
+    return { accepted: false, result: 'failed' };
   }
 }
+

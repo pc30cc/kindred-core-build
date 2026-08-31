@@ -40,6 +40,17 @@ export interface SendMessageResult {
   };
 }
 
+/**
+ * Idempotency key for one logical send attempt. Reused across retries of the
+ * SAME message so the server collapses duplicates (migration 070).
+ */
+export function newClientMessageId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  } catch { /* fall through */ }
+  return `cm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
 /** Split Send actions available in the operator composer. */
 export type PostSendAction = 'none' | 'wait_for_customer' | 'resolve';
 
@@ -58,6 +69,8 @@ export const conversationsApi = {
     metadata?: Record<string, unknown>;
     attachment_id?: string | null;
     post_send_action?: PostSendAction;
+    /** Server-side idempotency key — a retry with the same key sends once. */
+    client_message_id?: string;
   }): Promise<SendMessageResult> {
     const res = await fetch(`${API_BASE}/api/conversations/send-message`, {credentials: 'include', 
       method: 'POST',

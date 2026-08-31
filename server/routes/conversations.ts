@@ -941,12 +941,17 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
     const base = () =>
       sb.from('conversations').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed');
-    const [openRes, pendingRes, resolvedRes, allRes, needsRes] = await Promise.all([
+    /* The AI tab lives outside `base()` scope: it counts exactly the
+       ai_managed threads that base() excludes. */
+    const automatedQuery = sb.from('conversations').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed');
+    const [openRes, pendingRes, resolvedRes, allRes, needsRes, automatedRes] = await Promise.all([
       base().eq('status', 'open'),
       base().eq('status', 'pending'),
       base().in('status', ['resolved', 'closed']),
       base(),
       base().eq('ai_state', 'needs_human'),
+      automatedQuery,
     ]);
     return res.json({
       open: openRes.count ?? 0,
@@ -954,7 +959,9 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
       resolved: resolvedRes.count ?? 0,
       all: allRes.count ?? 0,
       needs_human: needsRes.count ?? 0,
+      automated: automatedRes.count ?? 0,
     });
+
   } catch (err: any) {
     console.error('[conversations inbox-tab-counts] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

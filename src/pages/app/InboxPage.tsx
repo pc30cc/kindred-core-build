@@ -991,6 +991,10 @@ export default function InboxPage() {
             >
               <Inbox className="w-4 h-4" />
               {t('inbox.all') || 'All'}
+              <span
+                aria-hidden={(stableCounts.all || 0) === 0}
+                className={cn(pillCount(allActive), (stableCounts.all || 0) === 0 && 'hidden')}
+              >{stableCounts.all || 0}</span>
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
@@ -1004,9 +1008,14 @@ export default function InboxPage() {
             >
               <Bot className="w-4 h-4" />
               {t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI'}
+              <span
+                aria-hidden={(stableCounts.automated || 0) === 0}
+                className={cn(pillCount(queue === 'automated'), (stableCounts.automated || 0) === 0 && 'hidden')}
+              >{stableCounts.automated || 0}</span>
               <span className={headTabAccent(queue === 'automated')} />
               <span className={headTabSeam(queue === 'automated')} />
             </button>
+
 
             {/* Needs human */}
             <button
@@ -1074,12 +1083,8 @@ export default function InboxPage() {
     <ToolbarPortal>
       <div className="flex h-full items-end gap-2 px-1 pb-0" dir={dir}>
         {toolbarTabsNode}
-        {totalUnread > 0 && (
-          <span className="mb-2 text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold tabular-nums">
-            {totalUnread > 99 ? '99+' : totalUnread}
-          </span>
-        )}
       </div>
+
     </ToolbarPortal>
   );
 

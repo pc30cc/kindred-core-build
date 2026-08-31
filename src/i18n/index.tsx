@@ -3,6 +3,7 @@ import type { Locale, Direction } from './config';
 import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS } from './config';
 import en, { type TranslationKeys } from './locales/en';
 import { loadFontsForLocale } from '@/lib/fonts';
+import { installPersianDigits, uninstallPersianDigits } from '@/lib/persian-digits';
 import { installLocalizedDateDefaults, setAppDateLocale } from '@/lib/date';
 
 const localeModules: Record<Locale, () => Promise<{ default: TranslationKeys }>> = {
@@ -98,7 +99,11 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     loadFontsForLocale(locale);
     installLocalizedDateDefaults();
     setAppDateLocale(locale);
+    if (locale === 'fa') installPersianDigits();
+    else uninstallPersianDigits();
+    return () => { if (locale === 'fa') uninstallPersianDigits(); };
   }, [locale, dir]);
+
 
   const loadLocale = useCallback(async (newLocale: Locale) => {
     setIsLoading(true);

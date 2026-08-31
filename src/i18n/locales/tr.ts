@@ -379,6 +379,7 @@ const tr: TranslationKeys = {
     menuTaps: 'Bot menüsü',
     title: 'Gelen Kutusu',
     needsHuman: 'Operatör gerekli',
+    aiTab: 'Yapay zeka',
     assignedToMe: 'Bana atanan',
     conversations: 'Konuşmalar',
     newConversation: 'Yeni konuşma',

@@ -379,6 +379,7 @@ const fa: TranslationKeys = {
     menuTaps: 'منوی ربات',
     title: 'صندوق ورودی',
     needsHuman: 'نیازمند اپراتور',
+    aiTab: 'هوش مصنوعی',
     assignedToMe: 'ارجاع به من',
     conversations: 'مکالمات',
     newConversation: 'مکالمه جدید',

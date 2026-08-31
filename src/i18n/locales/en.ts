@@ -377,6 +377,7 @@ const en = {
     menuTaps: 'Bot menu',
     title: 'Inbox',
     needsHuman: 'Needs human',
+    aiTab: 'AI',
     assignedToMe: 'Assigned to me',
     conversations: 'Conversations',
     newConversation: 'New conversation',

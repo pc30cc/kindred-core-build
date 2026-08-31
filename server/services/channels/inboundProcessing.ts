@@ -276,13 +276,10 @@ export async function processInboundMessage(
       });
     }
 
-    // Customer replied on a channel thread parked as "awaiting reply" —
-    // put it back in the active queue before the message lands.
-    await resumeConversationIfPending(config, {
-      workspaceId: input.workspaceId,
-      conversationId: conversation.id,
-      source: input.provider,
-    });
+    // NOTE: the "awaiting customer reply" resume does NOT happen here. It runs
+    // after the message is committed AND after the provider flow has told us
+    // whether this was real content or a menu tap — see below.
+
 
     const { data: insertedMsg, error: msgError } = await sb
       .from('conversation_messages')
@@ -389,6 +386,26 @@ export async function processInboundMessage(
         .update({ updated_at: new Date().toISOString() })
         .eq('id', conversation.id);
     }
+
+    // Customer replied on a channel thread parked as "awaiting reply" — put it
+    // back in the active queue. Runs AFTER the message is committed and AFTER
+    // the menu router verdict, so a `/start` or menu-keyboard tap (navigation,
+    // not content) can never un-park a thread. Provider status/echo events
+    // never reach this far: they are dropped by the normalizers.
+    await resumeConversationIfPending(config, {
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+      source: input.provider,
+      messageId: (insertedMsg as any).id,
+      message: {
+        senderType: (insertedMsg as any).sender_type,
+        direction: 'inbound',
+        text: input.text,
+        attachmentCount: input.attachments?.length ?? 0,
+        isMenuEvent: Boolean(menuCommand),
+      },
+    });
+
 
     // Inbox realtime — identical envelope to widget traffic. Menu taps stay
     // silent: no realtime ping, no operator notification.

@@ -1705,11 +1705,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         convId = null; // Will create new conversation
       } else {
         const conv = ownership.conversation;
-        if (['closed', 'resolved', 'pending'].includes(conv.status)) {
+        // Reopening a resolved/closed thread keeps its existing (silent)
+        // behaviour. `pending` is deliberately NOT touched here: it is a
+        // customer-reply transition and must go through
+        // resumeConversationIfPending so it emits the timeline event.
+        if (['closed', 'resolved'].includes(conv.status)) {
           await supabase.from('conversations')
             .update({ status: 'open', updated_at: new Date().toISOString() })
             .eq('id', convId);
         }
+
       }
     }
 
@@ -1752,10 +1757,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           }
           if (existingConv) {
             convId = existingConv.id;
+            // Only resolved/closed threads are silently reopened here;
+            // `pending` belongs to the customer-reply transition below.
             await supabase.from('conversations')
               .update({ status: 'open', updated_at: new Date().toISOString() })
-              .eq('id', convId);
+              .eq('id', convId)
+              .in('status', ['resolved', 'closed']);
           }
+
         }
       }
 
@@ -1789,10 +1798,12 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
             .order('updated_at', { ascending: false }).limit(1).maybeSingle();
           if (openConv) {
             convId = openConv.id;
+            // `pending` is left alone on purpose — see above.
             await supabase.from('conversations')
-              .update({ status: 'open', updated_at: new Date().toISOString() })
+              .update({ updated_at: new Date().toISOString() })
               .eq('id', convId);
           }
+
         }
       }
     }
@@ -1881,15 +1892,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       }
     }
 
-    // "Awaiting customer reply" threads return to the active queue as soon
-    // as the customer writes again. Conditional + idempotent.
-    if (convId) {
-      await resumeConversationIfPending(config, {
-        workspaceId,
-        conversationId: convId,
-        source: 'widget',
-      });
-    }
+    // NOTE: the "awaiting customer reply" resume runs AFTER the visitor
+    // message is committed (below), so a failed insert can never un-park a
+    // thread that has no new customer reply.
+
 
     // Insert visitor message (body may be empty when only an attachment is sent)
     const messageBody = body.message || (data.attachment_id ? '' : '');
@@ -1910,6 +1916,25 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
     if (msgErr) throw msgErr;
+
+    // "Awaiting customer reply" threads return to the active queue as soon as
+    // the customer writes again. Conditional, atomic and idempotent; the
+    // shared guard rejects anything that is not a real inbound customer message.
+    if (convId && insertedMsg?.id) {
+      await resumeConversationIfPending(config, {
+        workspaceId,
+        conversationId: convId,
+        source: 'widget',
+        messageId: insertedMsg.id,
+        message: {
+          senderType: insertedMsg.sender_type,
+          direction: 'inbound',
+          text: messageBody,
+          attachmentCount: data.attachment_id ? 1 : 0,
+        },
+      });
+    }
+
 
     // Phase 6a — Bind uploaded attachment to this message + conversation
     if (data.attachment_id && insertedMsg?.id) {
@@ -2363,11 +2388,15 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
       const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
       if (!ownership.valid) return res.json({ ok: false, not_found: true });
       const conv = ownership.conversation;
-      if (['closed', 'resolved', 'pending'].includes(conv.status)) {
+      // `pending` is intentionally excluded: reopening the panel is not a
+      // reply. The visitor's next actual message resumes the thread through
+      // resumeConversationIfPending, which records the timeline event.
+      if (['closed', 'resolved'].includes(conv.status)) {
         await supabase.from('conversations')
           .update({ status: 'open', updated_at: new Date().toISOString() })
           .eq('id', conversation_id);
       }
+
       return res.json({ ok: true, status: 'open' });
     }
 

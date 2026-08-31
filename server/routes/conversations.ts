@@ -660,8 +660,20 @@ conversationsRouter.patch('/:id', async (req, res) => {
         auditAction: 'conversation.status_changed',
         oldValue: { status: before.status },
         newValue: { status: parsed.data.status },
-        payload: { from: before.status, to: parsed.data.status },
+        // Machine-readable reason so an operator reopen is never confused
+        // with the automatic `customer_replied` resume.
+        payload: {
+          from: before.status,
+          to: parsed.data.status,
+          reason:
+            parsed.data.status === 'open' && before.status !== 'open'
+              ? 'manually_reopened'
+              : 'manual_status_change',
+          source: 'operator_status_change',
+        },
+
       });
+
     }
 
     if (parsed.data.priority !== undefined && before.priority !== parsed.data.priority) {

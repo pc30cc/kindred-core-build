@@ -2737,14 +2737,31 @@ export default function InboxPage() {
             onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
-          <div className={cn(
-            'flex w-[300px] max-w-[88vw] border-s border-border flex-col bg-card shrink-0 overflow-hidden',
-            // Mobile/tablet: drawer
-            'fixed top-0 bottom-0 z-50 shadow-elevated lg:shadow-none',
-            dir === 'rtl' ? 'left-0' : 'right-0',
-            // Desktop: inline
-            'lg:static lg:z-auto lg:w-[280px]',
-          )}>
+          <div
+            className={cn(
+              'flex max-w-[88vw] border-s border-border flex-col bg-card shrink-0 overflow-hidden relative',
+              // Mobile/tablet: drawer
+              'fixed top-0 bottom-0 z-50 shadow-elevated lg:shadow-none',
+              dir === 'rtl' ? 'left-0' : 'right-0',
+              // Desktop: inline
+              'lg:static lg:z-auto',
+              !isDesktop && 'w-[300px]',
+            )}
+            style={isDesktop ? { width: sidebarWidth } : undefined}
+          >
+          {/* Resize handle (desktop) */}
+          <div
+            onMouseDown={() => setIsResizingSidebar(true)}
+            onDoubleClick={() => setSidebarWidth(300)}
+            className={cn(
+              'hidden lg:block absolute inset-y-0 w-1.5 cursor-col-resize z-20 hover:bg-primary/30 transition-colors',
+              isResizingSidebar && 'bg-primary/40'
+            )}
+            style={{ insetInlineStart: -3 }}
+            role="separator"
+            aria-orientation="vertical"
+          />
+
           {/* Invitation-first call entry point (replaces legacy queue dock + panel) */}
           {workspace?.id && selectedId && (
             <div className="p-2.5 border-b border-border bg-card/40">

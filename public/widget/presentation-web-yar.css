@@ -167,12 +167,16 @@
   overflow-x: hidden !important;
   scrollbar-width: thin;
   scrollbar-color: #e0e1e6 transparent;
-  scrollbar-gutter: stable;
+  /* Reserve the gutter on BOTH edges so the scrollbar never makes the two
+     sides of a surface unequal (the leading edge kept its full padding
+     while the trailing edge lost 6px to the bar). */
+  scrollbar-gutter: stable both-edges;
   overscroll-behavior: contain;
 }
 .wy-scroll::-webkit-scrollbar { width: 6px; }
 .wy-scroll::-webkit-scrollbar-thumb { background: #e0e1e6; border-radius: 4px; }
 .wy-scroll::-webkit-scrollbar-track { background: transparent; }
+
 
 
 .wy-body-pad { display: flex; flex-direction: column; flex: 1; min-height: 0; }

@@ -91,21 +91,143 @@ function humanSize(n: number): string {
   return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
 }
 
+/** Operator-side stream proxy — session auth + workspace membership. */
+function attachmentUrl(id: string, disposition?: 'attachment'): string {
+  return `${API_BASE}/api/conversation-attachments/${encodeURIComponent(id)}/file${
+    disposition ? `?disposition=${disposition}` : ''
+  }`;
+}
+
+function clockTime(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
 /**
- * Attachment renderer for inbox messages. Always loads via the backend
- * proxy /api/widget/attachments/:id (same route the visitor widget uses,
- * re-checks workspace + conversation ownership). Provider URLs never reach
+ * WhatsApp-style voice/audio player for inbound and outbound audio
+ * attachments. Streams from the operator proxy (Range-enabled) so seeking
+ * works on long recordings.
+ */
+function AudioAttachmentPlayer({
+  att,
+  isAgent,
+}: {
+  att: { id: string; file_name: string; size_bytes: number };
+  isAgent: boolean;
+}) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [rate, setRate] = useState(1);
+
+  const toggle = () => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.paused) { void el.play(); } else { el.pause(); }
+  };
+  const cycleRate = () => {
+    const next = rate === 1 ? 1.5 : rate === 1.5 ? 2 : 1;
+    setRate(next);
+    if (ref.current) ref.current.playbackRate = next;
+  };
+
+  const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
+
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2.5 rounded-xl px-2.5 py-2 min-w-[230px] max-w-[300px] border',
+        isAgent ? 'bg-primary-foreground/10 border-primary-foreground/20' : 'bg-background/70 border-border',
+      )}
+    >
+      <audio
+        ref={ref}
+        src={attachmentUrl(att.id)}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setCurrent(0); }}
+        onLoadedMetadata={(e) => setDuration((e.target as HTMLAudioElement).duration || 0)}
+        onTimeUpdate={(e) => setCurrent((e.target as HTMLAudioElement).currentTime || 0)}
+        className="hidden"
+      />
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={playing ? 'Pause' : 'Play'}
+        className={cn(
+          'w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors',
+          isAgent ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-primary/10 text-primary hover:bg-primary/20',
+        )}
+      >
+        {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ms-0.5" />}
+      </button>
+      <div className="flex-1 min-w-0">
+        <input
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.1}
+          value={current}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setCurrent(v);
+            if (ref.current) ref.current.currentTime = v;
+          }}
+          className={cn(
+            'w-full h-1 appearance-none rounded-full cursor-pointer',
+            isAgent ? 'accent-primary-foreground' : 'accent-primary',
+          )}
+          style={{
+            background: `linear-gradient(to right, currentColor ${pct}%, rgba(127,127,127,.28) ${pct}%)`,
+          }}
+        />
+        <div className="flex items-center justify-between mt-1 text-[10px] opacity-80">
+          <span className="inline-flex items-center gap-1">
+            <Mic className="w-3 h-3" />
+            <bdi>{clockTime(current)} / {clockTime(duration)}</bdi>
+          </span>
+          <button type="button" onClick={cycleRate} className="px-1 rounded hover:bg-black/10">
+            {rate}×
+          </button>
+        </div>
+      </div>
+      <a
+        href={attachmentUrl(att.id, 'attachment')}
+        download={att.file_name}
+        className="shrink-0 opacity-70 hover:opacity-100"
+        aria-label="Download"
+      >
+        <Download className="w-3.5 h-3.5" />
+      </a>
+    </div>
+  );
+}
+
+/**
+ * Attachment renderer for inbox messages — images render inline, audio gets
+ * a player, video gets a native player, everything else is a download card.
+ * Media always streams through the backend proxy; provider URLs never reach
  * the client.
  */
 function MessageAttachmentView({
   att,
   t,
+  isAgent = false,
 }: {
-  att: { id: string; file_name: string; mime_type: string; size_bytes: number; kind: 'image' | 'file' };
+  att: { id: string; file_name: string; mime_type: string; size_bytes: number; kind: string };
   t: (key: any) => string;
+  isAgent?: boolean;
 }) {
-  const url = `${API_BASE}/api/widget/attachments/${encodeURIComponent(att.id)}`;
-  const isImage = att.kind === 'image' || /^image\//.test(att.mime_type);
+  const url = attachmentUrl(att.id);
+  const mime = att.mime_type || '';
+  const isImage = att.kind === 'image' || /^image\//.test(mime);
+  const isAudio = att.kind === 'audio' || /^audio\//.test(mime);
+  const isVideo = att.kind === 'video' || /^video\//.test(mime);
+
   if (isImage) {
     return (
       <a href={url} target="_blank" rel="noopener noreferrer" className="block max-w-[280px] rounded-lg overflow-hidden border border-border">
@@ -113,9 +235,17 @@ function MessageAttachmentView({
       </a>
     );
   }
+  if (isAudio) {
+    return <AudioAttachmentPlayer att={att} isAgent={isAgent} />;
+  }
+  if (isVideo) {
+    return (
+      <video src={url} controls preload="metadata" className="block max-w-[300px] rounded-lg border border-border" />
+    );
+  }
   return (
     <a
-      href={url}
+      href={attachmentUrl(att.id, 'attachment')}
       target="_blank"
       rel="noopener noreferrer"
       download={att.file_name}
@@ -132,6 +262,7 @@ function MessageAttachmentView({
     </a>
   );
 }
+
 
 // ─── Constants ───
 const statusColors: Record<string, string> = {

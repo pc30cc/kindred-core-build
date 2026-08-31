@@ -6583,6 +6583,19 @@
     // belong to this visitor. Core owns the state; the template owns markup.
     var conversationsStore = createStore({ loaded: false, loading: false, items: [] });
 
+    /** BCP47 tag for the active widget locale (Jalali calendar for fa). */
+    function localeTag(calendar) {
+      var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+      if (l === 'fa') return calendar ? 'fa-IR-u-ca-persian' : 'fa-IR';
+      if (l === 'tr') return 'tr-TR';
+      return 'en-US';
+    }
+
+    /**
+     * Localized relative time for the thread list. Uses Intl.RelativeTimeFormat
+     * so Persian renders "۵ دقیقه پیش" instead of a raw latin "5m", and falls
+     * back to a localized absolute date for anything older than a month.
+     */
     function relativeTimeLabel(iso) {
       try {
         var ts = new Date(iso).getTime();
@@ -6590,12 +6603,26 @@
         var diff = Math.max(0, Date.now() - ts);
         var mins = Math.floor(diff / 60000);
         if (mins < 1) return t('convJustNow') !== 'convJustNow' ? t('convJustNow') : 'now';
-        if (mins < 60) return mins + 'm';
         var hrs = Math.floor(mins / 60);
-        if (hrs < 24) return hrs + 'h';
-        return Math.floor(hrs / 24) + 'd';
+        var days = Math.floor(hrs / 24);
+        if (days >= 30) {
+          return new Date(ts).toLocaleDateString(localeTag(true), {
+            month: 'short', day: 'numeric',
+            year: days >= 365 ? 'numeric' : undefined,
+          });
+        }
+        var value, unit;
+        if (mins < 60) { value = -mins; unit = 'minute'; }
+        else if (hrs < 24) { value = -hrs; unit = 'hour'; }
+        else if (days < 7) { value = -days; unit = 'day'; }
+        else { value = -Math.floor(days / 7); unit = 'week'; }
+        if (typeof Intl !== 'undefined' && Intl.RelativeTimeFormat) {
+          return new Intl.RelativeTimeFormat(localeTag(), { numeric: 'auto' }).format(value, unit);
+        }
+        return Math.abs(value) + unit.charAt(0);
       } catch (_) { return ''; }
     }
+
 
     function mapConversationVm(c) {
       return {

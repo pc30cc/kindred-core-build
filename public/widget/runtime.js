@@ -2900,8 +2900,11 @@
     function renderEmpty(body) {
       // Presentation owns the markup — Core only decides WHAT to show.
       body.innerHTML = Presentation.emptyHtml();
+      lastRenderedRowCount = 0;
+      lastRenderedChatHtml = null;
       body.scrollTop = body.scrollHeight;
     }
+
 
     // ─── Phase 6b — attachment renderer (provider-safe) ───
     // Always loads files via the backend proxy route /api/widget/attachments/:id.

@@ -1395,20 +1395,9 @@ export default function InboxPage() {
             </div>
           </div>
 
-          {/* Search */}
-          <div className="relative">
-            <Search className={cn('absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground', dir === 'rtl' ? 'right-2.5' : 'left-2.5')} />
-            <Input
-              placeholder={t('inbox.search') || 'Search conversations...'}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className={cn('h-9 text-[13px] bg-secondary/50 border-transparent focus:border-primary/30', dir === 'rtl' ? 'pr-8' : 'pl-8')}
-              dir={dir}
-            />
-          </div>
-
           {/* Filter tabs (status + AI + extra chips) — live inside the list */}
           {filterTabsNode}
+
 
           {/* Queue context line (Automated / Spam) */}
           {isQueueMode && (

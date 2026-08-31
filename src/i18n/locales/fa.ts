@@ -3558,6 +3558,15 @@ const fa: TranslationKeys = {
       currentPlan: 'پلن رایگان',
       action: 'ارتقای پلن',
       back: 'بازگشت',
+      feature: {
+        widget_smart_engagement: 'هوشمندسازی',
+        widget_business_hours: 'ساعات پاسخگویی',
+        widget_domain_allowlist: 'دامنه‌های مجاز',
+        widget_attachments: 'اشتراک فایل',
+        widget_voice_notes: 'پیام صوتی',
+        widget_emoji: 'انتخابگر ایموجی',
+      },
+      upgradeHint: 'در پلن شما موجود نیست',
       module: {
         ai_assistant: 'دستیار هوشمند',
         call_center: 'مرکز تماس',
@@ -3953,6 +3962,7 @@ const fa: TranslationKeys = {
       remove: 'حذف',
       invalid: 'لطفاً یک دامنه معتبر وارد کنید (مثلاً example.com)',
       duplicate: 'این دامنه قبلاً اضافه شده است',
+      limitReached: 'پلن شما فقط اجازهٔ {max} دامنه را می‌دهد',
       allowSubdomains: 'اجازه به زیردامنه‌ها',
       allowSubdomainsHint: 'مثلاً app.example.com و shop.example.com',
     },

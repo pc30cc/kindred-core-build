@@ -30,7 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import {
   Inbox, Send, CheckCircle2, Filter, Plus, MessageSquare,
-  ChevronDown, Search, MoreHorizontal, Archive,
+  ChevronDown, ChevronUp, Search, MoreHorizontal, Archive,
   UserCheck, AlertCircle, Clock, Star, X,
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, Paperclip, RefreshCw,
@@ -787,6 +787,7 @@ export default function InboxPage() {
   /* Split Send — the agent's preferred action is remembered per agent
      (localStorage, user-scoped). Enter runs exactly this action. */
   const [sendAction, setSendAction] = useState<PostSendAction>('none');
+  const [sendMenuOpen, setSendMenuOpen] = useState(false);
   useEffect(() => { setSendAction(readSendActionPref(user?.id)); }, [user?.id]);
   const chooseSendAction = (action: PostSendAction) => {
     setSendAction(action);

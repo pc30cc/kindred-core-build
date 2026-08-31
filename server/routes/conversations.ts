@@ -344,11 +344,31 @@ conversationsRouter.post('/send-message', async (req, res) => {
       );
     }
 
+    // Split Send — optional status transition, applied ONLY now that the
+    // message really exists. Shared by every channel (widget / Telegram /
+    // WhatsApp / …) because they all send through this route.
+    const postSend = await applyPostSendAction(config, {
+      action: parsed.data.post_send_action,
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      actorId: auth.userId,
+      messageId: inserted.id,
+      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+        || req.socket?.remoteAddress || null,
+    });
+
     return res.json({
       ok: true,
       message: enriched,
       realtime: { published: pub.ok, reason: pub.reason ?? null },
+      post_send: {
+        action: parsed.data.post_send_action,
+        changed: postSend.changed,
+        status: postSend.status ?? null,
+        reason: postSend.reason ?? null,
+      },
     });
+
   } catch (err: any) {
     console.error('[conversations/send-message] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

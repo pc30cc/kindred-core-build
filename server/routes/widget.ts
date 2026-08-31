@@ -747,9 +747,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
     const presentationJsName = getWidgetAssetName(templateAssets.script);
     const presentationCssName = getWidgetAssetName(templateAssets.style);
-    // Optional, template-owned font asset (hashed). The loader stays generic:
-    // it just injects whatever stylesheet this points at, if any.
-    const presentationFontsCssName = getWidgetAssetName(templateAssets.fonts);
+    // Optional, template-owned font asset (hashed). Resolved existence-aware:
+    // templates that ship no font asset yield `null`, so the loader never
+    // requests a 404. The loader stays generic either way.
+    const presentationFontsCssName = getOptionalWidgetAssetName(templateAssets.fonts);
+
 
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');

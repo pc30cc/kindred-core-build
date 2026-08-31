@@ -1855,7 +1855,7 @@ export default function InboxPage() {
                 Mirrors WhatsApp/Intercom/Crisp behavior so operators read their
                 own replies on the side closest to the composer. */}
             <div
-              className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-4 bg-background overscroll-contain"
+              className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 bg-background overscroll-contain"
               ref={messagesContainerRef}
               role="log"
               aria-live="polite"

@@ -31,9 +31,26 @@ export const WIDGET_SETTING_CAPABILITY: Record<string, string> = {
   emoji_enabled: 'widget_emoji',
   smart_engagement_enabled: 'widget_smart_engagement',
   store_raw_ip: 'widget_raw_ip_storage',
+  show_team_avatars: 'widget_team_avatars',
+  show_logo: 'widget_workspace_logo',
+};
+
+/**
+ * Appearance fields the workspace may only author when the plan allows it.
+ * When denied the column is reset to `reset` (null → locale/platform default)
+ * both on save and in the outgoing bootstrap payload.
+ */
+export const WIDGET_CUSTOMIZATION_CAPABILITY: Record<string, { capability: string; reset: unknown }> = {
+  reply_time_text: { capability: 'widget_reply_time_text', reset: null },
+  welcome_message: { capability: 'widget_welcome_message', reset: null },
+  fab_label: { capability: 'widget_launcher_label', reset: null },
+  fab_scale: { capability: 'widget_launcher_size', reset: 100 },
+  fab_icon: { capability: 'widget_launcher_icon', reset: 'chat' },
+  placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
 };
 
 const MODULE_KEYS = new Set(['chat', 'knowledge_base', 'visitor_tracking']);
+
 
 export interface WidgetEntitlements {
   /** capability key → allowed */

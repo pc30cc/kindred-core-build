@@ -720,6 +720,7 @@ adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
   res.setHeader('Content-Type', ct);
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader(
     'Content-Disposition',

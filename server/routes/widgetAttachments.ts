@@ -379,6 +379,7 @@ widgetAttachmentsRouter.get('/:id', widgetRateLimit('default'), async (req: Requ
     `inline; filename="${row.file_name.replace(/"/g, '')}"`
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   return res.send(dl.data);
 });
 

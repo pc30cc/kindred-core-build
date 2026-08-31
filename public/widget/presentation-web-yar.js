@@ -458,11 +458,8 @@
       var qnaState = view.qna || { questions: [], expanded: false };
       var rrCfg = ctx.config && ctx.config.readReceipts;
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
-      var lastVisitorIdx = -1;
-      for (var lv = s.messages.length - 1; lv >= 0; lv--) {
-        if (s.messages[lv].sender === 'visitor') { lastVisitorIdx = lv; break; }
-      }
       var html = '<div class="messages">';
+
       var groupKeys = s.messages.map(function (m) {
         return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
       });

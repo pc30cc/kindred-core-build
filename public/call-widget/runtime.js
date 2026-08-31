@@ -637,13 +637,14 @@
     link.rel = 'stylesheet';
     link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
-    // Load Vazirmatn from Google Fonts for Persian rendering (idempotent).
+    // Self-hosted font faces (no third-party CDN). Injected at document level
+    // so the shadow root can use them; idempotent per page.
     try {
-      if (!document.getElementById('ccw-vazirmatn-font')) {
-        var pre1 = document.createElement('link'); pre1.id = 'ccw-vazirmatn-font';
-        pre1.rel = 'stylesheet';
-        pre1.href = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800;900&display=swap';
-        document.head.appendChild(pre1);
+      if (!document.getElementById('ccw-widget-fonts')) {
+        var fl = document.createElement('link'); fl.id = 'ccw-widget-fonts';
+        fl.rel = 'stylesheet';
+        fl.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
+        document.head.appendChild(fl);
       }
     } catch (_) {}
     var root = document.createElement('div');

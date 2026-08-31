@@ -2917,22 +2917,24 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
     const locale = String(req.query.locale || '').toLowerCase().split('-')[0];
     let article: { id: string } | null = null;
     if (locale) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('knowledge_base_articles')
         .select('id')
         .eq('workspace_id', workspaceId)
         .eq('slug', slug)
         .eq('locale', locale)
         .limit(1);
+      if (error) throw error;
       article = data?.[0] || null;
     }
     if (!article) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('knowledge_base_articles')
         .select('id')
         .eq('workspace_id', workspaceId)
         .eq('slug', slug)
         .limit(1);
+      if (error) throw error;
       article = data?.[0] || null;
     }
     if (!article) return res.status(404).json({ error: 'article_not_found' });
@@ -2943,7 +2945,7 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
     const visitorId = cookie?.v || (req.query.visitor_id as string) || null;
     let visitorSessionId: string | null = null;
     if (visitorId) {
-      const { data: session } = await supabase
+      const { data: session, error: sessionError } = await supabase
         .from('visitor_sessions')
         .select('id')
         .eq('workspace_id', workspaceId)
@@ -2951,6 +2953,7 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
         .order('last_seen_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (sessionError) throw sessionError;
       visitorSessionId = session?.id || null;
     }
 
@@ -2964,10 +2967,34 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
     };
 
     if (visitorSessionId) {
-      const { error } = await supabase
+      // The de-duplication index is partial (session_id IS NOT NULL).
+      // PostgREST upsert cannot infer a partial unique index from
+      // `on_conflict=article_id,visitor_session_id` and returns PostgreSQL
+      // 42P10. Update-first preserves overwrite semantics without depending
+      // on constraint inference; the insert race is resolved by retrying the
+      // update after a unique violation.
+      const { data: updated, error: updateError } = await supabase
         .from('kb_article_feedback')
-        .upsert(row, { onConflict: 'article_id,visitor_session_id' });
-      if (error) throw error;
+        .update({ rating: row.rating, updated_at: row.updated_at })
+        .eq('article_id', row.article_id)
+        .eq('visitor_session_id', visitorSessionId)
+        .select('id')
+        .limit(1);
+      if (updateError) throw updateError;
+
+      if (!updated?.length) {
+        const { error: insertError } = await supabase.from('kb_article_feedback').insert(row);
+        if (insertError && insertError.code === '23505') {
+          const { error: retryError } = await supabase
+            .from('kb_article_feedback')
+            .update({ rating: row.rating, updated_at: row.updated_at })
+            .eq('article_id', row.article_id)
+            .eq('visitor_session_id', visitorSessionId);
+          if (retryError) throw retryError;
+        } else if (insertError) {
+          throw insertError;
+        }
+      }
     } else {
       // No resolvable session — record an un-deduplicated anonymous vote
       // rather than rejecting the feedback outright.

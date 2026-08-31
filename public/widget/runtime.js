@@ -7294,8 +7294,14 @@
         renderSmartDock();
       } else if (tab === 'help') {
         if (inputBar) inputBar.style.display = 'none';
-        kbUI.ensure(function () { kbUI.render(body); });
+        // Knowledge Base cold entry: articles are fetched lazily, so paint the
+        // KB skeleton first and swap it for the real list when it resolves.
+        if (!(kbStore.get() || {}).loaded) renderLoading('articles');
+        kbUI.ensure(function () {
+          if (shellStore.get().activeTab === 'help') kbUI.render(body);
+        });
       }
+
     }
 
     // Pass 2 — re-render whenever the in-panel call surface changes so

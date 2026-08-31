@@ -219,7 +219,7 @@ describe('ingest wiring', () => {
   it('channels resume AFTER dedupe and AFTER message persistence', () => {
     const dedupe = inbound.indexOf("from('channel_inbound_events')");
     const insert = inbound.indexOf("sender_type: 'contact'");
-    const resume = inbound.indexOf('await resumeConversationIfPending');
+    const resume = inbound.indexOf('await applyInboundConversationLifecycle');
     expect(dedupe).toBeGreaterThan(-1);
     expect(insert).toBeGreaterThan(dedupe);
     expect(resume).toBeGreaterThan(insert);

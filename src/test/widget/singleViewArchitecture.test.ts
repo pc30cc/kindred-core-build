@@ -97,9 +97,9 @@ describe('every view renders exactly one header/footer', () => {
     expect(c).toMatchObject({ headers: 1, footers: 1, composers: 0, inputs: 0, chatHeaders: 0 });
   });
 
-  it('Home: at most 2 recent conversations, chips stay visible alongside them', () => {
+  it('Home: at most 3 recent conversations, chips stay visible alongside them', () => {
     const el = dom(r.homeHtml(homeVm));
-    expect(el.querySelectorAll('.home-recent [data-conversation-open]').length).toBe(2);
+    expect(el.querySelectorAll('.home-recent [data-conversation-open]').length).toBe(3);
     expect(el.querySelectorAll('.home-chip[data-home-article]').length).toBe(2);
     // No duplicate "Articles" action button — chips are the only entry point.
     expect(el.querySelectorAll('.wy-actions [data-view="help"]').length).toBe(0);

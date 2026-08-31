@@ -56,8 +56,8 @@ describe('production panel positioning contract', () => {
     expect(css).toContain('bottom: calc(24px + var(--gs-fab-size, 56px) + 14px)');
     expect(css).toMatch(/\.panel\.bottom-right\s*\{[\s\S]*?right:\s*24px/);
     expect(css).toMatch(/\.panel\.bottom-left\s*\{[\s\S]*?left:\s*24px/);
-    expect(css).toMatch(/width:\s*400px/);
-    expect(css).toMatch(/height:\s*640px/);
+    expect(css).toMatch(/width:\s*420px/);
+    expect(css).toMatch(/height:\s*680px/);
     expect(css).toMatch(/max-height:\s*calc\(100dvh - 118px\)/);
   });
 
@@ -127,7 +127,7 @@ describe('home surface — design renderVals() contract', () => {
     // renderVals(): showArticleChips true, showArticlesButton false.
     expect(js).toContain('var showChips = vm.kbEnabled && articles.length > 0;');
     expect(js).toContain('var showArticlesButton = false;');
-    expect(js).toContain('slice(0, 2)');
+    expect(js).toContain('slice(0, 3)');
   });
 
   it('the footer credits the platform, not the workspace brand', () => {

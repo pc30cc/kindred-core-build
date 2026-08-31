@@ -787,7 +787,9 @@
       vm = vm || {};
       var rtl = !!vm.rtl;
       var online = !!vm.isOnline;
-      var convs = (vm.conversations || []).slice(0, 2);
+      // P1 — Home shows at most 3 recent threads (design source of truth);
+      // the full list stays reachable via the conversations view.
+      var convs = (vm.conversations || []).slice(0, 3);
       var hasThreads = convs.length > 0;
       var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
       var articles = (vm.articles || []);
@@ -1014,8 +1016,11 @@
       // article -> articles, articles -> home (design §16).
       var head = isArticle
         ? '<div class="wy-head wy-head-article">' +
-            '<button type="button" class="wy-back" data-kb-action="back" aria-label="' + esc(tf('back', 'Back')) + '">' +
-              ICON.back + '</button>' +
+            // P1 — generic back control: the shell resolves "back" as a real
+            // step back inside the current view (article -> results/list) and
+            // only falls back to the named tab when there is nowhere to go.
+            '<button type="button" class="wy-back" data-view-back="back" data-view-back-fallback="home"' +
+              ' aria-label="' + esc(tf('back', 'Back')) + '">' + ICON.back + '</button>' +
             identityAvatarHtml('sm') +
             '<div class="wy-head-plain wy-head-article-title">' + esc((vm.article && vm.article.title) || '') + '</div>' +
           '</div>'

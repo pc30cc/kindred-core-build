@@ -24,7 +24,15 @@ export interface IntroInput {
   visitorSessionId?: string | null;
   visitorId?: string | null;
   locale?: string;
+  /**
+   * P0-F — the visitor explicitly asked for a brand new thread. When set,
+   * the intro MUST NOT resolve or reuse any existing conversation: it
+   * creates a fresh one, so the greeting lands in the thread the visitor
+   * is actually looking at instead of resurrecting the previous one.
+   */
+  forceNewConversation?: boolean;
 }
+
 
 export interface IntroResult {
   sent: boolean;
@@ -174,9 +182,12 @@ export async function maybeSendIntro(
     // in history on reload and is visible in the operator inbox. If the
     // widget hasn't created a conversation yet (just finished pre-chat),
     // we resolve an existing open one or create a new one here.
-    let conversationId = input.conversationId || null;
+    // P0-F — an explicit force-new intent disables BOTH reuse lookups and
+    // ignores any stale conversation id the client may still be carrying.
+    const forceNew = input.forceNewConversation === true;
+    let conversationId = forceNew ? null : (input.conversationId || null);
 
-    if (!conversationId && input.visitorSessionId) {
+    if (!forceNew && !conversationId && input.visitorSessionId) {
       const { data: existing } = await sb
         .from('conversations')
         .select('id')
@@ -195,7 +206,7 @@ export async function maybeSendIntro(
     // No session id yet (widget opened before a visitor session was
     // negotiated): fall back to the visitor id so the intro re-uses the
     // visitor's existing open conversation instead of orphaning a new one.
-    if (!conversationId && input.visitorId) {
+    if (!forceNew && !conversationId && input.visitorId) {
       const { data: existingByVisitor } = await sb
         .from('conversations')
         .select('id')
@@ -207,6 +218,7 @@ export async function maybeSendIntro(
         .maybeSingle();
       if (existingByVisitor?.id) conversationId = existingByVisitor.id;
     }
+
 
     if (!conversationId) {
       // Every conversation gets a contact — even AI-only threads started

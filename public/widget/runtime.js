@@ -1290,7 +1290,24 @@
       });
     }
 
+    /**
+     * True while the visitor has explicitly armed "start a new conversation"
+     * and no fresh thread exists yet. While armed, NOTHING may adopt an old
+     * conversation id: not history bootstrap, not polling's server-resolved
+     * cid, not a reconnect replay. Only a real send (or the AI intro) may
+     * disarm it, by handing back the id of the thread it just created.
+     */
+    function freshIntentArmed() {
+      try { return chatStore.get().freshIntent === true; } catch (_) { return false; }
+    }
+
     function loadHistory(opts) {
+      // Hard guard at the transport boundary (P0-B): a fresh intent must never
+      // be able to resurrect the previous thread, whoever calls this.
+      if (freshIntentArmed()) {
+        if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
+        return;
+      }
       ensureChatModule(function (mod) {
         if (!mod || !mod.loadHistory) {
           markPollFailure();
@@ -1308,11 +1325,46 @@
           onResult: function (result) {
             historyLoaded = true;
             markPollSuccess();
+            if (freshIntentArmed()) {
+              if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
+              return;
+            }
             if (opts && opts.onResult) opts.onResult(result);
           },
         });
       });
     }
+
+    /**
+     * P0-C — load exactly the named conversation. Explicit selection always
+     * wins: it disarms any fresh intent and never adopts a different thread.
+     */
+    function loadConversationHistory(cid, opts) {
+      if (!cid) {
+        if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
+        return;
+      }
+      ensureChatModule(function (mod) {
+        if (!mod || !mod.loadConversationHistory) {
+          markPollFailure();
+          if (opts && opts.onResult) opts.onResult({ conversationId: cid, messages: [] });
+          return;
+        }
+        mod.loadConversationHistory({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          conversationId: cid,
+          sessionToken: ctx.sessionToken,
+          fetchWith: ctx.fetchWith,
+          onResult: function (result) {
+            historyLoaded = true;
+            markPollSuccess();
+            if (opts && opts.onResult) opts.onResult(result);
+          },
+        });
+      });
+    }
+
 
     function sendMessage(payload, hooks) {
       hooks = hooks || {};
@@ -1404,12 +1456,18 @@
           interval: 4000,
           getConversationId: function () { return subscribedConversation; },
           onConversation: function (cid) {
+            // P0-B — while a fresh intent is armed the poll runs without a
+            // cid, so the server answers with the visitor's PREVIOUS thread.
+            // Adopting it here is exactly the resurrection bug; refuse.
+            if (freshIntentArmed() && !subscribedConversation) return;
             if (cid) subscribedConversation = cid;
           },
           onMessages: function (msgs) {
             markPollSuccess();
+            if (freshIntentArmed() && !subscribedConversation) return;
             if (msgs && msgs.length) emit('message', { messages: msgs });
           },
+
           onTick: function (ok) { if (ok) markPollSuccess(); else markPollFailure(); },
           // 403 from /poll on an unknown / foreign / closed conversation id
           // — drop the local cid so the next tick re-resolves via cookie
@@ -1687,6 +1745,8 @@
       sendMessage: sendMessage,
       sendTyping: sendTyping,
       loadHistory: loadHistory,
+      loadConversationHistory: loadConversationHistory,
+
       on: on,
       getDriverName: function () { return capabilities.driver; },
       getCapabilities: function () {
@@ -3217,8 +3277,11 @@
       wirePrechatForm(body, identity, onSubmitted, { autofocus: true });
     }
 
-    // One-shot "start a brand new thread" latch (see startNewConversation).
-    var forceNewConversation = false;
+    // "Start a brand new thread" latch. Canonical state lives in chatStore
+    // (`freshIntent`) so the transport layer can enforce it too; this local
+    // mirror only exists for readability inside chatUI.
+    function forcingNew() { return chatStore.get().freshIntent === true; }
+
 
     function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
 
@@ -3265,7 +3328,7 @@
           conversationId: s.conversationId,
           // One-shot: only true for the first message after "+ New
           // conversation". Never sent alongside a conversationId.
-          forceNewConversation: forceNewConversation && !s.conversationId,
+          forceNewConversation: forcingNew() && !s.conversationId,
           attachmentId: attachmentId || null,
           departmentId: (function () {
             try {
@@ -3277,13 +3340,15 @@
         {
           onConversation: function (cid) {
             // Thread established — disarm before anything else so a retry or
-            // a follow-up message can never spawn a second thread.
-            forceNewConversation = false;
+            // a follow-up message can never spawn a second thread, and so
+            // history/polling may resume adopting this (now current) id.
+            chatStore.set({ freshIntent: false });
             if (cid && cid !== chatStore.get().conversationId) {
               chatStore.set({ conversationId: cid });
               transport.subscribeConversation(cid);
             }
           },
+
 
           onAccepted: function (info) {
             // Bind canonical message id and flip to 'sent'. The next merge
@@ -3309,16 +3374,24 @@
     }
 
     function bootstrapHistory(onChange) {
+      // P0-B — a fresh intent outranks any smart-continuation the server
+      // would offer. Bail before the request so no old thread can be
+      // adopted on reconnect, visibilitychange, or a re-open.
+      if (forcingNew()) return;
       transport.loadHistory({
         onResult: function (result) {
+          // Re-check: the visitor may have hit "new conversation" while the
+          // request was in flight.
+          if (forcingNew()) return;
           if (result.conversationId) {
-          chatStore.set({ conversationId: result.conversationId });
+            chatStore.set({ conversationId: result.conversationId });
             try { document.cookie = 'gs_active=1; path=/; max-age=86400; SameSite=Lax'; } catch (_) {}
             transport.subscribeConversation(result.conversationId);
           }
           if (mergeIncoming(result.messages || [])) onChange();
         },
       });
+
     }
 
     // ─── Phase 5: Contact fallback (offline_mode === 'contact_fallback') ───
@@ -3439,18 +3512,47 @@
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
       bootstrapHistory: bootstrapHistory,
+      // P0-C — explicit thread selection. Loads exactly `cid` and never lets
+      // the server pick a different conversation.
+      loadConversationHistory: function (cid, onChange) {
+        if (!cid) return;
+        transport.loadConversationHistory(cid, {
+          onResult: function (result) {
+            // Explicit selection wins over any pending "new conversation".
+            chatStore.set({ freshIntent: false, conversationId: cid });
+            transport.subscribeConversation(cid);
+            if (mergeIncoming(result.messages || [])) onChange();
+            else onChange();
+          },
+        });
+      },
       mergeIncoming: mergeIncoming,
       startTypewriter: startTypewriter,
-      // "+ New conversation" — arms a one-shot flag so the *first* message of
-      // this flow is sent with force_new_conversation:true. The server then
-      // refuses to reuse an existing open thread. The flag is cleared as soon
-      // as the backend hands back a conversation id (or the send fails), so it
-      // can never leak into subsequent messages.
+      // "+ New conversation" — arms `freshIntent` so the *first* message of
+      // this flow is sent with force_new_conversation:true AND so no layer
+      // (history bootstrap, polling, reconnect replay) can re-adopt the
+      // thread that was just detached. Cleared only when a real conversation
+      // id for the new thread arrives.
       startNewConversation: function () {
-        forceNewConversation = true;
-        chatStore.set({ conversationId: null, messages: [] });
+        var previous = chatStore.get().conversationId || null;
+        // P0-A — genuinely detach the old thread from the transport first,
+        // so realtime frames for it stop arriving before the store resets.
+        if (previous) {
+          try { transport.unsubscribeConversation(previous); } catch (_) {}
+        }
+        // Ephemeral, per-conversation UI state must not bleed across threads.
+        try { stopTypewriter(false); } catch (_) {}
+        chatStore.set({
+          freshIntent: true,
+          conversationId: null,
+          messages: [],
+          seenIds: {},
+          aiThinking: false,
+        });
+        lastMergedNewAiMessage = null;
       },
-      isForcingNewConversation: function () { return forceNewConversation; },
+      isForcingNewConversation: forcingNew,
+
       getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
     };
 
@@ -3826,8 +3928,25 @@
       ensure: ensure,
       render: render,
       openArticle: openArticle,
+      /**
+       * P1 — real, generic back for the KB surface. Article -> the list the
+       * visitor came from (search results when a query is active), list ->
+       * `false` so the caller can fall back to leaving the KB view entirely.
+       * Exposed so the shell's generic [data-view-back] delegation can drive
+       * KB navigation without the presentation layer knowing KB internals.
+       */
+      goBack: function () {
+        if (currentArticle) {
+          currentArticle = null;
+          view = currentQuery.trim() ? 'results' : 'list';
+          paint();
+          return true;
+        }
+        return false;
+      },
       resetToList: function () { view = 'list'; currentArticle = null; },
     };
+
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -4935,6 +5054,12 @@
       conversationId: null,
       messages: [],
       seenIds: {},
+      // P0-A/B — "start a new conversation" intent. While true, no layer may
+      // adopt a previously-existing conversation id (history bootstrap,
+      // polling, reconnect replay). Cleared only when a real fresh thread id
+      // arrives from /message or the AI intro.
+      freshIntent: false,
+
       // In-memory only. Never persisted to localStorage/cookies.
       // Per-conversation drafts: { [conversationId|'__pending__']: text }.
       // '__pending__' is the safe scope used before a conversation id exists;
@@ -6047,35 +6172,57 @@
     // send (enabled + auto mode + ai_intro_enabled) and dedupes by
     // conversation/session. We additionally guard locally against double
     // calls within the same tab (re-renders, visibilitychange).
-    var __aiIntroRequested = false;
+    // P0-E — the local guard is THREAD-SCOPED, not tab-scoped. A boolean
+    // meant "one intro per page load", so a visitor who started a second
+    // conversation never got greeted. The key is the conversation id, or
+    // the literal 'fresh' slot while a new thread is still being created.
+    var __aiIntroKeys = {};
+    // Bumped on every explicit "start new conversation" so two successive
+    // fresh intents never share an intro slot.
+    var __freshIntentGeneration = 0;
+
+    function aiIntroKey() {
+      var s = chatStore.get() || {};
+      if (s.freshIntent === true) return 'fresh:' + (__freshIntentGeneration || 0);
+      return 'conv:' + (s.conversationId || 'pending');
+    }
     function requestAiAgentIntro(source) {
-      if (__aiIntroRequested) {
-        try { console.debug('[Widget AI Agent] intro skipped (already requested)'); } catch (_) {}
+      var key = aiIntroKey();
+      if (__aiIntroKeys[key]) {
+        try { console.debug('[Widget AI Agent] intro skipped (already requested for this thread)', key); } catch (_) {}
         return;
       }
-      __aiIntroRequested = true;
-      var conversationId = (chatStore.get() || {}).conversationId || null;
+      __aiIntroKeys[key] = true;
+      var snap = chatStore.get() || {};
+      var forceNew = snap.freshIntent === true;
+      // P0-F — while a fresh intent is armed we must NOT hand the server a
+      // conversation id, and we must tell it not to resolve an existing one.
+      var conversationId = forceNew ? null : (snap.conversationId || null);
       var identitySnap = identityStore.get() || {};
       var sessionId = identitySnap.sessionId || identitySnap.session_id || null;
-      try { console.debug('[Widget AI Agent] intro requested', { source: source || 'auto', conversationId: conversationId, sessionId: sessionId, locale: ctx.locale }); } catch (_) {}
+      try { console.debug('[Widget AI Agent] intro requested', { source: source || 'auto', conversationId: conversationId, forceNew: forceNew, sessionId: sessionId, locale: ctx.locale }); } catch (_) {}
 
       ctx.fetchWith(ctx.apiBase + '/api/widget/ai-agent/intro', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversation_id: conversationId || undefined,
+          force_new_conversation: forceNew || undefined,
           session_id: sessionId || undefined,
           locale: ctx.locale || undefined,
         }),
       })
+
         .then(function (r) { return r.json().catch(function () { return {}; }); })
         .then(function (resp) {
           try { console.debug('[Widget AI Agent] intro response', { sent: resp && resp.sent, reason: resp && resp.reason, messageId: resp && resp.messageId, conversationId: resp && resp.conversationId }); } catch (_) {}
           if (!resp || resp.sent !== true) {
             // Adopt conversationId even on already_sent so the next message
-            // lands in the same conversation.
+            // lands in the same conversation. This is a REAL fresh thread id
+            // when force_new_conversation was requested, so it also disarms
+            // the fresh intent.
             if (resp && resp.conversationId && !chatStore.get().conversationId) {
-              chatStore.set({ conversationId: resp.conversationId });
+              chatStore.set({ conversationId: resp.conversationId, freshIntent: false });
               try { if (transport && transport.subscribeConversation) transport.subscribeConversation(resp.conversationId); } catch (_) {}
             }
             return;
@@ -6088,7 +6235,9 @@
             var patch = {};
             if (resp.conversationId && resp.conversationId !== s.conversationId) {
               patch.conversationId = resp.conversationId;
+              patch.freshIntent = false;
             }
+
             var msgs = (s.messages || []).slice();
             var seenIds = Object.assign({}, s.seenIds || {});
             // ─── Dedup: skip if intro already in store ───
@@ -6137,10 +6286,12 @@
           } catch (_) {}
         })
         .catch(function (err) {
-          // Reset so a future re-attempt is possible (e.g. transient network).
-          __aiIntroRequested = false;
+          // Reset THIS thread's slot so a future re-attempt is possible
+          // (e.g. transient network); other threads keep their own state.
+          delete __aiIntroKeys[key];
           try { console.debug('[Widget AI Agent] intro failed', err && err.message); } catch (_) {}
         });
+
     }
 
     // Keep the header brand slot in sync with the active tab: operator
@@ -6266,26 +6417,52 @@
       } catch (_) {}
     }
 
-    // Explicit "+ / start new conversation": arm Core's force-new latch so
-    // the first message creates a fresh thread even when an open one exists.
+    // Explicit "+ / start new conversation": detach the current thread and
+    // arm Core's fresh intent so nothing can resurrect it, then let the
+    // first message (or the AI intro) create the real new thread.
     function startNewConversation() {
+      __freshIntentGeneration += 1;
       try { if (chatUI.startNewConversation) chatUI.startNewConversation(); }
-      catch (_) { chatStore.set({ conversationId: null, messages: [] }); }
+      catch (_) {
+        chatStore.set({ freshIntent: true, conversationId: null, messages: [], seenIds: {}, aiThinking: false });
+      }
+      // Per-conversation escalation state must not leak into the new thread.
+      try { ctx.__handoffRequested = false; } catch (_) {}
       switchTab('chat');
+      // renderBody() fires requestAiAgentIntro('chat_open') for the AI_CHAT
+      // entry flow; because the intro guard is keyed by thread (P0-E), the
+      // new conversation gets its own greeting instead of being skipped.
+
     }
 
     // Opening an existing thread = make it the active conversation and go
-    // to chat. Business logic (history load, subscription) is reused.
+    // to chat. Explicit selection always wins over a pending fresh intent
+    // and always loads THAT conversation's history (P0-C).
     function openConversation(conversationId) {
       if (!conversationId) { startNewConversation(); return; }
-      if (chatStore.get().conversationId !== conversationId) {
-        chatStore.set({ conversationId: conversationId, messages: [] });
+      var current = chatStore.get().conversationId;
+      if (current !== conversationId) {
+        if (current) {
+          try { if (transport && transport.unsubscribeConversation) transport.unsubscribeConversation(current); } catch (_) {}
+        }
+        chatStore.set({
+          freshIntent: false,
+          conversationId: conversationId,
+          messages: [],
+          seenIds: {},
+          aiThinking: false,
+        });
         try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
-        try { chatUI.bootstrapHistory(function () { if (shellStore.get().activeTab === 'chat') renderBody(); }); } catch (_) {}
+        try {
+          chatUI.loadConversationHistory(conversationId, function () {
+            if (shellStore.get().activeTab === 'chat') renderBody();
+          });
+        } catch (_) {}
       }
       markConversationRead(conversationId);
       switchTab('chat');
     }
+
 
 
     // Generic navigation is PANEL-LEVEL event delegation: any view the
@@ -6300,9 +6477,21 @@
         var back = target.closest('[data-view-back]');
         if (back && root.contains(back)) {
           try { ev.preventDefault(); } catch (_) {}
-          switchTab(back.getAttribute('data-view-back') || 'home');
+          var backTarget = back.getAttribute('data-view-back') || 'home';
+          // P1 — generic in-view back. A view can ask for a real step back
+          // ("back") instead of naming a tab; the owning sub-UI decides what
+          // that means (article -> results/list). If nothing can step back,
+          // fall through to the view's declared parent tab.
+          if (backTarget === 'back') {
+            var handled = false;
+            try { handled = !!(kbUI.goBack && kbUI.goBack()); } catch (_) {}
+            if (handled) return;
+            backTarget = back.getAttribute('data-view-back-fallback') || 'home';
+          }
+          switchTab(backTarget);
           return;
         }
+
         var open = target.closest('[data-conversation-open]');
         if (open && root.contains(open)) {
           try { ev.preventDefault(); } catch (_) {}

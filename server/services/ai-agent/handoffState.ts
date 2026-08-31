@@ -41,10 +41,19 @@ export type HandoffReason =
   | 'fallback'
   | 'manual';
 
+// P0-G — these are the verdicts the canonical visitor-facing gate
+// (isAutoAnswerAllowedForWorkspace) can return. Keep the two in sync: the
+// widget message route forwards the gate's reason verbatim.
 export type PlatformOffReason =
   | 'platform_ai_disabled'
   | 'customer_ai_hidden'
-  | 'auto_answer_disabled';
+  | 'auto_answer_disabled'
+  | 'ai_agent_platform_disabled'
+  | 'customer_ai_agent_hidden_by_platform'
+  | 'auto_answer_disabled_by_platform'
+  | 'ai_assistant_plan_required'
+  | 'auto_answer_guard_error';
+
 
 /**
  * Pass E12-Hardening — Clear AI-management metadata when the platform-wide

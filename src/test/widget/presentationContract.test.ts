@@ -216,7 +216,10 @@ describe('widget presentation — knowledge base surfaces', () => {
     expect(list).toContain('data-kb-slug="a"');
 
     const article = r.kbHtml({ state: 'article', hideSearch: true, article: { title: 'Alpha', contentHtml: '<p>hi</p>' } });
-    expect(article).toContain('data-kb-action="back"');
+    // Generic back control: the shell resolves a real step back and only
+    // falls back to a named tab when there is nowhere left to go.
+    expect(article).toContain('data-view-back="back"');
+    expect(article).toContain('data-view-back-fallback="home"');
     expect(article).toContain('<p>hi</p>');
 
     expect(r.kbHtml({ state: 'results', results: [] })).toContain('kb-empty');

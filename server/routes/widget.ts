@@ -59,7 +59,7 @@ import {
 import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
 import { logRun as logAiRun } from '../services/ai-agent/logs.js';
 import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
-import { clearAiManagementForPlatformOff, markNeedsHuman } from '../services/ai-agent/handoffState.js';
+import { clearAiManagementForPlatformOff, markNeedsHuman, type PlatformOffReason } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from '../services/widget/visitorCode.js';
@@ -1630,24 +1630,30 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       return res.status(403).json({ error: 'Chat not enabled' });
     }
 
-    // Pass E12-Hardening — compute platform-AI-off verdict once. When OFF,
-    // we must not run any AI side-effects and must restore conversations
-    // out of the Automated inbox so they appear in Main Inbox.
+    // Pass E12-Hardening — compute the AI-off verdict once. When OFF, we must
+    // not run any AI side-effects and must restore conversations out of the
+    // Automated inbox so they appear in Main Inbox.
+    // P0-G — this now delegates to the ONE canonical visitor-facing gate
+    // instead of re-reading platform flags locally: the previous local copy
+    // ignored the plan module and the per-workspace platform_disabled latch,
+    // so the widget could believe AI was live while the engine skipped it,
+    // stranding conversations in the Automated inbox with no responder.
     let platformAiOff = false;
-    let platformAiOffReason: 'platform_ai_disabled' | 'customer_ai_hidden' | 'auto_answer_disabled' = 'platform_ai_disabled';
+    let platformAiOffReason: PlatformOffReason = 'platform_ai_disabled';
     try {
-      const platform = await getPlatformAiAgentSettings(config);
-      if (platform.ai_agent_enabled === false) {
+      const { isAutoAnswerAllowedForWorkspace } = await import('../services/ai-agent/platformGuards.js');
+      const gate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
+      if (gate.allowed !== true) {
         platformAiOff = true;
-        platformAiOffReason = 'platform_ai_disabled';
-      } else if (platform.customer_ai_agent_visible === false) {
-        platformAiOff = true;
-        platformAiOffReason = 'customer_ai_hidden';
-      } else if (platform.auto_answer_enabled === false) {
-        platformAiOff = true;
-        platformAiOffReason = 'auto_answer_disabled';
+        platformAiOffReason = (gate.reason || 'platform_ai_disabled') as PlatformOffReason;
       }
-    } catch { /* fail-open if settings table missing */ }
+    } catch {
+      // Fail-closed, matching the canonical gate: treat AI as off so the
+      // conversation lands in Main Inbox where a human will actually see it.
+      platformAiOff = true;
+      platformAiOffReason = 'auto_answer_guard_error';
+    }
+
 
     let convId = body.conversation_id || null;
 
@@ -3354,6 +3360,8 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
     conversation_id: z.string().uuid().optional().nullable(),
     session_id: z.string().uuid().optional().nullable(),
     locale: z.string().max(10).optional(),
+    // P0-F — visitor explicitly started a new thread; never reuse an old one.
+    force_new_conversation: z.boolean().optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
 
@@ -3364,6 +3372,7 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
       visitorSessionId: parsed.data.session_id || null,
       visitorId: visitorId || null,
       locale: parsed.data.locale,
+      forceNewConversation: parsed.data.force_new_conversation === true,
     });
     return res.json(result);
   } catch (err: any) {

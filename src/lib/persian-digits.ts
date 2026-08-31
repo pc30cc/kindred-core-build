@@ -10,10 +10,26 @@
 
 const FA_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
 const ASCII_DIGIT_RE = /[0-9]/g;
+/**
+ * Bidi-isolated runs (FSI…PDI) are foreign-direction literals — visitor
+ * codes, IPs, city names — and must keep their Latin digits.
+ */
+const ISOLATE_RE = /\u2068[^\u2069]*\u2069/g;
 
 export function toPersianDigits(value: string): string {
-  return value.replace(ASCII_DIGIT_RE, (d) => FA_DIGITS[Number(d)]);
+  let out = '';
+  let last = 0;
+  ISOLATE_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ISOLATE_RE.exec(value))) {
+    out += value.slice(last, m.index).replace(ASCII_DIGIT_RE, (d) => FA_DIGITS[Number(d)]);
+    out += m[0];
+    last = m.index + m[0].length;
+  }
+  out += value.slice(last).replace(ASCII_DIGIT_RE, (d) => FA_DIGITS[Number(d)]);
+  return out;
 }
+
 
 const SKIP_TAGS = new Set([
   'SCRIPT', 'STYLE', 'CODE', 'PRE', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'NOSCRIPT',

@@ -3371,6 +3371,26 @@
       chatScrollToBottom(body);
     }
 
+    // Rows already on screen before a repaint must NOT replay the entrance
+    // animation (the visible "jump" when e.g. a read-receipt tick flips and
+    // the markup changes). We suppress `wy-msg-in` on every row that existed
+    // in the previous paint, and restore the scroll offset when the visitor
+    // is not pinned to the bottom.
+    function paintMessages(body, html) {
+      var prevCount = (body === lastRenderedBody) ? lastRenderedRowCount : 0;
+      var prevScroll = 0;
+      try { prevScroll = body.scrollTop; } catch (_) {}
+      body.innerHTML = html;
+      var rows = body.querySelectorAll ? body.querySelectorAll('.msg-row') : [];
+      for (var i = 0; i < rows.length && i < prevCount; i++) {
+        try { rows[i].classList.add('no-enter'); } catch (_) {}
+      }
+      lastRenderedRowCount = rows.length;
+      if (!chatStickToBottom && prevScroll > 0) {
+        try { body.scrollTop = prevScroll; } catch (_) {}
+      }
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
@@ -3379,11 +3399,12 @@
       // must NOT rewrite the DOM — rewriting kills the visitor's text
       // selection and replays the row entrance animation (visible "shake").
       if (body === lastRenderedBody && html === lastRenderedChatHtml) return;
+      paintMessages(body, html);
       lastRenderedBody = body;
       lastRenderedChatHtml = html;
-      body.innerHTML = html;
       wireChatEvents(body);
     }
+
 
 
     // Inline handoff pre-chat — HANDOFF_PRECHAT state only (spec: identify

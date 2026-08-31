@@ -136,8 +136,9 @@ describe('chat header design contract', () => {
     expect(PRES_CSS).not.toMatch(/\.wy-head-chat\s*\{[^}]*border-bottom/);
     expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-back\s*\{[^}]*padding:\s*4px/);
     expect(PRES_CSS).toMatch(/\.wy-avatar\s*\{[^}]*width:\s*2\.75rem/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-title\s*\{[^}]*font-size:\s*15px/);
-    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-sub\s*\{[^}]*font-size:\s*12px/);
+    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-title\s*\{[^}]*font-size:\s*16px/);
+    expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-head-sub\s*\{[^}]*font-size:\s*13px/);
+
     expect(PRES_CSS).toMatch(/\.wy-head-chat \.wy-online-dot\s*\{[^}]*width:\s*8px/);
   });
 });

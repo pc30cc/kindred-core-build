@@ -7158,7 +7158,19 @@
       syncViewChrome(tab);
       if (tab === 'home') {
         if (inputBar) inputBar.style.display = 'none';
+        // Cold boot: the home surface changes shape once the visitor's own
+        // threads arrive ("Start chat" → recent list + "Start new"). Painting
+        // the empty variant first produced a visible flip on every reload, so
+        // hold the skeleton until the thread list is resolved.
+        if (chatEnabled && !(conversationsStore.get() || {}).loaded) {
+          renderLoading('home');
+          loadConversations(function () {
+            if (shellStore.get().activeTab === 'home') renderBody();
+          });
+          return;
+        }
         renderHome();
+
         if (kbEnabled && !kbStore.get().loaded) {
           kbUI.ensure(function () {
             if (shellStore.get().activeTab === 'home') renderHome();
@@ -7502,7 +7514,14 @@
     applyComposerState();
 
     // 1) Identity → 2) Transport connect → 3) History (if supported)
+    // The visitor's thread list is fetched in parallel (cookie-authenticated,
+    // independent of identity resolution) so the home surface can paint its
+    // final shape on the very first real render instead of flipping.
+    loadConversations(function () {
+      if (shellStore.get().activeTab === 'home') renderBody();
+    });
     identity.fetchMe(function () {
+
       // FSM: identity resolved → restoring_session
       if (fsm.get() === 'bootstrapping') fsm.transition('restoring_session', 'identity:resolved');
       renderBody();

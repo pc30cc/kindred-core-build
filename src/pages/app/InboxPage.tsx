@@ -1901,8 +1901,17 @@ export default function InboxPage() {
                   : (senderName || t('inbox.support') || 'Support');
                 // One identity marker per consecutive sender group. A different
                 // operator, AI/visitor switch, or new day starts a fresh group.
-                const showAvatar = !sameSenderAsPrev;
-                const showMeta = !sameSenderAsPrev;
+                // Identity marker (avatar + name + time) sits *below* the last
+                // message of each consecutive sender group.
+                const next = idx < (rawMessages?.length || 0) - 1 ? rawMessages[idx + 1] : null;
+                const nextStartsNewDay = !!next && dayKey(next.created_at) !== dayKey(msg.created_at);
+                const sameSenderAsNext = !!next
+                  && !nextStartsNewDay
+                  && !isMenuEvent(next)
+                  && !isMenuEvent(msg)
+                  && senderKey(next) === senderKey(msg);
+                const showAvatar = !sameSenderAsNext;
+                const showMeta = !sameSenderAsNext;
                 // Pass A — system call_ended summary renders as a centered
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};

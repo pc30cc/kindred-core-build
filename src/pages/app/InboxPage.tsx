@@ -2401,7 +2401,7 @@ export default function InboxPage() {
                         <ChevronDown className="w-3.5 h-3.5" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="top" dir={dir} className="w-64">
+                    <DropdownMenuContent align="end" side="top" className="w-64">
                       <DropdownMenuLabel className="text-[11px] text-muted-foreground">
                         {t('inbox.sendActions') || 'Send actions'}
                       </DropdownMenuLabel>

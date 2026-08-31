@@ -641,14 +641,12 @@
     // injected at document level so the shadow root can use them; idempotent.
     try {
       if (!document.getElementById('ccw-widget-fonts')) {
-        var fs = document.createElement('style'); fs.id = 'ccw-widget-fonts';
-        var fb = this.origin + '/widget/fonts/';
-        fs.textContent =
-          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:400;font-display:swap;src:url('" + fb + "iransans-400.woff2') format('woff2')}" +
-          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:500;font-display:swap;src:url('" + fb + "iransans-500.woff2') format('woff2')}" +
-          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:600;font-display:swap;src:url('" + fb + "iransans-700.woff2') format('woff2')}" +
-          "@font-face{font-family:'IRANSans';font-style:normal;font-weight:700;font-display:swap;src:url('" + fb + "iransans-700.woff2') format('woff2')}" +
-          "@font-face{font-family:'InterWY';font-style:normal;font-weight:500;font-display:swap;src:url('" + fb + "inter-500.woff2') format('woff2')}";
+        // Base64-inlined faces served from our own origin. Using a stylesheet
+        // with data: URLs means the font bytes never trigger a cross-origin
+        // font fetch, so a missing CORS header on .woff2 can't break rendering.
+        var fs = document.createElement('link'); fs.id = 'ccw-widget-fonts';
+        fs.rel = 'stylesheet';
+        fs.href = this.origin + '/widget/fonts.css';
         document.head.appendChild(fs);
       }
     } catch (_) {}

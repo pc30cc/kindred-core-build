@@ -58,10 +58,13 @@ const sendMessageSchema = z.object({
   body: z.string().max(50_000).optional().default(''),
   metadata: z.record(z.unknown()).optional(),
   attachment_id: z.string().uuid().nullable().optional(),
+  /** Split Send: status transition applied AFTER a successful send. */
+  post_send_action: z.enum(['none', 'wait_for_customer', 'resolve']).optional().default('none'),
 }).refine(
   d => (d.body && d.body.trim().length > 0) || !!d.attachment_id,
   { message: 'body or attachment_id required' }
 );
+
 
 /**
  * Schema for starting a proactive conversation from the Visitors page.

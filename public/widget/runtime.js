@@ -2026,10 +2026,19 @@
       var p = identityStore.get().prechat;
       return !!(p && p['require_' + field]);
     }
+    // Owner-configured timing: 'always' | 'after_handoff' | 'never'.
+    // Unknown/absent values fall back to the historical behaviour so an old
+    // bootstrap payload can never change what the visitor sees.
+    function prechatTiming() {
+      var p = identityStore.get().prechat;
+      var v = p && p.timing;
+      return (v === 'always' || v === 'after_handoff' || v === 'never') ? v : 'after_handoff';
+    }
     function needsPrechat() {
       var s = identityStore.get();
       if (s.identityState === 'identified') return false;
       if (!s.prechat) return false;
+      if (prechatTiming() === 'never') return false;
       // Show pre-chat whenever any field is asked. Required fields gate
       // submission inside the form; optional fields can be skipped.
       return !!(s.prechat.ask_name || s.prechat.ask_email || s.prechat.ask_phone);
@@ -2040,19 +2049,23 @@
     // (needsPrechat()) is necessary but not sufficient.
     //   'ai_entry'        — AI is effectively visitor-facing and this is a
     //                        brand-new conversation with no messages yet.
-    //                        Pre-chat NEVER shows here, even if the owner
-    //                        has fields configured — the visitor goes
-    //                        straight into AI chat with zero friction.
+    //                        Shown only when the owner picked timing
+    //                        'always'; with 'after_handoff' the visitor
+    //                        goes straight into AI chat with zero friction.
     //   'ai_handoff'      — AI already handed off (or is mid-conversation);
     //                        normal field-presence rules apply.
     //   'human_entry'     — AI is off/unavailable; normal field-presence
-    //                        rules apply.
+    //                        rules apply (a human is already involved, so
+    //                        'after_handoff' shows the form here too).
     //   'offline_contact' — owns its own dedicated field set
     //                        (renderContactFallback) and never calls this.
     function shouldRequirePrechat(flow) {
-      if (flow === 'ai_entry') return false;
+      var timing = prechatTiming();
+      if (timing === 'never') return false;
+      if (flow === 'ai_entry' && timing !== 'always') return false;
       return needsPrechat();
     }
+
 
     return {
       fetchMe: fetchMe,

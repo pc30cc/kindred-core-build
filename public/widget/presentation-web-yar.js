@@ -467,14 +467,17 @@
     }
 
     function renderAiThinkingRow() {
+      // Single affordance only: the three bouncing dots. No pulsing spark and
+      // no duplicated "Thinking…" label (the dots carry the meaning; the
+      // label stays for assistive tech only).
       return '<div class="msg-row operator ai-thinking-row">' +
         '<div class="msg operator ai-thinking-bubble">' +
-          '<span class="ai-thinking-spark" aria-hidden="true"></span>' +
-          '<span class="typing-dots"><span></span><span></span><span></span></span>' +
-          '<span class="ai-thinking-label">' + esc(t('aiThinking') || 'Thinking…') + '</span>' +
+          '<span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
+          '<span class="sr-only">' + esc(t('aiThinking') || 'Thinking…') + '</span>' +
         '</div>' +
       '</div>';
     }
+
 
     function messagesHtml(s, extraRowHtml, view) {
       view = view || {};

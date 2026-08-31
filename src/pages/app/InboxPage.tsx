@@ -293,15 +293,29 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
             <FileText className="w-4 h-4" /> {att.file_name}
           </span>
         ) : (
-          <img
-            src={url}
-            alt={att.file_name}
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed(true)}
-            className="block w-auto h-auto max-w-[260px] max-h-[280px] object-contain"
-          />
+          <>
+            {/* Never show an empty bubble while the authenticated fetch runs. */}
+            {!loaded && (
+              <span className="flex items-center justify-center gap-2 w-[168px] h-[96px] text-[12px] text-muted-foreground">
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70" />
+                {t('inbox.receivingFile') || 'Receiving…'}
+              </span>
+            )}
+            <img
+              src={url}
+              alt={att.file_name}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setLoaded(true)}
+              onError={() => { setLoaded(true); setFailed(true); }}
+              className={cn(
+                'block w-auto h-auto max-w-[260px] max-h-[280px] object-contain',
+                loaded ? '' : 'hidden',
+              )}
+            />
+          </>
         )}
+
       </button>
 
       {open &&

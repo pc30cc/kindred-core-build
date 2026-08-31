@@ -3376,9 +3376,115 @@
           if (btn) btn.classList.add('failed');
         });
       }
+      wireAudioPlayers(body);
       bindChatScrollTracking(body);
       chatScrollToBottom(body);
     }
+
+    /**
+     * Custom audio transport for `[data-audio-player]` blocks rendered by the
+     * presentation layer. Presentation owns the markup; Core owns behaviour.
+     * The player is authored LTR on purpose — a timeline reads left→right in
+     * every locale, so play stays on the left and download on the right even
+     * when the widget is RTL.
+     */
+    function wireAudioPlayers(body) {
+      var players = body.querySelectorAll ? body.querySelectorAll('[data-audio-player]') : [];
+      for (var i = 0; i < players.length; i++) {
+        (function (root) {
+          if (root.__wyAudioWired) return;
+          root.__wyAudioWired = true;
+          var el = root.querySelector('[data-audio-el]');
+          var toggle = root.querySelector('[data-audio-toggle]');
+          var track = root.querySelector('[data-audio-seek]');
+          var prog = root.querySelector('[data-audio-progress]');
+          var buf = root.querySelector('[data-audio-buffer]');
+          var timeEl = root.querySelector('[data-audio-time]');
+          var rateBtn = root.querySelector('[data-audio-rate]');
+          if (!el || !toggle) return;
+
+          function fmt(sec) {
+            if (!isFinite(sec) || sec < 0) sec = 0;
+            var m = Math.floor(sec / 60);
+            var s = Math.floor(sec % 60);
+            return m + ':' + (s < 10 ? '0' : '') + s;
+          }
+          function paint() {
+            var d = isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+            var pct = d ? Math.min(100, (el.currentTime / d) * 100) : 0;
+            if (prog) prog.style.width = pct + '%';
+            if (timeEl) {
+              timeEl.textContent = d ? fmt(el.currentTime) + ' / ' + fmt(d) : fmt(el.currentTime);
+            }
+            if (buf && d && el.buffered && el.buffered.length) {
+              try {
+                buf.style.width = Math.min(100, (el.buffered.end(el.buffered.length - 1) / d) * 100) + '%';
+              } catch (_) {}
+            }
+          }
+
+          root.classList.add('is-loading');
+          el.addEventListener('loadedmetadata', function () { root.classList.remove('is-loading'); paint(); });
+          el.addEventListener('canplay', function () { root.classList.remove('is-loading'); });
+          el.addEventListener('error', function () { root.classList.remove('is-loading'); });
+          el.addEventListener('timeupdate', paint);
+          el.addEventListener('progress', paint);
+          el.addEventListener('play', function () { root.classList.add('is-playing'); });
+          el.addEventListener('pause', function () { root.classList.remove('is-playing'); });
+          el.addEventListener('ended', function () {
+            root.classList.remove('is-playing');
+            el.currentTime = 0;
+            paint();
+          });
+
+          toggle.addEventListener('click', function () {
+            if (el.paused) {
+              // Only one voice message plays at a time.
+              var others = body.querySelectorAll('[data-audio-player] [data-audio-el]');
+              for (var k = 0; k < others.length; k++) {
+                if (others[k] !== el && !others[k].paused) others[k].pause();
+              }
+              if (!el.src) root.classList.add('is-loading');
+              var p = el.play();
+              if (p && p.catch) p.catch(function () { root.classList.remove('is-playing'); });
+            } else {
+              el.pause();
+            }
+          });
+
+          if (track) {
+            var seekTo = function (clientX) {
+              var r = track.getBoundingClientRect();
+              if (!r.width || !isFinite(el.duration) || el.duration <= 0) return;
+              var ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+              el.currentTime = ratio * el.duration;
+              paint();
+            };
+            track.addEventListener('pointerdown', function (e) {
+              seekTo(e.clientX);
+              var move = function (ev) { seekTo(ev.clientX); };
+              var up = function () {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+              };
+              window.addEventListener('pointermove', move);
+              window.addEventListener('pointerup', up);
+            });
+          }
+
+          if (rateBtn) {
+            rateBtn.addEventListener('click', function () {
+              var next = el.playbackRate === 1 ? 1.5 : el.playbackRate === 1.5 ? 2 : 1;
+              el.playbackRate = next;
+              rateBtn.textContent = next + '×';
+            });
+          }
+          paint();
+        })(players[i]);
+      }
+    }
+
+
 
     // Rows already on screen before a repaint must NOT replay the entrance
     // animation (the visible "jump" when e.g. a read-receipt tick flips and

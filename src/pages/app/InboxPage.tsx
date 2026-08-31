@@ -925,14 +925,20 @@ export default function InboxPage() {
       const name = conversationTitle(c, t, locale);
       return name.toLowerCase().includes(search.toLowerCase());
     });
-    // Float unread conversations to the top — within each group keep the
-    // existing updated_at descending order (already applied server-side).
+    // Actionable first: threads where the customer is waiting for US
+    // (needs_reply, derived server-side from the message stream) outrank
+    // merely-unread ones; within each group the server's updated_at DESC
+    // order is preserved (stable sort).
     return [...filtered].sort((a: any, b: any) => {
+      const na = a.needs_reply ? 1 : 0;
+      const nb = b.needs_reply ? 1 : 0;
+      if (na !== nb) return nb - na;
       const ua = (a.unread_count ?? 0) > 0 ? 1 : 0;
       const ub = (b.unread_count ?? 0) > 0 ? 1 : 0;
       if (ua !== ub) return ub - ua;
       return 0;
     });
+
   }, [conversations, search, t, locale]);
 
   const totalUnread = useMemo(() => {
@@ -1473,6 +1479,16 @@ export default function InboxPage() {
                             priorityColors[conv.priority] || 'text-muted-foreground',
                           )}>
                             {t(`inbox.priority_${conv.priority}`) || conv.priority}
+                          </span>
+                        )}
+                        {/* Needs Reply — the customer is waiting for US. Independent
+                            of unread: opening the thread clears unread, not this. */}
+                        {(conv as any).needs_reply && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                            title={t('inbox.needsReplyTip') || 'Customer is waiting for a reply'}
+                          >
+                            <Clock className="w-3 h-3" /> {t('inbox.needsReply') || 'Needs reply'}
                           </span>
                         )}
                         {conv.assigned_to && (

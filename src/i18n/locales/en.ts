@@ -538,6 +538,8 @@ const en = {
     aiManaged: 'AI managed',
     aiManagedTip: 'AI is currently handling this conversation',
     needsHumanTip: 'AI handed off — needs human',
+    needsReply: 'Needs reply',
+    needsReplyTip: 'Customer is waiting for a reply',
     handoffReason: 'Handoff reason',
     humanActive: 'Human active',
     humanActiveTip: 'Operator has taken over',

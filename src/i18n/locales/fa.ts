@@ -540,6 +540,8 @@ const fa: TranslationKeys = {
     aiManaged: 'مدیریت با هوش مصنوعی',
     aiManagedTip: 'هوش مصنوعی در حال پاسخ‌گویی به این مکالمه است',
     needsHumanTip: 'هوش مصنوعی واگذار کرد — نیازمند اپراتور',
+    needsReply: 'نیازمند پاسخ',
+    needsReplyTip: 'مشتری منتظر پاسخ است',
     handoffReason: 'دلیل واگذاری',
     humanActive: 'اپراتور فعال',
     humanActiveTip: 'اپراتور مکالمه را در دست گرفته است',

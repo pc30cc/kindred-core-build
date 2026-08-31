@@ -116,17 +116,38 @@ function WidgetPageContent() {
     return typeof l === 'number' ? l : -1;
   })();
 
+  /** Appearance field → plan capability. Mirrors WIDGET_CUSTOMIZATION_CAPABILITY. */
+  const APPEARANCE_CAPABILITY: Record<string, { capability: string; reset: any }> = {
+    reply_time_text: { capability: 'widget_reply_time_text', reset: null },
+    welcome_message: { capability: 'widget_welcome_message', reset: null },
+    fab_label: { capability: 'widget_launcher_label', reset: null },
+    fab_scale: { capability: 'widget_launcher_size', reset: 100 },
+    fab_icon: { capability: 'widget_launcher_icon', reset: 'chat' },
+    placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
+  };
+
   const previewSettings = useMemo(
-    () => ({
-      ...live,
-      // Logo is no longer a widget-level URL field: fall back to the logo the
-      // workspace owner uploaded in Settings → General.
-      logo_url: (live as any)?.logo_url || (branding as any)?.logo_url || null,
-      locale: effectiveLocale,
-      widget_language: effectiveLocale,
-    }),
-    [live, branding, effectiveLocale],
+    () => {
+      const base: Record<string, any> = {
+        ...live,
+        // Logo is no longer a widget-level URL field: fall back to the logo the
+        // workspace owner uploaded in Settings → General.
+        logo_url: (live as any)?.logo_url || (branding as any)?.logo_url || null,
+        locale: effectiveLocale,
+        widget_language: effectiveLocale,
+      };
+      // The preview must show exactly what the plan lets production render.
+      for (const [column, def] of Object.entries(APPEARANCE_CAPABILITY)) {
+        if (!capAllowed(def.capability)) base[column] = def.reset;
+      }
+      if (!capAllowed('widget_team_avatars')) base.show_team_avatars = false;
+      if (!capAllowed('widget_workspace_logo')) base.show_logo = false;
+      return base;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [live, branding, effectiveLocale, effectiveEnts],
   );
+
   /**
    * Mirror of `server/services/widget/poweredBy.ts`: platform master switch AND
    * the `widget_powered_by` plan entitlement decide visibility; wording, brand
@@ -371,23 +392,35 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
                     <Input
-                      value={(live as any)?.reply_time_text || ''}
+                      disabled={!capAllowed('widget_reply_time_text')}
+                      value={capAllowed('widget_reply_time_text') ? ((live as any)?.reply_time_text || '') : ''}
                       onChange={e => setField('reply_time_text' as any, e.target.value)}
                       placeholder={t('widgetPage.appearance.replyTimeDefault')}
                     />
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
+                    {capAllowed('widget_reply_time_text') ? (
+                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
+                    ) : (
+                      <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
                   </div>
 
                   {/* 3 — Welcome message */}
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
-                      value={widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)}
+                      disabled={!capAllowed('widget_welcome_message')}
+                      value={capAllowed('widget_welcome_message')
+                        ? widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)
+                        : widgetTextDefault('welcome', effectiveLocale)}
                       onChange={e => setField('welcome_message', e.target.value)}
                       rows={3}
                       placeholder={widgetTextDefault('welcome', effectiveLocale)}
                     />
+                    {!capAllowed('widget_welcome_message') && (
+                      <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
                   </div>
+
 
                   {/* 4 — Primary + shadow colour */}
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -463,11 +496,16 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.fabLabel')}</Label>
                     <Input
-                      value={(live as any)?.fab_label || ''}
+                      disabled={!capAllowed('widget_launcher_label')}
+                      value={capAllowed('widget_launcher_label') ? ((live as any)?.fab_label || '') : ''}
                       onChange={e => setField('fab_label' as any, e.target.value)}
                       placeholder={t('widgetPage.appearance.fabLabelPlaceholder')}
                     />
-                    <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
+                    {capAllowed('widget_launcher_label') ? (
+                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
+                    ) : (
+                      <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
                   </div>
 
                   {/* 7 — Launcher size + icon */}
@@ -476,29 +514,34 @@ function WidgetPageContent() {
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-medium">{t('widgetPage.appearance.fabScale')}</Label>
                         <span className="font-mono text-[11px] text-muted-foreground" dir="ltr">
-                          {Math.round(56 * fabScalePct / 100)}px
+                          {Math.round(56 * (capAllowed('widget_launcher_size') ? fabScalePct : 100) / 100)}px
                         </span>
                       </div>
                       <Slider
-                        value={[fabScalePct]}
+                        disabled={!capAllowed('widget_launcher_size')}
+                        value={[capAllowed('widget_launcher_size') ? fabScalePct : 100]}
                         min={80}
                         max={140}
                         step={5}
                         onValueChange={v => setField('fab_scale' as any, v[0], 300)}
                       />
+                      {!capAllowed('widget_launcher_size') && (
+                        <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIcon')}</Label>
-                      <div className="flex flex-wrap gap-2">
+                      <div className={cn('flex flex-wrap gap-2', !capAllowed('widget_launcher_icon') && 'pointer-events-none opacity-50')}>
                         {Object.keys(FAB_ICONS).map((key) => (
                           <button
                             key={key}
                             type="button"
                             aria-label={key}
+                            disabled={!capAllowed('widget_launcher_icon')}
                             onClick={() => setField('fab_icon' as any, key, 0)}
                             className={cn(
                               'flex h-10 w-10 items-center justify-center rounded-xl border-2 transition-transform hover:scale-105',
-                              ((live as any)?.fab_icon || 'chat') === key
+                              (capAllowed('widget_launcher_icon') ? ((live as any)?.fab_icon || 'chat') : 'chat') === key
                                 ? 'border-foreground bg-muted'
                                 : 'border-border/70',
                             )}
@@ -516,6 +559,9 @@ function WidgetPageContent() {
                           </button>
                         ))}
                       </div>
+                      {!capAllowed('widget_launcher_icon') && (
+                        <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                      )}
                     </div>
                   </div>
 
@@ -524,11 +570,16 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.preview.inputPlaceholder')}</Label>
                     <Input
-                      value={live?.placeholder_text || ''}
+                      disabled={!capAllowed('widget_composer_placeholder')}
+                      value={capAllowed('widget_composer_placeholder') ? (live?.placeholder_text || '') : ''}
                       onChange={e => setField('placeholder_text', e.target.value)}
                       placeholder={t('widgetPage.preview.inputPlaceholder')}
                     />
+                    {!capAllowed('widget_composer_placeholder') && (
+                      <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
                   </div>
+
                 </CardContent>
 
               </Card>
@@ -545,9 +596,13 @@ function WidgetPageContent() {
                       <p className="text-[11px] text-muted-foreground">
                         {t('widgetPage.appearance.logoHint')}
                       </p>
+                      {!capAllowed('widget_workspace_logo') && (
+                        <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                      )}
                     </div>
                     <Switch
-                      checked={live?.show_logo ?? true}
+                      disabled={!capAllowed('widget_workspace_logo')}
+                      checked={capAllowed('widget_workspace_logo') && (live?.show_logo ?? true)}
                       onCheckedChange={v => setField('show_logo', v, 0)}
                     />
                   </div>
@@ -557,12 +612,17 @@ function WidgetPageContent() {
                       <p className="text-[11px] text-muted-foreground">
                         {t('widgetPage.appearance.showTeamAvatarsHint')}
                       </p>
+                      {!capAllowed('widget_team_avatars') && (
+                        <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                      )}
                     </div>
                     <Switch
-                      checked={live?.show_team_avatars ?? true}
+                      disabled={!capAllowed('widget_team_avatars')}
+                      checked={capAllowed('widget_team_avatars') && (live?.show_team_avatars ?? true)}
                       onCheckedChange={v => setField('show_team_avatars', v, 0)}
                     />
                   </div>
+
                 </CardContent>
               </Card>
 

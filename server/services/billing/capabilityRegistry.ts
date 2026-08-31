@@ -115,6 +115,21 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'widget_assignment_routing', type: 'feature', label: 'Automatic Chat Assignment', group: 'widget', description: 'Automatic / round-robin routing of handed-off conversations to operators. When OFF the workspace is limited to manual assignment.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
   { key: 'widget_raw_ip_storage',     type: 'feature', label: 'Store Raw Visitor IP',     group: 'widget', description: 'Allow the workspace to store the full (unmasked) visitor IP address. Privacy-sensitive — off by default.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 90 },
 
+  // ─── Appearance customisation (Widget → Appearance tab fields) ───
+  // Each key controls whether the workspace may author that field at all. When
+  // a plan denies it, the field is locked in the panel AND reset to the
+  // platform/locale default in the widget bootstrap payload.
+  { key: 'widget_reply_time_text',    type: 'feature', label: 'Custom Reply-Time Note',        group: 'widget', description: 'Workspace may author the "typically replies in…" line under the widget brand name.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 100 },
+  { key: 'widget_welcome_message',    type: 'feature', label: 'Custom Welcome Message',        group: 'widget', description: 'Workspace may author the widget welcome message. Otherwise the locale default is used.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 110 },
+  { key: 'widget_launcher_label',     type: 'feature', label: 'Custom Launcher Bubble Text',   group: 'widget', description: 'Workspace may author the text bubble shown beside the floating launcher button.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
+  { key: 'widget_launcher_size',      type: 'feature', label: 'Custom Launcher Size',          group: 'widget', description: 'Workspace may resize the floating launcher button. Otherwise the default 56px size is used.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 130 },
+  { key: 'widget_launcher_icon',      type: 'feature', label: 'Custom Launcher Icon',          group: 'widget', description: 'Workspace may pick the floating launcher icon. Otherwise the default chat icon is used.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 140 },
+  { key: 'widget_composer_placeholder', type: 'feature', label: 'Custom Composer Placeholder', group: 'widget', description: 'Workspace may author the "write your message" placeholder in the widget composer.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 150 },
+  { key: 'widget_team_avatars',       type: 'feature', label: 'Online Operator Avatars',       group: 'widget', description: 'Show the avatars of online operators inside the widget "start chat" button.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 160 },
+  { key: 'widget_workspace_logo',     type: 'feature', label: 'Workspace Logo in Widget',      group: 'widget', description: 'Show the workspace logo in the widget header. When denied the widget falls back to the brand name only.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 170 },
+
+
+
 
   // ─── Call surface features (plan-level toggles bounded by call control plane) ───
   { key: 'call_recording',        type: 'feature', label: 'Call Recording',         group: 'calls',    description: 'Allow operators to record voice/video calls. Bounded by global call_recording_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },

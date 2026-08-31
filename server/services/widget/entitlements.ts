@@ -31,9 +31,26 @@ export const WIDGET_SETTING_CAPABILITY: Record<string, string> = {
   emoji_enabled: 'widget_emoji',
   smart_engagement_enabled: 'widget_smart_engagement',
   store_raw_ip: 'widget_raw_ip_storage',
+  show_team_avatars: 'widget_team_avatars',
+  show_logo: 'widget_workspace_logo',
+};
+
+/**
+ * Appearance fields the workspace may only author when the plan allows it.
+ * When denied the column is reset to `reset` (null → locale/platform default)
+ * both on save and in the outgoing bootstrap payload.
+ */
+export const WIDGET_CUSTOMIZATION_CAPABILITY: Record<string, { capability: string; reset: unknown }> = {
+  reply_time_text: { capability: 'widget_reply_time_text', reset: null },
+  welcome_message: { capability: 'widget_welcome_message', reset: null },
+  fab_label: { capability: 'widget_launcher_label', reset: null },
+  fab_scale: { capability: 'widget_launcher_size', reset: 100 },
+  fab_icon: { capability: 'widget_launcher_icon', reset: 'chat' },
+  placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
 };
 
 const MODULE_KEYS = new Set(['chat', 'knowledge_base', 'visitor_tracking']);
+
 
 export interface WidgetEntitlements {
   /** capability key → allowed */
@@ -65,6 +82,14 @@ export const WIDGET_CAPABILITY_KEYS = [
   'widget_domain_allowlist',
   'widget_assignment_routing',
   'widget_raw_ip_storage',
+  'widget_reply_time_text',
+  'widget_welcome_message',
+  'widget_launcher_label',
+  'widget_launcher_size',
+  'widget_launcher_icon',
+  'widget_composer_placeholder',
+  'widget_team_avatars',
+  'widget_workspace_logo',
 ] as const;
 
 async function resolveBoolean(
@@ -139,6 +164,11 @@ export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>
     if (!(column in out)) continue;
     if (ent.features[capability] === false) out[column] = false;
   }
+  // Appearance fields the plan does not allow authoring fall back to default.
+  for (const [column, def] of Object.entries(WIDGET_CUSTOMIZATION_CAPABILITY)) {
+    if (!(column in out)) continue;
+    if (ent.features[def.capability] === false) out[column] = def.reset;
+  }
   if (ent.features.widget_business_hours === false && out.business_hours) {
     out.business_hours = { ...(out.business_hours as any), enabled: false };
   }
@@ -169,6 +199,15 @@ export function guardWidgetSettingsPatch(
     if (!(column in patch)) continue;
     if (patch[column] === true && ent.features[capability] === false) denied.push(capability);
   }
+
+  for (const [column, def] of Object.entries(WIDGET_CUSTOMIZATION_CAPABILITY)) {
+    if (!(column in patch)) continue;
+    if (ent.features[def.capability] !== false) continue;
+    const value = patch[column];
+    const isDefault = value === def.reset || value === null || value === '' || value === undefined;
+    if (!isDefault) denied.push(def.capability);
+  }
+
 
   if ('assignment_mode' in patch
       && patch.assignment_mode !== 'manual'

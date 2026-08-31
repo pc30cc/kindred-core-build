@@ -2782,9 +2782,9 @@ export default function InboxPage() {
               dir === 'rtl' ? 'left-0' : 'right-0',
               // Desktop: inline
               'lg:static lg:z-auto',
-              !isDesktop && 'w-[300px]',
+              !isLgDesktop && 'w-[300px]',
             )}
-            style={isDesktop ? { width: sidebarWidth } : undefined}
+            style={isLgDesktop ? { width: sidebarWidth } : undefined}
           >
           {/* Resize handle (desktop) */}
           <div

@@ -637,16 +637,17 @@
     link.rel = 'stylesheet';
     link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
-    // Self-hosted font faces (no third-party CDN). Only @font-face rules are
-    // injected at document level so the shadow root can use them; idempotent.
+    // Shared, hashed font asset — the URL comes from the bootstrap payload
+    // (`assets.font_style_url`). This runtime hard-codes no font path and no
+    // font family; it just injects the stylesheet the server points at, at
+    // document level so the shadow root and document.fonts both see the faces.
     try {
-      if (!document.getElementById('ccw-widget-fonts')) {
-        // Base64-inlined faces served from our own origin. Using a stylesheet
-        // with data: URLs means the font bytes never trigger a cross-origin
-        // font fetch, so a missing CORS header on .woff2 can't break rendering.
-        var fs = document.createElement('link'); fs.id = 'ccw-widget-fonts';
+      var fontHref = this.bootstrap && this.bootstrap.assets && this.bootstrap.assets.font_style_url;
+      if (fontHref && !document.getElementById('gs-presentation-fonts')) {
+        var fs = document.createElement('link');
+        fs.id = 'gs-presentation-fonts';
         fs.rel = 'stylesheet';
-        fs.href = this.origin + '/widget/fonts.css';
+        fs.href = /^https?:/i.test(fontHref) ? fontHref : (this.origin + fontHref);
         document.head.appendChild(fs);
       }
     } catch (_) {}

@@ -13,10 +13,11 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { recordConversationEvent } from '../conversationEvents.js';
-import {
-  applyInboundConversationLifecycle,
-  INBOUND_REUSABLE_STATUSES,
-} from '../conversationLifecycle.js';
+// Reusable-status matching now happens inside public.ensure_active_conversation
+// (migration 071) so the match and the insert are atomic; the TS constant
+// stays the documentation of the same list.
+import { applyInboundConversationLifecycle } from '../conversationLifecycle.js';
+
 import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publish.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
 import { handleTelegramInboundFlow } from './telegram/runtime.js';

@@ -126,30 +126,9 @@ export function PrechatSection({ workspaceId }: Props) {
         </CardContent>
       </Card>
 
-      <Card className="card-elevated">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Clock className="h-4 w-4" /> {t('widgetPage.prechat.continuityTitle')}
-          </CardTitle>
-          <CardDescription>
-            {t('widgetPage.prechat.continuityDescription')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Label className="text-xs font-medium">{t('widgetPage.prechat.continueWindow')}</Label>
-          <Input
-            type="number"
-            min={0}
-            max={720}
-            value={s.history_continue_window_hours}
-            onChange={(e) => update({ history_continue_window_hours: parseInt(e.target.value || '24', 10) })}
-            className="max-w-32"
-          />
-          <p className="text-[11px] text-muted-foreground">
-            {t('widgetPage.prechat.continueWindowHint')}
-          </p>
-        </CardContent>
-      </Card>
+      {/* Conversation-continuity window removed: an identified visitor with a
+          valid cookie always resumes (platform-fixed 30-day history window). */}
+
 
       <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 text-xs text-muted-foreground">
         <Info className="h-4 w-4 mt-0.5 shrink-0" />

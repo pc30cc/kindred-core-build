@@ -29,7 +29,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import {
-  Inbox, Send, CheckCircle2, Filter, Plus, MessageSquare,
+  Inbox, Send, CheckCircle2, Filter, MessageSquare,
   ChevronDown, ChevronUp, Search, MoreHorizontal, Archive,
   UserCheck, AlertCircle, Clock, Star, X,
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,

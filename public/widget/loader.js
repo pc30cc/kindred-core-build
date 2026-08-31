@@ -201,7 +201,7 @@
     "background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;color:#991B1B;font-size:12px;",
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
     ".error-toast.visible{display:block;}",
-    "@media(max-width:480px){.launcher{width:50px;height:50px;}}",
+    /* Mobile keeps the configured size — parity between closed and open. */
     /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
     /* Values mirror .smart-nudge / .smart-title / .smart-body / .smart-cta / */
     /* .smart-dismiss in runtime.css exactly — same look, no runtime.css load. */

@@ -147,6 +147,7 @@ const DEFAULT_WIDGET_SETTINGS = {
   placeholder_text: '',
   position: 'bottom-right',
   show_logo: true,
+  show_team_avatars: true,
   offline_message: '',
   auto_open_delay: 0,
   theme: 'modern',
@@ -908,6 +909,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
       autoOpenDelay: ws.auto_open_delay || 0,
       showLogo: ws.show_logo ?? true,
+      showTeamAvatars: ws.show_team_avatars !== false,
       workspaceName: workspace?.name || '',
       teamMembers,
       onlineOperators: 0, // Resolved client-side from realtime presence when supported.

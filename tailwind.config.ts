@@ -14,9 +14,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['var(--font-primary)', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        rtl: ['var(--font-primary)', 'Vazirmatn', 'Inter', 'system-ui', 'sans-serif'],
-        display: ['var(--font-heading)', 'var(--font-primary)', 'Sora', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-primary)', 'IRANSans', 'InterWY', 'system-ui', '-apple-system', 'sans-serif'],
+        rtl: ['var(--font-primary)', 'IRANSans', 'InterWY', 'system-ui', 'sans-serif'],
+        display: ['var(--font-heading)', 'var(--font-primary)', 'IRANSans', 'InterWY', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

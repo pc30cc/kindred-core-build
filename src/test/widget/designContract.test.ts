@@ -170,7 +170,7 @@ describe('composer design contract', () => {
 });
 
 describe('remaining source surfaces', () => {
-  it('locks the intentional 420×680 product canvas override without scaling components', () => {
+  it('locks the intentional 400×640 product canvas override without scaling components', () => {
     expect(PRES_CSS).toMatch(/width:\s*420px/);
     expect(PRES_CSS).toMatch(/height:\s*680px/);
     expect(PRES_CSS).toContain('max-width: calc(100vw - 24px)');

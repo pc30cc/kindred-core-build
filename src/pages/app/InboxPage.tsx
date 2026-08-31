@@ -906,7 +906,7 @@ export default function InboxPage() {
             className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5"
             dir={dir}
           >
-            {(['open', 'pending', 'resolved', 'all'] as FilterStatus[]).map(s => {
+            {(['open', 'pending', 'resolved'] as FilterStatus[]).map(s => {
               const count = stableCounts[s] || 0;
               const isActive = !isQueueMode && !extraChip && filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';

@@ -459,6 +459,7 @@ export default function InboxPage() {
     return saved >= 240 && saved <= 600 ? saved : 300;
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const sidebarResizeStartRef = useRef({ pointerX: 0, width: 300 });
   const [isLgDesktop, setIsLgDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)');
@@ -468,23 +469,26 @@ export default function InboxPage() {
   }, []);
   useEffect(() => {
     if (!isResizingSidebar) return;
-    const isRtl = document.documentElement.dir === 'rtl';
-    const onMove = (e: MouseEvent) => {
-      const w = isRtl ? e.clientX : window.innerWidth - e.clientX;
-      setSidebarWidth(Math.min(600, Math.max(240, w)));
+    const isRtl = dir === 'rtl';
+    const onMove = (e: PointerEvent) => {
+      const delta = e.clientX - sidebarResizeStartRef.current.pointerX;
+      const nextWidth = sidebarResizeStartRef.current.width + (isRtl ? delta : -delta);
+      setSidebarWidth(Math.min(600, Math.max(240, nextWidth)));
     };
     const onUp = () => setIsResizingSidebar(false);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
-  }, [isResizingSidebar]);
+  }, [dir, isResizingSidebar]);
   useEffect(() => {
     localStorage.setItem('inbox.sidebarWidth', String(sidebarWidth));
   }, [sidebarWidth]);
@@ -2784,14 +2788,26 @@ export default function InboxPage() {
               'lg:static lg:z-auto',
               !isLgDesktop && 'w-[300px]',
             )}
-            style={isLgDesktop ? { width: sidebarWidth } : undefined}
+            style={isLgDesktop ? {
+              width: sidebarWidth,
+              minWidth: sidebarWidth,
+              maxWidth: sidebarWidth,
+              flexBasis: sidebarWidth,
+            } : undefined}
           >
           {/* Resize handle (desktop) */}
           <div
-            onMouseDown={() => setIsResizingSidebar(true)}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              sidebarResizeStartRef.current = {
+                pointerX: event.clientX,
+                width: sidebarWidth,
+              };
+              setIsResizingSidebar(true);
+            }}
             onDoubleClick={() => setSidebarWidth(300)}
             className={cn(
-              'hidden lg:block absolute inset-y-0 w-2 cursor-col-resize z-30 hover:bg-primary/30 transition-colors',
+              'hidden lg:block absolute inset-y-0 w-2 cursor-col-resize touch-none z-30 hover:bg-primary/30 transition-colors',
               isResizingSidebar && 'bg-primary/40'
             )}
             style={{ insetInlineStart: 0 }}

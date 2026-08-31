@@ -102,7 +102,7 @@ describe('P0-E/F — the AI intro is thread-scoped and understands force-new', (
 
   it('sends force_new_conversation and withholds the stale id when armed', () => {
     const idx = runtime.indexOf('function requestAiAgentIntro(source)');
-    const body = runtime.slice(idx, idx + 1400);
+    const body = runtime.slice(idx, idx + 2400);
     expect(body).toMatch(/var forceNew = ConvEpoch\.isFresh\(\) \|\| snap\.freshIntent === true/);
     expect(body).toMatch(/forceNew \? null :/);
     expect(body).toMatch(/force_new_conversation: forceNew \|\| undefined/);

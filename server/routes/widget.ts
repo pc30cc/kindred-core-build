@@ -790,6 +790,13 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       const separator = url.includes('?') ? '&' : '?';
       return `${url}${separator}v=${encodeURIComponent(loaderVersion)}`;
     };
+    // Powered-by footer — platform admin owns wording, brand and link;
+    // plans decide who sees it. Workspace settings have no say here.
+    const poweredBy = buildPoweredByConfig(
+      platformWidget as any,
+      (platformBranding as any)?.platform_name || '',
+      poweredByPlanAllows,
+    );
     const widgetConfig = {
       enabled: true,
       workspaceId,
@@ -801,7 +808,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       brandName: workspace?.name || 'Support',
       // Explicit platform brand for the "powered by" footer. The footer must
       // ALWAYS name the platform, never the workspace's own brand.
-      platformName: branding?.platform_name || 'Support',
+      platformName: poweredBy?.brand || '',
+      poweredBy,
+      showPoweredBy: !!poweredBy,
+
 
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',

@@ -7194,12 +7194,28 @@
       }
       if (tab === 'list') {
         if (inputBar) inputBar.style.display = 'none';
+        // Same contract as home: never flash an "empty list" before the
+        // visitor's threads arrive — hold the list skeleton instead.
+        if (!(conversationsStore.get() || {}).loaded) {
+          renderLoading('list');
+          loadConversations(function () {
+            if (shellStore.get().activeTab === 'list') renderBody();
+          });
+          return;
+        }
         renderConversationList();
         return;
       }
 
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading('chat'); return; }
+        // Opening an existing thread: hold the chat skeleton until that
+        // conversation's history lands, instead of painting an empty thread.
+        if (chatStore.get().historyLoading && !(chatStore.get().messages || []).length) {
+          renderLoading('chat');
+          return;
+        }
+
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.
         // General mode is a no-op. Resolved-once-per-session via store.

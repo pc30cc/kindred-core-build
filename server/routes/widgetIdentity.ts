@@ -155,6 +155,14 @@ widgetIdentityRouter.use(enforceWidgetToken);
 widgetIdentityRouter.use(enforceOrigin);
 
 // ─── Pre-chat settings cache (per workspace) ─────────────────
+export const PRECHAT_TIMINGS = ['always', 'after_handoff', 'never'] as const;
+export type PrechatTiming = (typeof PRECHAT_TIMINGS)[number];
+
+/** Never trust a stored/legacy value — fall back to the historical behaviour. */
+export function normalizePrechatTiming(value: any): PrechatTiming {
+  return PRECHAT_TIMINGS.includes(value) ? value : 'after_handoff';
+}
+
 async function getPrechatSettings(supabase: any, workspaceId: string) {
   const { data } = await supabase
     .from('widget_prechat_settings')
@@ -172,9 +180,11 @@ async function getPrechatSettings(supabase: any, workspaceId: string) {
     require_phone: false,
     verify_email: false,
     verify_phone: false,
+    prechat_timing: 'after_handoff',
     history_continue_window_hours: 24,
   };
 }
+
 
 // ═══════════════════════════════════════════════
 // GET /identity/me — Resolve current visitor + contact

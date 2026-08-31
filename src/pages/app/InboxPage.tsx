@@ -889,16 +889,26 @@ export default function InboxPage() {
     closed: t('inbox.closed') || 'Closed',
   };
 
+  const pillBase =
+    'relative flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-[12px] font-semibold whitespace-nowrap ' +
+    'border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+  const pillCount = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
+    'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
+    active
+      ? (tone === 'destructive' ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary')
+      : 'bg-secondary text-muted-foreground',
+  );
+
   const filterTabsNode = (
-          <ToolbarPortal>
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
-            className="flex h-full w-full items-end gap-1 overflow-x-auto scrollbar-hide px-1 -mb-px"
+            className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5"
+            dir={dir}
           >
             {(['open', 'pending', 'resolved', 'all'] as FilterStatus[]).map(s => {
               const count = stableCounts[s] || 0;
-              const isActive = filter === s;
+              const isActive = !isQueueMode && !extraChip && filter === s;
               const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
               return (
                 <button
@@ -907,12 +917,10 @@ export default function InboxPage() {
                   aria-selected={isActive}
                   onClick={() => setFilter(s)}
                   className={cn(
-                    'relative flex items-center gap-1.5 px-3 h-10 rounded-t-lg text-[12.5px] font-semibold whitespace-nowrap',
-                    'border border-b-0 transition-colors duration-150',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    pillBase,
                     isActive
-                      ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-2 before:top-0 before:h-[2px] before:rounded-full before:bg-primary'
-                      : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
+                      ? 'bg-primary/10 text-primary border-primary/30'
+                      : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
                   )}
                 >
                   {s !== 'all' && (
@@ -927,32 +935,39 @@ export default function InboxPage() {
                     </span>
                   )}
                   {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
-                  {/* Always rendered (invisible at 0) so the tab width never
-                      changes when counts load or the active tab switches. */}
                   {s !== 'all' && <span
                     aria-hidden={count === 0}
-                    className={cn(
-                      'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
-                      count === 0 && 'opacity-0',
-                      isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
-                    )}
+                    className={cn(pillCount(isActive), count === 0 && 'opacity-0')}
                   >{count}</span>}
                 </button>
               );
             })}
-            {/* Extra chips: Needs human + Assigned to me. Mutually exclusive,
-                toggle-off on second click. Compose with the status filter. */}
+            {/* AI (Automated queue) — AI-managed conversations */}
+            <button
+              role="tab"
+              aria-selected={queue === 'automated'}
+              onClick={() => setQueueTab(queue === 'automated' ? null : 'automated')}
+              title={t('inbox.automatedInbox') || 'AI'}
+              className={cn(
+                pillBase,
+                queue === 'automated'
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
+              )}
+            >
+              <Bot className="w-4 h-4" />
+              {t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI'}
+            </button>
+            {/* Extra chips: Needs human + Colleagues */}
             <button
               role="tab"
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
               className={cn(
-                'relative flex items-center gap-1.5 px-3 h-10 rounded-t-lg text-[12.5px] font-semibold whitespace-nowrap',
-                'border border-b-0 transition-colors duration-150',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                pillBase,
                 extraChip === 'needs_human'
-                  ? 'bg-card text-destructive border-border shadow-[0_-2px_10px_-4px_hsl(var(--destructive)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-2 before:top-0 before:h-[2px] before:rounded-full before:bg-destructive'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
+                  ? 'bg-destructive/10 text-destructive border-destructive/30'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
               )}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
@@ -968,9 +983,8 @@ export default function InboxPage() {
               <span
                 aria-hidden={(stableCounts.needs_human || 0) === 0}
                 className={cn(
-                  'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
+                  pillCount(extraChip === 'needs_human', 'destructive'),
                   (stableCounts.needs_human || 0) === 0 && 'opacity-0',
-                  extraChip === 'needs_human' ? 'bg-destructive/20 text-destructive' : 'bg-secondary text-muted-foreground'
                 )}
               >{stableCounts.needs_human || 0}</span>
             </button>
@@ -980,12 +994,10 @@ export default function InboxPage() {
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
               className={cn(
-                'relative flex items-center gap-1.5 px-3 h-10 rounded-t-lg text-[12.5px] font-semibold whitespace-nowrap',
-                'border border-b-0 transition-colors duration-150',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                pillBase,
                 extraChip === 'colleagues'
-                  ? 'bg-card text-primary border-border shadow-[0_-2px_10px_-4px_hsl(var(--primary)/0.35)] after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-card before:absolute before:inset-x-2 before:top-0 before:h-[2px] before:rounded-full before:bg-primary'
-                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground'
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
               )}
               title={t('inbox.colleagues') || 'Colleagues'}
             >
@@ -1003,13 +1015,13 @@ export default function InboxPage() {
                 className={cn(
                   'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
                   colleagueUnread === 0 && 'opacity-0',
-                  extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground'
+                  extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground',
                 )}
               >{colleagueUnread > 99 ? '99+' : colleagueUnread}</span>
             </button>
           </div>
-          </ToolbarPortal>
   );
+
 
   if (extraChip === 'colleagues') {
     return (

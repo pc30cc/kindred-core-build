@@ -25,7 +25,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { uploadFile } from '../services/storage/index.js';
+import { uploadFile, downloadFileRange } from '../services/storage/index.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
@@ -283,5 +283,76 @@ conversationAttachmentsRouter.delete('/:id', async (req, res) => {
   } catch (err: any) {
     console.error('[conversationAttachments/delete]', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /:id/file — operator-side attachment stream (Inbox).
+//
+// The visitor proxy (/api/widget/attachments/:id) requires a widget token
+// and visitor ownership, so operators could never load inbound media
+// (Telegram / WhatsApp / Bale / Instagram voice notes, photos, documents).
+// This route is the operator equivalent: identity comes from the first-party
+// session cookie, the workspace is derived from the attachment row itself
+// and membership is re-verified per call. Provider URLs never reach the
+// client. Range requests are honored so <audio>/<video> can seek.
+// ═══════════════════════════════════════════════════════════════════
+conversationAttachmentsRouter.get('/:id/file', async (req: any, res: any) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    const { data: row } = await sb
+      .from('conversation_attachments')
+      .select('id, workspace_id, storage_path, mime_type, file_name, size_bytes, status')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (!row) return res.status(404).json({ error: 'not_found' });
+    if (row.status !== 'uploaded' && row.status !== 'attached') {
+      return res.status(404).json({ error: 'attachment_not_available' });
+    }
+
+    // Authorization derives from the row's OWN workspace — a caller cannot
+    // probe an arbitrary attachment id with a forged workspace_id.
+    const auth = await authorizeMember(req, res, config, row.workspace_id as string);
+    if (!auth) return;
+
+    const expectedPrefix = `workspace/${row.workspace_id}/`;
+    if (!String(row.storage_path).startsWith(expectedPrefix) || String(row.storage_path).includes('..')) {
+      return res.status(500).json({ error: 'invalid_storage_path' });
+    }
+
+    const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+    const dl = await downloadFileRange(config, row.workspace_id as string, row.storage_path as string, rangeHeader);
+    if (!dl.success || !dl.data) {
+      if (dl.status === 416) {
+        if (dl.totalSize != null) res.setHeader('Content-Range', `bytes */${dl.totalSize}`);
+        return res.status(416).json({ error: 'range_not_satisfiable' });
+      }
+      const msg = String(dl.error || '').toLowerCase();
+      if (dl.status === 404 || msg.includes('404') || msg.includes('not found') || msg.includes('no such')) {
+        return res.status(404).json({ error: 'storage_object_missing' });
+      }
+      return res.status(502).json({ error: 'provider_download_failed' });
+    }
+
+    const wantAttachment = String(req.query.disposition || '').toLowerCase() === 'attachment';
+    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader(
+      'Content-Disposition',
+      `${wantAttachment ? 'attachment' : 'inline'}; filename="${String(row.file_name || 'file').replace(/"/g, '')}"`,
+    );
+    if (dl.contentLength != null) res.setHeader('Content-Length', String(dl.contentLength));
+    if (dl.status === 206 && dl.contentRange) {
+      res.setHeader('Content-Range', dl.contentRange);
+      return res.status(206).send(dl.data);
+    }
+    return res.status(200).send(dl.data);
+  } catch (err: any) {
+    console.error('[conversationAttachments/file]', err);
+    return res.status(500).json({ error: 'internal_error' });
   }
 });

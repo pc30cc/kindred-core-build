@@ -157,23 +157,25 @@ export function useInboxTabCounts(workspaceId: string | undefined) {
 }
 
 /**
- * Public-safe attachment shape mirrored from the server's
- * `enrichMessagesWithAttachments`. Provider URLs never reach the client —
- * the Inbox loads files via the same backend proxy as the widget:
- *   GET /api/widget/attachments/:id  (re-checks ownership)
+ * Public-safe attachment shape mirrored from the server's message
+ * enrichment. Provider URLs never reach the client — the Inbox streams
+ * files through the operator proxy:
+ *   GET /api/conversation-attachments/:id/file  (session auth + membership)
  */
 export interface MessageAttachment {
   id: string;
   file_name: string;
   mime_type: string;
   size_bytes: number;
-  kind: 'image' | 'file';
+  kind: 'image' | 'audio' | 'video' | 'file';
 }
 export type ConversationMessageWithAttachment = ConversationMessage & {
   attachment?: MessageAttachment | null;
+  attachments?: MessageAttachment[] | null;
   sender_name?: string | null;
   sender_avatar?: string | null;
 };
+
 
 export function useConversationMessages(conversationId: string | undefined) {
   return useQuery({

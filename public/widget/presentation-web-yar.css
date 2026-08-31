@@ -293,8 +293,10 @@
 .wy-view-home .wy-actions .wy-btn { padding: 8px; }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */
-/* `flex: none` keeps the footer pinned OUTSIDE the scroll area. */
-.wy-footer { flex: none; padding: 4px 16px 6px; text-align: center; }
+.wy-footer {
+  flex: none; padding: 4px 16px 6px;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
 .wy-view-home .wy-footer { padding: 4px 0 0; }
 .wy-powered {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
@@ -305,15 +307,112 @@
    but must not pretend to be a link. */
 span.wy-powered { cursor: default; }
 a.wy-powered:hover { color: var(--wy-text); }
-.wy-powered-dot {
-  width: 12px; height: 12px; border-radius: 50%; background: var(--wy-accent);
-  flex: none;
-  animation: wy-load-pulse 0.9s ease-in-out 3;
+
+/* ─── Connection / loading micro indicator ──────────────────────────────
+   The ONE visual loading affordance after the first usable render. It is a
+   sibling of the powered-by anchor (never inside the clickable area) and it
+   never adds height to the footer: the 9px footprint is smaller than the
+   12px footer line-height.
+
+   State comes from Core as a normalized `data-conn-state` on the panel; the
+   template alone decides what each state looks like. There is no text. */
+.wy-conn {
+  position: relative; flex: none;
+  width: 9px; height: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
 }
-@keyframes wy-load-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.7); }
+.wy-conn-dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--wy-online, #22c55e);
+  opacity: 0.75;
+  transition: background 0.2s, opacity 0.2s;
 }
+.wy-conn-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  opacity: 0; transition: opacity 0.2s;
+  /* Orbital "filling" arc — a conic sweep masked to a 1px ring. */
+  background: conic-gradient(from 0deg, transparent 0deg, var(--wy-accent) 300deg, transparent 330deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 2.6px, #000 3.1px);
+  mask: radial-gradient(circle, transparent 0 2.6px, #000 3.1px);
+}
+
+/* connecting / reconnecting / loading → the ring appears and orbits slowly. */
+[data-conn-state="connecting"] .wy-conn-ring,
+[data-conn-state="reconnecting"] .wy-conn-ring,
+[data-conn-state="loading"] .wy-conn-ring {
+  opacity: 1; animation: wy-conn-orbit 1.6s linear infinite;
+}
+[data-conn-state="connecting"] .wy-conn-dot,
+[data-conn-state="reconnecting"] .wy-conn-dot,
+[data-conn-state="loading"] .wy-conn-dot { background: var(--wy-accent); opacity: 1; }
+
+/* degraded / polling fallback — still fully usable, so an even calmer orbit. */
+[data-conn-state="degraded"] .wy-conn-ring { opacity: 0.55; animation: wy-conn-orbit 2.6s linear infinite; }
+[data-conn-state="degraded"] .wy-conn-dot { background: var(--wy-accent); opacity: 0.8; }
+
+/* Genuinely offline — static muted dot, no copy, no alarm. */
+[data-conn-state="offline"] .wy-conn-dot { background: var(--wy-faint); opacity: 0.6; }
+[data-conn-state="offline"] .wy-conn-ring { opacity: 0; animation: none; }
+
+@keyframes wy-conn-orbit { to { transform: rotate(360deg); } }
+
+/* ─── Skeletons ─────────────────────────────────────────────────────────
+   Minimal, token-aligned, very soft shimmer. Never a spinner, never text. */
+.wy-sk {
+  display: block; flex: none;
+  background: #f0f0f3;
+  border-radius: 5px;
+  position: relative; overflow: hidden;
+}
+.wy-sk::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, #fcfcfd, transparent);
+  transform: translateX(-100%);
+  animation: wy-sk-shimmer 1.6s ease-in-out infinite;
+}
+.wy-sk-circle { border-radius: 50%; }
+.wy-sk-line { max-width: 100%; }
+.wy-sk-chip { height: 30px; border-radius: 15px; }
+.wy-sk-btn { height: 40px; border-radius: 12px; width: 100%; }
+.wy-sk-pill { height: 34px; border-radius: 10px; width: 104px; }
+.wy-sk-field { height: 40px; border-radius: 10px; width: 100%; }
+.wy-sk-back { width: 23px; height: 23px; border-radius: 50%; background: #f0f0f3; }
+.wy-sk-group { display: flex; flex-direction: column; gap: 10px; }
+.wy-sk-row { pointer-events: none; }
+.wy-sk-chevron { opacity: 0.35; }
+.wy-skeleton .wy-head-id { display: flex; flex-direction: column; gap: 6px; }
+.wy-skeleton .conv-row { cursor: default; }
+.wy-sk-msgs { display: flex; flex-direction: column; gap: 12px; padding: 12px 0; }
+.wy-sk-msg { display: flex; align-items: flex-end; gap: 8px; }
+.wy-sk-msg.is-me { justify-content: flex-end; }
+.wy-sk-bubble {
+  display: block; height: 34px; border-radius: 14px; background: #f0f0f3;
+  position: relative; overflow: hidden;
+}
+.wy-sk-bubble::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, #fcfcfd, transparent);
+  transform: translateX(-100%);
+  animation: wy-sk-shimmer 1.6s ease-in-out infinite;
+}
+.wy-sk-input { min-height: 44px; display: flex; align-items: center; }
+.wy-skeleton .prechat-field { display: flex; flex-direction: column; gap: 6px; }
+
+@keyframes wy-sk-shimmer { 100% { transform: translateX(100%); } }
+
+/* Skeleton → real content: a short opacity crossfade only. No scaling.
+   Core sets `wy-crossfade` on the view host for exactly the render that
+   replaces a skeleton, so ordinary re-renders never flicker. */
+.wy-crossfade > .wy-view { animation: wy-view-in 150ms ease-out; }
+
+@keyframes wy-view-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wy-sk::after, .wy-sk-bubble::after { animation: none; display: none; }
+  .wy-conn-ring { animation: none !important; }
+  .wy-crossfade > .wy-view { animation: none; }
+}
+
 
 
 /* ─── Home ──────────────────────────────────────────────────────────── */

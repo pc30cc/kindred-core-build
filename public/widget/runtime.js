@@ -656,6 +656,7 @@
         offline: "You're offline. Messaging is paused until the connection is back.",
         reconnecting: 'Reconnecting…',
         connecting: 'Connecting…',
+        connLimited: 'Connection is limited. Messaging still works.',
         offlineComposerTip: 'Disabled while offline',
         // Phase 5 — availability
         availOnline: "We're online",
@@ -861,6 +862,7 @@
         offline: 'اتصال شما قطع است. تا برقراری دوباره، ارسال پیام در دسترس نیست.',
         reconnecting: 'در حال اتصال مجدد…',
         connecting: 'در حال اتصال…',
+        connLimited: 'اتصال محدود است. ارسال پیام همچنان کار می‌کند.',
         offlineComposerTip: 'در حالت آفلاین غیرفعال است',
         availOnline: 'ما آنلاین هستیم',
         availAway: 'پاسخ‌گویی ممکن است کندتر باشد',
@@ -1059,6 +1061,7 @@
         offline: 'Çevrimdışısınız. Bağlantı geri gelene kadar mesajlaşma duraklatıldı.',
         reconnecting: 'Yeniden bağlanılıyor…',
         connecting: 'Bağlanıyor…',
+        connLimited: 'Bağlantı sınırlı. Mesajlaşma çalışmaya devam ediyor.',
         offlineComposerTip: 'Çevrimdışıyken devre dışı',
         availOnline: 'Çevrimiçiyiz',
         availAway: 'Yanıtlar gecikebilir',
@@ -2293,12 +2296,24 @@
       toastTimer = setTimeout(hideToast, 5000);
     }
 
-    // ─── Connection banner (existing behavior, unchanged) ───
+    // ─── Connection status (accessibility only) ───
+    //
+    // The connection state machine is unchanged. What changed is its
+    // PRESENTATION: no visitor-visible banner, toast, inline row or
+    // technical copy is ever painted. The state is exposed in exactly two
+    // ways, both template-agnostic:
+    //   1. a visually-hidden aria-live region (screen readers only), and
+    //   2. a normalized `data-conn-state` attribute on the panel, which the
+    //      active presentation template styles however it likes.
+    // Core builds no template CSS class and no template markup.
+    var connPanelEl = null;
     function attach(panel) {
+      connPanelEl = panel;
       bannerEl = document.createElement('div');
-      bannerEl.className = 'connection-banner';
+      bannerEl.className = 'connection-banner sr-only';
       bannerEl.setAttribute('role', 'status');
       bannerEl.setAttribute('aria-live', 'polite');
+
       var header = panel.querySelector('.header');
       if (header && header.nextSibling) {
         panel.insertBefore(bannerEl, header.nextSibling);
@@ -2320,94 +2335,37 @@
     }
 
     function renderBanner(state) {
-      if (!bannerEl) return;
       var s = state.connectionState;
-      // Phase 6C — when the platform is in degraded / force-polling mode
-      // AND the connection is otherwise healthy, surface a non-blocking
-      // "limited" line. Messaging stays usable; this is informational only.
-      // Phase 7.6 — also surface enforcement-driven throttling/priority
-      // states with non-scary copy. Highest-severity wins.
-      var degradedLabel = null;
-      try {
-        var pol = window.__gs_policy || null;
-        if (pol) {
-          if (pol.force_polling) degradedLabel = 'Connection limited — messaging still works';
-          else if (pol.degraded_mode) degradedLabel = 'Limited mode — messaging still works';
-          else if (pol.throttle_new_conversations) degradedLabel = 'High volume — new chats may take a moment';
-          else if (pol.priority_only_mode) degradedLabel = 'Priority routing active — replies may be delayed';
-          else if (pol.slow_mode_messages) degradedLabel = 'Slow mode — short delay between messages';
-        }
-      } catch (_) {}
-      if (s === 'online' || s === 'idle') {
-        if (degradedLabel && s === 'online') {
-          bannerEl.className = 'connection-banner visible reconnecting';
-          bannerEl.innerHTML = '';
-          var ddot = document.createElement('span');
-          ddot.className = 'conn-dot';
-          ddot.setAttribute('aria-hidden', 'true');
-          bannerEl.appendChild(ddot);
-          var dspan = document.createElement('span');
-          dspan.className = 'conn-label';
-          dspan.textContent = degradedLabel;
-          bannerEl.appendChild(dspan);
-          if (bannerEl.__gsShowTimer) {
-            clearTimeout(bannerEl.__gsShowTimer);
-            bannerEl.__gsShowTimer = null;
-          }
-          return;
-        }
-        bannerEl.className = 'connection-banner';
-        bannerEl.textContent = '';
-        if (bannerEl.__gsShowTimer) {
-          clearTimeout(bannerEl.__gsShowTimer);
-          bannerEl.__gsShowTimer = null;
-        }
-        return;
-      }
-      // Offline is shown immediately (user needs to know).
-      // connecting/reconnecting are transient — show only if they persist
-      // longer than the grace window so brief blips don't flash a noisy banner.
-      var paint = function () {
-        var label = '';
-        var cls = 'connection-banner visible';
-        if (s === 'offline') { label = t('offline'); cls += ' offline'; }
-        else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
-        else if (s === 'connecting') { label = t('connecting'); cls += ' connecting'; }
-        bannerEl.className = cls;
-        bannerEl.innerHTML = '';
-        var dot = document.createElement('span');
-        dot.className = 'conn-dot';
-        dot.setAttribute('aria-hidden', 'true');
-        bannerEl.appendChild(dot);
-        var span = document.createElement('span');
-        span.className = 'conn-label';
-        span.textContent = label;
-        bannerEl.appendChild(span);
-      };
-      if (bannerEl.__gsShowTimer) {
-        clearTimeout(bannerEl.__gsShowTimer);
-        bannerEl.__gsShowTimer = null;
-      }
-      if (s === 'offline') {
-        paint();
-      } else {
-        // Keep current banner state until grace window elapses; if currently
-        // hidden, schedule a delayed reveal. Avoids flashing on quick recovery.
-        var alreadyVisible = bannerEl.classList.contains('visible');
-        if (alreadyVisible) {
-          paint();
-        } else {
-          bannerEl.__gsShowTimer = setTimeout(function () {
-            bannerEl.__gsShowTimer = null;
-            // Re-check latest state — only paint if still not online.
-            var latest = transportStore.get().connectionState;
-            if (latest === 'connecting' || latest === 'reconnecting') {
-              s = latest;
-              paint();
-            }
-          }, 3500);
-        }
-      }
+      // Phase 6C / 7.6 — platform degradation and enforcement modes are still
+      // tracked; they now collapse into the single normalized "degraded"
+      // state instead of a visible informational line.
+      var platformDegraded = false;
+      try { platformDegraded = Policy.degraded(); } catch (_) {}
+
+      // Normalized, template-agnostic state name. Core maps every internal
+      // transport state onto a tiny visitor-facing vocabulary and NOTHING
+      // else: templates must never see 'subscribing', 'auth_expired' etc.
+      //   online | connecting | reconnecting | degraded | offline
+      var norm;
+      if (s === 'offline' || s === 'unavailable' || s === 'failed') norm = 'offline';
+      else if (s === 'reconnecting' || s === 'waking') norm = 'reconnecting';
+      else if (s === 'connecting' || s === 'subscribing' || s === 'bootstrapping' ||
+               s === 'restoring_session' || s === 'auth_expired') norm = 'connecting';
+      else if (s === 'degraded') norm = 'degraded';
+      else norm = 'online'; // 'connected' and 'idle'
+      if (norm === 'online' && platformDegraded) norm = 'degraded';
+      try { if (connPanelEl) connPanelEl.setAttribute('data-conn-state', norm); } catch (_) {}
+
+      if (!bannerEl) return;
+      // Screen-reader-only. Never visually rendered, never styled by a
+      // template — `sr-only` is Core's own utility class.
+      bannerEl.className = 'connection-banner sr-only';
+      var label = '';
+      if (norm === 'offline') label = t('offline');
+      else if (norm === 'reconnecting') label = t('reconnecting');
+      else if (norm === 'connecting') label = t('connecting');
+      else if (norm === 'degraded') label = t('connLimited');
+      bannerEl.textContent = label;
     }
 
     return {
@@ -6267,8 +6225,56 @@
     });
 
     // ─── Render dispatcher ───
-    function renderLoading() {
-      if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';
+    //
+    // Loading UX contract (Core side):
+    //  * Core NEVER paints loading copy ("Loading…", "Searching…") and never
+    //    builds template markup. It asks the active presentation for a
+    //    skeleton by a normalized view key and renders whatever comes back.
+    //  * A skeleton is a COLD-BOOT affordance only. Once a surface has shown
+    //    real content, later refreshes keep that content on screen and the
+    //    only signal is the template's footer indicator (`data-conn-state`).
+    //  * If the template implements no skeleton, nothing is painted — the
+    //    visitor sees an empty surface rather than technical text.
+    var hadUsableContent = false;
+
+    /** Marks that a real, non-skeleton surface has been painted. */
+    function markUsableContent() { hadUsableContent = true; }
+
+    function skeletonFor(view) {
+      if (!Presentation || typeof Presentation.skeletonHtml !== 'function') return '';
+      try {
+        return Presentation.skeletonHtml(view, {
+          rtl: !!(ctx.config && ctx.config.rtl),
+          fields: prechatFieldCount(),
+        }) || '';
+      } catch (_) { return ''; }
+    }
+
+    /** Best-effort count of asked pre-chat fields, for a same-height form. */
+    function prechatFieldCount() {
+      try {
+        var pc = (ctx.config && ctx.config.preChat) || {};
+        var n = 0;
+        if (pc.askName) n++;
+        if (pc.askEmail) n++;
+        if (pc.askPhone) n++;
+        if (pc.askMessage) n++;
+        return n || 2;
+      } catch (_) { return 2; }
+    }
+
+    /**
+     * Paints the cold-boot skeleton for `view`. A refresh over existing
+     * content is a no-op: never replace real content with a skeleton.
+     */
+    function renderLoading(view) {
+      if (!body) return;
+      if (hadUsableContent) return;
+      var html = skeletonFor(view || shellStore.get().activeTab || 'chat');
+      __paintedSkeleton = true;
+      body.innerHTML = html;
+      // One-shot crossfade marker consumed by the next real render.
+      try { body.classList.add('wy-crossfade'); } catch (_) {}
     }
     // Phase 8H — Department gate. Returns true when the gate rendered
     // (caller must NOT render any further body content for this pass).
@@ -6280,7 +6286,8 @@
       var resolution = s.modes && s.modes[ch];
       if (!resolution) {
         // Not yet resolved — kick fetch (no-op if already inflight) and
-        // show loading. When resolution arrives the subscriber re-renders.
+        // show the cold-boot skeleton. When resolution arrives the
+        // subscriber re-renders with real content.
         renderLoading();
         resolveDepartmentMode(ch);
         return true;
@@ -6926,7 +6933,29 @@
       return name === ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN || name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT;
     }
 
+    /**
+     * Render wrapper that owns the skeleton→content handover. It records
+     * whether the pass painted a skeleton; any pass that did not is, by
+     * definition, real content, which permanently disarms cold-boot
+     * skeletons for this session.
+     */
     function renderBody() {
+      __paintedSkeleton = false;
+      renderBodyInner();
+      if (!__paintedSkeleton && body) {
+        markUsableContent();
+        // Let the crossfade play once, then drop the marker so subsequent
+        // re-renders (new message, typing, presence) never re-animate.
+        if (body.classList && body.classList.contains('wy-crossfade')) {
+          setTimeout(function () {
+            try { body.classList.remove('wy-crossfade'); } catch (_) {}
+          }, 200);
+        }
+      }
+    }
+    var __paintedSkeleton = false;
+
+    function renderBodyInner() {
       if (!body) return;
       syncHeaderBrand();
       // Pass 2 — when an in-panel call surface is open it owns the
@@ -6966,7 +6995,7 @@
       }
 
       if (tab === 'chat') {
-        if (!identityStore.get().loaded) { renderLoading(); return; }
+        if (!identityStore.get().loaded) { renderLoading('chat'); return; }
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.
         // General mode is a no-op. Resolved-once-per-session via store.
@@ -7285,7 +7314,9 @@
     }
 
     // ─── Boot sequence ───
-    renderLoading();
+    // First paint is always a skeleton of the surface the visitor will
+    // actually land on — never a spinner and never loading copy.
+    renderLoading(shellStore.get().activeTab || 'home');
     // Always hide the composer until identity resolves. Otherwise the
     // visitor sees an empty chat with a usable composer for one frame
     // before the pre-chat form takes over (flash of wrong UI).

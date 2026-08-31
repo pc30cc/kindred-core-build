@@ -223,7 +223,10 @@ describe('widget presentation — knowledge base surfaces', () => {
     expect(article).toContain('<p>hi</p>');
 
     expect(r.kbHtml({ state: 'results', results: [] })).toContain('kb-empty');
-    expect(r.kbHtml({ state: 'searching' })).toContain('kb-status');
+    // Loading is a skeleton of the real list — never a status line.
+    const searching = r.kbHtml({ state: 'searching' });
+    expect(searching).toContain('wy-sk');
+    expect(searching).not.toContain('kb-status');
   });
 
   it('renders article feedback only when the capability is enabled', () => {

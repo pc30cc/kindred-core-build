@@ -70,9 +70,15 @@ describe('production panel positioning contract', () => {
     expect(css).toMatch(/\.wy-scroll::-webkit-scrollbar \{ width: 6px; \}/);
   });
 
-  it('the powered-by dot matches the design pulse', () => {
-    expect(css).toMatch(/\.wy-powered-dot[\s\S]*?width: 12px; height: 12px/);
-    expect(css).toContain('animation: wy-load-pulse 0.9s ease-in-out 3');
+  it('the footer connection indicator is a 4px dot with an orbital ring', () => {
+    expect(css).toMatch(/\.wy-conn-dot \{[\s\S]*?width: 4px; height: 4px/);
+    expect(css).toContain('animation: wy-conn-orbit');
+    // The indicator sits OUTSIDE the powered-by anchor and never grows the
+    // footer: a 9px box inside a 12px line-height.
+    expect(css).toMatch(/\.wy-conn \{[\s\S]*?width: 9px; height: 9px/);
+    // The old always-pulsing footer dot is gone (the shared pulse keyframe
+    // stays — it still drives AI-thinking / mic / call affordances).
+    expect(css).not.toContain('wy-powered-dot');
   });
 });
 

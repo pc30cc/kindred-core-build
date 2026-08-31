@@ -92,14 +92,28 @@
       // widely distributed attribution link compliant with search-engine link
       // policies, `noopener` protects the opener, and a strict-origin referrer
       // still lets the platform see the referring origin in analytics.
-      var inner = '<span class="wy-powered-dot" aria-hidden="true"></span>' +
-        '<span>' + esc(label) + ' ' + esc(platform) + '</span>';
+      // The connection/loading indicator is a SIBLING of the anchor — never
+      // part of the clickable area (SEO + click semantics stay untouched).
+      var inner = '<span>' + esc(label) + ' ' + esc(platform) + '</span>';
       var body = url
         ? '<a class="wy-powered" href="' + esc(url) + '" target="_blank" rel="noopener nofollow" referrerpolicy="strict-origin-when-cross-origin">' + inner + '</a>'
         : '<span class="wy-powered">' + inner + '</span>';
 
-      return '<div class="wy-footer">' + body + '</div>';
+      return '<div class="wy-footer">' + connIndicatorHtml() + body + '</div>';
     }
+
+    /**
+     * The single post-mount loading/connection affordance: a 4px dot with a
+     * micro orbital ring. Purely visual — Core only writes a normalized
+     * `data-conn-state` on the panel and this template decides the look.
+     */
+    function connIndicatorHtml() {
+      return '<span class="wy-conn" data-conn-indicator aria-hidden="true">' +
+        '<span class="wy-conn-ring"></span>' +
+        '<span class="wy-conn-dot"></span>' +
+      '</span>';
+    }
+
 
 
 
@@ -885,7 +899,7 @@
       var rtl = !!vm.rtl;
       var items = vm.conversations || [];
       var bodyHtml = vm.loading
-        ? '<div class="wy-status">' + esc(tf('wyLoading', '…')) + '</div>'
+        ? skeletonConvRowsHtml(6)
         : (items.length
             ? items.map(function (c) { return conversationRowHtml(c, false); }).join('')
             : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>');
@@ -942,8 +956,11 @@
     }
 
     function kbLoadingHtml() {
-      return '<div class="kb-status wy-status">' + esc(t('kbSearching')) + '</div>';
+      // No visitor-visible "searching…" copy — the list shape itself is the
+      // loading affordance.
+      return skeletonArticleRowsHtml(6);
     }
+
 
     function kbSearchResultsHtml(vm) {
       vm = vm || {};
@@ -1037,7 +1054,218 @@
       '</div>';
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // Loading skeletons (cold boot only)
+    // ══════════════════════════════════════════════════════════════════
+    //
+    // Core never builds this markup: it only reports a normalized
+    // `{ view, initialLoading, hasUsableContent }` and asks the template for
+    // a skeleton. Every skeleton mirrors the geometry of the real surface it
+    // replaces (same header height, same paddings, same footer) so the
+    // crossfade to real content produces no layout shift. Containers are
+    // `aria-hidden` — a skeleton must never look like real content to a
+    // screen reader, and it never carries fake names/times/counts.
+
+    function sk(cls, style) {
+      return '<span class="wy-sk' + (cls ? ' ' + cls : '') + '"' + (style ? ' style="' + style + '"' : '') + '></span>';
+    }
+    function skLine(width, height, radius) {
+      return sk('wy-sk-line', 'width:' + width + ';height:' + (height || 10) + 'px;border-radius:' +
+        (radius || 5) + 'px;');
+    }
+    function skCircle(size) {
+      return sk('wy-sk-circle', 'width:' + size + 'px;height:' + size + 'px;');
+    }
+
+    function skHeadIdentityHtml(opts) {
+      opts = opts || {};
+      return '<div class="wy-head' + (opts.headClass ? ' ' + opts.headClass : '') + '">' +
+        (opts.back ? '<span class="wy-back wy-sk-back" aria-hidden="true"></span>' : '') +
+        skCircle(opts.avatar || 44) +
+        '<div class="wy-head-id">' +
+          '<div class="wy-head-line">' + skLine('120px', 13) + '</div>' +
+          skLine('84px', 9) +
+        '</div>' +
+        (opts.stack
+          ? '<span class="home-stack">' + skCircle(22) + skCircle(22) + skCircle(22) + '</span>'
+          : '') +
+      '</div>';
+    }
+
+    function skeletonConvRowsHtml(n) {
+      var out = '';
+      for (var i = 0; i < (n || 5); i++) {
+        out += '<div class="conv-row wy-sk-row" aria-hidden="true">' +
+          skCircle(36) +
+          '<span class="conv-main">' +
+            '<span class="conv-line">' + skLine('44%', 11) + skLine('26px', 9) + '</span>' +
+            '<span class="conv-line">' + skLine((62 + (i % 3) * 9) + '%', 10) + '</span>' +
+            '<span class="conv-line">' + skLine('48px', 8) + '</span>' +
+          '</span>' +
+        '</div>';
+      }
+      return '<div class="wy-sk-group" aria-hidden="true">' + out + '</div>';
+    }
+
+    function skeletonArticleRowsHtml(n) {
+      var out = '';
+      var widths = ['72%', '58%', '81%', '64%', '76%', '52%'];
+      for (var i = 0; i < (n || 6); i++) {
+        out += '<div class="kb-article wy-sk-row" aria-hidden="true">' +
+          skLine(widths[i % widths.length], 12) +
+          '<span class="kb-article-chevron wy-sk-chevron" aria-hidden="true">' + sk('', 'width:7px;height:7px;') + '</span>' +
+        '</div>';
+      }
+      return '<div class="kb-list wy-sk-group" aria-hidden="true">' + out + '</div>';
+    }
+
+    function skeletonHomeHtml(vm) {
+      vm = vm || {};
+      return '<div class="wy-view wy-view-home home-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44, stack: true }) +
+        '<div class="wy-home-body">' +
+          '<div class="wy-scroll wy-home-scroll" aria-hidden="true">' +
+            '<section class="home-greeting-block">' +
+              skLine('38%', 19, 7) + skLine('72%', 14) +
+            '</section>' +
+            '<section class="home-section home-recent">' +
+              skLine('42%', 10) +
+              '<div class="conv-row conv-row-compact wy-sk-row">' +
+                skLine('68%', 11) + skLine('30px', 9) +
+              '</div>' +
+            '</section>' +
+            '<section class="home-section">' +
+              skLine('34%', 10) +
+              '<div class="home-chips">' +
+                sk('wy-sk-chip', 'width:96px;') + sk('wy-sk-chip', 'width:74px;') +
+                sk('wy-sk-chip', 'width:110px;') +
+              '</div>' +
+            '</section>' +
+          '</div>' +
+          '<div class="wy-actions-block">' +
+            '<div class="wy-actions" aria-hidden="true">' +
+              sk('wy-sk-btn') +
+            '</div>' + footerHtml() +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function skeletonChatHtml(vm) {
+      vm = vm || {};
+      var rows = [
+        { me: false, w: '64%' },
+        { me: true, w: '48%' },
+        { me: false, w: '78%' },
+        { me: true, w: '38%' },
+        { me: false, w: '56%' },
+      ];
+      var msgs = rows.map(function (r) {
+        return '<div class="wy-sk-msg' + (r.me ? ' is-me' : '') + '">' +
+          (r.me ? '' : skCircle(26)) +
+          '<span class="wy-sk-bubble" style="width:' + r.w + ';"></span>' +
+        '</div>';
+      }).join('');
+      return '<div class="wy-view wy-view-chat wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        skHeadIdentityHtml({ headClass: 'wy-head-chat', avatar: 44, back: true }) +
+        '<div class="wy-chat-body">' +
+          '<div class="wy-scroll wy-sk-msgs" aria-hidden="true">' + msgs + '</div>' +
+          '<div class="composer-zone" aria-hidden="true">' +
+            '<div class="input-bar">' +
+              '<div class="input-wrap wy-sk-input">' + skLine('54%', 12) + '</div>' +
+            '</div>' + footerHtml() +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function skeletonListHtml(vm) {
+      vm = vm || {};
+      return '<div class="wy-view wy-view-list wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        '<div class="wy-head wy-head-list" aria-hidden="true">' +
+          '<span class="wy-back wy-sk-back"></span>' +
+          skLine('92px', 13) +
+        '</div>' +
+        '<div class="wy-body-pad wy-list-body">' +
+          '<div class="wy-scroll wy-list-scroll">' + skeletonConvRowsHtml(6) + '</div>' +
+          footerHtml() +
+        '</div>' +
+      '</div>';
+    }
+
+    function skeletonPrechatHtml(vm) {
+      vm = vm || {};
+      // Bounded default while the asked-field config is still unknown; once
+      // Core knows the authoritative field count it passes `fields`.
+      var n = Math.max(1, Math.min(4, Number(vm.fields) || 2));
+      var fields = '';
+      for (var i = 0; i < n; i++) {
+        fields += '<div class="prechat-field" aria-hidden="true">' +
+          skLine('64px', 10) + sk('wy-sk-field') +
+        '</div>';
+      }
+      return '<div class="wy-view wy-view-precontact prechat wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        skHeadIdentityHtml({ back: true, avatar: 44 }) +
+        '<div class="wy-scroll wy-body-pad" aria-hidden="true">' +
+          '<div class="wy-sk-group">' + skLine('86%', 12) + skLine('58%', 12) + '</div>' +
+          '<div class="prechat-fields">' + fields + '</div>' +
+          '<div class="prechat-spacer"></div>' +
+          sk('wy-sk-btn') +
+        '</div>' +
+      '</div>';
+    }
+
+    function skeletonArticlesHtml(vm) {
+      vm = vm || {};
+      return '<div class="wy-view wy-view-kb kb-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        skHeadIdentityHtml({ back: true, avatar: 44 }) +
+        '<div class="wy-body-pad wy-kb-body">' +
+          '<div class="wy-scroll wy-kb-scroll">' + skeletonArticleRowsHtml(6) + '</div>' +
+          footerHtml() +
+        '</div>' +
+      '</div>';
+    }
+
+    function skeletonArticleHtml(vm) {
+      vm = vm || {};
+      var widths = ['96%', '88%', '92%', '70%', '94%', '61%', '86%', '48%'];
+      var lines = widths.map(function (w) { return skLine(w, 11); }).join('');
+      return '<div class="wy-view wy-view-kb kb-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        '<div class="wy-head wy-head-article" aria-hidden="true">' +
+          '<span class="wy-back wy-sk-back"></span>' + skCircle(36) + skLine('56%', 13) +
+        '</div>' +
+        '<div class="wy-body-pad wy-kb-body">' +
+          '<div class="wy-scroll wy-kb-scroll" aria-hidden="true">' +
+            '<div class="kb-article-body wy-sk-group">' + lines + '</div>' +
+            '<div class="kb-feedback wy-sk-group">' +
+              skLine('46%', 11) +
+              '<div class="kb-feedback-actions">' + sk('wy-sk-pill') + sk('wy-sk-pill') + '</div>' +
+            '</div>' +
+          '</div>' + footerHtml() +
+        '</div>' +
+      '</div>';
+    }
+
+    /**
+     * Generic entry point Core calls with a normalized view key. Unknown
+     * views fall back to an empty string so Core degrades to "render nothing"
+     * rather than leaking a technical placeholder.
+     */
+    function skeletonHtml(view, vm) {
+      switch (String(view || '')) {
+        case 'home': return skeletonHomeHtml(vm);
+        case 'chat': return skeletonChatHtml(vm);
+        case 'list': return skeletonListHtml(vm);
+        case 'prechat': return skeletonPrechatHtml(vm);
+        case 'help':
+        case 'articles': return skeletonArticlesHtml(vm);
+        case 'article': return skeletonArticleHtml(vm);
+        default: return skeletonHomeHtml(vm);
+      }
+    }
+
     return {
+
       id: 'web-yar',
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
@@ -1067,6 +1295,13 @@
       kbEmptyHtml: kbEmptyHtml,
       kbLoadingHtml: kbLoadingHtml,
       kbArticleFeedbackHtml: kbArticleFeedbackHtml,
+
+      // Loading UX (optional presentation contract). Core asks for a
+      // skeleton by normalized view key; a template that does not implement
+      // this simply omits it and Core renders nothing instead.
+      skeletonHtml: skeletonHtml,
+      connIndicatorHtml: connIndicatorHtml,
+
 
       format: {
         msgTime: formatMsgTime,

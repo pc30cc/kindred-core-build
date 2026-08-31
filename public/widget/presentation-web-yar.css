@@ -579,8 +579,10 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg, .msg-text, .msg-quote, .kb-article, .kb-article-body {
   -webkit-user-select: text; user-select: text; cursor: text;
 }
+.msg-actions, .msg-meta, .msg-avatar { -webkit-user-select: none; user-select: none; }
 .msg ::selection, .msg-text::selection, .msg-quote ::selection,
 .kb-article ::selection { background: rgba(31, 147, 255, 0.28); color: inherit; }
+
 .msg-row.visitor .msg ::selection, .msg-row.visitor .msg-text::selection {
   background: rgba(255, 255, 255, 0.35); color: inherit;
 }

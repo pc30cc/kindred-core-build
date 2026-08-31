@@ -137,10 +137,13 @@
      * falls back to the locale default for the availability state.
      */
     function replyTimeText(online) {
-      var custom = (config && typeof config.replyTimeText === 'string') ? config.replyTimeText.trim() : '';
-      if (custom) return custom;
+      // An explicit string (including '') is authoritative: the workspace
+      // cleared the field, so nothing is shown. Only null/undefined falls
+      // back to the locale default.
+      if (config && typeof config.replyTimeText === 'string') return config.replyTimeText.trim();
       return online === false ? tf('homeReplySlow', '') : tf('homeReplyFast', '');
     }
+
 
     function headerIdentityHtml(opts) {
       opts = opts || {};

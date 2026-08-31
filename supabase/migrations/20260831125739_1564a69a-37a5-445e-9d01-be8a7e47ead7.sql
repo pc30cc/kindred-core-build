@@ -1,0 +1,1 @@
+ALTER TABLE public.widget_settings ADD COLUMN IF NOT EXISTS reply_time_text text NOT NULL DEFAULT '';

@@ -2384,7 +2384,7 @@ export default function InboxPage() {
                   >
                     {sendMessage.isPending
                       ? <Loader2 className="w-4 h-4 animate-spin" />
-                      : <Send className="w-4 h-4 rtl:-scale-x-100" />}
+                      : <Send className="w-4 h-4 rtl:scale-x-100" />}
                     {sendAction !== 'none' && (
                       <span className="hidden md:inline text-[11px] font-medium max-w-[9rem] truncate">
                         {sendActionMeta[sendAction].short}

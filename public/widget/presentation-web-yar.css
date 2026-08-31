@@ -525,7 +525,11 @@ a.wy-powered:hover { color: var(--wy-text); }
 /* Physical sides are IDENTICAL in LTR and RTL: operator/AI on the left,
    visitor on the right. Only the text direction flips. */
 .messages { display: flex; flex-direction: column; gap: 10px; }
+/* Consecutive messages from the same sender hug each other (4px); only the
+   last row of a streak keeps the full 10px separation. */
+.msg-row:not(.is-last) { margin-bottom: -6px; }
 .msg-row { display: flex; align-items: flex-end; gap: 0.5rem; justify-content: flex-start; }
+
 .msg-row.operator { flex-direction: row; }
 .msg-row.visitor { flex-direction: row-reverse; }
 [dir='rtl'] .msg-row.operator { flex-direction: row-reverse; }

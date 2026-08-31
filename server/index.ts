@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { primePlatformOrigins, isAllowedOrigin } from './services/platformOrigins.js';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';

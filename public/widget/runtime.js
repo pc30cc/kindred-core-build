@@ -2612,6 +2612,8 @@
     // CURRENTLY revealed slice for the active id, so the two stay in sync.
     var lastRenderedBody = null;
     var lastRenderedChatHtml = null;
+    var lastRenderedRowCount = 0;
+
     var lastMergedNewAiMessage = null;
     var typewriter = null; // { id, tokens, revealedCount, timer }
     // The handoff pre-chat card's prompt line animates once, the very
@@ -2898,8 +2900,11 @@
     function renderEmpty(body) {
       // Presentation owns the markup — Core only decides WHAT to show.
       body.innerHTML = Presentation.emptyHtml();
+      lastRenderedRowCount = 0;
+      lastRenderedChatHtml = null;
       body.scrollTop = body.scrollHeight;
     }
+
 
     // ─── Phase 6b — attachment renderer (provider-safe) ───
     // Always loads files via the backend proxy route /api/widget/attachments/:id.
@@ -3371,6 +3376,26 @@
       chatScrollToBottom(body);
     }
 
+    // Rows already on screen before a repaint must NOT replay the entrance
+    // animation (the visible "jump" when e.g. a read-receipt tick flips and
+    // the markup changes). We suppress `wy-msg-in` on every row that existed
+    // in the previous paint, and restore the scroll offset when the visitor
+    // is not pinned to the bottom.
+    function paintMessages(body, html) {
+      var prevCount = (body === lastRenderedBody) ? lastRenderedRowCount : 0;
+      var prevScroll = 0;
+      try { prevScroll = body.scrollTop; } catch (_) {}
+      body.innerHTML = html;
+      var rows = body.querySelectorAll ? body.querySelectorAll('.msg-row') : [];
+      for (var i = 0; i < rows.length && i < prevCount; i++) {
+        try { rows[i].classList.add('no-enter'); } catch (_) {}
+      }
+      lastRenderedRowCount = rows.length;
+      if (!chatStickToBottom && prevScroll > 0) {
+        try { body.scrollTop = prevScroll; } catch (_) {}
+      }
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
@@ -3379,11 +3404,12 @@
       // must NOT rewrite the DOM — rewriting kills the visitor's text
       // selection and replays the row entrance animation (visible "shake").
       if (body === lastRenderedBody && html === lastRenderedChatHtml) return;
+      paintMessages(body, html);
       lastRenderedBody = body;
       lastRenderedChatHtml = html;
-      body.innerHTML = html;
       wireChatEvents(body);
     }
+
 
 
     // Inline handoff pre-chat — HANDOFF_PRECHAT state only (spec: identify
@@ -3396,9 +3422,10 @@
       var subtitle = resolveHandoffPrechatSubtitle(locale);
       var animateSubtitle = !handoffPrechatSubtitleAnimated;
       var cardHtml = renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle);
+      paintMessages(body, buildMessagesHtml(s, cardHtml));
       lastRenderedBody = body;
       lastRenderedChatHtml = null;
-      body.innerHTML = buildMessagesHtml(s, cardHtml);
+
       wireChatEvents(body);
       wirePrechatForm(body, identity, onSubmitted, { autofocus: false });
       if (animateSubtitle) {

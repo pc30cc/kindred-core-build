@@ -538,6 +538,10 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-row { animation: wy-msg-in 0.24s var(--wy-ease) both; }
 @keyframes wy-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .shell.no-anim .msg-row { animation: none; }
+/* A row that was already on screen before a repaint must not replay its
+   entrance animation — that replay is the visible "jump". */
+.msg-row.no-enter { animation: none !important; }
+
 
 .msg-avatar {
   width: 2rem; height: 2rem; border-radius: 50%; flex: none; overflow: hidden;

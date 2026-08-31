@@ -217,7 +217,7 @@ export interface WidgetLivePreviewProps {
 }
 
 export function WidgetLivePreview({
-  settings, prechat, workspaceName, platformName, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
+  settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
   operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent,
 }: WidgetLivePreviewProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);

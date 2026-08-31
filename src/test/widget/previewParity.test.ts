@@ -133,6 +133,7 @@ describe('home surface — design renderVals() contract', () => {
       'utf8',
     );
     expect(js).toContain('(pb && pb.brand) || (config && config.platformName)');
-    expect(js).not.toContain('config.brandName');
+    // The footer must not silently fall back to the workspace brand name.
+    expect(js).not.toContain('config.platformName || config.brandName');
   });
 });

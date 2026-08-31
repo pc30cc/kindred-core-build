@@ -54,11 +54,21 @@
       close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     };
 
+    // Delivery ticks: one tick = sent, two ticks = delivered, two accent
+    // ticks = read. No textual label (design decision).
+    var TICKS = {
+      single: '<svg viewBox="0 0 20 12" width="15" height="10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.6l3 3L14.5 3"/></svg>',
+      double: '<svg viewBox="0 0 20 12" width="18" height="10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 6.6l3 3L11 3"/><path d="M8 9.6L14.5 3"/></svg>',
+    };
+
     // Workspace identity block reused by every header (home/list/articles/
     // article/precontact/chat). Never hardcodes a brand — everything comes
     // from config/view-model.
     function identityAvatarHtml(size) {
-      var logo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
+      // Logo explicitly disabled by the workspace => render NO avatar layer at
+      // all (no initial-letter fallback circle behind it).
+      if (config && config.showLogo === false) return '';
+      var logo = (config && config.logoUrl) ? String(config.logoUrl) : '';
       var brand = workspaceName;
       var cls = 'wy-avatar wy-avatar-' + (size || 'md');
       if (logo) {
@@ -68,6 +78,7 @@
       var initial = (brand.trim().charAt(0) || 'W').toUpperCase();
       return '<span class="' + cls + '" aria-hidden="true">' + esc(initial) + '</span>';
     }
+
 
     function backButtonHtml(target) {
       return '<button type="button" class="wy-back" data-view-back="' + esc(target || 'home') +
@@ -447,11 +458,8 @@
       var qnaState = view.qna || { questions: [], expanded: false };
       var rrCfg = ctx.config && ctx.config.readReceipts;
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
-      var lastVisitorIdx = -1;
-      for (var lv = s.messages.length - 1; lv >= 0; lv--) {
-        if (s.messages[lv].sender === 'visitor') { lastVisitorIdx = lv; break; }
-      }
       var html = '<div class="messages">';
+
       var groupKeys = s.messages.map(function (m) {
         return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
       });
@@ -478,22 +486,26 @@
         var attHtml = renderMessageAttachment(m.attachment);
         var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
 
+        // Consecutive messages from the same author share ONE avatar and ONE
+        // meta line (time + delivery ticks) under the LAST bubble of the run.
+        var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
+
         var statusHtml = '';
-        if (m.sender === 'visitor' && idx === lastVisitorIdx && receiptsEnabled && m.status) {
-          var label, icon;
-          if (m.status === 'sending') { label = t('msgSending'); icon = '<span class="msg-status-spinner"></span>'; }
-          else if (m.status === 'failed') { label = t('msgFailed'); icon = '<span class="msg-status-icon">!</span>'; }
-          else if (m.status === 'seen') { label = t('msgSeen'); icon = '<span class="msg-status-icon seen">✓✓</span>'; }
-          else { label = t('msgSent'); icon = '<span class="msg-status-icon">✓</span>'; }
-          statusHtml = '<div class="msg-status status-' + m.status + '">' + icon +
-            '<span class="msg-status-label">' + esc(label) + '</span></div>';
+        if (m.sender === 'visitor' && isLastInStreak && receiptsEnabled && m.status) {
+          if (m.status === 'sending') {
+            statusHtml = '<span class="msg-ticks is-sending"><span class="msg-status-spinner"></span></span>';
+          } else if (m.status === 'failed') {
+            statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(t('msgFailed')) + '">!</span>';
+          } else {
+            var seen = m.status === 'seen';
+            var two = seen || m.status === 'delivered';
+            statusHtml = '<span class="msg-ticks' + (seen ? ' is-seen' : '') + '" aria-hidden="true">' +
+              (two ? TICKS.double : TICKS.single) + '</span>';
+          }
         }
 
-        // Consecutive operator/AI messages share ONE avatar, on the last
-        // bubble of the run (design §12).
         var avatarHtml = '';
         if (cls === 'operator') {
-          var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
           if (isLastInStreak) {
             avatarHtml = m.senderAvatar
               ? '<span class="msg-avatar has-img"><img src="' + esc(m.senderAvatar) + '" alt="' +
@@ -506,8 +518,11 @@
         }
 
         var timeStr = formatMsgTime(m.time);
-        var timeHtml = timeStr ? '<span class="msg-time">' + esc(timeStr) + '</span>' : '';
-        var leadingHtml = cls === 'operator' ? avatarHtml : statusHtml;
+        var metaHtml = isLastInStreak && (timeStr || statusHtml)
+          ? '<div class="msg-meta">' +
+              (timeStr ? '<span class="msg-time">' + esc(timeStr) + '</span>' : '') + statusHtml +
+            '</div>'
+          : '';
 
         var isTypingThis = !!(typewriter && typewriter.id === m.__id);
         var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
@@ -533,12 +548,15 @@
           ? '<span class="msg-quote">' + esc(String(m.replyTo.text || m.replyTo.body)) + '</span>'
           : '';
 
-        html += '<div class="msg-row ' + cls + '">' + leadingHtml +
-          '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '"' +
-            (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
-            aiBadgeHtml + quoted + textHtml + attHtml + timeHtml +
+        html += '<div class="msg-row ' + cls + (isLastInStreak ? ' is-last' : '') + '">' + avatarHtml +
+          '<div class="msg-col">' +
+            '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
+              (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
+              aiBadgeHtml + quoted + textHtml + attHtml +
+            '</div>' + metaHtml +
           '</div>' + replyBtn +
         '</div>';
+
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
         if (isIntro && !visitorHasReplied && qnaState.questions.length) html += qnaChipsHtml(qnaState);

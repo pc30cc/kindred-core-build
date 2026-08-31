@@ -7,7 +7,10 @@
  * Auth: first-party gs_session HttpOnly cookie (credentials: 'include') —
  * no Supabase Auth session/Bearer token involved.
  */
-export const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '';
+// Single source of truth: same-origin during dev/preview (Vite proxy),
+// configured origin in production builds.
+export { API_BASE } from '../apiBase';
+import { API_BASE } from '../apiBase';
 
 /**
  * Structured error for the AI Agent API client.

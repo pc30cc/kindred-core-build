@@ -9523,6 +9523,21 @@ export type Database = {
         Args: { _claim_token: string; _ids: string[]; _worker_id: string }
         Returns: number
       }
+      conversation_apply_post_send_action: {
+        Args: {
+          p_after_message_id: string
+          p_allowed_from: string[]
+          p_conversation_id: string
+          p_target_status: string
+          p_workspace_id: string
+        }
+        Returns: {
+          blocked_reason: string
+          changed: boolean
+          changed_at: string
+          new_status: string
+        }[]
+      }
       count_recent_login_failures: {
         Args: { _email: string; _ip: string; _window_minutes?: number }
         Returns: number

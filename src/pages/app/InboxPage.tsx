@@ -259,7 +259,7 @@ export default function InboxPage() {
     // Status tabs and special tabs are peers in the UI, not cumulative
     // filters. Leaving `filter=needs_human` behind made every later status
     // tab continue to query only handoff conversations.
-    updateUrl({ status: s === 'open' ? null : s, filter: null });
+    updateUrl({ status: s === 'open' ? null : s, filter: null, queue: null });
   }, [updateUrl]);
   const setExtraChip = useCallback((c: ExtraChip | null) => {
     // Special tabs start from the main/open inbox and are mutually exclusive

@@ -73,9 +73,16 @@ describe('typography ownership', () => {
     expect(PRES_CSS).toMatch(/font-family: 'InterWY'/);
   });
 
-  it('never declares an IRANSans 600 face (no such file ships)', () => {
+  it('maps the design 600 and 700 weights to the licensed Bold asset', () => {
     const faces = PRES_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
-    expect(faces.some((f) => /font-weight:\s*600/.test(f))).toBe(false);
+    expect(faces.some((f) => /font-weight:\s*600/.test(f) && /iransans-700\.woff2/.test(f))).toBe(true);
+    expect(faces.some((f) => /font-weight:\s*700/.test(f) && /iransans-700\.woff2/.test(f))).toBe(true);
+  });
+
+  it('keeps all controls on presentation-owned inherited typography', () => {
+    expect(PRES_CSS).toMatch(/\.shell \*\s*\{[^}]*font-family:\s*'IRANSans'/);
+    expect(RUNTIME_CSS).toMatch(/button\s*\{[^}]*font:\s*inherit/);
+    expect(RUNTIME_CSS).toMatch(/input,\s*\n?textarea\s*\{[^}]*font:\s*inherit/);
   });
 });
 
@@ -124,6 +131,7 @@ describe('composer design contract', () => {
     expect(wrap.querySelector('.composer-actions [data-send-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-attach-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-emoji-btn]')).toBeTruthy();
+    expect(el.querySelector('[data-escalate-btn]')).toBeNull();
   });
 
   it('uses a real single-row textarea', () => {
@@ -158,6 +166,38 @@ describe('composer design contract', () => {
     const el = chatDom();
     expect(el.querySelectorAll('.composer-zone .wy-footer').length).toBe(1);
     expect(el.querySelectorAll('.wy-footer').length).toBe(1);
+  });
+});
+
+describe('remaining source surfaces', () => {
+  it('locks the intentional 420×680 product canvas override without scaling components', () => {
+    expect(PRES_CSS).toMatch(/width:\s*420px/);
+    expect(PRES_CSS).toMatch(/height:\s*680px/);
+    expect(PRES_CSS).toContain('max-width: calc(100vw - 24px)');
+    expect(PRES_CSS).toContain('max-height: calc(100dvh - 118px)');
+  });
+
+  it('keeps articles plain and article feedback source-shaped', () => {
+    const R = renderer();
+    const list = R.kbHtml({ state: 'list', rtl: true, articles: [{ slug: 'a', title: 'مقاله' }], categories: [] });
+    expect(list).toContain('kb-article-title');
+    expect(list).not.toContain('kb-search');
+    expect(list).not.toContain('kb-empty-icon');
+    const detail = R.kbHtml({ state: 'article', rtl: true, article: { title: 'مقاله', contentHtml: '<p>متن</p>' }, feedback: { enabled: true, rating: 'down' } });
+    expect(detail).toContain('data-kb-rate="up"');
+    expect(detail).toContain('data-kb-rate="down"');
+    expect(detail).toContain('kb-feedback-cta');
+    expect(PRES_CSS).toMatch(/\.kb-feedback\s*\{[^}]*border-top:\s*1px solid/);
+  });
+
+  it('renders pre-chat without decorative field icons or privacy chrome', () => {
+    const R = renderer();
+    const identity = { isAsked: () => true, isRequired: (key: string) => key === 'name' };
+    const html = R.prechatFormHtml(identity, {}, 'fa');
+    expect(html).not.toContain('prechat-icon');
+    expect(html).not.toContain('prechat-privacy');
+    expect(html).toContain('dir="ltr"');
+    expect(PRES_CSS).toMatch(/\.prechat-input\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 12px/);
   });
 });
 

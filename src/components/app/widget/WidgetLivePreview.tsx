@@ -327,6 +327,7 @@ export function WidgetLivePreview({
         contentHtml: esc(articleText(a.content) || articleText(a.excerpt)).replace(/\n/g, '<br>'),
         publicUrl: '',
       },
+      feedback: { enabled: true, rating: null },
     }));
 
 

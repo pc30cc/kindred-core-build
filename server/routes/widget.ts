@@ -785,7 +785,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       apiBase,
       assetBase,
       debugMode: ws.debug_mode ?? false,
-      brandName: branding?.platform_name || 'Support',
+      // Workspace identity owns all widget headers. Platform identity is
+      // intentionally separate and is used only by the powered-by footer.
+      brandName: workspace?.name || 'Support',
       // Explicit platform brand for the "powered by" footer. The footer must
       // ALWAYS name the platform, never the workspace's own brand.
       platformName: branding?.platform_name || 'Support',

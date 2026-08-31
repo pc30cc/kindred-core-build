@@ -56,8 +56,9 @@ describe('production panel positioning contract', () => {
     expect(css).toContain('bottom: calc(24px + var(--gs-fab-size, 56px) + 14px)');
     expect(css).toMatch(/\.panel\.bottom-right\s*\{[\s\S]*?right:\s*24px/);
     expect(css).toMatch(/\.panel\.bottom-left\s*\{[\s\S]*?left:\s*24px/);
-    expect(css).toMatch(/width:\s*380px/);
-    expect(css).toMatch(/max-height:\s*calc\(100vh - 120px\)/);
+    expect(css).toMatch(/width:\s*420px/);
+    expect(css).toMatch(/height:\s*680px/);
+    expect(css).toMatch(/max-height:\s*calc\(100dvh - 118px\)/);
   });
 
   it('the runtime puts the position class on the panel', () => {
@@ -72,6 +73,25 @@ describe('production panel positioning contract', () => {
   it('the powered-by dot matches the design pulse', () => {
     expect(css).toMatch(/\.wy-powered-dot[\s\S]*?width: 12px; height: 12px/);
     expect(css).toContain('animation: wy-load-pulse 0.9s ease-in-out 3');
+  });
+});
+
+describe('generic presentation readiness', () => {
+  it('lets the active presentation prepare itself without font/template knowledge in Core', () => {
+    expect(loader).toContain('typeof presentationModule.prepare === "function"');
+    expect(loader).not.toContain('IRANSans');
+    expect(loader).not.toContain('web-yar');
+    expect(preview).toContain("typeof mod.prepare === 'function'");
+  });
+
+  it('passes distinct workspace/platform identity and custom reply time to preview', () => {
+    expect(preview).toContain('workspaceName: title');
+    expect(preview).toContain('platformName: platformName');
+    expect(preview).toContain('replyTimeText:');
+  });
+
+  it('opens articles through the same full KB renderer as production', () => {
+    expect(preview).toContain('body.innerHTML = R.kbHtml(vm)');
   });
 });
 

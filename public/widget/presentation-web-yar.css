@@ -188,6 +188,7 @@
 .wy-list-body, .wy-kb-body { padding: 16px; gap: 12px; }
 .wy-list-scroll { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .wy-kb-scroll { flex: 1; min-height: 0; padding: 0 0 0 6px; }
+.wy-kb-body > .wy-footer, .wy-list-body > .wy-footer { padding: 0; }
 
 
 /* ─── Headers ───────────────────────────────────────────────────────── */
@@ -216,6 +217,9 @@
 .wy-head-chat .wy-head-title { font-size: 15px; font-weight: 600; gap: 6px; }
 .wy-head-chat .wy-head-sub { font-size: 12px; color: var(--wy-muted); }
 .wy-head-chat .wy-online-dot { width: 8px; height: 8px; border: 0; }
+.wy-head-list { padding: 20px; gap: 8px; justify-content: space-between; }
+.wy-head-list .wy-back { width: auto; height: auto; padding: 8px; margin-inline-end: -12px; border-radius: 6px; }
+.wy-head-article { padding: 16px 20px; gap: 8px; }
 .wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
 .wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }

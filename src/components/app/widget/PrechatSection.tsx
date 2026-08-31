@@ -4,9 +4,8 @@ import { useWidgetPlatformSettings, type PreChatPolicy } from '@/hooks/useWidget
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { User, Mail, Phone, ShieldCheck, Lock, Info, Clock } from 'lucide-react';
+import { User, Mail, Phone, ShieldCheck, Lock, Info } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Props {

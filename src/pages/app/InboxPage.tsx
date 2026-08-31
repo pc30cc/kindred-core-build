@@ -33,7 +33,7 @@ import {
   ChevronDown, ChevronUp, Search, MoreHorizontal, Archive,
   UserCheck, AlertCircle, Clock, Star, X,
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
-  Loader2, Bot, Copy, Paperclip, RefreshCw,
+  Loader2, Bot, Copy, CornerUpLeft, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
   PhoneOff, Ban, ShieldOff, Users,
 } from 'lucide-react';
@@ -1912,6 +1912,10 @@ export default function InboxPage() {
                   && senderKey(next) === senderKey(msg);
                 const showAvatar = !sameSenderAsNext;
                 const showMeta = !sameSenderAsNext;
+                // Inside a streak, show the timestamp beside the hover actions
+                // when this message came notably later than the previous one.
+                const timeGapFromPrev = !!prev && sameSenderAsPrev && !showMeta
+                  && (new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime()) > 5 * 60 * 1000;
                 // Pass A — system call_ended summary renders as a centered
                 // pill, not as an operator/visitor bubble.
                 const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};
@@ -2036,7 +2040,7 @@ export default function InboxPage() {
                     className={cn(
                       'flex gap-2.5 group items-end',
                       isAgent ? 'flex-row-reverse' : 'flex-row',
-                      sameSenderAsPrev ? 'mt-px' : 'mt-3',
+                      sameSenderAsPrev ? 'mt-0' : 'mt-3',
                     )}
                   >
                     {/* Avatar column — beside the last bubble of each streak */}
@@ -2122,13 +2126,12 @@ export default function InboxPage() {
                           );
                         })()}
                       </div>
-                      {/* Name + time strip below the (last) bubble of a streak */}
-                      <div className={cn(
-                        'flex items-center gap-1.5',
-                        showMeta ? 'mt-1 min-h-[18px]' : 'h-0 overflow-hidden group-hover:h-4 group-hover:mt-0.5',
-                        isAgent ? 'flex-row-reverse' : 'flex-row',
-                      )}>
-                        {showMeta ? (
+                      {/* Name + time strip below the LAST bubble of a streak */}
+                      {showMeta && (
+                        <div className={cn(
+                          'flex items-center gap-1.5 mt-1',
+                          isAgent ? 'flex-row-reverse' : 'flex-row',
+                        )}>
                           <div dir={dir} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                             <span className="font-medium">
                               {isAgent
@@ -2143,25 +2146,43 @@ export default function InboxPage() {
                             <span className="opacity-30">•</span>
                             <bdi title={formatDateTime(msg.created_at)}>{formatTime(msg.created_at)}</bdi>
                           </div>
-                        ) : (
-                          <bdi dir={dir} className="text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" title={formatDateTime(msg.created_at)}>
-                            {formatTime(msg.created_at)}
-                          </bdi>
-                        )}
-                        {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
-                          <span className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
-                          </span>
-                        )}
-                        <button
-                          onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-0.5 rounded"
-                          aria-label={t('inbox.copy') || 'Copy message'}
-                          title={t('inbox.copy') || 'Copy message'}
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      </div>
+                          {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
+                            <span className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {/* Side actions — right of visitor bubbles, left of operator bubbles */}
+                    <div className="flex items-center gap-1 shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      {timeGapFromPrev && (
+                        <bdi dir={dir} className="text-[11px] text-muted-foreground" title={formatDateTime(msg.created_at)}>
+                          {formatTime(msg.created_at)}
+                        </bdi>
+                      )}
+                      <button
+                        onClick={() => {
+                          const author = isAgent
+                            ? agentLabel
+                            : contactDisplayName(selected?.contacts, selected?.contact_id ?? selectedId, t, selected?.visitor_network?.geo, locale);
+                          const snippet = String(msg.body || '').replace(/\s*\n+\s*/g, ' ').trim().slice(0, 180);
+                          setMessage((prevDraft) => `> ${author}: ${snippet}\n\n${prevDraft}`);
+                        }}
+                        className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
+                        aria-label={t('inbox.reply') || 'Reply'}
+                        title={t('inbox.reply') || 'Reply'}
+                      >
+                        <CornerUpLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: t('inbox.copied') || 'Copied to clipboard' }); }}
+                        className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
+                        aria-label={t('inbox.copy') || 'Copy message'}
+                        title={t('inbox.copy') || 'Copy message'}
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                   </div>

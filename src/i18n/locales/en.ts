@@ -445,6 +445,7 @@ const en = {
     aiAssistant: 'AI assistant',
     operator: 'Operator',
     seen: 'Seen',
+    reply: 'Reply',
     copy: 'Copy message',
     copied: 'Copied to clipboard',
     today: 'Today',

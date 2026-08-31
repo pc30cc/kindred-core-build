@@ -463,7 +463,7 @@ export function WidgetLivePreview({
 
 <style>
   html,body{margin:0;height:100%;}
-  body{background:#F1F5F9;overflow:hidden;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+  body{background:#F1F5F9;overflow:hidden;font-family:'IRANSans','InterWY',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
   .site{padding:22px;}
   .site .bar{height:12px;border-radius:6px;background:#E2E8F0;margin-bottom:10px;}
   .site .bar.w2{width:62%}.site .bar.w3{width:78%}.site .bar.w4{width:45%}

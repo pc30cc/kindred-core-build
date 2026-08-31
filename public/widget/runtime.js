@@ -1945,6 +1945,9 @@
         ask_name: on('name'), ask_email: on('email'), ask_phone: on('phone'),
         require_name: on('name'), require_email: on('email'), require_phone: on('phone'),
         verify_email: false, verify_phone: false,
+        // Offline fallback keeps the historical (safest) timing.
+        timing: 'after_handoff',
+
       };
     }
 

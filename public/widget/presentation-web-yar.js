@@ -861,7 +861,7 @@
             esc(tf('wyContinueLast', 'Continue last conversation')) + '</button>';
         }
         actions += '<button type="button" class="wy-btn ' + (unresolved ? 'wy-btn-outline' : 'wy-btn-primary') +
-          ' wy-btn-grow" data-home-action="chat">' +
+          ' wy-btn-grow" data-home-action="chat">' + stackHtml +
           esc(unresolved ? tf('wyStartNew', t('homeStartChat')) : (online ? t('homeStartChat') : t('homeLeaveMessage'))) +
           '</button>';
       }
@@ -875,7 +875,6 @@
           headerIdentityHtml({
              title: vm.workspaceName || vm.headerTitle || workspaceName,
             subtitle: replyTimeText(online),
-            stack: stackHtml,
           }) +
         '</div>' +
         '<div class="wy-home-body">' +

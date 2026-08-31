@@ -156,6 +156,9 @@ function WidgetPageContent() {
   const previewPoweredBy = useMemo(() => {
     const planAllows = effectiveEnts?.features?.widget_powered_by?.value !== false;
     if (!planAllows) return null;
+    // Workspace may hide it only when its plan grants the toggle.
+    const mayHide = effectiveEnts?.features?.widget_powered_by_toggle?.value === true;
+    if (mayHide && (live as any)?.show_powered_by === false) return null;
     if (platformWidget && platformWidget.powered_by_enabled === false) return null;
     const brand = (platformWidget?.powered_by_brand_text || '').trim()
       || (platformName || '').trim();
@@ -166,7 +169,7 @@ function WidgetPageContent() {
       brand,
       url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
     };
-  }, [effectiveEnts, platformWidget, platformName]);
+  }, [effectiveEnts, platformWidget, platformName, live]);
   const previewTeamMembers = useMemo(() => {
     const byUser = presenceMap(teamPresence?.presence);
     return (workspaceMembers || []).map(member => ({
@@ -622,6 +625,34 @@ function WidgetPageContent() {
                       onCheckedChange={v => setField('show_team_avatars', v, 0)}
                     />
                   </div>
+
+                  {/* Platform credit footer. Always ON by default; only a plan
+                      granting `widget_powered_by_toggle` may switch it off. */}
+                  {capAllowed('widget_powered_by') && (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
+                      <div className="space-y-1">
+                        <Label className="text-sm">{t('widgetPage.appearance.showPoweredBy')}</Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('widgetPage.appearance.showPoweredByHint')}
+                        </p>
+                        {!capAllowed('widget_powered_by_toggle') && (
+                          <p className="text-[11px] text-primary">
+                            {t('widgetPage.appearance.showPoweredByLocked')}
+                          </p>
+                        )}
+                      </div>
+                      <Switch
+                        disabled={!capAllowed('widget_powered_by_toggle')}
+                        checked={
+                          !capAllowed('widget_powered_by_toggle')
+                            ? true
+                            : ((live as any)?.show_powered_by ?? true)
+                        }
+                        onCheckedChange={v => setField('show_powered_by' as any, v, 0)}
+                      />
+                    </div>
+                  )}
+
 
                 </CardContent>
               </Card>

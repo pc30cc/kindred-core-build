@@ -3,34 +3,37 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 /**
  * Split Send — server-side status transition contract.
  * Covers: Send (no transition), Send & wait, Send & resolve, idempotent
- * double-click, and the fact that a failed send never reaches this layer.
+ * double-click, the customer-replied race guard, and the rule that a failed
+ * provider dispatch must never move the conversation.
+ *
+ * The transition itself lives in the DB function
+ * `conversation_apply_post_send_action` (migration 070); this test emulates
+ * its documented semantics faithfully (row lock + allowed-from + "no newer
+ * customer message").
  */
 
 const events: any[] = [];
 const published: any[] = [];
 let rows: Record<string, { status: string }> = {};
+/** messages per conversation: { id, sender, seq } ordered by seq */
+let messages: Record<string, { id: string; sender: string; seq: number }[]> = {};
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
-    from: (_table: string) => {
-      const state: any = { id: null, ws: null, allowed: [] as string[], patch: null };
-      const api: any = {
-        update(patch: any) { state.patch = patch; return api; },
-        eq(col: string, val: string) {
-          if (col === 'id') state.id = val;
-          if (col === 'workspace_id') state.ws = val;
-          return api;
-        },
-        in(_col: string, vals: string[]) { state.allowed = vals; return api; },
-        select() { return api; },
-        async maybeSingle() {
-          const row = rows[state.id];
-          if (!row || !state.allowed.includes(row.status)) return { data: null, error: null };
-          row.status = state.patch.status;
-          return { data: { id: state.id, status: row.status, updated_at: 'now' }, error: null };
-        },
-      };
-      return api;
+    async rpc(fn: string, args: any) {
+      if (fn !== 'conversation_apply_post_send_action') throw new Error('unexpected rpc ' + fn);
+      const row = rows[args.p_conversation_id];
+      if (!row) return { data: [{ changed: false, blocked_reason: 'not_found' }], error: null };
+      if (!args.p_allowed_from.includes(row.status)) {
+        return { data: [{ changed: false, new_status: row.status, blocked_reason: 'status_conflict' }], error: null };
+      }
+      const list = messages[args.p_conversation_id] ?? [];
+      const anchor = list.find(m => m.id === args.p_after_message_id);
+      if (anchor && list.some(m => m.sender === 'contact' && m.seq > anchor.seq)) {
+        return { data: [{ changed: false, new_status: row.status, blocked_reason: 'customer_replied' }], error: null };
+      }
+      row.status = args.p_target_status;
+      return { data: [{ changed: true, new_status: row.status, changed_at: 'now', blocked_reason: null }], error: null };
     },
   }),
 }));
@@ -56,6 +59,7 @@ beforeEach(() => {
   events.length = 0;
   published.length = 0;
   rows = { c1: { status: 'open' } };
+  messages = { c1: [{ id: 'm1', sender: 'agent', seq: 1 }] };
 });
 
 describe('applyPostSendAction', () => {
@@ -103,5 +107,59 @@ describe('applyPostSendAction', () => {
     const r = await applyPostSendAction({} as any, { ...base, action: 'wait_for_customer' });
     expect(r.changed).toBe(false);
     expect(rows.c1.status).toBe('closed');
+  });
+
+  // ── Race 1 — customer replies between insert and transition ─────────
+  it('Race 1: customer message arriving after the agent reply keeps it open', async () => {
+    messages.c1.push({ id: 'v1', sender: 'contact', seq: 2 });
+    const r = await applyPostSendAction({} as any, { ...base, action: 'wait_for_customer' });
+    expect(r.changed).toBe(false);
+    expect(r.blocked).toBe('customer_replied');
+    expect(rows.c1.status).toBe('open');
+    expect(events).toHaveLength(0);
+  });
+
+  it('Race 1 (resolve): a newer customer message also blocks Send & resolve', async () => {
+    messages.c1.push({ id: 'v1', sender: 'contact', seq: 2 });
+    const r = await applyPostSendAction({} as any, { ...base, action: 'resolve' });
+    expect(r.changed).toBe(false);
+    expect(rows.c1.status).toBe('open');
+  });
+
+  it('an OLDER customer message (the one being answered) does not block', async () => {
+    messages.c1 = [
+      { id: 'v0', sender: 'contact', seq: 0 },
+      { id: 'm1', sender: 'agent', seq: 1 },
+    ];
+    const r = await applyPostSendAction({} as any, { ...base, action: 'wait_for_customer' });
+    expect(r.changed).toBe(true);
+    expect(rows.c1.status).toBe('pending');
+  });
+
+  // ── Race 2 / 3 — provider dispatch failure ──────────────────────────
+  it('Race 2: failed external dispatch must NOT park the conversation', async () => {
+    const r = await applyPostSendAction({} as any, {
+      ...base, action: 'wait_for_customer', deliveryAccepted: false,
+    });
+    expect(r.changed).toBe(false);
+    expect(r.blocked).toBe('delivery_failed');
+    expect(rows.c1.status).toBe('open');
+    expect(events).toHaveLength(0);
+  });
+
+  it('Race 3: failed external dispatch must NOT resolve the conversation', async () => {
+    const r = await applyPostSendAction({} as any, {
+      ...base, action: 'resolve', deliveryAccepted: false,
+    });
+    expect(r.changed).toBe(false);
+    expect(rows.c1.status).toBe('open');
+  });
+
+  it('accepted dispatch still transitions normally', async () => {
+    const r = await applyPostSendAction({} as any, {
+      ...base, action: 'wait_for_customer', deliveryAccepted: true,
+    });
+    expect(r.changed).toBe(true);
+    expect(rows.c1.status).toBe('pending');
   });
 });

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import type { Conversation, ConversationMessage } from '@/types/models';
-import { conversationsApi } from '@/lib/conversations-api';
+import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
 import {
   fetchVisitorNetworkForConversations,
@@ -211,7 +211,15 @@ export function useSendMessage(
       body,
       attachmentId,
       postSendAction,
-    }: { body: string; senderId?: string; attachmentId?: string | null; postSendAction?: 'none' | 'wait_for_customer' | 'resolve' }) => {
+      clientMessageId,
+    }: {
+      body: string;
+      senderId?: string;
+      attachmentId?: string | null;
+      postSendAction?: 'none' | 'wait_for_customer' | 'resolve';
+      /** Idempotency key — same key on retry collapses the duplicate server-side. */
+      clientMessageId?: string;
+    }) => {
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
       const result = await conversationsApi.sendMessage({
         workspace_id: workspaceId,
@@ -219,10 +227,12 @@ export function useSendMessage(
         body,
         attachment_id: attachmentId ?? null,
         post_send_action: postSendAction ?? 'none',
+        client_message_id: clientMessageId ?? newClientMessageId(),
         metadata: { source: 'inbox' },
       });
       return result;
     },
+
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages', conversationId] });
       qc.invalidateQueries({ queryKey: ['conversations'] });

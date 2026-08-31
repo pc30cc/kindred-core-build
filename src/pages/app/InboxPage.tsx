@@ -12,7 +12,7 @@ import { emitCallEnded } from '@/lib/call-end-events';
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
-import { conversationsApi } from '@/lib/conversations-api';
+import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { isTypingSuppressed } from '@/realtime/policySnapshot';
@@ -819,6 +819,8 @@ export default function InboxPage() {
     att.status === 'uploading' ||
     (!message.trim() && att.status !== 'ready');
 
+  const pendingSendKeyRef = useRef<string | null>(null);
+
   const handleSend = async (actionOverride?: PostSendAction) => {
     if (!selectedId || !user) return;
     const hasText = message.trim().length > 0;
@@ -831,6 +833,10 @@ export default function InboxPage() {
     // reconcile the message into the thread within milliseconds.
     const draftBody = message;
     const draftAttachmentId = hasAttachment ? att.attachmentId : null;
+    // One idempotency key per logical message. It survives a failed attempt so
+    // that retrying the restored draft can never deliver the message twice.
+    const clientMessageId = pendingSendKeyRef.current ?? newClientMessageId();
+    pendingSendKeyRef.current = clientMessageId;
     setMessage('');
     resetAttachment();
     flushPendingTrackUse(draftBody);
@@ -838,12 +844,14 @@ export default function InboxPage() {
       {
         body: draftBody,
         attachmentId: draftAttachmentId,
+        clientMessageId,
         // Internal notes never travel through this composer path, and the
         // status transition is applied server-side only after the message row
         // really exists — a failed send leaves the status untouched.
         postSendAction: actionOverride ?? sendAction,
       },
       {
+        onSuccess: () => { pendingSendKeyRef.current = null; },
         onError: () => {
           // Restore draft on failure so the operator can retry without
           // losing what they typed.
@@ -851,6 +859,7 @@ export default function InboxPage() {
         },
       },
     );
+
   };
 
   // Reset visitor typing indicator + pending attachment when switching conversations.

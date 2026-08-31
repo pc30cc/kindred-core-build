@@ -86,18 +86,46 @@ export function isActionableCustomerTurn(m: NeedsReplyMessage): boolean {
 }
 
 /**
- * A qualified customer-facing response that closes the current waiting cycle.
- * Internal notes live in `conversation_notes` (a different table) and can
- * therefore never reach this function.
+ * TERMINAL delivery states — the transport has given up, so the customer will
+ * never receive this message. Written by Core (and only Core) from the
+ * Channels Worker's `POST /internal/channels/outbound-result` report:
+ *   • immediately, for a non-retryable provider error, and
+ *   • at retry exhaustion (`channel_jobs.status = 'failed'`).
+ *
+ * Everything else — no key at all (widget / just-enqueued), 'sent', or any
+ * in-flight bookkeeping — is NOT terminal. A message still being retried is
+ * an answer in flight, not a broken promise, so it must not flap the badge.
  */
-export function isQualifiedReply(m: NeedsReplyMessage): boolean {
+const TERMINAL_DELIVERY_FAILURES = new Set(['failed']);
+
+export function isPermanentlyUndelivered(m: NeedsReplyMessage): boolean {
+  return TERMINAL_DELIVERY_FAILURES.has(String(meta(m).channel_delivery ?? ''));
+}
+
+/**
+ * A qualified, customer-facing answer that actually reached a valid delivery
+ * path — the single concept that satisfies the obligation:
+ *   • sender is a real responder (agent / AI), not bot menu output or system,
+ *   • outbound and customer-facing (internal notes live in `conversation_notes`,
+ *     a different table, and can never reach here),
+ *   • carries content (text or attachment),
+ *   • was not skipped by routing, and
+ *   • is not in a terminal delivery-failure state.
+ */
+export function isQualifiedCustomerFacingAnswer(m: NeedsReplyMessage): boolean {
   if (!REPLY_SENDER_TYPES.has(String(m.sender_type ?? ''))) return false;
   if (isSystemGenerated(m)) return false;
   if (isMenuEvent(m)) return false;
-  // Transport rejected it → the customer never received an answer.
-  if (String(meta(m).channel_delivery ?? '') === 'failed') return false;
+  // Routing deliberately suppressed delivery (e.g. offline screen queued
+  // instead): the customer never got this text on the channel.
+  if (String(meta(m).channel_delivery_skip ?? '') === 'true') return false;
+  // Transport gave up → the customer never received an answer.
+  if (isPermanentlyUndelivered(m)) return false;
   return hasContent(m);
 }
+
+/** @deprecated Use {@link isQualifiedCustomerFacingAnswer}. */
+export const isQualifiedReply = isQualifiedCustomerFacingAnswer;
 
 export type NeedsReplyInput = {
   status: string | null | undefined;
@@ -122,9 +150,32 @@ export function computeNeedsReply(input: NeedsReplyInput): boolean {
 
   for (const m of ordered) {
     if (isActionableCustomerTurn(m)) return true;   // customer spoke last
-    if (isQualifiedReply(m)) return false;          // we answered last
+    if (isQualifiedCustomerFacingAnswer(m)) return false; // we answered last
     // everything else (system rows, menu taps, bot output, empty events,
     // failed deliveries) is transparent: keep looking further back.
   }
   return false;
+}
+
+/**
+ * Timestamp the customer has been waiting since — the FIRST actionable turn of
+ * the current unanswered streak, not the newest one. Lets the Inbox rank by
+ * real waiting age instead of `updated_at`, which non-conversational events
+ * (assignment, routing metadata, delivery receipts) also bump.
+ *
+ * `null` when nothing is owed.
+ */
+export function computeWaitingSince(input: NeedsReplyInput): string | null {
+  if (!computeNeedsReply(input)) return null;
+
+  const ordered = input.messages
+    .slice()
+    .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+
+  let oldest: string | null = null;
+  for (const m of ordered) {
+    if (isQualifiedCustomerFacingAnswer(m)) break; // start of the streak
+    if (isActionableCustomerTurn(m) && m.created_at) oldest = m.created_at;
+  }
+  return oldest;
 }

@@ -2081,6 +2081,7 @@ export default function InboxPage() {
                       <div className="w-9 shrink-0" aria-hidden />
                     )}
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
+                      <div className={cn('flex items-center gap-1 min-w-0 max-w-full', isAgent ? 'flex-row-reverse' : 'flex-row')}>
                       <div dir={dir} className={cn(
                         'rounded-2xl px-4 py-2.5 text-[14px] leading-[1.7] shadow-sm',
                         isAgent

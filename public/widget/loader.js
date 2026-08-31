@@ -437,6 +437,16 @@
     }
   }
 
+  /** Launcher shadow is DERIVED from the brand colour — never configured. */
+  function shadowFromPrimary(hex) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || "").trim());
+    if (!m) return "rgba(0,0,0,.22)";
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + ",.34)";
+  }
+
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
@@ -447,10 +457,9 @@
         "--gs-secondary",
         config.secondaryColor || config.primaryColor || "#6366F1"
       );
-      if (config.shadowColor) {
-        shellDiv.style.setProperty("--gs-shadow", config.shadowColor);
-      }
+      shellDiv.style.setProperty("--gs-shadow", shadowFromPrimary(config.primaryColor));
     }
+
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong

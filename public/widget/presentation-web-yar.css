@@ -284,7 +284,6 @@
 .wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }
 .wy-actions .wy-btn { flex: 1 1 auto; min-width: 0; }
 .wy-view-home .wy-actions .wy-btn { padding: 8px; }
-.wy-view-precontact .wy-actions { padding: 0 20px 20px; }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */
 /* `flex: none` keeps the footer pinned OUTSIDE the scroll area. */
@@ -658,6 +657,7 @@
 
 /* ─── Pre-contact / fallback forms ──────────────────────────────────── */
 .wy-view-precontact > .wy-body-pad { padding: 20px; gap: 16px; overflow-y: auto; }
+.prechat-spacer { flex: 1; min-height: 16px; }
 .prechat-subtitle, .prechat-intro { font-size: 13.5px; line-height: 1.7; color: var(--wy-muted); margin: 0; }
 .prechat-fields { display: flex; flex-direction: column; gap: 14px; }
 .prechat-field { display: flex; flex-direction: column; gap: 6px; }

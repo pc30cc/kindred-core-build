@@ -5131,7 +5131,7 @@
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
-    var brandName = config.brandName || '';
+    var brandName = config.workspaceName || config.brandName || '';
      var welcomeMessage = config.welcomeMessage || t('welcomeFallback');
     // Header title — the workspace identity (brand name). The launcher label
     // (`launcher_text`) is a LAUNCHER concern and is deliberately NOT used as
@@ -5173,6 +5173,7 @@
       locale: ctx.locale,
       primaryColor: ctx.primaryColor,
       brandName: brandName,
+      workspaceName: brandName,
       headerTitle: headerTitle,
       chatEnabled: chatEnabled,
       kbEnabled: kbEnabled,

@@ -24,6 +24,7 @@
     env = env || {};
     var t = env.t || function (k) { return k; };
     var config = env.config || {};
+    var workspaceName = String(config.workspaceName || config.brandName || '');
     var Util = { escapeHtml: env.escapeHtml || function (v) { return String(v == null ? '' : v); } };
     var ctx = {
       config: config,
@@ -58,7 +59,7 @@
     // from config/view-model.
     function identityAvatarHtml(size) {
       var logo = (config && config.logoUrl && config.showLogo !== false) ? String(config.logoUrl) : '';
-      var brand = String((config && config.brandName) || '');
+      var brand = workspaceName;
       var cls = 'wy-avatar wy-avatar-' + (size || 'md');
       if (logo) {
         return '<span class="' + cls + ' has-img"><img src="' + esc(logo) + '" alt="' + esc(brand) +
@@ -97,7 +98,7 @@
 
     function headerIdentityHtml(opts) {
       opts = opts || {};
-      var title = esc(opts.title || (config && config.brandName) || '');
+      var title = esc(opts.title || workspaceName);
       var subtitle = opts.subtitle ? '<span class="wy-head-sub">' + esc(opts.subtitle) + '</span>' : '';
       var dot = opts.online ? '<span class="wy-online-dot" aria-hidden="true"></span>' : '';
       return (opts.back ? backButtonHtml(opts.back) : '') +
@@ -548,11 +549,10 @@
         '<div class="wy-scroll wy-body-pad">' +
           '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
           '<div class="prechat-fields">' + fieldsHtml + '</div>' +
-        '</div>' +
-        '<div class="wy-actions">' +
+          '<div class="prechat-spacer" aria-hidden="true"></div>' +
           '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit" data-prechat-submit>' +
             esc(tf('wyConnectOperator', t('continue'))) + '</button>' +
-        '</div>' + footerHtml() +
+        '</div>' +
       '</div>';
     }
 
@@ -660,7 +660,7 @@
       var chatHeader = '<div class="header wy-head wy-head-chat" data-chat-header>' +
         headerIdentityHtml({
           back: 'home',
-          title: vm.brandName || (config && config.brandName) || '',
+          title: vm.workspaceName || vm.brandName || workspaceName,
           subtitle: replyTimeText(true),
           online: true,
         }) +
@@ -754,7 +754,7 @@
         identityAvatarHtml('sm') +
         '<span class="conv-main">' +
           '<span class="conv-line">' +
-            '<span class="conv-name">' + esc(c.title || (config && config.brandName) || '') + '</span>' + timeHtml +
+            '<span class="conv-name">' + esc(c.title || workspaceName) + '</span>' + timeHtml +
           '</span>' +
           '<span class="conv-line">' +
             '<span class="conv-preview">' + esc(c.preview || tf('wyNoPreview', '…')) + '</span>' + unreadHtml +
@@ -836,7 +836,7 @@
       return '<div class="wy-view wy-view-home home-root"' + (rtl ? ' dir="rtl"' : '') + '>' +
         '<div class="wy-head wy-head-home">' +
           headerIdentityHtml({
-            title: vm.headerTitle || (config && config.brandName) || '',
+             title: vm.workspaceName || vm.headerTitle || workspaceName,
             subtitle: replyTimeText(online),
             stack: stackHtml,
           }) +

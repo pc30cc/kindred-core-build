@@ -500,12 +500,13 @@ export function SmartRulePreviewStudio({
           style={{
             width: device === 'mobile' ? 380 : device === 'tablet' ? 560 : '100%',
             maxWidth: device === 'mobile' ? 380 : device === 'tablet' ? 560 : 720,
-            height: 620,
+            height: 820,
           }}
         >
           <WidgetLivePreview
             settings={previewSettings}
-            brandName={brandName}
+            workspaceName={brandName}
+            platformName={brandName}
             view={mode === 'chat_message' ? 'chat' : 'home'}
             kbArticles={kbArticles}
             kbCategories={kbCategories}

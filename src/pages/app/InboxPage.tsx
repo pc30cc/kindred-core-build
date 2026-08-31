@@ -1002,7 +1002,7 @@ export default function InboxPage() {
               role="tab"
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
-              className={cn(headTabBase, extraChip === 'needs_human' ? 'text-destructive' : 'text-muted-foreground hover:text-foreground')}
+              className={cn(headTabBase, headTabState(extraChip === 'needs_human', 'destructive'))}
               title={t('inbox.needsHuman') || 'Needs human'}
             >
               {liveTabs.needs_human ? (

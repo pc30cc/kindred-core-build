@@ -1838,48 +1838,65 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       }
 
       const subjectText = body.message ? body.message.slice(0, 80) : (data.attachment_id ? '[Attachment]' : null);
-      const { data: conv, error: convErr } = await supabase
-        .from('conversations').insert({
-          workspace_id: workspaceId,
-          status: 'open',
-          priority: 'normal',
-          subject: subjectText,
-          contact_id: contactId,
-          visitor_session_id: body.session_id || null,
-          updated_at: new Date().toISOString(),
-        }).select('id').single();
+      // Atomic match-or-create (migration 071). Two genuinely different
+      // messages sent at the same instant by the same visitor — typically
+      // right after their previous thread was `closed` — converge on ONE new
+      // conversation instead of creating one per request: the loser of the
+      // race blocks on the per-(workspace, visitor) advisory lock and then
+      // matches the winner's row. `closed` threads are never matched, so the
+      // archived one stays archived.
+      const lockKey = body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
+      const { data: ensured, error: convErr } = await supabase.rpc('ensure_active_conversation', {
+        p_workspace_id: workspaceId,
+        p_lock_key: lockKey,
+        p_match_thread_key: null,
+        p_match_session_id: body.session_id || null,
+        p_match_contact_id: contactId,
+        p_contact_id: contactId,
+        p_visitor_session_id: body.session_id || null,
+        p_subject: subjectText,
+        p_metadata: {},
+      });
 
       if (convErr) throw convErr;
-      convId = conv!.id;
+      const ensuredRow: any = Array.isArray(ensured) ? ensured[0] : ensured;
+      if (!ensuredRow?.id) throw new Error('conversation creation failed');
+      convId = ensuredRow.id as string;
+      const createdNewConversation = Boolean(ensuredRow.created);
 
-      // Phase 4b — record canonical 'created' timeline event.
-      // Payload contract: { source: 'widget' }
-      void recordConversationEvent(config, {
-        workspaceId,
-        conversationId: convId!,
-        eventType: 'created',
-        actorType: 'visitor',
-        actorId: null,
-        payload: { source: 'widget' },
-      });
-      // If the visitor was already identified at conversation creation
-      // (pre-chat or continuity restored), surface that as 'identified'
-      // so the timeline reflects how the contact attached.
-      if (contactId) {
+      // Only the winner emits creation events — the losing concurrent request
+      // attached to an existing conversation and must not duplicate them.
+      if (createdNewConversation) {
+        // Phase 4b — record canonical 'created' timeline event.
+        // Payload contract: { source: 'widget' }
         void recordConversationEvent(config, {
           workspaceId,
           conversationId: convId!,
-          eventType: 'identified',
+          eventType: 'created',
           actorType: 'visitor',
           actorId: null,
-          payload: {
-            contact_id: contactId,
-            method: body.visitor_email ? 'email' : (body.visitor_phone ? 'phone' : 'visitor_id'),
-            is_new_contact: false,
-          },
+          payload: { source: 'widget' },
         });
+        // If the visitor was already identified at conversation creation
+        // (pre-chat or continuity restored), surface that as 'identified'
+        // so the timeline reflects how the contact attached.
+        if (contactId) {
+          void recordConversationEvent(config, {
+            workspaceId,
+            conversationId: convId!,
+            eventType: 'identified',
+            actorType: 'visitor',
+            actorId: null,
+            payload: {
+              contact_id: contactId,
+              method: body.visitor_email ? 'email' : (body.visitor_phone ? 'phone' : 'visitor_id'),
+              is_new_contact: false,
+            },
+          });
+        }
       }
     }
+
 
     // NOTE: the "awaiting customer reply" resume runs AFTER the visitor
     // message is committed (below), so a failed insert can never un-park a

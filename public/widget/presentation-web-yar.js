@@ -478,22 +478,26 @@
         var attHtml = renderMessageAttachment(m.attachment);
         var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
 
+        // Consecutive messages from the same author share ONE avatar and ONE
+        // meta line (time + delivery ticks) under the LAST bubble of the run.
+        var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
+
         var statusHtml = '';
-        if (m.sender === 'visitor' && idx === lastVisitorIdx && receiptsEnabled && m.status) {
-          var label, icon;
-          if (m.status === 'sending') { label = t('msgSending'); icon = '<span class="msg-status-spinner"></span>'; }
-          else if (m.status === 'failed') { label = t('msgFailed'); icon = '<span class="msg-status-icon">!</span>'; }
-          else if (m.status === 'seen') { label = t('msgSeen'); icon = '<span class="msg-status-icon seen">✓✓</span>'; }
-          else { label = t('msgSent'); icon = '<span class="msg-status-icon">✓</span>'; }
-          statusHtml = '<div class="msg-status status-' + m.status + '">' + icon +
-            '<span class="msg-status-label">' + esc(label) + '</span></div>';
+        if (m.sender === 'visitor' && isLastInStreak && receiptsEnabled && m.status) {
+          if (m.status === 'sending') {
+            statusHtml = '<span class="msg-ticks is-sending"><span class="msg-status-spinner"></span></span>';
+          } else if (m.status === 'failed') {
+            statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(t('msgFailed')) + '">!</span>';
+          } else {
+            var seen = m.status === 'seen';
+            var two = seen || m.status === 'delivered';
+            statusHtml = '<span class="msg-ticks' + (seen ? ' is-seen' : '') + '" aria-hidden="true">' +
+              (two ? TICKS.double : TICKS.single) + '</span>';
+          }
         }
 
-        // Consecutive operator/AI messages share ONE avatar, on the last
-        // bubble of the run (design §12).
         var avatarHtml = '';
         if (cls === 'operator') {
-          var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
           if (isLastInStreak) {
             avatarHtml = m.senderAvatar
               ? '<span class="msg-avatar has-img"><img src="' + esc(m.senderAvatar) + '" alt="' +
@@ -506,8 +510,11 @@
         }
 
         var timeStr = formatMsgTime(m.time);
-        var timeHtml = timeStr ? '<span class="msg-time">' + esc(timeStr) + '</span>' : '';
-        var leadingHtml = cls === 'operator' ? avatarHtml : statusHtml;
+        var metaHtml = isLastInStreak && (timeStr || statusHtml)
+          ? '<div class="msg-meta">' +
+              (timeStr ? '<span class="msg-time">' + esc(timeStr) + '</span>' : '') + statusHtml +
+            '</div>'
+          : '';
 
         var isTypingThis = !!(typewriter && typewriter.id === m.__id);
         var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
@@ -533,12 +540,15 @@
           ? '<span class="msg-quote">' + esc(String(m.replyTo.text || m.replyTo.body)) + '</span>'
           : '';
 
-        html += '<div class="msg-row ' + cls + '">' + leadingHtml +
-          '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '"' +
-            (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
-            aiBadgeHtml + quoted + textHtml + attHtml + timeHtml +
+        html += '<div class="msg-row ' + cls + (isLastInStreak ? ' is-last' : '') + '">' + avatarHtml +
+          '<div class="msg-col">' +
+            '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
+              (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
+              aiBadgeHtml + quoted + textHtml + attHtml +
+            '</div>' + metaHtml +
           '</div>' + replyBtn +
         '</div>';
+
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
         if (isIntro && !visitorHasReplied && qnaState.questions.length) html += qnaChipsHtml(qnaState);

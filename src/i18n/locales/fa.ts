@@ -2857,7 +2857,6 @@ const fa: TranslationKeys = {
       snapshotTitle: 'نمای کلی صندوق خودکار',
       aiManaged: 'مدیریت‌شده با هوش مصنوعی',
       needsHuman: 'نیازمند اپراتور',
-    aiTab: 'هوش مصنوعی',
       humanActive: 'اپراتور فعال',
       limitsTitle: 'محدودیت پاسخ‌ها',
       maxPerConversation: 'حداکثر پاسخ خودکار در هر گفتگو',

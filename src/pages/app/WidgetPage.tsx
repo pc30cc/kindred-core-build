@@ -101,6 +101,25 @@ function WidgetPageContent() {
     }),
     [live, branding, effectiveLocale],
   );
+  /**
+   * Mirror of `server/services/widget/poweredBy.ts`: platform master switch AND
+   * the `widget_powered_by` plan entitlement decide visibility; wording, brand
+   * label and URL come only from platform settings. `null` => no footer.
+   */
+  const previewPoweredBy = useMemo(() => {
+    const planAllows = effectiveEnts?.features?.widget_powered_by?.value !== false;
+    if (!planAllows) return null;
+    if (platformWidget && platformWidget.powered_by_enabled === false) return null;
+    const brand = (platformWidget?.powered_by_brand_text || '').trim()
+      || (platformName || '').trim();
+    if (!brand) return null;
+    const rawUrl = (platformWidget?.powered_by_url || '').trim();
+    return {
+      text: (platformWidget?.powered_by_text || '').trim(),
+      brand,
+      url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
+    };
+  }, [effectiveEnts, platformWidget, platformName]);
   const previewTeamMembers = useMemo(() => {
     const byUser = presenceMap(teamPresence?.presence);
     return (workspaceMembers || []).map(member => ({

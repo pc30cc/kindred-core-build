@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { primePlatformOrigins, isAllowedOrigin } from './services/platformOrigins.js';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
@@ -222,16 +223,25 @@ for (const dir of CALL_WIDGET_VENDOR_SOURCES) {
 if (config.corsOrigins.length === 1 && config.corsOrigins[0] === '*') {
   console.warn(
     '[security] CORS_ORIGINS is not set (or set to "*"). Cross-origin ' +
-    'browser requests with credentials are now REJECTED by default — set ' +
-    'CORS_ORIGINS to your frontend origin(s) if the frontend is served ' +
-    'from a different origin than this API. Same-origin deployments are ' +
-    'unaffected.'
+    'browser requests with credentials are only allowed for the domains ' +
+    'configured in Super Admin → Domains (platform_domains). Set ' +
+    'CORS_ORIGINS as well if the frontend origin is not one of them. ' +
+    'Same-origin deployments are unaffected.'
   );
 }
+// Origins come from the DB (Super Admin → Domains) FIRST, with CORS_ORIGINS as
+// a static fallback, so changing the dashboard/API/public domain later needs no
+// redeploy. Still fails closed: an unknown origin gets no Access-Control-* header.
+primePlatformOrigins(config);
 const appCors = cors({
-  origin: config.corsOrigins.length === 1 && config.corsOrigins[0] === '*' ? false : config.corsOrigins,
+  origin: (origin, cb) => {
+    // No Origin header (same-origin, curl, server-to-server) → nothing to allow.
+    if (!origin) return cb(null, false);
+    return cb(null, isAllowedOrigin(config, origin) ? origin : false);
+  },
   credentials: true,
 });
+
 
 // Public widget-facing routes manage their own dynamic CORS via widgetCorsMiddleware.
 app.use((req, res, next) => {

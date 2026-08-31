@@ -31,10 +31,30 @@ const viteEnv = (import.meta as unknown as {
   env?: Record<string, string | boolean | undefined>;
 }).env;
 
+/**
+ * Runtime override injected by `/public/runtime-config.js` (loaded from
+ * index.html before the bundle). It takes precedence over the build-time
+ * `VITE_API_BASE_URL` so moving the API to a new domain is a config edit,
+ * never a rebuild. Empty / missing → fall back to the build-time value, then
+ * to same-origin.
+ */
+function runtimeApiBase(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const cfg = (window as unknown as {
+    __APP_RUNTIME_CONFIG__?: { apiBaseUrl?: unknown };
+  }).__APP_RUNTIME_CONFIG__;
+  const value = cfg?.apiBaseUrl;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
 // During local/Lovable preview, route API requests through Vite's same-origin
 // proxy. Preview hosts are intentionally not added to production CORS because
-// they are temporary and unpredictable. Production builds continue to use the
-// explicitly configured public API origin.
+// they are temporary and unpredictable. Production builds resolve the API
+// origin at runtime first, then from the build-time env.
 export const API_BASE = viteEnv?.DEV
   ? ''
-  : resolveApiBase(typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL : undefined);
+  : resolveApiBase(
+      runtimeApiBase() ??
+        (typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL : undefined),
+    );
+

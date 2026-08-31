@@ -64,6 +64,21 @@ server {
         proxy_connect_timeout 60s;
     }
 
+    # ─────────────────────────────────────────────────────────────────
+    # Runtime deployment config — NEVER cache. Lets an operator point the
+    # dashboard at a different API domain by editing/mounting this one file
+    # (no rebuild). Empty apiBaseUrl = same-origin via the /api/ proxy above.
+    # ─────────────────────────────────────────────────────────────────
+    location = /runtime-config.js {
+        root /usr/share/nginx/html;
+        types { } default_type application/javascript;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        try_files /runtime-config.js =404;
+    }
+
     # ─────────────────────────────────────────────────────────────────────
     # Widget assets — MUST be served as static files. Never fall back to
     # index.html, otherwise the loader receives the SPA HTML instead of

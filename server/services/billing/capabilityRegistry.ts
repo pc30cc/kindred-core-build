@@ -94,6 +94,8 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'audit_logs',            type: 'feature', label: 'Audit Logs',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'white_label',           type: 'feature', label: 'White-label Branding',   group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
   { key: 'remove_powered_by',     type: 'feature', label: 'Remove "Powered by"',    group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
+  { key: 'widget_powered_by',     type: 'feature', label: 'Show Widget "Powered by" Footer', group: 'branding', description: 'Whether the chat widget shows the platform credit footer. Wording, brand label and link are platform-admin owned (Admin → Widget Settings → Powered by). Turn OFF for a plan to hide the footer entirely — the widget content then extends to the bottom edge.', defaultValue: true, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 25 },
+
 
   // ─── Call surface features (plan-level toggles bounded by call control plane) ───
   { key: 'call_recording',        type: 'feature', label: 'Call Recording',         group: 'calls',    description: 'Allow operators to record voice/video calls. Bounded by global call_recording_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },

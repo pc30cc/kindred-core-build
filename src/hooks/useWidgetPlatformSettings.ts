@@ -30,6 +30,12 @@ export interface WidgetPlatformSettings {
   // Default operator welcome bubble shown when a visitor opens chat with
   // no prior messages. Workspaces can override via `widget_settings.welcome_message`.
   default_welcome_message: string;
+  // ── Platform-owned "Powered by" footer (super admin only) ──────────
+  // Plans gate visibility via the `widget_powered_by` entitlement.
+  powered_by_enabled: boolean;
+  powered_by_text: string;
+  powered_by_brand_text: string | null;
+  powered_by_url: string | null;
   // ── Phase 1 hardening ──────────────────────────────────────────────
   // Flood / Abuse Protection — per-conversation server-side typing limiter.
   typing_rate_limit_enabled: boolean;

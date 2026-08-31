@@ -7710,6 +7710,10 @@ export type Database = {
           observability_metrics_enabled: boolean
           observability_structured_logs_enabled: boolean
           perf_memory_budget_mb: number
+          powered_by_brand_text: string | null
+          powered_by_enabled: boolean
+          powered_by_text: string
+          powered_by_url: string | null
           prechat_email_policy: string
           prechat_name_policy: string
           prechat_phone_policy: string
@@ -7753,6 +7757,10 @@ export type Database = {
           observability_metrics_enabled?: boolean
           observability_structured_logs_enabled?: boolean
           perf_memory_budget_mb?: number
+          powered_by_brand_text?: string | null
+          powered_by_enabled?: boolean
+          powered_by_text?: string
+          powered_by_url?: string | null
           prechat_email_policy?: string
           prechat_name_policy?: string
           prechat_phone_policy?: string
@@ -7796,6 +7804,10 @@ export type Database = {
           observability_metrics_enabled?: boolean
           observability_structured_logs_enabled?: boolean
           perf_memory_budget_mb?: number
+          powered_by_brand_text?: string | null
+          powered_by_enabled?: boolean
+          powered_by_text?: string
+          powered_by_url?: string | null
           prechat_email_policy?: string
           prechat_name_policy?: string
           prechat_phone_policy?: string

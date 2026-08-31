@@ -40,6 +40,8 @@ import {
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import { resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
+import { isPoweredByAllowedForPlan, buildPoweredByConfig } from '../services/widget/poweredBy.js';
+
 
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import {
@@ -341,12 +343,14 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     res.set('CDN-Cache-Control', 'no-store');
     res.set('Cloudflare-CDN-Cache-Control', 'no-store');
 
-    // Get branding for platform display name
+    // Platform display name — owned by platform branding (super admin only).
+    // Workspace rows must never influence how the platform is credited.
     const { data: branding } = await supabase
-      .from('workspace_branding')
+      .from('platform_branding')
       .select('platform_name')
-      .eq('workspace_id', resolvedWorkspaceId)
+      .limit(1)
       .maybeSingle();
+
 
     // Phase 8 — server-authoritative availability snapshot. Additive;
     // existing widget runtimes ignore unknown fields.
@@ -528,22 +532,28 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       { data: widget, error },
       { data: branding },
       { data: platformWidget },
+      { data: platformBranding },
+      poweredByPlanAllows,
       originRules,
       platformPreChatPolicy,
       { data: workspacePreChatFlags },
     ] = await Promise.all([
       supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
       supabase.from('workspace_branding')
-        .select('platform_name, logo_url, primary_color')
+        .select('logo_url, primary_color')
         .eq('workspace_id', workspaceId).maybeSingle(),
       // Single source of truth for widget URLs — never read platform_domains/branding for these.
       supabase.from('widget_platform_settings')
-        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message')
+        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url')
         .limit(1).maybeSingle(),
+      // Platform identity for the powered-by footer. NEVER the workspace row.
+      supabase.from('platform_branding').select('platform_name').limit(1).maybeSingle(),
+      isPoweredByAllowedForPlan(supabase, workspaceId),
       getWorkspaceOriginRules(config, workspaceId),
       loadPlatformPreChatPolicy(supabase),
       supabase.from('feature_flags').select('key, enabled').eq('workspace_id', workspaceId).in('key', Object.values(PRECHAT_FIELD_KEYS)),
     ]);
+
 
     if (error || !widget) {
       return res.status(404).json({ error: 'Widget not found or not configured' });
@@ -784,6 +794,13 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       const separator = url.includes('?') ? '&' : '?';
       return `${url}${separator}v=${encodeURIComponent(loaderVersion)}`;
     };
+    // Powered-by footer — platform admin owns wording, brand and link;
+    // plans decide who sees it. Workspace settings have no say here.
+    const poweredBy = buildPoweredByConfig(
+      platformWidget as any,
+      (platformBranding as any)?.platform_name || '',
+      poweredByPlanAllows,
+    );
     const widgetConfig = {
       enabled: true,
       workspaceId,
@@ -795,7 +812,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       brandName: workspace?.name || 'Support',
       // Explicit platform brand for the "powered by" footer. The footer must
       // ALWAYS name the platform, never the workspace's own brand.
-      platformName: branding?.platform_name || 'Support',
+      platformName: poweredBy?.brand || '',
+      poweredBy,
+      showPoweredBy: !!poweredBy,
+
 
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',

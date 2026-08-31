@@ -132,6 +132,8 @@ describe('home surface — design renderVals() contract', () => {
       path.resolve(process.cwd(), 'public/widget/presentation-web-yar.js'),
       'utf8',
     );
-    expect(js).toContain('config.platformName || config.brandName');
+    expect(js).toContain('(pb && pb.brand) || (config && config.platformName)');
+    // The footer must not silently fall back to the workspace brand name.
+    expect(js).not.toContain('config.platformName || config.brandName');
   });
 });

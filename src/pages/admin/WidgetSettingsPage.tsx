@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Activity, Zap, Video, ArrowRight } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Activity, Zap, Video, ArrowRight, Sparkles } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import {
@@ -39,6 +39,8 @@ function policyBadge(p: PreChatPolicy | FeatureLockMode) {
   }
   return <Badge variant="secondary" className="text-xs">Workspace override allowed</Badge>;
 }
+
+import { PoweredBySection } from './widget-settings/PoweredBySection';
 
 export default function AdminWidgetSettingsPage() {
   const { data: settings, isLoading, error, refetch, isFetching } = useWidgetPlatformSettings();
@@ -106,6 +108,7 @@ export default function AdminWidgetSettingsPage() {
           <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />Pre-chat fields</TabsTrigger>
           <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Feature locks</TabsTrigger>
           <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />Deployment defaults</TabsTrigger>
+          <TabsTrigger value="poweredby" className="gap-1.5 text-xs"><Sparkles className="h-3.5 w-3.5" />Powered by</TabsTrigger>
           <TabsTrigger value="limits" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Limits</TabsTrigger>
           <TabsTrigger value="realtime" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />Realtime / Transport</TabsTrigger>
           <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="h-3.5 w-3.5" />Security / Isolation</TabsTrigger>
@@ -120,6 +123,11 @@ export default function AdminWidgetSettingsPage() {
             onSave={update}
             saving={updateMut.isPending}
           />
+        </TabsContent>
+
+        {/* Platform-owned powered-by footer */}
+        <TabsContent value="poweredby">
+          <PoweredBySection settings={settings} onSave={update} saving={updateMut.isPending} />
         </TabsContent>
 
         {/* Pre-chat */}

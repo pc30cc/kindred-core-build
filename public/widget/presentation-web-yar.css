@@ -287,15 +287,21 @@
 .wy-btn-block { width: 100%; }
 .wy-btn-grow { flex: 1 1 auto; }
 
-/* Online-operator stack inside the "start chat" CTA — 2x the label size for a
-   crisp render, without growing the button's own font-size. */
+/* Online-operator stack inside the "start chat" CTA. Use an integer 32px
+   raster box instead of 2em (29px at the current 14.5px button font): the
+   fractional sampling made otherwise high-resolution profile photos soft. */
 .wy-btn .home-stack { margin-inline-end: 8px; vertical-align: middle; line-height: 0; }
 .wy-btn .home-stack-item {
-  width: 2em; height: 2em; border-color: currentColor; margin-inline-end: -0.6em;
+  width: 2rem; height: 2rem; border-width: 1px; border-color: currentColor;
+  margin-inline-end: -0.55rem;
 }
 
 .wy-btn-primary .home-stack-item { background: rgba(255, 255, 255, 0.35); }
 .wy-btn .home-stack-item:last-child { margin-inline-end: 0; }
+.wy-btn .home-stack-item img {
+  width: 100%; height: 100%; object-fit: cover; object-position: center;
+  image-rendering: auto;
+}
 
 .wy-actions-block { flex: none; display: flex; flex-direction: column; gap: 8px; }
 .wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }

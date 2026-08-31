@@ -814,13 +814,16 @@
       var showArticlesButton = false;
 
 
-      var stack = (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
+      // Online-operator avatars are opt-out via widget settings and now live
+      // INSIDE the "start chat" CTA (before its label), never in the header.
+      var showStack = vm.showTeamAvatars !== false;
+      var stack = !showStack ? '' : (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
         .map(function (m) {
           var av = m.avatar ? String(m.avatar) : '';
           return '<span class="home-stack-item' + (av ? ' has-img' : '') + '" title="' + esc(m.name || '') + '">' +
             (av ? '<img src="' + esc(av) + '" alt="" loading="lazy" decoding="async" />' : '') + '</span>';
         }).join('');
-      var stackHtml = stack ? '<span class="home-stack">' + stack + '</span>' : '';
+      var stackHtml = stack ? '<span class="home-stack" aria-hidden="true">' + stack + '</span>' : '';
 
       var smartCardHtml = vm.smartSurface && vm.smartSurface.mode === 'home_card'
         ? '<section class="smart-home-card">' + smartSurfaceHtml(vm.smartSurface) + '</section>'

@@ -256,6 +256,7 @@ const en = {
     plugins: 'Plugins',
     ai: 'AI',
     aiAgent: 'AI Agent',
+    aiBilling: 'AI Billing',
     email: 'Email',
     team: 'Team',
     callCenter: 'Call Center',

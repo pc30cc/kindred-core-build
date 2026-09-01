@@ -258,6 +258,7 @@ const tr: TranslationKeys = {
     plugins: 'Eklentiler',
     ai: 'Yapay Zeka',
     aiAgent: 'AI Asistanı',
+    aiBilling: 'AI Faturalandırma',
     email: 'E-posta',
     team: 'Ekip',
     callCenter: 'Çağrı Merkezi',

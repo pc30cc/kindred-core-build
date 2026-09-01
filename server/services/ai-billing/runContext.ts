@@ -25,6 +25,7 @@ import { getBillingMode, type BillingMode } from './mode.js';
 import { resolveFx, resolveRateCard, resolveSellPolicy, priceComponent } from './rates.js';
 import { estimateProviderCost, estimateTokens } from './estimate.js';
 import * as ledger from './ledger.js';
+import { recordBillingFailure } from './degrade.js';
 import type { NormalizedUsage } from './normalize.js';
 
 /** Fields that must never influence the operation hash. */
@@ -467,4 +468,48 @@ export async function failAiRun(config: ServerConfig, ctx: AiRunContext, reason:
       updated_at: new Date().toISOString(),
     })
     .eq('id', ctx.runId);
+}
+
+/**
+ * Mode-aware entry point every caller should use.
+ *
+ *  METER_ONLY — a billing-persistence failure NEVER breaks AI availability:
+ *               the operation continues without a Run, and the loss is counted
+ *               and audited so it can be reconciled (see degrade.ts).
+ *  ENFORCED   — fail closed: if the financial authority (pricing, FX, wallet,
+ *               reservation) cannot be reached BEFORE provider execution, the
+ *               error propagates and no billable provider call is made.
+ *
+ * A business error that is meaningful in BOTH modes (idempotency_conflict,
+ * ai_allowance_exhausted) always propagates.
+ */
+export async function beginAiRunGuarded(
+  config: ServerConfig,
+  args: BeginRunArgs,
+): Promise<AiRunContext | null> {
+  try {
+    return await beginAiRun(config, args);
+  } catch (err: any) {
+    const code = err instanceof AiBillingError ? err.code : 'billing_internal_error';
+    if (code === 'idempotency_conflict' || code === 'ai_allowance_exhausted') throw err;
+
+    let mode: BillingMode = 'METER_ONLY';
+    try {
+      mode = await getBillingMode(config);
+    } catch {
+      // Mode unknown === financial authority unreachable. ENFORCED cannot be
+      // proven, so METER_ONLY semantics (keep serving) apply — the failure is
+      // still counted below.
+    }
+    if (mode === 'ENFORCED') throw err;
+
+    await recordBillingFailure(config, {
+      stage: 'begin_run',
+      workspaceId: args.workspaceId,
+      entryPoint: args.entryPoint,
+      operationKey: args.operationKey,
+      message: String(err?.message || err),
+    });
+    return null;
+  }
 }

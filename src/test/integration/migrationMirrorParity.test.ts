@@ -65,6 +65,21 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/029_backfill_legacy_email_verification.sql',
     hosted: 'supabase/migrations/20260819160000_backfill_legacy_email_verification.sql',
   },
+  {
+    label: '073 — AI usage billing core (pricing, runs, wallet, ledger)',
+    selfHost: 'database/migrations/073_ai_usage_billing.sql',
+    hosted: 'supabase/migrations/20260901094824_28a01e28-0db2-446d-9ca2-424187cd82dc.sql',
+  },
+  {
+    label: '074 — AI billing pricing append-only',
+    selfHost: 'database/migrations/074_ai_billing_pricing_append_only.sql',
+    hosted: 'supabase/migrations/20260901103902_7a77e604-f85d-42c2-b0d9-94e51cff0dfb.sql',
+  },
+  {
+    label: '075 — AI billing cluster-wide recovery lease',
+    selfHost: 'database/migrations/075_ai_billing_recovery_lease.sql',
+    hosted: 'supabase/migrations/20260901105630_5ba30ba4-19b7-4cc7-85fc-9aeb4a6bedc6.sql',
+  },
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered
   // here: the two chains' starting schemas differ (self-host creates 3 tables from

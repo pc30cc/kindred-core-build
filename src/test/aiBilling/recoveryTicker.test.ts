@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const runRecovery = vi.fn();
 
 vi.mock('../../../server/services/ai-billing/recovery', () => ({
-  runAiBillingRecovery: (...args: unknown[]) => runRecovery(...args),
+  runAiBillingRecoveryLeased: (...args: unknown[]) => runRecovery(...args),
 }));
 
 const config = {} as any;
@@ -59,6 +59,15 @@ describe('AI billing recovery scheduler', () => {
     expect(status.lastError).toBeNull();
     expect(status.lastReport?.releasedReservations).toBe(3);
     expect(status.running).toBe(false);
+  });
+
+  it('does not record a report when another replica owns the lease', async () => {
+    const { tick, getAiBillingRecoveryStatus } = await import(
+      '../../../server/services/ai-billing/recoveryTicker'
+    );
+    runRecovery.mockResolvedValueOnce(null); // lease held elsewhere
+    expect(await tick(config)).toBeNull();
+    expect(getAiBillingRecoveryStatus().lastReport).toBeNull();
   });
 
   it('keeps ticking after a failed pass', async () => {

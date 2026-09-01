@@ -14,12 +14,14 @@
  *   - lot expiration;
  *   - deterministic reconciliation of recoverable ESTIMATED/UNRESOLVED runs.
  *
- * Single-flight: overlapping ticks are skipped, so a slow pass never runs
- * twice in parallel in the same process. Every underlying operation is
- * command-idempotent in SQL, so multiple app instances are safe too.
+ * Single-flight has TWO layers:
+ *   - process-local: an overlapping tick in this process is skipped;
+ *   - cluster-wide: a DB-backed lease (with TTL) elects exactly ONE replica
+ *     per pass, so a multi-instance deployment does not run N recovery cycles.
+ * Every underlying operation stays command-idempotent in SQL regardless.
  */
 import type { ServerConfig } from '../../config.js';
-import { runAiBillingRecovery, type RecoveryReport } from './recovery.js';
+import { runAiBillingRecoveryLeased, type RecoveryReport } from './recovery.js';
 
 const TICK_MS = 5 * 60 * 1000; // every 5 minutes
 const FIRST_RUN_DELAY_MS = 60_000; // after boot settles
@@ -55,7 +57,8 @@ export async function tick(config: ServerConfig): Promise<RecoveryReport | null>
   if (running) return null; // single-flight
   running = true;
   try {
-    const report = await runAiBillingRecovery(config);
+    const report = await runAiBillingRecoveryLeased(config);
+    if (!report) return null; // another replica owns this pass
     lastReport = { ...report, at: new Date().toISOString() };
     lastError = null;
     return report;

@@ -19,7 +19,7 @@ import { redactSecrets } from '../../lib/redactSecrets.js';
 import { runtimeComplete, AiRuntimeError } from './runtimeClient.js';
 import { withAiIdempotency, newAiRequestId } from './idempotency.js';
 import {
-  beginAiRun,
+  beginAiRunGuarded,
   recordStepUsage,
   settleAiRun,
   failAiRun,
@@ -186,7 +186,7 @@ async function runOneCompletion(
   let ownsRun = false;
   if (!ctx) {
     try {
-      ctx = await beginAiRun(serverConfig, {
+      ctx = await beginAiRunGuarded(serverConfig, {
         workspaceId: request.workspaceId,
         operationKey:
           request.billing?.operationKey ||
@@ -207,11 +207,13 @@ async function runOneCompletion(
           model: request.model || aiConfig.model,
         },
       });
-      ownsRun = true;
+      ownsRun = !!ctx;
     } catch (err) {
-      // ENFORCED denials (no balance / no pricing) must reach the caller.
-      if (err instanceof AiBillingError) throw err;
-      ctx = null;
+      // beginAiRunGuarded already decided by mode: in METER_ONLY a billing
+      // outage returns null (AI keeps serving, loss is audited); anything that
+      // throws here is a real denial and must fail closed BEFORE the provider
+      // call.
+      throw err;
     }
   }
 

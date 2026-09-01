@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Sparkles, Wallet, TrendingUp } from 'lucide-react';
 import { API_BASE } from '@/lib/apiBase';
+import { formatToman } from '@/lib/money';
 import { useTranslation } from '@/i18n';
 import { useLiveUsageRefresh } from '@/hooks/useLiveUsageRefresh';
 import { formatDateTime } from '@/lib/date';
@@ -60,6 +61,9 @@ export function AiCreditPanel({ workspaceId }: { workspaceId: string }) {
   }
   if (!data) return null;
 
+  // Wallet amounts are stored in IRR and displayed in Toman.
+  const money = (irr: unknown) => formatToman(Number(irr ?? 0), locale);
+
   const total = Math.max(data.usedThisCycle + data.available, 1);
   const pct = Math.min(100, Math.round((data.usedThisCycle / total) * 100));
 
@@ -79,18 +83,18 @@ export function AiCreditPanel({ workspaceId }: { workspaceId: string }) {
       <CardContent className="space-y-4">
         <div>
           <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-            <span>{t('aiBilling.usedThisCycle')}: <span className="font-semibold text-foreground">{nf(data.usedThisCycle)}</span></span>
-            <span>{t('aiBilling.available')}: <span className="font-semibold text-foreground">{nf(data.available)}</span></span>
+            <span>{t('aiBilling.usedThisCycle')}: <span className="font-semibold text-foreground">{money(data.usedThisCycle)}</span></span>
+            <span>{t('aiBilling.available')}: <span className="font-semibold text-foreground">{money(data.available)}</span></span>
           </div>
           <Progress value={pct} className="h-2" />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { icon: Wallet, label: t('aiBilling.planRemaining'), value: nf(data.planRemaining) },
-            { icon: Wallet, label: t('aiBilling.purchasedRemaining'), value: nf(data.purchasedRemaining) },
+            { icon: Wallet, label: t('aiBilling.planRemaining'), value: money(data.planRemaining) },
+            { icon: Wallet, label: t('aiBilling.purchasedRemaining'), value: money(data.purchasedRemaining) },
             { icon: TrendingUp, label: t('aiBilling.aiReplies'), value: nf(data.aiReplies) },
-            { icon: Sparkles, label: t('aiBilling.reservedAmount'), value: nf(data.reserved) },
+            { icon: Sparkles, label: t('aiBilling.reservedAmount'), value: money(data.reserved) },
           ].map((k) => (
             <div key={k.label} className="rounded-xl border border-border/60 bg-card p-3">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">

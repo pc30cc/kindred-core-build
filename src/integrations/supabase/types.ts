@@ -1722,6 +1722,33 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_billing_recovery_lease: {
+        Row: {
+          acquired_at: string | null
+          expires_at: string | null
+          id: boolean
+          last_finished_at: string | null
+          owner: string | null
+          passes: number
+        }
+        Insert: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          id?: boolean
+          last_finished_at?: string | null
+          owner?: string | null
+          passes?: number
+        }
+        Update: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          id?: boolean
+          last_finished_at?: string | null
+          owner?: string | null
+          passes?: number
+        }
+        Relationships: []
+      }
       ai_data_sources: {
         Row: {
           base_url: string | null
@@ -10346,6 +10373,14 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      ai_billing_release_recovery_lease: {
+        Args: { _owner: string }
+        Returns: boolean
+      }
+      ai_billing_try_acquire_recovery_lease: {
+        Args: { _owner: string; _ttl_seconds?: number }
+        Returns: boolean
       }
       ai_expire_lots: { Args: never; Returns: number }
       ai_grant_allowance: {

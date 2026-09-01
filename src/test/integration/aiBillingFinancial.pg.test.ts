@@ -18,18 +18,31 @@
  *   - ACL: anon/authenticated cannot execute financial functions
  *   - wallet reconciliation and stale reservation release
  *
- * Enabled by TEST_DATABASE_URL; skipped (never silently green) without a DB.
+ * CI-MANDATORY: the ai-billing-db job sets REQUIRE_BILLING_DB=1, and in that
+ * mode a missing TEST_DATABASE_URL FAILS the job instead of skipping — money
+ * invariants must never pass by absence. Locally (no REQUIRE_BILLING_DB) the
+ * suite still skips without a database.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const DSN = process.env.TEST_DATABASE_URL;
+const REQUIRED = process.env.REQUIRE_BILLING_DB === '1';
+
+if (REQUIRED && !DSN) {
+  // Hard gate: a merge/deploy must not proceed on skipped financial tests.
+  throw new Error(
+    'REQUIRE_BILLING_DB=1 but TEST_DATABASE_URL is not set — the AI Billing database test environment is mandatory in CI.',
+  );
+}
+
 const suite = DSN ? describe : describe.skip;
 
 const BILLING_MIGRATIONS = [
   'supabase/migrations/20260901094824_28a01e28-0db2-446d-9ca2-424187cd82dc.sql',
   'supabase/migrations/20260901103902_7a77e604-f85d-42c2-b0d9-94e51cff0dfb.sql',
+  'supabase/migrations/20260901105630_5ba30ba4-19b7-4cc7-85fc-9aeb4a6bedc6.sql',
 ];
 
 let client: any;
@@ -472,4 +485,66 @@ suite('AI billing financial invariants (PostgreSQL)', () => {
     expect(owned.length).toBe(1);
     expect(WS).toBeTruthy();
   });
+  describe('cluster-wide recovery lease', () => {
+    it('lets exactly ONE of two concurrent runners own a pass', async () => {
+      await q(`UPDATE public.ai_billing_recovery_lease SET owner = NULL, expires_at = NULL`);
+
+      const [a, b] = await Promise.all([
+        one(`SELECT public.ai_billing_try_acquire_recovery_lease($1, 240) AS ok`, ['runner-a']),
+        one(`SELECT public.ai_billing_try_acquire_recovery_lease($1, 240) AS ok`, ['runner-b']),
+      ]);
+      expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+
+      // The loser stays locked out for the whole pass.
+      const loser = a.ok ? 'runner-b' : 'runner-a';
+      const winner = a.ok ? 'runner-a' : 'runner-b';
+      const retry = await one(`SELECT public.ai_billing_try_acquire_recovery_lease($1, 240) AS ok`, [loser]);
+      expect(retry.ok).toBe(false);
+
+      // Only the owner can release, and after release the other instance wins.
+      const wrongRelease = await one(`SELECT public.ai_billing_release_recovery_lease($1) AS ok`, [loser]);
+      expect(wrongRelease.ok).toBe(false);
+      const release = await one(`SELECT public.ai_billing_release_recovery_lease($1) AS ok`, [winner]);
+      expect(release.ok).toBe(true);
+      const after = await one(`SELECT public.ai_billing_try_acquire_recovery_lease($1, 240) AS ok`, [loser]);
+      expect(after.ok).toBe(true);
+      await q(`SELECT public.ai_billing_release_recovery_lease($1)`, [loser]);
+    });
+
+    it('expires a crashed owner instead of blocking recovery forever', async () => {
+      await q(
+        `UPDATE public.ai_billing_recovery_lease SET owner = 'dead-node', expires_at = now() - interval '1 minute'`,
+      );
+      const row = await one(`SELECT public.ai_billing_try_acquire_recovery_lease($1, 240) AS ok`, ['runner-c']);
+      expect(row.ok).toBe(true);
+      await q(`SELECT public.ai_billing_release_recovery_lease($1)`, ['runner-c']);
+    });
+
+    it('rejects an invalid owner or TTL', async () => {
+      await expect(q(`SELECT public.ai_billing_try_acquire_recovery_lease('', 240)`)).rejects.toThrow(
+        /recovery_lease_owner_required/,
+      );
+      await expect(q(`SELECT public.ai_billing_try_acquire_recovery_lease('x', 5)`)).rejects.toThrow(
+        /recovery_lease_ttl_out_of_range/,
+      );
+    });
+
+    it('is not executable by anon or authenticated', async () => {
+      const rows = await q(
+        `SELECT p.proname,
+                has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_can,
+                has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth_can
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public'
+            AND p.proname LIKE 'ai_billing_%recovery_lease'`,
+      );
+      expect(rows.length).toBe(2);
+      for (const r of rows) {
+        expect(`${r.proname}:anon=${r.anon_can}`).toBe(`${r.proname}:anon=false`);
+        expect(`${r.proname}:auth=${r.auth_can}`).toBe(`${r.proname}:auth=false`);
+      }
+    });
+  });
+
 });
+

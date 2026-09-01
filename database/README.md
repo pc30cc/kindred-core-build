@@ -173,3 +173,27 @@ full chain, security audit) can pass while auditing zero functions.
 inside a rolled-back transaction. `src/test/ci/verificationIntegrity.test.ts`
 re-derives the signatures from `database/migrations/*.sql` so the inventory
 cannot drift away from the schema.
+
+## AI Usage Billing (073–075)
+
+The financial chain is mirrored between both authorities and must stay that way:
+
+| Self-host (authoritative here) | Hosted Supabase |
+|---|---|
+| `073_ai_usage_billing.sql` | `20260901094824_28a01e28-…sql` |
+| `074_ai_billing_pricing_append_only.sql` | `20260901103902_7a77e604-…sql` |
+| `075_ai_billing_recovery_lease.sql` | `20260901105630_5ba30ba4-…sql` |
+
+* 073 — pricing catalog, runs/steps/immutable usage events, wallet/lots,
+  reservations, ledger, settlements, commands/audit, and the SQL financial
+  functions (all `SECURITY DEFINER` with `search_path = public, pg_temp`,
+  executable by `service_role` only).
+* 074 — append-only enforcement for rate cards, FX and sell policies: an open
+  period may only be closed, never rewritten.
+* 075 — the cluster-wide recovery lease so a multi-replica deployment runs one
+  recovery pass at a time, with a TTL that self-heals after a crash.
+
+`src/test/integration/migrationMirrorParity.test.ts` fails on drift between the
+two columns; `src/test/integration/aiBillingFinancial.pg.test.ts` (CI job
+`ai-billing-db`, `REQUIRE_BILLING_DB=1`) proves the invariants against a live
+PostgreSQL and is a mandatory merge gate.

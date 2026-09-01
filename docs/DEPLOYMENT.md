@@ -60,6 +60,21 @@ Supabase). Details and the per-file rationale: [`../database/README.md`](../data
 
 Every migration is forward-only. Never edit a shipped file — add a new one.
 
+**Migration authority (AI Billing included).** There are two authoritative
+chains and every production deployment runs exactly one of them:
+
+| Deployment | Authoritative chain | AI Billing migrations |
+|---|---|---|
+| Self-hosted Postgres (this guide) | `database/migrations/*.sql`, numeric order | `073_ai_usage_billing.sql`, `074_ai_billing_pricing_append_only.sql`, `075_ai_billing_recovery_lease.sql` |
+| Hosted Supabase | `supabase/migrations/*.sql`, timestamp order | `20260901094824_*`, `20260901103902_*`, `20260901105630_*` |
+
+The two AI Billing sets are byte-equivalent mirrors (comments/whitespace aside)
+and CI enforces that: `src/test/integration/migrationMirrorParity.test.ts`
+fails on any functional drift, and the `selfhost-chain` job applies the whole
+`database/migrations` chain — including 073–075 — against a real database.
+Financial invariants themselves are gated by the mandatory `ai-billing-db` CI
+job (`REQUIRE_BILLING_DB=1`, which fails rather than skips without a database).
+
 Verification helpers:
 
 ```bash

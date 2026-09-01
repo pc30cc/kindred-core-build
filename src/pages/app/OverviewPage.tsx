@@ -10,7 +10,7 @@ import { useKBArticles } from '@/hooks/useKnowledgeBase';
 import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
-import { useWorkspacePlan } from '@/hooks/usePlans';
+import { useWorkspacePlan, useWorkspaceUsage } from '@/hooks/usePlans';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
@@ -21,7 +21,7 @@ import {
 } from 'recharts';
 import {
   MessageSquare, Users, BookOpen, Eye, Inbox, Bot, ArrowUpRight, ArrowRight,
-  Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio,
+  Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio, HardDrive,
 } from 'lucide-react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,18 @@ import { cn } from '@/lib/utils';
 const PLACEHOLDER_SUBJECTS = new Set([
   'new conversation', 'new chat', 'untitled conversation', 'untitled', '[attachment]',
 ]);
+
+/** Human-readable byte size using the active number locale. */
+function formatBytes(bytes: number, numberLocale: string): string {
+  const nf = (n: number, d = 0) =>
+    new Intl.NumberFormat(numberLocale, { maximumFractionDigits: d }).format(n);
+  if (!Number.isFinite(bytes) || bytes <= 0) return `${nf(0)} MB`;
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1) return `${nf(gb, 2)} GB`;
+  const mb = bytes / 1024 ** 2;
+  if (mb >= 1) return `${nf(mb, 1)} MB`;
+  return `${nf(bytes / 1024, 1)} KB`;
+}
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
@@ -65,6 +77,7 @@ export default function OverviewPage() {
     [teamData, memberById],
   );
   const { data: planData } = useWorkspacePlan(workspace?.id);
+  const { data: usageRow } = useWorkspaceUsage(workspace?.id);
 
   const tr = t as unknown as (k: string) => string;
   const isRtl = dir === 'rtl';
@@ -155,6 +168,15 @@ export default function OverviewPage() {
     '—';
   const entitlements = (planData?.entitlements || {}) as Record<string, any>;
   const limits = (planData?.limits || {}) as Record<string, number>;
+  const usageNum = (k: string) => {
+    const v = (usageRow as any)?.[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  };
+  const storageBytes = usageNum('storage_bytes');
+  const storageLimitGb = Number(limits.storage_gb ?? 0);
+  const storagePct = storageLimitGb > 0
+    ? Math.min(100, Math.round((storageBytes / (storageLimitGb * 1024 ** 3)) * 100))
+    : 0;
 
   const seatLimit = Number(limits.max_operators ?? limits.max_seats ?? 0);
   const seatUsed = team.length;

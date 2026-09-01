@@ -290,7 +290,7 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="block rounded-lg overflow-hidden border border-border bg-muted/40 cursor-zoom-in leading-none transition-transform hover:scale-[1.01]"
+        className="relative block rounded-lg overflow-hidden border border-border bg-muted/40 cursor-zoom-in leading-none transition-transform hover:scale-[1.01]"
       >
         {failed ? (
           <span className="flex items-center gap-2 px-3 py-2 text-[12px] text-muted-foreground">
@@ -314,7 +314,10 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
               onError={() => { setLoaded(true); setFailed(true); }}
               className={cn(
                 'block w-auto h-auto max-w-[260px] max-h-[280px] object-contain',
-                loaded ? '' : 'hidden',
+                // Do not use display:none here. Combined with loading="lazy"
+                // it prevents the browser from ever requesting the image,
+                // leaving the receiving placeholder visible forever.
+                loaded ? 'opacity-100' : 'absolute inset-0 opacity-0 pointer-events-none',
               )}
             />
           </>

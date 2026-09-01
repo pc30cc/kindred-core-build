@@ -9400,6 +9400,15 @@ export type Database = {
           inserted: number
         }[]
       }
+      bump_usage_counter_for: {
+        Args: {
+          _amount: number
+          _at: string
+          _counter_name: string
+          _workspace_id: string
+        }
+        Returns: undefined
+      }
       business_metrics_rollup_and_prune: { Args: never; Returns: Json }
       change_password_and_revoke_sessions: {
         Args: {

@@ -30,9 +30,10 @@ describe('decimal fixed-point', () => {
     expect(D.toStoredIrr(D.fromString('1234.5678915'))).toBe('1234.567892');
   });
 
-  it('treats missing/invalid values as zero', () => {
+  it('treats empty values as zero and rejects garbage instead of silently mispricing', () => {
     expect(D.isZero(D.fromString(null))).toBe(true);
-    expect(D.isZero(D.fromString('not-a-number'))).toBe(true);
+    expect(D.isZero(D.fromString(''))).toBe(true);
+    expect(() => D.fromString('not-a-number')).toThrow(/invalid_decimal/);
   });
 });
 
@@ -79,10 +80,10 @@ describe('usage normalization', () => {
     });
     expect(u.actualModel).toBe('gpt-5-nano-2026');
     expect(u.totalTokens).toBe(1500);
-    const input = u.components.find((c) => c.type === 'INPUT_TOKENS');
-    const output = u.components.find((c) => c.type === 'OUTPUT_TOKENS');
-    expect(input?.quantity).toBe(1200);
-    expect(output?.quantity).toBe(300);
+    const input = u.components.find((c) => c.componentType === 'INPUT_TOKENS');
+    const output = u.components.find((c) => c.componentType === 'OUTPUT_TOKENS');
+    expect(Number(input?.quantity)).toBe(1200);
+    expect(Number(output?.quantity)).toBe(300);
   });
 
   it('derives total tokens when the provider omits them', () => {
@@ -92,7 +93,7 @@ describe('usage normalization', () => {
 
   it('emits a single embedding component', () => {
     const u = normalizeUsage({ provider: 'p', requestedModel: 'e', promptTokens: 500, kind: 'embedding' });
-    expect(u.components.map((c) => c.type)).toEqual(['EMBEDDING_TOKENS']);
+    expect(u.components.map((c) => c.componentType)).toEqual(['EMBEDDING_TOKENS']);
   });
 });
 
@@ -110,12 +111,14 @@ describe('rate card pricing', () => {
   } as RateCardSnapshot;
 
   it('prices per unit block exactly', () => {
-    expect(D.toString(priceComponent(card, 'INPUT_TOKENS', 1_000_000))).toBe('0.05');
-    expect(D.toString(priceComponent(card, 'OUTPUT_TOKENS', 500_000))).toBe('0.2');
+    expect(D.toString(priceComponent(card, 'INPUT_TOKENS', 1_000_000).amount)).toBe('0.05');
+    expect(D.toString(priceComponent(card, 'OUTPUT_TOKENS', 500_000).amount)).toBe('0.2');
   });
 
   it('returns zero for a component the card does not price', () => {
-    expect(D.isZero(priceComponent(card, 'EMBEDDING_TOKENS', 1000))).toBe(true);
+    const unpriced = priceComponent(card, 'EMBEDDING_TOKENS', 1000);
+    expect(unpriced.matched).toBe(false);
+    expect(D.isZero(unpriced.amount)).toBe(true);
   });
 });
 

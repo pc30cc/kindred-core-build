@@ -172,9 +172,9 @@ export default function AiBillingPage() {
       <div className="grid gap-4 md:grid-cols-4">
         {[
           { label: t('aiBilling.providerCost'), value: `$${(overview?.totals?.providerCostUsd || 0).toFixed(4)}` },
-          { label: t('aiBilling.internalCost'), value: money(overview?.totals?.internalCostIrr, i18n.language) },
-          { label: t('aiBilling.customerCharge'), value: money(overview?.totals?.customerChargeIrr, i18n.language) },
-          { label: t('aiBilling.margin'), value: `${money(overview?.margin, i18n.language)} (${(overview?.marginPct || 0).toFixed(1)}%)` },
+          { label: t('aiBilling.internalCost'), value: money(overview?.totals?.internalCostIrr, locale) },
+          { label: t('aiBilling.customerCharge'), value: money(overview?.totals?.customerChargeIrr, locale) },
+          { label: t('aiBilling.margin'), value: `${money(overview?.margin, locale)} (${(overview?.marginPct || 0).toFixed(1)}%)` },
         ].map((k) => (
           <Card key={k.label}>
             <CardHeader className="pb-2">
@@ -203,7 +203,7 @@ export default function AiBillingPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="text-sm text-muted-foreground">
-                  {t('aiBilling.current')}: {money(Number(pricing.exchangeRates?.[0]?.rate || 0), i18n.language)} / USD
+                  {t('aiBilling.current')}: {money(Number(pricing.exchangeRates?.[0]?.rate || 0), locale)} / USD
                 </div>
                 <div className="flex gap-2">
                   <Input value={fxRate} onChange={(e) => setFxRate(e.target.value)} placeholder="1000000" />
@@ -296,7 +296,7 @@ export default function AiBillingPage() {
                         <Badge variant={r.billing_quality === 'UNRESOLVED' ? 'destructive' : 'secondary'}>{r.billing_quality}</Badge>
                       </TableCell>
                       <TableCell className="text-xs">{Number(r.provider_cost_usd || 0).toFixed(5)}</TableCell>
-                      <TableCell className="text-xs">{money(r.customer_charge_irr, i18n.language)}</TableCell>
+                      <TableCell className="text-xs">{money(r.customer_charge_irr, locale)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

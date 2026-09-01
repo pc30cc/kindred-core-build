@@ -157,7 +157,7 @@ export default function AiBillingPage() {
             <Switch id="mode" disabled={saving} checked={overview?.mode === 'ENFORCED'} onCheckedChange={toggleMode} />
           </div>
           <Button variant="outline" size="sm" onClick={() => void load()}>
-            <RefreshCw className="me-2 h-4 w-4" /> {t('common.refresh')}
+            <RefreshCw className="me-2 h-4 w-4" /> {t('aiBilling.refresh')}
           </Button>
         </div>
       </div>

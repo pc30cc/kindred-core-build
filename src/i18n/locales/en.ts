@@ -1774,6 +1774,7 @@ const en = {
   },
   aiBilling: {
     title: 'AI Billing',
+    refresh: 'Refresh',
     subtitle: 'Provider cost, margin, pricing and billing health across all workspaces.',
     enforced: 'Enforced mode',
     modeSaved: 'Billing mode updated',

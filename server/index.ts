@@ -13,6 +13,7 @@ import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
 import { authEmailRouter } from './routes/auth-email.js';
 import { aiRouter } from './routes/ai.js';
+import { aiBillingRouter } from './routes/aiBilling.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
@@ -332,6 +333,7 @@ app.use('/api/email', emailRateLimiter, emailRouter);
 
 // AI — auth required, workspace rate limiting built into routes
 app.use('/api/ai', aiRouter);
+app.use('/api/ai-billing', aiBillingRouter);
 
 // Storage — auth required, file size limits in routes
 app.use('/api/storage', storageRouter);

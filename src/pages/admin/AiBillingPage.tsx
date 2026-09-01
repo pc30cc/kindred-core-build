@@ -40,7 +40,7 @@ const nf = (n: number) => new Intl.NumberFormat().format(Math.round(n || 0));
 const money = (irr: unknown, locale?: string) => formatToman(Number(irr ?? 0), locale);
 
 export default function AiBillingPage() {
-  const { t, i18n } = useTranslation();
+  const { t, locale } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<any>(null);
   const [pricing, setPricing] = useState<any>({ rateCards: [], exchangeRates: [], sellPolicies: [] });

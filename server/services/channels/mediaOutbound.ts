@@ -22,7 +22,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { botJobType, enqueueChannelJob } from './jobs.js';
 import { isBotProvider } from '../../../shared/channels/botProviders.js';
-import { resolveApiBaseUrl } from '../calls/rtcResolver.js';
+import { resolveSelfApiBaseUrl } from '../calls/rtcResolver.js';
 
 const URL_TTL_SECONDS = 60 * 60 * 6; // 6h — plenty for retries, short enough to be safe.
 
@@ -100,12 +100,17 @@ export async function enqueueOutboundMediaIfChannelConversation(
   if (!att || att.workspace_id !== input.workspaceId) return 'attachment_unavailable';
   if (att.status !== 'uploaded' && att.status !== 'attached') return 'attachment_unavailable';
 
-  const apiBase = await resolveApiBaseUrl(config, input.req);
-  if (!apiBase || !/^https:\/\//i.test(apiBase)) return 'base_url_unresolved';
+  // Prefer the live request origin so a stale `platform_domains.api_base_url`
+  // (e.g. right after a domain change) can never break media delivery.
+  const apiBase = await resolveSelfApiBaseUrl(config, input.req);
+  if (!apiBase || !/^https?:\/\//i.test(apiBase)) return 'base_url_unresolved';
 
   const exp = Math.floor(Date.now() / 1000) + URL_TTL_SECONDS;
   const sig = signAttachmentAccess(att.id as string, exp);
-  const url = `${apiBase.replace(/\/+$/, '')}/api/conversation-attachments/${att.id}/public?exp=${exp}&sig=${sig}`;
+  // Relative path is stored too: the worker can rebuild the URL against its
+  // own internal base if the absolute host becomes unreachable later.
+  const path = `/api/conversation-attachments/${att.id}/public?exp=${exp}&sig=${sig}`;
+  const url = `${apiBase.replace(/\/+$/, '')}${path}`;
 
   const { data: existing } = await sb
     .from('channel_jobs')
@@ -130,6 +135,7 @@ export async function enqueueOutboundMediaIfChannelConversation(
         attachments: [
           {
             url,
+            path,
             kind: attachmentKindFromMime(att.mime_type as string),
             file_name: att.file_name ?? null,
             mime_type: att.mime_type ?? null,

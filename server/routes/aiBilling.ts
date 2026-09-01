@@ -290,7 +290,60 @@ aiBillingRouter.post('/admin/pricing/rate-cards', async (req, res) => {
   res.json({ id: data });
 });
 
+/**
+ * LIVE FX QUOTES — USD → IRR.
+ *
+ * Read-only: it never publishes anything. The admin sees the quotes from the
+ * public sources and decides which one becomes the billing FX, so an upstream
+ * outage or a bad print can never silently reprice the platform.
+ *
+ * `official` is the central-bank style reference rate, `market` is the free
+ * market print most Iranian pricing actually follows.
+ */
+const FX_SOURCES: { key: string; url: string; kind: 'official' | 'market'; pick: (j: any) => number | null }[] = [
+  {
+    key: 'open_er_api',
+    kind: 'official',
+    url: 'https://open.er-api.com/v6/latest/USD',
+    pick: (j) => (Number(j?.rates?.IRR) > 0 ? Number(j.rates.IRR) : null),
+  },
+  {
+    key: 'tgju',
+    kind: 'market',
+    url: 'https://call1.tgju.org/ajax.json',
+    // price_dollar_rl is quoted in Rial already.
+    pick: (j) => {
+      const raw = j?.current?.price_dollar_rl?.p;
+      const n = Number(String(raw ?? '').replace(/,/g, ''));
+      return Number.isFinite(n) && n > 0 ? n : null;
+    },
+  },
+];
+
+aiBillingRouter.get('/admin/pricing/fx-quotes', async (_req, res) => {
+  const quotes = await Promise.all(
+    FX_SOURCES.map(async (s) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const r = await fetch(s.url, { signal: ctrl.signal, headers: { accept: 'application/json' } });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const json = await r.json();
+        const rateIrr = s.pick(json);
+        if (!rateIrr) throw new Error('rate_not_found');
+        return { source: s.key, kind: s.kind, rateIrr, rateToman: rateIrr / 10, fetchedAt: new Date().toISOString(), ok: true };
+      } catch (err: any) {
+        return { source: s.key, kind: s.kind, ok: false, error: String(err?.message || err) };
+      } finally {
+        clearTimeout(timer);
+      }
+    }),
+  );
+  res.json({ quotes });
+});
+
 aiBillingRouter.post('/admin/pricing/exchange-rates', async (req, res) => {
+
   const schema = z.object({
     from: z.string().min(3).max(8).default('USD'),
     to: z.string().min(3).max(8).default('IRR'),

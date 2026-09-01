@@ -114,6 +114,7 @@ import AdminMapGeoPage from "@/pages/admin/MapGeoPage";
 import AdminVoiceVideoPage from "@/pages/admin/VoiceVideoPage";
 import AdminAiAgentControlPage from "@/pages/admin/AiAgentControlPage";
 import AdminCallCenterPage from "@/pages/admin/CallCenterPage";
+import AdminAiBillingPage from "@/pages/admin/AiBillingPage";
 
 import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
 import CallCenterOverviewPage from "@/pages/app/call-center/OverviewPage";
@@ -201,6 +202,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/voice-video" element={<AdminVoiceVideoPage />} />
                 <Route path="/admin/ai-agent" element={<AdminAiAgentControlPage />} />
                 <Route path="/admin/call-center" element={<AdminCallCenterPage />} />
+                <Route path="/admin/ai-billing" element={<AdminAiBillingPage />} />
                 {/* Legacy Advanced Routing page replaced by Widget Settings → Advanced Routing tab. */}
                 <Route
                   path="/admin/advanced-routing"

@@ -22,6 +22,7 @@ const adminNav = [
   { key: 'voiceVideo', path: '/admin/voice-video', icon: Video },
   { key: 'callCenter', path: '/admin/call-center', icon: PhoneCall },
   { key: 'aiAgent', path: '/admin/ai-agent', icon: Sparkles },
+  { key: 'aiBilling', path: '/admin/ai-billing', icon: CreditCard },
   { key: 'system', path: '/admin/system', icon: Server },
   { key: 'observability', path: '/admin/observability', icon: Activity },
   { key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },

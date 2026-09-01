@@ -15,7 +15,7 @@
  *     are shown.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -31,6 +31,8 @@ import {
 } from '@/lib/entitlements-api';
 import { useTranslation } from '@/i18n';
 import { bt, capLabel, formatLimitValue, formatUsageValue, type BillingLocale } from '@/lib/billing-i18n';
+import { useLiveUsageRefresh } from '@/hooks/useLiveUsageRefresh';
+
 
 /**
  * Map registry limit keys → column on `workspace_usage_counters` returned
@@ -96,6 +98,16 @@ export function PlanUsagePanel({ workspaceId }: Props) {
       cancelled = true;
     };
   }, [workspaceId]);
+
+  // Live usage: silently re-pull the canonical effective payload so counters
+  // move without a page refresh (no spinner, no layout flash on failure).
+  const refreshLive = useCallback(() => {
+    fetchWorkspaceEffective(workspaceId)
+      .then((effRes) => setEff(effRes))
+      .catch(() => { /* transient; next tick retries */ });
+  }, [workspaceId]);
+  useLiveUsageRefresh(!!workspaceId, refreshLive);
+
 
   if (loading) {
     return (

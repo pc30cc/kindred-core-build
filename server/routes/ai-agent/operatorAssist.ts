@@ -13,6 +13,12 @@ import { redactSecrets } from '../../lib/redactSecrets.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
 import { retrieveHybridSources } from '../../services/ai-agent/retrievalHybrid.js';
 import {
+  beginAiRun as e7_beginAiRun,
+  settleAiRun as e7_settleAiRun,
+  failAiRun as e7_failAiRun,
+  type AiRunContext as E7RunContext,
+} from '../../services/ai-billing/runContext.js';
+import {
   redactDeep as e7_redactDeep,
   redactString as e7_redactString,
 } from '../../services/ai-agent/testHarness.js';
@@ -245,10 +251,33 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   }
 
   const safetyNotes: string[] = [];
+
+  // AI BILLING — one operator assist request = ONE Run, opened before the
+  // first billable AI operation (retrieval embeddings) and carrying the
+  // completion that follows.
+  let assistRunCtx: E7RunContext | null = null;
+  try {
+    assistRunCtx = await e7_beginAiRun(config, {
+      workspaceId,
+      operationKey: `operator_assist:${conversationId}:${latestVisitor?.id || 'latest'}:${tone ?? 'default'}:${(instruction || '').slice(0, 64)}`,
+      payload: { workspaceId, conversationId, inputMessage, instruction: instruction ?? null, tone: tone ?? null, locale: responseLocale },
+      entryPoint: 'operator_assist',
+      channel: 'operator',
+      conversationId,
+      estimate: { promptChars: inputMessage.length + tailContext.length },
+    });
+  } catch (err: any) {
+    if (err?.code === 'ai_allowance_exhausted') {
+      return res.status(403).json({ error: 'ai_allowance_exhausted' });
+    }
+    console.warn('[ai-billing] operator assist run not opened:', err?.message);
+  }
+
   let hybrid: any;
   try {
     hybrid = await retrieveHybridSources(config, {
       workspaceId,
+      runCtx: assistRunCtx,
       originalMessage: inputMessage,
       retrievalQuery: inputMessage,
       expandedQuery: inputMessage,
@@ -408,7 +437,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       maxTokens: tone === 'detailed' ? 800 : tone === 'short' ? 250 : 500,
       temperature: settings.answer_guidance === 'creative' ? 0.6
         : settings.answer_guidance === 'balanced' ? 0.4 : 0.25,
-    });
+    }, assistRunCtx ?? undefined);
     const suggestion = (result.text || '').trim() || null;
     // Increment usage only after a non-empty successful suggestion.
     if (suggestion) {
@@ -445,6 +474,12 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       error: suggestion ? null : 'empty_completion',
     });
     out.assist_run_id = runId;
+    if (assistRunCtx) {
+      await (assistRunCtx.stepSeq > 0
+        ? e7_settleAiRun(config, assistRunCtx)
+        : e7_failAiRun(config, assistRunCtx, 'no_billable_usage')
+      ).catch(() => undefined);
+    }
     return res.json(out);
   } catch (err: any) {
     const notes = [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes];
@@ -456,6 +491,9 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       provider: aiCfg.provider, model: aiCfg.model,
       error: err?.message || 'llm_failed',
     });
+    if (assistRunCtx) {
+      await e7_failAiRun(config, assistRunCtx, err?.message || 'llm_failed').catch(() => undefined);
+    }
     return res.status(502).json({ error: 'llm_failed', details: redactSecrets(err?.message) || 'unknown_error' });
   }
 });

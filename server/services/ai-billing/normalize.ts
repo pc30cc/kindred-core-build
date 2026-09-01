@@ -51,6 +51,8 @@ export interface NormalizeInput {
   reasoningTokens?: number | null;
   latencyMs?: number | null;
   kind?: 'completion' | 'embedding';
+  /** Force the ESTIMATED quality flag (provider reported no usage). */
+  estimatedUsage?: boolean;
   raw?: unknown;
 }
 
@@ -99,7 +101,7 @@ export function normalizeUsage(input: NormalizeInput): NormalizedUsage {
     completionTokens: completion,
     totalTokens: total,
     latencyMs: num(input.latencyMs),
-    estimated: prompt === 0 && completion === 0 && total === 0,
+    estimated: !!input.estimatedUsage || (prompt === 0 && completion === 0 && total === 0),
     raw: input.raw ?? null,
   };
 }

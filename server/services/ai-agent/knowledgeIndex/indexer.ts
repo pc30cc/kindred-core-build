@@ -45,11 +45,41 @@ export interface IndexSourceResult {
   embeddingFailures: number;
 }
 
+/**
+ * AI billing — background KB indexing is billable provider work. When the
+ * caller did not open a Run (most background paths), a standalone Run is
+ * opened for this source so the embedding usage is never lost.
+ */
+async function ensureIndexingRun(
+  config: ServerConfig,
+  workspaceId: string,
+  sourceType: string,
+  sourceId: string,
+): Promise<import('../../ai-billing/runContext.js').AiRunContext | null> {
+  try {
+    const { beginAiRun } = await import('../../ai-billing/runContext.js');
+    return await beginAiRun(config, {
+      workspaceId,
+      operationKey: `kb_index:${sourceType}:${sourceId}:${new Date().toISOString().slice(0, 13)}`,
+      payload: { workspaceId, sourceType, sourceId },
+      entryPoint: 'kb_index',
+      estimate: { promptChars: 0 },
+    });
+  } catch (err) {
+    console.warn('[ai-billing] kb index run not opened:', (err as any)?.message);
+    return null;
+  }
+}
+
 export async function indexSource(
   config: ServerConfig,
   input: IndexSourceInput,
   embedder?: EmbeddingProvider,
-  opts?: { remainingEmbedBudget?: number },
+  opts?: {
+    remainingEmbedBudget?: number;
+    /** AI billing — Run owning this indexing job's embedding usage. */
+    runCtx?: import('../../ai-billing/runContext.js').AiRunContext | null;
+  },
 ): Promise<IndexSourceResult> {
   const sb = getServiceClient(config);
   const result: IndexSourceResult = {
@@ -141,8 +171,12 @@ export async function indexSource(
     const budget = opts?.remainingEmbedBudget ?? toEmbed.length;
     const slice = toEmbed.slice(0, Math.max(0, budget));
     if (slice.length) {
+      const ownCtx = opts?.runCtx
+        ? null
+        : await ensureIndexingRun(config, input.workspaceId, input.sourceType, input.sourceId);
+      const embedCtx = opts?.runCtx ?? ownCtx;
       try {
-        const out = await embedder.embedTexts(slice.map((t) => t.content));
+        const out = await embedder.embedTexts(slice.map((t) => t.content), { runCtx: embedCtx });
         const expected = embedder.dimensions;
         slice.forEach((t, idx) => {
           const v = Array.isArray(out) ? out[idx] : undefined;
@@ -159,6 +193,18 @@ export async function indexSource(
       } catch (err: any) {
         console.warn('[knowledgeIndex.indexer] embedding batch failed:', err?.message);
         result.embeddingFailures += slice.length;
+      } finally {
+        // Settle only the Run we opened ourselves; a caller-owned Run is
+        // settled at its own business-operation boundary.
+        if (ownCtx) {
+          try {
+            const billing = await import('../../ai-billing/runContext.js');
+            if (ownCtx.stepSeq > 0) await billing.settleAiRun(config, ownCtx);
+            else await billing.failAiRun(config, ownCtx, 'no_billable_usage');
+          } catch (e: any) {
+            console.warn('[ai-billing] kb index run not closed:', e?.message);
+          }
+        }
       }
     }
   }

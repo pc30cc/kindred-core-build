@@ -119,6 +119,7 @@ aiRouter.post('/complete', async (req, res) => {
       model: parsed.data.model,
       maxTokens: parsed.data.maxTokens,
       temperature: parsed.data.temperature,
+      billing: { entryPoint: 'api_ai_complete' },
     });
 
     // Track usage

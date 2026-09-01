@@ -6,9 +6,17 @@
  * don't introduce a parallel secrets/keys system.
  */
 
+import type { AiRunContext } from '../../ai-billing/runContext.js';
+
 export interface EmbedOptions {
   /** Soft hint for the caller; providers may ignore. */
   truncateChars?: number;
+  /**
+   * AI billing — the business-operation Run this embedding belongs to.
+   * When present, every batch is recorded as an EMBEDDING step of that Run
+   * instead of being lost outside the financial boundary.
+   */
+  runCtx?: AiRunContext | null;
 }
 
 export interface EmbeddingProvider {

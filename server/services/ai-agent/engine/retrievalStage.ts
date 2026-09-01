@@ -108,6 +108,7 @@ export async function runRetrievalStage(
     retrievalDebug, excludedSummary,
   } = knowledgeLookupNeeded ? await retrieveKnowledgeForRuntime(config, {
     workspaceId,
+    runCtx: input.runCtx ?? null,
     originalMessage: built.originalMessage,
     retrievalQuery: built.retrievalQuery,
     expandedQuery: built.expandedQuery,

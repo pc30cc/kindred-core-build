@@ -66,6 +66,7 @@ import { startRecordingRetentionJanitor } from './services/recordings/retentionJ
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startMetricsRollup } from './services/observability/rollupTicker.js';
+import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
 import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
@@ -508,6 +509,8 @@ app.listen(config.port, () => {
 
   // Phase 3 — start in-process metrics rollup (every 10 min). Best-effort.
   startMetricsRollup(config);
+  // AI billing — automatic, idempotent recovery/reconciliation pass.
+  startAiBillingRecovery(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   startAlertingTicker(config);

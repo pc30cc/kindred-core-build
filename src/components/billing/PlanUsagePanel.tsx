@@ -207,6 +207,11 @@ export function PlanUsagePanel({ workspaceId }: Props) {
         </section>
       )}
 
+      {/* Data & storage usage — raw workspace counters (always visible) */}
+      <DataStorageSection usage={eff.usage} locale={L} />
+
+
+
       {/* Modules + Channels + Features — compact grouped panel */}
       <Card className="border-border/60">
         <CardContent className="p-5 space-y-5">
@@ -225,7 +230,87 @@ export function PlanUsagePanel({ workspaceId }: Props) {
   );
 }
 
+function formatBytes(bytes: number, locale: BillingLocale): string {
+  const nf = (n: number, d = 0) =>
+    new Intl.NumberFormat(locale, { maximumFractionDigits: d, minimumFractionDigits: 0 }).format(n);
+  if (!Number.isFinite(bytes) || bytes <= 0) return `${nf(0)} MB`;
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1) return `${nf(gb, 2)} GB`;
+  const mb = bytes / 1024 ** 2;
+  if (mb >= 1) return `${nf(mb, 1)} MB`;
+  return `${nf(bytes / 1024, 1)} KB`;
+}
+
+function DataStorageSection({
+  usage, locale,
+}: {
+  usage: Record<string, any> | null;
+  locale: BillingLocale;
+}) {
+  const L = locale;
+  const nf = (n: number) => new Intl.NumberFormat(L, { maximumFractionDigits: 0 }).format(n);
+  const num = (k: string) => {
+    const v = usage?.[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  };
+
+  const items = [
+    { key: 'storage', label: bt(L, 'storageUsed'), value: formatBytes(num('storage_bytes'), L), decor: LIMIT_DECOR.storage_gb },
+    { key: 'conversations', label: bt(L, 'usageConversations'), value: nf(num('conversations_count')), decor: LIMIT_DECOR.max_conversations },
+    { key: 'messages', label: bt(L, 'usageMessages'), value: nf(num('messages_count')), decor: DEFAULT_DECOR },
+    { key: 'visitors', label: bt(L, 'usageVisitors'), value: nf(num('visitors_count')), decor: LIMIT_DECOR.max_visitors },
+    { key: 'ai_credits', label: bt(L, 'usageAiCredits'), value: nf(num('ai_credits_used')), decor: LIMIT_DECOR.ai_credits_per_month },
+    { key: 'ai_requests', label: bt(L, 'usageAiRequests'), value: nf(num('ai_requests_count')), decor: LIMIT_DECOR.ai_credits_per_month },
+    { key: 'emails', label: bt(L, 'usageEmails'), value: nf(num('email_sent_count')), decor: DEFAULT_DECOR },
+    { key: 'call_minutes', label: bt(L, 'usageCallMinutes'), value: nf(num('call_minutes_used')), decor: LIMIT_DECOR.max_call_minutes_per_month },
+  ];
+
+  return (
+    <section data-testid="data-storage-usage">
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">{bt(L, 'dataUsage')}</h2>
+          <p className="text-xs text-muted-foreground">{bt(L, 'dataUsageDesc')}</p>
+        </div>
+        {usage?.period ? (
+          <Badge variant="secondary" className="shrink-0">
+            {bt(L, 'usagePeriod')}: {String(usage.period)}
+          </Badge>
+        ) : null}
+      </div>
+
+      {!usage ? (
+        <Card className="border-border/60">
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">
+            {bt(L, 'usageUnavailable')}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {items.map((it) => {
+            const Icon = it.decor.icon;
+            return (
+              <div
+                key={it.key}
+                data-testid={`data-usage-${it.key}`}
+                className={`rounded-xl border border-border/60 bg-card p-4 ring-1 ${it.decor.ring} transition hover:shadow-md`}
+              >
+                <div className={`w-9 h-9 rounded-lg ${it.decor.bg} ${it.decor.tint} flex items-center justify-center`}>
+                  <Icon className="w-4.5 h-4.5" />
+                </div>
+                <div className="mt-3 text-lg font-semibold text-foreground">{it.value}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{it.label}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CapabilityGroup({
+
   title, caps, stateMap, locale,
 }: {
   title: string;

@@ -58,6 +58,24 @@ const STRINGS: Dict = {
   sourcePlan: { fa: 'از پلن', en: 'From plan', tr: 'Plandan' },
   sourceDefault: { fa: 'پیش‌فرض', en: 'Default', tr: 'Varsayılan' },
   planUnavailable: { fa: 'اطلاعات پلن در دسترس نیست', en: 'Plan state unavailable', tr: 'Plan durumu mevcut değil' },
+  // Data & storage usage
+  dataUsage: { fa: 'مصرف داده و ذخیره‌سازی', en: 'Data & storage usage', tr: 'Veri ve depolama kullanımı' },
+  dataUsageDesc: {
+    fa: 'حجم داده‌های ذخیره‌شده و فعالیت فضای کاری در دوره جاری',
+    en: 'Stored data volume and workspace activity in the current period',
+    tr: 'Mevcut dönemdeki depolanan veri hacmi ve çalışma alanı etkinliği',
+  },
+  storageUsed: { fa: 'فضای ذخیره‌شده', en: 'Storage used', tr: 'Kullanılan depolama' },
+  usageMessages: { fa: 'پیام‌ها', en: 'Messages', tr: 'Mesajlar' },
+  usageConversations: { fa: 'گفتگوها', en: 'Conversations', tr: 'Görüşmeler' },
+  usageVisitors: { fa: 'بازدیدکنندگان', en: 'Visitors', tr: 'Ziyaretçiler' },
+  usageAiRequests: { fa: 'درخواست‌های هوش مصنوعی', en: 'AI requests', tr: 'AI istekleri' },
+  usageAiCredits: { fa: 'اعتبار مصرف‌شده هوش مصنوعی', en: 'AI credits used', tr: 'Kullanılan AI kredisi' },
+  usageEmails: { fa: 'ایمیل‌های ارسالی', en: 'Emails sent', tr: 'Gönderilen e‑postalar' },
+  usageCallMinutes: { fa: 'دقایق تماس', en: 'Call minutes', tr: 'Çağrı dakikaları' },
+  usagePeriod: { fa: 'دوره', en: 'Period', tr: 'Dönem' },
+  usageUnavailable: { fa: 'هنوز مصرفی ثبت نشده است', en: 'No usage recorded yet', tr: 'Henüz kullanım kaydı yok' },
+
 };
 
 export function bt(locale: BillingLocale, key: keyof typeof STRINGS): string {

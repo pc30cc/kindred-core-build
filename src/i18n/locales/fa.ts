@@ -258,6 +258,7 @@ const fa: TranslationKeys = {
     plugins: 'افزونه‌ها',
     ai: 'هوش مصنوعی',
     aiAgent: 'دستیار هوشمند',
+    aiBilling: 'صورتحساب هوش مصنوعی',
     email: 'ایمیل',
     team: 'تیم',
     callCenter: 'مرکز تماس',

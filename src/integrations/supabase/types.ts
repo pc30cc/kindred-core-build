@@ -1623,6 +1623,105 @@ export type Database = {
           },
         ]
       }
+      ai_billing_adjustments: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          id: string
+          ledger_entry_id: string | null
+          reason: string
+          run_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          ledger_entry_id?: string | null
+          reason: string
+          run_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          ledger_entry_id?: string | null
+          reason?: string
+          run_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      ai_billing_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          details: Json | null
+          id: string
+          target_ref: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+          target_ref?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+          target_ref?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      ai_billing_commands: {
+        Row: {
+          command_type: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          request_hash: string | null
+          result_ref: string | null
+          run_id: string | null
+          state: string
+          workspace_id: string | null
+        }
+        Insert: {
+          command_type: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          request_hash?: string | null
+          result_ref?: string | null
+          run_id?: string | null
+          state?: string
+          workspace_id?: string | null
+        }
+        Update: {
+          command_type?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          request_hash?: string | null
+          result_ref?: string | null
+          run_id?: string | null
+          state?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       ai_data_sources: {
         Row: {
           base_url: string | null
@@ -1702,6 +1801,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      ai_exchange_rates: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string
+          effective_to: string | null
+          from_currency: string
+          id: string
+          rate: number
+          to_currency: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          from_currency: string
+          id?: string
+          rate: number
+          to_currency: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          from_currency?: string
+          id?: string
+          rate?: number
+          to_currency?: string
+          version?: number
+        }
+        Relationships: []
       }
       ai_kb_generated_articles: {
         Row: {
@@ -2119,6 +2254,36 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_models: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          is_active: boolean
+          model_key: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_active?: boolean
+          model_key: string
+          provider: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_active?: boolean
+          model_key?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_operator_assist_feedback: {
         Row: {
           assist_run_id: string
@@ -2232,6 +2397,333 @@ export type Database = {
           suggestion?: string | null
           tone?: string | null
           workspace_id?: string
+        }
+        Relationships: []
+      }
+      ai_rate_card_components: {
+        Row: {
+          component_type: string
+          created_at: string
+          id: string
+          per_units: number
+          rate_card_id: string
+          unit: string
+          unit_amount: number
+        }
+        Insert: {
+          component_type: string
+          created_at?: string
+          id?: string
+          per_units?: number
+          rate_card_id: string
+          unit?: string
+          unit_amount?: number
+        }
+        Update: {
+          component_type?: string
+          created_at?: string
+          id?: string
+          per_units?: number
+          rate_card_id?: string
+          unit?: string
+          unit_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_rate_card_components_rate_card_id_fkey"
+            columns: ["rate_card_id"]
+            isOneToOne: false
+            referencedRelation: "ai_rate_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_rate_cards: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          currency: string
+          effective_from: string
+          effective_to: string | null
+          id: string
+          model_key: string
+          notes: string | null
+          provider: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          model_key: string
+          notes?: string | null
+          provider: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          model_key?: string
+          notes?: string | null
+          provider?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      ai_run_settlements: {
+        Row: {
+          billing_cycle_id: string
+          created_at: string
+          customer_charge_irr: number
+          id: string
+          internal_cost_irr: number
+          ledger_entry_id: string | null
+          platform_absorbed_amount: number
+          provider_cost_usd: number
+          run_id: string
+          workspace_id: string
+        }
+        Insert: {
+          billing_cycle_id: string
+          created_at?: string
+          customer_charge_irr?: number
+          id?: string
+          internal_cost_irr?: number
+          ledger_entry_id?: string | null
+          platform_absorbed_amount?: number
+          provider_cost_usd?: number
+          run_id: string
+          workspace_id: string
+        }
+        Update: {
+          billing_cycle_id?: string
+          created_at?: string
+          customer_charge_irr?: number
+          id?: string
+          internal_cost_irr?: number
+          ledger_entry_id?: string | null
+          platform_absorbed_amount?: number
+          provider_cost_usd?: number
+          run_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_run_settlements_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: true
+            referencedRelation: "ai_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_run_steps: {
+        Row: {
+          actual_model: string | null
+          attempt_no: number
+          created_at: string
+          id: string
+          provider: string | null
+          provider_request_id: string | null
+          requested_model: string | null
+          run_id: string
+          state: string
+          step_kind: string
+          step_seq: number
+        }
+        Insert: {
+          actual_model?: string | null
+          attempt_no?: number
+          created_at?: string
+          id?: string
+          provider?: string | null
+          provider_request_id?: string | null
+          requested_model?: string | null
+          run_id: string
+          state?: string
+          step_kind: string
+          step_seq?: number
+        }
+        Update: {
+          actual_model?: string | null
+          attempt_no?: number
+          created_at?: string
+          id?: string
+          provider?: string | null
+          provider_request_id?: string | null
+          requested_model?: string | null
+          run_id?: string
+          state?: string
+          step_kind?: string
+          step_seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_run_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "ai_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_runs: {
+        Row: {
+          billing_currency: string
+          billing_fx_id: string | null
+          billing_fx_rate: number | null
+          billing_quality: string
+          channel: string | null
+          conversation_id: string | null
+          cost_source: string
+          created_at: string
+          customer_charge_irr: number
+          entry_point: string
+          fallback_kind: string | null
+          finished_at: string | null
+          id: string
+          internal_cost_irr: number
+          mode: string
+          operation_idempotency_key: string
+          operation_request_hash: string
+          overage_policy: string
+          platform_absorbed_amount: number
+          primary_model: string | null
+          primary_provider: string | null
+          provider_cost_usd: number
+          reservation_id: string | null
+          sell_multiplier: number | null
+          sell_policy_id: string | null
+          started_at: string
+          status: string
+          unresolved_reason: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          billing_currency?: string
+          billing_fx_id?: string | null
+          billing_fx_rate?: number | null
+          billing_quality?: string
+          channel?: string | null
+          conversation_id?: string | null
+          cost_source?: string
+          created_at?: string
+          customer_charge_irr?: number
+          entry_point?: string
+          fallback_kind?: string | null
+          finished_at?: string | null
+          id?: string
+          internal_cost_irr?: number
+          mode?: string
+          operation_idempotency_key: string
+          operation_request_hash: string
+          overage_policy?: string
+          platform_absorbed_amount?: number
+          primary_model?: string | null
+          primary_provider?: string | null
+          provider_cost_usd?: number
+          reservation_id?: string | null
+          sell_multiplier?: number | null
+          sell_policy_id?: string | null
+          started_at?: string
+          status?: string
+          unresolved_reason?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          billing_currency?: string
+          billing_fx_id?: string | null
+          billing_fx_rate?: number | null
+          billing_quality?: string
+          channel?: string | null
+          conversation_id?: string | null
+          cost_source?: string
+          created_at?: string
+          customer_charge_irr?: number
+          entry_point?: string
+          fallback_kind?: string | null
+          finished_at?: string | null
+          id?: string
+          internal_cost_irr?: number
+          mode?: string
+          operation_idempotency_key?: string
+          operation_request_hash?: string
+          overage_policy?: string
+          platform_absorbed_amount?: number
+          primary_model?: string | null
+          primary_provider?: string | null
+          provider_cost_usd?: number
+          reservation_id?: string | null
+          sell_multiplier?: number | null
+          sell_policy_id?: string | null
+          started_at?: string
+          status?: string
+          unresolved_reason?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_runs_billing_fx_id_fkey"
+            columns: ["billing_fx_id"]
+            isOneToOne: false
+            referencedRelation: "ai_exchange_rates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_runs_sell_policy_id_fkey"
+            columns: ["sell_policy_id"]
+            isOneToOne: false
+            referencedRelation: "ai_sell_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_sell_policies: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          multiplier: number
+          overage_policy: string
+          scope: string
+          version: number
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          multiplier?: number
+          overage_policy?: string
+          scope?: string
+          version?: number
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          multiplier?: number
+          overage_policy?: string
+          scope?: string
+          version?: number
+          workspace_id?: string | null
         }
         Relationships: []
       }
@@ -2411,6 +2903,146 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_usage_event_conflicts: {
+        Row: {
+          component_type: string
+          conflicting_payload: Json | null
+          conflicting_payload_hash: string | null
+          created_at: string
+          existing_event_id: string | null
+          existing_payload_hash: string | null
+          id: string
+          resolved: boolean
+          run_id: string
+          step_id: string
+          usage_event_key: string
+        }
+        Insert: {
+          component_type: string
+          conflicting_payload?: Json | null
+          conflicting_payload_hash?: string | null
+          created_at?: string
+          existing_event_id?: string | null
+          existing_payload_hash?: string | null
+          id?: string
+          resolved?: boolean
+          run_id: string
+          step_id: string
+          usage_event_key: string
+        }
+        Update: {
+          component_type?: string
+          conflicting_payload?: Json | null
+          conflicting_payload_hash?: string | null
+          created_at?: string
+          existing_event_id?: string | null
+          existing_payload_hash?: string | null
+          id?: string
+          resolved?: boolean
+          run_id?: string
+          step_id?: string
+          usage_event_key?: string
+        }
+        Relationships: []
+      }
+      ai_usage_events: {
+        Row: {
+          actual_model: string | null
+          component_type: string
+          created_at: string
+          id: string
+          internal_cost_irr: number
+          payload_hash: string
+          provider: string
+          provider_cost_amount: number
+          provider_cost_currency: string
+          provider_cost_usd: number
+          quantity: number
+          rate_card_version_id: string | null
+          raw_usage_json: Json | null
+          requested_model: string | null
+          run_id: string
+          step_id: string
+          unit: string
+          usage_event_key: string
+          usage_fx_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          actual_model?: string | null
+          component_type: string
+          created_at?: string
+          id?: string
+          internal_cost_irr?: number
+          payload_hash: string
+          provider: string
+          provider_cost_amount?: number
+          provider_cost_currency?: string
+          provider_cost_usd?: number
+          quantity?: number
+          rate_card_version_id?: string | null
+          raw_usage_json?: Json | null
+          requested_model?: string | null
+          run_id: string
+          step_id: string
+          unit?: string
+          usage_event_key: string
+          usage_fx_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          actual_model?: string | null
+          component_type?: string
+          created_at?: string
+          id?: string
+          internal_cost_irr?: number
+          payload_hash?: string
+          provider?: string
+          provider_cost_amount?: number
+          provider_cost_currency?: string
+          provider_cost_usd?: number
+          quantity?: number
+          rate_card_version_id?: string | null
+          raw_usage_json?: Json | null
+          requested_model?: string | null
+          run_id?: string
+          step_id?: string
+          unit?: string
+          usage_event_key?: string
+          usage_fx_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_usage_events_rate_card_version_id_fkey"
+            columns: ["rate_card_version_id"]
+            isOneToOne: false
+            referencedRelation: "ai_rate_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_usage_events_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "ai_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_usage_events_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "ai_run_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_usage_events_usage_fx_id_fkey"
+            columns: ["usage_fx_id"]
+            isOneToOne: false
+            referencedRelation: "ai_exchange_rates"
             referencedColumns: ["id"]
           },
         ]
@@ -8240,6 +8872,260 @@ export type Database = {
           },
         ]
       }
+      workspace_ai_balance_alerts: {
+        Row: {
+          billing_cycle_id: string
+          created_at: string
+          id: string
+          threshold: number
+          workspace_id: string
+        }
+        Insert: {
+          billing_cycle_id: string
+          created_at?: string
+          id?: string
+          threshold: number
+          workspace_id: string
+        }
+        Update: {
+          billing_cycle_id?: string
+          created_at?: string
+          id?: string
+          threshold?: number
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      workspace_ai_balance_lots: {
+        Row: {
+          allowance_source: string | null
+          billing_cycle_id: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          original_amount: number
+          remaining_amount: number
+          reserved_amount: number
+          source_type: string
+          state: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          allowance_source?: string | null
+          billing_cycle_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          original_amount?: number
+          remaining_amount?: number
+          reserved_amount?: number
+          source_type: string
+          state?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          allowance_source?: string | null
+          billing_cycle_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          original_amount?: number
+          remaining_amount?: number
+          reserved_amount?: number
+          source_type?: string
+          state?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      workspace_ai_ledger: {
+        Row: {
+          amount: number
+          billing_cycle_id: string | null
+          command_id: string | null
+          created_at: string
+          entry_type: string
+          id: string
+          reason: string | null
+          run_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          amount: number
+          billing_cycle_id?: string | null
+          command_id?: string | null
+          created_at?: string
+          entry_type: string
+          id?: string
+          reason?: string | null
+          run_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          amount?: number
+          billing_cycle_id?: string | null
+          command_id?: string | null
+          created_at?: string
+          entry_type?: string
+          id?: string
+          reason?: string | null
+          run_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      workspace_ai_ledger_allocations: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          ledger_entry_id: string
+          lot_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          ledger_entry_id: string
+          lot_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          ledger_entry_id?: string
+          lot_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_ai_ledger_allocations_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_ai_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_ai_ledger_allocations_lot_id_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_ai_balance_lots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_ai_reservation_allocations: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          lot_id: string
+          reservation_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          id?: string
+          lot_id: string
+          reservation_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          lot_id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_ai_reservation_allocations_lot_id_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_ai_balance_lots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_ai_reservation_allocations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_ai_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_ai_reservations: {
+        Row: {
+          amount: number
+          created_at: string
+          expires_at: string
+          id: string
+          run_id: string | null
+          state: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          expires_at?: string
+          id?: string
+          run_id?: string | null
+          state?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          expires_at?: string
+          id?: string
+          run_id?: string | null
+          state?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_ai_reservations_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "ai_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_ai_wallets: {
+        Row: {
+          available_amount: number
+          created_at: string
+          currency: string
+          lifetime_charged: number
+          reserved_amount: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          available_amount?: number
+          created_at?: string
+          currency?: string
+          lifetime_charged?: number
+          reserved_amount?: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          available_amount?: number
+          created_at?: string
+          currency?: string
+          lifetime_charged?: number
+          reserved_amount?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       workspace_alert_dismissals: {
         Row: {
           alert_key: string
@@ -9392,6 +10278,201 @@ export type Database = {
           _worker_id: string
         }
         Returns: boolean
+      }
+      ai_adjust_balance: {
+        Args: {
+          p_actor?: string
+          p_amount: number
+          p_command_key: string
+          p_reason: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      ai_available_balance: {
+        Args: { p_workspace_id: string }
+        Returns: number
+      }
+      ai_begin_run: {
+        Args: {
+          p_channel: string
+          p_conversation_id: string
+          p_entry_point: string
+          p_fx_id: string
+          p_fx_rate: number
+          p_mode: string
+          p_operation_key: string
+          p_overage_policy: string
+          p_request_hash: string
+          p_sell_multiplier: number
+          p_sell_policy_id: string
+          p_workspace_id: string
+        }
+        Returns: {
+          billing_currency: string
+          billing_fx_id: string | null
+          billing_fx_rate: number | null
+          billing_quality: string
+          channel: string | null
+          conversation_id: string | null
+          cost_source: string
+          created_at: string
+          customer_charge_irr: number
+          entry_point: string
+          fallback_kind: string | null
+          finished_at: string | null
+          id: string
+          internal_cost_irr: number
+          mode: string
+          operation_idempotency_key: string
+          operation_request_hash: string
+          overage_policy: string
+          platform_absorbed_amount: number
+          primary_model: string | null
+          primary_provider: string | null
+          provider_cost_usd: number
+          reservation_id: string | null
+          sell_multiplier: number | null
+          sell_policy_id: string | null
+          started_at: string
+          status: string
+          unresolved_reason: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ai_runs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      ai_expire_lots: { Args: never; Returns: number }
+      ai_grant_allowance: {
+        Args: {
+          p_allowance_source: string
+          p_amount: number
+          p_billing_cycle_id: string
+          p_command_key?: string
+          p_expires_at: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      ai_ingest_usage_event: {
+        Args: {
+          p_component_type: string
+          p_payload: Json
+          p_step_id: string
+          p_usage_event_key: string
+        }
+        Returns: string
+      }
+      ai_open_step: {
+        Args: {
+          p_attempt_no: number
+          p_provider: string
+          p_requested_model: string
+          p_run_id: string
+          p_step_kind: string
+          p_step_seq: number
+        }
+        Returns: string
+      }
+      ai_publish_exchange_rate: {
+        Args: { p_actor?: string; p_from: string; p_rate: number; p_to: string }
+        Returns: string
+      }
+      ai_publish_rate_card: {
+        Args: {
+          p_actor?: string
+          p_components: Json
+          p_currency: string
+          p_model_key: string
+          p_notes?: string
+          p_provider: string
+        }
+        Returns: string
+      }
+      ai_publish_sell_policy: {
+        Args: {
+          p_actor?: string
+          p_multiplier: number
+          p_overage_policy: string
+          p_scope: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      ai_purchase_credit: {
+        Args: {
+          p_amount: number
+          p_command_key: string
+          p_reason?: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      ai_reconcile_wallet: { Args: { p_workspace_id: string }; Returns: Json }
+      ai_refund_run: {
+        Args: {
+          p_actor?: string
+          p_amount: number
+          p_command_key: string
+          p_reason: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      ai_release_reservation: {
+        Args: { p_reservation_id: string }
+        Returns: undefined
+      }
+      ai_reserve: {
+        Args: {
+          p_amount: number
+          p_command_key: string
+          p_run_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      ai_settle_run: {
+        Args: {
+          p_billing_cycle_id: string
+          p_command_key: string
+          p_customer_charge_irr: number
+          p_internal_cost_irr: number
+          p_provider_cost_usd: number
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      ai_topup_reservation: {
+        Args: { p_delta: number; p_run_id: string }
+        Returns: number
+      }
+      ai_wallet_lock: {
+        Args: { p_workspace_id: string }
+        Returns: {
+          available_amount: number
+          created_at: string
+          currency: string
+          lifetime_charged: number
+          reserved_amount: number
+          updated_at: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "workspace_ai_wallets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      ai_wallet_project: {
+        Args: { p_workspace_id: string }
+        Returns: undefined
       }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
       bulk_create_contacts: {

@@ -17,7 +17,16 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 import { runtimeComplete, AiRuntimeError } from './runtimeClient.js';
-import { withAiIdempotency } from './idempotency.js';
+import { withAiIdempotency, newAiRequestId } from './idempotency.js';
+import {
+  beginAiRun,
+  recordStepUsage,
+  settleAiRun,
+  failAiRun,
+  type AiRunContext,
+} from '../ai-billing/runContext.js';
+import { normalizeUsage } from '../ai-billing/normalize.js';
+import { AiBillingError } from '../ai-billing/errors.js';
 
 export { withAiIdempotency, newAiRequestId, resetAiIdempotency } from './idempotency.js';
 
@@ -126,17 +135,22 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
 
 /**
  * Execute an AI completion through the resolved provider (via the AI Runtime).
- * Logs usage to ai_usage_logs.
+ *
+ * Billing: when the caller already opened a Run at its business-operation
+ * boundary it passes the context in; otherwise a standalone Run is opened here
+ * (direct /api/ai/complete, playground, KB worker) so no billable provider
+ * execution ever happens outside a Run.
  */
 export async function executeAICompletion(
   serverConfig: ServerConfig,
-  request: AIRequest
+  request: AIRequest,
+  runCtx?: AiRunContext,
 ): Promise<AIResponse> {
   const aiConfig = await resolveAIConfig(serverConfig, request.workspaceId);
   if (!aiConfig) {
     throw new Error('No AI provider configured. Set up an AI provider in admin settings.');
   }
-  return executeAICompletionWithConfig(serverConfig, aiConfig, request);
+  return executeAICompletionWithConfig(serverConfig, aiConfig, request, runCtx);
 }
 
 /**
@@ -148,12 +162,13 @@ export async function executeAICompletionWithConfig(
   serverConfig: ServerConfig,
   aiConfig: AIConfig,
   request: AIRequest,
+  runCtx?: AiRunContext,
 ): Promise<AIResponse> {
   // ONE logical request → ONE runtime execution → ONE usage row. A replay of
   // the same requestId returns the first execution's outcome (success OR
   // failure) instead of calling the runtime and logging usage twice.
   return withAiIdempotency(request.requestId, () =>
-    runOneCompletion(serverConfig, aiConfig, request),
+    runOneCompletion(serverConfig, aiConfig, request, runCtx),
   );
 }
 
@@ -161,28 +176,49 @@ async function runOneCompletion(
   serverConfig: ServerConfig,
   aiConfig: AIConfig,
   request: AIRequest,
+  providedCtx?: AiRunContext,
 ): Promise<AIResponse> {
   const sb = getServiceClient(serverConfig);
   let response: AIResponse;
+
+  // Attach to the caller's Run, or open a standalone one for this operation.
+  let ctx: AiRunContext | null = providedCtx ?? null;
+  let ownsRun = false;
+  if (!ctx) {
+    try {
+      ctx = await beginAiRun(serverConfig, {
+        workspaceId: request.workspaceId,
+        operationKey: `standalone:${request.requestId || newAiRequestId()}`,
+        payload: {
+          workspaceId: request.workspaceId,
+          prompt: request.prompt,
+          systemPrompt: request.systemPrompt,
+          model: request.model || aiConfig.model,
+        },
+        entryPoint: 'ai_complete',
+        estimate: {
+          promptChars: (request.prompt || '').length + (request.systemPrompt || '').length,
+          maxTokens: request.maxTokens ?? aiConfig.maxTokens ?? null,
+          provider: aiConfig.provider,
+          model: request.model || aiConfig.model,
+        },
+      });
+      ownsRun = true;
+    } catch (err) {
+      // ENFORCED denials (no balance / no pricing) must reach the caller.
+      if (err instanceof AiBillingError) throw err;
+      ctx = null;
+    }
+  }
 
   try {
     // The ONLY outbound AI path in Core: an authenticated, private call to the
     // AI Runtime. Never a provider socket.
     response = await runtimeComplete(serverConfig, aiConfig, request);
-
-    // Log success
-    await sb.from('ai_usage_logs').insert({
-      workspace_id: request.workspaceId,
-      provider_name: aiConfig.provider,
-      model: response.model,
-      prompt_tokens: response.promptTokens,
-      completion_tokens: response.completionTokens,
-      total_tokens: response.totalTokens,
-      latency_ms: response.latencyMs,
-      success: true,
-      endpoint: 'complete',
-    });
   } catch (err: any) {
+    const message = redactSecrets(
+      err instanceof AiRuntimeError ? `[${err.code}] ${err.message}` : err?.message,
+    );
     // Log failure. Runtime-boundary failures are recorded as such so an
     // operator can tell "AI runtime down" from "provider rejected the key".
     await sb.from('ai_usage_logs').insert({
@@ -190,14 +226,50 @@ async function runOneCompletion(
       provider_name: aiConfig.provider,
       model: request.model || aiConfig.model,
       success: false,
-      error_message: redactSecrets(
-        err instanceof AiRuntimeError ? `[${err.code}] ${err.message}` : err?.message,
-      ),
+      error_message: message,
       endpoint: 'complete',
     });
+    if (ctx && ownsRun) await failAiRun(serverConfig, ctx, message || 'runtime_error').catch(() => undefined);
     throw err;
+  }
+
+  // ONE normalized usage object feeds BOTH the immutable financial events and
+  // the legacy analytics projection. There is no second parser.
+  const usage = normalizeUsage({
+    provider: aiConfig.provider,
+    requestedModel: request.model || aiConfig.model,
+    actualModel: response.model,
+    promptTokens: response.promptTokens,
+    completionTokens: response.completionTokens,
+    totalTokens: response.totalTokens,
+    latencyMs: response.latencyMs,
+    kind: 'completion',
+    raw: { finishReason: response.finishReason },
+  });
+
+  await sb.from('ai_usage_logs').insert({
+    workspace_id: request.workspaceId,
+    provider_name: usage.provider,
+    model: usage.actualModel,
+    prompt_tokens: usage.promptTokens,
+    completion_tokens: usage.completionTokens,
+    total_tokens: usage.totalTokens,
+    latency_ms: usage.latencyMs,
+    success: true,
+    endpoint: 'complete',
+  });
+
+  if (ctx) {
+    try {
+      await recordStepUsage(serverConfig, ctx, { stepKind: 'COMPLETION', usage });
+      if (ownsRun) await settleAiRun(serverConfig, ctx);
+    } catch (err) {
+      if (err instanceof AiBillingError && err.code === 'ai_allowance_exhausted') throw err;
+      console.error('[ai-billing] usage recording failed', (err as any)?.message);
+    }
   }
 
   return response;
 }
+
 

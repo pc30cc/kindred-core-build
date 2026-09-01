@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { DirectionProvider } from '@radix-ui/react-direction';
+
 import type { Locale, Direction } from './config';
 import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS } from './config';
 import en, { type TranslationKeys } from './locales/en';

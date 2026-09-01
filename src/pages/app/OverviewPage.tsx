@@ -10,7 +10,7 @@ import { useKBArticles } from '@/hooks/useKnowledgeBase';
 import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
-import { useWorkspacePlan } from '@/hooks/usePlans';
+import { useWorkspacePlan, useWorkspaceUsage } from '@/hooks/usePlans';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
@@ -21,7 +21,7 @@ import {
 } from 'recharts';
 import {
   MessageSquare, Users, BookOpen, Eye, Inbox, Bot, ArrowUpRight, ArrowRight,
-  Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio,
+  Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio, HardDrive,
 } from 'lucide-react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,18 @@ import { cn } from '@/lib/utils';
 const PLACEHOLDER_SUBJECTS = new Set([
   'new conversation', 'new chat', 'untitled conversation', 'untitled', '[attachment]',
 ]);
+
+/** Human-readable byte size using the active number locale. */
+function formatBytes(bytes: number, numberLocale: string): string {
+  const nf = (n: number, d = 0) =>
+    new Intl.NumberFormat(numberLocale, { maximumFractionDigits: d }).format(n);
+  if (!Number.isFinite(bytes) || bytes <= 0) return `${nf(0)} MB`;
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1) return `${nf(gb, 2)} GB`;
+  const mb = bytes / 1024 ** 2;
+  if (mb >= 1) return `${nf(mb, 1)} MB`;
+  return `${nf(bytes / 1024, 1)} KB`;
+}
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
@@ -65,6 +77,7 @@ export default function OverviewPage() {
     [teamData, memberById],
   );
   const { data: planData } = useWorkspacePlan(workspace?.id);
+  const { data: usageRow } = useWorkspaceUsage(workspace?.id);
 
   const tr = t as unknown as (k: string) => string;
   const isRtl = dir === 'rtl';
@@ -155,6 +168,15 @@ export default function OverviewPage() {
     '—';
   const entitlements = (planData?.entitlements || {}) as Record<string, any>;
   const limits = (planData?.limits || {}) as Record<string, number>;
+  const usageNum = (k: string) => {
+    const v = (usageRow as any)?.[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  };
+  const storageBytes = usageNum('storage_bytes');
+  const storageLimitGb = Number(limits.storage_gb ?? 0);
+  const storagePct = storageLimitGb > 0
+    ? Math.min(100, Math.round((storageBytes / (storageLimitGb * 1024 ** 3)) * 100))
+    : 0;
 
   const seatLimit = Number(limits.max_operators ?? limits.max_seats ?? 0);
   const seatUsed = team.length;
@@ -348,6 +370,38 @@ export default function OverviewPage() {
             <p className="text-lg font-bold text-foreground">{planName}</p>
           </div>
 
+          {/* Storage consumption (bytes vs. plan storage_gb) */}
+          <div className="relative mt-4 rounded-2xl border border-border/60 bg-muted/30 p-3.5">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <HardDrive className="h-3.5 w-3.5" />
+                {tr('dashboard.storageUsed')}
+              </span>
+              <span className="font-medium tabular-nums text-foreground">
+                {formatBytes(storageBytes, numberLocale)}
+                {storageLimitGb > 0 ? ` / ${fmt(storageLimitGb)} GB` : ' / ∞'}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                style={{ width: `${storageLimitGb > 0 ? Math.max(storagePct, 3) : 6}%` }}
+              />
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {[
+                { label: tr('dashboard.usageConversations'), value: fmt(usageNum('conversations_count')) },
+                { label: tr('dashboard.usageMessages'), value: fmt(usageNum('messages_count')) },
+                { label: tr('dashboard.usageAiCredits'), value: fmt(usageNum('ai_credits_used')) },
+              ].map((m) => (
+                <div key={m.label} className="rounded-xl border border-border/50 bg-card px-2.5 py-2 text-center">
+                  <div className="text-sm font-bold tabular-nums text-foreground">{m.value}</div>
+                  <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{m.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="relative mt-4 space-y-4">
             {[
               { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' },
@@ -374,6 +428,7 @@ export default function OverviewPage() {
               );
             })}
           </div>
+
         </div>
       </div>
 

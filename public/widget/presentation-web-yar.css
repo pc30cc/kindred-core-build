@@ -696,7 +696,12 @@ a.wy-powered:hover { color: var(--wy-text); }
 /* In-bubble receive state: spinner + label until the authenticated fetch
    resolves, so an incoming file never renders as an empty bubble. */
 .msg-att-image .msg-att-img-btn.is-loading { min-width: 168px; min-height: 96px; position: relative; }
-.msg-att-image .msg-att-img-btn.is-loading img { display: none; }
+.msg-att-image .msg-att-img-btn.is-loading img {
+  /* Keep lazy images renderable so the browser actually starts the request.
+     display:none creates a loading deadlock and leaves every thumbnail in
+     the receiving state forever. */
+  position: absolute; inset: 0; opacity: 0; pointer-events: none;
+}
 .msg-att-loading {
   display: none; align-items: center; justify-content: center; gap: 8px;
   width: 100%; height: 96px; line-height: 1.2;

@@ -211,6 +211,28 @@ export async function resolveAppBaseUrl(
 }
 
 /**
+ * Derive the base URL of THIS api process from the incoming request.
+ * Zero-config and always correct for the running deployment, so it survives
+ * domain changes even when `platform_domains` still holds a stale value.
+ */
+export function requestBaseUrl(
+  req?: { headers?: Record<string, unknown>; protocol?: string },
+): string | null {
+  if (!req?.headers) return null;
+  const proto =
+    String((req.headers['x-forwarded-proto'] as string) || req.protocol || 'https')
+      .split(',')[0]
+      .trim();
+  const host = String(
+    (req.headers['x-forwarded-host'] as string) || (req.headers.host as string) || '',
+  )
+    .split(',')[0]
+    .trim();
+  if (!proto || !host) return null;
+  return stripTrailingSlash(`${proto}://${host}`);
+}
+
+/**
  * Resolve the canonical API base URL.
  * Order: platform_domains.api_base_url → API_BASE_URL env → app base.
  */
@@ -233,6 +255,23 @@ export async function resolveApiBaseUrl(
 
   return resolveAppBaseUrl(config, req);
 }
+
+/**
+ * Resolve an API base URL that is guaranteed to actually serve this API.
+ *
+ * Used for machine-to-machine callbacks (signed media URLs fetched by the
+ * channels worker / external providers). Prefers the live request origin —
+ * the request demonstrably reached this process through it — and only then
+ * falls back to configured values. This makes media delivery immune to a
+ * stale or wrong `platform_domains.api_base_url` after a domain change.
+ */
+export async function resolveSelfApiBaseUrl(
+  config: ServerConfig,
+  req?: { headers?: Record<string, unknown>; protocol?: string },
+): Promise<string | null> {
+  return requestBaseUrl(req) ?? (await resolveApiBaseUrl(config, req));
+}
+
 
 /**
  * Resolve the public widget/marketing base URL.

@@ -444,7 +444,16 @@ async function handleJob(job: ChannelJob): Promise<void> {
 
         for (const [index, attachment] of attachments.entries()) {
           const url = String(attachment?.url ?? attachment?.public_url ?? '');
-          if (!/^https:\/\//i.test(url)) continue; // never send an unsafe URL
+          if (!/^https?:\/\//i.test(url)) continue; // never send an unsafe URL
+          // Domain-change resilience: also try the worker's own internal API
+          // base with the relative signed path, in case the absolute host
+          // stored at enqueue time is no longer reachable.
+          const relPath = attachment?.path ? String(attachment.path) : null;
+          const internalBases = [process.env.INTERNAL_API_BASE_URL, process.env.API_BASE_URL]
+            .map((b) => (b ? b.trim().replace(/\/+$/, '') : ''))
+            .filter(Boolean);
+          const fetchCandidates = [url, ...(relPath ? internalBases.map((b) => `${b}${relPath}`) : [])]
+            .filter((u, i, arr) => arr.indexOf(u) === i);
           const kind = String(attachment?.kind ?? 'document');
           const caption = index === 0 ? String(payload.text ?? '') || null : null;
 
@@ -455,10 +464,21 @@ async function handleJob(job: ChannelJob): Promise<void> {
           let sent = false;
           if (typeof api.sendMediaBytes === 'function') {
             try {
-              const res = await fetch(url, { redirect: 'follow' });
-              if (!res.ok) throw new Error(`attachment_fetch_${res.status}`);
-              const bytes = new Uint8Array(await res.arrayBuffer());
-              if (bytes.byteLength === 0) throw new Error('attachment_empty');
+              let bytes: Uint8Array | null = null;
+              let lastFetchErr: unknown = null;
+              for (const candidate of fetchCandidates) {
+                try {
+                  const res = await fetch(candidate, { redirect: 'follow' });
+                  if (!res.ok) throw new Error(`attachment_fetch_${res.status}`);
+                  const buf = new Uint8Array(await res.arrayBuffer());
+                  if (buf.byteLength === 0) throw new Error('attachment_empty');
+                  bytes = buf;
+                  break;
+                } catch (e) {
+                  lastFetchErr = e;
+                }
+              }
+              if (!bytes) throw lastFetchErr ?? new Error('attachment_fetch_failed');
               last = await api.sendMediaBytes(token, {
                 chatId,
                 kind,

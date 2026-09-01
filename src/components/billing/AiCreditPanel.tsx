@@ -13,7 +13,7 @@ import { Loader2, Sparkles, Wallet, TrendingUp } from 'lucide-react';
 import { API_BASE } from '@/lib/apiBase';
 import { useTranslation } from '@/i18n';
 import { useLiveUsageRefresh } from '@/hooks/useLiveUsageRefresh';
-import { formatJalaliDateTime } from '@/lib/date';
+import { formatDateTime } from '@/lib/date';
 
 interface Summary {
   currency: string;
@@ -102,7 +102,7 @@ export function AiCreditPanel({ workspaceId }: { workspaceId: string }) {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          {t('aiBilling.renewsAt')}: {locale === 'fa' ? formatJalaliDateTime(data.renewsAt) : new Date(data.renewsAt).toLocaleString()}
+          {t('aiBilling.renewsAt')}: {locale === 'fa' ? formatDateTime(data.renewsAt) : new Date(data.renewsAt).toLocaleString()}
         </p>
       </CardContent>
     </Card>

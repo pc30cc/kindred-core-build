@@ -445,13 +445,41 @@ async function handleJob(job: ChannelJob): Promise<void> {
         for (const [index, attachment] of attachments.entries()) {
           const url = String(attachment?.url ?? attachment?.public_url ?? '');
           if (!/^https:\/\//i.test(url)) continue; // never send an unsafe URL
-          last = await api.sendMedia(token, {
-            chatId,
-            kind: String(attachment?.kind ?? 'document'),
-            url,
-            caption: index === 0 ? String(payload.text ?? '') || null : null,
-          });
+          const kind = String(attachment?.kind ?? 'document');
+          const caption = index === 0 ? String(payload.text ?? '') || null : null;
+
+          // Preferred path (Telegram / Bale): WE fetch the signed URL and
+          // upload the bytes. Providers that fetch the URL themselves fail on
+          // self-hosted hosts they cannot reach ("failed to get HTTP URL
+          // content"), so uploading removes that dependency entirely.
+          let sent = false;
+          if (typeof api.sendMediaBytes === 'function') {
+            try {
+              const res = await fetch(url, { redirect: 'follow' });
+              if (!res.ok) throw new Error(`attachment_fetch_${res.status}`);
+              const bytes = new Uint8Array(await res.arrayBuffer());
+              if (bytes.byteLength === 0) throw new Error('attachment_empty');
+              last = await api.sendMediaBytes(token, {
+                chatId,
+                kind,
+                bytes,
+                fileName: attachment?.file_name ? String(attachment.file_name) : null,
+                mimeType: attachment?.mime_type ? String(attachment.mime_type) : null,
+                caption,
+              });
+              sent = true;
+            } catch (uploadErr: any) {
+              if (uploadErr instanceof TelegramApiError) throw uploadErr;
+              // Only a local fetch problem — fall back to URL delivery.
+              console.warn('[channels-worker] media upload fallback to URL:', uploadErr?.message || uploadErr);
+            }
+          }
+
+          if (!sent) {
+            last = await api.sendMedia(token, { chatId, kind, url, caption });
+          }
         }
+
         await reportOutbound(job, messageId, 'sent', last?.message_id ?? null, null);
       } catch (err) {
         if (err instanceof TelegramApiError && !err.retryable) {

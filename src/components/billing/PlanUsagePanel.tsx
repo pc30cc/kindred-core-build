@@ -207,6 +207,11 @@ export function PlanUsagePanel({ workspaceId }: Props) {
         </section>
       )}
 
+      {/* Data & storage usage — raw workspace counters (always visible) */}
+      <DataStorageSection usage={eff.usage} locale={L} />
+
+
+
       {/* Modules + Channels + Features — compact grouped panel */}
       <Card className="border-border/60">
         <CardContent className="p-5 space-y-5">

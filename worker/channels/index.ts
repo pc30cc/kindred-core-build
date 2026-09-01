@@ -468,20 +468,25 @@ async function handleJob(job: ChannelJob): Promise<void> {
           if (typeof api.sendMediaBytes === 'function') {
             try {
               let bytes: Uint8Array | null = null;
-              let lastFetchErr: unknown = null;
+              const fetchErrors: string[] = [];
               for (const candidate of fetchCandidates) {
                 try {
                   const res = await fetch(candidate, { redirect: 'follow' });
-                  if (!res.ok) throw new Error(`attachment_fetch_${res.status}`);
+                  if (!res.ok) throw new Error(`http_${res.status}`);
                   const buf = new Uint8Array(await res.arrayBuffer());
-                  if (buf.byteLength === 0) throw new Error('attachment_empty');
+                  if (buf.byteLength === 0) throw new Error('empty_body');
                   bytes = buf;
                   break;
-                } catch (e) {
-                  lastFetchErr = e;
+                } catch (e: any) {
+                  fetchErrors.push(`${candidate} → ${e?.message || e}`);
                 }
               }
-              if (!bytes) throw lastFetchErr ?? new Error('attachment_fetch_failed');
+              if (!bytes) {
+                // Falling back to URL delivery here is pointless: the provider
+                // would fetch the very host we just failed to reach and answer
+                // "failed to get HTTP URL content". Fail loudly and retry.
+                throw new Error(`attachment_fetch_failed: ${fetchErrors.join(' | ')}`);
+              }
               last = await api.sendMediaBytes(token, {
                 chatId,
                 kind,
@@ -492,9 +497,8 @@ async function handleJob(job: ChannelJob): Promise<void> {
               });
               sent = true;
             } catch (uploadErr: any) {
-              if (uploadErr instanceof TelegramApiError) throw uploadErr;
-              // Only a local fetch problem — fall back to URL delivery.
-              console.warn('[channels-worker] media upload fallback to URL:', uploadErr?.message || uploadErr);
+              console.error('[channels-worker] media upload failed:', uploadErr?.message || uploadErr);
+              throw uploadErr;
             }
           }
 
@@ -502,6 +506,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
             last = await api.sendMedia(token, { chatId, kind, url, caption });
           }
         }
+
 
         await reportOutbound(job, messageId, 'sent', last?.message_id ?? null, null);
       } catch (err) {

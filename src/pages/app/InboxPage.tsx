@@ -2918,10 +2918,11 @@ export default function InboxPage() {
                 <span>{t('inbox.enterToSend') || 'to send'}</span>
                 <span className="opacity-30">·</span>
                 <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">Shift+Enter</kbd>
-                <span>new line</span>
+                <span>{t('inbox.hintNewLine') || 'new line'}</span>
                 <span className="opacity-30">·</span>
                 <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">/</kbd>
-                <span>shortcuts</span>
+                <span>{t('inbox.hintShortcuts') || 'shortcuts'}</span>
+
               </div>
               </>
               )}

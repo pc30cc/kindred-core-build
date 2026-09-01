@@ -62,7 +62,7 @@ import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
 import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
-import { Sparkles } from 'lucide-react';
+import { Zap } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { ContactDrawer } from '@/features/contacts/ContactDrawer';
@@ -2813,7 +2813,7 @@ export default function InboxPage() {
                   title={t('inbox.cannedResponsesTip') || 'Canned responses'}
                   aria-label={t('inbox.cannedResponses') || 'Canned responses'}
                 >
-                  <Sparkles className="w-[18px] h-[18px]" />
+                  <Zap className="w-[18px] h-[18px]" />
                 </button>
                 <Textarea
                   ref={messageInputRef}

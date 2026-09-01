@@ -51,6 +51,14 @@ const tr: TranslationKeys = {
       active: 'Aktif',
       hiddenFromPicker: 'Seçici listesinde gizli',
     },
+    picker: {
+      ariaLabel: 'Hazır yanıtlar',
+      searchPlaceholder: 'Hazır yanıt ara…',
+      loading: 'Yükleniyor…',
+      noMatches: '“{query}” için sonuç bulunamadı.',
+      empty: 'Henüz hazır yanıt yok.',
+      hint: '↑↓ gezin · Enter ekle · Esc kapat',
+    },
   },
   notFound: {
     code: '404',

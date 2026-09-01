@@ -51,6 +51,14 @@ const fa: TranslationKeys = {
       active: 'فعال',
       hiddenFromPicker: 'در فهرست انتخاب نمایش داده نمی‌شود',
     },
+    picker: {
+      ariaLabel: 'پاسخ‌های آماده',
+      searchPlaceholder: 'جست‌وجوی پاسخ آماده…',
+      loading: 'در حال بارگذاری…',
+      noMatches: 'نتیجه‌ای برای «{query}» پیدا نشد.',
+      empty: 'هنوز پاسخ آماده‌ای ثبت نشده است.',
+      hint: '↑↓ جابه‌جایی · Enter درج · Esc بستن',
+    },
   },
   notFound: {
     code: '۴۰۴',

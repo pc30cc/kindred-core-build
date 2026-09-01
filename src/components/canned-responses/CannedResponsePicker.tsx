@@ -26,6 +26,7 @@ import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Loader2, Search } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 export interface CannedPickerHandle {
@@ -53,6 +54,7 @@ export const CannedResponsePicker = forwardRef<CannedPickerHandle, Props>(functi
   { workspaceId, locale, query, open, slashMode, onSelect, onQueryChange, onClose },
   ref,
 ) {
+  const { t } = useTranslation();
   const list = useCannedResponses({
     workspaceId,
     locale,
@@ -99,7 +101,7 @@ export const CannedResponsePicker = forwardRef<CannedPickerHandle, Props>(functi
   return (
     <div
       role="listbox"
-      aria-label="Canned responses"
+      aria-label={t('canned.picker.ariaLabel')}
       className="absolute bottom-full mb-2 inset-x-2 z-30 rounded-lg border border-border bg-popover shadow-lg overflow-hidden text-popover-foreground"
       onMouseDown={(e) => e.preventDefault() /* keep textarea focus */}
     >
@@ -110,7 +112,7 @@ export const CannedResponsePicker = forwardRef<CannedPickerHandle, Props>(functi
             autoFocus
             value={query}
             onChange={(e) => onQueryChange?.(e.target.value)}
-            placeholder="Search canned responses…"
+            placeholder={t('canned.picker.searchPlaceholder')}
             className="ps-8 h-9 border-0 rounded-none bg-transparent focus-visible:ring-0"
             onKeyDown={(e) => {
               if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
@@ -127,11 +129,11 @@ export const CannedResponsePicker = forwardRef<CannedPickerHandle, Props>(functi
       <div className="max-h-72 overflow-y-auto">
         {list.isLoading ? (
           <div className="p-4 flex items-center text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin me-2" /> Loading…
+            <Loader2 className="h-4 w-4 animate-spin me-2" /> {t('canned.picker.loading')}
           </div>
         ) : items.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">
-            {query ? `No matches for "${query}".` : 'No canned responses yet.'}
+            {query ? t('canned.picker.noMatches', { query }) : t('canned.picker.empty')}
           </div>
         ) : (
           <ul>
@@ -176,7 +178,7 @@ export const CannedResponsePicker = forwardRef<CannedPickerHandle, Props>(functi
       </div>
 
       <div className="px-3 py-1.5 border-t border-border/60 bg-muted/30 text-[10px] text-muted-foreground flex items-center justify-between">
-        <span>↑↓ navigate · Enter insert · Esc close</span>
+        <span>{t('canned.picker.hint')}</span>
         <span>{items.length > 0 ? `${highlight + 1}/${items.length}` : ''}</span>
       </div>
     </div>

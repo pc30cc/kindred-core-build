@@ -49,6 +49,14 @@ const en = {
       active: 'Active',
       hiddenFromPicker: 'Hidden from picker',
     },
+    picker: {
+      ariaLabel: 'Canned responses',
+      searchPlaceholder: 'Search canned responses…',
+      loading: 'Loading…',
+      noMatches: 'No matches for “{query}”.',
+      empty: 'No canned responses yet.',
+      hint: '↑↓ navigate · Enter insert · Esc close',
+    },
   },
   notFound: {
     code: '404',

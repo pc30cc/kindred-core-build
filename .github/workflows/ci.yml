@@ -141,6 +141,58 @@ jobs:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
         run: bunx vitest run src/test/integration --exclude '**/aiKbTailMigrationCompatibility.pg.test.ts' --no-file-parallelism
 
+  # MANDATORY financial gate. AI money invariants (advisory locks, immutable
+  # usage ingestion, lot allocation, refunds, recovery lease, ACL) are proven
+  # against a real PostgreSQL. REQUIRE_BILLING_DB=1 makes the suite FAIL rather
+  # than skip if the database environment is missing, so a merge can never be
+  # green on absent financial tests.
+  ai-billing-db:
+    name: AI Billing financial tests (PostgreSQL, mandatory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: billing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Install dependencies (frozen lockfile)
+        id: install
+        run: bun install --frozen-lockfile
+
+      - name: Fail if the database service did not start
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'SELECT version()'
+
+      - name: AI Billing financial invariants
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing
+          REQUIRE_BILLING_DB: '1'
+        run: bunx vitest run src/test/integration/aiBillingFinancial.pg.test.ts --no-file-parallelism
+
+      - name: AI Billing in-process suites (context propagation, scheduler, failure semantics)
+        run: bunx vitest run src/test/aiBilling
+
   ai-kb-tail-migration:
     name: AI-KB tail migration compatibility
     runs-on: ubuntu-24.04

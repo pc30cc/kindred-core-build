@@ -36,7 +36,7 @@ import { runGenerationStage } from './engine/generationStage.js';
 import { runDeliveryStage } from './engine/deliveryStage.js';
 import { logRun } from './logs.js';
 import {
-  beginAiRun,
+  beginAiRunGuarded,
   settleAiRun,
   failAiRun,
   type AiRunContext,
@@ -147,7 +147,7 @@ async function openTurnRun(
   input: MaybeRunInput,
 ): Promise<AiRunContext | null> {
   try {
-    return await beginAiRun(config, {
+    return await beginAiRunGuarded(config, {
       workspaceId: input.workspaceId,
       // Stable business identity: the visitor message (or the operator-forced
       // turn on that message). A retry of the same turn resumes the same Run.
@@ -168,10 +168,14 @@ async function openTurnRun(
       estimate: { promptChars: (input.question || '').length },
     });
   } catch (err) {
-    // ENFORCED denials must stop the turn; METER_ONLY problems never do.
-    if (err instanceof AiBillingError && err.code === 'ai_allowance_exhausted') throw err;
-    console.warn('[ai-billing] run not opened for agent turn:', (err as any)?.message);
-    return null;
+    // beginAiRunGuarded already applied the mode policy: whatever reaches here
+    // (ENFORCED failure, allowance exhausted, idempotency conflict) must stop
+    // the turn instead of running unbilled provider work.
+    if (err instanceof AiBillingError && err.code === 'idempotency_conflict') {
+      console.warn('[ai-billing] duplicate agent turn rejected:', err.message);
+      return null;
+    }
+    throw err;
   }
 }
 

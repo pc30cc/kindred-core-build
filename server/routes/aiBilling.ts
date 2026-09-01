@@ -18,6 +18,7 @@ import { billingCycleId } from '../services/ai-billing/runContext.js';
 import { getBillingMode, setBillingMode } from '../services/ai-billing/mode.js';
 import { resetRateCache } from '../services/ai-billing/rates.js';
 import { runAiBillingRecovery } from '../services/ai-billing/recovery.js';
+import { getBillingDegradation } from '../services/ai-billing/degrade.js';
 import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
 
 export const aiBillingRouter = Router();
@@ -176,6 +177,85 @@ aiBillingRouter.get('/admin/pricing', async (req, res) => {
   res.json({ rateCards: cards.data || [], exchangeRates: fx.data || [], sellPolicies: policies.data || [] });
 });
 
+/**
+ * ACTIVE PRICING COVERAGE — the ENFORCED readiness gate.
+ *
+ * Enumerates every provider/model that runtime can actually bill, next to the
+ * rate card in force, the active FX pairs, the customer multiplier and the per
+ * plan AI allowance. `missingRates` lists billable paths WITHOUT a valid rate:
+ * while it is non-empty the system must NOT be declared READY_FOR_ENFORCED,
+ * because those calls could only be billed at zero.
+ */
+aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
+  const sb = getServiceClient(cfg(req));
+  const nowIso = new Date().toISOString();
+  const activeFilter = (qb: any) => qb.lte('effective_from', nowIso).or(`effective_to.is.null,effective_to.gt.${nowIso}`);
+
+  const [cards, fx, policies, models, seenUsage, seenLogs, plans] = await Promise.all([
+    activeFilter(
+      sb
+        .from('ai_rate_cards')
+        .select('id, provider, model_key, currency, version, effective_from, effective_to, notes, ai_rate_card_components(component_type, unit, unit_amount, per_units)'),
+    ),
+    activeFilter(sb.from('ai_exchange_rates').select('id, from_currency, to_currency, rate, version, effective_from, effective_to')),
+    activeFilter(sb.from('ai_sell_policies').select('id, scope, workspace_id, multiplier, overage_policy, version, effective_from, effective_to')),
+    sb.from('ai_models').select('*'),
+    sb.from('ai_usage_events').select('provider, model').limit(5000),
+    sb.from('ai_usage_logs').select('provider_name, model').limit(5000),
+    sb.from('billing_plans').select('id, name, limits'),
+  ]);
+
+  const cardRows = (cards.data || []) as any[];
+  const priced = new Set(cardRows.map((c) => `${c.provider}/${c.model_key}`));
+  // Every billable path runtime has actually taken, plus the configured catalog.
+  const runtimePaths = new Map<string, { provider: string; model: string; source: string }>();
+  const add = (provider: string | null, model: string | null, source: string) => {
+    if (!provider || !model) return;
+    const key = `${provider}/${model}`;
+    if (!runtimePaths.has(key)) runtimePaths.set(key, { provider, model, source });
+  };
+  for (const m of (models.data || []) as any[]) add(m.provider ?? m.provider_name, m.model ?? m.model_key ?? m.name, 'catalog');
+  for (const u of (seenUsage.data || []) as any[]) add(u.provider, u.model, 'usage_event');
+  for (const l of (seenLogs.data || []) as any[]) add(l.provider_name, l.model, 'legacy_log');
+
+  const paths = [...runtimePaths.values()].map((p) => ({
+    ...p,
+    priced: priced.has(`${p.provider}/${p.model}`),
+  }));
+  const missingRates = paths.filter((p) => !p.priced);
+
+  res.json({
+    generatedAt: nowIso,
+    rateCards: cardRows.map((c) => ({
+      provider: c.provider,
+      model: c.model_key,
+      currency: c.currency,
+      version: c.version,
+      effectiveFrom: c.effective_from,
+      source: c.notes || 'admin',
+      components: (c.ai_rate_card_components || []).map((k: any) => ({
+        component: k.component_type,
+        unit: k.unit,
+        unitAmount: k.unit_amount,
+        perUnits: k.per_units,
+      })),
+    })),
+    exchangeRates: fx.data || [],
+    billingFxUsdToIrr: (fx.data || []).find((r: any) => r.from_currency === 'USD' && r.to_currency === 'IRR') || null,
+    sellPolicies: policies.data || [],
+    planAllowances: (plans.data || []).map((p: any) => ({
+      planId: p.id,
+      name: p.name,
+      aiAllowance: p.limits?.ai_credits ?? p.limits?.aiCredits ?? p.limits?.ai_allowance ?? null,
+    })),
+    runtimePaths: paths,
+    missingRates,
+    readyForEnforced: missingRates.length === 0 && !!(fx.data || []).length && !!(policies.data || []).length,
+    currency: 'IRR',
+    displayCurrency: 'TOMAN',
+  });
+});
+
 const rateCardSchema = z.object({
   provider: z.string().min(1).max(80),
   modelKey: z.string().min(1).max(160),
@@ -304,8 +384,66 @@ aiBillingRouter.get('/admin/health', async (req, res) => {
       sb.from('ai_run_settlements').select('run_id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle),
     ]);
 
+  // Live-meter validation checklist — the numbers an operator compares before
+  // any ENFORCED decision. All monetary values are IRR (displayed as Toman).
+  const nowIso = new Date().toISOString();
+  const [
+    { count: orphanUsage },
+    { count: settlementPending },
+    { count: staleReservationCount },
+    { count: openConflicts },
+    settlements,
+    wallets,
+  ] = await Promise.all([
+    sb.from('ai_usage_events').select('id', { count: 'exact', head: true }).is('run_id', null),
+    sb.from('ai_runs').select('id', { count: 'exact', head: true }).in('status', ['USAGE_RECORDED', 'SETTLEMENT_PENDING']),
+    sb.from('workspace_ai_reservations').select('id', { count: 'exact', head: true }).eq('state', 'ACTIVE').lt('expires_at', nowIso),
+    sb.from('ai_usage_event_conflicts').select('id', { count: 'exact', head: true }).eq('resolved', false),
+    sb.from('ai_run_settlements').select('provider_cost_usd, internal_cost_irr, customer_charge_irr, platform_absorbed_amount').eq('billing_cycle_id', cycle),
+    sb.from('workspace_ai_wallets').select('workspace_id, available_amount, reserved_amount'),
+  ]);
+  const { data: lots } = await sb
+    .from('workspace_ai_balance_lots')
+    .select('workspace_id, remaining_amount, reserved_amount')
+    .eq('state', 'ACTIVE');
+  const sum = (rows: any[], key: string) => rows.reduce((a, r) => a + Number(r?.[key] ?? 0), 0);
+  const settlementRows = settlements.data || [];
+  // Wallet projection vs. lot truth — any nonzero drift needs ai_reconcile_wallet.
+  const lotTruth = new Map<string, { available: number; reserved: number }>();
+  for (const l of lots || []) {
+    const key = (l as any).workspace_id as string;
+    const cur = lotTruth.get(key) || { available: 0, reserved: 0 };
+    cur.available += Number((l as any).remaining_amount ?? 0) - Number((l as any).reserved_amount ?? 0);
+    cur.reserved += Number((l as any).reserved_amount ?? 0);
+    lotTruth.set(key, cur);
+  }
+  const walletMismatch = (wallets.data || []).filter((w: any) => {
+    const truth = lotTruth.get(w.workspace_id) || { available: 0, reserved: 0 };
+    return (
+      Math.abs(Number(w.available_amount ?? 0) - truth.available) > 0.000001 ||
+      Math.abs(Number(w.reserved_amount ?? 0) - truth.reserved) > 0.000001
+    );
+  }).length;
+
   res.json({
     mode: await getBillingMode(cfg(req)),
+    degradation: getBillingDegradation(),
+    validationChecklist: {
+      cycleId: cycle,
+      orphanUsageEvents: orphanUsage ?? 0,
+      ingestionConflictsOpen: openConflicts ?? 0,
+      unresolvedRuns: runsUnresolved ?? 0,
+      staleReservations: staleReservationCount ?? 0,
+      settlementPendingRuns: settlementPending ?? 0,
+      reconciliationMismatchWallets: walletMismatch,
+      walletsTracked: (wallets.data || []).length,
+      providerCostUsdTotal: sum(settlementRows, 'provider_cost_usd'),
+      internalCostIrrTotal: sum(settlementRows, 'internal_cost_irr'),
+      theoreticalCustomerChargeIrrTotal: sum(settlementRows, 'customer_charge_irr'),
+      platformAbsorbedIrrTotal: sum(settlementRows, 'platform_absorbed_amount'),
+      currency: 'IRR',
+      displayCurrency: 'TOMAN',
+    },
     ingestionConflicts: conflicts.data || [],
     unresolvedRuns: unresolved.data || [],
     staleReservations: staleRes.data || [],

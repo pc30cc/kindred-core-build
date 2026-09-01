@@ -1765,6 +1765,7 @@ const tr: TranslationKeys = {
     usageControls: 'Kullanım Kontrolleri',
   },
   aiBilling: {
+    fxDescription: 'USD → Tümen (Riyal olarak saklanır, Tümen gösterilir)',
     title: 'AI Faturalandırma',
     refresh: 'Yenile',
     subtitle: 'Tüm çalışma alanlarında sağlayıcı maliyeti, kâr marjı, fiyatlandırma ve fatura sağlığı.',

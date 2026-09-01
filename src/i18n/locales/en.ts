@@ -1773,6 +1773,7 @@ const en = {
     usageControls: 'Usage Controls',
   },
   aiBilling: {
+    fxDescription: 'USD → Toman (stored in Rial, shown in Toman)',
     title: 'AI Billing',
     refresh: 'Refresh',
     subtitle: 'Provider cost, margin, pricing and billing health across all workspaces.',

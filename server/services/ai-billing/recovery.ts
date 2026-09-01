@@ -28,6 +28,62 @@ export interface RecoveryReport {
   reconciled: number;
 }
 
+/**
+ * Cluster-wide recovery lease.
+ *
+ * Process-local single-flight only protects ONE node. With several replicas
+ * every instance runs the same timer, so the lease in the database elects a
+ * single executor per pass. It carries a TTL, so a crashed owner never blocks
+ * recovery forever. The underlying operations stay idempotent regardless —
+ * the lease is an efficiency and noise guard, not the correctness mechanism.
+ */
+const LEASE_TTL_SECONDS = 240;
+
+export const RECOVERY_INSTANCE_ID = `${process.env.HOSTNAME || 'node'}:${process.pid}:${Math.random()
+  .toString(36)
+  .slice(2, 8)}`;
+
+export async function acquireRecoveryLease(
+  config: ServerConfig,
+  owner: string = RECOVERY_INSTANCE_ID,
+): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.rpc('ai_billing_try_acquire_recovery_lease', {
+    _owner: owner,
+    _ttl_seconds: LEASE_TTL_SECONDS,
+  });
+  if (error) throw new Error(`recovery_lease_unavailable: ${error.message}`);
+  return data === true;
+}
+
+export async function releaseRecoveryLease(
+  config: ServerConfig,
+  owner: string = RECOVERY_INSTANCE_ID,
+): Promise<void> {
+  try {
+    const sb = getServiceClient(config);
+    await sb.rpc('ai_billing_release_recovery_lease', { _owner: owner });
+  } catch {
+    // TTL expiry releases it anyway; never fail a completed pass on this.
+  }
+}
+
+/**
+ * Runs one recovery pass ONLY if this instance wins the cluster-wide lease.
+ * Returns null when another instance already owns the current pass.
+ */
+export async function runAiBillingRecoveryLeased(
+  config: ServerConfig,
+  owner: string = RECOVERY_INSTANCE_ID,
+): Promise<RecoveryReport | null> {
+  if (!(await acquireRecoveryLease(config, owner))) return null;
+  try {
+    return await runAiBillingRecovery(config);
+  } finally {
+    await releaseRecoveryLease(config, owner);
+  }
+}
+
 export async function runAiBillingRecovery(config: ServerConfig): Promise<RecoveryReport> {
   const sb = getServiceClient(config);
   const report: RecoveryReport = {

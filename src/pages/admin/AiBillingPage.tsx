@@ -7,6 +7,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { API_BASE } from '@/lib/apiBase';
+import { formatToman } from '@/lib/money';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -30,10 +31,16 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** Plain counts (runs, tokens). */
 const nf = (n: number) => new Intl.NumberFormat().format(Math.round(n || 0));
+/**
+ * Money. Everything financial is STORED in IRR and SHOWN in Toman — the
+ * conversion lives only here, at the presentation boundary.
+ */
+const money = (irr: unknown, locale?: string) => formatToman(Number(irr ?? 0), locale);
 
 export default function AiBillingPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<any>(null);
   const [pricing, setPricing] = useState<any>({ rateCards: [], exchangeRates: [], sellPolicies: [] });
@@ -165,9 +172,9 @@ export default function AiBillingPage() {
       <div className="grid gap-4 md:grid-cols-4">
         {[
           { label: t('aiBilling.providerCost'), value: `$${(overview?.totals?.providerCostUsd || 0).toFixed(4)}` },
-          { label: t('aiBilling.internalCost'), value: nf(overview?.totals?.internalCostIrr) },
-          { label: t('aiBilling.customerCharge'), value: nf(overview?.totals?.customerChargeIrr) },
-          { label: t('aiBilling.margin'), value: `${nf(overview?.margin)} (${(overview?.marginPct || 0).toFixed(1)}%)` },
+          { label: t('aiBilling.internalCost'), value: money(overview?.totals?.internalCostIrr, locale) },
+          { label: t('aiBilling.customerCharge'), value: money(overview?.totals?.customerChargeIrr, locale) },
+          { label: t('aiBilling.margin'), value: `${money(overview?.margin, locale)} (${(overview?.marginPct || 0).toFixed(1)}%)` },
         ].map((k) => (
           <Card key={k.label}>
             <CardHeader className="pb-2">
@@ -192,11 +199,11 @@ export default function AiBillingPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">{t('aiBilling.fx')}</CardTitle>
-                <CardDescription>USD → IRR</CardDescription>
+                <CardDescription>{t('aiBilling.fxDescription')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="text-sm text-muted-foreground">
-                  {t('aiBilling.current')}: {nf(Number(pricing.exchangeRates?.[0]?.rate || 0))}
+                  {t('aiBilling.current')}: {money(Number(pricing.exchangeRates?.[0]?.rate || 0), locale)} / USD
                 </div>
                 <div className="flex gap-2">
                   <Input value={fxRate} onChange={(e) => setFxRate(e.target.value)} placeholder="1000000" />
@@ -289,7 +296,7 @@ export default function AiBillingPage() {
                         <Badge variant={r.billing_quality === 'UNRESOLVED' ? 'destructive' : 'secondary'}>{r.billing_quality}</Badge>
                       </TableCell>
                       <TableCell className="text-xs">{Number(r.provider_cost_usd || 0).toFixed(5)}</TableCell>
-                      <TableCell className="text-xs">{nf(Number(r.customer_charge_irr || 0))}</TableCell>
+                      <TableCell className="text-xs">{money(r.customer_charge_irr, locale)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

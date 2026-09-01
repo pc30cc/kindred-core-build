@@ -534,3 +534,12 @@ html[lang="en"] * {
 [data-portrait-stage="true"] .call-video-stage[data-video-orientation="portrait"] > video[aria-hidden="true"] {
   display: none !important;
 }
+
+/* RTL: all portaled menus/popovers/selects align text to the start. */
+[dir="rtl"] [role="menu"],
+[dir="rtl"] [role="listbox"],
+[dir="rtl"] [role="menuitem"],
+[dir="rtl"] [role="option"],
+[dir="rtl"] [data-radix-popper-content-wrapper] {
+  text-align: right;
+}

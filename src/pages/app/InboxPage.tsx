@@ -300,7 +300,7 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
           <>
             {/* Never show an empty bubble while the authenticated fetch runs. */}
             {!loaded && (
-              <span className="flex items-center justify-center gap-2 w-[168px] h-[96px] text-[12px] text-muted-foreground">
+              <span className="flex items-center justify-center gap-2 w-[150px] h-[88px] text-[12px] text-muted-foreground">
                 <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin opacity-70" />
                 {t('inbox.receivingFile') || 'Receiving…'}
               </span>
@@ -313,7 +313,7 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
               onLoad={() => setLoaded(true)}
               onError={() => { setLoaded(true); setFailed(true); }}
               className={cn(
-                'block w-auto h-auto max-w-[260px] max-h-[280px] object-contain',
+                'block w-auto h-auto max-w-[180px] max-h-[200px] object-contain',
                 // Do not use display:none here. Combined with loading="lazy"
                 // it prevents the browser from ever requesting the image,
                 // leaving the receiving placeholder visible forever.

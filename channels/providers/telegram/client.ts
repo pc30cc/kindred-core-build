@@ -290,6 +290,75 @@ export async function sendMedia(
   });
 }
 
+/**
+ * Sends a media attachment by UPLOADING THE BYTES (multipart/form-data).
+ *
+ * Preferred over `sendMedia()` for the Telegram Bot API dialect: it does not
+ * require our storage/API host to be publicly reachable by Telegram's
+ * fetchers (self-hosted deployments behind private DNS, fresh TLS, or
+ * IP allow-lists otherwise fail with "failed to get HTTP URL content").
+ */
+export async function sendMediaBytes(
+  botToken: BotCredential,
+  input: {
+    chatId: number | string;
+    kind: string;
+    bytes: Uint8Array;
+    fileName?: string | null;
+    mimeType?: string | null;
+    caption?: string | null;
+  },
+  timeoutMs = 60_000,
+): Promise<{ message_id: number }> {
+  const { token, apiRoot } = credentialParts(botToken);
+  const { method, field } = telegramMediaMethod(input.kind);
+
+  const form = new FormData();
+  form.append('chat_id', String(input.chatId));
+  if (input.caption) form.append('caption', input.caption.slice(0, 1024));
+  const bytes = input.bytes;
+  const buf = bytes instanceof Uint8Array
+    ? bytes.slice().buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+    : bytes;
+  form.append(
+    field,
+    new Blob([buf as ArrayBuffer], { type: input.mimeType || 'application/octet-stream' }),
+    input.fileName || 'file',
+  );
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(`${apiRoot}/bot${token}/${method}`, {
+      method: 'POST',
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    throw new TelegramApiError(
+      `Telegram ${method} upload transport error: ${redactToken(String(err?.message || err))}`,
+      0, null, null, true,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const payload: any = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok) {
+    const description = redactToken(String(payload?.description ?? response.statusText));
+    const retryAfter = payload?.parameters?.retry_after ?? null;
+    throw new TelegramApiError(
+      `Telegram ${method} upload failed [${response.status}]: ${description}`,
+      response.status,
+      payload?.error_code ?? null,
+      retryAfter,
+      response.status === 429 || response.status >= 500,
+    );
+  }
+  return payload.result;
+}
+
 // ── Inline menu interactions ──────────────────────────────────────────
 
 /**

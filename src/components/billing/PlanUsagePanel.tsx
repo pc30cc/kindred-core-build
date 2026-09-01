@@ -31,6 +31,8 @@ import {
 } from '@/lib/entitlements-api';
 import { useTranslation } from '@/i18n';
 import { bt, capLabel, formatLimitValue, formatUsageValue, type BillingLocale } from '@/lib/billing-i18n';
+import { useLiveUsageRefresh } from '@/hooks/useLiveUsageRefresh';
+
 
 /**
  * Map registry limit keys → column on `workspace_usage_counters` returned

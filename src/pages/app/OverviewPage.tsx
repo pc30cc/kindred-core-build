@@ -82,6 +82,16 @@ export default function OverviewPage() {
   const { data: planData } = useWorkspacePlan(workspace?.id);
   const { data: usageRow } = useWorkspaceUsage(workspace?.id);
 
+  // Live usage: keep the "Plan & usage" card fresh without a page refresh.
+  const queryClient = useQueryClient();
+  const refreshUsage = useCallback(() => {
+    if (!workspace?.id) return;
+    queryClient.invalidateQueries({ queryKey: ['workspace-usage', workspace.id] });
+    queryClient.invalidateQueries({ queryKey: ['workspace-plan', workspace.id] });
+  }, [queryClient, workspace?.id]);
+  useLiveUsageRefresh(!!workspace?.id, refreshUsage);
+
+
   const tr = t as unknown as (k: string) => string;
   const isRtl = dir === 'rtl';
   const numberLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';

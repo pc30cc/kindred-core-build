@@ -99,6 +99,16 @@ export function PlanUsagePanel({ workspaceId }: Props) {
     };
   }, [workspaceId]);
 
+  // Live usage: silently re-pull the canonical effective payload so counters
+  // move without a page refresh (no spinner, no layout flash on failure).
+  const refreshLive = useCallback(() => {
+    fetchWorkspaceEffective(workspaceId)
+      .then((effRes) => setEff(effRes))
+      .catch(() => { /* transient; next tick retries */ });
+  }, [workspaceId]);
+  useLiveUsageRefresh(!!workspaceId, refreshLive);
+
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">

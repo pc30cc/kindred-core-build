@@ -26,6 +26,8 @@ import { retrieveHybridSources } from './retrievalHybrid.js';
 
 export interface RuntimeRetrievalInput {
   workspaceId: string;
+  /** AI billing — Run that owns this retrieval's embedding usage. */
+  runCtx?: import('../ai-billing/runContext.js').AiRunContext | null;
   originalMessage: string;
   retrievalQuery: string;
   expandedQuery?: string;
@@ -94,6 +96,7 @@ export async function retrieveKnowledgeForRuntime(
   try {
     const hybrid = await retrieveHybridSources(config, {
       workspaceId,
+      runCtx: input.runCtx ?? null,
       originalMessage,
       retrievalQuery,
       expandedQuery,

@@ -31,6 +31,12 @@ export interface MaybeRunInput {
   operatorReplyNow?: boolean;
   /** Operator who requested the forced turn (telemetry only). */
   operatorId?: string | null;
+  /**
+   * AI billing — the Run opened by the engine for this business operation.
+   * Every billable AI component of the turn (retrieval embeddings, main
+   * completion, retries, fallbacks) is recorded under this single Run.
+   */
+  runCtx?: import('../../ai-billing/runContext.js').AiRunContext | null;
 }
 
 

@@ -140,6 +140,7 @@ export async function runPlayground(
       model: input.modelOverride,
       maxTokens: 600,
       temperature: settings.answer_guidance === 'creative' ? 0.6 : settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
+      billing: { entryPoint: 'agent_playground' },
     });
 
     const valid = postValidateAnswer(result.text);

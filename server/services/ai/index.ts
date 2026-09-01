@@ -188,14 +188,18 @@ async function runOneCompletion(
     try {
       ctx = await beginAiRun(serverConfig, {
         workspaceId: request.workspaceId,
-        operationKey: `standalone:${request.requestId || newAiRequestId()}`,
+        operationKey:
+          request.billing?.operationKey ||
+          `standalone:${request.billing?.entryPoint || 'ai_complete'}:${request.requestId || newAiRequestId()}`,
         payload: {
           workspaceId: request.workspaceId,
           prompt: request.prompt,
           systemPrompt: request.systemPrompt,
           model: request.model || aiConfig.model,
         },
-        entryPoint: 'ai_complete',
+        entryPoint: request.billing?.entryPoint || 'ai_complete',
+        channel: request.billing?.channel ?? null,
+        conversationId: request.billing?.conversationId ?? null,
         estimate: {
           promptChars: (request.prompt || '').length + (request.systemPrompt || '').length,
           maxTokens: request.maxTokens ?? aiConfig.maxTokens ?? null,

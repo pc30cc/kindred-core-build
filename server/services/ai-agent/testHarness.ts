@@ -358,6 +358,7 @@ export async function runDryRunTest(
       maxTokens: 600,
       temperature: settings.answer_guidance === 'creative' ? 0.6
         : settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
+      billing: { entryPoint: 'agent_test_harness' },
     });
     return {
       status: 'replied',

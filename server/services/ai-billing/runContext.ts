@@ -136,6 +136,21 @@ export async function beginAiRun(config: ServerConfig, args: BeginRunArgs): Prom
 
   if (error) {
     if (String(error.message || '').includes('idempotency_conflict')) {
+      // The SQL audit insert is rolled back with the RAISE that reports the
+      // conflict, so the durable audit record is written here, outside that
+      // aborted transaction. Best-effort: never mask the conflict itself.
+      await sb
+        .from('ai_billing_audit_log')
+        .insert({
+          action: 'idempotency_conflict',
+          workspace_id: args.workspaceId,
+          details: {
+            key: args.operationKey,
+            incoming_hash: hash,
+            entry_point: args.entryPoint,
+          },
+        })
+        .then(undefined, () => undefined);
       throw new AiBillingError(
         'idempotency_conflict',
         'The same operation key was reused with a different business payload',

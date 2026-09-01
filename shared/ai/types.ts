@@ -30,6 +30,18 @@ export interface AIRequest {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * AI billing — business identity of a STANDALONE call (no caller Run).
+   * Lets a direct flow (assistant description, playground, test harness,
+   * /api/ai/complete) open a meaningful, idempotent Run of its own instead of
+   * an anonymous one.
+   */
+  billing?: {
+    entryPoint: string;
+    operationKey?: string;
+    conversationId?: string | null;
+    channel?: string | null;
+  };
   /** Force JSON object response (OpenAI/compatible: response_format json_object). */
   jsonMode?: boolean;
   /** Optional OpenAI-compatible function tools for structured output. */

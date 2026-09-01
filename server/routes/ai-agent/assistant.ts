@@ -466,6 +466,7 @@ assistantRouter.post('/generate-business-description', requireModule('ai_assista
       prompt: `Context:\n${ctx}\n\nWrite the description now.`,
       maxTokens: 220,
       temperature: 0.4,
+      billing: { entryPoint: 'assistant_describe_business' },
     });
     return res.json({ description: (r.text || '').trim(), source: 'ai', provider: r.provider, model: r.model });
   } catch (err: any) {

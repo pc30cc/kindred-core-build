@@ -267,7 +267,7 @@ export async function runGenerationStage(
       temperature:
         settings.answer_guidance === 'creative' ? 0.6 :
         settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
-    });
+    }, input.runCtx ?? undefined);
     // ROOT CAUSE GUARD — reasoning models (gpt-5*, o-series) can burn the
     // whole completion budget on hidden reasoning and return EMPTY text with
     // finish_reason === 'length'. That is a transient generation failure, NOT
@@ -288,7 +288,7 @@ export async function runGenerationStage(
         temperature:
           settings.answer_guidance === 'creative' ? 0.6 :
           settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
-      }).catch(() => null);
+      }, input.runCtx ?? undefined).catch(() => null);
       if (retry && String(retry.text || '').trim()) {
         aiResult = retry;
         generationMeta.empty_output_retry = 'recovered';

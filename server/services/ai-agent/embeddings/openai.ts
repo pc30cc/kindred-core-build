@@ -13,6 +13,8 @@ import type { ServerConfig } from '../../../config.js';
 import type { EmbeddingProvider, EmbedOptions } from './provider.js';
 import { EMBED_BATCH_SIZE, clipForEmbedding } from './provider.js';
 import { runtimeEmbed } from '../../ai/runtimeClient.js';
+import { recordStepUsage } from '../../ai-billing/runContext.js';
+import { normalizeUsage } from '../../ai-billing/normalize.js';
 
 /**
  * Providers speaking the OpenAI embeddings wire format. Kept as plain names —
@@ -55,8 +57,10 @@ export function buildOpenAIEmbeddingProvider(
       if (!texts.length) return [];
       const out: number[][] = [];
       const cleaned = texts.map((t) => clipForEmbedding(t, opts?.truncateChars));
+      let attemptNo = 0;
       for (let i = 0; i < cleaned.length; i += EMBED_BATCH_SIZE) {
         const batch = cleaned.slice(i, i + EMBED_BATCH_SIZE);
+        attemptNo += 1;
         const vectors = await runtimeEmbed(
           serverConfig,
           {
@@ -69,6 +73,31 @@ export function buildOpenAIEmbeddingProvider(
           batch,
         );
         out.push(...vectors);
+
+        // AI billing — embeddings are billable provider work. The runtime
+        // embed endpoint returns no usage block, so the token count is
+        // estimated (~4 chars/token) and the event is flagged ESTIMATED.
+        if (opts?.runCtx) {
+          const chars = batch.reduce((n, t) => n + t.length, 0);
+          const usage = normalizeUsage({
+            provider: cfg.provider,
+            requestedModel: cfg.model,
+            actualModel: cfg.model,
+            promptTokens: Math.max(1, Math.ceil(chars / 4)),
+            kind: 'embedding',
+            estimatedUsage: true,
+            raw: { batchSize: batch.length, chars },
+          });
+          try {
+            await recordStepUsage(serverConfig, opts.runCtx, {
+              stepKind: 'EMBEDDING',
+              attemptNo,
+              usage,
+            });
+          } catch (err) {
+            console.warn('[ai-billing] embedding usage not recorded:', (err as any)?.message);
+          }
+        }
       }
       return out;
     },

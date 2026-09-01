@@ -65,6 +65,8 @@ export interface HybridSource {
 
 export interface HybridRetrievalInput {
   workspaceId: string;
+  /** AI billing — Run that owns this retrieval's embedding usage. */
+  runCtx?: import('../ai-billing/runContext.js').AiRunContext | null;
   originalMessage: string;
   retrievalQuery: string;
   expandedQuery?: string;
@@ -474,7 +476,7 @@ export async function retrieveHybridSources(
     result.embeddingProvider = embedder.name;
     result.embeddingModel = embedder.model;
     if (isUsableEmbeddingProvider(embedder) && queryForVector) {
-      const vec = (await embedder.embedTexts([queryForVector]))[0];
+      const vec = (await embedder.embedTexts([queryForVector], { runCtx: input.runCtx ?? null }))[0];
       if (vec && vec.length) {
         const sqlVec = vectorToSql(vec);
         // Use raw RPC-style query via .select with order by embedding distance.

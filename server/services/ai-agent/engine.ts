@@ -26,7 +26,7 @@
 import type { ServerConfig } from '../../config.js';
 import type { RetrievedSource } from './retrieval.js';
 import type { MaybeRunInput, MaybeRunResult } from './engine/types.js';
-import { runPreflightStage } from './engine/preflightStage.js';
+import { runPreflightStage, type PreflightResult } from './engine/preflightStage.js';
 import { runContextStage } from './engine/contextStage.js';
 import { runAutomationStage } from './engine/automationStage.js';
 import { runRuntimeDecisionStage } from './engine/runtimeDecisionStage.js';
@@ -35,6 +35,13 @@ import { runAnswerStage } from './engine/answerStage.js';
 import { runGenerationStage } from './engine/generationStage.js';
 import { runDeliveryStage } from './engine/deliveryStage.js';
 import { logRun } from './logs.js';
+import {
+  beginAiRun,
+  settleAiRun,
+  failAiRun,
+  type AiRunContext,
+} from '../ai-billing/runContext.js';
+import { AiBillingError } from '../ai-billing/errors.js';
 import { coalesceVisitorBurst, noteVisitorMessage } from './coalescing.js';
 
 export type { MaybeRunInput, MaybeRunResult } from './engine/types.js';
@@ -117,6 +124,77 @@ async function runInternal(
   const pre = await runPreflightStage(config, input);
   if ('terminal' in pre) return pre.terminal;
 
+  // AI BILLING — business-operation boundary.
+  // One visitor turn (or one operator-forced turn) = ONE Run. It is opened
+  // here, BEFORE the first billable AI operation (retrieval embeddings), and
+  // carried through retrieval, generation, retries and fallbacks so no
+  // component of the turn is billed outside this Run.
+  const runCtx = await openTurnRun(config, input);
+  if (runCtx) input.runCtx = runCtx;
+
+  try {
+    const result = await runStages(config, input, pre);
+    if (runCtx) await closeTurnRun(config, runCtx, null);
+    return result;
+  } catch (err: any) {
+    if (runCtx) await closeTurnRun(config, runCtx, String(err?.message || 'engine_error'));
+    throw err;
+  }
+}
+
+async function openTurnRun(
+  config: ServerConfig,
+  input: MaybeRunInput,
+): Promise<AiRunContext | null> {
+  try {
+    return await beginAiRun(config, {
+      workspaceId: input.workspaceId,
+      // Stable business identity: the visitor message (or the operator-forced
+      // turn on that message). A retry of the same turn resumes the same Run.
+      operationKey: input.operatorReplyNow
+        ? `agent_turn_forced:${input.conversationId}:${input.visitorMessageId}`
+        : `agent_turn:${input.conversationId}:${input.visitorMessageId}`,
+      payload: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        visitorMessageId: input.visitorMessageId,
+        question: input.question,
+        locale: input.locale ?? null,
+        operatorReplyNow: !!input.operatorReplyNow,
+      },
+      entryPoint: input.operatorReplyNow ? 'agent_reply_now' : 'agent_turn',
+      channel: 'widget',
+      conversationId: input.conversationId || null,
+      estimate: { promptChars: (input.question || '').length },
+    });
+  } catch (err) {
+    // ENFORCED denials must stop the turn; METER_ONLY problems never do.
+    if (err instanceof AiBillingError && err.code === 'ai_allowance_exhausted') throw err;
+    console.warn('[ai-billing] run not opened for agent turn:', (err as any)?.message);
+    return null;
+  }
+}
+
+async function closeTurnRun(
+  config: ServerConfig,
+  ctx: AiRunContext,
+  failure: string | null,
+): Promise<void> {
+  try {
+    if (failure) await failAiRun(config, ctx, failure);
+    else if (ctx.stepSeq > 0) await settleAiRun(config, ctx);
+    else await failAiRun(config, ctx, 'no_billable_usage');
+  } catch (err) {
+    // The recovery worker settles/releases anything left behind.
+    console.warn('[ai-billing] run not closed:', (err as any)?.message);
+  }
+}
+
+async function runStages(
+  config: ServerConfig,
+  input: MaybeRunInput,
+  pre: PreflightResult,
+): Promise<MaybeRunResult> {
   const ctxStage = await runContextStage(config, input, pre);
 
   const auto = await runAutomationStage(config, input, pre, ctxStage);

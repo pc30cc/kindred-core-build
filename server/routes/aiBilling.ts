@@ -18,6 +18,7 @@ import { billingCycleId } from '../services/ai-billing/runContext.js';
 import { getBillingMode, setBillingMode } from '../services/ai-billing/mode.js';
 import { resetRateCache } from '../services/ai-billing/rates.js';
 import { runAiBillingRecovery } from '../services/ai-billing/recovery.js';
+import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
 
 export const aiBillingRouter = Router();
 
@@ -293,11 +294,31 @@ aiBillingRouter.get('/admin/health', async (req, res) => {
     sb.from('workspace_ai_reservations').select('id, workspace_id, amount, expires_at').eq('state', 'ACTIVE').lt('expires_at', new Date().toISOString()).limit(100),
     sb.from('ai_billing_audit_log').select('*').eq('action', 'idempotency_conflict').order('created_at', { ascending: false }).limit(50),
   ]);
+  // METER_ONLY validation metrics — coverage/quality of the current cycle.
+  const cycle = billingCycleId();
+  const [{ count: runsTotal }, { count: runsEstimated }, { count: runsUnresolved }, { count: settledTotal }] =
+    await Promise.all([
+      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle),
+      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle).eq('billing_quality', 'ESTIMATED'),
+      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle).eq('billing_quality', 'UNRESOLVED'),
+      sb.from('ai_run_settlements').select('run_id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle),
+    ]);
+
   res.json({
+    mode: await getBillingMode(cfg(req)),
     ingestionConflicts: conflicts.data || [],
     unresolvedRuns: unresolved.data || [],
     staleReservations: staleRes.data || [],
     idempotencyConflicts: alerts.data || [],
+    recoveryScheduler: getAiBillingRecoveryStatus(),
+    meterOnlyMetrics: {
+      cycleId: cycle,
+      runsTotal: runsTotal ?? 0,
+      runsSettled: settledTotal ?? 0,
+      runsEstimated: runsEstimated ?? 0,
+      runsUnresolved: runsUnresolved ?? 0,
+      settlementCoverage: runsTotal ? Number(((settledTotal ?? 0) / runsTotal).toFixed(4)) : 1,
+    },
   });
 });
 

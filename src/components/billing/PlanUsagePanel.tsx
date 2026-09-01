@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { AiCreditPanel } from './AiCreditPanel';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -151,6 +152,7 @@ export function PlanUsagePanel({ workspaceId }: Props) {
 
   return (
     <div className="space-y-6" data-testid="plan-usage-panel" dir={dir}>
+      <AiCreditPanel workspaceId={workspaceId} />
       {/* Usage overview — clean colorful cards */}
       {visibleLimits.length > 0 && (
         <section>

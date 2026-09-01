@@ -101,14 +101,15 @@ describe('rate card pricing', () => {
   const card: RateCardSnapshot = {
     id: 'rc1',
     provider: 'openai',
-    modelKey: 'gpt-5-nano',
+    model_key: 'gpt-5-nano',
     currency: 'USD',
     version: 1,
     components: [
       { component_type: 'INPUT_TOKENS', unit: 'TOKEN', unit_amount: '0.05', per_units: '1000000' },
       { component_type: 'OUTPUT_TOKENS', unit: 'TOKEN', unit_amount: '0.40', per_units: '1000000' },
     ],
-  } as RateCardSnapshot;
+  };
+
 
   it('prices per unit block exactly', () => {
     expect(D.toString(priceComponent(card, 'INPUT_TOKENS', 1_000_000).amount)).toBe('0.05');

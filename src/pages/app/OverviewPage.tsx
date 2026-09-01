@@ -348,6 +348,38 @@ export default function OverviewPage() {
             <p className="text-lg font-bold text-foreground">{planName}</p>
           </div>
 
+          {/* Storage consumption (bytes vs. plan storage_gb) */}
+          <div className="relative mt-4 rounded-2xl border border-border/60 bg-muted/30 p-3.5">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <HardDrive className="h-3.5 w-3.5" />
+                {tr('dashboard.storageUsed')}
+              </span>
+              <span className="font-medium tabular-nums text-foreground">
+                {formatBytes(storageBytes, numberLocale)}
+                {storageLimitGb > 0 ? ` / ${fmt(storageLimitGb)} GB` : ' / ∞'}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                style={{ width: `${storageLimitGb > 0 ? Math.max(storagePct, 3) : 6}%` }}
+              />
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {[
+                { label: tr('dashboard.usageConversations'), value: fmt(usageNum('conversations_count')) },
+                { label: tr('dashboard.usageMessages'), value: fmt(usageNum('messages_count')) },
+                { label: tr('dashboard.usageAiCredits'), value: fmt(usageNum('ai_credits_used')) },
+              ].map((m) => (
+                <div key={m.label} className="rounded-xl border border-border/50 bg-card px-2.5 py-2 text-center">
+                  <div className="text-sm font-bold tabular-nums text-foreground">{m.value}</div>
+                  <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{m.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="relative mt-4 space-y-4">
             {[
               { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' },
@@ -374,6 +406,7 @@ export default function OverviewPage() {
               );
             })}
           </div>
+
         </div>
       </div>
 

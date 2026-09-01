@@ -449,11 +449,14 @@ async function handleJob(job: ChannelJob): Promise<void> {
           // base with the relative signed path, in case the absolute host
           // stored at enqueue time is no longer reachable.
           const relPath = attachment?.path ? String(attachment.path) : null;
-          const internalBases = [process.env.INTERNAL_API_BASE_URL, process.env.API_BASE_URL]
+          // Core is always reachable from the worker (that is how jobs are
+          // claimed), so its base is the most reliable candidate of all.
+          const internalBases = [coreBaseUrl, process.env.INTERNAL_API_BASE_URL, process.env.API_BASE_URL]
             .map((b) => (b ? b.trim().replace(/\/+$/, '') : ''))
             .filter(Boolean);
           const fetchCandidates = [url, ...(relPath ? internalBases.map((b) => `${b}${relPath}`) : [])]
             .filter((u, i, arr) => arr.indexOf(u) === i);
+
           const kind = String(attachment?.kind ?? 'document');
           const caption = index === 0 ? String(payload.text ?? '') || null : null;
 

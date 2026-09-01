@@ -59,6 +59,23 @@ export type BotApi = {
     credential: BotCredential,
     input: { chatId: number | string; kind: string; url: string; caption?: string | null },
   ): Promise<{ message_id: number | string }>;
+  /**
+   * Optional bytes-upload path. Present only for dialects that accept a
+   * multipart upload (Telegram / Bale). When available the worker prefers it,
+   * because it removes the requirement that OUR host be publicly fetchable by
+   * the provider.
+   */
+  sendMediaBytes?(
+    credential: BotCredential,
+    input: {
+      chatId: number | string;
+      kind: string;
+      bytes: Uint8Array;
+      fileName?: string | null;
+      mimeType?: string | null;
+      caption?: string | null;
+    },
+  ): Promise<{ message_id: number | string }>;
   setMyName(credential: BotCredential, name: string): Promise<void>;
   setMyShortDescription(credential: BotCredential, value: string): Promise<void>;
   setMyDescription(credential: BotCredential, value: string): Promise<void>;
@@ -82,6 +99,7 @@ const TELEGRAM_API: BotApi = {
   getFile: telegram.getFile,
   downloadFile: telegram.downloadFile,
   sendMedia: telegram.sendMedia,
+  sendMediaBytes: telegram.sendMediaBytes,
   setMyName: telegram.setMyName,
   setMyShortDescription: telegram.setMyShortDescription,
   setMyDescription: telegram.setMyDescription,

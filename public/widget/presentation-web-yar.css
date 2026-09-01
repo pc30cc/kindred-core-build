@@ -680,14 +680,14 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-att-image .msg-att-img-btn {
   display: block; padding: 0; border-radius: var(--wy-radius-md); overflow: hidden;
   background: rgba(0, 0, 0, 0.05); line-height: 0; cursor: zoom-in;
-  max-width: 240px;
+  max-width: 168px;
 }
 /* Thumbnail must never deform: intrinsic ratio is preserved and the image is
    only bounded by a max box. `height:auto` + `object-fit:contain` keeps
    portrait screenshots and wide photos both undistorted. */
 .msg-att-image img {
   display: block; width: auto; height: auto;
-  max-width: 240px; max-height: 260px; object-fit: contain;
+  max-width: 168px; max-height: 190px; object-fit: contain;
   border-radius: var(--wy-radius-md);
   transition: transform 0.25s var(--wy-ease);
 }
@@ -695,7 +695,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-att-img-fallback { display: none; font-size: 12px; color: var(--wy-muted); }
 /* In-bubble receive state: spinner + label until the authenticated fetch
    resolves, so an incoming file never renders as an empty bubble. */
-.msg-att-image .msg-att-img-btn.is-loading { min-width: 168px; min-height: 96px; position: relative; }
+.msg-att-image .msg-att-img-btn.is-loading { min-width: 140px; min-height: 84px; position: relative; }
 .msg-att-image .msg-att-img-btn.is-loading img {
   /* Keep lazy images renderable so the browser actually starts the request.
      display:none creates a loading deadlock and leaves every thumbnail in
@@ -704,7 +704,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 .msg-att-loading {
   display: none; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; height: 96px; line-height: 1.2;
+  width: 100%; height: 84px; line-height: 1.2;
   font-size: 12px; color: var(--wy-muted);
 }
 .msg-att-image .msg-att-img-btn.is-loading .msg-att-loading { display: flex; }

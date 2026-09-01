@@ -1766,6 +1766,7 @@ const tr: TranslationKeys = {
   },
   aiBilling: {
     title: 'AI Faturalandırma',
+    refresh: 'Yenile',
     subtitle: 'Tüm çalışma alanlarında sağlayıcı maliyeti, kâr marjı, fiyatlandırma ve fatura sağlığı.',
     enforced: 'Zorunlu mod',
     modeSaved: 'Faturalandırma modu güncellendi',

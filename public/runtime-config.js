@@ -16,4 +16,9 @@
  */
 window.__APP_RUNTIME_CONFIG__ = {
   apiBaseUrl: "",
+  // Configured SITE default language for the dashboard: "en" | "fa" | "tr".
+  // Applied on the FIRST render (no English flash) and never overridden by the
+  // browser's Accept-Language. A user's explicit choice in the language
+  // selector wins and is persisted by the existing i18n mechanism.
+  defaultLocale: "fa",
 };

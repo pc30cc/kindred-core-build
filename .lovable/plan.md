@@ -1,201 +1,233 @@
-# Workspace Invitations — Final Production-Ready Redesign v3
+# Workspace Invitations — Final Production-Ready Redesign v4
 
-## 1. Verified current-state findings (re-traced)
+## 1. Verified repository findings (re-traced for v4)
 
-- `server/routes/workspaceMembers.ts` — invitation CRUD (`GET/POST/PATCH/DELETE /invitations`) + `POST /accept-invitation`. `GET /invitations` uses `select('*')`, so the **plaintext token is returned to any workspace member**; listing is not manage-gated. Create sets `max_uses: 0` (unlimited use), takes only role/email/expiry.
-- `database/migrations/042_workspace_invitations.sql` — `workspace_invitations` stores the **raw token** (`token text DEFAULT encode(gen_random_bytes(32),'hex')`), plus `max_uses`, `use_count`, nullable `expires_at`; no names, phone, status, departments or consent. Defines `get_invitation_info(text)` (anon-executable, reads `auth.uid()` → always NULL under first-party auth) and `accept_workspace_invitation_as(text, uuid)` (service_role only).
-- `src/pages/auth/InvitePage.tsx` — calls `supabase.rpc('get_invitation_info')` from the browser; accept goes to the Express route. No password-setup flow: the invitee must already have an account.
-- Seat limit: `requireLimit('max_agents', usageFnForLimit('max_agents'))` runs as **middleware outside** the accept transaction → concurrent accepts overshoot.
-- **Mail relay hole:** invitation email HTML is built in the browser and POSTed to `/api/email/send` from `src/pages/app/settings/TeamDepartmentsPage.tsx:852` and `src/pages/app/TeamPage.tsx:200`; `server/routes/email.ts` only checks workspace membership (`authorizeWorkspaceAccess` without `manage`). Third caller: `src/providers/email/api.ts` (admin test send). `send-channel` + `sendChannelEmail()` are separately gated (`docs/EMAIL_SURFACE_SPLIT.md`).
-- **Seat-creation paths found** (all must share one lock): `accept_workspace_invitation_as` (042:230), `create_workspace_atomic` (039:145 self-host / `20260415075435` hosted, workspace bootstrap), and the hosted-only legacy `accept_workspace_invitation` (`20260415100153`, `20260622110429`). No server route inserts `workspace_members` directly; `workspace_members` already has `UNIQUE (workspace_id, user_id)` (001:65).
-- **Worker infra exists:** `worker/index.ts` dispatches by `WORKER_KIND` (`intelligence|source-sync|file-ingest|regression-runner|channels|all`); `database/migrations/048_plugin_platform_and_channels.sql` already implements a durable outbox with `FOR UPDATE SKIP LOCKED` claim RPCs (`claim_channel_jobs`) and heartbeats. This is the model v3 reuses — a durable outbox is available, so the conditional wording is removed.
-- `role_permissions` (hosted `20260422211113`) is `(workspace_id, role_slug, permission_key, granted)` — a **shared role definition table, not user data**. v2's plan to delete from it during offboarding was wrong and is removed.
-- Reusable primitives: `server/services/auth-email.ts` (`resolveAppBaseUrl`, SHA-256 token hashing, localized server templates), `auth_verify_tokens`/`auth_reset_tokens` (hash-only, `used_at`/`revoked_at` — the exact shape v3's token table copies), `server/services/phoneVerification/crypto.ts` (peppered HMAC OTP digests, `timingSafeEqual`, attempt caps — the OTP model v3 reuses), `server/middleware/security.ts` rate limiters, `server/utils/clientIp.ts`, `audit_logs`.
+- **Invitation code today** — `server/routes/workspaceMembers.ts`: `GET/POST/PATCH/DELETE /invitations` + `POST /accept-invitation`. `GET /invitations` uses `select('*')`, so the **plaintext token reaches any workspace member**, and it is not manage-gated. Create sets `max_uses: 0` (unlimited use) and accepts only role/email/expiry.
+- **Schema today** — `database/migrations/042_workspace_invitations.sql`: `workspace_invitations` stores the raw `token`, `max_uses`, `use_count`, nullable `expires_at`; no names, phone, status, departments, consent. Defines `get_invitation_info(text)` (anon-executable, reads `auth.uid()` → always NULL under first-party auth) and `accept_workspace_invitation_as(text, uuid)` (service_role only, inserts `workspace_members` at line 230). `043_service_role_table_grants.sql` shows the required grant discipline (service_role only; anon/authenticated explicitly asserted *absent*) and its in-migration `DO $verify$` proof style — v4 follows both.
+- **Frontend today** — `src/pages/auth/InvitePage.tsx` calls `supabase.rpc('get_invitation_info')` directly; there is no password-setup flow, so an invitee must already have an account.
+- **Seat limit today** — `requireLimit('max_agents', usageFnForLimit('max_agents'))` middleware runs *outside* the accept transaction → concurrent accepts overshoot.
+- **Mail relay hole** — invitation HTML is built in the browser and POSTed to `/api/email/send` from `src/pages/app/settings/TeamDepartmentsPage.tsx:852` and `src/pages/app/TeamPage.tsx:200`; `server/routes/email.ts` only checks membership (`authorizeWorkspaceAccess` without `manage`). Third caller: `src/providers/email/api.ts` (admin test send). `/send-channel` + `sendChannelEmail()` are separately gated (`docs/EMAIL_SURFACE_SPLIT.md`).
+- **Seat-creation paths** (complete trace of `INSERT INTO ... workspace_members`): `accept_workspace_invitation_as` (`042:230`), `create_workspace_atomic` (`039_account_workspace_provisioning.sql:145` self-host / `supabase/migrations/20260415075435` hosted), hosted-only legacy `accept_workspace_invitation` (`20260415100153:120`, `20260622110429:82`), and `20260415081729:79`. No Express route inserts directly. `workspace_members` already has `UNIQUE (workspace_id, user_id)` (`001_core_tables.sql:65`) — confirmed, no new unique key needed.
+- **Canonical email verification field** — `public.user_credentials.email_verified_at` (`024_user_credentials.sql:33`), written atomically by `030_atomic_auth_token_redemption.sql:124-127` (INSERT … ON CONFLICT UPDATE), backfilled by `029`, reset by `035`. There is **no** `profiles.email_verified*` column. v4 writes this exact field, and only when a credential row is created/updated during acceptance.
+- **Durable outbox already exists** — `database/migrations/048_plugin_platform_and_channels.sql:128` `channel_jobs` (`status pending|running|succeeded|failed|cancelled`, `attempt_count`, `max_attempts`, `available_at`, `locked_by`, `locked_at`, `claim_token uuid`, `claim_expires_at`, `last_error`, secret-free `payload`), claimed by `claim_channel_jobs(_worker_id,_limit,_lease_seconds,_job_types)` (`:213`, `SECURITY DEFINER`, `search_path = public`, revoked from PUBLIC/anon/authenticated, granted to service_role), plus `channel_worker_heartbeats`. `worker/index.ts` dispatches by `WORKER_KIND` (`intelligence|source-sync|file-ingest|regression-runner|channels|all`). v4 reuses this exact pattern for a new `workspace_invitation_jobs` table + `claim_invitation_jobs` RPC and a new `WORKER_KIND=invitations`.
+- **Server secrets** — `server/config.ts` has `CORE_INTERNAL_SECRET`, `CHANNELS_WEBHOOK_SIGNING_KEY`, `PLUGIN_SECRETS_MASTER_KEY`, `AI_RUNTIME_INTERNAL_SECRET` (all optional), plus startup guards forbidding reuse between boundaries; `SESSION_SECRET`/`JWT_SECRET` are only referenced in those guards. `PHONE_VERIFICATION_PEPPER` (`server/services/phoneVerification/crypto.ts`) is a required-for-OTP pepper with a ≥16-char strength check, peppered HMAC digests bound to challenge/user/phone, `timingSafeEqual`, and IP hashing. **No existing secret is a suitable general-purpose link-derivation key**, and reusing the phone pepper across boundaries would violate the codebase's own distinct-secret rule → v4 introduces `INVITATION_LINK_SECRET` (required when invitations are enabled) with a startup strength + distinctness check and a `current/previous` key ring.
+- **Chain divergence (critical)** — `workspace_departments`, `workspace_department_members`, `user_availability_prefs`, `operator_call_availability`, `user_notification_prefs`, `call_center_department_agents` exist **only in `supabase/migrations` (hosted)**; `database/migrations` (self-host) has none of them. Departments are mandatory for `customer_facing` invitations, so v4 **must** first port `workspace_departments` + `workspace_department_members` into the self-host chain (verbatim from `20260423182832`, which already has `UNIQUE (department_id, user_id)` and a `workspace_id` column). The other four are ported in the same migration or the offboarding RPC is emitted per chain — decided explicitly in §17, not left to `to_regclass`.
+- `user_availability_prefs.workspace_id` is **nullable** (`20260421073114:5`) — a global row exists per user. Offboarding must delete only `workspace_id = <target>`, never `NULL`.
+- `role_permissions` (`20260422211113:95`) is `(workspace_id, role_slug, permission_key, granted)` — a **shared role definition table, not user data**. Offboarding never touches it.
 
-## 2. Final data model
+## 2. Final product behavior
 
-New self-host migration (number chosen from the real latest file, currently `075`) mirrored into `supabase/migrations` **after diffing both chains** for `workspace_invitations`, `workspace_members`, `workspace_departments`, `role_permissions`; drift reconciled in the same migration.
+Owner/admin creates a single-person invitation with required first name, last name, work email, E.164 work phone, member type, role, and department(s) where required; backend normalizes and validates email/phone; the invitation has an expiry and exactly one acceptance. The backend atomically creates the invitation, queues the email job and the SMS job, and returns the **manual link exactly once** to the manager. The email carries the secure acceptance link; the SMS is notification-only with no link. The email link proves mailbox control; the manual link does not and therefore requires an email OTP before password setup. A genuinely new user sees only: preview → (OTP if manual) → password → confirm → unchecked consent checkbox → submit (disabled until consent). No public three-step signup. On success a self-hosted `gs_session` is issued and the user lands in the workspace; if session creation fails the membership stays valid and the user is sent to normal login. Existing password-protected accounts always authenticate through the normal self-hosted login. No GoTrue, Supabase Auth identity, `auth.uid()` or edge functions anywhere in the flow.
 
-### workspace_invitations (expanded)
-Adds `first_name`, `last_name`, `invited_email_normalized`, `invited_phone_e164`, `member_type ('customer_facing'|'staff')`, `status ('pending'|'accepted'|'revoked'|'expired')`, `accepted_by`, `accepted_at`, `revoked_by`, `revoked_at`, `revoked_reason`, `expired_at`, `archived_at`, `job_title`, `staff_code`, `last_email_status`, `last_sms_status`. Contract phase drops `token`, `max_uses`.
-- `UNIQUE (id, workspace_id)` (composite-FK target).
-- Partial unique `(workspace_id, invited_email_normalized) WHERE status='pending'`, same for `invited_phone_e164`. No `now()` in any predicate — expiry really transitions status.
-- CHECKs: non-empty trimmed names; canonical email; `invited_phone_e164 ~ '^\+[1-9][0-9]{6,14}$'`; `member_type` domain; `role <> 'owner'`; role ∈ set allowed for its `member_type`; `expires_at > created_at`; state invariants — `pending` ⇒ no `accepted_at`/`revoked_at`/`expired_at`; `accepted` ⇒ `accepted_by` + `accepted_at`, no revoked fields; `revoked` ⇒ `revoked_by` + `revoked_at` + reason; `expired` ⇒ `expired_at`. `archived_at` is orthogonal to status.
-- Department minimum for `customer_facing` is enforced by an **INITIALLY DEFERRED** constraint trigger, which is correct because creation is a single RPC transaction (§3).
+## 3. Authentication and identity boundary
 
-### workspace_invitation_tokens
-`id, invitation_id, workspace_id, purpose ('email_claim'|'manual_handoff'), token_hash, token_prefix, generation, expires_at, consumed_at, revoked_at, created_at`. Unique `token_hash`; partial unique `(invitation_id, purpose) WHERE consumed_at IS NULL AND revoked_at IS NULL`. Raw token never stored.
+Identity is `profiles` + `user_credentials` + `auth_sessions` + Argon2id + `gs_session`, resolved by Express via `server/lib/workspaceAuth.ts`. The browser never supplies user id, profile id, workspace authority, role authority, verification state, seat limit, entitlement, consent version, inviter identity or account status. Express may pass internally resolved values to service-role RPCs, and **every RPC revalidates** membership, invitation state and tenant relationship.
 
-### workspace_invitation_otps
-`id, invitation_id, workspace_id, email_normalized, code_digest, attempts, max_attempts, expires_at, consumed_at, revoked_at, created_at, ip_hash`. Digest = peppered HMAC bound to `(otp_id, invitation_id, email)`, same construction as `phoneVerification/crypto.ts`.
+Correction to v3: public routes (`GET /preview`, `POST /otp/request`, `POST /otp/verify`, `POST /accept-new`) derive authority from **possession of a valid scoped token plus rate limits**, not from `gs_session`. A present `gs_session` on those routes is used only for account-state UX (e.g. "you are signed in as X"), never as authorization. Only `accept-existing` and all management routes take authority from `gs_session`.
 
-### workspace_invitation_proofs
-Short-lived single-use server-side proof minted by a successful OTP verification (`id, invitation_id, proof_hash, expires_at, consumed_at`), verified inside the acceptance RPC.
+## 4. Final database model
 
-### workspace_invitation_departments
-`(invitation_id, workspace_id, department_id)`, PK `(invitation_id, department_id)`,
-`FK (invitation_id, workspace_id) → workspace_invitations(id, workspace_id) ON DELETE CASCADE`,
-`FK (department_id, workspace_id) → workspace_departments(id, workspace_id) ON DELETE RESTRICT`
-(both parents gain `UNIQUE (id, workspace_id)`).
+New self-host migration (numbered from the real latest file, currently `075`) + mirrored hosted migration, each with an in-migration `DO $verify$` proof in the `043` style. Every new table: RLS enabled, zero client policies, `REVOKE ALL FROM PUBLIC, anon, authenticated`, minimum grants to `service_role`, `DELETE` granted only where retention allows.
 
-### workspace_member_details (active employment, workspace-scoped)
-`workspace_id, user_id, first_name, last_name, work_email_normalized, work_phone_e164, member_type, job_title, staff_code, invited_by, invitation_id, joined_at, updated_at`. PK `(workspace_id, user_id)`; `FK (workspace_id, user_id) → workspace_members(workspace_id, user_id) ON DELETE RESTRICT`; `FK invitation_id → workspace_invitations(id) ON DELETE RESTRICT`. Global `profiles` of an existing account are never overwritten.
+**0. Self-host prerequisite port** — `workspace_departments`, `workspace_department_members` (verbatim from hosted `20260423182832`), and the four member-scoped tables named in §1, so both chains share the schema the invitation and offboarding logic needs.
 
-### workspace_member_details_history (resolves the v2 FK contradiction)
-On offboarding the active row is **copied here and deleted**, then the membership is deleted. History references `workspace_id → workspaces(id) ON DELETE CASCADE`, `user_id → profiles(id) ON DELETE SET NULL`, `invitation_id → workspace_invitations(id) ON DELETE SET NULL` — never `workspace_members`. Columns add `offboarded_at`, `offboarded_by`, `reason`.
+**workspace_invitations (expanded).** Adds `first_name`, `last_name`, `invited_email_normalized`, `invited_phone_e164`, `member_type ('customer_facing'|'staff')`, `status ('pending'|'accepted'|'revoked'|'expired')`, `accepted_by`, `accepted_at`, `revoked_by`, `revoked_at`, `revoked_reason`, `expired_at`, `archived_at`, `notification_generation int NOT NULL DEFAULT 1`, `job_title`, `staff_code`, `last_email_status`, `last_sms_status`. Contract phase drops `token`, `max_uses`, `use_count`.
+Constraints: `UNIQUE (id, workspace_id)`; partial unique `(workspace_id, invited_email_normalized) WHERE status='pending'` and the same for `invited_phone_e164` (no `now()` in any predicate — status really transitions); CHECKs for non-empty trimmed names, canonical email, `invited_phone_e164 ~ '^\+[1-9][0-9]{6,14}$'`, `member_type` domain, `role <> 'owner'`, role ∈ the set allowed for its `member_type`, `expires_at > created_at`, and full state invariants — `pending` ⇒ no `accepted_at`/`revoked_at`/`expired_at`; `accepted` ⇒ `accepted_by` + `accepted_at` and no revoked fields; `revoked` ⇒ `revoked_by` + `revoked_at` + `revoked_reason`; `expired` ⇒ `expired_at`. `archived_at` is orthogonal to status.
 
-### legal_policy_versions (immutable)
-`id, policy_type ('terms'|'privacy'), version, locale, content_hash, document_url, published_at, effective_from, is_active`. Unique `(policy_type, version, locale)`. An UPDATE/DELETE trigger rejects any change to `version`/`content_hash`/`published_at` once referenced by a consent row.
+**workspace_invitation_tokens.** `id, invitation_id, workspace_id, purpose ('email_claim'|'manual_handoff'), token_hash UNIQUE, token_prefix, token_generation int, notification_generation int, expires_at, consumed_at, revoked_at, created_at`. Partial unique `(invitation_id, purpose) WHERE consumed_at IS NULL AND revoked_at IS NULL`. Raw values never stored.
 
-### workspace_invitation_consents
-`id, user_id, workspace_id, invitation_id UNIQUE, terms_version_id, terms_content_hash, privacy_version_id, privacy_content_hash, accepted_at DEFAULT now(), ip, user_agent, locale, acceptance_method ('email_claim'|'manual_handoff_otp'|'existing_account')`. FKs to invitation and legal versions are `ON DELETE RESTRICT`. Server picks the effective versions; IP from `server/utils/clientIp.ts` trusted-proxy rules; UA from headers. Marketing consent is not stored here.
+**workspace_invitation_otps.** `id, invitation_id, workspace_id, email_normalized, manual_token_id, manual_token_generation, notification_generation, purpose, code_digest, attempts, max_attempts, expires_at, consumed_at, revoked_at, ip_hash, created_at`. Digest = peppered HMAC bound to `(otp_id, invitation_id, workspace_id, email_normalized, manual_token_id, generations)` — same construction as `phoneVerification/crypto.ts`.
 
-### workspace_invitation_deliveries (append-only)
-`id, invitation_id, workspace_id, channel ('email'|'sms'), attempt_number, purpose, provider_name, provider_message_id, status ('queued'|'claimed'|'provider_accepted'|'sent'|'retrying'|'failed'|'permanently_failed'|'delivered'|'unconfigured'), error_code, safe_error_message, created_at, accepted_at, sent_at, delivered_at, failed_at, metadata`. `delivered` only from a verified provider webhook. Stub/unconfigured ⇒ `unconfigured`, never success. No tokens, no bodies, no secrets.
+**workspace_invitation_proofs.** `id, otp_id, invitation_id, workspace_id, email_normalized, manual_token_id, manual_token_generation, notification_generation, purpose, proof_hash UNIQUE, expires_at (≤10 min), consumed_at, revoked_at, created_at`.
 
-### workspace_invitation_outbox
-Modelled on `channel_jobs` (048): `id, invitation_id, workspace_id, channel, idempotency_key UNIQUE, attempts, max_attempts, run_after, claimed_at, claimed_by, completed_at, failed_at, last_error, payload` — payload holds **no raw token**; the worker mints the `email_claim` token when it owns the job and stores only the hash.
+**workspace_invitation_departments.** `(invitation_id, workspace_id, department_id)`, PK `(invitation_id, department_id)`, `FK (invitation_id, workspace_id) → workspace_invitations(id, workspace_id) ON DELETE CASCADE`, `FK (department_id, workspace_id) → workspace_departments(id, workspace_id) ON DELETE RESTRICT` (both parents gain `UNIQUE (id, workspace_id)`).
 
-### Privileges (every new table)
-`REVOKE ALL ... FROM PUBLIC, anon, authenticated;` `GRANT SELECT, INSERT, UPDATE ON ... TO service_role;` (DELETE only where the retention matrix allows). RLS enabled with zero client policies **in addition to** the revokes. Every SECURITY DEFINER function: `SET search_path = public, pg_temp`, `REVOKE EXECUTE FROM PUBLIC, anon, authenticated`, `GRANT EXECUTE TO service_role`, fully qualified table references, all tenant/identity/consent/capacity inputs validated internally.
+**workspace_invitation_jobs (outbox, modelled on `channel_jobs`).** `id, invitation_id, workspace_id, channel ('email'|'sms'), notification_generation, email_token_generation, destination_hash, idempotency_key UNIQUE, status ('queued'|'claimed'|'provider_accepted'|'completed'|'retrying'|'permanently_failed'|'cancelled'|'unconfigured'), attempt_count, max_attempts, available_at, locked_by, locked_at, claim_token uuid, claim_expires_at, last_error, created_at, updated_at`. Payload is secret-free and contains **no raw token**.
 
-## 3. Atomic creation and edit RPCs
+**workspace_invitation_deliveries (append-only).** `id, invitation_id, workspace_id, job_id, channel, notification_generation, attempt_number, provider_name, provider_message_id, status, error_code, safe_error_message, created_at, provider_accepted_at, sent_at, delivered_at, failed_at, metadata`. `delivered` written only by a signature-verified provider webhook. Stub/unconfigured ⇒ `unconfigured`. No tokens, bodies or secrets. No UPDATE of historical rows other than webhook-driven terminal timestamps on the same attempt.
 
-`public.create_workspace_invitation_v2(...)` — service_role only, one transaction: validate workspace + inviter permission (re-checked in SQL, not trusted from the route), validate role/member_type pairing, validate normalized email/phone, lazily expire stale pending rows for the same email/phone, check uniqueness, advisory seat-capacity check (§9), insert invitation, insert departments, insert both token hash rows, insert outbox jobs, insert initial `queued` delivery attempts, insert the audit row. Returns only the safe invitation representation; the raw `manual_handoff` value is generated by the backend CSPRNG (32 bytes, base64url ≥256 bits) and returned once by the route — only its SHA-256 hash + prefix enter the RPC.
+**workspace_member_details (active).** `workspace_id, user_id, first_name, last_name, work_email_normalized, work_phone_e164, member_type, job_title, staff_code, invited_by, invitation_id, joined_at, updated_at`. PK `(workspace_id, user_id)`; `FK (workspace_id, user_id) → workspace_members(workspace_id, user_id) ON DELETE RESTRICT`; `FK invitation_id → workspace_invitations(id) ON DELETE RESTRICT`.
 
-`public.edit_workspace_invitation_v2(...)` — same transaction discipline for edits: field updates, full department replacement, and, when email/phone change, revocation of all existing tokens plus insertion of new `email_claim` + `manual_handoff` hashes, new outbox jobs, new delivery attempts, and an audit row. Old delivery attempts stay bound to the old contact data. Unique conflicts surface as `409 INVITATION_DUPLICATE`. Only `pending` invitations can be edited/resent/rotated/accepted. No multi-statement PostgREST sequences anywhere in this flow.
+**workspace_member_details_history (immutable snapshot).** Same descriptive columns plus `offboarded_at`, `offboarded_by`, `reason`. `workspace_id uuid NOT NULL → workspaces(id) ON DELETE CASCADE`; `user_id uuid NULL → profiles(id) ON DELETE SET NULL`; `invitation_id uuid NULL → workspace_invitations(id) ON DELETE SET NULL`. **No FK to `workspace_members`.** Readable only by owner/admin of that workspace and platform admins, through a server route. Retention: kept indefinitely unless a formal privacy/erasure job (existing `privacy_jobs` machinery) anonymizes it.
 
-## 4. Acceptance state machine (strictly separated)
+**legal_policy_versions (immutable).** `id, policy_type ('terms'|'privacy'), version, locale, content_hash, document_url, published_at, effective_from, is_active`, unique `(policy_type, version, locale)`. A trigger rejects any change to `version`/`content_hash`/`published_at`, and any delete, once referenced by a consent row.
 
-Server resolves state before any write; no unique-violation fallback ever converts an unauthenticated flow into an existing-account acceptance.
+**workspace_invitation_consents.** `id, user_id, workspace_id, invitation_id UNIQUE, terms_version_id, terms_content_hash, privacy_version_id, privacy_content_hash, accepted_at DEFAULT now(), ip, user_agent, locale, acceptance_method ('email_claim'|'manual_handoff_otp'|'existing_account')`. FKs to invitation and legal versions `ON DELETE RESTRICT`; no DELETE grant.
 
-| State | Path | Behavior |
-| --- | --- | --- |
-| No profile | `accept-new` | Requires mailbox proof (email_claim token, or manual_handoff + OTP proof), password policy pass, explicit consent → `accept_invitation_new_user_v2` creates profile + Argon2id credentials + membership + details + departments + consent atomically |
-| Profile, `password_hash IS NULL` | `accept-new` (setup mode) | Same proof requirement; sets the password on the **existing** profile, never duplicates it |
-| Profile with active credential | `accept-new` | Hard stop → `ACCOUNT_EXISTS_LOGIN_REQUIRED`; user must log in |
-| Authenticated session | `accept-existing` | `accept_invitation_existing_user_v2`, user id resolved **only** from `gs_session`; session email must equal the invited email, else Wrong Account screen |
-| Disabled/suspended/locked (`user_credentials.status`) | any | Fail closed |
+**workspace_invitation_idempotency.** `key UNIQUE (hash of actor_id|workspace_id|invitation_id|operation|client_request_id), operation, invitation_id, response_digest, created_at, expires_at (24h)`. Never stores raw tokens or links.
 
-`userId`, `profileId`, session identity, verification state, role authority, `max_agents` and consent versions are **never** read from the request body. Two distinct service-role RPCs keep the boundary explicit. A profile appearing concurrently during a new-user accept returns `ACCOUNT_EXISTS_LOGIN_REQUIRED`, not a silent bind. Existing-account acceptance does **not** auto-record consent: if that user has not accepted the currently effective versions, the UI shows an explicit unchecked checkbox first.
+## 5. Token, generation, OTP and proof model
 
-## 5. Token and OTP lifecycle
+- **Manual handoff token** — generated by Express with ≥256-bit CSPRNG, base64url. Only `sha256(raw)` + prefix + expiry enter `create_workspace_invitation_v2`. Returned to the authorized manager exactly once in the create/rotate response; never stored, logged or audited.
+- **Email claim token** — **does not exist at creation time.** It is derived by the invitation worker only after it exclusively claims the email job, as
+  `HMAC-SHA-256(K, "workspace-invitation-email-token-v1" || invitation_id || job_id || notification_generation || email_token_generation || purpose)`, base64url, where `K = HKDF(INVITATION_LINK_SECRET, info="workspace-invitation-email-token-v1")`. Only `sha256(raw)` + prefix are persisted, at claim time. The raw value lives only in worker memory while rendering the email. Because the inputs and `K` are stable, **every retry of the same logical job reconstructs the identical token**, so a crash after provider acceptance never invalidates the already-delivered link and no plaintext storage is needed. `INVITATION_LINK_SECRET` is validated at startup (length/entropy, distinct from every other secret per the existing `assertDistinctSigningKey` pattern) and supports a `current/previous` key ring so a controlled rotation does not break already-sent, unexpired links; generation, deployment and rotation are documented in `SELF_HOST_GUIDE.md`.
+- **Generations** — `notification_generation` on the invitation is the master counter; every token, OTP, proof, job and delivery row carries the generation it belongs to. `email_token_generation` distinguishes explicit resends within a generation.
+- **Rotation rules** — email resend ⇒ new email job + new `email_token_generation`, previous email tokens revoked; it does **not** touch the manual link. Manual rotation ⇒ new manual token only; it does **not** resend email/SMS unless explicitly requested. Invited-email change ⇒ full generation bump (see §6). Accepting any token consumes it and revokes all sibling tokens, OTPs and proofs.
+- **OTP** — CSPRNG 6 digits, peppered-HMAC digest only, 10-minute expiry, single use, max 5 attempts, 60 s resend cooldown, capped sends per invitation/window, previous OTP invalidated on resend, uniform responses that never reveal account existence, rate limits by IP + invitation + destination-email hash (+ workspace only after the token resolves). Bound to invitation, workspace, normalized email, manual token id, manual token generation, notification generation and purpose.
+- **Proof** — minted only by successful OTP verification, bound to all of the above plus `otp_id`, unique `proof_hash`, short expiry, single use, locked and consumed inside the acceptance transaction. A proof from an older manual-link generation can never accept a newer link. Manual rotation, email change, revocation, expiration, acceptance and archival each revoke all associated OTPs and proofs atomically.
+- **Comparison** — lookup is an indexed equality on the stored SHA-256 hash (not claimed to be constant-time); security rests on ≥256-bit entropy, hashing, expiry, rate limits and single-use. Application-level secret comparisons use `timingSafeEqual`.
+- Delivery is **at-least-once** at the provider level; v4 guarantees idempotent logical content and single-use acceptance, not exactly-once email.
 
-- Tokens: ≥256-bit CSPRNG, base64url, SHA-256 hashed, indexed lookup by hash (an indexed equality lookup is *not* claimed to be constant-time; security rests on entropy, hashing, expiry, rate limits and single use). Application-level secret comparisons use `timingSafeEqual`.
-- `email_claim` exists only inside the invitation email and is never returned by any API. `manual_handoff` is shown to the owner exactly once (create/rotate response). Consuming either accepts the invitation and revokes all other tokens of that invitation. Resend rotates `email_claim` only; rotate-link rotates `manual_handoff` only.
-- OTP (manual link, new user): CSPRNG 6 digits, peppered-HMAC digest only, 10-minute expiry, single use, max 5 attempts, 60-second resend cooldown, max sends per invitation/window, previous OTP invalidated on resend, generic responses that never reveal account existence, rate limits by IP + invitation + destination email hash (+ workspace only after the token resolves). Success mints a short-lived single-use proof consumed inside the acceptance RPC and updates the project's canonical verification state (`user_credentials.email_verified_at`, source `workspace_invitation_email_claim`) — no second verification system.
-- SMS is notification-only, carries no link, and never changes phone-verification state.
+## 6. Atomic create / edit / resend / rotate RPCs
 
-## 6. Notification architecture (one model, chosen)
+All are service_role-only, `SECURITY DEFINER`, `SET search_path = public, pg_temp`, fully qualified, no dynamic SQL, revalidating actor membership and permission from the server-resolved actor id. No mutation is ever a sequence of independent PostgREST statements.
 
-Durable DB-backed outbox reusing the proven `channel_jobs` pattern from 048, run by a new `WORKER_KIND=invitations` loop in `worker/index.ts` (plus an in-process fallback ticker for single-container self-host installs, controlled by one server setting — never both active). Jobs are claimed with `FOR UPDATE SKIP LOCKED` via a service-role RPC, keyed by a stable idempotency key, retried with backoff and a max-attempt cap into `permanently_failed`. The worker mints the raw `email_claim` token at claim time, persists the hash atomically, builds the link in memory from `resolveAppBaseUrl(config)`, and sends via the existing email/SMS provider abstractions; retries revoke the previous generation so multiple valid email links can never coexist. Every attempt appends a delivery row; provider acceptance ≠ sent ≠ delivered. Provider failure never deletes or revokes the invitation; the owner sees the real state and can retry.
+**`create_workspace_invitation_v2`** — one transaction: validate inviter membership + permission; validate role/member-type pairing (and the admin-invite rule); validate normalized email + E.164 phone; lazily expire stale pending rows for the same email/phone; check pending uniqueness; advisory capacity validation (blocked when full, no waitlist); insert invitation; insert departments; insert **only the manual_handoff token hash**; insert email + SMS jobs for generation 1; insert `queued` delivery rows; insert audit. Returns the safe invitation representation only. **No email token is created here.**
 
-## 7. Canonical API + stable error codes
+**`edit_workspace_invitation_v2`** — one transaction: lock invitation `FOR UPDATE`; confirm `pending` (lazily expire first); revalidate caller permission **against the resulting state** (an admin can neither create nor edit an invitation into `admin`, nor manage an existing admin invitation); replace departments atomically; when email and/or phone change: cancel all unclaimed jobs of the previous generation, revoke all prior email tokens, OTPs and proofs, increment `notification_generation`, update the normalized fields, insert new jobs and `queued` delivery rows; preserve historical delivery attempts; insert audit.
 
-`server/routes/workspaceInvitations.ts` — `POST /`, `GET /?workspaceId=`, `GET /:id`, `PATCH /:id`, `POST /:id/resend`, `POST /:id/rotate-link`, `POST /:id/revoke`, `DELETE /:id` (archive when accepted), `GET /preview?token=`, `POST /otp/request`, `POST /otp/verify`, `POST /accept-new`, `POST /accept-existing`.
+**Resend / rotate** — resend creates a new logical email job (new `email_token_generation`) and revokes the previous email generation; rotate mints a new manual token hash and revokes the previous manual token, its OTPs and proofs.
 
-For every route: caller = owner/admin (or platform super admin) via `authorizeWorkspaceAccess(..., { manage: true })` for management, public+token for preview/OTP/accept-new, `gs_session` for accept-existing; identity source = `gs_session` only; transaction boundary = one service-role RPC per mutation; idempotency = invitation-scoped keys on accept/resend; returned data excludes tokens, hashes, OTPs and internal user ids; secrets never logged.
+**Lock order everywhere:** workspace row → invitation row → token/OTP/proof rows → job rows. The worker uses the same order (it never locks an invitation before its workspace), so claiming and editing cannot deadlock.
 
-Error codes: `INVITATION_NOT_FOUND` (uniform for invalid/expired/revoked/consumed/unknown at preview), `INVITATION_DUPLICATE` (409), `ACCOUNT_EXISTS_LOGIN_REQUIRED`, `ACCOUNT_DISABLED`, `EMAIL_PROOF_REQUIRED`, `OTP_INVALID`, `OTP_RATE_LIMITED`, `CONSENT_REQUIRED`, `SEAT_LIMIT_REACHED`, `ENTITLEMENT_UNAVAILABLE` (503), `SESSION_CREATE_FAILED_LOGIN_REQUIRED`.
+**In-flight honesty:** a request already submitted to a provider cannot be recalled. In that rare race the old token is already revoked and unusable, no further retry goes to the old destination, and the event is audited without the address or token.
 
-Legacy paths (`/api/workspace-members/invitations*`, `/accept-invitation`) return `410 Gone`, then are deleted; `get_invitation_info` and both legacy accept RPCs are dropped in the contract migration.
+## 7. Department rules (database-enforced)
 
-## 8. `/api/email/send` fix
+`customer_facing` ⇒ **at least one** department of the same workspace; `staff` ⇒ **exactly zero** departments. Enforced in UI, Express validation, RPC validation, and by an `INITIALLY DEFERRED` constraint trigger that fires from **both** sides — on `workspace_invitations` insert/update of `member_type`, and on insert/update/delete in `workspace_invitation_departments` — so it validates correctly at COMMIT of the single create/edit transaction. Cross-workspace departments are impossible via the composite FK. Acceptance copies the customer-facing assignments into `workspace_department_members` inside the same transaction.
 
-The two browser invite callers disappear (backend sends invitation mail). `POST /api/email/send` stops accepting arbitrary `to`/`subject`/`html` and is replaced by `POST /api/email/test-send`: owner/admin only, fixed server-rendered template, recipient restricted to a verified workspace address. `send-channel` and `sendChannelEmail()` are untouched; in-process platform mail is untouched. A security test proves an ordinary member cannot relay mail.
+## 8. Acceptance state machine
 
-## 9. Seat concurrency
+Two distinct service-role RPCs; no unique-violation fallback ever converts an unauthenticated flow into an existing-account acceptance.
 
-One canonical locking discipline: **every** seat-creating path takes `SELECT id FROM public.workspaces WHERE id = _workspace_id FOR UPDATE` before counting and inserting. Paths: the two new acceptance RPCs (new), `create_workspace_atomic` (documented specialized bootstrap — a brand-new workspace with exactly its owner; it gains the lock for uniformity), and the legacy accept RPCs (dropped). A CI guard greps both migration chains for `INSERT INTO ... workspace_members` and fails on any statement that is not inside a function containing the workspace lock. The authoritative `max_agents` is resolved **inside the transaction** from the subscription/entitlement tables; if it cannot be resolved the RPC raises and the route returns `503 ENTITLEMENT_UNAVAILABLE` — never "unlimited". Self-host unlimited comes only from the existing server-side setting (`-1`).
+**`accept_invitation_new_user_v2`** — allowed only when there is no profile, or a profile whose `user_credentials.password_hash IS NULL`. Steps: verify + lock invitation (workspace lock first); verify the presented token (`email_claim` or current `manual_handoff`); for manual, lock and verify the OTP proof; confirm token/proof generations are current; check expiry/revocation; enforce seat entitlement (§13); confirm no active password-protected account exists (else `ACCOUNT_EXISTS_LOGIN_REQUIRED`, changing nothing); create or reuse the allowed profile; insert/update `user_credentials` with the Argon2id hash produced by Express; set `user_credentials.email_verified_at = now()` **here** (the only place — a new user has no credential row at OTP time) and record the verification source (`workspace_invitation_email_claim` / `workspace_invitation_manual_otp`); create membership, member details, department assignments; record consent; mark the invitation accepted; consume the used token/proof; revoke all siblings. Plaintext passwords never leave Express — never sent to PostgreSQL, logs, audit or analytics.
 
-Order inside acceptance: resolve+validate token → read `workspace_id` from the invitation → lock workspace → lock invitation → re-check pending/expiry/revocation/single-use → resolve limit → count members → enforce limit → resolve/create account → membership + details + departments → consent → mark accepted, consume token, revoke siblings.
+**`accept_invitation_existing_user_v2`** — requires a valid `gs_session`-resolved user id, active account, session email equal to the invited normalized email, explicit current-version consent (never inferred from login), pending unexpired invitation and an available seat. The RPC re-checks that the passed actor really is the invited account and that the workspace operation matches.
 
-Seat behavior at creation: advisory capacity check; if the workspace is already at its hard limit, creation is blocked with a clear error (no waitlist). Pending invitations reserve nothing. If capacity fills before acceptance, acceptance returns `SEAT_LIMIT_REACHED` **without consuming the token, OTP proof or consent**, and the same invitation stays valid for a retry once a seat is freed or the plan upgraded (explained in the owner UI).
+Disabled/suspended/locked accounts fail closed in both paths.
 
-## 10. Expiration
+## 9. Durable outbox and crash recovery
 
-`expired_at` is set by a real status transition: an idempotent janitor loop (same worker) flips due `pending` rows to `expired` and revokes their tokens with an audit event; lazy expiry also runs **before** every uniqueness check, preview, list, resend and accept. Expired/revoked invitations never return to pending — a new invitation must be created.
+`workspace_invitation_jobs` + `claim_invitation_jobs(_worker_id,_limit,_lease_seconds,_channels)` mirroring `claim_channel_jobs` (`FOR UPDATE SKIP LOCKED`, `claim_token` nonce, `claim_expires_at` lease, service_role-only execute). States: `queued → claimed → provider_accepted → completed`, with `retrying`, `permanently_failed`, `cancelled`, `unconfigured`. Heartbeats reuse the `channel_worker_heartbeats` pattern; lease expiry returns a job to `queued`; every write asserts the worker still holds the matching `claim_token`. Exponential backoff, `max_attempts` then dead-letter `permanently_failed`. Immediately **before provider submission** the worker re-checks: invitation still pending, not expired, `job.notification_generation = invitation.notification_generation`, job not cancelled, destination hash matches the current generation, and its lease/claim token is still valid. Provider timeouts are treated as possibly-accepted (duplicate submission is possible; the deterministic token makes the duplicate harmless). Webhooks are signature-verified before writing `delivered` or provider failure, correlated by `provider_message_id`. Graceful shutdown releases claims. Exactly one execution mode processes jobs: `WORKER_KIND=invitations`, or the single-container in-process fallback, selected by a server setting whose startup validation rejects both being configured as primary; the claim mechanism stays safe even if both accidentally run. Provider acceptance is never labelled delivered; stub/unconfigured is never success; email/SMS failure never deletes or revokes the invitation, and the owner sees the true state and can retry.
 
-## 11. Preview privacy
+## 10. Canonical API and error codes
 
-Before mailbox proof: masked email, masked phone, workspace name, inviter display name, role/member type, department names, expiry. No internal user ids, no token prefixes, no delivery internals. Invalid/expired/revoked/consumed/unknown tokens all return the same public error; the real reason goes only to token-free audit logs. After a valid `email_claim`, the full invited email may be shown.
+`server/routes/workspaceInvitations.ts`:
 
-## 12. Frontend
-
-`InvitePage.tsx` rewritten against the Express endpoints (no `supabase.rpc`/`supabase.from`): preview → (manual link, new user) OTP step → password + confirm + consent checkbox (default off, submit disabled until checked, clickable versioned terms/privacy links) → accept → redirected into the workspace. Existing account → login with the invite redirect preserved; mismatch → Wrong Account screen. Token handling: `Referrer-Policy: no-referrer`, token stripped from the URL via `history.replaceState` immediately after reading, kept in memory/sessionStorage only, cleared on accept/expire/revoke/logout, never in toasts, analytics, error tracking or logs.
-
-Management UI (create dialog with all required fields, pending list, per-channel delivery history, expiry, edit/resend/rotate/revoke/archive, copy-link with real clipboard verification, seat-limit messaging) lands in `StaffAccessPage.tsx` (staff) and `TeamDepartmentsPage.tsx` (customer-facing), hidden for non-managers with the backend as final authority. `TeamPage.tsx` keeps only its redirect. fa/en/tr strings, RTL respected.
-
-## 13. Permission matrix
-
-| Action | Owner | Admin | Agent/Viewer/other | Platform super admin |
+| Route | Caller / authority | Transaction | Idempotency | Returns |
 | --- | --- | --- | --- | --- |
-| Create invitation (non-admin roles) | ✔ | ✔ | ✖ | ✔ |
-| Create invitation with `role='admin'` | ✔ | ✖ | ✖ | ✔ |
-| Invite `role='owner'` | ✖ | ✖ | ✖ | ✖ |
-| List / view / edit / resend / rotate / revoke / archive | ✔ | ✔ | ✖ | ✔ |
-| Promote a member to admin | ✔ | ✖ | ✖ | ✔ |
-| Remove member | ✔ | ✔ (non-admin targets only) | ✖ | ✔ |
+| `POST /` | owner/admin via `gs_session` + `manage:true` | create RPC | operation key | safe invitation + manual link **once** |
+| `GET /?workspaceId=` | owner/admin | read | – | safe list (prefix only, no hashes) |
+| `GET /:id` | owner/admin | read | – | safe detail + delivery history |
+| `PATCH /:id` | owner/admin (resulting-state check) | edit RPC | operation key | safe invitation |
+| `POST /:id/resend` | owner/admin | edit-family RPC | operation key | new generation info |
+| `POST /:id/rotate-link` | owner/admin | rotate RPC | operation key | new manual link **once** |
+| `POST /:id/revoke` | owner/admin | revoke RPC | operation key | ok |
+| `POST /:id/archive` | owner/admin | archive RPC | operation key | ok |
+| `GET /preview?token=` | token possession + IP/global rate limit | read | – | masked preview |
+| `POST /otp/request`, `POST /otp/verify` | token possession + layered limits | OTP RPCs | operation key | generic status / proof handle |
+| `POST /accept-new` | token (+proof) possession | accept RPC | operation key | session or login-required |
+| `POST /accept-existing` | `gs_session` | accept RPC | operation key | session state |
+
+Errors: `INVITATION_NOT_FOUND` (uniform for invalid/expired/revoked/consumed/unknown at public endpoints), `INVITATION_DUPLICATE` (409), `INVITATION_NOT_PENDING`, `ACCOUNT_EXISTS_LOGIN_REQUIRED`, `ACCOUNT_DISABLED`, `EMAIL_PROOF_REQUIRED`, `OTP_INVALID`, `OTP_RATE_LIMITED`, `CONSENT_REQUIRED`, `SEAT_LIMIT_REACHED`, `ENTITLEMENT_UNAVAILABLE` (503), `SESSION_CREATE_FAILED_LOGIN_REQUIRED`, `FORBIDDEN_ROLE_ESCALATION`.
+
+Legacy `/api/workspace-members/invitations*` and `/accept-invitation` return `410 Gone`, then are deleted; `get_invitation_info`, `accept_workspace_invitation_as` and `accept_workspace_invitation` are dropped in the contract migration.
+
+**Idempotency:** every mutation takes/derives `key = hash(actor_id|workspace_id|invitation_id|operation|client_request_id)`. Replaying the same key returns the same logical result; a new client request id is a genuine new operation (so later resends work); double-clicks create no duplicate jobs; network retries never rotate twice. Records store only a response digest, expire after 24 h, and never contain raw tokens — a lost rotate response therefore requires another rotation, which is documented in the UI.
+
+## 11. Permission matrix
+
+| Action | Owner | Admin | Other members | Platform super admin |
+| --- | --- | --- | --- | --- |
+| Invite non-admin roles | ✔ | ✔ | ✖ | ✔ |
+| Invite admin | ✔ | ✖ | ✖ | ✔ |
+| Invite owner | ✖ | ✖ | ✖ | ✖ |
+| Change a pending invite to admin | ✔ | ✖ | ✖ | ✔ |
+| Edit/resend/rotate/revoke/archive a non-admin invite | ✔ | ✔ | ✖ | ✔ |
+| Manage an admin invitation | ✔ | ✖ | ✖ | ✔ |
+| Remove non-admin member | ✔ | ✔ | ✖ | ✔ |
+| Remove/demote admin | ✔ | ✖ | ✖ | ✔ |
 | Remove/demote canonical owner | ✖ | ✖ | ✖ | ✖ |
 
-Customer-facing invitations use only customer-facing roles (agent, support_agent, sales_agent, team_lead) and require ≥1 department; staff invitations use staff roles and take none.
+Enforced twice: in Express from `gs_session`, and again inside each RPC from the server-resolved actor id against real membership — always against the **resulting** state, never merely the original role. Customer-facing invitations may use only agent/support_agent/sales_agent/team_lead; staff invitations use the staff role set.
 
-## 14. Offboarding + retention matrix
+## 12. Frontend flows
 
-`public.offboard_workspace_member(...)` — service_role only; locks the workspace, resolves the target **inside** that workspace, reads `workspaces.owner_id` and refuses to remove or demote the canonical owner regardless of caller.
+`InvitePage.tsx` rewritten against the Express endpoints (no `supabase.rpc`/`supabase.from`): masked preview → (manual link, new user) OTP step → password + confirm + unchecked consent with versioned terms/privacy links → accept → workspace. States: loading, invalid/expired/revoked (uniform copy), otp_required, otp_locked, ready, accepting, seat_limit_reached (retry later), account_exists_login_required, wrong_account, session_failed_login_required, accepted. Existing accounts are routed to login with the invite redirect preserved and still see an explicit consent checkbox when their accepted legal versions are stale. Token hygiene: `Referrer-Policy: no-referrer`, `history.replaceState` immediately after reading the token, memory/sessionStorage only, cleared on accept/expire/revoke/logout, never in toasts, analytics, error tracking or logs.
+
+Management UI (create dialog with all required fields, pending/archived filters, delivery history per attempt, expiry, edit/resend/rotate/revoke/archive, copy-link with verified clipboard, seat-limit messaging, "invite again" prefill for expired/revoked rows) lands in `StaffAccessPage.tsx` (staff) and `TeamDepartmentsPage.tsx` (customer-facing); hidden for non-managers with the backend as final authority. `TeamPage.tsx` keeps only its redirect. fa/en/tr strings, RTL respected.
+
+## 13. Seat locking and entitlement
+
+Every seat-creating path locks the same row: `SELECT id FROM public.workspaces WHERE id = _workspace_id FOR UPDATE` before counting and inserting. Paths: the two acceptance RPCs (new), `create_workspace_atomic` (documented bootstrap — brand-new workspace with exactly its owner; gains the lock for uniformity), and the legacy accept RPCs (dropped in contract). A CI guard scans both chains for `INSERT INTO ... workspace_members` and fails any statement not inside a function containing the workspace lock. `max_agents` is resolved **inside the transaction** from the authoritative subscription/entitlement tables (with the server-side `SELF_HOST_BILLING_MODE=unlimited` setting as the only unlimited source); an unresolvable entitlement raises → `503 ENTITLEMENT_UNAVAILABLE`, never unlimited.
+
+Order: identify invitation from token hash → read workspace id from the invitation → lock workspace → lock invitation → re-check token/status/generation/expiry/revocation → resolve entitlement → count seats → enforce → resolve/create allowed account → membership/details/departments → consent → accept → consume token/proof and revoke siblings.
+
+Pending invitations reserve nothing. Creation is blocked when the workspace is already full (no waitlist). If capacity fills later, acceptance returns `SEAT_LIMIT_REACHED` **without consuming the token, proof or consent**, and the same unexpired invitation can be retried once a seat is freed or the plan upgraded.
+
+## 14. Expiration and archival
+
+An idempotent janitor (same worker) flips due `pending` rows to `expired` (setting `expired_at`), revokes their tokens/OTPs/proofs and cancels their queued jobs, with an audit event; lazy expiry also runs before every uniqueness check, list, preview, resend, rotate and accept. Expired/revoked invitations never return to pending — "invite again" creates a **new** row with a new id, new tokens, new consent lifecycle and new audit history, optionally prefilled in the UI from the old row. Pending invitations are revoked (never hard-deleted by default); revoked/expired ones may be archived (hidden from the default list, visible under an archived filter, tokens permanently unusable); accepted ones may only be archived. Invitations, consents, deliveries, member-history snapshots and audit records are never hard-deleted by ordinary management; a permanent purge exists only inside the formal privacy/retention process (`privacy_jobs`) with its FK consequences documented there.
+
+## 15. Consent and legal versions
+
+Immutable `legal_policy_versions`; the backend/database selects the effective terms and privacy versions. Every acceptance — including existing-account acceptance — shows an explicit unchecked checkbox and records an invitation-specific consent row with user, workspace, invitation, terms version + content hash, privacy version + content hash, locale, server timestamp, trusted client IP (`server/utils/clientIp.ts` proxy rules), user agent and acceptance method. Referenced versions and hashes cannot be edited or deleted. Marketing consent is separate and never implied.
+
+## 16. Offboarding and retention matrix
+
+`offboard_workspace_member(...)`, service_role only: lock workspace → resolve target inside that workspace → protect the canonical `workspaces.owner_id` (never removable or demotable, by anyone) → snapshot `workspace_member_details` into `workspace_member_details_history` → delete active details → delete `workspace_members` → delete only verified workspace-scoped rows → revoke matching pending invitations and their tokens/OTPs/proofs/jobs → audit.
 
 | Data | Action |
 | --- | --- |
-| `workspace_member_details` | snapshot → `workspace_member_details_history`, then delete |
+| `workspace_member_details` | snapshot then delete |
 | `workspace_members` | delete |
-| `workspace_department_members` | delete |
-| `call_center_department_agents` | delete (verified workspace+user scoped) |
-| `operator_call_availability`, `user_availability_prefs` (this workspace) | delete |
-| `user_notification_prefs` (this workspace) | delete |
-| pending invitations matching the work email/phone + their tokens | revoke |
-| `role_permissions` | **untouched** — shared role definitions, not user data |
-| accepted invitations, consents, deliveries, audit logs | retained (immutable) |
-| global `profiles`/`user_credentials`, other workspaces | untouched |
+| `workspace_department_members` | delete (workspace+user scoped, verified) |
+| `call_center_department_agents` | delete (workspace+user scoped, verified) |
+| `operator_call_availability` | delete (workspace+user scoped, verified) |
+| `user_availability_prefs` | delete **only** `workspace_id = target` — the nullable-workspace global row is preserved |
+| `user_notification_prefs` | delete rows for this workspace only |
+| pending invitations matching work email/phone + tokens/OTPs/proofs/jobs | revoke / cancel |
+| `role_permissions` | untouched (shared role definitions) |
+| accepted invitations, consents, deliveries, history, audit | retained |
+| global `profiles` / `user_credentials`, other workspaces | untouched |
 
-Only tables present in both authoritative chains are referenced; anything else uses `to_regclass` guards. Removed members immediately lose authorization through the existing server-side membership checks. Audit row written.
+Because four of these tables are hosted-chain-only today, the prerequisite port in §4 lands them in the self-host chain first; the RPC therefore references only tables that exist in **both** chains after the migration — no `to_regclass` guessing. Removed members lose authorization immediately through the existing server-side membership checks.
 
-## 15. Post-commit session failure
+## 17. RLS, grants, SECURITY DEFINER and secrets
 
-Acceptance commits first; `gs_session` creation is attempted afterwards. On failure nothing is rolled back or duplicated: the route returns `SESSION_CREATE_FAILED_LOGIN_REQUIRED` and the user logs in with the password just set. Retrying a consumed invitation cannot create a second membership (token consumed + `UNIQUE (workspace_id, user_id)`), and acceptance is audited once via an idempotency key, not once per HTTP retry.
+Every new table: RLS on, zero client policies, `REVOKE ALL FROM PUBLIC, anon, authenticated`, minimal `service_role` grants, `DELETE` withheld on consents/deliveries/audit/history. Every new function: `SECURITY DEFINER`, `SET search_path = public, pg_temp`, fully qualified references, no dynamic SQL, `REVOKE EXECUTE FROM PUBLIC, anon, authenticated`, `GRANT EXECUTE TO service_role`, internal tenant/identity validation, and an in-migration `DO $verify$` proof asserting the privileges (mirroring `043`). Secrets never returned or logged: `INVITATION_LINK_SECRET`, `PHONE_VERIFICATION_PEPPER`, service-role key, raw manual/email tokens, OTP codes, proof values, Argon2 inputs.
 
-## 16. Migration, feature flag, cutover, rollback
+## 18. `/api/email/send` closure
 
-1. **Expand** — additive schema, new tables, new RPCs, privileges. Old runtime unaffected. *Verify:* both chains apply cleanly; existing invitations still accept. *Abort:* any failure → drop new objects.
-2. **Deploy compatibility backend** with the new canonical routes behind `INVITATIONS_V3` (default off) and the new worker kind. *Verify:* health, worker heartbeat, old flow still green.
-3. **Deploy frontend** compatible with both. *Verify:* no console/network regressions.
-4. **Enable the flag.** *Verify:* create → email/SMS attempts → accept end-to-end in production; delivery rows correct.
-5. **Enable the DB legacy-write fence** — trigger rejecting any insert of a plaintext-token invitation and any legacy accept RPC call. *Verify:* legacy paths error.
-6. **410 Gone** on legacy HTTP routes; **revoke all remaining legacy plaintext invitations**. *Verify:* zero usable legacy tokens.
-7. **Monitor** the new flow and worker (delivery failures, stuck jobs, seat errors).
-8. **Contract migration** — drop `token`, `max_uses`, `get_invitation_info`, `accept_workspace_invitation_as`, `accept_workspace_invitation`.
+Browser invitation-email callers are removed. `POST /api/email/send` stops accepting arbitrary `to`/`subject`/`html` and is replaced by `POST /api/email/test-send`: owner/admin only, fixed server-rendered template, recipient restricted to a verified workspace address. `/send-channel` and `sendChannelEmail()` remain unchanged. Ordinary members can no longer relay mail.
 
-After step 5, rollback to the insecure backend is **not** supported; recovery is forward-fix or rollback to a compatible build that understands the new schema and cannot mint plaintext tokens. Steps 5–6 may briefly make invitation management unavailable (minutes) while the rest of the app stays up; this is stated as a short invitation-only maintenance window rather than an unqualified zero-downtime claim. Documented in `docs/DEPLOYMENT.md` and `database/README.md`; chains stay drift-free.
+## 19. Migration, feature flag, cutover, recovery
 
-## 17. Tests
+1. Expand additively (prerequisite port + all new objects + privileges). Verify: both chains apply, in-migration proofs pass, legacy flow unaffected. Abort → drop new objects.
+2. Deploy the backend with `INVITATIONS_V4` disabled and the new worker kind available. Verify: health, old flow green.
+3. Deploy the compatible frontend. Verify: no regressions.
+4. Start and verify the invitation worker (heartbeat, claim, backoff).
+5. Enable `INVITATIONS_V4`. Verify end-to-end: create → email → SMS → OTP → accept → offboard.
+6. Enable the DB legacy-write/accept fence (triggers rejecting plaintext-token inserts and legacy accept RPC calls).
+7. Return `410 Gone` from legacy HTTP routes; revoke all remaining plaintext invitations.
+8. Monitor delivery failures, stuck jobs, seat and OTP errors.
+9. Run the contract migration (drop `token`, `max_uses`, `use_count`, `get_invitation_info`, both legacy accept RPCs).
 
-All v2 tests plus: atomic create with departments; no partial invitation when department/token/outbox/audit insert fails; atomic edit + department replacement; history FK behavior during offboarding; `accept-new` rejects an existing password account; concurrent profile appearance returns login-required; password-null setup path; disabled account rejected; OTP expiry/resend/attempt cap/replay/rate limits; manual-link preview reveals only masked PII; existing user must accept current legal versions; referenced legal versions immutable; anon/authenticated cannot read any new table or execute any new RPC; old backend cannot create plaintext invitations after the fence; compatible rollback build cannot use legacy paths; every seat-creation path takes the workspace lock (plus the CI guard); two different invitations of one workspace accepted concurrently cannot exceed `max_agents`; `SEAT_LIMIT_REACHED` consumes neither token nor consent; entitlement failure → 503 not unlimited; session-creation failure yields login recovery without duplicate membership; outbox double-claim prevention; retry idempotency and no two valid email links; delivery history append-only and `accepted ≠ delivered`; accepted invitations archived not deleted and consent survives; offboarding preserves `role_permissions`, other workspaces, consents and audit; edit revokes all tokens; composite FKs reject foreign-workspace departments; token stripped from URL and absent from DB rows/logs/audit/analytics/API responses; manual raw link only in the authorized create/rotate response and unrecoverable later; ordinary member cannot relay mail; no new GoTrue/Supabase Auth/`auth.uid()` identity usage; widget runtime and build unchanged. Real PostgreSQL integration tests, not mocks.
+After step 6, rollback to an insecure build is **not** supported: recovery is forward-fix or rollback to a compatible fenced build. This is not claimed to be universally zero-downtime — steps 6–7 may make invitation management unavailable for a few minutes while the rest of the application stays up. Documented in `docs/DEPLOYMENT.md`, `database/README.md`, `SELF_HOST_GUIDE.md`; both chains stay drift-free.
 
-## 18. Out of scope
+## 20. Tests (real PostgreSQL for transactions, constraints, locks, concurrency, privileges)
 
-Embedded chat widget runtime and build; AI, Calls, Channels, Inbox, Billing beyond the entitlement read; a general ownership-transfer feature; SSO/social login; marketing-consent management; new SaaS dependencies, edge functions or new secrets (except the reuse of the existing verification pepper).
+**Token ownership/timing:** create RPC inserts a manual hash and no email token; worker creates the email token only after claiming; same job retry reconstructs the identical token; raw deterministic token never persisted; explicit resend makes a new generation and revokes the previous email generation; manual rotation leaves the email generation untouched and vice versa.
+**Crash recovery:** provider accepts → worker crashes → retry sends the same valid link; duplicate provider submission cannot create duplicate membership; lease expiry never yields an incompatible token; current/previous key ring validates already-sent links during rotation.
+**OTP/proof:** new-user OTP does not touch nonexistent credentials; `email_verified_at` is written during successful acceptance only; proof bound to invitation/email/manual token/generations; rotation and email edit invalidate old OTPs and proofs; seat failure consumes neither proof nor token; proof replay fails; `proof_hash` uniqueness enforced.
+**Edit/jobs:** email edit cancels queued old-generation jobs; worker refuses cancelled/stale-generation jobs; admin cannot edit an invitation into admin nor manage an admin invitation; delivery history immutable; in-flight provider race leaves the old token unusable.
+**Departments:** customer-facing with zero departments fails at commit; staff with any department fails at commit; cross-workspace department rejected; atomic replacement never commits an invalid state.
+**History/retention:** snapshot survives membership deletion; nullable history FKs behave; accepted invitation cannot be hard-deleted; consent/delivery/audit survive archival and offboarding; shared role definitions and other workspaces untouched.
+**Idempotency:** same create/resend/rotate request id does not duplicate; a new request id creates a legitimate new generation; acceptance retry duplicates no membership, consent or audit.
+**Seats/entitlement:** two different invitations of one workspace accepted concurrently cannot exceed `max_agents`; every seat path takes the workspace lock (plus CI guard); entitlement failure → 503; `SEAT_LIMIT_REACHED` retryable.
+**Security:** no raw token/OTP/proof/password in rows, logs, audits, analytics or ordinary responses; anon/authenticated cannot read any new table or execute any new RPC; preview leaks only masked PII; existing password account cannot accept via `accept-new`; concurrent profile creation fails to login-required; legacy plaintext creation blocked after the fence; ordinary member cannot relay mail; session-creation failure yields login recovery without duplicate membership; no GoTrue/Supabase Auth/`auth.uid()`/edge-function dependency introduced; widget runtime and build byte-unchanged.
 
-## 19. Remaining assumptions
+## 21. Out of scope
 
-- `call_center_department_agents`, `operator_call_availability`, `user_availability_prefs`, `user_notification_prefs` are workspace+user scoped in both chains — re-verified column-by-column at implementation before any delete lands.
-- `platform_settings` currently holds no legal versions, so `legal_policy_versions` is seeded with an initial published terms/privacy version (content hash of the shipped documents).
-- The existing verification pepper (`PHONE_VERIFICATION_PEPPER`) is reused for invitation OTP digests; if the operator prefers isolation, one optional env var is added.
+Embedded chat widget runtime and build; AI, Calls, Channels, Inbox and Billing beyond the entitlement read; ownership transfer; SSO/social login; marketing-consent management; new SaaS dependencies or edge functions. One new secret (`INVITATION_LINK_SECRET`) is introduced deliberately and justified in §1/§5.
 
-## 20. Unresolved product decisions
+## 22. Remaining assumptions
 
-1. Should an expired invitation offer a one-click "renew" (new token + new expiry on the same row) or always force a new invitation? Plan currently forces a new one.
-2. Should staff invitations be allowed zero departments strictly, or optionally accept them? Plan says none.
-3. Waitlisted invitations when at the seat cap are excluded — confirm.
+- The hosted chain's `workspace_departments`/`workspace_department_members` definitions (`20260423182832`) can be ported verbatim into the self-host chain; the port is re-verified column-by-column when written.
+- Localized terms/privacy documents exist to seed the first `legal_policy_versions` rows (content hash taken from the shipped documents at migration time).
 
-## 21. Readiness verdict
+The three former product decisions are now resolved: expired/revoked ⇒ always a new invitation; staff ⇒ exactly zero departments; seat-full ⇒ creation blocked, no waitlist.
 
-The plan is **safe to implement** as specified: identity stays fully self-hosted (`profiles`, `user_credentials`, `auth_sessions`, Argon2id, `gs_session`, `authorizeWorkspaceAccess`), no GoTrue, no Supabase Auth identity, no `auth.uid()` for application identity, no edge functions; all sensitive logic runs in the Express backend and service-role-only, search_path-pinned RPCs; the browser holds no privileged RPC and no raw email route; no raw token or OTP is ever stored, logged, audited or returned outside the single authorized create/rotate response; and the embedded widget runtime is untouched. Implementation begins only after approval of this v3 plan.
+## 23. Readiness verdict
+
+All v3 contradictions are resolved in this document: the create RPC inserts **only** the manual token and the worker is the sole creator of the email token; retry safety comes from deterministic HMAC derivation with zero raw-token storage; `email_verified_at` is written during acceptance, never at OTP time; OTPs and proofs are bound to exact manual-token and notification generations; edits bump the generation and cancel unclaimed jobs while admitting that in-flight provider requests cannot be recalled; archival and FK actions are mutually consistent (history has no membership FK, consents are RESTRICT, nothing is hard-deleted); the permission matrix is enforced against resulting state on edits; public routes take authority from scoped tokens plus rate limits rather than `gs_session`; and the deployment fence is honest about rollback. Authentication remains fully self-hosted (`profiles`, `user_credentials`, `auth_sessions`, Argon2id, `gs_session`, `authorizeWorkspaceAccess`) with no GoTrue, no Supabase Auth identity, no `auth.uid()`, no edge functions; all privileged logic runs in Express and service-role-only, search_path-pinned RPCs; the browser holds no privileged RPC and no raw email route; and the embedded widget is untouched. **Safe to implement** once this plan is approved.

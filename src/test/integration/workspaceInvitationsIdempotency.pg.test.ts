@@ -414,9 +414,18 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     // (e) a disabled account still reports account_exists = true, matching the
     // accept-new contract which raises ACCOUNT_DISABLED rather than silently
     // creating a second identity.
-    await db.query(`UPDATE public.profiles SET is_blocked = true WHERE id = $1`, [userId]).catch(async () => {
-      await db.query(`UPDATE public.profiles SET blocked_at = now() WHERE id = $1`, [userId]);
-    });
+    const blockedCol = (await db.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'profiles'
+         AND column_name IN ('is_blocked', 'blocked_at', 'is_active') LIMIT 1`,
+    )).rows[0] as { column_name: string } | undefined;
+    expect(blockedCol, 'profiles has no disable flag').toBeTruthy();
+    const disableSql = blockedCol!.column_name === 'blocked_at'
+      ? 'UPDATE public.profiles SET blocked_at = now() WHERE id = $1'
+      : blockedCol!.column_name === 'is_active'
+        ? 'UPDATE public.profiles SET is_active = false WHERE id = $1'
+        : 'UPDATE public.profiles SET is_blocked = true WHERE id = $1';
+    await db.query(disableSql, [userId]);
     expect((await previewOf()).account_exists).toBe(true);
     const ctxPreview3 = await call('POST', '/api/workspace-invitations/context-preview', { cookie: ctxCookie, body: {} });
     expect(ctxPreview3.json.preview.account_exists).toBe(true);
@@ -462,7 +471,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
       `SELECT count(*)::int AS n FROM public.audit_logs WHERE entity_id = $1 AND action = 'invitation.created'`, [invitationId],
     )).toBe(1);
     expect(await countOf(
-      'SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency', [],
+      'SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency WHERE workspace_id = $1', [owner.workspaceId],
     )).toBe(1);
   }, 120_000);
 
@@ -511,8 +520,8 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     // Force a business failure: a staff invitation with a department is illegal.
     const deptId = crypto.randomUUID();
     await db.query(
-      `INSERT INTO public.workspace_departments (id, workspace_id, name, slug, created_by)
-       VALUES ($1, $2, 'Support', 'support', $3)`,
+      `INSERT INTO public.workspace_departments (id, workspace_id, name, created_by)
+       VALUES ($1, $2, 'Support', $3)`,
       [deptId, owner.workspaceId, owner.userId],
     );
 
@@ -522,9 +531,9 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     expect(failed.json.error).toBe('STAFF_INVITATION_MUST_HAVE_NO_DEPARTMENT');
 
     // The whole transaction rolled back: the ledger has NOTHING stuck.
-    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency', [])).toBe(0);
-    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_tokens', [])).toBe(0);
-    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_jobs', [])).toBe(0);
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency WHERE workspace_id = $1', [owner.workspaceId])).toBe(0);
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_tokens t JOIN public.workspace_invitations i ON i.id = t.invitation_id WHERE i.workspace_id = $1', [owner.workspaceId])).toBe(0);
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_jobs WHERE workspace_id = $1', [owner.workspaceId])).toBe(0);
 
     // Same requestId, corrected payload: the retry is allowed to run.
     const retry = await call('POST', '/api/workspace-invitations', {
@@ -532,8 +541,8 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
       body: { ...payload, departmentIds: [] },
     });
     expect(retry.status).toBe(201);
-    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency', [])).toBe(1);
-    const rows = await ledger();
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency WHERE workspace_id = $1', [owner.workspaceId])).toBe(1);
+    const rows = (await ledger()).filter((r) => r.workspace_id === owner.workspaceId);
     expect(rows[0].result_state).toBe('committed');
     expect(rows[0].completed_at).toBeTruthy();
   }, 120_000);
@@ -570,7 +579,11 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
     expect(created.status).toBe(201);
     const id = created.json.invitation.id;
-    const genBefore = Number((await db.query('SELECT notification_generation AS g FROM public.workspace_invitations WHERE id = $1', [id])).rows[0].g);
+    const emailGen = async () => Number((await db.query(
+      'SELECT COALESCE(max(email_token_generation), 0) AS g FROM public.workspace_invitation_jobs WHERE invitation_id = $1 AND channel = $2',
+      [id, 'email'],
+    )).rows[0].g);
+    const genBefore = await emailGen();
     const jobsBefore = await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_jobs WHERE invitation_id = $1', [id]);
 
     const requestId = rid();
@@ -581,8 +594,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     expect([a.status, b.status]).toEqual([200, 200]);
     expect([a.json.replayed, b.json.replayed].sort()).toEqual([false, true]);
 
-    const genAfter = Number((await db.query('SELECT notification_generation AS g FROM public.workspace_invitations WHERE id = $1', [id])).rows[0].g);
-    expect(genAfter).toBe(genBefore + 1);
+    expect(await emailGen()).toBe(genBefore + 1);
     expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_jobs WHERE invitation_id = $1', [id])).toBe(jobsBefore + 1);
   }, 120_000);
 
@@ -773,7 +785,10 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     });
     expect(revoke.status).toBe(200);
     expect(revoke.json.replayed).toBe(false);
-    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency', [])).toBe(3);
+    expect(await countOf(
+      'SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency WHERE workspace_id = ANY($1::uuid[])',
+      [[ownerA.workspaceId, ownerB.workspaceId]],
+    )).toBe(3);
   }, 120_000);
 
   // ── 13. LEDGER SECRET SCAN ────────────────────────────────────────────

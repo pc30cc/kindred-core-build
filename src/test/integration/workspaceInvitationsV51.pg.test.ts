@@ -262,7 +262,7 @@ const cookieOf = (res: Res, name: string): string | null => {
   return value ? `${name}=${value}` : null;
 };
 
-const rid = () => `req-${crypto.randomUUID()}`;
+const rid = () => crypto.randomUUID();
 
 async function signupAndVerify(email: string): Promise<{ cookie: string; userId: string }> {
   const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });
@@ -410,13 +410,13 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
     const token = tokenFromManualLink(created.json.manualLink);
 
-    const inUrl = await call('POST', `/api/workspace-invitations/preview?token=${token}`, { body: { token, purpose: 'manual_handoff' } });
+    const inUrl = await call('POST', `/api/workspace-invitations/preview?token=${token}`, { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
     expect(inUrl.status).toBe(404);
 
-    const wrongPurpose = await call('POST', '/api/workspace-invitations/preview', { body: { token, purpose: 'email_claim' } });
+    const wrongPurpose = await call('POST', '/api/workspace-invitations/preview', { body: { requestId: rid(), token, purpose: 'email_claim' } });
     expect(wrongPurpose.status).toBe(404);
 
-    const ok = await call('POST', '/api/workspace-invitations/preview', { body: { token, purpose: 'manual_handoff' } });
+    const ok = await call('POST', '/api/workspace-invitations/preview', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
     expect(ok.status).toBe(200);
     expect(ok.json.preview.workspace_id).toBe(owner.workspaceId);
     expect(JSON.stringify(ok.json.preview)).not.toContain(token);
@@ -432,23 +432,23 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
 
     // Without a proof cookie, acceptance fails closed.
     const noProof = await call('POST', '/api/workspace-invitations/accept-new', {
-      body: { token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
+      body: { requestId: rid(), token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
     });
     expect(noProof.status).toBe(400);
     expect(noProof.json.error).toBe('EMAIL_PROOF_REQUIRED');
 
     capturedEmails = [];
-    expect((await call('POST', '/api/workspace-invitations/otp/request', { body: { token, purpose: 'manual_handoff' } })).status).toBe(200);
+    expect((await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId: rid(), token, purpose: 'manual_handoff' } })).status).toBe(200);
     const otpMail = capturedEmails.find((e) => /verification code/i.test(String(e.text)));
     const code = String(otpMail!.text).match(/(\d{6})/)![1];
 
     const wrongCode = await call('POST', '/api/workspace-invitations/otp/verify', {
-      body: { token, purpose: 'manual_handoff', code: code === '000000' ? '111111' : '000000' },
+      body: { requestId: rid(), token, purpose: 'manual_handoff', code: code === '000000' ? '111111' : '000000' },
     });
     expect(wrongCode.status).toBe(400);
     expect(wrongCode.json.error).toBe('OTP_INVALID');
 
-    const verify = await call('POST', '/api/workspace-invitations/otp/verify', { body: { token, purpose: 'manual_handoff', code } });
+    const verify = await call('POST', '/api/workspace-invitations/otp/verify', { body: { requestId: rid(), token, purpose: 'manual_handoff', code } });
     expect(verify.status).toBe(200);
     const proofHeader = verify.setCookie.find((c) => c.startsWith('wi_proof='))!;
     expect(proofHeader).toMatch(/HttpOnly/i);
@@ -458,14 +458,14 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     // Consent is mandatory even with a valid proof.
     const noConsent = await call('POST', '/api/workspace-invitations/accept-new', {
       cookie: proofCookie,
-      body: { token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', ...policies },
+      body: { requestId: rid(), token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', ...policies },
     });
     expect(noConsent.status).toBe(400);
     expect(noConsent.json.error).toBe('CONSENT_REQUIRED');
 
     const accept = await call('POST', '/api/workspace-invitations/accept-new', {
       cookie: proofCookie,
-      body: { token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
+      body: { requestId: rid(), token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
     });
     expect(accept.status).toBe(200);
     expect(accept.json.session).toBe('created');
@@ -489,7 +489,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     // Replay of the same accepted token creates nothing further.
     const replay = await call('POST', '/api/workspace-invitations/accept-new', {
       cookie: proofCookie,
-      body: { token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
+      body: { requestId: rid(), token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
     });
     expect([400, 404, 409]).toContain(replay.status);
     const after = await db.query(
@@ -514,7 +514,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     expect(created.status).toBe(201);
     const token = tokenFromManualLink(created.json.manualLink);
 
-    const ctx = await call('POST', '/api/workspace-invitations/login-context', { body: { token, purpose: 'manual_handoff' } });
+    const ctx = await call('POST', '/api/workspace-invitations/login-context', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
     expect(ctx.status).toBe(200);
     expect(ctx.json.loginPath).toBe('/auth/login?invited=1');
     expect(JSON.stringify(ctx.json)).not.toContain(token);
@@ -527,20 +527,20 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     // No session -> 401, even with a valid context cookie.
     const anon = await call('POST', '/api/workspace-invitations/accept-existing', {
       cookie: ctxCookie,
-      body: { consent: true, ...policies },
+      body: { requestId: rid(), consent: true, ...policies },
     });
     expect(anon.status).toBe(401);
 
     // Session but no context cookie -> uniform not-found.
     const noCtx = await call('POST', '/api/workspace-invitations/accept-existing', {
       cookie: invitee.cookie,
-      body: { consent: true, ...policies },
+      body: { requestId: rid(), consent: true, ...policies },
     });
     expect(noCtx.status).toBe(404);
 
     const accept = await call('POST', '/api/workspace-invitations/accept-existing', {
       cookie: `${invitee.cookie}; ${ctxCookie}`,
-      body: { consent: true, ...policies },
+      body: { requestId: rid(), consent: true, ...policies },
     });
     expect(accept.status).toBe(200);
     expect(accept.json.session).toBe('existing');
@@ -557,12 +557,12 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     const stranger = await signupAndVerify(`stranger7.${Date.now()}@example.test`);
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
     const token = tokenFromManualLink(created.json.manualLink);
-    const ctx = await call('POST', '/api/workspace-invitations/login-context', { body: { token, purpose: 'manual_handoff' } });
+    const ctx = await call('POST', '/api/workspace-invitations/login-context', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
     const policies = await activePolicies();
 
     const res = await call('POST', '/api/workspace-invitations/accept-existing', {
       cookie: `${stranger.cookie}; ${cookieOf(ctx, 'wi_ctx')}`,
-      body: { consent: true, ...policies },
+      body: { requestId: rid(), consent: true, ...policies },
     });
     expect([400, 403, 404]).toContain(res.status);
     const members = await db.query(
@@ -587,7 +587,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     });
     expect(revoke.status).toBe(200);
 
-    const preview = await call('POST', '/api/workspace-invitations/preview', { body: { token, purpose: 'manual_handoff' } });
+    const preview = await call('POST', '/api/workspace-invitations/preview', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
     expect(preview.status).toBe(404);
 
     const archive = await call('POST', `/api/workspace-invitations/${id}/archive`, { cookie: owner.cookie, body: { requestId: rid() } });
@@ -622,7 +622,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     );
 
 
-    const preview = await call('POST', '/api/workspace-invitations/preview', { body: { token, purpose: 'manual_handoff' } });
+    const preview = await call('POST', '/api/workspace-invitations/preview', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
     expect(preview.status).toBe(404);
   }, 60_000);
 

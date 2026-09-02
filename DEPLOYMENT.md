@@ -25,6 +25,19 @@ Centrifugo    (own service; docker-compose.centrifugo.yml)
 LiveKit       (own service; deploy/livekit/)
 ```
 
+Workspace invitations require a dedicated `WORKER_KIND=invitations` container.
+Configure distinct 32-byte `INVITATION_LINK_SECRET` and
+`INVITATION_OTP_PEPPER` values, `INVITATION_LINK_KEY_VERSION`, optional old
+keys in `INVITATION_LINK_SECRET_RING`, and an authoritative
+`SELF_HOST_SEAT_LIMIT` (unless billing mode is explicitly unlimited).
+
+Invitation schema rollout is intentionally two-phase: apply the normal
+`database/migrations/` chain first; after every API/UI replica uses v5.1, run
+`database/cutover/080_workspace_invitations_v51_fence.sql`. Verify and retain
+the rollback window, then run `081_workspace_invitations_v51_contract.sql`.
+The fence drops the legacy plaintext default, revokes v1 pending records and
+erases legacy token values; the contract irreversibly removes legacy columns.
+
 The frontend serves `/widget/...` static assets; the backend reads
 `widget-manifest.json` over HTTP via `WIDGET_ASSET_BASE_URL` /
 `WIDGET_MANIFEST_URL`.

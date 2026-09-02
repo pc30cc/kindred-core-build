@@ -88,6 +88,12 @@ npm run dev        # Vite dev server on http://localhost:5173
 | `RATE_LIMIT_WINDOW_MS` | No | Rate limit window in ms (default: 60000) |
 | `RATE_LIMIT_MAX` | No | Max requests per window (default: 100) |
 | `APP_BASE_URL` | No* | The dashboard's public https URL, used to build links in verification/password-reset emails. Prefer configuring `app_base_url` via the admin UI (Super Admin → Domains) instead — that takes priority. *Effectively required in production if neither is set and `CORS_ORIGINS` isn't a real URL: auth emails fail loudly rather than going out with a broken link. |
+| `INVITATION_LINK_SECRET` | Yes | 32-byte minimum link-derivation secret (`openssl rand -hex 32`). Must differ from the OTP pepper. |
+| `INVITATION_OTP_PEPPER` | Yes | Dedicated 32-byte minimum OTP pepper. Never reuse another secret. |
+| `INVITATION_LINK_SECRET_RING` | During rotation | `version:secret` entries retaining old link keys until their invitations expire. |
+| `INVITATION_LINK_KEY_VERSION` | Yes | Active invitation derivation-key version. |
+| `SELF_HOST_SEAT_LIMIT` | Yes* | Authoritative seat limit unless billing mode is explicitly unlimited; missing value fails acceptance closed. |
+| `INVITATION_WORKER_INPROC` | No | Development fallback only. Production uses a dedicated `WORKER_KIND=invitations` service. |
 
 ## Frontend Environment Variables
 
@@ -98,6 +104,16 @@ npm run dev        # Vite dev server on http://localhost:5173
 | `VITE_API_BASE_URL` | Yes | Your backend server URL (e.g. http://localhost:3001) |
 
 ## Production Deployment
+
+Run one durable worker container from `Dockerfile.worker` with
+`WORKER_KIND=invitations`. It requires the Supabase service key, invitation
+secrets, seat entitlement configuration and email/SMS provider credentials.
+Do not enable `INVITATION_WORKER_INPROC` on production API replicas.
+
+For link-key rotation, add the old and new versions to
+`INVITATION_LINK_SECRET_RING`, set `INVITATION_LINK_KEY_VERSION` to the new
+version, deploy API and worker together, and retain the old key until all
+previously generated invitation links have expired.
 
 ### Docker
 

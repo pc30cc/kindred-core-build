@@ -88,6 +88,25 @@ describe('supabase migration chain — dependency order', () => {
   });
 });
 
+describe('workspace invitation v5.1 cutover packaging', () => {
+  it('keeps fence and irreversible contract ordered outside normal migrations', () => {
+    const cutover = readdirSync('database/cutover').filter((f) => f.endsWith('.sql')).sort();
+    expect(cutover).toContain('080_workspace_invitations_v51_fence.sql');
+    expect(cutover).toContain('081_workspace_invitations_v51_contract.sql');
+    expect(cutover.indexOf('080_workspace_invitations_v51_fence.sql'))
+      .toBeLessThan(cutover.indexOf('081_workspace_invitations_v51_contract.sql'));
+    const normal = readdirSync('database/migrations');
+    expect(normal).not.toContain('080_workspace_invitations_v51_fence.sql');
+    expect(normal).not.toContain('081_workspace_invitations_v51_contract.sql');
+  });
+
+  it('documents the manual fence and contract sequence', () => {
+    const deployment = readFileSync('DEPLOYMENT.md', 'utf8');
+    expect(deployment).toContain('080_workspace_invitations_v51_fence.sql');
+    expect(deployment).toContain('081_workspace_invitations_v51_contract.sql');
+  });
+});
+
 /* ------------------------------------------------------------------ *
  * Column-level contract analyzer.
  *

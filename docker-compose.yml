@@ -61,6 +61,11 @@ services:
       # points at the external server (https://ai-runtime.example.com).
       - AI_RUNTIME_URL=${AI_RUNTIME_URL:-http://ai-runtime:3021}
       - AI_RUNTIME_INTERNAL_SECRET=${AI_RUNTIME_INTERNAL_SECRET:-}
+      - INVITATION_LINK_SECRET=${INVITATION_LINK_SECRET}
+      - INVITATION_LINK_SECRET_RING=${INVITATION_LINK_SECRET_RING:-}
+      - INVITATION_LINK_KEY_VERSION=${INVITATION_LINK_KEY_VERSION:-1}
+      - INVITATION_OTP_PEPPER=${INVITATION_OTP_PEPPER}
+      - SELF_HOST_SEAT_LIMIT=${SELF_HOST_SEAT_LIMIT:-}
     volumes:
       # Persistent GeoIP data volume. The backend reads the .mmdb file from
       # /app/data (configured in Super Admin → Map & Geo) and the optional
@@ -144,6 +149,31 @@ services:
       - CORE_INTERNAL_BASE_URL=${CORE_INTERNAL_BASE_URL:-http://backend:3001}
       - CORE_INTERNAL_SECRET=${CORE_INTERNAL_SECRET:-}
       - PLUGIN_SECRETS_MASTER_KEY=${PLUGIN_SECRETS_MASTER_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # Durable workspace-invitation email/SMS outbox. Keep this separate from
+  # Express so provider calls never run in request transactions.
+  invitations-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - WORKER_KIND=invitations
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - INVITATION_LINK_SECRET=${INVITATION_LINK_SECRET}
+      - INVITATION_LINK_SECRET_RING=${INVITATION_LINK_SECRET_RING:-}
+      - INVITATION_LINK_KEY_VERSION=${INVITATION_LINK_KEY_VERSION:-1}
+      - INVITATION_OTP_PEPPER=${INVITATION_OTP_PEPPER}
+      - SELF_HOST_SEAT_LIMIT=${SELF_HOST_SEAT_LIMIT:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
     restart: unless-stopped
     depends_on:
       - backend

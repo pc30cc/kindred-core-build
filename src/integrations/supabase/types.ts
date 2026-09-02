@@ -12089,6 +12089,10 @@ export type Database = {
         Returns: Json
       }
       wi_expire_due: { Args: { _workspace_id: string }; Returns: number }
+      wi_heartbeat_invitation_job: {
+        Args: { _claim_token: string; _job_id: string; _lease_seconds?: number }
+        Returns: boolean
+      }
       wi_job_still_sendable: {
         Args: { _claim_token: string; _job_id: string }
         Returns: boolean
@@ -12097,6 +12101,8 @@ export type Database = {
         Args: { _purpose: string; _token_hash: string }
         Returns: Record<string, unknown>
       }
+      wi_mask_email: { Args: { _email: string }; Returns: string }
+      wi_mask_phone: { Args: { _phone: string }; Returns: string }
       wi_prepare_invitation_job: {
         Args: {
           _claim_token: string

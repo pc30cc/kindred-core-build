@@ -168,3 +168,75 @@ describe('invitation RPC parity between self-host and hosted chains', () => {
     });
   }
 });
+
+/**
+ * Phase 0 hosted/parity closure gate — migration 090 (OTP runtime hardening)
+ * must exist identically in BOTH chains: the atomic OTP terminal-failure RPC,
+ * the key-version helpers, their security attributes/ACLs, and the two
+ * claim-path indexes.
+ */
+const M090_FUNCTIONS: Array<{ fn: string; definer: boolean }> = [
+  { fn: 'wi_fail_otp_job_atomic', definer: true },
+  { fn: 'wi_otp_job_sendable', definer: true },
+  { fn: 'wi_otp_pending_key_version', definer: true },
+  // pure text parser over a non-secret digest prefix: IMMUTABLE, not DEFINER
+  { fn: 'wi_otp_digest_key_version', definer: false },
+];
+
+const M090_INDEXES = [
+  'idx_workspace_invitation_jobs_channel_priority',
+  'idx_workspace_invitation_jobs_lease',
+];
+
+describe('migration 090 OTP runtime hardening parity (self-host vs hosted)', () => {
+  for (const { fn, definer } of M090_FUNCTIONS) {
+    it(`${fn}: same signature, security attributes and ACL in both chains`, () => {
+      const a = findDefinition(selfHost, fn);
+      const b = findDefinition(hosted, fn);
+
+      expect(a, `${fn} missing from database/migrations (self-host chain)`).not.toBeNull();
+      expect(b, `${fn} missing from supabase/migrations (hosted chain)`).not.toBeNull();
+      expect(a!.paramNames, `${fn} signature drift (self-host vs hosted)`).toEqual(b!.paramNames);
+
+      for (const [label, def] of [['self-host', a!], ['hosted', b!]] as const) {
+        expect(def.securityDefiner, `${fn} SECURITY DEFINER mode drift in ${label} (${def.file})`).toBe(definer);
+        expect(def.searchPathPinned, `${fn} has no pinned search_path in ${label} (${def.file})`).toBe(true);
+      }
+
+      for (const [label, chain] of [['self-host', selfHost], ['hosted', hosted]] as const) {
+        const acl = aclOk(chain, fn);
+        expect(acl.revoked, `${fn} never revoked from PUBLIC/anon/authenticated in ${label}`).toBe(true);
+        expect(acl.granted, `${fn} never granted to service_role in ${label}`).toBe(true);
+      }
+    });
+  }
+
+  it('wi_fail_otp_job_atomic rejects non-OTP channels and guards claim ownership in both chains', () => {
+    for (const [label, chain] of [['self-host', selfHost], ['hosted', hosted]] as const) {
+      const sql = chain.map((c) => c.sql).join('\n');
+      expect(sql, `${label}: channel guard missing`).toMatch(/JOB_CHANNEL_MISMATCH/);
+      expect(sql, `${label}: outcome allow-list missing`).toMatch(
+        /'permanently_failed',\s*'unconfigured',\s*'derivation_key_unavailable'/,
+      );
+      expect(sql, `${label}: lost-claim result missing`).toMatch(/jsonb_build_object\('applied',\s*false\)/);
+    }
+  });
+
+  it('wi_otp_pending_key_version prefers a live OTP then the newest generation in both chains', () => {
+    for (const [label, chain] of [['self-host', selfHost], ['hosted', hosted]] as const) {
+      const def = chain.filter((c) => /wi_otp_pending_key_version/.test(c.sql)).map((c) => c.sql).join('\n');
+      expect(def, `${label}: canonical ordering missing`).toMatch(
+        /ORDER BY \(o\.consumed_at IS NULL AND o\.revoked_at IS NULL AND o\.expires_at > now\(\)\) DESC,[\s\S]*?o\.created_at DESC/,
+      );
+    }
+  });
+
+  for (const idx of M090_INDEXES) {
+    it(`${idx}: created in both chains`, () => {
+      for (const [label, chain] of [['self-host', selfHost], ['hosted', hosted]] as const) {
+        const found = chain.some((c) => new RegExp(`CREATE INDEX IF NOT EXISTS ${idx}\\b`).test(c.sql));
+        expect(found, `${idx} missing from ${label} chain`).toBe(true);
+      }
+    });
+  }
+});

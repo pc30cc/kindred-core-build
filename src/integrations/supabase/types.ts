@@ -10724,6 +10724,7 @@ export type Database = {
           config_version: number
           id: boolean
           mode: string
+          seat_limit: number | null
           source: string
           updated_at: string
           updated_by: string | null
@@ -10732,6 +10733,7 @@ export type Database = {
           config_version?: number
           id?: boolean
           mode: string
+          seat_limit?: number | null
           source: string
           updated_at?: string
           updated_by?: string | null
@@ -10740,6 +10742,7 @@ export type Database = {
           config_version?: number
           id?: boolean
           mode?: string
+          seat_limit?: number | null
           source?: string
           updated_at?: string
           updated_by?: string | null
@@ -11368,6 +11371,10 @@ export type Database = {
         Args: { p_workspace_id: string }
         Returns: undefined
       }
+      archive_invitation_v2: {
+        Args: { _actor_id: string; _invitation_id: string }
+        Returns: Json
+      }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
       bulk_create_contacts: {
         Args: { _contacts: Json; _workspace_id: string }
@@ -11480,6 +11487,42 @@ export type Database = {
           source: string
         }[]
       }
+      claim_invitation_jobs: {
+        Args: {
+          _channels?: string[]
+          _lease_seconds?: number
+          _limit?: number
+          _worker_id: string
+        }
+        Returns: {
+          attempt_count: number
+          available_at: string
+          channel: string
+          claim_expires_at: string | null
+          claim_token: string | null
+          created_at: string
+          derivation_key_version: number | null
+          destination_hash: string
+          email_token_generation: number | null
+          id: string
+          idempotency_key: string
+          invitation_id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          max_attempts: number
+          notification_generation: number
+          status: string
+          updated_at: string
+          workspace_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "workspace_invitation_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_kb_change_events: {
         Args: { _lease_seconds?: number; _limit?: number; _worker_id: string }
         Returns: {
@@ -11570,6 +11613,30 @@ export type Database = {
         }
         Returns: string
       }
+      create_workspace_invitation_v2: {
+        Args: {
+          _actor_id: string
+          _department_ids: string[]
+          _email_destination_hash: string
+          _email_job_idempotency_key: string
+          _email_normalized: string
+          _expires_at: string
+          _first_name: string
+          _job_title?: string
+          _last_name: string
+          _manual_token_expires_at: string
+          _manual_token_hash: string
+          _manual_token_prefix: string
+          _member_type: string
+          _phone_e164: string
+          _role: Database["public"]["Enums"]["workspace_role"]
+          _sms_destination_hash: string
+          _sms_job_idempotency_key: string
+          _staff_code?: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
       deduct_ai_credits: {
         Args: { _credits?: number; _period?: string; _workspace_id: string }
         Returns: Json
@@ -11587,6 +11654,27 @@ export type Database = {
           _worker_id: string
         }
         Returns: number
+      }
+      edit_workspace_invitation_v2: {
+        Args: {
+          _actor_id: string
+          _department_ids: string[]
+          _email_destination_hash?: string
+          _email_job_idempotency_key?: string
+          _email_normalized: string
+          _expires_at: string
+          _first_name: string
+          _invitation_id: string
+          _job_title?: string
+          _last_name: string
+          _member_type: string
+          _phone_e164: string
+          _role: Database["public"]["Enums"]["workspace_role"]
+          _sms_destination_hash?: string
+          _sms_job_idempotency_key?: string
+          _staff_code?: string
+        }
+        Returns: Json
       }
       enqueue_entitlement_fanout: {
         Args: { _plan_id?: string; _scope: string; _source: string }
@@ -11612,6 +11700,7 @@ export type Database = {
         }[]
       }
       evaluate_alert_rules: { Args: never; Returns: Json }
+      expire_invitations_v2: { Args: { _limit?: number }; Returns: number }
       expire_stale_trials: { Args: never; Returns: number }
       fail_entitlement_fanout: {
         Args: {
@@ -11819,6 +11908,7 @@ export type Database = {
         Returns: undefined
       }
       realtime_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      reclaim_expired_invitation_jobs: { Args: never; Returns: number }
       redeem_email_verify_token: {
         Args: { _token_hash: string }
         Returns: {
@@ -11846,6 +11936,15 @@ export type Database = {
         Args: { _integration_id: string }
         Returns: undefined
       }
+      resend_invitation_email_v2: {
+        Args: {
+          _actor_id: string
+          _destination_hash: string
+          _invitation_id: string
+          _job_idempotency_key: string
+        }
+        Returns: Json
+      }
       resolve_privacy_subject: {
         Args: {
           _subject_id: string
@@ -11854,10 +11953,70 @@ export type Database = {
         }
         Returns: Json
       }
+      revoke_invitation_v2: {
+        Args: { _actor_id: string; _invitation_id: string; _reason: string }
+        Returns: Json
+      }
+      rotate_manual_link_v2: {
+        Args: {
+          _actor_id: string
+          _invitation_id: string
+          _token_expires_at: string
+          _token_hash: string
+          _token_prefix: string
+        }
+        Returns: Json
+      }
+      set_workspace_seat_entitlement_mode: {
+        Args: {
+          _mode: string
+          _seat_limit?: number
+          _source: string
+          _updated_by?: string
+        }
+        Returns: Json
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
+      wi_audit: {
+        Args: {
+          _action: string
+          _actor_id: string
+          _entity_id: string
+          _entity_type?: string
+          _payload: Json
+          _workspace_id: string
+        }
+        Returns: undefined
+      }
+      wi_can_manage_invitation: {
+        Args: {
+          _actor_role: Database["public"]["Enums"]["workspace_role"]
+          _target_role: Database["public"]["Enums"]["workspace_role"]
+        }
+        Returns: boolean
+      }
+      wi_expire_due: { Args: { _workspace_id: string }; Returns: number }
+      wi_resolve_seat_capacity: {
+        Args: { _workspace_id: string }
+        Returns: {
+          limit_value: number
+          source: string
+          used: number
+          version: number
+        }[]
+      }
+      wi_revoke_secrets: {
+        Args: {
+          _generation?: number
+          _invitation_id: string
+          _purpose?: string
+        }
+        Returns: undefined
+      }
+      wi_safe_invitation: { Args: { _invitation_id: string }; Returns: Json }
       workspace_health_snapshot_compute: { Args: never; Returns: Json }
       workspace_owner_phone_verified: {
         Args: { _workspace_id: string }

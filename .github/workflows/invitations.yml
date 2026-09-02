@@ -1,0 +1,169 @@
+name: Workspace Invitations v5.1
+
+# Section H gates. Nothing here may silently skip: every database-backed job
+# sets REQUIRE_WI_DB=1 so a missing DSN FAILS instead of skipping the suite.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: invitations-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    name: Source, translation and security guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+      - name: Install dependencies (frozen lockfile)
+        id: install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck (app)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck
+
+      - name: Typecheck (server + worker)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck:server
+
+      # fa/tr/en completeness, no raw keys, no hardcoded English fallback,
+      # no hardcoded locale override, RTL/LTR configuration, service_role in
+      # browser code, secret logging, advisor baseline integrity,
+      # migration-chain drift, RPC parity, request-id book, worker lifecycle.
+      - name: Invitation guards (translations, security, lifecycle, parity)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          bunx vitest run \
+            src/test/invitationTranslationGuard.test.ts \
+            src/test/invitationSecurityGuards.test.ts \
+            src/test/invitationWorkerLifecycle.test.ts \
+            src/test/invitationFingerprint.test.ts \
+            src/test/invitationRequestIds.test.ts \
+            src/test/invitationRpcParity.test.ts \
+            src/test/invitePageTransport.test.tsx \
+            src/test/integration/migrationMirrorParity.test.ts
+
+      - name: Production build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run build
+
+  database:
+    name: Clean replay + invitation suites (PostgreSQL, mandatory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: supabase/postgres:15.8.1.060
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+      - name: Install dependencies (frozen lockfile)
+        id: install
+        run: bun install --frozen-lockfile
+
+      - name: Fail if the database service did not start
+        env:
+          PGPASSWORD: postgres
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT version()'
+
+      - name: Clean self-host migration replay (empty database)
+        env:
+          PGPASSWORD: postgres
+          ADMIN_DSN: postgres://postgres:postgres@127.0.0.1:55432/postgres
+        run: bash scripts/ci/selfhost-clean-replay.sh wi_clean_replay
+
+      # Sequential: these suites install schema into ONE shared database.
+      - name: Invitation suites (real PostgreSQL, never skipped)
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:55432/wi_clean_replay
+          REQUIRE_WI_DB: '1'
+        run: |
+          bunx vitest run \
+            src/test/integration/workspaceInvitationsV51.pg.test.ts \
+            src/test/integration/workspaceInvitationsIdempotency.pg.test.ts \
+            src/test/integration/wiSectionCConcurrency.pg.test.ts \
+            src/test/integration/wiSectionCDepartments.pg.test.ts \
+            src/test/integration/wiSectionCLinkRaces.pg.test.ts \
+            src/test/integration/wiSectionCOffboarding.pg.test.ts \
+            src/test/integration/wiSectionCOffboardFaults.pg.test.ts \
+            src/test/integration/wiSectionCSecurityEvidence.pg.test.ts \
+            src/test/integration/wiSectionCWorkerFaults.pg.test.ts \
+            src/test/integration/wiSectionCWorkerIsolation.pg.test.ts \
+            --no-file-parallelism
+
+      - name: RPC signature / schema parity
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 55432 -U postgres -d wi_clean_replay -v ON_ERROR_STOP=1 \
+            -f scripts/ci/internal-rpc-signatures.sql
+          psql -h 127.0.0.1 -p 55432 -U postgres -d wi_clean_replay -v ON_ERROR_STOP=1 \
+            -f scripts/ci/schema-parity-fingerprint.sql
+
+      # Privileged-RPC ACL gate + advisor fingerprint diff. Fails on any NEW
+      # advisor fingerprint; removals are allowed and the total need not stay 76.
+      - name: Advisor baseline + privileged RPC ACL gate
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d wi_clean_replay -At \
+            -f scripts/ci/advisor-fingerprints.sql > /tmp/advisor-fingerprints.txt
+          node scripts/ci/advisor-baseline-check.mjs /tmp/advisor-fingerprints.txt
+
+  e2e:
+    name: Browser E2E (fa / tr / en)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+      - name: Install dependencies (frozen lockfile)
+        id: install
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Start the application stack
+        run: |
+          npm run dev > /tmp/dev-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:8080/ && exit 0
+            sleep 2
+          done
+          echo 'dev server did not become ready'; tail -n 50 /tmp/dev-server.log; exit 1
+
+      # The spec itself drives fa, tr and en (site default, direction,
+      # localized errors, token hygiene, management authorization).
+      - name: Invitation browser E2E
+        run: npm run test:e2e:invitations

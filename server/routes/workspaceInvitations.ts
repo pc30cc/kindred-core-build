@@ -248,11 +248,38 @@ const createSchema = z.object({
   departmentIds: z.array(z.string().uuid()).max(50).optional(),
   jobTitle: z.string().trim().max(120).optional().nullable(),
   staffCode: z.string().trim().max(60).optional().nullable(),
-  expiresInDays: z.number().int().min(1).max(30).optional(),
+  /**
+   * 0 = no expiry: the invitation stays valid until the workspace owner
+   * revokes or deletes it. Anything else is a 1–30 day window.
+   */
+  expiresInDays: z.number().int().min(0).max(30).optional(),
+
   /** Effective UI locale captured by the management surface (fa/tr/en). */
   locale: z.enum(['fa', 'tr', 'en']).optional(),
   requestId: z.string().trim().uuid(),
 });
+
+/**
+ * `expiresInDays === 0` means "no expiry — valid until the owner decides".
+ * The invitation row keeps `expires_at NULL` (the sweeper already skips NULL)
+ * and the handoff link is issued with a far-future validity so the link cannot
+ * die before the invitation itself.
+ */
+const NO_EXPIRY_TOKEN_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+
+function resolveExpiry(days: number | undefined) {
+  const value = days ?? 7;
+  if (value === 0) {
+    return {
+      invitationExpiresAt: null as string | null,
+      tokenExpiresAt: new Date(Date.now() + NO_EXPIRY_TOKEN_TTL_MS).toISOString(),
+    };
+  }
+  return {
+    invitationExpiresAt: new Date(Date.now() + value * 24 * 60 * 60 * 1000).toISOString(),
+    tokenExpiresAt: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
+  };
+}
 
 workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const parsed = createSchema.safeParse(req.body);
@@ -264,7 +291,8 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
 
   const email = body.email.toLowerCase();
   const manualToken = randomToken();
-  const expiresAt = new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000);
+  const expiry = resolveExpiry(body.expiresInDays);
+
   const nonce = body.requestId;
   const departmentIds = [...(body.departmentIds ?? [])].sort();
   // Notification locale snapshot: explicit selection → configured workspace
@@ -298,11 +326,11 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
       phone_e164: body.phone,
       member_type: body.memberType,
       role: body.role,
-      expires_at: expiresAt.toISOString(),
+      expires_at: expiry.invitationExpiresAt,
       department_ids: departmentIds,
       manual_token_hash: sha256Hex(manualToken),
       manual_token_prefix: tokenPrefix(manualToken),
-      manual_token_expires_at: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
+      manual_token_expires_at: expiry.tokenExpiresAt,
       email_job_idempotency_key: sha256Hex(`email|${body.workspaceId}|${email}|${nonce}`),
       sms_job_idempotency_key: sha256Hex(`sms|${body.workspaceId}|${body.phone}|${nonce}`),
       email_destination_hash: destinationHash(email),
@@ -459,7 +487,7 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
       phone_e164: body.phone,
       member_type: body.memberType,
       role: body.role,
-      expires_at: new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000).toISOString(),
+      expires_at: resolveExpiry(body.expiresInDays).invitationExpiresAt,
       department_ids: departmentIds,
       email_job_idempotency_key: sha256Hex(`email|${id}|${email}|${nonce}`),
       sms_job_idempotency_key: sha256Hex(`sms|${id}|${body.phone}|${nonce}`),
@@ -601,6 +629,67 @@ workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl,
   if (outcome.replayed) return res.json({ invitation: outcome.safeResult, replayed: true });
   return res.json({ invitation: outcome.result, replayed: false });
 });
+
+/**
+ * DELETE /:id — permanent, irreversible removal.
+ *
+ * Archiving only hid a row: its tokens, OTPs, jobs, deliveries and
+ * idempotency records survived, so a later invitation to the same address kept
+ * colliding with leftover state. Owners asked for real deletion, so this route
+ * removes the invitation and every dependent record (the invitation-scoped
+ * child tables cascade; consents and the idempotency book are cleared first).
+ *
+ * An ACCEPTED invitation is never deleted — the membership it produced
+ * references it, and deleting it would rewrite the workspace's staff history.
+ */
+workspaceInvitationsRouter.delete('/:id', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+  const config = cfg(req);
+  const sb = getServiceClient(config);
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'INVITATION_NOT_FOUND' });
+
+  const { data: inv } = await sb
+    .from('workspace_invitations')
+    .select('id, workspace_id, status')
+    .eq('id', id)
+    .maybeSingle();
+  if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
+
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', inv.workspace_id)
+    .eq('user_id', req.authUser.id)
+    .maybeSingle();
+  if (!member || !['owner', 'admin'].includes(String(member.role))) {
+    return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+
+  if (String(inv.status) === 'accepted') {
+    return res.status(409).json({ error: 'INVITATION_ALREADY_ACCEPTED' });
+  }
+
+  await sb.from('workspace_invitation_consents').delete().eq('invitation_id', id);
+  await sb.from('workspace_invitation_idempotency').delete().eq('invitation_id', id);
+
+  const { error } = await sb.from('workspace_invitations').delete().eq('id', id);
+  if (error) {
+    console.error('[invitations] hard delete failed:', error.message);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+
+  await sb.rpc('wi_audit', {
+    _workspace_id: inv.workspace_id,
+    _actor_id: req.authUser.id,
+    _action: 'invitation.deleted',
+    _invitation_id: null,
+    _metadata: { status: inv.status },
+  }).then(() => undefined, () => undefined);
+
+  return res.json({ deleted: true });
+});
+
+
 
 // ─────────────────────────────────────────────────────────────────────────
 // PUBLIC SURFACE (token possession — JSON body only)

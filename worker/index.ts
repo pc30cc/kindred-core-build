@@ -59,16 +59,21 @@ async function main() {
     mod.startChannelsWorker?.();
   }
   if (RAW_KIND === 'invitations' || RAW_KIND === 'all') {
-    const [{ loadConfig }, worker, bootstrap] = await Promise.all([
+    const [{ loadConfig }, worker, bootstrap, secrets] = await Promise.all([
       import('../server/config.js'),
       import('../server/services/invitations/worker.js'),
       import('../server/services/invitations/bootstrap.js'),
+      import('../server/services/invitations/secretBootstrap.js'),
     ]);
     const config = loadConfig();
+    // Same key material as the API process: env wins, otherwise the durable
+    // database-provisioned keys are loaded before any delivery job runs.
+    await secrets.ensureInvitationSecrets(config);
     const entitlement = await bootstrap.syncSeatEntitlementMode(config);
     if (!entitlement.ok) throw new Error('invitation entitlement bootstrap failed');
     worker.startInvitationWorker(config);
   }
+
 
   if (RAW_KIND === 'all') {
     console.warn('[worker] WORKER_KIND=all is allowed but not recommended for production isolation');

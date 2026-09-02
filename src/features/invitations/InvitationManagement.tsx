@@ -19,7 +19,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2, Mail, MessageSquare, MoreHorizontal, RefreshCw, Link2, Ban,
-  Archive, Pencil, UserPlus, Copy, ChevronDown, ChevronUp, ShieldAlert,
+  Trash2, Pencil, UserPlus, Copy, ChevronDown, ChevronUp, ShieldAlert,
 } from 'lucide-react';
 
 import { useTranslation, type TranslationKey } from '@/i18n';
@@ -233,18 +233,18 @@ export function InvitationManagement({
     onError: fail,
   });
 
+  // Permanent deletion: archiving used to leave tokens/jobs/OTPs behind, which
+  // then collided with a fresh invitation to the same person.
   const archive = useMutation({
     mutationFn: async (inv: InvitationRow) => {
-      const key = `archive:${inv.id}`;
-      await api(`/api/workspace-invitations/${inv.id}/archive`, {
-        method: 'POST',
-        body: JSON.stringify({ requestId: requestIds.get(key) }),
-      });
+      const key = `delete:${inv.id}`;
+      await api(`/api/workspace-invitations/${inv.id}`, { method: 'DELETE' });
       requestIds.reset(key);
     },
-    onSuccess: () => { toast.success(t('invitations.toastArchived')); setArchiving(null); invalidate(); },
+    onSuccess: () => { toast.success(t('invitations.toastDeleted')); setArchiving(null); invalidate(); },
     onError: fail,
   });
+
 
   const copyLink = async (link: string) => {
     const ok = await copyWithVerification(link);
@@ -387,8 +387,9 @@ export function InvitationManagement({
                       data-testid="invitation-archive"
                       onClick={() => setArchiving(inv)}
                     >
-                      <Archive className="me-2 h-3.5 w-3.5" />{t('invitations.actionArchive')}
+                      <Trash2 className="me-2 h-3.5 w-3.5" />{t('invitations.actionDelete')}
                     </DropdownMenuItem>
+
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -425,8 +426,8 @@ export function InvitationManagement({
         <Dialog open onOpenChange={(o) => !o && setArchiving(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{t('invitations.archiveTitle')}</DialogTitle>
-              <DialogDescription>{t('invitations.archiveBody')}</DialogDescription>
+              <DialogTitle>{t('invitations.deleteTitle')}</DialogTitle>
+              <DialogDescription>{t('invitations.deleteBody')}</DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setArchiving(null)}>{t('invitations.cancel')}</Button>
@@ -437,7 +438,7 @@ export function InvitationManagement({
                 onClick={() => archive.mutate(archiving)}
               >
                 {archive.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                {t('invitations.archiveConfirm')}
+                {t('invitations.deleteConfirm')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -666,7 +667,8 @@ export function InvitationFormDialog({
   const [role, setRole] = useState<string>(invitation?.role ?? roles[0]);
   const [jobTitle, setJobTitle] = useState(invitation?.job_title ?? '');
   const [staffCode, setStaffCode] = useState(invitation?.staff_code ?? '');
-  const [expiresInDays, setExpiresInDays] = useState('7');
+  // '0' = no expiry: valid until the workspace owner revokes or deletes it.
+  const [expiresInDays, setExpiresInDays] = useState('0');
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [touched, setTouched] = useState(false);
 
@@ -700,7 +702,7 @@ export function InvitationFormDialog({
         departmentIds: mode === 'customer_facing' ? [...departmentIds].sort() : [],
         jobTitle: jobTitle.trim() || null,
         staffCode: staffCode.trim() || null,
-        expiresInDays: Number(expiresInDays) || 7,
+        expiresInDays: Number(expiresInDays),
       };
       const intent = JSON.stringify(payload);
       const key = isEdit ? `edit_invitation:${invitation!.id}` : 'create_invitation';
@@ -871,6 +873,7 @@ export function InvitationFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="0">{t('invitations.expiryUnlimited')}</SelectItem>
                 {['1', '3', '7', '14', '30'].map((d) => (
                   <SelectItem key={d} value={d}>{t('invitations.expiryDays', { days: d })}</SelectItem>
                 ))}

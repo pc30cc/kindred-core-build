@@ -227,6 +227,18 @@ let baseUrl: string;
 
 type Res = { status: number; json: any; setCookie: string[] };
 
+/**
+ * Per-case client address. The public rate limits are per source IP and are
+ * deliberately NOT relaxed for tests; independent cases simply originate from
+ * their own loopback address, exactly as independent visitors would.
+ */
+let clientAddr = '127.0.0.1';
+let addrSeq = 1;
+function freshClientAddr(): void {
+  addrSeq += 1;
+  clientAddr = `127.0.0.${(addrSeq % 250) + 2}`;
+}
+
 function call(method: string, path: string, opts: { body?: unknown; cookie?: string } = {}): Promise<Res> {
   const payload = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
   return new Promise((resolve, reject) => {
@@ -234,6 +246,8 @@ function call(method: string, path: string, opts: { body?: unknown; cookie?: str
       `${baseUrl}${path}`,
       {
         method,
+        localAddress: clientAddr,
+        family: 4,
         headers: {
           origin: baseUrl,
           ...(opts.cookie ? { cookie: opts.cookie } : {}),
@@ -341,6 +355,13 @@ async function otpCodeFor(email: string): Promise<string> {
   return String(hit!.text).match(/(\d{6})/)![1];
 }
 
+/** Every case starts from its own client address. */
+const itFresh: typeof it = ((name: any, fn: any, timeout?: any) =>
+  it(name, async (...args: any[]) => {
+    freshClientAddr();
+    return (fn as any)(...args);
+  }, timeout)) as any;
+
 /** Ledger reader — the suite asserts on the REAL table, never on a mock. */
 async function ledger(): Promise<Array<Record<string, any>>> {
   const { rows } = await db.query('SELECT * FROM public.workspace_invitation_idempotency ORDER BY created_at');
@@ -375,7 +396,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 180_000);
 
   // ── A-RESIDUAL — canonical account_exists semantics ───────────────────
-  it('A-residual — wi_preview_invitation and wi_preview_login_context agree on account_exists', async () => {
+  itFresh('A-residual — wi_preview_invitation and wi_preview_login_context agree on account_exists', async () => {
     const owner = await makeOwner(`idem.owner.${Date.now()}@example.test`);
     const policies = await activePolicies();
     void policies;
@@ -434,7 +455,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 14. SOURCE GUARD ──────────────────────────────────────────────────
-  it('CASE 14 — the Express router never touches the idempotency ledger directly', () => {
+  itFresh('CASE 14 — the Express router never touches the idempotency ledger directly', () => {
     const source = readFileSync('server/routes/workspaceInvitations.ts', 'utf8');
     expect(source).not.toContain('workspace_invitation_idempotency');
     expect(source).not.toContain('withIdempotency');
@@ -442,7 +463,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   });
 
   // ── 1. CONCURRENT CREATE ──────────────────────────────────────────────
-  it('CASE 1 — two concurrent creates with one requestId produce exactly one invitation, token, job and audit', async () => {
+  itFresh('CASE 1 — two concurrent creates with one requestId produce exactly one invitation, token, job and audit', async () => {
     const owner = await makeOwner(`idem.c1.${Date.now()}@example.test`);
     const payload = invitePayload(owner.workspaceId);
 
@@ -478,7 +499,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 2. REPLAY AFTER COMMIT ────────────────────────────────────────────
-  it('CASE 2 — replaying a committed create mutates nothing and never returns a link', async () => {
+  itFresh('CASE 2 — replaying a committed create mutates nothing and never returns a link', async () => {
     const owner = await makeOwner(`idem.c2.${Date.now()}@example.test`);
     const payload = invitePayload(owner.workspaceId);
     const first = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
@@ -500,7 +521,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 3. SAME KEY, DIFFERENT PAYLOAD ────────────────────────────────────
-  it('CASE 3 — the same requestId with a different payload fails closed with IDEMPOTENCY_KEY_REUSED', async () => {
+  itFresh('CASE 3 — the same requestId with a different payload fails closed with IDEMPOTENCY_KEY_REUSED', async () => {
     const owner = await makeOwner(`idem.c3.${Date.now()}@example.test`);
     const payload = invitePayload(owner.workspaceId);
     const first = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
@@ -517,7 +538,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 4. BUSINESS FAILURE / ROLLBACK ────────────────────────────────────
-  it('CASE 4 — a failed mutation leaves NO ledger row, no token and no job, and a later retry succeeds', async () => {
+  itFresh('CASE 4 — a failed mutation leaves NO ledger row, no token and no job, and a later retry succeeds', async () => {
     const owner = await makeOwner(`idem.c4.${Date.now()}@example.test`);
     // Force a business failure: a staff invitation with a department is illegal.
     const deptId = crypto.randomUUID();
@@ -550,7 +571,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 5. TRANSPORT LOSS AFTER COMMIT ────────────────────────────────────
-  it('CASE 5 — a lost response after commit is recovered by the same requestId without re-running the mutation', async () => {
+  itFresh('CASE 5 — a lost response after commit is recovered by the same requestId without re-running the mutation', async () => {
     const owner = await makeOwner(`idem.c5.${Date.now()}@example.test`);
     const payload = invitePayload(owner.workspaceId, { requestId: rid() });
 
@@ -576,7 +597,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 6. CONCURRENT RESEND ──────────────────────────────────────────────
-  it('CASE 6 — concurrent resend bumps notification_generation once and enqueues one job', async () => {
+  itFresh('CASE 6 — concurrent resend bumps notification_generation once and enqueues one job', async () => {
     const owner = await makeOwner(`idem.c6.${Date.now()}@example.test`);
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
     expect(created.status).toBe(201);
@@ -601,7 +622,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 7. CONCURRENT ROTATE ──────────────────────────────────────────────
-  it('CASE 7 — concurrent rotate-link mints exactly one token generation and the replay carries no link', async () => {
+  itFresh('CASE 7 — concurrent rotate-link mints exactly one token generation and the replay carries no link', async () => {
     const owner = await makeOwner(`idem.c7.${Date.now()}@example.test`);
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
     const id = created.json.invitation.id;
@@ -626,7 +647,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 8. ACCEPT-NEW WITH A LOST RESPONSE ────────────────────────────────
-  it('CASE 8 — accept-new replay after a lost response creates no duplicate identity and re-issues a session', async () => {
+  itFresh('CASE 8 — accept-new replay after a lost response creates no duplicate identity and re-issues a session', async () => {
     const owner = await makeOwner(`idem.c8.${Date.now()}@example.test`);
     const policies = await activePolicies();
     const payload8 = invitePayload(owner.workspaceId);
@@ -669,7 +690,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 9. ACCEPT-EXISTING REPLAY ─────────────────────────────────────────
-  it('CASE 9 — accept-existing replay duplicates neither membership nor consent', async () => {
+  itFresh('CASE 9 — accept-existing replay duplicates neither membership nor consent', async () => {
     const stamp = Date.now();
     const owner = await makeOwner(`idem.c9.owner.${stamp}@example.test`);
     const policies = await activePolicies();
@@ -707,7 +728,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 10. OTP REQUEST REPLAY ────────────────────────────────────────────
-  it('CASE 10 — an OTP request replay creates one OTP row and sends no second code', async () => {
+  itFresh('CASE 10 — an OTP request replay creates one OTP row and sends no second code', async () => {
     const owner = await makeOwner(`idem.c10.${Date.now()}@example.test`);
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
     const token = tokenFromManualLink(created.json.manualLink);
@@ -729,7 +750,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 11. OTP VERIFY / LOGIN-CONTEXT RETRY ──────────────────────────────
-  it('CASE 11 — OTP verify and login-context retries re-issue the identical cookie and store no raw secret', async () => {
+  itFresh('CASE 11 — OTP verify and login-context retries re-issue the identical cookie and store no raw secret', async () => {
     const owner = await makeOwner(`idem.c11.${Date.now()}@example.test`);
     const payload11 = invitePayload(owner.workspaceId);
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload11 });
@@ -768,7 +789,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 12. CROSS-SCOPE COLLISION ─────────────────────────────────────────
-  it('CASE 12 — one requestId reused in another workspace or another operation never replays the wrong result', async () => {
+  itFresh('CASE 12 — one requestId reused in another workspace or another operation never replays the wrong result', async () => {
     const stamp = Date.now();
     const ownerA = await makeOwner(`idem.c12a.${stamp}@example.test`);
     const ownerB = await makeOwner(`idem.c12b.${stamp}@example.test`);
@@ -797,7 +818,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   }, 120_000);
 
   // ── 13. LEDGER SECRET SCAN ────────────────────────────────────────────
-  it('CASE 13 — the full ledger contains no token, OTP, proof, password, session or raw contact detail', async () => {
+  itFresh('CASE 13 — the full ledger contains no token, OTP, proof, password, session or raw contact detail', async () => {
     const owner = await makeOwner(`idem.c13.${Date.now()}@example.test`);
     const policies = await activePolicies();
     const payload = invitePayload(owner.workspaceId);

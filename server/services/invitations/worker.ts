@@ -41,6 +41,12 @@ function backoffSeconds(attempt: number): number {
   return Math.min(3600, Math.round(30 * Math.pow(2, Math.max(0, attempt - 1))));
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+  })[char] || char);
+}
+
 async function complete(
   config: ServerConfig,
   jobId: string,
@@ -48,7 +54,7 @@ async function complete(
   outcome: 'provider_accepted' | 'retry' | 'permanently_failed' | 'unconfigured' | 'derivation_key_unavailable',
   extra: { provider?: string; messageId?: string; errorCode?: string; message?: string; retryIn?: number } = {},
 ): Promise<void> {
-  await getServiceClient(config).rpc('wi_complete_invitation_job', {
+  const { data, error } = await getServiceClient(config).rpc('wi_complete_invitation_job', {
     _job_id: jobId,
     _claim_token: claimToken,
     _outcome: outcome,
@@ -58,6 +64,9 @@ async function complete(
     _safe_error_message: extra.message ? String(extra.message).slice(0, 300) : null,
     _retry_in_seconds: extra.retryIn ?? 60,
   });
+  if (error || !(data as any)?.applied) {
+    throw new Error(error?.message || 'JOB_CLAIM_LOST');
+  }
 }
 
 async function processJob(config: ServerConfig, job: any): Promise<void> {
@@ -124,7 +133,7 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       to: payload.email,
       subject: `You are invited to ${payload.workspace_name}`,
       text: `Hello ${payload.first_name},\n\nYou were invited to join ${payload.workspace_name}.\nOpen this link to accept:\n${link}\n`,
-      html: `<p>Hello ${payload.first_name},</p><p>You were invited to join <strong>${payload.workspace_name}</strong>.</p><p><a href="${link}">Accept the invitation</a></p>`,
+      html: `<p>Hello ${escapeHtml(payload.first_name)},</p><p>You were invited to join <strong>${escapeHtml(payload.workspace_name)}</strong>.</p><p><a href="${escapeHtml(link)}">Accept the invitation</a></p>`,
     });
 
     if (result.success && result.provider !== 'stub') {

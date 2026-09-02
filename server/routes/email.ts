@@ -8,6 +8,7 @@ import { sendEmail } from '../services/email/index.js';
 import { requireChannel } from '../middleware/featureGating.js';
 import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { getServiceClient } from '../supabase.js';
 
 export const emailRouter = Router();
 
@@ -27,33 +28,27 @@ export const emailRouter = Router();
  * MUST use POST /api/email/send-channel below, which is gated with
  * requireChannel('email'). See docs/EMAIL_SURFACE_SPLIT.md.
  */
-emailRouter.post('/send', async (req, res) => {
+emailRouter.post('/send', (_req, res) => res.status(410).json({
+  error: 'ARBITRARY_EMAIL_RELAY_RETIRED',
+  replacement: '/api/email/send-channel',
+}));
+
+emailRouter.post('/test-send', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-
-    const { workspaceId, to, subject, html, text, from, replyTo, templateSlug, templateData, locale } = req.body;
-
-    if (!workspaceId || !to) {
-      return res.status(400).json({ error: 'workspaceId and to are required' });
-    }
-
-    // Identity must be a real Supabase user JWT with membership of the target
-    // workspace. The publishable anon key is public and would turn this route
-    // into an open mail relay. In-process auth/transactional callers use
-    // sendEmail() directly and never traverse HTTP.
-    if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
+    const workspaceId = String(req.body?.workspaceId || '');
+    const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+    if (!auth) return;
+    const { data: profile } = await getServiceClient(config)
+      .from('profiles').select('email').eq('id', auth.userId).maybeSingle();
+    if (!profile?.email) return res.status(400).json({ error: 'verified_email_required' });
 
     const result = await sendEmail(config, {
       workspaceId,
-      to,
-      subject,
-      html,
-      text,
-      from,
-      replyTo,
-      templateSlug,
-      templateData,
-      locale,
+      to: profile.email,
+      subject: 'Email provider test',
+      text: 'Your workspace email provider is configured correctly.',
+      html: '<p>Your workspace email provider is configured correctly.</p>',
     });
 
     return res.status(result.success ? 200 : 500).json(result);

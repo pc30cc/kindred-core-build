@@ -58,6 +58,11 @@ const acceptSchema = z.object({
   token: z.string().trim().min(1).max(512),
 });
 
+const legacyInvitationGone = (_req: any, res: any) => res.status(410).json({
+  error: 'LEGACY_INVITATION_API_RETIRED',
+  replacement: '/api/workspace-invitations',
+});
+
 // ── Pre-flight invitation context resolver ─────────────────────────
 // Looks up the invitation by token via service_role, mirrors the
 // original RPC's well-formed error semantics, and attaches:
@@ -153,39 +158,7 @@ const maxAgentsLimitMw = (() => {
 // ──────────────────────────────────────────────────────────────────
 workspaceMembersRouter.post(
   '/accept-invitation',
-  requireUser,
-  resolveInvitationContext,
-  maxAgentsLimitMw,
-  async (req: any, res) => {
-    const config: ServerConfig = req.serverConfig;
-    const sb = getServiceClient(config);
-
-    // Service-role-only companion RPC. EXECUTE is granted only to
-    // service_role; the browser cannot reach this function path.
-    const { data, error } = await sb.rpc('accept_workspace_invitation_as', {
-      _token: req.body.token,
-      _user_id: req.authUser.id,
-    });
-
-    if (error) {
-      const msg = error.message || 'invitation_failed';
-      const lower = msg.toLowerCase();
-      if (lower.includes('not authenticated')) {
-        return res.status(401).json({ error: msg });
-      }
-      if (
-        lower.includes('invalid invitation') ||
-        lower.includes('expired') ||
-        lower.includes('revoked') ||
-        lower.includes('different email')
-      ) {
-        return res.status(400).json({ error: msg });
-      }
-      return res.status(500).json({ error: msg });
-    }
-
-    return res.json(data);
-  },
+  legacyInvitationGone,
 );
 
 // ──────────────────────────────────────────────────────────────────
@@ -374,13 +347,14 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     });
   }
 
-  const { error } = await sb
-    .from('workspace_members')
-    .delete()
-    .eq('id', req.params.memberId)
-    .eq('workspace_id', workspaceId);
+  const { data, error } = await sb.rpc('offboard_workspace_member', {
+    _workspace_id: workspaceId,
+    _user_id: (member as { user_id: string }).user_id,
+    _actor_id: auth.userId,
+    _reason: typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) || null : null,
+  });
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ ok: true });
+  return res.json({ ok: true, offboarding: data });
 });
 
 /**
@@ -492,23 +466,7 @@ workspaceMembersRouter.put('/user/:userId/departments', async (req, res) => {
 });
 
 // GET /api/workspace-members/invitations?workspaceId=... — pending/past invitations.
-workspaceMembersRouter.get('/invitations', async (req, res) => {
-  const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
-  if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
-  const { workspaceId } = parsedQuery.data;
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
-  if (!auth) return;
-
-  const config: ServerConfig = (req as any).serverConfig;
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('workspace_invitations')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ invitations: data || [] });
-});
+workspaceMembersRouter.get('/invitations', legacyInvitationGone);
 
 const createInvitationSchema = z.object({
   workspaceId: z.string().uuid(),
@@ -518,69 +476,10 @@ const createInvitationSchema = z.object({
 });
 
 // POST /api/workspace-members/invitations — create an invitation.
-workspaceMembersRouter.post('/invitations', async (req, res) => {
-  const parsed = createInvitationSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten().fieldErrors });
-  const { workspaceId, role, invitedEmail, expiresAt } = parsed.data;
-  if (role === 'owner') return res.status(400).json(OWNER_ROLE_ERROR);
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
-  if (!auth) return;
-
-  const config: ServerConfig = (req as any).serverConfig;
-  // NEW-signup policy: an unverified account cannot pull other people into
-  // a workspace it controls. See identity.ts's isEmailVerified.
-  if (!(await isEmailVerified(config, auth.userId))) {
-    return res.status(403).json({ error: 'email_verification_required' });
-  }
-  const sb = getServiceClient(config);
-  const insertData: Record<string, unknown> = {
-    workspace_id: workspaceId,
-    role,
-    created_by: auth.userId,
-    max_uses: 0,
-    invited_email: invitedEmail || null,
-  };
-  if (expiresAt) insertData.expires_at = expiresAt;
-
-  const { data, error } = await sb.from('workspace_invitations').insert(insertData).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  return res.status(201).json({ invitation: data });
-});
+workspaceMembersRouter.post('/invitations', legacyInvitationGone);
 
 // PATCH /api/workspace-members/invitations/:id?workspaceId=... — revoke an invitation.
-workspaceMembersRouter.patch('/invitations/:id', async (req, res) => {
-  const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
-  if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
-  const { workspaceId } = parsedQuery.data;
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
-  if (!auth) return;
-
-  const config: ServerConfig = (req as any).serverConfig;
-  const sb = getServiceClient(config);
-  const { error } = await sb
-    .from('workspace_invitations')
-    .update({ revoked_at: new Date().toISOString() })
-    .eq('id', req.params.id)
-    .eq('workspace_id', workspaceId);
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ ok: true });
-});
+workspaceMembersRouter.patch('/invitations/:id', legacyInvitationGone);
 
 // DELETE /api/workspace-members/invitations/:id?workspaceId=... — delete an invitation.
-workspaceMembersRouter.delete('/invitations/:id', async (req, res) => {
-  const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
-  if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
-  const { workspaceId } = parsedQuery.data;
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
-  if (!auth) return;
-
-  const config: ServerConfig = (req as any).serverConfig;
-  const sb = getServiceClient(config);
-  const { error } = await sb
-    .from('workspace_invitations')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('workspace_id', workspaceId);
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ ok: true });
-});
+workspaceMembersRouter.delete('/invitations/:id', legacyInvitationGone);

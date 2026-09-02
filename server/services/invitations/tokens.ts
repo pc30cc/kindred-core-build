@@ -67,7 +67,7 @@ function keyRing(): Map<number, string> {
       const parsed = JSON.parse(raw) as Record<string, string>;
       for (const [k, v] of Object.entries(parsed)) {
         const version = Number.parseInt(k, 10);
-        if (Number.isInteger(version) && version > 0 && typeof v === 'string' && v.length >= 16) {
+        if (Number.isInteger(version) && version > 0 && typeof v === 'string' && Buffer.byteLength(v, 'utf8') >= 32) {
           ring.set(version, v);
         }
       }
@@ -151,10 +151,26 @@ export function deriveEmailToken(input: EmailTokenInput): string {
 // ── OTP ─────────────────────────────────────────────────────────────────
 
 function otpPepper(): string {
-  const pepper = process.env.INVITATION_OTP_PEPPER?.trim()
-    || process.env.INVITATION_LINK_SECRET?.trim();
+  const pepper = process.env.INVITATION_OTP_PEPPER?.trim();
   if (!pepper) throw new Error('INVITATION_OTP_PEPPER_MISSING');
   return pepper;
+}
+
+export function validateInvitationSecrets(): void {
+  const pepper = otpPepper();
+  if (Buffer.byteLength(pepper, 'utf8') < 32) {
+    throw new Error('INVITATION_OTP_PEPPER must contain at least 32 bytes');
+  }
+  const ring = keyRing();
+  if (ring.size === 0) throw new Error('INVITATION_LINK_SECRET_MISSING');
+  for (const [version, key] of ring) {
+    if (Buffer.byteLength(key, 'utf8') < 32) {
+      throw new Error(`INVITATION_LINK_SECRET version ${version} must contain at least 32 bytes`);
+    }
+    if (safeEqual(key, pepper)) {
+      throw new Error('INVITATION_OTP_PEPPER must be distinct from every invitation link key');
+    }
+  }
 }
 
 export function generateOtpCode(): string {

@@ -522,6 +522,18 @@ workspaceInvitationsRouter.post('/login-context', requireOrigin, rejectTokenInUr
   return res.json({ invitationId: (data as any).invitation_id, loginPath: '/auth/login?invited=1' });
 });
 
+workspaceInvitationsRouter.post('/context-preview', requireOrigin, rejectTokenInUrl, publicLimiter, async (req: any, res) => {
+  const handle = req.cookies?.[CONTEXT_COOKIE_NAME];
+  if (!handle) return res.status(404).json(PUBLIC_ERROR);
+  const config = cfg(req);
+  const { data, error } = await getServiceClient(config).rpc('wi_preview_login_context', {
+    _handle_hash: sha256Hex(String(handle)),
+  });
+  if (error || !data) return res.status(404).json(PUBLIC_ERROR);
+  const policies = await activePolicyVersions(config, String(req.body?.locale || 'en'));
+  return res.json({ preview: data, policies });
+});
+
 workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl, otpLimiter, async (req: any, res) => {
   const parsed = tokenBody.safeParse(req.body);
   if (!parsed.success || parsed.data.purpose !== 'manual_handoff') return res.status(404).json(PUBLIC_ERROR);
@@ -648,12 +660,12 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
     _user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
   });
 
-  res.clearCookie(PROOF_COOKIE_NAME, { path: '/api/workspace-invitations/accept-new' });
-
   if (error) {
     const mapped = mapRpcError(error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
+
+  res.clearCookie(PROOF_COOKIE_NAME, { path: '/api/workspace-invitations/accept-new' });
 
   const result = data as any;
   try {
@@ -695,29 +707,10 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
   const session = await validateSessionToken(config, req.cookies?.[SESSION_COOKIE_NAME]);
   if (!session) return res.status(401).json({ error: 'SESSION_REQUIRED' });
 
-  let tokenHash: string | null = null;
-  let purpose: Purpose | null = null;
-
-  if (body.token && body.purpose) {
-    tokenHash = tokenHashOf(body.token);
-    purpose = body.purpose;
-  } else {
-    const handle = req.cookies?.[CONTEXT_COOKIE_NAME];
-    if (!handle) return res.status(404).json(PUBLIC_ERROR);
-    const { data: ctx, error: ctxError } = await sb.rpc('wi_consume_login_context', {
-      _handle_hash: sha256Hex(String(handle)),
-    });
-    if (ctxError || !ctx) {
-      res.clearCookie(CONTEXT_COOKIE_NAME, { path: '/' });
-      return res.status(404).json(PUBLIC_ERROR);
-    }
-    tokenHash = String((ctx as any).token_hash);
-    purpose = (ctx as any).purpose as Purpose;
-  }
-
-  const { data, error } = await sb.rpc('accept_invitation_existing_user_v2', {
-    _token_hash: tokenHash,
-    _purpose: purpose,
+  const handle = req.cookies?.[CONTEXT_COOKIE_NAME];
+  if (!handle) return res.status(404).json(PUBLIC_ERROR);
+  const { data, error } = await sb.rpc('accept_invitation_existing_context_v2', {
+    _handle_hash: sha256Hex(String(handle)),
     _session_user_id: session.userId,
     _session_email_normalized: session.email.toLowerCase(),
     _terms_version_id: body.termsVersionId,
@@ -727,11 +720,10 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
     _user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
   });
 
-  res.clearCookie(CONTEXT_COOKIE_NAME, { path: '/' });
-
   if (error) {
     const mapped = mapRpcError(error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
+  res.clearCookie(CONTEXT_COOKIE_NAME, { path: '/' });
   return res.json({ ...(data as any), session: 'existing' });
 });

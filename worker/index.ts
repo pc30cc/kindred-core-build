@@ -27,6 +27,7 @@ const ALLOWED = new Set([
   'file-ingest',
   'regression-runner',
   'channels',
+  'invitations',
   'all',
 ]);
 
@@ -56,6 +57,17 @@ async function main() {
   if (RAW_KIND === 'channels' || RAW_KIND === 'all') {
     const mod = await import('./channels/index.js');
     mod.startChannelsWorker?.();
+  }
+  if (RAW_KIND === 'invitations' || RAW_KIND === 'all') {
+    const [{ loadConfig }, worker, bootstrap] = await Promise.all([
+      import('../server/config.js'),
+      import('../server/services/invitations/worker.js'),
+      import('../server/services/invitations/bootstrap.js'),
+    ]);
+    const config = loadConfig();
+    const entitlement = await bootstrap.syncSeatEntitlementMode(config);
+    if (!entitlement.ok) throw new Error('invitation entitlement bootstrap failed');
+    worker.startInvitationWorker(config);
   }
 
   if (RAW_KIND === 'all') {

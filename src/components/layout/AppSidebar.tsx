@@ -35,6 +35,7 @@ import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -92,6 +93,7 @@ export function AppSidebar() {
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
   const { data: callCenterCaps, isError: callCenterCapsError } = useCallCenterCapabilities(workspace?.id);
   const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const { data: wsRole } = useWorkspaceRole(workspace?.id);
   // Fail-CLOSED: hide unless capabilities explicitly say visible.
   const callCenterVisible =
     !callCenterCapsError && !!callCenterCaps?.workspace_call_center_visible;

@@ -499,8 +499,17 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Invitation key material must exist before any invitation route or worker
+// runs, otherwise delivery jobs fail closed with DERIVATION_KEY_UNAVAILABLE.
+// Explicit env vars win; otherwise durable keys are provisioned in the
+// operator's own database exactly once.
+await ensureInvitationSecrets(config)
+  .then((r) => console.log(`[invitations] key material: link=${r.linkSecret} otp=${r.otpPepper}`))
+  .catch((e) => console.error('[invitations] secret bootstrap failed:', (e as Error).message));
+
 app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
+
   // Phase 3 — start best-effort orphan-attachment sweeper.
   startAttachmentJanitor(config);
   // recording_retention_days — sole enforcement path for call-recording

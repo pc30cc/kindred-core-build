@@ -28,7 +28,7 @@ import { toast } from '@/lib/toast';
 import {
   Building2, Plus, Trash2, Users, MessageSquare, Phone, Video,
   Loader2, UserPlus, Crown,
-  Mail, Search, Settings2, ArrowRight,
+  Mail, Search, Settings2, ArrowRight, Ban, ShieldCheck,
 } from 'lucide-react';
 
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';

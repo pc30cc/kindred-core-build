@@ -11,6 +11,7 @@ import { ProviderContextProvider } from "@/providers";
 import { AuthContextProvider } from "@/features/auth/AuthContext";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
+import { RequireWorkspaceAdmin } from "@/features/auth/RequireWorkspaceAdmin";
 import { BrandingGate } from "@/features/branding/BrandingGate";
 import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
 import { WorkspaceRedirect } from "@/features/workspace/WorkspaceRedirect";
@@ -235,11 +236,11 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />
                 <Route path="contacts/:id" element={<ContactDetailPage />} />
                 <Route path="visitors" element={<PlanLockedOverlay moduleKey="visitor_tracking"><VisitorsPage /></PlanLockedOverlay>} />
-                <Route path="widget" element={<WidgetPage />} />
-                <Route path="plugins" element={<PluginsPage />} />
-                <Route path="plugins/:pluginId" element={<PluginDetailPage />} />
-                <Route path="email" element={<EmailPage />} />
-                <Route path="billing" element={<BillingPage />} />
+                <Route path="widget" element={<RequireWorkspaceAdmin><WidgetPage /></RequireWorkspaceAdmin>} />
+                <Route path="plugins" element={<RequireWorkspaceAdmin><PluginsPage /></RequireWorkspaceAdmin>} />
+                <Route path="plugins/:pluginId" element={<RequireWorkspaceAdmin><PluginDetailPage /></RequireWorkspaceAdmin>} />
+                <Route path="email" element={<RequireWorkspaceAdmin><EmailPage /></RequireWorkspaceAdmin>} />
+                <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
                 {/* Phase 6-S5-R4 — Knowledge Base is a CORE workspace product.
                     It is ALWAYS available: no plan gate, no AI dependency, no
                     upgrade screen. Only authentication + workspace membership
@@ -263,12 +264,12 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 </Route>
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route index element={<Navigate to="general" replace />} />
-                  <Route path="general" element={<SettingsGeneralPage />} />
-                  <Route path="integrations" element={<SettingsIntegrationsPage />} />
+                  <Route path="general" element={<RequireWorkspaceAdmin><SettingsGeneralPage /></RequireWorkspaceAdmin>} />
+                  <Route path="integrations" element={<RequireWorkspaceAdmin><SettingsIntegrationsPage /></RequireWorkspaceAdmin>} />
                   <Route path="branding" element={<Navigate to="../general" replace />} />
-                  <Route path="domains" element={<SettingsDomainsPage />} />
-                  <Route path="providers" element={<SettingsProvidersPage />} />
-                  <Route path="translations" element={<SettingsTranslationsPage />} />
+                  <Route path="domains" element={<RequireWorkspaceAdmin><SettingsDomainsPage /></RequireWorkspaceAdmin>} />
+                  <Route path="providers" element={<RequireWorkspaceAdmin><SettingsProvidersPage /></RequireWorkspaceAdmin>} />
+                  <Route path="translations" element={<RequireWorkspaceAdmin><SettingsTranslationsPage /></RequireWorkspaceAdmin>} />
                   <Route path="profile" element={<SettingsProfilePage />} />
                   <Route path="notifications" element={<SettingsNotificationsPage />} />
                   <Route path="availability" element={<SettingsAvailabilityPage />} />
@@ -281,15 +282,15 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="team" element={<Navigate to="../team-departments" replace />} />
                   <Route path="departments" element={<Navigate to="../team-departments" replace />} />
                   <Route path="access-profiles" element={<Navigate to="../staff-access" replace />} />
-                  <Route path="team-departments" element={<TeamDepartmentsPage />} />
-                  <Route path="staff-access" element={<StaffAccessPage />} />
-                  <Route path="operator-activity" element={<OperatorActivityPage />} />
-                  <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
+                  <Route path="team-departments" element={<RequireWorkspaceAdmin><TeamDepartmentsPage /></RequireWorkspaceAdmin>} />
+                  <Route path="staff-access" element={<RequireWorkspaceAdmin><StaffAccessPage /></RequireWorkspaceAdmin>} />
+                  <Route path="operator-activity" element={<RequireWorkspaceAdmin><OperatorActivityPage /></RequireWorkspaceAdmin>} />
+                  <Route path="privacy-requests" element={<RequireWorkspaceAdmin><PrivacyRequestsPage /></RequireWorkspaceAdmin>} />
                   {/* Legacy settings entry → canonical Knowledge Base route. */}
                   <Route path="knowledge-base" element={<WorkspaceKnowledgeBaseRedirect />} />
                 </Route>
                 {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
-                <Route path="ai-agent" element={<AiAgentLayout />}>
+                <Route path="ai-agent" element={<RequireWorkspaceAdmin><AiAgentLayout /></RequireWorkspaceAdmin>}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AiAgentOverviewPage />} />
                   <Route path="knowledge" element={<AiAgentKnowledgePage />} />

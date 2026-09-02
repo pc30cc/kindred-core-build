@@ -10,7 +10,8 @@ import { useTranslation } from '@/i18n';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
-import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { useWorkspacePath, useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
 import { toast } from '@/hooks/use-toast';
@@ -22,6 +23,9 @@ export function UserMenu() {
   const { data: profile } = useProfile();
   const { platformName } = useBrandingContext();
   const wsPath = useWorkspacePath();
+  const currentWorkspace = useCurrentWorkspace();
+  const { data: wsRole } = useWorkspaceRole(currentWorkspace?.id);
+  const isWsAdmin = isWorkspaceAdmin(wsRole);
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -146,14 +150,18 @@ export function UserMenu() {
             <ShieldCheck className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.sessions') || 'Sessions & security'}</span>
           </RouterLink>
-          <RouterLink to={wsPath('/settings/general')} onClick={() => setOpen(false)} className={itemCls}>
-            <Building2 className="h-5 w-5 text-muted-foreground" />
-            <span>{t('nav.workspaceSettings') || 'Workspace settings'}</span>
-          </RouterLink>
-          <RouterLink to={wsPath('/team')} onClick={() => setOpen(false)} className={itemCls}>
-            <UserPlus className="h-5 w-5 text-muted-foreground" />
-            <span>{t('nav.inviteOperator') || 'Invite an operator'}</span>
-          </RouterLink>
+          {isWsAdmin && (
+            <>
+              <RouterLink to={wsPath('/settings/general')} onClick={() => setOpen(false)} className={itemCls}>
+                <Building2 className="h-5 w-5 text-muted-foreground" />
+                <span>{t('nav.workspaceSettings') || 'Workspace settings'}</span>
+              </RouterLink>
+              <RouterLink to={wsPath('/team')} onClick={() => setOpen(false)} className={itemCls}>
+                <UserPlus className="h-5 w-5 text-muted-foreground" />
+                <span>{t('nav.inviteOperator') || 'Invite an operator'}</span>
+              </RouterLink>
+            </>
+          )}
 
           <div className="my-1 border-t border-border" />
 

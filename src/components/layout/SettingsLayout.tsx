@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { useWorkspacePath, useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -10,6 +11,8 @@ import {
   Globe, Palette, Languages, Plug, Shield, Users,
   MessageCircleReply, ShieldCheck, Monitor, UserCog,
 } from 'lucide-react';
+
+const ADMIN_ONLY_GROUPS = new Set(['workspace', 'people', 'chatbox', 'integrations', 'email', 'knowledgeBase', 'billing']);
 
 interface SettingsGroup {
   key: string;
@@ -82,14 +85,19 @@ export function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
+  const workspace = useCurrentWorkspace();
+  const { data: wsRole } = useWorkspaceRole(workspace?.id);
+  const canSeeAdminSettings = isWorkspaceAdmin(wsRole);
 
   // Build resolved paths
   const settingsGroups = useMemo(() =>
-    settingsGroupsDef.map(g => ({
+    settingsGroupsDef
+      .filter(g => canSeeAdminSettings || !ADMIN_ONLY_GROUPS.has(g.key))
+      .map(g => ({
       ...g,
       items: g.items.map(i => ({ ...i, path: wsPath(i.subPath) })),
-    })),
-    [wsPath]
+      })),
+    [wsPath, canSeeAdminSettings]
   );
 
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {

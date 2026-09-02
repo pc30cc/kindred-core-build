@@ -213,7 +213,6 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   _row public.workspace_invitation_idempotency%ROWTYPE;
-  _fresh boolean := false;
   _result jsonb;
   _safe jsonb;
   _code text;
@@ -241,11 +240,6 @@ BEGIN
 
   IF _row.key IS NULL THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
 
-  _fresh := (_row.result_state = 'in_progress'
-             AND _row.completed_at IS NULL
-             AND _row.request_fingerprint IS NOT DISTINCT FROM _fingerprint
-             AND _row.xmin::text = txid_current()::text) OR false;
-
   -- scope / fingerprint binding: the same key may never mean two things.
   IF _row.operation IS DISTINCT FROM _operation
      OR _row.scope_kind IS DISTINCT FROM _scope_kind
@@ -267,8 +261,8 @@ BEGIN
 
   CASE _operation
     WHEN 'create' THEN
-      SELECT ARRAY(SELECT (jsonb_array_elements_text(coalesce(_args -> 'department_ids', '[]'::jsonb)))::uuid)
-        INTO _depts;
+      SELECT array_agg(d::uuid) INTO _depts
+      FROM jsonb_array_elements_text(coalesce(_args -> 'department_ids', '[]'::jsonb)) AS t(d);
       _result := public.create_workspace_invitation_v2(
         _workspace_id                := _workspace_id,
         _actor_id                    := _actor_id,
@@ -293,8 +287,8 @@ BEGIN
       _code := 'OPERATION_COMMITTED_LINK_NOT_REPLAYABLE';
 
     WHEN 'edit' THEN
-      SELECT ARRAY(SELECT (jsonb_array_elements_text(coalesce(_args -> 'department_ids', '[]'::jsonb)))::uuid)
-        INTO _depts;
+      SELECT array_agg(d::uuid) INTO _depts
+      FROM jsonb_array_elements_text(coalesce(_args -> 'department_ids', '[]'::jsonb)) AS t(d);
       _result := public.edit_workspace_invitation_v2(
         _invitation_id               := _invitation_id,
         _actor_id                    := _actor_id,
@@ -404,6 +398,9 @@ BEGIN
         _user_agent               := _args ->> 'user_agent'
       );
       _code := 'COMMITTED';
+
+    ELSE
+      RAISE EXCEPTION 'IDEMPOTENCY_OPERATION_UNKNOWN';
   END CASE;
 
   -- Secret-free projection. Explicit allow-list: nothing else is ever stored.

@@ -36,7 +36,7 @@ export default function TeamPage() {
   const pMap = useMemo(() => presenceMap((presence as any)?.presence), [presence]);
 
   if (isPending) return <div className="h-full w-full" />;
-  if (role === 'owner') return <Navigate to="../settings/team-departments" replace />;
+  if (isWorkspaceAdmin(role)) return <Navigate to="../settings/team-departments" replace />;
 
   return (
     <div className="h-full w-full overflow-hidden p-6" dir={dir}>

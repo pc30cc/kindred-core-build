@@ -643,49 +643,69 @@ function DepartmentDialog({
             />
             <p className="text-[11px] text-muted-foreground">{t('teamDept.sortOrderHint')}</p>
           </div>
-          <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpMessaging')}</Label>
-            <ToggleRow label={t('teamDept.chLiveChat')} checked={form.chat_enabled}
-              onChange={(v) => setForm({ ...form, chat_enabled: v })} />
-            <ToggleRow label={t('teamDept.chTickets')} checked={form.tickets_enabled}
-              onChange={(v) => setForm({ ...form, tickets_enabled: v })} />
-          </div>
-          <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpWidgetCalls')}</Label>
-            <p className="text-[11px] text-muted-foreground -mt-1">
-              {t('teamDept.grpWidgetCallsHint')}
-            </p>
-            <ToggleRow label={t('teamDept.tgWidgetVoice')} checked={form.audio_enabled}
-              onChange={(v) => setForm({ ...form, audio_enabled: v })} />
-            <ToggleRow label={t('teamDept.tgWidgetVideo')} checked={form.video_enabled}
-              onChange={(v) => setForm({ ...form, video_enabled: v })} />
-          </div>
-          <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpCallCenter')}</Label>
-            <div className="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-1">
-              <ToggleRow
-                label={t('teamDept.ccMasterTitle')}
-                checked={ccPlatformEnabled && ccEnabled}
-                disabled={!ccPlatformEnabled || ccBusy}
-                onChange={onToggleCc}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                {ccPlatformEnabled ? t('teamDept.ccMasterHint') : t('teamDept.ccMasterPlatformOff')}
-              </p>
+          {(planCaps.chat || planCaps.tickets) && (
+            <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpMessaging')}</Label>
+              {planCaps.chat && (
+                <ToggleRow label={t('teamDept.chLiveChat')} checked={form.chat_enabled}
+                  onChange={(v) => setForm({ ...form, chat_enabled: v })} />
+              )}
+              {planCaps.tickets && (
+                <ToggleRow label={t('teamDept.chTickets')} checked={form.tickets_enabled}
+                  onChange={(v) => setForm({ ...form, tickets_enabled: v })} />
+              )}
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              {t('teamDept.grpCallCenterHint')}
-            </p>
-            <ToggleRow label={t('teamDept.tgCcVoice')} checked={form.cc_voice_enabled}
-              disabled={!ccPlatformEnabled || !ccEnabled}
-              onChange={(v) => setForm({ ...form, cc_voice_enabled: v })} />
-            <ToggleRow label={t('teamDept.tgCcVideo')} checked={form.cc_video_enabled}
-              disabled={!ccPlatformEnabled || !ccEnabled}
-              onChange={(v) => setForm({ ...form, cc_video_enabled: v })} />
-            <ToggleRow label={t('teamDept.tgCcCallback')} checked={form.cc_callback_enabled}
-              disabled={!ccPlatformEnabled || !ccEnabled}
-              onChange={(v) => setForm({ ...form, cc_callback_enabled: v })} />
-          </div>
+          )}
+          {(planCaps.widgetVoice || planCaps.widgetVideo) && (
+            <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpWidgetCalls')}</Label>
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                {t('teamDept.grpWidgetCallsHint')}
+              </p>
+              {planCaps.widgetVoice && (
+                <ToggleRow label={t('teamDept.tgWidgetVoice')} checked={form.audio_enabled}
+                  onChange={(v) => setForm({ ...form, audio_enabled: v })} />
+              )}
+              {planCaps.widgetVideo && (
+                <ToggleRow label={t('teamDept.tgWidgetVideo')} checked={form.video_enabled}
+                  onChange={(v) => setForm({ ...form, video_enabled: v })} />
+              )}
+            </div>
+          )}
+          {planCaps.callCenter && (
+            <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpCallCenter')}</Label>
+              <div className="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-1">
+                <ToggleRow
+                  label={t('teamDept.ccMasterTitle')}
+                  checked={ccPlatformEnabled && ccEnabled}
+                  disabled={!ccPlatformEnabled || ccBusy}
+                  onChange={onToggleCc}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {ccPlatformEnabled ? t('teamDept.ccMasterHint') : t('teamDept.ccMasterPlatformOff')}
+                </p>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {t('teamDept.grpCallCenterHint')}
+              </p>
+              {planCaps.ccVoice && (
+                <ToggleRow label={t('teamDept.tgCcVoice')} checked={form.cc_voice_enabled}
+                  disabled={!ccEnabled}
+                  onChange={(v) => setForm({ ...form, cc_voice_enabled: v })} />
+              )}
+              {planCaps.ccVideo && (
+                <ToggleRow label={t('teamDept.tgCcVideo')} checked={form.cc_video_enabled}
+                  disabled={!ccEnabled}
+                  onChange={(v) => setForm({ ...form, cc_video_enabled: v })} />
+              )}
+              {planCaps.ccCallback && (
+                <ToggleRow label={t('teamDept.tgCcCallback')} checked={form.cc_callback_enabled}
+                  disabled={!ccEnabled}
+                  onChange={(v) => setForm({ ...form, cc_callback_enabled: v })} />
+              )}
+            </div>
+          )}
           <div className="rounded-md border border-border/60 p-3">
             <ToggleRow label={t('teamDept.deptEnabled')} checked={form.enabled}
               onChange={(v) => setForm({ ...form, enabled: v })} />

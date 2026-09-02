@@ -542,7 +542,7 @@ export default function TeamDepartmentsPage() {
       )}
       {editingDept && wsId && (
         <DepartmentDialog mode="edit" department={editingDept} workspaceId={wsId}
-          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled}
+          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled} planCaps={planCaps}
           ccBusy={updateCc.isPending || !ccSettings} onToggleCc={toggleCallCenter}
           onClose={() => setEditingDept(null)} onSaved={invalidateDepts} />
       )}

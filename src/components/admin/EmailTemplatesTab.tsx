@@ -36,7 +36,7 @@ interface DbTemplate {
 
 const CATEGORIES = [
   { key: 'auth', label: 'Authentication', icon: Shield, slugs: ['email_verify', 'password_reset', 'magic_link', 'welcome'] },
-  { key: 'transactional', label: 'Transactional', icon: CreditCard, slugs: ['invite_member', 'payment_success', 'payment_failed', 'subscription_renewed', 'subscription_cancelled'] },
+  { key: 'transactional', label: 'Transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'payment_success', 'payment_failed', 'subscription_renewed', 'subscription_cancelled'] },
   { key: 'notification', label: 'Notification', icon: Bell, slugs: ['new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
 ] as const;
 
@@ -46,6 +46,7 @@ const SLUG_LABELS: Record<string, string> = {
   magic_link: 'Magic Link Login',
   welcome: 'Welcome Email',
   invite_member: 'Team Invite',
+  invite_otp: 'Invitation Verification Code',
   payment_success: 'Payment Success',
   payment_failed: 'Payment Failed',
   subscription_renewed: 'Subscription Renewed',
@@ -62,6 +63,7 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   magic_link: ['{name}', '{brand}', '{action_url}', '{expiry_time}'],
   welcome: ['{name}', '{brand}', '{action_url}'],
   invite_member: ['{name}', '{brand}', '{inviter}', '{workspace}', '{role}', '{action_url}'],
+  invite_otp: ['{code}', '{expiry_minutes}'],
   payment_success: ['{name}', '{brand}', '{amount}', '{currency}', '{plan}', '{invoice_url}'],
   payment_failed: ['{name}', '{brand}', '{amount}', '{currency}', '{reason}', '{action_url}'],
   subscription_renewed: ['{name}', '{brand}', '{plan}', '{next_date}', '{amount}'],

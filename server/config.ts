@@ -2,7 +2,6 @@
 // All sensitive values come from server env, never from frontend
 
 import { assertDistinctSigningKey } from '../shared/channels/webhookSecret.js';
-import { validateInvitationSecrets } from './services/invitations/tokens.js';
 
 
 export interface ServerConfig {
@@ -137,8 +136,6 @@ export function loadConfig(): ServerConfig {
       }
     }
   }
-  validateInvitationSecrets();
-
   return {
     port: parseInt(process.env.PORT || '3001', 10),
     supabaseUrl: required('SUPABASE_URL'),

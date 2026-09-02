@@ -506,8 +506,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // Explicit env vars win; otherwise durable keys are provisioned in the
 // operator's own database exactly once.
 await ensureInvitationSecrets(config)
-  .then((r) => console.log(`[invitations] key material: link=${r.linkSecret} otp=${r.otpPepper}`))
-  .catch((e) => console.error('[invitations] secret bootstrap failed:', (e as Error).message));
+  .then((r) => console.log(`[invitations] key material: link=${r.linkSecret} otp=${r.otpPepper}`));
 
 app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);

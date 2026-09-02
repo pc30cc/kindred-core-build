@@ -16,9 +16,9 @@ export async function sendViaSMTP(
 
   const host = cfg.smtp_host || process.env.SMTP_HOST;
   const port = parseInt(cfg.smtp_port || process.env.SMTP_PORT || '587', 10);
-  const user = cfg.smtp_user || process.env.SMTP_USER;
-  const pass = cfg.smtp_pass || process.env.SMTP_PASS;
-  const secure = port === 465;
+  const user = cfg.smtp_user || cfg.smtp_username || process.env.SMTP_USER;
+  const pass = cfg.smtp_pass || cfg.smtp_password || process.env.SMTP_PASS;
+  const secure = cfg.encryption === 'ssl' || port === 465;
 
   if (!host) {
     return { success: false, provider: 'smtp', error: 'SMTP host not configured. Set SMTP_HOST env var or configure via admin UI.' };

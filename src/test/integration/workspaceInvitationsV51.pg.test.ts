@@ -260,6 +260,7 @@ async function signupAndVerify(email: string): Promise<{ cookie: string; userId:
   const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });
   expect(signup.status).toBe(200);
   const sent = capturedEmails.find((e) => e.templateSlug === 'email_verify' && e.actionUrl && e.to === email);
+  if (!sent) console.log('[signup-debug]', signup.status, JSON.stringify(signup.json), JSON.stringify(capturedEmails.map((e) => [e.templateSlug, e.to])));
   const token = new URL(sent!.actionUrl!).searchParams.get('token')!;
   expect((await call('POST', '/api/auth-email/verify-email', { body: { token } })).status).toBe(200);
   const login = await call('POST', '/api/auth/login', { body: { email, password: 'CorrectHorseBattery1' } });

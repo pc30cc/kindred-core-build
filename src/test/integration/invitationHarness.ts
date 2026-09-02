@@ -188,7 +188,20 @@ export interface Res { status: number; json: any; setCookie: string[] }
 export interface Harness {
   db: PgTestClient;
   baseUrl: string;
-  call(method: string, path: string, opts?: { body?: unknown; cookie?: string; addr?: string }): Promise<Res>;
+  call(method: string, path: string, opts?: { body?: unknown; cookie?: string; addr?: string; headers?: Record<string, string> }): Promise<Res>;
+  /**
+   * Real transport loss. The request is issued normally; as soon as the
+   * DATABASE reports the server-side effect committed (`committed()` returns
+   * true) the client socket is destroyed, so the response never arrives — the
+   * exact production failure mode a retry must recover from. Deterministic:
+   * the abort is driven by observed database state, not by a timer.
+   */
+  callLosingResponse(
+    method: string,
+    path: string,
+    opts: { body?: unknown; cookie?: string },
+    committed: () => Promise<boolean>,
+  ): Promise<{ lost: boolean; res?: Res }>;
   cookieOf(res: Res, name: string): string | null;
   rid(): string;
   freshAddr(): string;
@@ -202,6 +215,7 @@ export interface Harness {
   countOf(sql: string, params?: unknown[]): Promise<number>;
   one(sql: string, params?: unknown[]): Promise<Record<string, any> | undefined>;
   rows(sql: string, params?: unknown[]): Promise<Array<Record<string, any>>>;
+
   /**
    * Deterministic concurrency barrier. A control connection holds the SAME row
    * lock the production code path takes, the callers are started, the harness
@@ -270,7 +284,11 @@ export async function startHarness(dsn: string): Promise<Harness> {
     return clientAddr;
   };
 
-  function call(method: string, path: string, opts: { body?: unknown; cookie?: string; addr?: string } = {}): Promise<Res> {
+  function call(
+    method: string,
+    path: string,
+    opts: { body?: unknown; cookie?: string; addr?: string; headers?: Record<string, string> } = {},
+  ): Promise<Res> {
     const payload = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
     return new Promise((resolve, reject) => {
       const req = http.request(
@@ -283,6 +301,7 @@ export async function startHarness(dsn: string): Promise<Harness> {
             origin: baseUrl,
             ...(opts.cookie ? { cookie: opts.cookie } : {}),
             ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
+            ...(opts.headers || {}),
           },
         },
         (res) => {
@@ -300,6 +319,65 @@ export async function startHarness(dsn: string): Promise<Harness> {
       req.end();
     });
   }
+
+  function callLosingResponse(
+    method: string,
+    path: string,
+    opts: { body?: unknown; cookie?: string },
+    committed: () => Promise<boolean>,
+  ): Promise<{ lost: boolean; res?: Res }> {
+    const payload = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (v: { lost: boolean; res?: Res }) => { if (!settled) { settled = true; resolve(v); } };
+
+      const req = http.request(
+        `${baseUrl}${path}`,
+        {
+          method,
+          localAddress: clientAddr,
+          family: 4,
+          headers: {
+            origin: baseUrl,
+            ...(opts.cookie ? { cookie: opts.cookie } : {}),
+            ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
+          },
+        },
+        (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () => {
+            let json: any = {};
+            try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
+            finish({ lost: false, res: { status: res.statusCode || 0, json, setCookie: (res.headers['set-cookie'] as string[]) || [] } });
+          });
+        },
+      );
+
+      req.on('error', () => finish({ lost: true }));
+
+      // Deterministic kill switch driven by observed database state.
+      const deadline = Date.now() + 60_000;
+      const poll = async () => {
+        while (!settled) {
+          let done = false;
+          try { done = await committed(); } catch { done = false; }
+          if (done) { req.destroy(new Error('injected transport loss')); return; }
+          if (Date.now() > deadline) {
+            req.destroy(new Error('transport-loss barrier timed out'));
+            if (!settled) reject(new Error('transport-loss barrier timed out'));
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 15));
+        }
+      };
+      void poll();
+
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+
 
   const cookieOf = (res: Res, name: string): string | null => {
     const hit = res.setCookie.find((c) => c.startsWith(`${name}=`));
@@ -392,9 +470,12 @@ export async function startHarness(dsn: string): Promise<Harness> {
     let hit: CapturedEmail | undefined;
     for (let i = 0; i < 100 && !hit; i += 1) {
       await drainOutbox();
-      hit = harnessState.capturedEmails.find(
+      // The LATEST code for this address: one person can legitimately receive
+      // several codes in a suite, and only the newest one is still live.
+      hit = harnessState.capturedEmails.filter(
         (e) => e.to?.toLowerCase() === email.toLowerCase() && /verification code/i.test(String(e.text)),
-      );
+      ).pop();
+
       if (!hit) await new Promise((r) => setTimeout(r, 20));
     }
     if (!hit) {
@@ -475,7 +556,7 @@ export async function startHarness(dsn: string): Promise<Harness> {
   }
 
   return {
-    db, baseUrl, call, cookieOf, rid, freshAddr, signupAndVerify, makeOwner, invitePayload, prepareAcceptable,
+    db, baseUrl, call, callLosingResponse, cookieOf, rid, freshAddr, signupAndVerify, makeOwner, invitePayload, prepareAcceptable,
     tokenFromManualLink, activePolicies, drainOutbox, otpCodeFor, countOf, one, rows,
     raceUnderLock, workerConfig: WORKER_CONFIG,
     async stop() {

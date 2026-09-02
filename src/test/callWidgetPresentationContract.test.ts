@@ -66,13 +66,26 @@ describe('Call Widget presentation contract', () => {
 
   it('keeps every declared UI state renderable by the default presentation path', () => {
     const runtime = read('public/call-widget/runtime.js');
+    const presentation = read('public/call-widget/presentation-default.js');
     const stateBlock = runtime.match(/var STATES = \{([\s\S]*?)\n  \};/)?.[1] || '';
     const states = [...stateBlock.matchAll(/^\s+([A-Z_]+): '[a-z_]+'[,]?$/gm)].map((match) => match[1]);
     expect(states).toEqual([
       'LOADING', 'ONLINE', 'OFFLINE', 'PRE_CALL', 'QUEUE',
       'IN_CALL', 'ENDED', 'CALLBACK', 'ERROR',
     ]);
-    for (const state of states) expect(runtime).toContain(`case STATES.${state}`);
+    for (const state of states) expect(presentation).toContain(`case STATES.${state}`);
+  });
+
+  it('keeps widget markup and DOM updates out of the transport runtime', () => {
+    const runtime = read('public/call-widget/runtime.js');
+    const presentation = read('public/call-widget/presentation-default.js');
+
+    expect(runtime).not.toContain('renderLegacy');
+    expect(runtime).not.toMatch(/case STATES\./);
+    expect(runtime).not.toMatch(/innerHTML|\.querySelector\(/);
+    expect(presentation).toContain('function renderWidget()');
+    expect(presentation).toContain('function renderState(caps, cfg)');
+    expect(presentation).toContain('function renderForm(cfg, forCall)');
   });
 
   it('ships byte-identical hosted and self-hosted migrations', () => {

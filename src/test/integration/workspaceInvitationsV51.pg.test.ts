@@ -173,8 +173,10 @@ function makePgServiceClient(pg: PgTestClient) {
       const r = await pg.query(`SELECT public.${name}(${argList}) AS result`, values);
       return { data: r.rows[0]?.result ?? null, error: null };
     } catch (e: any) {
+      if (process.env.WI_TEST_DEBUG) console.error('[rpc]', name, e.message);
       return { data: null, error: { message: e.message, code: e.code } };
     }
+
   }
 
 

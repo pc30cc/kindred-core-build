@@ -2,6 +2,7 @@
 # A single image, multiple Coolify services. Pick the worker loop with:
 #   WORKER_KIND=intelligence   → AI KB Builder (public.ai_kb_jobs)
 #   WORKER_KIND=source-sync    → Data Hub sync (public.ai_source_sync_jobs)
+#   WORKER_KIND=invitations    → Workspace invitation email/SMS outbox
 #   WORKER_KIND=all            → both (dev/small deploys only)
 # Default kind is "intelligence" for backward compatibility.
 #

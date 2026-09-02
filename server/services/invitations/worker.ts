@@ -72,6 +72,14 @@ async function complete(
 async function processJob(config: ServerConfig, job: any): Promise<void> {
   const sb = getServiceClient(config);
   const claimToken = job.claim_token as string;
+  const heartbeat = setInterval(() => {
+    void getServiceClient(config).rpc('wi_heartbeat_invitation_job', {
+      _job_id: job.id, _claim_token: claimToken, _lease_seconds: LEASE_SECONDS,
+    });
+  }, 40_000);
+  if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
+  try {
 
   let emailToken: string | null = null;
   let keyVersion: number | null = null;
@@ -131,6 +139,13 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
     const result = await sendEmail(config, {
       workspaceId: payload.workspace_id,
       to: payload.email,
+      templateSlug: 'invite_member',
+      locale: payload.locale || 'en',
+      templateData: {
+        name: escapeHtml(payload.first_name), brand: escapeHtml(payload.workspace_name),
+        workspace: escapeHtml(payload.workspace_name), inviter: '', role: escapeHtml(payload.role),
+        action_url: escapeHtml(link),
+      },
       subject: `You are invited to ${payload.workspace_name}`,
       text: `Hello ${payload.first_name},\n\nYou were invited to join ${payload.workspace_name}.\nOpen this link to accept:\n${link}\n`,
       html: `<p>Hello ${escapeHtml(payload.first_name)},</p><p>You were invited to join <strong>${escapeHtml(payload.workspace_name)}</strong>.</p><p><a href="${escapeHtml(link)}">Accept the invitation</a></p>`,
@@ -176,6 +191,9 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       message: 'sms send failed',
       retryIn: backoffSeconds(job.attempt_count),
     });
+  }
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 

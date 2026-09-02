@@ -10002,6 +10002,7 @@ export type Database = {
           locked_by: string | null
           max_attempts: number
           notification_generation: number
+          otp_id: string | null
           status: string
           updated_at: string
           workspace_id: string
@@ -10024,6 +10025,7 @@ export type Database = {
           locked_by?: string | null
           max_attempts?: number
           notification_generation: number
+          otp_id?: string | null
           status?: string
           updated_at?: string
           workspace_id: string
@@ -10046,6 +10048,7 @@ export type Database = {
           locked_by?: string | null
           max_attempts?: number
           notification_generation?: number
+          otp_id?: string | null
           status?: string
           updated_at?: string
           workspace_id?: string
@@ -11570,6 +11573,7 @@ export type Database = {
           locked_by: string | null
           max_attempts: number
           notification_generation: number
+          otp_id: string | null
           status: string
           updated_at: string
           workspace_id: string
@@ -12136,6 +12140,10 @@ export type Database = {
       }
       wi_mask_email: { Args: { _email: string }; Returns: string }
       wi_mask_phone: { Args: { _phone: string }; Returns: string }
+      wi_otp_job_sendable: {
+        Args: { _claim_token: string; _job_id: string }
+        Returns: Json
+      }
       wi_prepare_invitation_job: {
         Args: {
           _claim_token: string
@@ -12171,6 +12179,17 @@ export type Database = {
         }
         Returns: Json
       }
+      wi_request_invitation_otp_v2: {
+        Args: {
+          _code_digest: string
+          _expires_at: string
+          _ip_hash?: string
+          _job_idempotency_key: string
+          _otp_id: string
+          _token_hash: string
+        }
+        Returns: Json
+      }
       wi_resolve_seat_capacity: {
         Args: { _workspace_id: string }
         Returns: {
@@ -12192,6 +12211,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      wi_revoke_undelivered_otp: { Args: { _job_id: string }; Returns: boolean }
       wi_safe_invitation: { Args: { _invitation_id: string }; Returns: Json }
       wi_verify_invitation_otp: {
         Args: {

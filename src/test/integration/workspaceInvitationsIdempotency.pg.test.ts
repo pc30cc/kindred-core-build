@@ -792,7 +792,9 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
     const code = String(capturedEmails.find((e) => /verification code/i.test(String(e.text)))!.text).match(/(\d{6})/)![1];
     const verify = await call('POST', '/api/workspace-invitations/otp/verify', { body: { requestId: rid(), token, purpose: 'manual_handoff', code } });
+    expect(verify.status, JSON.stringify(verify.json)).toBe(200);
     const proofCookie = cookieOf(verify, 'wi_proof')!;
+    expect(proofCookie).toBeTruthy();
     const accept = await call('POST', '/api/workspace-invitations/accept-new', {
       cookie: proofCookie,
       body: { requestId: rid(), token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },

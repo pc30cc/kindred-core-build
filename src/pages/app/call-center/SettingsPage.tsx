@@ -198,7 +198,8 @@ export default function CallCenterSettingsPage() {
       </Section>
       </TabsContent>
 
-      <TabsContent value="presentation" className="space-y-6 mt-0">
+      <TabsContent value="presentation" className="mt-0">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] items-start">
         <Section
           title={t('callCenter.settingsPage.presentationTitle')}
           description={t('callCenter.settingsPage.presentationHint')}

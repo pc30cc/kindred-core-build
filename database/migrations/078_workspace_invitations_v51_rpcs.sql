@@ -17,6 +17,7 @@ CREATE OR REPLACE FUNCTION public.wi_can_manage_invitation(
 ) RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public, pg_temp
 AS $$
   SELECT CASE
     WHEN _target_role = 'owner'::public.workspace_role THEN false

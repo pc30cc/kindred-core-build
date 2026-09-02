@@ -399,7 +399,7 @@ export async function startHarness(dsn: string): Promise<Harness> {
     }
     if (!hit) {
       const jobs = await rows(
-        `SELECT channel, status, attempt_count, last_error FROM public.workspace_invitation_jobs ORDER BY created_at DESC LIMIT 5`,
+        `SELECT channel, status, attempt_count, last_error, created_at FROM public.workspace_invitation_jobs`,
       );
       expect(hit, `no OTP email captured for ${email}; recent jobs=${JSON.stringify(jobs)}; captured=${JSON.stringify(harnessState.capturedEmails.slice(-5))}`).toBeTruthy();
     }

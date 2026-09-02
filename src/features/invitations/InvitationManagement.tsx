@@ -233,18 +233,18 @@ export function InvitationManagement({
     onError: fail,
   });
 
+  // Permanent deletion: archiving used to leave tokens/jobs/OTPs behind, which
+  // then collided with a fresh invitation to the same person.
   const archive = useMutation({
     mutationFn: async (inv: InvitationRow) => {
-      const key = `archive:${inv.id}`;
-      await api(`/api/workspace-invitations/${inv.id}/archive`, {
-        method: 'POST',
-        body: JSON.stringify({ requestId: requestIds.get(key) }),
-      });
+      const key = `delete:${inv.id}`;
+      await api(`/api/workspace-invitations/${inv.id}`, { method: 'DELETE' });
       requestIds.reset(key);
     },
-    onSuccess: () => { toast.success(t('invitations.toastArchived')); setArchiving(null); invalidate(); },
+    onSuccess: () => { toast.success(t('invitations.toastDeleted')); setArchiving(null); invalidate(); },
     onError: fail,
   });
+
 
   const copyLink = async (link: string) => {
     const ok = await copyWithVerification(link);

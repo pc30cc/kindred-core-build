@@ -487,7 +487,7 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
       phone_e164: body.phone,
       member_type: body.memberType,
       role: body.role,
-      expires_at: new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000).toISOString(),
+      expires_at: resolveExpiry(body.expiresInDays).invitationExpiresAt,
       department_ids: departmentIds,
       email_job_idempotency_key: sha256Hex(`email|${id}|${email}|${nonce}`),
       sms_job_idempotency_key: sha256Hex(`sms|${id}|${body.phone}|${nonce}`),

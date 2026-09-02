@@ -121,16 +121,16 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
     );
 
     let secrets: string[] = [];
+    let transportSecrets: string[] = [];
     let apiBodies: string[] = [];
     try {
       h.freshAddr();
       const owner = await h.makeOwner(`c5q.owner.${Date.now()}@example.test`);
-      const created = await h.call('POST', '/api/workspace-invitations', {
-        cookie: owner.cookie, body: h.invitePayload(owner.workspaceId),
-      });
+      const payload = h.invitePayload(owner.workspaceId);
+      const created = await h.call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
       expect(created.status, JSON.stringify(created.json)).toBe(201);
       const manualToken = h.tokenFromManualLink(created.json.manualLink);
-      const email = String(created.json.invitation.invited_email_normalized ?? '');
+      const email = String(payload.email);
 
       const requested = await h.call('POST', '/api/workspace-invitations/otp/request', {
         body: { requestId: h.rid(), token: manualToken, purpose: 'manual_handoff' },
@@ -160,6 +160,10 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
         `SELECT claim_token FROM public.workspace_invitation_jobs WHERE claim_token IS NOT NULL LIMIT 1`,
       );
 
+      // The lease claim token is an internal, server-only value that lives in
+      // the outbox by design — it is scanned in API responses and logs, not in
+      // the database.
+      const claimToken = claim ? String(claim.claim_token) : '';
       secrets = [
         manualToken,
         proofValue,
@@ -167,10 +171,10 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
         process.env.INVITATION_LINK_SECRET || '',
         process.env.INVITATION_OTP_PEPPER || '',
         sessionValue || '',
-        claim ? String(claim.claim_token) : '',
       ].filter((s) => s && s.length >= 12);
       expect(secrets.length, 'the probe must actually hold secrets to search for').toBeGreaterThan(3);
 
+      transportSecrets = [...secrets, claimToken].filter((x) => x && x.length >= 12);
       const listed = await h.call('GET', `/api/workspace-invitations?workspaceId=${owner.workspaceId}`, { cookie: owner.cookie });
       const previewed = await h.call('POST', '/api/workspace-invitations/preview', {
         body: { token: manualToken, purpose: 'manual_handoff' },
@@ -202,7 +206,7 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
 
     // API responses and server logs are clean too.
     for (const body of apiBodies) {
-      for (const secret of secrets.filter((s) => s !== '')) {
+      for (const secret of transportSecrets) {
         // The manual link is returned ONCE to the creating admin by design;
         // every OTHER response and every log line must be free of it.
         if (body.includes('manualLink') && body.includes(secret)) continue;
@@ -210,14 +214,28 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
       }
     }
     const logDump = logged.join('\n');
-    for (const secret of secrets) {
+    for (const secret of transportSecrets) {
       expect(logDump.includes(secret) ? 'LEAKED_IN_LOGS' : 'clean').toBe('clean');
     }
   }, 300_000);
 
   // ── C.5r ────────────────────────────────────────────────────────────────
   it('C.5r — the service-role credential never leaves the server: no client bundle or public asset references it', async () => {
-    const forbidden = /SUPABASE_SERVICE_ROLE_KEY|service_role_key|INVITATION_OTP_PEPPER|INVITATION_LINK_SECRET/;
+    // Secret VALUES and secret READS — a form-field label naming a key that an
+    // admin types into a server-side provider config is not a leak.
+    // Secret READS in client code — a form-field label naming a key an admin
+    // types into a server-side provider config is not a leak.
+    const forbidden = /env[^\n]*SUPABASE_SERVICE_ROLE_KEY|env[^\n]*INVITATION_(OTP_PEPPER|LINK_SECRET)/;
+    /** True when the text embeds a JWT whose payload claims the service role. */
+    const embedsServiceRoleJwt = (text: string): boolean => {
+      for (const m of text.matchAll(/eyJ[A-Za-z0-9_-]{10,}\.([A-Za-z0-9_-]{10,})\./g)) {
+        try {
+          const payload = Buffer.from(m[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+          if (/"role"\s*:\s*"service_role"/.test(payload)) return true;
+        } catch { /* not a JWT */ }
+      }
+      return false;
+    };
     const roots = ['src', 'public'];
     const offenders: string[] = [];
     const walk = (dir: string) => {
@@ -227,7 +245,8 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
         if (st.isDirectory()) { walk(full); continue; }
         if (!/\.(ts|tsx|js|jsx|html)$/.test(entry)) continue;
         if (full.includes(`${'src'}/test/`)) continue;   // the tests read env on purpose
-        if (forbidden.test(readFileSync(full, 'utf8'))) offenders.push(full);
+        const text = readFileSync(full, 'utf8');
+        if (forbidden.test(text) || embedsServiceRoleJwt(text)) offenders.push(full);
       }
     };
     for (const root of roots) walk(resolve(process.cwd(), root));
@@ -237,7 +256,10 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
     h.freshAddr();
     const owner = await h.makeOwner(`c5r.owner.${Date.now()}@example.test`);
     const listed = await h.call('GET', `/api/workspace-invitations?workspaceId=${owner.workspaceId}`, { cookie: owner.cookie });
-    expect(forbidden.test(JSON.stringify(listed.json))).toBe(false);
-    expect(harnessState.capturedEmails.every((e) => !forbidden.test(String(e.text ?? '')))).toBe(true);
+    const listedBody = JSON.stringify(listed.json);
+    expect(forbidden.test(listedBody) || embedsServiceRoleJwt(listedBody)).toBe(false);
+    expect(harnessState.capturedEmails.every(
+      (e) => !forbidden.test(String(e.text ?? '')) && !embedsServiceRoleJwt(String(e.text ?? '')),
+    )).toBe(true);
   }, 300_000);
 });

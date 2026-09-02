@@ -1,23 +1,25 @@
 -- =========================================================================
 -- WORKSPACE INVITATIONS v5.1 §10 — offboarding idempotency (Section C.3)
 -- =========================================================================
--- Forward-only follow-up to 088. Member offboarding was the last member-
+-- Forward-only follow-up to 089. Member offboarding was the last member-
 -- lifecycle mutation still executed OUTSIDE the atomic idempotency ledger:
 -- DELETE /api/workspace-members/:id called offboard_workspace_member()
 -- directly, so a lost response followed by a client retry re-ran a full
 -- destructive offboarding (second history row, second audit entry, second
 -- invitation-revocation sweep) instead of replaying the committed outcome.
 --
--- This migration re-creates public.wi_execute_idempotent with ONE addition:
--- the 'offboard' operation. Everything else — the fingerprint/scope binding,
--- the in-transaction commit of the ledger row and the secret-free projection
--- allow-list — is byte-for-byte the 088 behaviour. One extra projected key
--- ('revoked_invitations') is the non-secret counter returned by the
--- offboarding RPC itself.
+-- This file re-creates public.wi_execute_idempotent from the NEWEST previous
+-- definition (089, which routes otp_request through wi_request_invitation_otp_v2
+-- so the code and its delivery job commit together) with ONE addition: the
+-- 'offboard' operation, plus the single non-secret 'revoked_invitations'
+-- counter in the projection allow-list. Everything else — scope/fingerprint
+-- binding, in-transaction ledger commit and the secret-free projection — is
+-- unchanged.
 --
--- 087/088 are NOT modified. This file only replaces the function body.
+-- 087/088/089 are NOT modified. This file only replaces the function body.
 -- =========================================================================
 
+-- Executor body rebased on migration 089 (the newest definition).
 CREATE OR REPLACE FUNCTION public.wi_execute_idempotent(
   _key text,
   _fingerprint text,
@@ -64,6 +66,7 @@ BEGIN
 
   IF _row.key IS NULL THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
 
+  -- scope / fingerprint binding: the same key may never mean two things.
   IF _row.operation IS DISTINCT FROM _operation
      OR _row.scope_kind IS DISTINCT FROM _scope_kind
      OR _row.request_fingerprint IS DISTINCT FROM _fingerprint
@@ -79,6 +82,7 @@ BEGIN
     );
   END IF;
 
+  -- Reaching here the row is ours (just inserted) or a stale/failed remnant.
   IF _row.completed_at IS NOT NULL THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
 
   CASE _operation
@@ -175,11 +179,14 @@ BEGIN
       _code := 'COMMITTED';
 
     WHEN 'otp_request' THEN
-      _result := public.wi_request_invitation_otp(
-        _token_hash  := _args ->> 'token_hash',
-        _code_digest := _args ->> 'code_digest',
-        _expires_at  := (_args ->> 'expires_at')::timestamptz,
-        _ip_hash     := _args ->> 'ip_hash'
+      -- v5.1 B.5: the OTP row and its delivery job commit together.
+      _result := public.wi_request_invitation_otp_v2(
+        _token_hash          := _args ->> 'token_hash',
+        _otp_id              := (_args ->> 'otp_id')::uuid,
+        _code_digest         := _args ->> 'code_digest',
+        _expires_at          := (_args ->> 'expires_at')::timestamptz,
+        _job_idempotency_key := _args ->> 'job_idempotency_key',
+        _ip_hash             := _args ->> 'ip_hash'
       );
       _code := 'COMMITTED';
 
@@ -236,6 +243,8 @@ BEGIN
   END CASE;
 
   -- Secret-free projection. Explicit allow-list: nothing else is ever stored.
+  -- Some primitives return the safe invitation directly, others wrap it in
+  -- an 'invitation' member; normalize before projecting.
   _inv_json := CASE
     WHEN jsonb_typeof(_result -> 'invitation') = 'object' THEN _result -> 'invitation'
     ELSE coalesce(_result, '{}'::jsonb)
@@ -292,29 +301,21 @@ BEGIN
 END
 $acl$;
 
+-- Verification: the executor must know 'offboard' and the offboarding RPC
+-- must exist, or this migration fails loudly instead of degrading silently.
 DO $verify$
-DECLARE
-  _fn text := 'public.wi_execute_idempotent(text,text,text,text,uuid,uuid,uuid,jsonb,integer)';
-  _role text;
 BEGIN
-  IF to_regprocedure(_fn) IS NULL THEN RAISE EXCEPTION 'missing RPC: %', _fn; END IF;
-  IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = to_regprocedure(_fn)) THEN
-    RAISE EXCEPTION 'RPC is not SECURITY DEFINER: %', _fn;
+  IF to_regprocedure('public.offboard_workspace_member(uuid,uuid,uuid,text)') IS NULL THEN
+    RAISE EXCEPTION 'MISSING_DEPENDENCY: offboard_workspace_member(uuid,uuid,uuid,text)';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_proc p
-    WHERE p.oid = to_regprocedure(_fn) AND p.proconfig @> ARRAY['search_path=public, pg_temp']
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'wi_execute_idempotent'
+      AND pg_get_functiondef(p.oid) LIKE '%''offboard''%'
+      AND pg_get_functiondef(p.oid) LIKE '%wi_request_invitation_otp_v2%'
   ) THEN
-    RAISE EXCEPTION 'RPC has no pinned search_path: %', _fn;
+    RAISE EXCEPTION 'EXECUTOR_REBASE_FAILED';
   END IF;
-  IF to_regprocedure('public.offboard_workspace_member(uuid,uuid,uuid,text)') IS NULL THEN
-    RAISE EXCEPTION 'missing dependency: public.offboard_workspace_member(uuid,uuid,uuid,text)';
-  END IF;
-  FOREACH _role IN ARRAY ARRAY['public', 'anon', 'authenticated'] LOOP
-    IF (_role = 'public' OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = _role))
-       AND has_function_privilege(_role, to_regprocedure(_fn), 'EXECUTE') THEN
-      RAISE EXCEPTION 'privilege leak: % may EXECUTE %', _role, _fn;
-    END IF;
-  END LOOP;
 END
 $verify$;

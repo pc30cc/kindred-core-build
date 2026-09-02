@@ -69,10 +69,16 @@ excluded, as documented in the CI comments.
   sessionStorage or DOM after bootstrap
 - unauthenticated access to the invitation-management surface is redirected
 
-Seeded flows (happy path, OTP, existing user, revoke/expiry, resend/rotate,
-provider failure, offboarding, role denial) are implemented behind
-`E2E_INVITE_SEED=1` gating and are **untested** until a disposable backend is
-available — the same blocker as D.2.
+**Correction (previous versions of this document were wrong).** Seeded
+invitation lifecycle flows — owner creates a staff invitation, owner creates a
+customer-facing invitation with departments, manual link → OTP → password →
+consent → membership, existing-account login, wrong-account switch, expired,
+revoked, resend/rotate invalidation, provider-failure visibility, offboarding,
+agent/viewer denial, refresh/retry without duplicate membership — are
+**NOT IMPLEMENTED**. There is no `E2E_INVITE_SEED` harness in the repository.
+The only browser coverage that exists is the list above. Implementing these
+flows requires the disposable PostgreSQL + Express + worker + fixture-seeding
+harness described in §17 and is an open blocker.
 
 ## 9. Default-language and RTL/LTR evidence
 

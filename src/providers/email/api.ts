@@ -18,7 +18,7 @@ export function createApiEmailProvider(workspaceId: string): EmailProvider {
   return {
     async send(message: EmailMessage) {
       try {
-        const res = await fetch(`${API_BASE}/api/email/send`, {
+        const res = await fetch(`${API_BASE}/api/email/send-channel`, {
           credentials: 'include',
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

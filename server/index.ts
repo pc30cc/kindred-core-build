@@ -509,8 +509,14 @@ app.listen(config.port, () => {
   startRecordingRetentionJanitor(config);
   // GDPR — start privacy job worker (in-process loop).
   startPrivacyWorker(config);
-  // Workspace Invitations v5.1 — authoritative seat-entitlement mode + outbox.
-  void syncSeatEntitlementMode(config).finally(() => startInvitationWorker(config));
+  // Invitations run in-process only when explicitly enabled. Production uses
+  // a dedicated WORKER_KIND=invitations container.
+  if (process.env.INVITATION_WORKER_INPROC === '1') {
+    void syncSeatEntitlementMode(config).then((result) => {
+      if (result.ok) startInvitationWorker(config);
+      else console.error('[invitations] worker not started: entitlement bootstrap failed');
+    });
+  }
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
 

@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { API_BASE } from '@/lib/apiBase';
 import { toast } from '@/lib/toast';
+import { useAuth } from '@/features/auth/AuthContext';
 import { Loader2, CheckCircle2, XCircle, Building2, ShieldAlert, LogIn, Clock } from 'lucide-react';
 
 type Purpose = 'email_claim' | 'manual_handoff';
@@ -92,10 +93,13 @@ async function postJson(path: string, body: unknown) {
 export default function InvitePage() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
+  const { user, isLoading: authLoading } = useAuth();
+  const [existingContinuation, setExistingContinuation] = useState(false);
 
   // Module-lifetime secret: never persisted anywhere.
   const tokenRef = useRef<string | null>(null);
   const purposeRef = useRef<Purpose>('email_claim');
+  const initializedRef = useRef(false);
 
   const [state, setState] = useState<FlowState>('loading');
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -110,7 +114,15 @@ export default function InvitePage() {
 
   const loadPreview = useCallback(async () => {
     const token = tokenRef.current;
-    if (!token) { setState('invalid'); return; }
+    if (!token) {
+      const { ok, data } = await postJson('/api/workspace-invitations/context-preview', { locale });
+      if (!ok || !data?.preview) { setState('invalid'); return; }
+      setPreview(data.preview as Preview);
+      setPolicies(data.policies || { terms: null, privacy: null });
+      setExistingContinuation(true);
+      setState(user ? 'ready' : 'account_exists_login_required');
+      return;
+    }
 
     const { ok, data } = await postJson('/api/workspace-invitations/preview', {
       token,
@@ -129,14 +141,39 @@ export default function InvitePage() {
     } else {
       setState('ready');
     }
-  }, [locale]);
+  }, [locale, user]);
 
   useEffect(() => {
+    if (authLoading || initializedRef.current) return;
+    initializedRef.current = true;
     const { token, purpose } = consumeFragmentToken();
     tokenRef.current = token;
     purposeRef.current = purpose;
     void loadPreview();
-  }, [loadPreview]);
+  }, [loadPreview, authLoading]);
+
+  const acceptExisting = async () => {
+    if (!policies.terms || !policies.privacy) return;
+    setState('accepting');
+    const { ok, data } = await postJson('/api/workspace-invitations/accept-existing', {
+      consent: true,
+      termsVersionId: policies.terms.id,
+      privacyVersionId: policies.privacy.id,
+      locale,
+    });
+    if (!ok) {
+      const code = String(data?.error || 'INVITATION_NOT_FOUND');
+      setErrorCode(code);
+      if (code === 'WRONG_ACCOUNT') setState('wrong_account');
+      else if (code === 'SEAT_LIMIT_REACHED') setState('seat_limit_reached');
+      else if (code === 'ENTITLEMENT_UNAVAILABLE') setState('entitlement_unavailable');
+      else if (code === 'SESSION_REQUIRED') setState('account_exists_login_required');
+      else setState('invalid');
+      return;
+    }
+    setState('accepted');
+    setTimeout(() => { window.location.href = '/app'; }, 1200);
+  };
 
   const requestOtp = async () => {
     if (!tokenRef.current) return;
@@ -267,6 +304,12 @@ export default function InvitePage() {
       <Button className="w-full" onClick={goToLogin}>{tt(t, 'invite.goToLogin', 'Continue to sign in')}</Button>);
   }
 
+  if (state === 'wrong_account') {
+    return card(<ShieldAlert className="h-8 w-8 text-destructive" />,
+      tt(t, 'invite.wrongAccountTitle', 'This invitation belongs to another account'),
+      tt(t, 'invite.wrongAccountBody', 'Sign out and use the email address shown on the invitation.'));
+  }
+
   if (state === 'session_failed_login_required') {
     return card(<CheckCircle2 className="h-8 w-8 text-primary" />,
       tt(t, 'invite.sessionFailedTitle', 'Membership created'),
@@ -335,7 +378,7 @@ export default function InvitePage() {
       <Card className="w-full max-w-md">
         {header}
         <CardContent className="space-y-4">
-          <div className="space-y-2">
+          {!existingContinuation ? <><div className="space-y-2">
             <Label htmlFor="pw">{tt(t, 'invite.password', 'Create a password')}</Label>
             <Input id="pw" type="password" value={password} autoComplete="new-password"
                    onChange={(e) => setPassword(e.target.value)} />
@@ -344,7 +387,7 @@ export default function InvitePage() {
             <Label htmlFor="pw2">{tt(t, 'invite.confirmPassword', 'Confirm password')}</Label>
             <Input id="pw2" type="password" value={confirm} autoComplete="new-password"
                    onChange={(e) => setConfirm(e.target.value)} />
-          </div>
+          </div></> : null}
 
           <div className="flex items-start gap-2">
             <Checkbox id="consent" checked={consent} onCheckedChange={(v) => setConsent(v === true)} />
@@ -374,7 +417,7 @@ export default function InvitePage() {
           <Button
             className="w-full"
             disabled={state === 'accepting' || !consent || !policies.terms || !policies.privacy}
-            onClick={acceptNew}
+            onClick={existingContinuation ? acceptExisting : acceptNew}
           >
             {state === 'accepting'
               ? <Loader2 className="h-4 w-4 animate-spin" />

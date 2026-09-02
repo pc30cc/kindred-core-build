@@ -11028,6 +11028,19 @@ export type Database = {
       }
     }
     Functions: {
+      accept_invitation_existing_context_v2: {
+        Args: {
+          _handle_hash: string
+          _ip?: string
+          _locale?: string
+          _privacy_version_id: string
+          _session_email_normalized: string
+          _session_user_id: string
+          _terms_version_id: string
+          _user_agent?: string
+        }
+        Returns: Json
+      }
       accept_invitation_existing_user_v2: {
         Args: {
           _ip?: string
@@ -12097,6 +12110,10 @@ export type Database = {
       }
       wi_preview_invitation: {
         Args: { _purpose: string; _token_hash: string }
+        Returns: Json
+      }
+      wi_preview_login_context: {
+        Args: { _handle_hash: string }
         Returns: Json
       }
       wi_request_invitation_otp: {

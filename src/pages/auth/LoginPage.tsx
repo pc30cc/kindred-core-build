@@ -20,12 +20,13 @@ export default function LoginPage() {
   const { signIn, user, isLoading: authLoading } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
+  const destination = params.get('invited') === '1' ? '/invite' : (params.get('redirect') || '/app');
 
   useEffect(() => {
     if (user && !authLoading) {
-      navigate(params.get('redirect') || '/app', { replace: true });
+      navigate(destination, { replace: true });
     }
-  }, [user, authLoading, navigate, params]);
+  }, [user, authLoading, navigate, destination]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -64,7 +65,7 @@ export default function LoginPage() {
         return;
       }
       toast.success(t('auth.welcomeBack'));
-      navigate(params.get('redirect') || '/app');
+      navigate(destination);
     } catch (err: any) {
       toast.error(t('auth.loginFailed'), { description: err?.message });
     } finally {

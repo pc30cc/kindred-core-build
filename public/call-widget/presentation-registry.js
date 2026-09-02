@@ -11,6 +11,7 @@
   function validId(id) { return typeof id === 'string' && /^[a-z0-9-]+$/.test(id); }
   function validImplementation(value) {
     return value && value.contractVersion === 1 &&
+      typeof value.createHost === 'function' &&
       typeof value.mount === 'function' &&
       typeof value.update === 'function' &&
       typeof value.destroy === 'function';

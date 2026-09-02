@@ -89,6 +89,19 @@
     return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
   }
 
+  function prepareMediaElement(node, local) {
+    if (!node) return node;
+    var isVideo = String(node.tagName || '').toLowerCase() === 'video';
+    if (isVideo) {
+      node.setAttribute(local ? 'data-local-video' : 'data-remote-video', 'true');
+      node.setAttribute('data-orientation-correction', 'scaleX(-1)');
+      node.style.transform = 'scaleX(-1)';
+      node.style.scale = '1';
+      node.style.rotate = '0deg';
+    }
+    return node;
+  }
+
   function renderWidget() {
     if (!this.root) return;
     var self = this;
@@ -394,13 +407,17 @@
         if (self._attachedTracks) {
           var keys = Object.keys(self._attachedTracks);
           for (var i = 0; i < keys.length; i++) {
-            try { media.appendChild(self._attachedTracks[keys[i]]); } catch (_) {}
+            try {
+              var remoteNode = prepareMediaElement(self._attachedTracks[keys[i]], false);
+              remoteNode.setAttribute('data-track-sid', keys[i]);
+              media.appendChild(remoteNode);
+            } catch (_) {}
           }
         }
         if (isLive && isVideoCall && !self.transferring) {
           if (self._localVideoEl && self.camOn) {
             var pip = el('div', { class: 'ccw-local-pip' });
-            try { pip.appendChild(self._localVideoEl); } catch (_) {}
+            try { pip.appendChild(prepareMediaElement(self._localVideoEl, true)); } catch (_) {}
             media.appendChild(pip);
           }
           media.appendChild(el('div', { class: 'ccw-video-info' }, [
@@ -714,6 +731,36 @@
 
   registry.register('default', {
     contractVersion: 1,
+    createHost: function (context) {
+      var host = document.createElement('div');
+      host.id = 'call-center-widget-host';
+      host.style.all = 'initial';
+      document.body.appendChild(host);
+      var shadow = host.attachShadow({ mode: 'open' });
+      var runtimeStyle = document.createElement('link');
+      runtimeStyle.rel = 'stylesheet';
+      runtimeStyle.href = context.origin + '/call-widget/runtime.css' + context.runtimeAssetSuffix;
+      shadow.appendChild(runtimeStyle);
+      var assets = (context.bootstrap && context.bootstrap.assets) || {};
+      var presentationPath = /^\/call-widget\/[a-z0-9.-]+$/i.test(assets.presentation_style_url || '')
+        ? assets.presentation_style_url : '/call-widget/presentation-default.css';
+      var presentationStyle = document.createElement('link');
+      presentationStyle.rel = 'stylesheet';
+      presentationStyle.href = context.origin + presentationPath + context.runtimeAssetSuffix;
+      shadow.appendChild(presentationStyle);
+      var fontHref = assets.font_style_url;
+      if (fontHref && !document.getElementById('gs-presentation-fonts')) {
+        var fontStyle = document.createElement('link');
+        fontStyle.id = 'gs-presentation-fonts';
+        fontStyle.rel = 'stylesheet';
+        fontStyle.href = /^https?:/i.test(fontHref) ? fontHref : context.origin + fontHref;
+        document.head.appendChild(fontStyle);
+      }
+      var root = document.createElement('div');
+      root.className = 'ccw-root';
+      shadow.appendChild(root);
+      return { host: host, root: root };
+    },
     mount: function (context) {
       context.root.classList.add('ccw-presentation-default');
       applyTheme(context.root, context.theme);

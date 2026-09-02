@@ -102,6 +102,7 @@
               assetsVersion: versionToken,
               runtimeAssetSuffix: bust,
               activeSessionKey: activeSessionKey,
+              pageTitle: document.title,
               bootstrap: bootstrap,
             });
           }

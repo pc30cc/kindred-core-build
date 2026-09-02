@@ -82,7 +82,7 @@ describe('Call Widget presentation contract', () => {
 
     expect(runtime).not.toContain('renderLegacy');
     expect(runtime).not.toMatch(/case STATES\./);
-    expect(runtime).not.toMatch(/innerHTML|\.querySelector\(/);
+    expect(runtime).not.toMatch(/innerHTML|\.querySelector\(|document\.|createElement|appendChild|setAttribute|\.remove\(/);
     expect(presentation).toContain('function renderWidget()');
     expect(presentation).toContain('function renderState(caps, cfg)');
     expect(presentation).toContain('function renderForm(cfg, forCall)');

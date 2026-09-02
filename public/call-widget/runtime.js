@@ -600,6 +600,7 @@
     this.activeSessionKey = opts.activeSessionKey || '';
     this.bootstrap = opts.bootstrap;
     this.preview = opts.preview === true;
+    this.pageTitle = opts.pageTitle || '';
     this.session = opts.bootstrap && opts.bootstrap.session;
     this.initLocale();
 
@@ -612,44 +613,16 @@
       this.identifiedContact = prefill;
     }
 
-    var host = document.createElement('div');
-    host.id = 'call-center-widget-host';
-    host.style.all = 'initial';
-    document.body.appendChild(host);
-    var shadow = host.attachShadow({ mode: 'open' });
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
-    shadow.appendChild(link);
-    var presentationLink = document.createElement('link');
-    presentationLink.rel = 'stylesheet';
-    var presentationStyle = this.bootstrap && this.bootstrap.assets && this.bootstrap.assets.presentation_style_url;
-    presentationLink.href = this.origin +
-      (/^\/call-widget\/[a-z0-9.-]+$/i.test(presentationStyle || '')
-        ? presentationStyle : '/call-widget/presentation-default.css') +
-      this.runtimeAssetSuffix;
-    shadow.appendChild(presentationLink);
-    // Shared, hashed font asset — the URL comes from the bootstrap payload
-    // (`assets.font_style_url`). This runtime hard-codes no font path and no
-    // font family; it just injects the stylesheet the server points at, at
-    // document level so the shadow root and document.fonts both see the faces.
-    try {
-      var fontHref = this.bootstrap && this.bootstrap.assets && this.bootstrap.assets.font_style_url;
-      if (fontHref && !document.getElementById('gs-presentation-fonts')) {
-        var fs = document.createElement('link');
-        fs.id = 'gs-presentation-fonts';
-        fs.rel = 'stylesheet';
-        fs.href = /^https?:/i.test(fontHref) ? fontHref : (this.origin + fontHref);
-        document.head.appendChild(fs);
-      }
-    } catch (_) {}
-    var root = document.createElement('div');
-    root.className = 'ccw-root';
-    shadow.appendChild(root);
-    this.root = root;
     var registry = window.CallWidgetPresentations;
     var requestedPresentation = this.bootstrap && this.bootstrap.config && this.bootstrap.config.widget_template_id;
     this.presentation = registry && registry.resolve(requestedPresentation);
+    if (!this.presentation) return;
+    var presentationHost = this.presentation.createHost({
+      origin: this.origin,
+      runtimeAssetSuffix: this.runtimeAssetSuffix,
+      bootstrap: this.bootstrap,
+    });
+    this.root = presentationHost.root;
     this.presentationInstance = null;
 
     if (!this.bootstrap || this.bootstrap.status !== 'ok') {
@@ -781,7 +754,7 @@
         visitor_phone: this.formData.phone || null,
         subject: this.formData.subject || null,
         page_url: location.href,
-        page_title: document.title,
+        page_title: this.pageTitle,
         consent_recording: !!this.formData.consent,
         recording_consent: !!this.formData.consent,
         recording_consent_at: consentAt,
@@ -1084,17 +1057,9 @@
           }
           var el = track.attach();
           el.autoplay = true;
-          if (track.kind === 'video') {
-            el.playsInline = true;
-            el.setAttribute('data-remote-video', 'true');
-            el.setAttribute('data-orientation-correction', 'scaleX(-1)');
-            try { el.style.transform = 'scaleX(-1)'; } catch (_) {}
-            try { el.style.scale = '1'; } catch (_) {}
-            try { el.style.rotate = '0deg'; } catch (_) {}
-          }
-          el.setAttribute('data-track-sid', sid);
+          if (track.kind === 'video') el.playsInline = true;
           self._attachedTracks[sid] = el;
-          self._remoteHolder && self._remoteHolder.appendChild(el);
+          self.render();
           if (track.kind === 'audio') {
             try {
               var ms = el.srcObject || (track.mediaStreamTrack ? new MediaStream([track.mediaStreamTrack]) : null);
@@ -1107,7 +1072,7 @@
         try {
           var sid = track.sid || track.trackSid;
           var el = sid && self._attachedTracks[sid];
-          if (el) { try { el.remove(); } catch (_) {} delete self._attachedTracks[sid]; }
+          if (el) delete self._attachedTracks[sid];
           try { track.detach && track.detach(); } catch (_) {}
         } catch (_) {}
       }
@@ -1152,14 +1117,8 @@
                 lpubs && lpubs.forEach && lpubs.forEach(function (p) { if (p && p.track && !track) track = p.track; });
               }
               if (track) {
-                if (self._localVideoEl) { try { self._localVideoEl.remove(); } catch(_) {} }
                 var lv = track.attach();
                 lv.autoplay = true; lv.playsInline = true; lv.muted = true;
-                lv.setAttribute('data-local-video', 'true');
-                lv.setAttribute('data-orientation-correction', 'scaleX(-1)');
-                try { lv.style.transform = 'scaleX(-1)'; } catch (_) {}
-                try { lv.style.scale = '1'; } catch (_) {}
-                try { lv.style.rotate = '0deg'; } catch (_) {}
                 self._localVideoEl = lv;
                 self._localVideoTrack = track;
                 self.render();
@@ -1237,14 +1196,8 @@
             lpubs && lpubs.forEach && lpubs.forEach(function (p) { if (p && p.track && !track) track = p.track; });
           }
           if (track) {
-            if (self._localVideoEl) { try { self._localVideoEl.remove(); } catch(_) {} }
             var lv = track.attach();
             lv.autoplay = true; lv.playsInline = true; lv.muted = true;
-            lv.setAttribute('data-local-video', 'true');
-            lv.setAttribute('data-orientation-correction', 'scaleX(-1)');
-            try { lv.style.transform = 'scaleX(-1)'; } catch (_) {}
-            try { lv.style.scale = '1'; } catch (_) {}
-            try { lv.style.rotate = '0deg'; } catch (_) {}
             self._localVideoEl = lv;
             self._localVideoTrack = track;
           }
@@ -1252,7 +1205,6 @@
       } else {
         try {
           if (self._localVideoTrack && self._localVideoEl) { self._localVideoTrack.detach(self._localVideoEl); }
-          if (self._localVideoEl) { self._localVideoEl.remove(); }
         } catch (_) {}
         self._localVideoEl = null; self._localVideoTrack = null;
       }
@@ -1262,17 +1214,10 @@
   CallCenterWidgetCtor.prototype.disconnectRoom = function () {
     try { if (this.lkRoom) this.lkRoom.disconnect(); } catch (_) {}
     this.lkRoom = null;
-    if (this._attachedTracks) {
-      var keys = Object.keys(this._attachedTracks);
-      for (var i = 0; i < keys.length; i++) {
-        try { this._attachedTracks[keys[i]].remove(); } catch (_) {}
-      }
-    }
     this._attachedTracks = {};
     this._remoteCount = 0;
     try {
       if (this._localVideoTrack && this._localVideoEl) { this._localVideoTrack.detach(this._localVideoEl); }
-      if (this._localVideoEl) { this._localVideoEl.remove(); }
     } catch (_) {}
     this._localVideoEl = null; this._localVideoTrack = null;
     this._stopAudioMeter();

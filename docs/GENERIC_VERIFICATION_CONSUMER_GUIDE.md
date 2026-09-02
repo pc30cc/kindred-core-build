@@ -25,8 +25,15 @@ getSafeVerificationStatus(config, handle: string): Promise<SafeVerificationStatu
 `locale`, a caller-supplied `idempotencyKey`, and `requester` context
 (`ipAddress`, optional `authenticatedUserId`). **The OTP code is never
 returned from `requestVerificationChallenge` or `resendVerificationChallenge`**
-— only `handle`, `generation`, `expiresAt`, `resendAvailableAt`. Delivery is
-the worker's job.
+— only `handle`, `generation`, `expiresAt`, `resendAvailableAt`,
+`deliveryOutcome`. Delivery is synchronous: by the time either call
+resolves (or throws), Express has already called the email/SMS provider
+directly — there is no worker, no queue, nothing left to happen later. A
+caller should branch on `deliveryOutcome`: `'provider_accepted'` means the
+code is on its way; anything else (`'retryable_failure'`, `'unconfigured'`,
+`'ambiguous'`, `'permanent_failure'`, `'derivation_key_unavailable'`) means
+the caller should surface a resend affordance to the end user. See
+`docs/GENERIC_VERIFICATION_CORE.md` §Delivery for the full state machine.
 
 `verifyVerificationChallenge` returns `{ ok: false, reason }` on any failure
 (wrong code, expired, locked, revoked, wrong purpose/channel/subject/
@@ -148,10 +155,15 @@ subject is sufficient, and a mismatch fails closed with a generic reason.
 3. Add the consumer-side `SECURITY DEFINER` SQL function that nests a call to
    `gv_consume_verification_proof` inside its own transaction, as shown above,
    in a **new, additive** migration.
-4. Register `server/services/verification/worker.ts` in `worker/index.ts`'s
-   `WORKER_KIND` dispatcher so delivery jobs actually get processed.
+4. No worker to register — delivery is synchronous, inside
+   `requestVerificationChallenge`/`resendVerificationChallenge` itself.
+   Confirm the calling route handles every `deliveryOutcome` value
+   sensibly (surfacing a resend affordance for anything other than
+   `'provider_accepted'`).
 5. Add end-to-end tests for the new flow, following the pattern in
-   `src/test/integration/genericVerificationCore.pg.test.ts`.
+   `src/test/integration/genericVerificationCore.pg.test.ts` — including the
+   crash/concurrency/replay matrix in `docs/GENERIC_VERIFICATION_CORE.md`
+   §Delivery, not just the happy path.
 6. Get a security review specifically for that one purpose going live —
    enabling a purpose is the point at which real OTPs start being sent.
 

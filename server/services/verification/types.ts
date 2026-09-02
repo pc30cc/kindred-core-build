@@ -55,7 +55,7 @@ export interface PurposePolicy {
   allowedChannels: readonly VerificationChannel[];
   otpLength: number;                 // 4-10 digits
   otpTtlSeconds: number;
-  deliveryRetryWindowSeconds: number; // how long the worker keeps retrying a failed send before giving up
+  deliveryRetryWindowSeconds: number; // reserved for a future policy-driven retry/backoff window; there is no background worker — Express sends once per request/resend and a retryable failure requires the caller to resend
   resendCooldownSeconds: number;
   maxSendsPerWindow: number;
   rateWindowSeconds: number;         // the rolling window maxSendsPerWindow is counted over
@@ -348,6 +348,15 @@ export interface RequestChallengeResult {
   generation: number;
   expiresAt: string;
   resendAvailableAt: string;
+  /**
+   * What actually happened when Express called the provider, in THIS
+   * request/resend call — never populated by a background process, because
+   * there is none. 'provider_accepted' is the only outcome a caller should
+   * treat as "the code is on its way"; every other value means the caller
+   * should surface a retry/resend affordance to the end user. See
+   * docs/GENERIC_VERIFICATION_CORE.md §Delivery for the full state machine.
+   */
+  deliveryOutcome: 'provider_accepted' | 'retryable_failure' | 'permanent_failure' | 'unconfigured' | 'ambiguous' | 'derivation_key_unavailable';
 }
 
 export interface VerifyChallengeInput {

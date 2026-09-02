@@ -14,9 +14,23 @@
  * disabled purpose throws before any Supabase client is even constructed,
  * so it is architecturally impossible for a disabled purpose to create a
  * database row, a delivery job, or send anything.
+ *
+ * DELIVERY MODEL — Express calls the provider directly, no background
+ * worker. This mirrors the canonical OTP architecture on `main` today
+ * (server/services/phoneVerification/index.ts's issueChallenge: an atomic
+ * "start" RPC, a direct `sendSmsVerification` call, then an atomic
+ * "mark_delivery" RPC), generalized to email+SMS and layered on top of
+ * this subsystem's caller-supplied-idempotency-key/key-rotation/purpose-
+ * registry machinery that phoneVerification does not have. See
+ * docs/GENERIC_VERIFICATION_CORE.md §Delivery for the full state machine
+ * this file implements, including the documented crash/concurrency/replay
+ * matrix (prepare/finalize crash windows, ambiguous-delivery boundary,
+ * concurrent identical requests, mismatched-payload same-key rejection).
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { sendEmail } from '../email/index.js';
+import { sendSms } from '../sms/index.js';
 import {
   assertChannelAllowed,
   assertPurposeEnabled,
@@ -25,11 +39,13 @@ import {
   type RequestChallengeInput,
   type RequestChallengeResult,
   type SafeVerificationStatus,
+  type VerificationLocale,
   type VerifyChallengeInput,
   type VerifyChallengeResult,
 } from './types.js';
 import { normalizeDestination } from './destination.js';
 import { resolveEffectiveLocale } from './locale.js';
+import { renderOtpEmail, renderOtpSms } from './templates.js';
 import {
   candidateOtpDigest,
   currentVerificationKeyVersion,
@@ -52,6 +68,13 @@ export class VerificationRateLimitedError extends Error {
   }
 }
 
+export class VerificationAlreadyInFlightError extends Error {
+  constructor() {
+    super('An identical verification request is already being processed — try again shortly');
+    this.name = 'VerificationAlreadyInFlightError';
+  }
+}
+
 export class VerificationIdempotencyConflictError extends Error {
   constructor(reason: string) {
     super(`Idempotency conflict: ${reason}`);
@@ -59,35 +82,92 @@ export class VerificationIdempotencyConflictError extends Error {
   }
 }
 
-async function callIdempotent(
-  config: ServerConfig,
-  args: {
-    key: string; scopeKind: string; operation: 'request' | 'resend' | 'revoke';
-    requestFingerprint: string; purpose: string; workspaceId?: string; actorRefHash?: string;
-    rpcArgs: Record<string, unknown>;
-  },
-): Promise<Record<string, unknown>> {
-  const sb = getServiceClient(config);
-  const { data, error } = await sb.rpc('gv_execute_idempotent', {
-    _key: args.key,
-    _scope_kind: args.scopeKind,
-    _operation: args.operation,
-    _request_fingerprint: args.requestFingerprint,
-    _purpose: args.purpose,
-    _workspace_id: args.workspaceId ?? null,
-    _actor_ref_hash: args.actorRefHash ?? null,
-    _args: args.rpcArgs,
-  });
-  if (error) {
-    if (String(error.message || '').includes('IDEMPOTENCY_RATE_LIMITED') || String(error.message || '').includes('VERIFICATION_RATE_LIMITED')) {
-      throw new VerificationRateLimitedError();
-    }
-    if (String(error.message || '').includes('IDEMPOTENCY_KEY_REUSED') || String(error.message || '').includes('IDEMPOTENCY_KEY_FAILED_PREVIOUSLY')) {
-      throw new VerificationIdempotencyConflictError(error.message);
-    }
-    throw new Error(error.message);
+/** The OTP domain-separation inputs are pinned to generation 1 for the
+ * HMAC input by design, regardless of the challenge's real recorded
+ * generation: `challengeHandle` is a fresh, cryptographically random value
+ * per request/resend (never reused across generations), which alone is
+ * sufficient domain separation — the same technique the original
+ * implementation used. Using a fixed constant here (rather than the real
+ * generation, which is not known until AFTER the database decides whether
+ * a previous live challenge exists to supersede) avoids a chicken-and-egg
+ * dependency between "compute the digest to send to the prepare RPC" and
+ * "ask the prepare RPC what generation this is." */
+const OTP_DOMAIN_GENERATION = 1;
+
+function throwForPrepareError(message: string): never {
+  if (message.includes('VERIFICATION_ALREADY_IN_FLIGHT')) throw new VerificationAlreadyInFlightError();
+  if (message.includes('VERIFICATION_RATE_LIMITED')) throw new VerificationRateLimitedError();
+  if (message.includes('IDEMPOTENCY_KEY_REUSED') || message.includes('IDEMPOTENCY_KEY_FAILED_PREVIOUSLY')) {
+    throw new VerificationIdempotencyConflictError(message);
   }
-  return (data as { result: Record<string, unknown> }).result;
+  throw new Error(message);
+}
+
+type DeliveryOutcome = 'provider_accepted' | 'retryable_failure' | 'permanent_failure' | 'unconfigured' | 'ambiguous' | 'derivation_key_unavailable';
+
+/**
+ * Sends one OTP directly through the existing email/SMS provider
+ * abstractions — the SAME functions server/services/phoneVerification and
+ * server/services/invitations use, called synchronously in this request,
+ * never queued. Never throws: every failure mode (including the provider
+ * throwing) is captured and classified into a DeliveryOutcome so the
+ * caller can always call gv_finalize_verification_delivery with a
+ * definite result.
+ */
+async function sendOtpDirect(
+  config: ServerConfig,
+  input: {
+    channel: 'email' | 'sms';
+    workspaceId: string | null;
+    destinationNormalized: string;
+    locale: VerificationLocale;
+    code: string;
+    ttlSeconds: number;
+  },
+): Promise<{ outcome: DeliveryOutcome; providerName?: string; providerMessageId?: string; errorCode?: string; errorMessage?: string }> {
+  try {
+    if (input.channel === 'sms') {
+      const rendered = renderOtpSms(input.locale, input.code, input.ttlSeconds);
+      const result = await sendSms(config, { to: input.destinationNormalized, body: rendered.text });
+      if (result.success) return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.messageId };
+      return { outcome: 'retryable_failure', providerName: result.provider, errorCode: result.errorCode };
+    }
+
+    // Email requires a workspace-bound provider config to resolve — see
+    // docs/GENERIC_VERIFICATION_CORE.md's documented limitation: a
+    // workspace-less (pre-account) email purpose has no platform-level
+    // email provider fallback in this codebase today (unlike SMS, which
+    // already has one via server/services/sms/index.ts's
+    // platform_sms_provider_config). Enabling any pre-account email
+    // purpose in the future requires adding that fallback first.
+    if (!input.workspaceId) {
+      return { outcome: 'unconfigured', errorCode: 'no_workspace_bound_email_provider' };
+    }
+
+    const rendered = renderOtpEmail(input.locale, input.code, input.ttlSeconds);
+    const result = await sendEmail(config, {
+      workspaceId: input.workspaceId,
+      to: input.destinationNormalized,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+    });
+    if (result.success && result.provider !== 'stub') {
+      return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.id };
+    }
+    if (result.provider === 'stub') {
+      return { outcome: 'unconfigured', providerName: result.provider, errorCode: 'no_email_provider_configured' };
+    }
+    return { outcome: 'retryable_failure', providerName: result.provider, errorCode: result.error };
+  } catch (err) {
+    // The provider threw instead of returning a result — Express cannot
+    // tell whether the provider received and will act on the request
+    // before it crashed/threw, or never saw it at all. Recorded as
+    // 'ambiguous', never as success or definite failure — see
+    // docs/GENERIC_VERIFICATION_CORE.md §Delivery's "provider accepted but
+    // Express lost the provider response" case.
+    return { outcome: 'ambiguous', errorCode: 'provider_exception', errorMessage: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**
@@ -97,6 +177,15 @@ async function callIdempotent(
  * idempotency operation label, so "resend" and "request" retries can never
  * be confused as replay targets of each other even with the same
  * caller-supplied `idempotencyKey`.
+ *
+ * Three-step Express-direct delivery, matching the canonical
+ * phoneVerification pattern:
+ *   1. gv_prepare_verification_delivery — atomic: creates/replays the
+ *      challenge, commits BEFORE any provider is contacted.
+ *   2. This function derives the OTP deterministically and calls
+ *      sendOtpDirect — a real, synchronous network call to email/SMS.
+ *   3. gv_finalize_verification_delivery — atomic: records what actually
+ *      happened and moves the idempotency ledger to 'committed'.
  */
 async function requestOrResend(
   config: ServerConfig,
@@ -107,7 +196,7 @@ async function requestOrResend(
 
   const normalized = normalizeDestination(input.channel, input.destination);
   if (!normalized.ok || !normalized.normalized) {
-    throw new Error(`invalid_destination:${normalized.reason ?? 'unknown'}`);
+    throw new Error(`invalid_destination:${'reason' in normalized ? normalized.reason : 'unknown'}`);
   }
 
   const locale = await resolveEffectiveLocale(config, input.locale, input.workspaceId);
@@ -115,17 +204,15 @@ async function requestOrResend(
   const subjectRefHash = input.subjectRef ? hashSubjectRef(input.subjectRef) : undefined;
   const handle = generateChallengeHandle();
   const keyVersion = currentVerificationKeyVersion();
-  const code = deriveOtpCode(
-    { purpose: input.purpose, channel: input.channel, challengeHandle: handle, generation: 1, destinationHash },
-    keyVersion,
-    policy.otpLength,
-  );
   const codeDigest = digestOtpCode(
-    { purpose: input.purpose, channel: input.channel, challengeHandle: handle, generation: 1, destinationHash },
-    code,
+    { purpose: input.purpose, channel: input.channel, challengeHandle: handle, generation: OTP_DOMAIN_GENERATION, destinationHash },
+    deriveOtpCode(
+      { purpose: input.purpose, channel: input.channel, challengeHandle: handle, generation: OTP_DOMAIN_GENERATION, destinationHash },
+      keyVersion,
+      policy.otpLength,
+    ),
     keyVersion,
   );
-  void code; // never returned, never logged — computed only so its digest can be stored; the worker re-derives it independently at send time.
 
   const requestIpHash = input.requester.ipAddress ? hashIpForRateLimit(input.requester.ipAddress) : undefined;
   const idempotencyKey = deriveIdempotencyKey(
@@ -134,19 +221,17 @@ async function requestOrResend(
   const fingerprint = deriveRequestFingerprint({
     purpose: input.purpose, channel: input.channel, destinationHash, subjectRefHash: subjectRefHash ?? null, workspaceId: input.workspaceId ?? null,
   });
-  const jobIdempotencyKey = deriveIdempotencyKey(
-    { operation: 'deliver', scopeKind: input.purpose, actorRef: handle, requestId: `${handle}:${operation}` },
-  );
 
-  const result = await callIdempotent(config, {
-    key: idempotencyKey,
-    scopeKind: input.purpose,
-    operation,
-    requestFingerprint: fingerprint,
-    purpose: input.purpose,
-    workspaceId: input.workspaceId,
-    actorRefHash: subjectRefHash,
-    rpcArgs: {
+  const sb = getServiceClient(config);
+  const { data: prepData, error: prepError } = await sb.rpc('gv_prepare_verification_delivery', {
+    _key: idempotencyKey,
+    _scope_kind: input.purpose,
+    _operation: operation,
+    _request_fingerprint: fingerprint,
+    _purpose: input.purpose,
+    _workspace_id: input.workspaceId ?? null,
+    _actor_ref_hash: subjectRefHash ?? null,
+    _args: {
       handle,
       purpose: input.purpose,
       channel: input.channel,
@@ -159,7 +244,6 @@ async function requestOrResend(
       locale,
       keyVersion,
       codeDigest,
-      jobIdempotencyKey,
       ttlSeconds: policy.otpTtlSeconds,
       maxAttempts: policy.maxVerificationAttempts,
       maxSends: policy.maxSendsPerWindow,
@@ -170,12 +254,87 @@ async function requestOrResend(
       requestIpHash: requestIpHash ?? null,
     },
   });
+  if (prepError) throwForPrepareError(prepError.message || '');
 
+  const prep = prepData as { status: 'fresh' | 'resume' | 'replayed'; result: Record<string, unknown> };
+
+  if (prep.status === 'replayed') {
+    // This exact request already finished (committed) — never contact the
+    // provider again for it. Return the cached result as-is.
+    return shapeRequestResult(prep.result);
+  }
+
+  // 'fresh' (the ordinary path) or 'resume' (a PRIOR attempt with this
+  // exact idempotency key committed the challenge but crashed before
+  // finalizing — see gv_prepare_verification_delivery's own comment).
+  // Either way, `prep.result` names the ACTUAL committed challenge —
+  // possibly not the `handle` generated above, if this is a 'resume' of an
+  // earlier attempt. Deterministic derivation means re-deriving from that
+  // committed handle/destinationHash/keyVersion reproduces the exact same
+  // code that would have (or already did) go out.
+  const committedHandle = String(prep.result.handle);
+  const committedDestinationHash = String(prep.result.destinationHash);
+  const committedKeyVersion = Number(prep.result.keyVersion);
+  const committedLocale = prep.result.locale as VerificationLocale;
+
+  const code = deriveOtpCode(
+    { purpose: input.purpose, channel: input.channel, challengeHandle: committedHandle, generation: OTP_DOMAIN_GENERATION, destinationHash: committedDestinationHash },
+    committedKeyVersion,
+    policy.otpLength,
+  );
+
+  // NOTE on 'resume': if the prior attempt's provider call actually
+  // succeeded and only the finalize call (or the response Express was
+  // waiting for) was lost, this send is a genuine SECOND provider
+  // submission for the same logical OTP — at-least-once delivery, not
+  // exactly-once. The two neither of this codebase's email/SMS provider
+  // abstractions accept a caller-supplied idempotency key today, so this
+  // is an accepted, documented boundary (docs/GENERIC_VERIFICATION_CORE.md
+  // §Delivery) rather than something this function can eliminate. What IS
+  // guaranteed: the code is identical both times, and the DATABASE state
+  // is never duplicated (gv_finalize_verification_delivery is itself
+  // idempotent on an already-committed key).
+  const sendResult = await sendOtpDirect(config, {
+    channel: input.channel,
+    workspaceId: input.workspaceId ?? null,
+    destinationNormalized: normalized.normalized,
+    locale: committedLocale,
+    code,
+    ttlSeconds: policy.otpTtlSeconds,
+  });
+
+  const { data: finData, error: finError } = await sb.rpc('gv_finalize_verification_delivery', {
+    _key: idempotencyKey,
+    _outcome: sendResult.outcome,
+    _provider_name: sendResult.providerName ?? null,
+    _provider_message_id: sendResult.providerMessageId ?? null,
+    _error_code: sendResult.errorCode ?? null,
+    _error_message: sendResult.errorMessage ?? null,
+  });
+  // A finalize failure here (network loss between Express and Postgres
+  // right after a successful send, the DB connection dying mid-statement,
+  // etc) leaves the ledger row in 'prepared' — the NEXT request with this
+  // same idempotency key (a client retry) resolves it via the 'resume'
+  // path above. There is no way to synchronously recover within THIS
+  // call; surfacing the error is correct — the caller's own retry (or the
+  // client's) is the recovery path, not a loop here.
+  if (finError) throw new Error(finError.message);
+
+  const fin = finData as { alreadyFinalized: boolean; result: Record<string, unknown> };
+  return shapeRequestResult(fin.result);
+}
+
+function shapeRequestResult(result: Record<string, unknown>): RequestChallengeResult {
   return {
     handle: String(result.handle),
     generation: Number(result.generation),
     expiresAt: String(result.expiresAt),
     resendAvailableAt: String(result.resendAvailableAt),
+    // Absent only on a 'replayed' result racing a 'fresh'/'resume' call that
+    // has not reached gv_finalize_verification_delivery yet — cannot happen
+    // in practice since 'replayed' requires result_state='committed', which
+    // finalize is what sets. Defaulted defensively rather than asserted.
+    deliveryOutcome: (result.deliveryOutcome as RequestChallengeResult['deliveryOutcome']) ?? 'ambiguous',
   };
 }
 
@@ -213,7 +372,7 @@ export async function verifyVerificationChallenge(
   if (!chal) return { ok: false, reason: 'invalid_code' }; // uniform — never "not_found" to the caller
 
   const candidateDigest = candidateOtpDigest(
-    { purpose: input.purpose, channel: input.channel, challengeHandle: input.handle, generation: chal.generation, destinationHash: chal.destination_hash },
+    { purpose: input.purpose, channel: input.channel, challengeHandle: input.handle, generation: OTP_DOMAIN_GENERATION, destinationHash: chal.destination_hash },
     input.code,
     chal.key_version,
   );
@@ -280,13 +439,22 @@ export async function revokeVerificationChallenge(
   input: { handle: string; purpose: string; reason: string; idempotencyKey: string },
 ): Promise<{ ok: boolean }> {
   assertPurposeEnabled(input.purpose);
+  const sb = getServiceClient(config);
   const idempotencyKey = deriveIdempotencyKey({ operation: 'revoke', scopeKind: input.purpose, actorRef: 'system', requestId: input.idempotencyKey });
   const fingerprint = deriveRequestFingerprint({ handle: input.handle, reason: input.reason });
-  const result = await callIdempotent(config, {
-    key: idempotencyKey, scopeKind: input.purpose, operation: 'revoke', requestFingerprint: fingerprint, purpose: input.purpose,
-    rpcArgs: { handle: input.handle, reason: input.reason },
+  const { data, error } = await sb.rpc('gv_execute_idempotent', {
+    _key: idempotencyKey,
+    _scope_kind: input.purpose,
+    _operation: 'revoke',
+    _request_fingerprint: fingerprint,
+    _purpose: input.purpose,
+    _workspace_id: null,
+    _actor_ref_hash: null,
+    _args: { handle: input.handle, reason: input.reason },
   });
-  return { ok: Boolean(result.ok) };
+  if (error) throwForPrepareError(error.message || '');
+  const outcome = data as { replayed: boolean; result: Record<string, unknown> };
+  return { ok: Boolean(outcome.result.ok) };
 }
 
 export async function getSafeVerificationStatus(

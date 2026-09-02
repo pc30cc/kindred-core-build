@@ -99,7 +99,10 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(String((body as any)?.error || 'INTERNAL_ERROR')) as Error & { fields?: string[] };
+    const err = new Error(String((body as any)?.error || 'INTERNAL_ERROR')) as Error & {
+      fields?: string[]; status?: number;
+    };
+    err.status = res.status;
     const fields = (body as any)?.fields;
     if (Array.isArray(fields) && fields.length) err.fields = fields.map(String);
     throw err;
@@ -244,7 +247,20 @@ export function InvitationManagement({
   const archive = useMutation({
     mutationFn: async (inv: InvitationRow) => {
       const key = `delete:${inv.id}`;
-      await api(`/api/workspace-invitations/${inv.id}`, { method: 'DELETE' });
+      try {
+        await api(`/api/workspace-invitations/${inv.id}`, { method: 'DELETE' });
+      } catch (e) {
+        // Older API builds have no DELETE route (Express answers 404 "Not found").
+        // Fall back to the archive endpoint so deletion still works there.
+        const status = (e as { status?: number }).status;
+        const message = (e as Error).message;
+        const routeMissing = status === 404 && !/INVITATION_NOT_FOUND/i.test(message);
+        if (!routeMissing) throw e;
+        await api(`/api/workspace-invitations/${inv.id}/archive`, {
+          method: 'POST',
+          body: JSON.stringify({ requestId: requestIds.get(key) }),
+        });
+      }
       requestIds.reset(key);
     },
     onSuccess: () => { toast.success(t('invitations.toastDeleted')); setArchiving(null); invalidate(); },

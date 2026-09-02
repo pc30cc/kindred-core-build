@@ -9934,35 +9934,50 @@ export type Database = {
       }
       workspace_invitation_idempotency: {
         Row: {
+          actor_id: string | null
+          completed_at: string | null
           created_at: string
           expires_at: string
           invitation_id: string | null
           key: string
           operation: string
+          request_fingerprint: string | null
           response_digest: string | null
+          result_code: string | null
           result_state: string
+          safe_result: Json | null
           scope_kind: string
           workspace_id: string | null
         }
         Insert: {
+          actor_id?: string | null
+          completed_at?: string | null
           created_at?: string
           expires_at?: string
           invitation_id?: string | null
           key: string
           operation: string
+          request_fingerprint?: string | null
           response_digest?: string | null
+          result_code?: string | null
           result_state: string
+          safe_result?: Json | null
           scope_kind: string
           workspace_id?: string | null
         }
         Update: {
+          actor_id?: string | null
+          completed_at?: string | null
           created_at?: string
           expires_at?: string
           invitation_id?: string | null
           key?: string
           operation?: string
+          request_fingerprint?: string | null
           response_digest?: string | null
+          result_code?: string | null
           result_state?: string
+          safe_result?: Json | null
           scope_kind?: string
           workspace_id?: string | null
         }
@@ -12032,6 +12047,10 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
+      wi_account_exists: {
+        Args: { _email_normalized: string }
+        Returns: boolean
+      }
       wi_apply_departments: {
         Args: {
           _invitation_id: string
@@ -12085,6 +12104,20 @@ export type Database = {
           _handle_hash: string
           _purpose: string
           _token_hash: string
+        }
+        Returns: Json
+      }
+      wi_execute_idempotent: {
+        Args: {
+          _actor_id: string
+          _args: Json
+          _fingerprint: string
+          _invitation_id: string
+          _key: string
+          _operation: string
+          _scope_kind: string
+          _ttl_seconds?: number
+          _workspace_id: string
         }
         Returns: Json
       }

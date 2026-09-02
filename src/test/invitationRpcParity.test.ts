@@ -31,6 +31,32 @@ const NOT_INVITATION_SPECIFIC = new Set([
   'set_workspace_seat_entitlement_mode',
 ]);
 
+/**
+ * Since §10 (atomic idempotency) the router no longer calls the invitation
+ * primitives directly — `wi_execute_idempotent` dispatches them inside the same
+ * transaction. Parity must still cover them, so the surface is the union of the
+ * RPCs the server calls and the primitives the executor dispatches.
+ */
+const EXECUTOR_DISPATCHED = [
+  'create_workspace_invitation_v2',
+  'edit_workspace_invitation_v2',
+  'resend_invitation_email_v2',
+  'rotate_manual_link_v2',
+  'revoke_invitation_v2',
+  'archive_invitation_v2',
+  'wi_create_login_context',
+  'wi_request_invitation_otp',
+  'wi_verify_invitation_otp',
+  'accept_invitation_new_user_v2',
+  'accept_invitation_existing_context_v2',
+  'wi_preview_invitation',
+  'wi_preview_login_context',
+  'wi_account_exists',
+  'wi_execute_idempotent',
+  'wi_heartbeat_invitation_job',
+];
+
+
 function readSqlChain(dir: string): { file: string; sql: string }[] {
   return fs
     .readdirSync(dir)
@@ -56,6 +82,7 @@ function collectServerRpcNames(): string[] {
     const src = fs.readFileSync(f, 'utf8');
     for (const m of src.matchAll(/\.rpc\(\s*'([a-z0-9_]+)'/g)) names.add(m[1]);
   }
+  for (const n of EXECUTOR_DISPATCHED) names.add(n);
   return [...names].filter((n) => !NOT_INVITATION_SPECIFIC.has(n)).sort();
 }
 

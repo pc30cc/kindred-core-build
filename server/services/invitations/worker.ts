@@ -38,8 +38,36 @@ const BATCH = 5;
 const MAX_BATCHES_PER_TICK = 20;
 const TICK_BUDGET_MS = 20_000;
 
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.INVITATION_WORKER_SHUTDOWN_MS || 25_000);
+
+/**
+ * Section G — production lifecycle state machine.
+ *
+ *   stopped  → no timer, no claims, no in-flight drain
+ *   running  → timer armed, claims accepted
+ *   draining → timer cleared, NEW claims refused, the active drain is awaited
+ *              (bounded); anything still in flight when the bound elapses is
+ *              SAFELY ABANDONED — its lease expires and another worker
+ *              recovers it through `reclaim_expired_invitation_jobs`.
+ */
+export type InvitationWorkerPhase = 'stopped' | 'running' | 'draining';
+
 let timer: NodeJS.Timeout | null = null;
 let running = false;
+let phase: InvitationWorkerPhase = 'stopped';
+let activeDrain: Promise<void> | null = null;
+let signalsInstalled = false;
+let shuttingDown = false;
+
+/**
+ * New claims are refused as soon as shutdown starts. A direct
+ * `drainInvitationJobs()` call (integration suites) is still allowed to claim
+ * while no shutdown is in progress.
+ */
+function acceptingClaims(): boolean {
+  return !shuttingDown;
+}
+
 
 function backoffSeconds(attempt: number): number {
   return Math.min(3600, Math.round(30 * Math.pow(2, Math.max(0, attempt - 1))));
@@ -51,6 +79,12 @@ function escapeHtml(value: unknown): string {
   })[char] || char);
 }
 
+/**
+ * Claim tokens observed to be lost (heartbeat said so). Bounded: entries are
+ * removed by the job that owned them once it finishes.
+ */
+const lostClaims = new Set<string>();
+
 async function complete(
   config: ServerConfig,
   jobId: string,
@@ -58,7 +92,9 @@ async function complete(
   outcome: 'provider_accepted' | 'retry' | 'permanently_failed' | 'unconfigured' | 'derivation_key_unavailable',
   extra: { provider?: string; messageId?: string; errorCode?: string; message?: string; retryIn?: number } = {},
 ): Promise<void> {
+  if (lostClaims.has(claimToken)) throw new Error('JOB_CLAIM_LOST');
   const { data, error } = await getServiceClient(config).rpc('wi_complete_invitation_job', {
+
     _job_id: jobId,
     _claim_token: claimToken,
     _outcome: outcome,
@@ -85,6 +121,7 @@ async function failOtpAtomically(
   outcome: 'permanently_failed' | 'unconfigured' | 'derivation_key_unavailable',
   extra: { provider?: string; errorCode?: string; message?: string } = {},
 ): Promise<void> {
+  if (lostClaims.has(claimToken)) throw new Error('JOB_CLAIM_LOST');
   const { data, error } = await getServiceClient(config).rpc('wi_fail_otp_job_atomic', {
     _job_id: job.id,
     _claim_token: claimToken,
@@ -102,12 +139,32 @@ async function failOtpAtomically(
 async function processJob(config: ServerConfig, job: any): Promise<void> {
   const sb = getServiceClient(config);
   const claimToken = job.claim_token as string;
+
+  /**
+   * Heartbeat. `wi_heartbeat_invitation_job` returns FALSE once the claim is
+   * gone (lease reclaimed by another worker, job cancelled, claim token
+   * rotated). Losing the claim disarms the heartbeat and marks the token so
+   * every later completion attempt is refused locally as well as in the
+   * database — a worker that lost its claim must never write an outcome.
+   * The RPC promise is always settled here: no unhandled rejection.
+   */
   const heartbeat = setInterval(() => {
-    void getServiceClient(config).rpc('wi_heartbeat_invitation_job', {
-      _job_id: job.id, _claim_token: claimToken, _lease_seconds: LEASE_SECONDS,
-    });
+    void (async () => {
+      try {
+        const { data, error } = await getServiceClient(config).rpc('wi_heartbeat_invitation_job', {
+          _job_id: job.id, _claim_token: claimToken, _lease_seconds: LEASE_SECONDS,
+        });
+        if (error || data === false) {
+          lostClaims.add(claimToken);
+          clearInterval(heartbeat);
+        }
+      } catch {
+        // Transient heartbeat failure: keep the lease-reaper as the backstop.
+      }
+    })();
   }, 40_000);
   if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
 
   try {
 
@@ -300,6 +357,7 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
   }
   } finally {
     clearInterval(heartbeat);
+    lostClaims.delete(claimToken);
   }
 }
 
@@ -307,6 +365,10 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
  * One full outbox pass. Exported so the integration suites can drain the queue
  * deterministically instead of waiting on the interval timer; production still
  * drives it from `tick`.
+ *
+ * A drain that is already in flight when shutdown begins finishes the jobs it
+ * already claimed (their provider submission and completion write are never
+ * aborted) but claims NOTHING new.
  */
 export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
   const sb = getServiceClient(config);
@@ -318,6 +380,7 @@ export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
   let batches = 0;
 
   async function claimAndRun(channels: string[]): Promise<number> {
+    if (!acceptingClaims()) return 0; // draining: never claim new work
     const { data: jobs, error } = await sb.rpc('claim_invitation_jobs', {
       _worker_id: WORKER_ID,
       _limit: BATCH,
@@ -365,25 +428,116 @@ export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
 }
 
 async function tick(config: ServerConfig): Promise<void> {
-  if (running) return;
+  if (running || !acceptingClaims() || phase !== 'running') return;
   running = true;
+  const pass = (async () => {
+    try {
+      await drainInvitationJobs(config);
+    } catch (err: any) {
+      console.warn('[invitationWorker] tick failed:', err?.message || err);
+    }
+  })();
+  activeDrain = pass;
   try {
-    await drainInvitationJobs(config);
-  } catch (err: any) {
-    console.warn('[invitationWorker] tick failed:', err?.message || err);
+    await pass;
   } finally {
     running = false;
+    if (activeDrain === pass) activeDrain = null;
   }
 }
 
+/** Health/readiness surface: running vs draining vs stopped. */
+export function getInvitationWorkerStatus(): {
+  workerId: string;
+  phase: InvitationWorkerPhase;
+  acceptingClaims: boolean;
+  draining: boolean;
+  healthy: boolean;
+} {
+  return {
+    workerId: WORKER_ID,
+    phase,
+    acceptingClaims: acceptingClaims(),
+    draining: phase === 'draining',
+    healthy: phase !== 'stopped',
+  };
+}
+
+/** Idempotent. A second call while running is a no-op. */
 export function startInvitationWorker(config: ServerConfig): void {
   if (timer) return;
+  shuttingDown = false;
+  phase = 'running';
   timer = setInterval(() => { void tick(config); }, POLL_MS);
   if (typeof timer.unref === 'function') timer.unref();
+  installSignalHandlers();
   console.log(`[invitationWorker] started (${WORKER_ID})`);
 }
 
+/**
+ * Synchronous stop: disarm the timer and refuse every new claim immediately.
+ * Idempotent. An in-flight drain is NOT aborted — use
+ * `shutdownInvitationWorker()` when you need to await it.
+ */
 export function stopInvitationWorker(): void {
   if (timer) clearInterval(timer);
   timer = null;
+  shuttingDown = true;
+  phase = activeDrain ? 'draining' : 'stopped';
+  if (activeDrain) {
+    void activeDrain.finally(() => {
+      if (!timer) phase = 'stopped';
+    });
+  }
 }
+
+/**
+ * Graceful shutdown with a bounded wait. Anything still in flight when the
+ * bound elapses is safely abandoned: its lease expires and
+ * `reclaim_expired_invitation_jobs` lets another worker recover it. External
+ * provider submission therefore remains AT-LEAST-ONCE by contract — database
+ * state stays idempotent and success is `provider_accepted`, never
+ * `delivered`.
+ */
+export async function shutdownInvitationWorker(
+  timeoutMs: number = SHUTDOWN_TIMEOUT_MS,
+): Promise<{ drained: boolean }> {
+  stopInvitationWorker();
+  const pending = activeDrain;
+  if (!pending) {
+    phase = 'stopped';
+    return { drained: true };
+  }
+
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const bounded = new Promise<false>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(false), Math.max(0, timeoutMs));
+    if (typeof timeoutHandle.unref === 'function') timeoutHandle.unref();
+  });
+
+  const drained = await Promise.race([
+    pending.then(() => true).catch(() => true),
+    bounded,
+  ]);
+  if (timeoutHandle) clearTimeout(timeoutHandle);
+  phase = 'stopped';
+  if (!drained) {
+    console.warn('[invitationWorker] shutdown timeout — active drain abandoned; leases will be reclaimed');
+  } else {
+    console.log('[invitationWorker] stopped cleanly');
+  }
+  return { drained };
+}
+
+/** SIGTERM/SIGINT wiring, installed once. Never logs job payloads or secrets. */
+function installSignalHandlers(): void {
+  if (signalsInstalled) return;
+  signalsInstalled = true;
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      console.log(`[invitationWorker] ${signal} received — draining`);
+      void shutdownInvitationWorker().catch(() => undefined);
+    });
+  }
+}
+

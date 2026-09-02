@@ -1,10 +1,26 @@
 import { Router } from 'express';
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
+import { getInvitationWorkerStatus } from '../services/invitations/worker.js';
 
 export const healthRouter = Router();
 
 healthRouter.get('/', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/**
+ * Invitation outbox worker readiness (Section G).
+ *
+ * Distinguishes running / draining / stopped so an orchestrator can stop
+ * routing to a pod that is draining. Leaks nothing: phase + worker id only.
+ */
+healthRouter.get('/invitation-worker', (_req, res) => {
+  const status = getInvitationWorkerStatus();
+  res.set('Cache-Control', 'no-store');
+  res.status(status.phase === 'running' ? 200 : 503).json({
+    status: status.phase === 'running' ? 'ok' : status.phase,
+    ...status,
+  });
 });
 
 /**

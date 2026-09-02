@@ -131,7 +131,10 @@ export const selfHostedAuthProvider: AuthProvider = {
 
   async getSession() {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/api/auth/session`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
       if (!res.ok) return null;
       const body = await res.json();
       return mapSession(body?.user);

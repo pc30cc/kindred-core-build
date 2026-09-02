@@ -310,15 +310,15 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}`, async (req: WorkspaceIdRequest,
 // ── GET /api/workspaces/:workspaceId/role — the caller's own role ────────
 // Backs src/hooks/useWorkspaceRole.ts, which used to query
 // workspace_members directly (RLS on auth.uid(), silently empty without a
-// Supabase Auth session). A platform super admin (who bypasses membership
-// entirely in authorizeWorkspaceAccess) has no workspace_members row, so
-// role comes back null for them — same as a non-member — which is correct:
-// this endpoint answers "what workspace_members.role does this caller
-// have," not "can this caller act here."
+// Supabase Auth session). This endpoint drives client-side authorization UI,
+// so a platform super admin who bypasses workspace membership must receive an
+// admin-capable role. Returning null for that caller made the UI render the
+// operator restrictions even though the server correctly authorized them.
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/role`, async (req: WorkspaceIdRequest, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
-  return res.json({ role: auth.role });
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({ role: auth.isAdmin ? 'admin' : auth.role });
 });
 
 // ── GET /api/workspaces/:workspaceId/primary-domain ───────────────────────

@@ -344,6 +344,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           </BrowserRouter>
           </TooltipProvider>
           </PlatformBrandingGate>
+          </IdentityCacheBoundary>
         </AuthContextProvider>
         </ProviderContextProvider>
       </ThemeProvider>

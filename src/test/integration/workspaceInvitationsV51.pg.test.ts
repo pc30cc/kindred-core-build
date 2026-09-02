@@ -342,6 +342,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     const body = invitePayload(owner.workspaceId);
 
     const res = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body });
+    if (res.status !== 201 && process.env.WI_TEST_DEBUG) console.error('[create]', res.status, JSON.stringify(res.json));
     expect(res.status).toBe(201);
     expect(res.json.invitation.status).toBe('pending');
 

@@ -276,20 +276,24 @@ export default function CallCenterSettingsPage() {
             </Row>
           </div>
         </Section>
-        <Section
-          title={t('callCenter.settingsPage.livePreview')}
-          description={t('callCenter.settingsPage.livePreviewHint')}
-        >
-          <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
-              <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
-            </SelectContent>
-          </Select>
-          <CallWidgetPreview settings={s} online={previewOnline} />
-        </Section>
+        <div className="lg:sticky lg:top-4">
+          <Section
+            title={t('callCenter.settingsPage.livePreview')}
+            description={t('callCenter.settingsPage.livePreviewHint')}
+          >
+            <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
+              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
+                <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <CallWidgetPreview settings={s} online={previewOnline} />
+          </Section>
+        </div>
+        </div>
       </TabsContent>
+
 
       <TabsContent value="languages" className="space-y-6 mt-0">
       {(() => {

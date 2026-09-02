@@ -326,7 +326,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
       phone_e164: body.phone,
       member_type: body.memberType,
       role: body.role,
-      expires_at: expiresAt.toISOString(),
+      expires_at: expiry.invitationExpiresAt,
       department_ids: departmentIds,
       manual_token_hash: sha256Hex(manualToken),
       manual_token_prefix: tokenPrefix(manualToken),

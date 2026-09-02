@@ -44,6 +44,11 @@ import {
   PROOF_COOKIE_NAME,
   CONTEXT_COOKIE_NAME,
 } from '../services/invitations/tokens.js';
+import {
+  runIdempotent,
+  deriveScopedSecret,
+  deriveDeterministicUuid,
+} from '../services/invitations/idempotency.js';
 
 export const workspaceInvitationsRouter = Router();
 
@@ -100,6 +105,9 @@ function mapRpcError(message: string | undefined): { status: number; code: strin
     'WRONG_ACCOUNT', 'SESSION_REQUIRED', 'PASSWORD_REQUIRED', 'INVALID_MEMBER_TYPE',
     'STAFF_INVITATION_MUST_HAVE_NO_DEPARTMENT', 'CUSTOMER_FACING_INVITATION_REQUIRES_DEPARTMENT',
     'REVOKE_REASON_REQUIRED', 'JOB_CLAIM_LOST', 'OWNER_PROTECTED',
+    'IDEMPOTENCY_KEY_REUSED', 'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_IN_PROGRESS',
+    'IDEMPOTENCY_KEY_REQUIRED', 'IDEMPOTENCY_FINGERPRINT_REQUIRED',
+    'IDEMPOTENCY_OPERATION_UNKNOWN',
   ];
   const code = known.find((k) => raw.includes(k));
   if (!code) return { status: 500, code: 'INTERNAL_ERROR' };
@@ -114,59 +122,23 @@ function mapRpcError(message: string | undefined): { status: number; code: strin
     INVITATION_NOT_FOUND: 404,
     WORKSPACE_NOT_FOUND: 404,
     OTP_RATE_LIMITED: 429,
+    IDEMPOTENCY_KEY_REUSED: 409,
+    IDEMPOTENCY_CONFLICT: 409,
+    IDEMPOTENCY_IN_PROGRESS: 409,
   };
   return { status: statusByCode[code] ?? 400, code };
 }
 
-/** Idempotency envelope — never stores tokens, proofs, OTPs or passwords. */
-async function withIdempotency<T>(
-  config: ServerConfig,
-  key: string | null,
-  scope: { scopeKind: string; operation: string; workspaceId?: string | null; invitationId?: string | null },
-  run: () => Promise<T>,
-): Promise<{ replayed: boolean; result: T | null; state?: string }> {
-  if (!key) return { replayed: false, result: await run() };
+/**
+ * requestId contract: every retryable mutation carries a client-generated,
+ * stable UUID. Retrying the SAME action reuses it; a new action mints a new
+ * one. The final ledger key is server-derived and scope-bound.
+ */
+const requestIdSchema = z.string().trim().uuid();
 
-  const sb = getServiceClient(config);
-  const digestKey = sha256Hex(key);
-
-  const { error: insertError } = await sb.from('workspace_invitation_idempotency').insert({
-    key: digestKey,
-    scope_kind: scope.scopeKind,
-    operation: scope.operation,
-    workspace_id: scope.workspaceId ?? null,
-    invitation_id: scope.invitationId ?? null,
-    result_state: 'in_progress',
-    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-  });
-
-  if (insertError) {
-    if (insertError.code !== '23505') throw insertError;
-    const { data: existing } = await sb
-      .from('workspace_invitation_idempotency')
-      .select('result_state, invitation_id')
-      .eq('key', digestKey)
-      .maybeSingle();
-    return { replayed: true, result: null, state: existing?.result_state || 'unknown' };
-  }
-
-  try {
-    const result = await run();
-    const rpcError = (result as any)?.error;
-    const { error: finishError } = await sb
-      .from('workspace_invitation_idempotency')
-      .update({ result_state: rpcError ? 'failed' : 'committed' })
-      .eq('key', digestKey)
-      .eq('result_state', 'in_progress');
-    if (finishError) throw finishError;
-    return { replayed: false, result };
-  } catch (error) {
-    await sb.from('workspace_invitation_idempotency')
-      .update({ result_state: 'failed' })
-      .eq('key', digestKey)
-      .eq('result_state', 'in_progress');
-    throw error;
-  }
+function readRequestId(req: any): string | null {
+  const parsed = requestIdSchema.safeParse(req.body?.requestId);
+  return parsed.success ? parsed.data : null;
 }
 
 async function activePolicyVersions(config: ServerConfig, locale: string) {

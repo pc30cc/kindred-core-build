@@ -323,6 +323,18 @@ workspaceMembersRouter.patch('/:memberId', async (req, res) => {
 });
 
 // DELETE /api/workspace-members/:memberId?workspaceId=... — remove a member.
+//
+// Offboarding is DESTRUCTIVE and was previously non-idempotent: a lost
+// response followed by the client's retry ran a second full offboarding
+// (duplicate history + audit rows, a second invitation-revocation sweep) or,
+// once the membership row was gone, answered a bogus 404. Section C.3 routes
+// it through the same atomic ledger as every other invitation mutation:
+//
+//   - a committed replay is resolved BEFORE the membership lookup (the row it
+//     would look for no longer exists — that is the whole point),
+//   - the same requestId with a different payload fails closed (409),
+//   - `requestId` stays OPTIONAL so non-UI/service callers keep working; the
+//     dashboard always sends one from the shared request-id book.
 workspaceMembersRouter.delete('/:memberId', async (req, res) => {
   const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
   if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
@@ -333,10 +345,33 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const sb = getServiceClient(config);
 
+  const memberId = String(req.params.memberId);
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) || null : null;
+  const rawRequestId = typeof req.body?.requestId === 'string' ? req.body.requestId.trim() : '';
+  const requestId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawRequestId)
+    ? rawRequestId
+    : null;
+  const idemCall = {
+    operation: 'offboard' as const,
+    scopeKind: 'workspace' as const,
+    requestId: requestId || '',
+    actorId: auth.userId,
+    workspaceId,
+    fingerprintInput: { workspaceId, memberId, reason },
+  };
+
+  if (requestId) {
+    const peek = await peekCommitted(config, idemCall);
+    if (peek.conflict) return res.status(409).json({ error: 'IDEMPOTENCY_KEY_REUSED' });
+    if (peek.committed) {
+      return res.json({ ok: true, replayed: true, offboarding: peek.outcome!.safeResult });
+    }
+  }
+
   const { data: member } = await sb
     .from('workspace_members')
     .select('user_id')
-    .eq('id', req.params.memberId)
+    .eq('id', memberId)
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   if (!member) return res.status(404).json({ error: 'member_not_found' });
@@ -347,14 +382,35 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     });
   }
 
-  const { data, error } = await sb.rpc('offboard_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: (member as { user_id: string }).user_id,
-    _actor_id: auth.userId,
-    _reason: typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) || null : null,
+  if (!requestId) {
+    const { data, error } = await sb.rpc('offboard_workspace_member', {
+      _workspace_id: workspaceId,
+      _user_id: (member as { user_id: string }).user_id,
+      _actor_id: auth.userId,
+      _reason: reason,
+    });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true, replayed: false, offboarding: data });
+  }
+
+  const outcome = await runIdempotent(config, {
+    ...idemCall,
+    args: { user_id: (member as { user_id: string }).user_id, reason },
   });
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ ok: true, offboarding: data });
+  if (outcome.error) {
+    if (/IDEMPOTENCY_KEY_REUSED/.test(outcome.error.message)) {
+      return res.status(409).json({ error: 'IDEMPOTENCY_KEY_REUSED' });
+    }
+    if (/IDEMPOTENCY_CONFLICT/.test(outcome.error.message)) {
+      return res.status(409).json({ error: 'IDEMPOTENCY_CONFLICT' });
+    }
+    return res.status(500).json({ error: outcome.error.message });
+  }
+  return res.json({
+    ok: true,
+    replayed: outcome.replayed,
+    offboarding: outcome.replayed ? outcome.safeResult : outcome.result,
+  });
 });
 
 /**

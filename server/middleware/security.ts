@@ -67,7 +67,7 @@ export const authRateLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip || 'unknown',
+  keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
     await logSecurityEvent(req, 'rate_limited', 'warn', { endpoint: req.originalUrl, limit: '5/min' });
     res.status(429).json({ error: 'Too many attempts. Please try again later.', retryAfter: 60 });
@@ -80,7 +80,7 @@ export const emailRateLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `email:${req.body?.workspaceId || req.ip}`,
+  keyGenerator: (req) => `email:${req.body?.workspaceId || ipBucket(req)}`,
   handler: async (req, res) => {
     await logSecurityEvent(req, 'rate_limited', 'warn', { endpoint: '/api/email', limit: '10/min' });
     res.status(429).json({ error: 'Email rate limit exceeded.' });
@@ -93,7 +93,7 @@ export const widgetRateLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip || 'unknown',
+  keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
     await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: '/api/widget', limit: '300/min' });
     res.status(429).json({ error: 'Widget rate limit exceeded.' });
@@ -338,7 +338,7 @@ export const visitorRateLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip || 'unknown',
+  keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
     await logSecurityEvent(req, 'rate_limited', 'info', { endpoint: '/api/visitors', limit: '200/min' });
     res.status(429).json({ error: 'Visitor tracking rate limit exceeded.' });
@@ -412,7 +412,7 @@ export const adminRateLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip || 'unknown',
+  keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
     await logSecurityEvent(req, 'rate_limited', 'warn', { endpoint: '/admin', limit: '30/min' });
     res.status(429).json({ error: 'Admin rate limit exceeded.' });

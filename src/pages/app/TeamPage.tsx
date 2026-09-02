@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { n as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 const API_BASE = RESOLVED_API_BASE || '';
 

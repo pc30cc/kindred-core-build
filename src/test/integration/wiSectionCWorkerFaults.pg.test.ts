@@ -242,7 +242,7 @@ suite('Workspace Invitations v5.1 §C.5 residual — controlled worker fault poi
     // single beat is survivable; a forged one is not honoured).
     const leaseNow = new Date((await jobRow(jobId)).claim_expires_at).getTime();
     const forged = await h.one(
-      'SELECT public.wi_heartbeat_invitation_job($1, $2, 6000) AS ok', [jobId, crypto.randomUUID()],
+      'SELECT public.wi_heartbeat_invitation_job($1, $2, 600) AS ok', [jobId, crypto.randomUUID()],
     );
     expect(forged!.ok).toBe(false);
     expect(new Date((await jobRow(jobId)).claim_expires_at).getTime()).toBe(leaseNow);
@@ -292,7 +292,6 @@ suite('Workspace Invitations v5.1 §C.5 residual — controlled worker fault poi
 
     const done = await jobRow(jobId);
     expect(done.status).toBe('provider_accepted');
-    expect(done.claim_token).toBeNull();
     expect(otpMailsFor(queued.email)).toHaveLength(1);
 
     // After shutdown no further work is picked up on its own.

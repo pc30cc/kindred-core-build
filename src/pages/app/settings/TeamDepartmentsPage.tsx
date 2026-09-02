@@ -536,7 +536,7 @@ export default function TeamDepartmentsPage() {
       {/* Dialogs */}
       {showCreateDept && wsId && (
         <DepartmentDialog mode="create" workspaceId={wsId}
-          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled}
+          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled} planCaps={planCaps}
           ccBusy={updateCc.isPending || !ccSettings} onToggleCc={toggleCallCenter}
           onClose={() => setShowCreateDept(false)} onSaved={invalidateDepts} />
       )}

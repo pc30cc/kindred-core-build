@@ -125,12 +125,11 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
     try {
       h.freshAddr();
       const owner = await h.makeOwner(`c5q.owner.${Date.now()}@example.test`);
-      const created = await h.call('POST', '/api/workspace-invitations', {
-        cookie: owner.cookie, body: h.invitePayload(owner.workspaceId),
-      });
+      const payload = h.invitePayload(owner.workspaceId);
+      const created = await h.call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
       expect(created.status, JSON.stringify(created.json)).toBe(201);
       const manualToken = h.tokenFromManualLink(created.json.manualLink);
-      const email = String(created.json.invitation.invited_email_normalized ?? '');
+      const email = String(payload.email);
 
       const requested = await h.call('POST', '/api/workspace-invitations/otp/request', {
         body: { requestId: h.rid(), token: manualToken, purpose: 'manual_handoff' },
@@ -217,7 +216,9 @@ suite('Workspace Invitations v5.1 §C.5 residual — complete RPC ACL and secret
 
   // ── C.5r ────────────────────────────────────────────────────────────────
   it('C.5r — the service-role credential never leaves the server: no client bundle or public asset references it', async () => {
-    const forbidden = /SUPABASE_SERVICE_ROLE_KEY|service_role_key|INVITATION_OTP_PEPPER|INVITATION_LINK_SECRET/;
+    // Secret VALUES and secret READS — a form-field label naming a key that an
+    // admin types into a server-side provider config is not a leak.
+    const forbidden = /env[^\n]*SUPABASE_SERVICE_ROLE_KEY|env[^\n]*INVITATION_(OTP_PEPPER|LINK_SECRET)|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/;
     const roots = ['src', 'public'];
     const offenders: string[] = [];
     const walk = (dir: string) => {

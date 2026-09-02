@@ -19,7 +19,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2, Mail, MessageSquare, MoreHorizontal, RefreshCw, Link2, Ban,
-  Archive, Pencil, UserPlus, Copy, ChevronDown, ChevronUp, ShieldAlert,
+  Trash2, Pencil, UserPlus, Copy, ChevronDown, ChevronUp, ShieldAlert,
 } from 'lucide-react';
 
 import { useTranslation, type TranslationKey } from '@/i18n';
@@ -426,8 +426,8 @@ export function InvitationManagement({
         <Dialog open onOpenChange={(o) => !o && setArchiving(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{t('invitations.archiveTitle')}</DialogTitle>
-              <DialogDescription>{t('invitations.archiveBody')}</DialogDescription>
+              <DialogTitle>{t('invitations.deleteTitle')}</DialogTitle>
+              <DialogDescription>{t('invitations.deleteBody')}</DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setArchiving(null)}>{t('invitations.cancel')}</Button>
@@ -438,7 +438,7 @@ export function InvitationManagement({
                 onClick={() => archive.mutate(archiving)}
               >
                 {archive.isPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                {t('invitations.archiveConfirm')}
+                {t('invitations.deleteConfirm')}
               </Button>
             </DialogFooter>
           </DialogContent>

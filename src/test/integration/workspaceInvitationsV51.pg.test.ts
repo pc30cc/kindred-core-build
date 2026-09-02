@@ -239,7 +239,8 @@ const rid = () => `req-${crypto.randomUUID()}`;
 
 async function signupAndVerify(email: string): Promise<{ cookie: string; userId: string }> {
   const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });
-  expect(signup.status, JSON.stringify(signup.json)).toBe(200);
+  if (signup.status !== 200) console.error("SIGNUP FAIL", signup.status, JSON.stringify(signup.json));
+  expect(signup.status).toBe(200);
   const sent = capturedEmails.find((e) => e.templateSlug === 'email_verify' && e.actionUrl && e.to === email);
   const token = new URL(sent!.actionUrl!).searchParams.get('token')!;
   expect((await call('POST', '/api/auth-email/verify-email', { body: { token } })).status).toBe(200);

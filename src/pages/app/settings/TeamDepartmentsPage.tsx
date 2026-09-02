@@ -802,7 +802,7 @@ export const DEFAULT_CUSTOMER_FACING_ROLE = 'agent' as const;
 const STAFF_INVITE_ROLES = ['admin', 'marketing_manager', 'seo_manager', 'analyst', 'developer', 'billing', 'viewer'];
 
 export function InviteMemberDialog({
-  workspaceId, workspaceName, inviterEmail, mode, onClose,
+  workspaceId, workspaceName: _workspaceName, inviterEmail: _inviterEmail, mode, onClose,
 }: {
   workspaceId: string;
   workspaceName: string;
@@ -811,7 +811,6 @@ export function InviteMemberDialog({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
   const queryClient = useQueryClient();
   // Customer-facing members all share one base operator role
   // (DEFAULT_CUSTOMER_FACING_ROLE). The raw role taxonomy is intentionally
@@ -820,46 +819,44 @@ export function InviteMemberDialog({
   // permission bundles are the correct mental model there.
   const staffRoles = STAFF_INVITE_ROLES;
   const [email, setEmail] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [role, setRole] = useState<string>(
     mode === 'customer' ? DEFAULT_CUSTOMER_FACING_ROLE : staffRoles[0],
   );
   const [link, setLink] = useState('');
-  const API_BASE = RESOLVED_API_BASE;
+  const { data: departments = [] } = useQuery({
+    queryKey: ['ws-departments-list', workspaceId],
+    queryFn: () => listDepartments(workspaceId),
+    enabled: mode === 'customer',
+  });
 
   const create = useMutation({
     mutationFn: async () => {
-      const expiresAt = new Date(Date.now() + 30 * 86400000).toISOString();
-      const { invitation } = await teamApi<{ invitation: any }>('/api/workspace-members/invitations', {
+      const { invitation, manualLink } = await teamApi<{ invitation: any; manualLink: string }>('/api/workspace-invitations', {
         method: 'POST',
         body: JSON.stringify({
           workspaceId,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          memberType: mode === 'customer' ? 'customer_facing' : 'staff',
           role,
-          invitedEmail: email.trim() || null,
-          expiresAt,
+          departmentIds: mode === 'customer' ? departmentIds : [],
+          expiresInDays: 30,
+          requestId: crypto.randomUUID(),
         }),
       });
-      return invitation;
+      return { invitation, manualLink };
     },
-    onSuccess: async (inv: any) => {
-      const url = `${window.location.origin}/auth/invite?token=${inv.token}`;
-      setLink(url);
-      navigator.clipboard.writeText(url);
+    onSuccess: async ({ manualLink }: { invitation: any; manualLink: string }) => {
+      setLink(manualLink);
+      await navigator.clipboard.writeText(manualLink);
       toast.success(t('teamDept.toastInviteCopied'));
       queryClient.invalidateQueries({ queryKey: ['ws-invitations', workspaceId] });
-      // Best-effort email
-      if (email.trim() && API_BASE) {
-        try {
-          await fetch(`${API_BASE}/api/email/send`, {credentials: 'include',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              workspaceId, to: email.trim(),
-              subject: `You've been invited to ${workspaceName}`,
-              html: `<p><strong>${inviterEmail}</strong> invited you to <strong>${workspaceName}</strong> as <strong>${role}</strong>.</p><p><a href="${url}">Accept invitation</a></p>`,
-            }),
-          });
-        } catch (e) { console.warn('[invite] email send failed', e); }
-      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -873,15 +870,26 @@ export function InviteMemberDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-5 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t('teamDept.firstName')}</Label>
+              <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t('teamDept.lastName')}</Label>
+              <Input value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" />
+            </div>
+          </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">{t('teamDept.emailOptional')}</Label>
+            <Label className="text-xs">{t('teamDept.email')}</Label>
             <Input type="email" value={email} dir="ltr"
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
               className="text-left text-xs" />
-            <p className="text-[11px] text-muted-foreground">
-              {t('teamDept.emailHint')}
-            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('teamDept.phone')}</Label>
+            <Input type="tel" value={phone} dir="ltr" onChange={(e) => setPhone(e.target.value)} placeholder="+989121234567" className="text-left text-xs" />
           </div>
           {mode === 'staff' ? (
             <div className="space-y-1.5">
@@ -898,8 +906,16 @@ export function InviteMemberDialog({
               </Select>
             </div>
           ) : (
-            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground leading-relaxed">
-              {t('teamDept.customerInviteNote')}
+            <div className="space-y-2">
+              <Label className="text-xs">{t('teamDept.departments')}</Label>
+              <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border/60 p-2">
+                {departments.map((department: any) => (
+                  <label key={department.id} className="flex items-center gap-2 rounded p-1.5 text-xs hover:bg-muted/40">
+                    <Checkbox checked={departmentIds.includes(department.id)} onCheckedChange={(checked) => setDepartmentIds((current) => checked ? [...current, department.id] : current.filter((id) => id !== department.id))} />
+                    <span>{department.name}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           )}
           {link && (
@@ -911,7 +927,7 @@ export function InviteMemberDialog({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>{t('teamDept.close')}</Button>
-          <Button onClick={() => create.mutate()} disabled={create.isPending}>
+          <Button onClick={() => create.mutate()} disabled={create.isPending || !firstName.trim() || !lastName.trim() || !email.trim() || !/^\+[1-9]\d{6,14}$/.test(phone.trim()) || (mode === 'customer' && departmentIds.length === 0)}>
             {create.isPending
               ? <Loader2 className="h-4 w-4 me-2 animate-spin" />
               : <Mail className="h-4 w-4 me-2" />}

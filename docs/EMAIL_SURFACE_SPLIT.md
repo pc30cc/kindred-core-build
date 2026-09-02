@@ -25,8 +25,7 @@ deferred during earlier rollouts.
 | Caller                                                 | Path                          | Class              |
 | ------------------------------------------------------ | ----------------------------- | ------------------ |
 | `server/services/auth-email.ts` (verify, recovery)     | in-process `sendEmail()`      | PLATFORM / AUTH    |
-| `src/pages/app/TeamPage.tsx` (invite)                  | `POST /api/email/send`        | PLATFORM (auth)    |
-| `src/pages/app/settings/TeamDepartmentsPage.tsx`       | `POST /api/email/send`        | PLATFORM (auth)    |
+| Invitation outbox worker                              | in-process `sendEmail()`      | PLATFORM (auth)    |
 | `server/routes/widget.ts` offline-message notification | in-process `sendEmail()`      | PLATFORM (ops)     |
 | `server/routes/widget.ts` admin-test offline email     | in-process `sendEmail()`      | PLATFORM (test)    |
 | `src/providers/email/api.ts` → `EmailPage` test send   | `POST /api/email/send`        | PLATFORM (test)    |
@@ -39,8 +38,8 @@ callers on the platform surface.
 
 ## Canonical split
 
-- `POST /api/email/send` — **platform email**. Not gated by the email
-  channel entitlement. All current callers continue to use it.
+- `POST /api/email/send` — **retired arbitrary relay**; always returns 410.
+- `POST /api/email/test-send` — manager-gated provider test surface.
 - `POST /api/email/send-channel` — **channel email**. Gated with
   `requireChannel('email')` from the canonical
   `server/middleware/featureGating.ts`. The dedicated boundary that
@@ -66,7 +65,7 @@ callers on the platform surface.
 
 ## Backward compatibility
 
-- No existing route renamed or removed.
+- The unsafe arbitrary-recipient relay is intentionally retired with 410.
 - No capability key renamed.
 - No env var or schema change.
 - No middleware contract change.

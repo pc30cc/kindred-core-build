@@ -41,6 +41,8 @@ describe('invitation worker has no hardcoded user-facing text', () => {
     expect(WORKER).toMatch(/renderInviteEmail\(/);
     expect(WORKER).toMatch(/renderInviteSms\(/);
     expect(WORKER).toMatch(/renderDeliveryFailure\(/);
+    expect(WORKER).toMatch(/templateSlug:\s*'invite_member'/);
+    expect(WORKER).toMatch(/templateSlug:\s*'invite_otp'/);
   });
 });
 

@@ -263,6 +263,11 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       workspaceId: String(otpState.workspace_id),
       to: String(otpState.email),
       locale: otpLocale,
+      templateSlug: 'invite_otp',
+      templateData: {
+        code,
+        expiry_minutes: '10',
+      },
       subject: otpMail.subject,
       text: otpMail.text,
       html: otpMail.html,

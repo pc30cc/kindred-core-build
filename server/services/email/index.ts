@@ -28,6 +28,22 @@ export interface ProviderConfig {
   config: Record<string, unknown>;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function normalizeProviderConfig(value: unknown): ProviderConfig | null {
+  const row = asRecord(value);
+  const providerName = String(row.provider_name || row.provider || '').trim().toLowerCase();
+  if (!providerName || providerName === 'disabled') return null;
+  return {
+    provider_name: providerName,
+    config: { ...asRecord(row.config), ...asRecord(row.secrets) },
+  };
+}
+
 export interface SendResult {
   success: boolean;
   id?: string;
@@ -43,27 +59,41 @@ async function resolveProviderConfig(
   supabase: any,
   workspaceId: string
 ): Promise<ProviderConfig | null> {
-  // 1. Workspace-level override
-  const { data: wsConfig } = await supabase
+  // 1. Canonical workspace settings written by Settings → Providers.
+  const { data: wsSetting, error: wsSettingError } = await supabase
+    .from('workspace_provider_settings')
+    .select('provider_name, config, secrets, enabled')
+    .eq('workspace_id', workspaceId)
+    .eq('provider_type', 'email')
+    .eq('enabled', true)
+    .maybeSingle();
+  if (wsSettingError) {
+    console.warn('[email] workspace provider lookup failed:', wsSettingError.message);
+  }
+  const activeWorkspaceProvider = normalizeProviderConfig(wsSetting);
+  if (activeWorkspaceProvider) return activeWorkspaceProvider;
+
+  // 2. Legacy provider registry compatibility.
+  const { data: wsConfig, error: wsConfigError } = await supabase
     .from('provider_configs')
     .select('provider_name, config')
     .eq('workspace_id', workspaceId)
     .eq('provider_type', 'email')
     .eq('is_active', true)
     .maybeSingle();
+  if (wsConfigError) console.warn('[email] legacy provider lookup failed:', wsConfigError.message);
+  const legacyWorkspaceProvider = normalizeProviderConfig(wsConfig);
+  if (legacyWorkspaceProvider) return legacyWorkspaceProvider;
 
-  if (wsConfig) return wsConfig as ProviderConfig;
-
-  // 2. Global default from app_runtime_config
-  const { data: globalConfig } = await (supabase as any)
+  // 3. Platform default from app_runtime_config.
+  const { data: globalConfig, error: globalConfigError } = await (supabase as any)
     .from('app_runtime_config')
     .select('value')
     .eq('key', 'default_email_provider')
     .maybeSingle();
-
-  if (globalConfig && (globalConfig as any).value) {
-    return (globalConfig as any).value as ProviderConfig;
-  }
+  if (globalConfigError) console.warn('[email] platform provider lookup failed:', globalConfigError.message);
+  const platformProvider = normalizeProviderConfig((globalConfig as any)?.value);
+  if (platformProvider) return platformProvider;
 
   return null;
 }
@@ -166,8 +196,8 @@ export async function sendEmail(
   // --- Resolve from address ---
   if (!fromAddr && providerConfig?.config) {
     const cfg = providerConfig.config as Record<string, string>;
-    const name = cfg.from_name || 'Platform';
-    const email = cfg.from_email || 'noreply@example.com';
+    const name = cfg.from_name || cfg.sender_name || 'Platform';
+    const email = cfg.from_email || cfg.sender_email || 'noreply@example.com';
     fromAddr = `${name} <${email}>`;
   }
 

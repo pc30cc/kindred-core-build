@@ -673,8 +673,11 @@ export function InvitationFormDialog({
   const [role, setRole] = useState<string>(invitation?.role ?? roles[0]);
   const [jobTitle, setJobTitle] = useState(invitation?.job_title ?? '');
   const [staffCode, setStaffCode] = useState(invitation?.staff_code ?? '');
-  // '0' = no expiry: valid until the workspace owner revokes or deletes it.
-  const [expiresInDays, setExpiresInDays] = useState('0');
+  // Keep seven days as the compatibility default while older self-hosted API
+  // containers are still in circulation. The explicit "no expiry" choice is
+  // supported by the current server contract, but must never be submitted
+  // accidentally merely by opening the form against an older container.
+  const [expiresInDays, setExpiresInDays] = useState('7');
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [touched, setTouched] = useState(false);
 
@@ -698,7 +701,7 @@ export function InvitationFormDialog({
 
   const submit = useMutation({
     mutationFn: async () => {
-      const payload = {
+      const payload: Record<string, unknown> = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim().toLowerCase(),
@@ -706,16 +709,19 @@ export function InvitationFormDialog({
         memberType: mode,
         role,
         departmentIds: mode === 'customer_facing' ? [...departmentIds].sort() : [],
-        jobTitle: jobTitle.trim() || null,
-        staffCode: staffCode.trim() || null,
         expiresInDays: Number(expiresInDays),
       };
+      // Omit empty optional values rather than serializing them as null. This
+      // is accepted by both the original and current invitation API schemas.
+      if (jobTitle.trim()) payload.jobTitle = jobTitle.trim();
+      if (staffCode.trim()) payload.staffCode = staffCode.trim();
       const intent = JSON.stringify(payload);
-      const key = isEdit ? `edit_invitation:${invitation!.id}` : 'create_invitation';
+      const invitationId = invitation?.id;
+      const key = isEdit && invitationId ? `edit_invitation:${invitationId}` : 'create_invitation';
       const requestId = requestIds.get(key, intent);
 
-      if (isEdit) {
-        await api(`/api/workspace-invitations/${invitation!.id}`, {
+      if (isEdit && invitationId) {
+        await api(`/api/workspace-invitations/${invitationId}`, {
           method: 'PATCH',
           body: JSON.stringify({ ...payload, requestId }),
         });

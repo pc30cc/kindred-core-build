@@ -14,6 +14,7 @@ import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWorkspacePlan, useWorkspaceUsage } from '@/hooks/usePlans';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
@@ -79,6 +80,9 @@ export default function OverviewPage() {
       }),
     [teamData, memberById],
   );
+  const { data: wsRole } = useWorkspaceRole(workspace?.id);
+  // Operators (agents/viewers) never see plan, billing or onboarding surfaces.
+  const canSeeBilling = isWorkspaceAdmin(wsRole);
   const { data: planData } = useWorkspacePlan(workspace?.id);
   const { data: usageRow } = useWorkspaceUsage(workspace?.id);
 
@@ -234,6 +238,7 @@ export default function OverviewPage() {
             </p>
           </div>
 
+          {canSeeBilling && (
           <Link
             to={wsPath('/billing')}
             className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3 shadow-sm backdrop-blur transition-all hover:-translate-y-0.5 hover:border-violet-500/40 hover:shadow-md"
@@ -247,6 +252,7 @@ export default function OverviewPage() {
             </span>
             <ArrowRight className={`h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 ${isRtl ? 'rotate-180' : ''}`} />
           </Link>
+          )}
         </div>
 
         {/* quick actions */}
@@ -362,7 +368,8 @@ export default function OverviewPage() {
           </div>
         </div>
 
-        {/* Plan & usage */}
+        {/* Plan & usage — admins/owners only */}
+        {canSeeBilling && (
         <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
           <div className="pointer-events-none absolute -top-16 -end-10 h-40 w-40 rounded-full bg-emerald-500/15 blur-3xl" />
           <div className="relative mb-4 flex items-center justify-between">
@@ -443,6 +450,7 @@ export default function OverviewPage() {
           </div>
 
         </div>
+        )}
       </div>
 
       {/* ── Recent + team ────────────────────────────────── */}
@@ -577,7 +585,7 @@ export default function OverviewPage() {
       </div>
 
       {/* ── Onboarding ───────────────────────────────────── */}
-      <GetStartedWizard />
+      {canSeeBilling && <GetStartedWizard />}
     </div>
   );
 }

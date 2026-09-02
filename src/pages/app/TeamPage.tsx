@@ -1,13 +1,27 @@
 /**
- * Legacy /team surface.
+ * /team surface.
  *
- * Team members, departments and invitations all live on the canonical
- * Team & Departments settings page, which renders the single shared
- * InvitationManagement implementation. This module intentionally contains
- * no invitation logic of its own — a third invitation surface is forbidden.
+ * Owners and admins are redirected to the canonical Team & Departments
+ * settings page (the single shared InvitationManagement implementation).
+ * Operators (agents/viewers) get a read-only colleague directory with
+ * internal 1:1 messaging — no management capabilities at all.
  */
 import { Navigate } from 'react-router-dom';
+import { Navigate as _N } from 'react-router-dom';
+import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import TeamChatPanel from '@/components/inbox/TeamChatPanel';
 
 export default function TeamPage() {
-  return <Navigate to="../settings/team-departments" replace />;
+  const workspace = useCurrentWorkspace();
+  const { data: role, isPending } = useWorkspaceRole(workspace?.id);
+
+  if (isPending) return <div className="h-full w-full" />;
+  if (isWorkspaceAdmin(role)) return <Navigate to="../settings/team-departments" replace />;
+
+  return (
+    <div className="h-full w-full overflow-hidden">
+      <TeamChatPanel />
+    </div>
+  );
 }

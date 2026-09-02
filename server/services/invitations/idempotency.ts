@@ -195,3 +195,40 @@ export function deriveDeterministicUuid(scope: string, requestId: string, salt: 
   const hex = b.toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+
+/**
+ * Read-only committed-replay lookup (Phase 0 closure gate).
+ *
+ * Resolves "has this exact requestId already been committed?" WITHOUT executing
+ * the primitive and without any material that a retired key version would be
+ * needed for. The fingerprint binding is identical to `runIdempotent`, so a
+ * mismatched payload still fails closed with IDEMPOTENCY_KEY_REUSED.
+ */
+export async function peekCommitted<T = any>(
+  config: ServerConfig,
+  call: Pick<IdempotentCall, 'operation' | 'scopeKind' | 'requestId' | 'actorId' | 'workspaceId' | 'invitationId' | 'fingerprintInput'>,
+): Promise<{ committed: boolean; outcome?: IdempotentOutcome<T>; conflict?: boolean }> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.rpc('wi_peek_idempotent', {
+    _key: deriveIdempotencyKey(call),
+    _fingerprint: deriveFingerprint(call.operation, call.fingerprintInput),
+    _operation: call.operation,
+    _scope_kind: call.scopeKind,
+  });
+
+  if (error) {
+    return { committed: false, conflict: /IDEMPOTENCY_KEY_REUSED/.test(String(error.message || '')) };
+  }
+
+  const envelope = (data || {}) as any;
+  if (envelope.committed !== true) return { committed: false };
+  return {
+    committed: true,
+    outcome: {
+      replayed: true,
+      resultCode: String(envelope.result_code || 'COMMITTED'),
+      safeResult: (envelope.safe_result || {}) as Record<string, unknown>,
+      result: null,
+    },
+  };
+}

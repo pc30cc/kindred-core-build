@@ -47,6 +47,7 @@ import {
   CONTEXT_COOKIE_NAME,
 } from '../services/invitations/tokens.js';
 import {
+  peekCommitted,
   runIdempotent,
   deriveScopedSecret,
   deriveDeterministicUuid,
@@ -695,6 +696,39 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
   });
   if (probeError || !probe) return res.status(404).json(PUBLIC_ERROR);
 
+  // Deterministic proof: a retry re-issues the identical HttpOnly cookie
+  // instead of minting a second proof row. The raw proof is never stored.
+  const proof = deriveScopedSecret('otp_proof', requestId, invitationHash);
+
+  const idempotentCall = {
+    operation: 'otp_verify' as const,
+    scopeKind: 'public' as const,
+    requestId,
+    invitationId: String((probe as any).invitation_id),
+    // Keyed digest: an unkeyed hash of a six-digit code is brute-forceable.
+    fingerprintInput: {
+      tokenHash: invitationHash,
+      codeDigest: deriveIntentDigest('otp_code', `${String((probe as any).invitation_id)}|${parsed.data.code}`),
+    },
+  };
+
+  // Committed-replay FIRST: an already-committed requestId must resolve without
+  // re-deriving (or re-consuming) the OTP, so retiring the pepper version that
+  // signed the original code cannot turn an honest retry into a 503. The
+  // fingerprint binding is unchanged — a different payload still 409s.
+  const peek = await peekCommitted(config, idempotentCall);
+  if (peek.conflict) return res.status(409).json({ error: 'IDEMPOTENCY_KEY_REUSED' });
+  if (peek.committed) {
+    res.cookie(PROOF_COOKIE_NAME, proof, {
+      httpOnly: true,
+      secure: isProd(),
+      sameSite: 'strict',
+      path: '/api/workspace-invitations/accept-new',
+      maxAge: PROOF_TTL_MS,
+    });
+    return res.json({ ok: true, replayed: true });
+  }
+
   // The live OTP records the (non-secret) pepper version its digest was built
   // with, so a rotation cannot silently invalidate a code already in flight.
   const { data: otpKeyVersion } = await sb.rpc('wi_otp_pending_key_version', {
@@ -705,20 +739,8 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
   const verifyKeyVersion = otpKeyVersion == null ? currentOtpKeyVersion() : Number(otpKeyVersion);
   if (!hasOtpKey(verifyKeyVersion)) return res.status(503).json({ error: 'DERIVATION_KEY_UNAVAILABLE' });
 
-  // Deterministic proof: a retry re-issues the identical HttpOnly cookie
-  // instead of minting a second proof row. The raw proof is never stored.
-  const proof = deriveScopedSecret('otp_proof', requestId, invitationHash);
-
   const outcome = await runIdempotent(config, {
-    operation: 'otp_verify',
-    scopeKind: 'public',
-    requestId,
-    invitationId: String((probe as any).invitation_id),
-    // Keyed digest: an unkeyed hash of a six-digit code is brute-forceable.
-    fingerprintInput: {
-      tokenHash: invitationHash,
-      codeDigest: deriveIntentDigest('otp_code', `${String((probe as any).invitation_id)}|${parsed.data.code}`),
-    },
+    ...idempotentCall,
     args: {
       token_hash: invitationHash,
       code_digest: otpDigest(String((probe as any).invitation_id), parsed.data.code, verifyKeyVersion),
@@ -726,6 +748,7 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
       proof_expires_at: new Date(Date.now() + PROOF_TTL_MS).toISOString(),
     },
   });
+
 
   if (outcome.error) {
     const mapped = mapRpcError(outcome.error.message);

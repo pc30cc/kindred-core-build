@@ -12126,6 +12126,18 @@ export type Database = {
         Returns: Json
       }
       wi_expire_due: { Args: { _workspace_id: string }; Returns: number }
+      wi_fail_otp_job_atomic: {
+        Args: {
+          _claim_token: string
+          _error_code?: string
+          _job_id: string
+          _outcome: string
+          _provider_name?: string
+          _safe_error_message?: string
+          _worker_id: string
+        }
+        Returns: Json
+      }
       wi_heartbeat_invitation_job: {
         Args: { _claim_token: string; _job_id: string; _lease_seconds?: number }
         Returns: boolean
@@ -12140,8 +12152,22 @@ export type Database = {
       }
       wi_mask_email: { Args: { _email: string }; Returns: string }
       wi_mask_phone: { Args: { _phone: string }; Returns: string }
+      wi_otp_digest_key_version: { Args: { _digest: string }; Returns: number }
       wi_otp_job_sendable: {
         Args: { _claim_token: string; _job_id: string }
+        Returns: Json
+      }
+      wi_otp_pending_key_version: {
+        Args: { _token_hash: string }
+        Returns: number
+      }
+      wi_peek_idempotent: {
+        Args: {
+          _fingerprint: string
+          _key: string
+          _operation: string
+          _scope_kind: string
+        }
         Returns: Json
       }
       wi_prepare_invitation_job: {

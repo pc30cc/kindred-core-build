@@ -519,14 +519,19 @@ app.listen(config.port, () => {
   startRecordingRetentionJanitor(config);
   // GDPR — start privacy job worker (in-process loop).
   startPrivacyWorker(config);
-  // Invitations run in-process only when explicitly enabled. Production uses
-  // a dedicated WORKER_KIND=invitations container.
-  if (process.env.INVITATION_WORKER_INPROC === '1') {
+  // Invitation outbox. Self-hosted single-container deployments have no
+  // dedicated WORKER_KIND=invitations service, which left delivery jobs
+  // sitting in `queued` forever ("email queued but never sent"). The
+  // in-process worker is therefore ON by default and only disabled when the
+  // operator explicitly runs a dedicated worker container
+  // (INVITATION_WORKER_INPROC=0).
+  if (process.env.INVITATION_WORKER_INPROC !== '0') {
     void syncSeatEntitlementMode(config).then((result) => {
       if (result.ok) startInvitationWorker(config);
       else console.error('[invitations] worker not started: entitlement bootstrap failed');
     });
   }
+
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
 

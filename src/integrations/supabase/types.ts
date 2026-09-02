@@ -12161,6 +12161,15 @@ export type Database = {
         Args: { _token_hash: string }
         Returns: number
       }
+      wi_peek_idempotent: {
+        Args: {
+          _fingerprint: string
+          _key: string
+          _operation: string
+          _scope_kind: string
+        }
+        Returns: Json
+      }
       wi_prepare_invitation_job: {
         Args: {
           _claim_token: string

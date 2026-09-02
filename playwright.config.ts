@@ -1,4 +1,24 @@
+import { existsSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+
+/**
+ * Resolve a Chromium that actually exists on this machine. CI installs the
+ * browser that matches the pinned Playwright version; sandboxes and self-host
+ * runners often carry a different build number, and Playwright would otherwise
+ * fail with "Executable doesn't exist". PLAYWRIGHT_CHROMIUM_PATH always wins.
+ */
+function resolveChromium(): string | undefined {
+  const explicit = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+  if (explicit) return explicit;
+  const root = '/opt/ms-playwright';
+  if (!existsSync(root)) return undefined;
+  for (const dir of readdirSync(root).filter((d) => d.startsWith('chromium-')).sort().reverse()) {
+    const candidate = path.join(root, dir, 'chrome-linux', 'chrome');
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
 
 /**
  * WORKSPACE INVITATIONS v5.1 — Section F real-browser E2E.
@@ -21,7 +41,7 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL || 'http://localhost:8080',
     viewport: { width: 1280, height: 900 },
     launchOptions: {
-      executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
+      executablePath: resolveChromium(),
     },
     trace: 'off',
   },

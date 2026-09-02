@@ -1775,6 +1775,9 @@ const en = {
   aiBilling: {
     cycle: 'Billing cycle',
     totalRuns: 'Total AI runs',
+    providerCostAllTime: 'Total AI spend (all time)',
+    providerCostAllTimeHint: 'Everything AI has cost us in USD since day one.',
+    liveUpdated: 'Live · updated',
     providerCostHint: 'What the AI providers charge us, in USD.',
     internalCostHint: 'Provider cost converted with the billing exchange rate.',
     customerChargeHint: 'Internal cost × sell multiplier — what workspaces are billed.',

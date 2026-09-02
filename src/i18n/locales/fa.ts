@@ -1763,6 +1763,9 @@ const fa: TranslationKeys = {
   aiBilling: {
     cycle: 'دوره صورتحساب',
     totalRuns: 'کل اجراهای هوش مصنوعی',
+    providerCostAllTime: 'مجموع کل مصرف هوش مصنوعی (از ابتدا)',
+    providerCostAllTimeHint: 'کل هزینه‌ای که تاکنون بابت هوش مصنوعی پرداخت شده، به دلار.',
+    liveUpdated: 'لحظه‌ای · آخرین به‌روزرسانی',
     providerCostHint: 'هزینه‌ای که ارائه‌دهنده‌های هوش مصنوعی از ما می‌گیرند (به دلار).',
     internalCostHint: 'هزینه ارائه‌دهنده که با نرخ ارز صورتحساب تبدیل شده است.',
     customerChargeHint: 'هزینه داخلی × ضریب فروش — مبلغی که از فضای کاری گرفته می‌شود.',

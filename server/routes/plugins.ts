@@ -130,7 +130,8 @@ async function resolveAvailability(req: any, workspaceId: string, pluginId: stri
 pluginsRouter.get('/catalog', async (req: any, res) => {
   const workspaceId = String(req.query.workspace_id || '');
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  // Plugin catalog is an owner/admin surface (matches the sidebar gating).
+  const auth = await requireManager(req, res, workspaceId);
   if (!auth) return;
 
   try {

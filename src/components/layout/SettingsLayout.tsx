@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useWorkspacePath, useWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspacePath, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
@@ -85,7 +85,7 @@ export function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
-  const { workspace } = useWorkspace();
+  const workspace = useCurrentWorkspace();
   const { data: wsRole } = useWorkspaceRole(workspace?.id);
   const canSeeAdminSettings = isWorkspaceAdmin(wsRole);
 

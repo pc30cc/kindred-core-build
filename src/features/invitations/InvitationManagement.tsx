@@ -99,7 +99,10 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(String((body as any)?.error || 'INTERNAL_ERROR')) as Error & { fields?: string[] };
+    const err = new Error(String((body as any)?.error || 'INTERNAL_ERROR')) as Error & {
+      fields?: string[]; status?: number;
+    };
+    err.status = res.status;
     const fields = (body as any)?.fields;
     if (Array.isArray(fields) && fields.length) err.fields = fields.map(String);
     throw err;

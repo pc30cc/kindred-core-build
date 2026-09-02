@@ -224,6 +224,11 @@ callCenterRouter.get('/capabilities', async (req, res) => {
     .eq('workspace_id', wid)
     .maybeSingle();
   const wsEnabled = !!row?.enabled;
+  // Operators (non owner/admin) must not see the Call Center surfaces at all
+  // when the workspace master switch is off. Owners/admins keep visibility so
+  // they can still reach the settings and turn it back on.
+  const viewerRole = await getWorkspaceRole(ctx.config, wid, ctx.userId);
+  const viewerManages = ['owner', 'admin'].includes(String(viewerRole));
   const effective = row
     ? computeEffectiveCallCenterCaps(platform, row as any)
     : {
@@ -240,7 +245,8 @@ callCenterRouter.get('/capabilities', async (req, res) => {
   res.json({
     platform_enabled: platform.call_center_enabled,
     workspace_enabled: wsEnabled,
-    workspace_call_center_visible: effective.workspace_call_center_visible,
+    workspace_call_center_visible:
+      effective.workspace_call_center_visible && (wsEnabled || viewerManages),
     platform_callback_enabled: platform.callback_requests_enabled,
     settings_exists: !!row,
     effective,

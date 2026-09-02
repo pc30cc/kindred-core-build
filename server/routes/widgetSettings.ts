@@ -54,7 +54,9 @@ async function requireManageWithPhoneVerified(
 
 widgetSettingsRouter.get('/:workspaceId', async (req, res) => {
   const config = serverConfigOf(req);
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  // Widget configuration is an owner/admin surface: operators are denied at
+  // the API layer, not only in the sidebar/route guards.
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const sb = getServiceClient(config);
   const { data, error } = await sb
@@ -111,7 +113,9 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
 
 widgetSettingsRouter.get('/:workspaceId/prechat', async (req, res) => {
   const config = serverConfigOf(req);
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  // Widget configuration is an owner/admin surface: operators are denied at
+  // the API layer, not only in the sidebar/route guards.
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const sb = getServiceClient(config);
   const { data, error } = await sb

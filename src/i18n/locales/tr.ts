@@ -1628,6 +1628,10 @@ const tr: TranslationKeys = {
     expiredInvitations: 'Süresi dolmuş / İptal edilmiş',
   },
   teamDept: {
+    ccMasterTitle: 'Bağımsız Çağrı Merkezi',
+    ccMasterHint: 'Bağımsız Çağrı Merkezi ana anahtarı. Kapalıyken Çağrı Merkezi operatörlerin menülerinde görünmez ve tüm çalışma alanında devre dışı kalır.',
+    ccMasterOn: 'Çağrı Merkezi etkinleştirildi',
+    ccMasterOff: 'Çağrı Merkezi devre dışı bırakıldı',
     title: 'Ekip ve Departmanlar',
     subtitleBefore: 'Ziyaretçi sohbetlerini ve çağrılarını yöneten kişiler ve onları yönlendiren departmanlar. Dahili erişim (faturalama, SEO, analiz, geliştirici) için bkz. ',
     staffAccess: 'Personel Erişimi',

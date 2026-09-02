@@ -35,6 +35,12 @@ import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
+import { PhoneCall } from 'lucide-react';
+import {
+  useCallCenterCapabilities,
+  useCallCenterSettings,
+  useUpdateCallCenterSettings,
+} from '@/hooks/useCallCenter';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import {
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -172,6 +178,25 @@ export default function TeamDepartmentsPage() {
     m.profile?.email?.toLowerCase().includes(search.toLowerCase()),
   );
 
+  /* ─── Standalone Call Center master switch ─── */
+  const { data: ccCaps } = useCallCenterCapabilities(wsId);
+  const { data: ccSettings } = useCallCenterSettings(wsId);
+  const updateCc = useUpdateCallCenterSettings(wsId);
+  const ccPlatformEnabled = !!ccCaps?.platform_enabled;
+  const ccEnabled = !!ccSettings?.settings?.enabled;
+  const toggleCallCenter = (enabled: boolean) => {
+    updateCc.mutate(
+      { enabled },
+      {
+        onSuccess: () => {
+          qc.invalidateQueries({ queryKey: ['call-center'] });
+          toast.success(t(enabled ? 'teamDept.ccMasterOn' : 'teamDept.ccMasterOff'));
+        },
+        onError: (e: Error) => toast.error(e.message),
+      },
+    );
+  };
+
   /* ─── Member actions ─── */
   const [editDeptsFor, setEditDeptsFor] = useState<{ userId: string; name: string } | null>(null);
 
@@ -231,6 +256,31 @@ export default function TeamDepartmentsPage() {
           </p>
         </div>
       </div>
+
+      {/* ═══════════ Standalone Call Center master switch ═══════════ */}
+      {ccPlatformEnabled && (
+        <Card className="p-4 border-border/60 flex items-center gap-4">
+          <div className="h-10 w-10 rounded-full bg-muted/60 flex items-center justify-center shrink-0">
+            <PhoneCall className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-foreground">{t('teamDept.ccMasterTitle')}</span>
+              {!ccEnabled && (
+                <Badge variant="outline" className="text-[10px]">{t('teamDept.disabledBadge')}</Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+              {t('teamDept.ccMasterHint')}
+            </p>
+          </div>
+          <Switch
+            checked={ccEnabled}
+            disabled={updateCc.isPending || !ccSettings}
+            onCheckedChange={toggleCallCenter}
+          />
+        </Card>
+      )}
 
       {/* ═══════════ Section A — Departments ═══════════ */}
       <section className="space-y-3">

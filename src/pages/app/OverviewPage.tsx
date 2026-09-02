@@ -288,21 +288,23 @@ export default function OverviewPage() {
             <Link
               key={s.label}
               to={wsPath(s.path)}
-              className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
+              className="group relative overflow-hidden rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
-              <span className={cn('pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r', a.grad)} />
-              <span className={cn('pointer-events-none absolute -top-10 -end-8 h-24 w-24 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100', a.glow)} />
-              <div className="flex items-start justify-between">
+              <span className={cn('pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r', a.grad)} />
+              <span className={cn('pointer-events-none absolute -top-10 -end-8 h-20 w-20 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100', a.glow)} />
+              <div className="relative flex items-center gap-2.5">
                 <span className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-md transition-transform duration-300 group-hover:scale-110',
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm transition-transform duration-300 group-hover:scale-110',
                   a.grad,
                 )}>
-                  <s.icon className="h-[18px] w-[18px]" />
+                  <s.icon className="h-4 w-4" />
                 </span>
-                <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                <div className="min-w-0">
+                  <div className="text-lg font-bold leading-none tabular-nums text-foreground">{fmt(s.value)}</div>
+                  <div className="mt-1 truncate text-[11px] font-medium text-muted-foreground">{s.label}</div>
+                </div>
               </div>
-              <div className="relative mt-3 text-[26px] font-extrabold leading-none tabular-nums text-foreground">{fmt(s.value)}</div>
-              <div className="relative mt-1.5 text-xs font-medium text-muted-foreground">{s.label}</div>
+
             </Link>
           );
         })}

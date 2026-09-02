@@ -397,7 +397,12 @@ export async function startHarness(dsn: string): Promise<Harness> {
       );
       if (!hit) await new Promise((r) => setTimeout(r, 20));
     }
-    expect(hit, `no OTP email captured for ${email}`).toBeTruthy();
+    if (!hit) {
+      const jobs = await rows(
+        `SELECT channel, status, attempt_count, last_error FROM public.workspace_invitation_jobs ORDER BY created_at DESC LIMIT 5`,
+      );
+      expect(hit, `no OTP email captured for ${email}; recent jobs=${JSON.stringify(jobs)}`).toBeTruthy();
+    }
     return String(hit!.text).match(/(\d{6})/)![1];
   }
 

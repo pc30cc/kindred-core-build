@@ -486,7 +486,7 @@ BEGIN
   -- 12. audit from captured locals
   PERFORM public.wi_audit(_workspace_id, _actor_id, 'workspace_member.offboarded', _user_id,
           jsonb_build_object('role', _target_role, 'revoked_invitations', _revoked,
-                             'reason', _reason));
+                             'reason', _reason), 'workspace_member');
 
   RETURN jsonb_build_object(
     'workspace_id', _workspace_id,

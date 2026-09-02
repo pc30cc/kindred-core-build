@@ -166,7 +166,8 @@ CREATE OR REPLACE FUNCTION public.wi_audit(
   _actor_id uuid,
   _action text,
   _entity_id uuid,
-  _payload jsonb
+  _payload jsonb,
+  _entity_type text DEFAULT 'workspace_invitation'
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -855,6 +856,7 @@ DECLARE
     'wi_expire_due(uuid)',
     'wi_revoke_secrets(uuid,integer,text)',
     'wi_safe_invitation(uuid)',
+    'wi_audit(uuid,uuid,text,uuid,jsonb,text)',
     'wi_resolve_seat_capacity(uuid)',
     'create_workspace_invitation_v2(uuid,uuid,text,text,text,text,text,public.workspace_role,timestamptz,uuid[],text,text,timestamptz,text,text,text,text,text,text)',
     'edit_workspace_invitation_v2(uuid,uuid,text,text,text,text,text,public.workspace_role,timestamptz,uuid[],text,text,text,text,text,text)',

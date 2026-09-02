@@ -100,7 +100,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/095_workspace_invitations_v51_notification_locale.sql',
     hosted: 'supabase/migrations/20260902165446_fbbfe1b1-eaa3-487c-bf16-3b7e1497222e.sql',
   },
-
+  {
+    label: '098 — Generic Verification Core v1 (dormant, no consumer wired)',
+    selfHost: 'database/migrations/098_generic_verification_core.sql',
+    hosted: 'supabase/migrations/20260902185146_generic_verification_core.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

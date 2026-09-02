@@ -249,7 +249,7 @@ export function AppSidebar() {
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
     ...(isWsAdmin ? [{ key: 'widget', path: '/widget', icon: Package, accent: 'violet' } as const] : []),
     ...(isWsAdmin ? [{ key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' } as const] : []),
-    { key: 'settings', path: '/settings/general', icon: Settings, accent: 'indigo' },
+    { key: 'settings', path: isWsAdmin ? '/settings/general' : '/settings/profile', icon: Settings, accent: 'indigo' },
   ] as const;
 
 

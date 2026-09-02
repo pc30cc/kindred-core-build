@@ -209,6 +209,11 @@ export interface Harness {
    * lock, and only then commits. No timing-only sleep decides the interleaving.
    */
   raceUnderLock<T>(lock: { sql: string; params?: unknown[] }, expected: number, start: () => Promise<T>[]): Promise<T[]>;
+  /** Create an invitation and drive it to the "ready to accept" state. */
+  prepareAcceptable(ownerCookie: string, workspaceId: string, over?: Record<string, unknown>): Promise<{
+    invitationId: string; token: string; email: string; proofCookie: string;
+    acceptBody: (requestId?: string) => Record<string, unknown>;
+  }>;
   workerConfig: any;
   stop(): Promise<void>;
 }
@@ -436,8 +441,36 @@ export async function startHarness(dsn: string): Promise<Harness> {
     }
   }
 
+  async function prepareAcceptable(ownerCookie: string, workspaceId: string, over: Record<string, unknown> = {}) {
+    const payload = invitePayload(workspaceId, over);
+    const created = await call('POST', '/api/workspace-invitations', { cookie: ownerCookie, body: payload });
+    expect(created.status, JSON.stringify(created.json)).toBe(201);
+    const token = tokenFromManualLink(created.json.manualLink);
+    const invitationId = String(created.json.invitation.id);
+    const email = String(payload.email);
+
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+    const code = await otpCodeFor(email);
+    const verify = await call('POST', '/api/workspace-invitations/otp/verify', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff', code },
+    });
+    expect(verify.status, JSON.stringify(verify.json)).toBe(200);
+    const proofCookie = cookieOf(verify, 'wi_proof')!;
+    const policies = await activePolicies();
+
+    return {
+      invitationId, token, email, proofCookie,
+      acceptBody: (requestId?: string) => ({
+        requestId: requestId || rid(), token, purpose: 'manual_handoff',
+        password: 'CorrectHorseBattery1', consent: true, ...policies,
+      }),
+    };
+  }
+
   return {
-    db, baseUrl, call, cookieOf, rid, freshAddr, signupAndVerify, makeOwner, invitePayload,
+    db, baseUrl, call, cookieOf, rid, freshAddr, signupAndVerify, makeOwner, invitePayload, prepareAcceptable,
     tokenFromManualLink, activePolicies, drainOutbox, otpCodeFor, countOf, one, rows,
     raceUnderLock, workerConfig: WORKER_CONFIG,
     async stop() {

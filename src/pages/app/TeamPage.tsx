@@ -26,9 +26,6 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
-
-const API_BASE = RESOLVED_API_BASE;
 
 // Team/invitation management goes through the backend (gs_session cookie
 // + service_role) rather than direct supabase.from() calls — the
@@ -286,14 +283,8 @@ export default function TeamPage() {
   roleStats['owner'] = members.filter((m: any) => m.role === 'owner').length;
 
   // Split invitations
-  const activeInvites = invitations.filter((inv: any) => {
-    const expired = inv.expires_at && new Date(inv.expires_at) < new Date();
-    return !expired && !inv.revoked_at;
-  });
-  const inactiveInvites = invitations.filter((inv: any) => {
-    const expired = inv.expires_at && new Date(inv.expires_at) < new Date();
-    return expired || inv.revoked_at;
-  });
+  const activeInvites = invitations.filter((inv: any) => inv.status === 'pending' && !inv.archived_at);
+  const inactiveInvites = invitations.filter((inv: any) => inv.status !== 'pending' && !inv.archived_at);
 
   if (!workspace) {
     return (
@@ -630,11 +621,11 @@ function InvitationRow({ inv, getRoleLabel, onCopy, onRevoke, onResend, onDelete
       <div className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-emerald-500' : 'bg-destructive'}`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-muted-foreground truncate">...{inv.token.slice(-16)}</span>
-          {inv.invited_email && (
+          <span className="text-xs font-medium text-foreground truncate">{[inv.first_name, inv.last_name].filter(Boolean).join(' ')}</span>
+          {inv.invited_email_normalized && (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Mail className="w-3 h-3" />
-              {inv.invited_email}
+              {inv.invited_email_normalized}
             </span>
           )}
         </div>
@@ -648,12 +639,6 @@ function InvitationRow({ inv, getRoleLabel, onCopy, onRevoke, onResend, onDelete
               : t('team.expireNone')
             }
           </span>
-          {inv.use_count > 0 && (
-            <>
-              <span>•</span>
-              <span>{inv.use_count} {t('team.uses')}</span>
-            </>
-          )}
         </div>
       </div>
       <Badge variant={active ? 'outline' : 'secondary'} className="text-[10px] shrink-0">
@@ -662,38 +647,46 @@ function InvitationRow({ inv, getRoleLabel, onCopy, onRevoke, onResend, onDelete
       <div className="flex gap-1 shrink-0">
         {active && (
           <>
-            <button
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
               onClick={onCopy}
-              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
               title={t('common.copy')}
             >
               <Copy className="w-3.5 h-3.5" />
-            </button>
+            </Button>
             {onResend && (
-              <button
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
                 onClick={onResend}
-                className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                 title={t('team.resendEmail')}
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             )}
-            <button
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
               onClick={onRevoke}
-              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
               title={t('team.revokeInvite')}
             >
               <Ban className="w-3.5 h-3.5" />
-            </button>
+            </Button>
           </>
         )}
-        <button
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
           onClick={onDelete}
-          className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
           title={t('common.delete')}
         >
           <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -733,26 +726,6 @@ function MemberActions({ currentRole, getRoleLabel, onChangeRole, onRemove, t }:
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-function buildInviteEmailHtml(workspaceName: string, role: string, inviterEmail: string, link: string) {
-  return `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #1a1a1a; margin-bottom: 16px;">You've been invited to join ${workspaceName}</h2>
-      <p style="color: #555; font-size: 14px; line-height: 1.6;">
-        <strong>${inviterEmail}</strong> has invited you to join <strong>${workspaceName}</strong> as <strong>${role}</strong>.
-      </p>
-      <div style="margin: 24px 0;">
-        <a href="${link}" style="display: inline-block; padding: 12px 24px; background-color: #3b82f6; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
-          Accept Invitation
-        </a>
-      </div>
-      <p style="color: #999; font-size: 12px;">
-        If you can't click the button, copy this link:<br/>
-        <a href="${link}" style="color: #3b82f6; word-break: break-all;">${link}</a>
-      </p>
-    </div>
-  `;
 }
 
 /**

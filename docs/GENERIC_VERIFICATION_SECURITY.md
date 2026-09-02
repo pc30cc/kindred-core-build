@@ -23,10 +23,14 @@ is what protects it once one does.
 - **Deterministic derivation, not random-then-hash.** `deriveOtpCode()`
   derives the code from an HMAC over
   `(purpose, channel, challengeHandle, generation, destinationHash)` under a
-  versioned key. This is the same pattern proven by Workspace Invitations
-  v5.1's OTP derivation: it lets the delivery worker re-derive the same code
-  after a crash/retry without a second database round-trip or ever
-  persisting the raw code for the worker to read back.
+  versioned key. This is the same technique proven by Workspace Invitations
+  v5.1's OTP derivation, applied here to a different crash-safety need:
+  since delivery is Express-direct (see `docs/GENERIC_VERIFICATION_CORE.md`
+  §Delivery — no worker), a resumed request after a crash between prepare
+  and finalize re-derives the EXACT SAME code from the already-committed
+  challenge's own handle/destination-hash/key-version, without a second
+  database round-trip and without ever persisting the raw code anywhere for
+  anything to read back.
 - **Domain separation.** The HMAC input includes purpose, channel, challenge
   handle, generation, destination hash, *and* key version, so a digest
   computed for one purpose/channel/generation/destination can never collide
@@ -164,7 +168,7 @@ caller and does not coordinate across multiple server instances.
   (test case R) to contain no OTP code, no proof token, and no pepper —
   only hashes, statuses, and timestamps.
 - **Append-only evidence**: `verification_attempts` and
-  `verification_deliveries` carry no `UPDATE`/`DELETE` grant for
+  `verification_delivery_attempts` carry no `UPDATE`/`DELETE` grant for
   `service_role` — history cannot be edited after the fact.
 - **Build-time self-verification**: the migration's own `DO $verify$` block
   queries `pg_class`/`pg_policy`/`has_table_privilege`/
@@ -178,14 +182,15 @@ Every purpose ships `enabled: false`. `assertPurposeEnabled`/
 `assertChannelAllowed` are unconditional and are the first statement in
 every `service.ts` entry point — a disabled purpose throws before a Supabase
 client is even constructed, so it is architecturally impossible (not just
-policy) for a disabled purpose to create a challenge row, a delivery job, or
-send anything. This is verified directly (zero-database-writes) in
+policy) for a disabled purpose to create a challenge row, a delivery-attempt
+row, or send anything. This is verified directly (zero-database-writes) in
 `src/test/integration/genericVerificationCore.pg.test.ts` test case A, and at
 the pure-function level (no database involved) in
 `src/test/verification/purposeDormancy.test.ts`.
 
-Because the worker is not registered in `worker/index.ts`, and no route
-calls `service.ts`, there is no code path in this codebase — dormant purpose
+There is no worker for this subsystem (delivery is Express-direct — see
+`docs/GENERIC_VERIFICATION_CORE.md` §Delivery) and no route calls
+`service.ts`, so there is no code path in this codebase — dormant purpose
 or not — that currently reaches this subsystem at all in production.
 
 ## Monitoring / metrics (for a future consumer to wire up)
@@ -194,8 +199,9 @@ No monitoring is wired up in this pass (there is nothing to monitor — the
 subsystem processes zero traffic). Once a purpose is enabled, the natural
 metrics to add, using the existing shapes:
 
-- Delivery job outcomes (`verification_deliveries.outcome`) —
-  provider-accepted vs. permanently-failed rate, per channel/purpose.
+- Delivery outcomes (`verification_delivery_attempts.outcome`) —
+  provider-accepted vs. retryable/permanent-failure/ambiguous rate, per
+  channel/purpose.
 - Verification outcomes (`verification_attempts.result`) — wrong-code rate,
   lockout rate, per purpose.
 - Rate-limit rejections (`VERIFICATION_RATE_LIMITED` exceptions from

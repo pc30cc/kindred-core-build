@@ -3,8 +3,8 @@
 **Status: implemented and dormant.** No signup, password-reset, phone-verification,
 login-step-up, email-change, phone-change, sensitive-action, or other flow calls
 into this subsystem yet. It ships disabled-by-default at every layer (purpose
-registry, database rows, delivery jobs) so its presence changes no existing
-user-visible behavior.
+registry, database rows, provider sends) so its presence changes no
+existing user-visible behavior.
 
 ## Why this exists
 
@@ -12,10 +12,15 @@ The codebase has two independent, proven OTP/verification implementations:
 
 - **Workspace Invitations v5.1** (`server/services/invitations/`,
   `database/migrations/077-097_workspace_invitations_v51_*.sql`) — invitation
-  acceptance OTPs, keyed-HMAC pepper ring, idempotent RPC executor, worker
-  lease/claim/heartbeat, fa/tr/en templates.
+  acceptance OTPs, keyed-HMAC pepper ring, idempotent RPC executor,
+  fa/tr/en templates. Its own OTP delivery still goes through a background
+  worker (`server/services/invitations/worker.ts`) — unchanged by this
+  subsystem.
 - **Phone Verification** (`server/services/phoneVerification/`) — signup-time
-  phone OTPs, its own crypto/policy module.
+  phone OTPs. This is the subsystem whose delivery model this core actually
+  follows: `issueChallenge()` in `server/services/phoneVerification/index.ts`
+  calls an atomic "start" RPC, then `sendSmsVerification()` directly, then an
+  atomic "mark_delivery" RPC — no queue, no worker, no polling.
 
 Every future flow that needs "send a code, verify a code, get a one-time
 proof" (signup email verification, signup phone verification, password reset,
@@ -37,17 +42,18 @@ server/services/verification/
   locale.ts        effective-locale resolution (explicit -> workspace
                    default -> app fallback; Accept-Language never wins)
   templates.ts     fa/tr/en OTP email + SMS templates
-  service.ts       the 6 internal APIs (see below)
-  worker.ts        delivery worker: claim/heartbeat/complete/reclaim
+  service.ts       the 6 internal APIs (see below) — also where the
+                   Express-direct provider send happens (no worker.ts)
 
 database/migrations/098_generic_verification_core.sql   self-host chain
 supabase/migrations/20260902185146_generic_verification_core.sql  hosted mirror
 ```
 
 Nothing under `server/routes/` calls into `server/services/verification/`.
-Nothing under `worker/index.ts`'s `WORKER_KIND` dispatcher registers
-`server/services/verification/worker.ts`. The only callers are the test
-suites listed under Testing below.
+There is no `server/services/verification/worker.ts` and nothing under
+`worker/index.ts`'s `WORKER_KIND` dispatcher references this subsystem —
+see §Delivery below for why a worker was never needed. The only callers of
+`service.ts` are the test suites listed under Testing below.
 
 ## Database objects
 
@@ -60,19 +66,17 @@ a policy) and no Data API grants:
 | `verification_challenges` | One row per OTP challenge (generation, code digest, key version, status, attempt/max counters, expiry). Supports pre-account challenges — `user_id`/`workspace_id` are optional. |
 | `verification_attempts` | Append-only log of every verification attempt (correct/incorrect), no UPDATE/DELETE grant. |
 | `verification_proofs` | One row per issued proof (hash only, never the raw token), single-consume. |
-| `verification_delivery_jobs` | Outbox row per send attempt: claim token, worker id, lease, attempt count, terminal states. |
-| `verification_deliveries` | Append-only delivery evidence (provider name, provider message id, outcome) — never `delivered`, only `provider_accepted`. |
-| `verification_idempotency` | Generic request-idempotency ledger for `request`/`resend`/`revoke` (see Idempotency below for why `verify` is excluded). |
+| `verification_delivery_attempts` | Append-only evidence of every Express-side provider submission (outcome, provider name/message id, error code) — not a job queue: no claim/lease/status-transition columns, because there is no worker. |
+| `verification_idempotency` | Generic request-idempotency ledger for `request`/`resend`/`revoke`, with a `prepared`/`committed`/`failed` state machine that is also the crash-recovery hinge for the two-phase Express-direct delivery model (see §Delivery). `verify` is excluded — see §Idempotency. |
 
-Thirteen RPCs, all `SECURITY DEFINER`, pinned `search_path = public, pg_temp`,
+Eleven RPCs, all `SECURITY DEFINER`, pinned `search_path = public, pg_temp`,
 `REVOKE ALL ... FROM PUBLIC, anon, authenticated` + `GRANT EXECUTE ... TO
 service_role` only:
 
-`gv_execute_idempotent`, `_gv_do_request`, `_gv_do_resend`, `_gv_do_verify`,
-`gv_verify_verification_challenge`, `_gv_do_revoke`,
+`gv_execute_idempotent` (revoke only), `_gv_do_request`, `_gv_do_resend`,
+`gv_prepare_verification_delivery`, `gv_finalize_verification_delivery`,
+`_gv_do_verify`, `gv_verify_verification_challenge`, `_gv_do_revoke`,
 `gv_consume_verification_proof`, `gv_get_verification_status`,
-`gv_claim_verification_jobs`, `gv_heartbeat_verification_job`,
-`gv_complete_verification_job`, `gv_reclaim_expired_verification_jobs`,
 `gv_purge_expired_idempotency`.
 
 The migration's own build-time `DO $verify$` block asserts every one of these
@@ -106,18 +110,26 @@ tenant setting can exceed a platform maximum, only tighten within it.**
 `assertPurposeEnabled` / `assertChannelAllowed` are the dormancy gate. They
 are the first call in every `service.ts` entry point, and they throw before
 any Supabase client is constructed — a disabled purpose cannot create a
-database row, a delivery job, or send anything, by construction, not by
-convention.
+database row or send anything, by construction, not by convention.
 
 ## Lifecycle
 
 ```
 pending_delivery -> provider_accepted -> verified -> (proof consumed)
+                  -> delivery_failed (permanent_failure / unconfigured / derivation_key_unavailable)
                                        -> locked (attempt_count >= max_attempts)
                                        -> expired
                                        -> revoked (resend supersedes, or explicit revoke)
-delivery job:  queued -> claimed -> provider_accepted | permanently_failed
 ```
+
+There is no separate delivery-job state machine — `pending_delivery` exists
+only for the instant between the atomic prepare call and the atomic
+finalize call inside one Express request; by the time that request
+returns, the challenge is already in a terminal delivery status. A
+`retryable_failure` or `ambiguous` delivery outcome leaves the challenge
+exactly where it was (still `pending_delivery`) rather than moving it to
+`delivery_failed` — see §Delivery for why, and for the full crash/
+concurrency/replay matrix this implies.
 
 - Only one *active* generation exists per (purpose, channel, subject,
   destination) at a time; a resend revokes the previous live generation and
@@ -171,23 +183,59 @@ constant-time; the challenge's *own recorded* key version is used for
 verification, never the current one, so key rotation never invalidates a
 code that was already sent.
 
-## Delivery worker
+## Delivery model — Express calls the provider directly, no worker
 
-`server/services/verification/worker.ts` reuses the existing email/SMS
-provider abstractions (`server/services/email`, `server/services/sms`).
-Claim/heartbeat/complete/reclaim mirror the Workspace Invitations v5.1
-worker's lease pattern: `SELECT ... FOR UPDATE SKIP LOCKED` claiming, a claim
-token that must match on heartbeat/complete (stale-claim rejection), bounded
-batch claims, retry with backoff up to a max attempt count, and a distinct
-`permanently_failed` terminal state. Provider success is recorded as
-`provider_accepted` — never `delivered` — because this system has no delivery
-receipt channel from the provider.
+This is the canonical OTP architecture on `main` today, matching
+`server/services/phoneVerification/index.ts`'s `issueChallenge()`: Express
+calls the email/SMS provider abstraction (`server/services/email`,
+`server/services/sms`) **synchronously, inside the same HTTP request** that
+created or replayed the challenge. There is no `worker.ts`, no delivery-job
+table, no claim/lease/heartbeat, no polling. `requestVerificationChallenge`/
+`resendVerificationChallenge` in `service.ts` do all three steps:
 
-**Not registered in `worker/index.ts`'s `WORKER_KIND` dispatcher.** Because
-every purpose ships disabled, and the dormancy gate stops a challenge/job
-from ever being created, this worker has nothing to process in production
-even if it were registered — but it is not registered, as a second layer of
-dormancy.
+1. **Prepare** (`gv_prepare_verification_delivery`) — atomically creates the
+   challenge (or determines this is a replay/resume of a prior attempt) and
+   commits, *before* any provider is contacted.
+2. **Send** — Express derives the OTP deterministically from the committed
+   challenge's own handle/destination-hash/key-version and calls
+   `sendEmail`/`sendSms` directly.
+3. **Finalize** (`gv_finalize_verification_delivery`) — atomically records
+   what the provider actually did and moves the idempotency ledger to
+   `committed`.
+
+Provider success is recorded as `provider_accepted` — never `delivered` —
+because this system has no delivery receipt channel from the provider.
+
+### The crash/concurrency/replay matrix this implies
+
+Because step 2 is a real network call sitting between two separate database
+transactions, exactly-once delivery is not claimable, and this design does
+not pretend otherwise. Each case below is directly exercised in
+`src/test/integration/genericVerificationCore.pg.test.ts`:
+
+| Scenario | What happens |
+|---|---|
+| DB commit (prepare) then connection loss | Ledger row left in `prepared` with `prepared_at` recorded. A retry with the same idempotency key within 30s (`IN_FLIGHT_STALE_SECONDS`) is rejected as `VERIFICATION_ALREADY_IN_FLIGHT` (test P2); after 30s it **resumes** — reuses the SAME committed challenge/handle and re-derives the identical code (test P1). |
+| Provider accepted but Express lost the response | Recorded as `outcome: 'ambiguous'`, not success or failure — the challenge status is left unchanged. A resend is required to try again with a fresh code. |
+| Provider accepted but `gv_finalize_verification_delivery` itself failed (RPC/transport loss) | The `request`/`resend` call throws; the ledger stays `prepared`. A caller retry within 30s is rejected as in-flight (safe); after that, it resumes and calls the provider AGAIN — genuine at-least-once delivery — then finalizes for real. The **database** state is never duplicated: `gv_finalize_verification_delivery` is itself idempotent on an already-`committed` key, and exactly one `verification_delivery_attempts` row is written per logical send even across a resumed retry (test P3). |
+| Express crashed before ever calling the provider | Same as "DB commit then connection loss" above — the challenge exists but nothing was sent; a resumed retry sends for the first time. |
+| Express crashed after calling the provider (response pending) | Same as "provider accepted but Express lost the response" — recorded `ambiguous`, resend required. |
+| Same `requestId` replayed after the original committed | Returns the cached committed result; the provider is never called again (test B/C). |
+| Concurrent identical requests | One does the real work; the other(s) either replay the committed result or, if they land while the first is still mid-flight, are rejected outright rather than double-sending (test B/C, P2). |
+| Same idempotency key, different payload | Rejected with `IDEMPOTENCY_KEY_REUSED` / `VerificationIdempotencyConflictError` — never silently reinterpreted as the new payload. |
+
+**Why not a stable provider idempotency key?** That would close the
+at-least-once gap above, but neither of this codebase's provider
+abstractions (`server/services/email`, `server/services/sms`) accepts a
+caller-supplied idempotency key today — extending them is out of scope for
+this pass. What this design DOES guarantee without one: the database never
+ends up with two challenges, two proofs, or two delivery-evidence rows for
+one logical send; only the external provider call itself can happen twice,
+and only in the crash windows above.
+
+Because every purpose ships disabled, and the dormancy gate stops a
+challenge from ever being created, none of this delivery machinery runs at
+all in production today.
 
 ## Localization
 

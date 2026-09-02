@@ -40,8 +40,18 @@
 --
 -- Canonical lock order (mirrors the Workspace Invitations v5.1 convention,
 -- stated once here rather than re-derived per function): workspace (if
--- bound) → challenge → proof → job. Every RPC below acquires locks in this
--- order to avoid deadlocking against itself under concurrency.
+-- bound) → idempotency ledger row → challenge → proof. Every RPC below
+-- acquires locks in this order to avoid deadlocking against itself under
+-- concurrency.
+--
+-- Delivery model: Express calls the email/SMS provider DIRECTLY — there is
+-- no background worker and no job/outbox table. A 'request' or 'resend'
+-- is a three-step Express-side sequence: (1) gv_prepare_verification_delivery
+-- atomically creates or replays the challenge, (2) Express derives the OTP
+-- deterministically and calls sendEmail/sendSms itself, (3)
+-- gv_finalize_verification_delivery atomically records the outcome. See
+-- docs/GENERIC_VERIFICATION_CORE.md §Delivery for the full state machine
+-- and the documented crash/concurrency/replay matrix.
 
 -- ============================================================
 -- 1. verification_challenges
@@ -133,53 +143,26 @@ CREATE TABLE IF NOT EXISTS public.verification_proofs (
 CREATE INDEX IF NOT EXISTS idx_verification_proofs_lookup ON public.verification_proofs (proof_hash) WHERE status = 'active';
 
 -- ============================================================
--- 4. verification_delivery_jobs — the outbox. The OTP code is NEVER
---    stored here (or anywhere) — the worker re-derives it deterministically
---    at send time from (purpose, channel, challenge id, generation,
---    destination hash, key version), so a crashed/retried delivery
---    reproduces the exact same code without ever persisting it.
+-- 4. verification_delivery_attempts — append-only evidence of every
+--    Express-side provider submission. This is NOT a job queue: there is
+--    no claim/lease/status-transition model here, because there is no
+--    background worker. Express calls the email/SMS provider directly,
+--    in the SAME request that created or replayed the challenge, and
+--    records exactly what happened, once, per logical send operation
+--    (idempotency_key ties an attempt row back to the delivery that
+--    produced it — see verification_idempotency and
+--    gv_finalize_verification_delivery below). "provider_accepted" is the
+--    strongest outcome ever recorded — never "delivered" (this codebase
+--    cannot know actual mailbox/handset delivery, matching the Workspace
+--    Invitations v5.1 convention).
 -- ============================================================
-CREATE TABLE IF NOT EXISTS public.verification_delivery_jobs (
+CREATE TABLE IF NOT EXISTS public.verification_delivery_attempts (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   challenge_id uuid NOT NULL REFERENCES public.verification_challenges(id) ON DELETE CASCADE,
+  idempotency_key text NOT NULL,
   channel text NOT NULL,
-  destination_normalized text NOT NULL,
-  purpose text NOT NULL,
-  locale text NOT NULL,
-  generation integer NOT NULL,
-  idempotency_key text NOT NULL UNIQUE,           -- de-dupes a second job for the same logical send
-  status text NOT NULL DEFAULT 'queued' CHECK (
-    status IN ('queued', 'claimed', 'retrying', 'provider_accepted', 'permanently_failed')
-  ),
-  attempt_count integer NOT NULL DEFAULT 0,
-  max_attempts integer NOT NULL DEFAULT 5,
-  available_at timestamptz NOT NULL DEFAULT now(),
-  locked_by text,
-  locked_at timestamptz,
-  claim_token uuid,
-  claim_expires_at timestamptz,
-  last_error_code text,
-  last_error_message text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_verification_delivery_jobs_claimable
-  ON public.verification_delivery_jobs (available_at) WHERE status IN ('queued', 'retrying');
-CREATE INDEX IF NOT EXISTS idx_verification_delivery_jobs_stale_claims
-  ON public.verification_delivery_jobs (claim_expires_at) WHERE status = 'claimed';
-
--- ============================================================
--- 5. verification_deliveries — append-only delivery-evidence ledger.
---    "provider_accepted" is the strongest outcome ever recorded — never
---    "delivered" (this codebase cannot know actual mailbox/handset
---    delivery, matching the Workspace Invitations v5.1 convention).
--- ============================================================
-CREATE TABLE IF NOT EXISTS public.verification_deliveries (
-  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  job_id uuid NOT NULL REFERENCES public.verification_delivery_jobs(id) ON DELETE CASCADE,
-  challenge_id uuid NOT NULL REFERENCES public.verification_challenges(id) ON DELETE CASCADE,
   outcome text NOT NULL CHECK (
-    outcome IN ('provider_accepted', 'retry', 'permanently_failed', 'unconfigured', 'derivation_key_unavailable')
+    outcome IN ('provider_accepted', 'retryable_failure', 'permanent_failure', 'unconfigured', 'ambiguous', 'derivation_key_unavailable')
   ),
   provider_name text,
   provider_message_id text,
@@ -187,15 +170,29 @@ CREATE TABLE IF NOT EXISTS public.verification_deliveries (
   error_message text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_verification_deliveries_job ON public.verification_deliveries (job_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_verification_delivery_attempts_challenge ON public.verification_delivery_attempts (challenge_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_verification_delivery_attempts_idempotency ON public.verification_delivery_attempts (idempotency_key);
 
 -- ============================================================
--- 6. verification_idempotency — generic to THIS subsystem only (not
+-- 5. verification_idempotency — generic to THIS subsystem only (not
 --    reused from workspace_invitation_idempotency, which is CHECK-
 --    constrained to invitation-specific operations and FK'd to
 --    invitation_id; no other pre-existing generic ledger was found in
 --    this codebase — see docs/GENERIC_VERIFICATION_CORE.md §Idempotency).
 -- ============================================================
+-- `result_state = 'prepared'` is the crash-recovery hinge for the
+-- Express-direct delivery model (no background worker retries this): a
+-- 'request'/'resend' operation commits the challenge-creation half of the
+-- work (gv_prepare_verification_delivery) BEFORE Express ever calls the
+-- email/SMS provider, and only reaches 'committed' after
+-- gv_finalize_verification_delivery records the provider outcome. If the
+-- Express process dies between those two calls, the ledger row is left in
+-- 'prepared' with `prepared_at` recording when that happened —
+-- gv_prepare_verification_delivery treats a fresh 'prepared' row (within
+-- IN_FLIGHT_STALE_SECONDS) as "another request is genuinely in flight right
+-- now" and a stale one as "the previous attempt crashed before finalizing,
+-- resume it" (same challenge/handle/generation, not a new one — see that
+-- function's own comment for the exact boundary this creates).
 CREATE TABLE IF NOT EXISTS public.verification_idempotency (
   key text NOT NULL PRIMARY KEY,
   scope_kind text NOT NULL,
@@ -203,18 +200,20 @@ CREATE TABLE IF NOT EXISTS public.verification_idempotency (
   purpose text,
   workspace_id uuid,
   challenge_id uuid,
-  result_state text NOT NULL DEFAULT 'in_progress' CHECK (result_state IN ('in_progress', 'committed', 'failed')),
+  result_state text NOT NULL DEFAULT 'prepared' CHECK (result_state IN ('prepared', 'committed', 'failed')),
   request_fingerprint text NOT NULL,
   safe_result jsonb,
   actor_ref_hash text,
+  prepared_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
   expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours')
 );
 CREATE INDEX IF NOT EXISTS idx_verification_idempotency_expiry ON public.verification_idempotency (expires_at);
+CREATE INDEX IF NOT EXISTS idx_verification_idempotency_prepared ON public.verification_idempotency (prepared_at) WHERE result_state = 'prepared';
 
 -- ============================================================
--- 7. RLS + GRANTs — every table is backend-only. RLS enabled, ZERO
+-- 6. RLS + GRANTs — every table is backend-only. RLS enabled, ZERO
 --    policies (deny-all for anon/authenticated; service_role bypasses RLS
 --    via its own BYPASSRLS role attribute, not via a policy). No DELETE
 --    grant on the two append-only evidence tables.
@@ -222,32 +221,35 @@ CREATE INDEX IF NOT EXISTS idx_verification_idempotency_expiry ON public.verific
 ALTER TABLE public.verification_challenges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.verification_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.verification_proofs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.verification_delivery_jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.verification_deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.verification_delivery_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.verification_idempotency ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON public.verification_challenges FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.verification_attempts FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.verification_proofs FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON public.verification_delivery_jobs FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON public.verification_deliveries FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.verification_delivery_attempts FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.verification_idempotency FROM PUBLIC, anon, authenticated;
 
 GRANT SELECT, INSERT, UPDATE ON public.verification_challenges TO service_role;
 GRANT SELECT, INSERT ON public.verification_attempts TO service_role;          -- append-only, no UPDATE/DELETE
 GRANT SELECT, INSERT, UPDATE ON public.verification_proofs TO service_role;
-GRANT SELECT, INSERT, UPDATE ON public.verification_delivery_jobs TO service_role;
-GRANT SELECT, INSERT ON public.verification_deliveries TO service_role;       -- append-only, no UPDATE/DELETE
+GRANT SELECT, INSERT ON public.verification_delivery_attempts TO service_role; -- append-only, no UPDATE/DELETE
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.verification_idempotency TO service_role; -- DELETE needed for the purge RPC
 
 -- ============================================================
--- 8. RPCs
+-- 7. RPCs
 -- ============================================================
 
--- 8a. Idempotent request/resend/verify/consume/revoke dispatch. One RPC,
---     like Workspace Invitations v5.1's wi_execute_idempotent, so Express
---     never writes the ledger directly and every mutating operation is
---     idempotent-by-construction.
+-- 8a. Idempotent, side-effect-free dispatch for 'revoke' only. 'request' and
+--     'resend' now go through the two-phase
+--     gv_prepare_verification_delivery / gv_finalize_verification_delivery
+--     pair below (Express performs the actual provider call BETWEEN those
+--     two RPCs, so a single all-in-one RPC can no longer model the
+--     operation); 'verify' bypasses the ledger entirely (see
+--     gv_verify_verification_challenge). 'revoke' has no external side
+--     effect and stays a plain idempotent single-phase RPC, matching
+--     Workspace Invitations v5.1's wi_execute_idempotent shape for the one
+--     operation that still fits it.
 CREATE OR REPLACE FUNCTION public.gv_execute_idempotent(
   _key text,
   _scope_kind text,
@@ -265,14 +267,16 @@ AS $function$
 DECLARE
   _row public.verification_idempotency%ROWTYPE;
   _result jsonb;
-  _result_code text;
 BEGIN
   IF _key IS NULL OR length(_key) < 16 THEN
     RAISE EXCEPTION 'IDEMPOTENCY_KEY_INVALID';
   END IF;
+  IF _operation <> 'revoke' THEN
+    RAISE EXCEPTION 'IDEMPOTENCY_OPERATION_UNKNOWN';
+  END IF;
 
-  INSERT INTO public.verification_idempotency (key, scope_kind, operation, purpose, workspace_id, request_fingerprint, actor_ref_hash)
-  VALUES (_key, _scope_kind, _operation, _purpose, _workspace_id, _request_fingerprint, _actor_ref_hash)
+  INSERT INTO public.verification_idempotency (key, scope_kind, operation, purpose, workspace_id, request_fingerprint, actor_ref_hash, result_state)
+  VALUES (_key, _scope_kind, _operation, _purpose, _workspace_id, _request_fingerprint, _actor_ref_hash, 'prepared')
   ON CONFLICT (key) DO NOTHING;
 
   SELECT * INTO _row FROM public.verification_idempotency WHERE key = _key FOR UPDATE;
@@ -289,24 +293,7 @@ BEGIN
     RAISE EXCEPTION 'IDEMPOTENCY_KEY_FAILED_PREVIOUSLY';
   END IF;
 
-  -- NOTE: 'verify' is deliberately NOT dispatched through this ledger (see
-  -- public.gv_verify_verification_challenge below, called directly). Each
-  -- verification attempt is a counted, mutating event against a shared
-  -- attempt counter — request-replay semantics ("same key ⇒ return the
-  -- SAME cached result without re-executing") are the wrong model for an
-  -- operation where a genuinely new submission (even against the same
-  -- challenge) must always be re-evaluated. Concurrency safety for verify
-  -- comes from _gv_do_verify's own `FOR UPDATE` row lock instead.
-  CASE _operation
-    WHEN 'request' THEN
-      SELECT public._gv_do_request(_args) INTO _result;
-    WHEN 'resend' THEN
-      SELECT public._gv_do_resend(_args) INTO _result;
-    WHEN 'revoke' THEN
-      SELECT public._gv_do_revoke(_args) INTO _result;
-    ELSE
-      RAISE EXCEPTION 'IDEMPOTENCY_OPERATION_UNKNOWN';
-  END CASE;
+  SELECT public._gv_do_revoke(_args) INTO _result;
 
   UPDATE public.verification_idempotency
   SET result_state = 'committed', safe_result = _result, completed_at = now(),
@@ -316,14 +303,17 @@ BEGIN
   RETURN jsonb_build_object('replayed', false, 'result', _result);
 EXCEPTION
   WHEN OTHERS THEN
-    _result_code := SQLERRM;
     UPDATE public.verification_idempotency SET result_state = 'failed', completed_at = now() WHERE key = _key;
     RAISE;
 END;
 $function$;
 
 -- 8b. Internal (not directly callable by Express — dispatched only via
---     gv_execute_idempotent above) request-a-challenge implementation.
+--     gv_prepare_verification_delivery below) request-a-challenge
+--     implementation. Creates the challenge row ONLY — no job/queue row.
+--     Express derives the code and calls the provider directly AFTER this
+--     commits (see gv_prepare_verification_delivery / the Express-side
+--     delivery model in docs/GENERIC_VERIFICATION_CORE.md §Delivery).
 CREATE OR REPLACE FUNCTION public._gv_do_request(_args jsonb) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -341,7 +331,6 @@ DECLARE
   _locale text := _args->>'locale';
   _key_version integer := (_args->>'keyVersion')::integer;
   _code_digest text := _args->>'codeDigest';
-  _job_idempotency_key text := _args->>'jobIdempotencyKey';
   _ttl_seconds integer := (_args->>'ttlSeconds')::integer;
   _max_attempts integer := (_args->>'maxAttempts')::integer;
   _max_sends integer := (_args->>'maxSends')::integer;
@@ -401,14 +390,10 @@ BEGIN
     _max_attempts, _max_sends, _resend_cooldown_seconds, now() + make_interval(secs => _ttl_seconds), _request_ip_hash
   ) RETURNING id INTO _challenge_id;
 
-  INSERT INTO public.verification_delivery_jobs (
-    challenge_id, channel, destination_normalized, purpose, locale, generation, idempotency_key, max_attempts
-  ) VALUES (
-    _challenge_id, _channel, _destination_normalized, _purpose, _locale, _generation, _job_idempotency_key, 5
-  ) ON CONFLICT (idempotency_key) DO NOTHING;
-
   RETURN jsonb_build_object(
     'challengeId', _challenge_id, 'handle', _handle, 'generation', _generation,
+    'channel', _channel, 'destinationNormalized', _destination_normalized, 'destinationHash', _destination_hash,
+    'locale', _locale, 'keyVersion', _key_version,
     'expiresAt', (now() + make_interval(secs => _ttl_seconds)),
     'resendAvailableAt', (now() + make_interval(secs => _resend_cooldown_seconds))
   );
@@ -424,6 +409,185 @@ SET search_path = public, pg_temp
 AS $function$
 BEGIN
   RETURN public._gv_do_request(_args);
+END;
+$function$;
+
+-- 8c-2. PREPARE half of the Express-direct delivery model. Commits the
+--       challenge-creation side effect (via _gv_do_request/_gv_do_resend)
+--       BEFORE Express ever calls an email/SMS provider, and leaves the
+--       idempotency ledger row in `result_state = 'prepared'` — NOT
+--       'committed' — until gv_finalize_verification_delivery below
+--       records what the provider actually did. This is the crash-recovery
+--       hinge described on verification_idempotency's own comment.
+--
+--       Returns one of three shapes:
+--         {status: 'fresh',    result: {...}}   — a brand-new challenge was
+--           just created; Express should derive the code and send it now.
+--         {status: 'resume',   result: {...}}   — a PRIOR attempt with this
+--           exact key created the challenge but crashed before finalizing,
+--           and enough time has passed (IN_FLIGHT_STALE_SECONDS) that it is
+--           safe to assume it will never finalize; Express should derive
+--           the SAME code (deterministic derivation makes this safe — see
+--           docs/GENERIC_VERIFICATION_CORE.md §Cryptography) and (re-)send.
+--         {status: 'replayed', result: {...}}   — this exact request already
+--           finished (committed); Express must NOT call the provider again
+--           and should return `result` as-is.
+--       A concurrent identical request that is still genuinely in flight
+--       (fresh 'prepared' row) raises VERIFICATION_ALREADY_IN_FLIGHT rather
+--       than returning any of the above — see the documented crash/
+--       concurrency matrix in docs/GENERIC_VERIFICATION_CORE.md §Delivery.
+CREATE OR REPLACE FUNCTION public.gv_prepare_verification_delivery(
+  _key text,
+  _scope_kind text,
+  _operation text,
+  _request_fingerprint text,
+  _purpose text,
+  _workspace_id uuid,
+  _actor_ref_hash text,
+  _args jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+DECLARE
+  _row public.verification_idempotency%ROWTYPE;
+  _result jsonb;
+  IN_FLIGHT_STALE_SECONDS CONSTANT integer := 30;
+BEGIN
+  IF _key IS NULL OR length(_key) < 16 THEN
+    RAISE EXCEPTION 'IDEMPOTENCY_KEY_INVALID';
+  END IF;
+  IF _operation NOT IN ('request', 'resend') THEN
+    RAISE EXCEPTION 'IDEMPOTENCY_OPERATION_UNKNOWN';
+  END IF;
+
+  INSERT INTO public.verification_idempotency (key, scope_kind, operation, purpose, workspace_id, request_fingerprint, actor_ref_hash, result_state)
+  VALUES (_key, _scope_kind, _operation, _purpose, _workspace_id, _request_fingerprint, _actor_ref_hash, 'prepared')
+  ON CONFLICT (key) DO NOTHING;
+
+  SELECT * INTO _row FROM public.verification_idempotency WHERE key = _key FOR UPDATE;
+
+  IF _row.operation <> _operation OR _row.scope_kind <> _scope_kind OR _row.request_fingerprint <> _request_fingerprint THEN
+    RAISE EXCEPTION 'IDEMPOTENCY_KEY_REUSED';
+  END IF;
+
+  IF _row.result_state = 'committed' THEN
+    RETURN jsonb_build_object('status', 'replayed', 'result', _row.safe_result);
+  END IF;
+
+  IF _row.result_state = 'failed' THEN
+    RAISE EXCEPTION 'IDEMPOTENCY_KEY_FAILED_PREVIOUSLY';
+  END IF;
+
+  -- result_state = 'prepared'. Either THIS call just inserted the row
+  -- (prepared_at IS NULL — the ordinary, no-crash path, proceed to create
+  -- the challenge below) or a PRIOR call already created it.
+  IF _row.prepared_at IS NOT NULL THEN
+    IF _row.prepared_at > now() - make_interval(secs => IN_FLIGHT_STALE_SECONDS) THEN
+      -- Genuinely concurrent: another request with this exact key is
+      -- actively being processed right now (somewhere between this RPC and
+      -- its matching finalize call). Never send twice for a request that
+      -- might still be in normal progress.
+      RAISE EXCEPTION 'VERIFICATION_ALREADY_IN_FLIGHT';
+    END IF;
+    -- Stale: the prior attempt almost certainly crashed between prepare and
+    -- finalize (Express process died, connection dropped, etc). Resume
+    -- with the SAME challenge/handle/generation/code-digest that attempt
+    -- already committed — do not create a second challenge or burn a
+    -- second generation for one logical send.
+    RETURN jsonb_build_object('status', 'resume', 'result', _row.safe_result);
+  END IF;
+
+  CASE _operation
+    WHEN 'request' THEN
+      SELECT public._gv_do_request(_args) INTO _result;
+    WHEN 'resend' THEN
+      SELECT public._gv_do_resend(_args) INTO _result;
+  END CASE;
+
+  UPDATE public.verification_idempotency
+  SET prepared_at = now(), safe_result = _result,
+      challenge_id = NULLIF(_result->>'challengeId', '')::uuid
+  WHERE key = _key;
+
+  RETURN jsonb_build_object('status', 'fresh', 'result', _result);
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLERRM NOT IN ('VERIFICATION_ALREADY_IN_FLIGHT', 'VERIFICATION_RATE_LIMITED', 'IDEMPOTENCY_KEY_REUSED') THEN
+      UPDATE public.verification_idempotency SET result_state = 'failed', completed_at = now() WHERE key = _key;
+    END IF;
+    RAISE;
+END;
+$function$;
+
+-- 8c-3. FINALIZE half of the Express-direct delivery model. Records what
+--       the provider actually did (or that it was never reachable) and
+--       moves the ledger row from 'prepared' to 'committed' — the ONLY
+--       transition that makes a 'request'/'resend' idempotency key safe to
+--       replay. Idempotent itself: finalizing an already-committed key
+--       returns the existing committed result rather than double-recording
+--       delivery evidence (covers the "Express sent successfully, called
+--       finalize, got no response due to a transport loss, and retries
+--       finalize" case without a second verification_delivery_attempts row
+--       for a single logical send).
+CREATE OR REPLACE FUNCTION public.gv_finalize_verification_delivery(
+  _key text,
+  _outcome text,
+  _provider_name text,
+  _provider_message_id text,
+  _error_code text,
+  _error_message text
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+DECLARE
+  _row public.verification_idempotency%ROWTYPE;
+  _final_result jsonb;
+BEGIN
+  IF _outcome NOT IN ('provider_accepted', 'retryable_failure', 'permanent_failure', 'unconfigured', 'ambiguous', 'derivation_key_unavailable') THEN
+    RAISE EXCEPTION 'DELIVERY_OUTCOME_UNKNOWN';
+  END IF;
+
+  SELECT * INTO _row FROM public.verification_idempotency WHERE key = _key FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'IDEMPOTENCY_KEY_NOT_FOUND';
+  END IF;
+
+  IF _row.result_state = 'committed' THEN
+    RETURN jsonb_build_object('alreadyFinalized', true, 'result', _row.safe_result);
+  END IF;
+  IF _row.result_state <> 'prepared' THEN
+    RAISE EXCEPTION 'VERIFICATION_NOT_PREPARED';
+  END IF;
+
+  _final_result := _row.safe_result || jsonb_build_object('deliveryOutcome', _outcome);
+
+  IF _outcome = 'provider_accepted' THEN
+    UPDATE public.verification_challenges SET status = 'provider_accepted'
+    WHERE id = _row.challenge_id AND status = 'pending_delivery';
+  ELSIF _outcome IN ('permanent_failure', 'unconfigured', 'derivation_key_unavailable') THEN
+    UPDATE public.verification_challenges SET status = 'delivery_failed'
+    WHERE id = _row.challenge_id AND status IN ('pending_delivery', 'provider_accepted');
+  END IF;
+  -- 'retryable_failure' and 'ambiguous' deliberately leave the challenge in
+  -- its current status: the caller must explicitly resend (a new
+  -- generation) to try again — this core never auto-retries a send itself,
+  -- because there is no background worker to do so.
+
+  INSERT INTO public.verification_delivery_attempts (
+    challenge_id, idempotency_key, channel, outcome, provider_name, provider_message_id, error_code, error_message
+  ) VALUES (
+    _row.challenge_id, _key, _row.safe_result->>'channel', _outcome, _provider_name, _provider_message_id, _error_code, left(_error_message, 300)
+  );
+
+  UPDATE public.verification_idempotency
+  SET result_state = 'committed', safe_result = _final_result, completed_at = now()
+  WHERE key = _key;
+
+  RETURN jsonb_build_object('alreadyFinalized', false, 'result', _final_result);
 END;
 $function$;
 
@@ -624,128 +788,7 @@ AS $function$
   FROM public.verification_challenges WHERE handle = _handle;
 $function$;
 
--- 8h. Worker: claim (lease/claim-token pattern, identical shape to the
---     proven Workspace Invitations v5.1 `claim_invitation_jobs`).
-CREATE OR REPLACE FUNCTION public.gv_claim_verification_jobs(
-  _worker_id text, _limit integer, _lease_seconds integer, _channels text[]
-) RETURNS SETOF public.verification_delivery_jobs
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $function$
-BEGIN
-  RETURN QUERY
-  WITH candidates AS (
-    SELECT j.id FROM public.verification_delivery_jobs j
-    WHERE j.status IN ('queued', 'retrying') AND j.available_at <= now()
-      AND j.channel = ANY(_channels)
-    ORDER BY j.available_at
-    LIMIT _limit
-    FOR UPDATE SKIP LOCKED
-  )
-  UPDATE public.verification_delivery_jobs j
-  SET status = 'claimed', locked_by = _worker_id, locked_at = now(),
-      claim_token = gen_random_uuid(),
-      claim_expires_at = now() + make_interval(secs => _lease_seconds),
-      attempt_count = j.attempt_count + 1, updated_at = now()
-  FROM candidates c WHERE j.id = c.id
-  RETURNING j.*;
-END;
-$function$;
-
--- 8i. Worker: heartbeat.
-CREATE OR REPLACE FUNCTION public.gv_heartbeat_verification_job(
-  _job_id uuid, _claim_token uuid, _lease_seconds integer
-) RETURNS boolean
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $function$
-BEGIN
-  IF _lease_seconds < 30 OR _lease_seconds > 600 THEN
-    RAISE EXCEPTION 'LEASE_SECONDS_OUT_OF_RANGE';
-  END IF;
-
-  UPDATE public.verification_delivery_jobs
-  SET claim_expires_at = now() + make_interval(secs => _lease_seconds), updated_at = now()
-  WHERE id = _job_id AND claim_token = _claim_token AND status = 'claimed' AND claim_expires_at > now();
-
-  RETURN FOUND;
-END;
-$function$;
-
--- 8j. Worker: complete (terminal outcomes). A stale claim_token is a
---     silent no-op — a worker that lost its lease can never overwrite
---     newer state.
-CREATE OR REPLACE FUNCTION public.gv_complete_verification_job(
-  _job_id uuid, _claim_token uuid, _outcome text,
-  _provider_name text, _provider_message_id text,
-  _error_code text, _error_message text, _retry_in_seconds integer
-) RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $function$
-DECLARE
-  _job public.verification_delivery_jobs%ROWTYPE;
-  _new_status text;
-BEGIN
-  SELECT * INTO _job FROM public.verification_delivery_jobs WHERE id = _job_id FOR UPDATE;
-
-  IF NOT FOUND OR _job.claim_token IS DISTINCT FROM _claim_token THEN
-    RETURN jsonb_build_object('applied', false);
-  END IF;
-
-  _new_status := CASE
-    WHEN _outcome = 'provider_accepted' THEN 'provider_accepted'
-    WHEN _outcome = 'retry' AND _job.attempt_count >= _job.max_attempts THEN 'permanently_failed'
-    WHEN _outcome = 'retry' THEN 'retrying'
-    ELSE 'permanently_failed'
-  END;
-
-  UPDATE public.verification_delivery_jobs
-  SET status = _new_status,
-      available_at = CASE WHEN _new_status = 'retrying' THEN now() + make_interval(secs => _retry_in_seconds) ELSE available_at END,
-      last_error_code = _error_code, last_error_message = left(_error_message, 300),
-      locked_by = NULL, locked_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
-  WHERE id = _job.id;
-
-  IF _new_status = 'permanently_failed' THEN
-    UPDATE public.verification_challenges SET status = 'delivery_failed'
-    WHERE id = _job.challenge_id AND status IN ('pending_delivery', 'provider_accepted');
-  ELSIF _outcome = 'provider_accepted' THEN
-    UPDATE public.verification_challenges SET status = 'provider_accepted'
-    WHERE id = _job.challenge_id AND status = 'pending_delivery';
-  END IF;
-
-  INSERT INTO public.verification_deliveries (job_id, challenge_id, outcome, provider_name, provider_message_id, error_code, error_message)
-  VALUES (_job.id, _job.challenge_id, _outcome, _provider_name, _provider_message_id, _error_code, left(_error_message, 300));
-
-  RETURN jsonb_build_object('applied', true, 'status', _new_status);
-END;
-$function$;
-
--- 8k. Worker: reclaim expired leases.
-CREATE OR REPLACE FUNCTION public.gv_reclaim_expired_verification_jobs() RETURNS integer
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $function$
-DECLARE _n integer;
-BEGIN
-  WITH updated AS (
-    UPDATE public.verification_delivery_jobs
-    SET status = CASE WHEN attempt_count >= max_attempts THEN 'permanently_failed' ELSE 'queued' END,
-        locked_by = NULL, locked_at = NULL, claim_token = NULL, claim_expires_at = NULL, updated_at = now()
-    WHERE status = 'claimed' AND claim_expires_at <= now()
-    RETURNING 1
-  )
-  SELECT count(*) INTO _n FROM updated;
-  RETURN _n;
-END;
-$function$;
-
--- 8l. Purge expired idempotency rows — never blocks/duplicates live claims.
+-- 8h. Purge expired idempotency rows — never blocks/duplicates live claims.
 CREATE OR REPLACE FUNCTION public.gv_purge_expired_idempotency(_limit integer) RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -767,7 +810,7 @@ END;
 $function$;
 
 -- ============================================================
--- 9. ACL lockdown — every RPC above is service_role-only. No browser-
+-- 8. ACL lockdown — every RPC above is service_role-only. No browser-
 --    reachable verification RPC exists.
 -- ============================================================
 DO $acl$
@@ -777,15 +820,13 @@ DECLARE
     'public.gv_execute_idempotent(text, text, text, text, text, uuid, text, jsonb)',
     'public._gv_do_request(jsonb)',
     'public._gv_do_resend(jsonb)',
+    'public.gv_prepare_verification_delivery(text, text, text, text, text, uuid, text, jsonb)',
+    'public.gv_finalize_verification_delivery(text, text, text, text, text, text)',
     'public._gv_do_verify(jsonb)',
     'public.gv_verify_verification_challenge(jsonb)',
     'public._gv_do_revoke(jsonb)',
     'public.gv_consume_verification_proof(text, text, text, uuid, text, text)',
     'public.gv_get_verification_status(text)',
-    'public.gv_claim_verification_jobs(text, integer, integer, text[])',
-    'public.gv_heartbeat_verification_job(uuid, uuid, integer)',
-    'public.gv_complete_verification_job(uuid, uuid, text, text, text, text, text, integer)',
-    'public.gv_reclaim_expired_verification_jobs()',
     'public.gv_purge_expired_idempotency(integer)'
   ];
 BEGIN
@@ -797,7 +838,7 @@ END
 $acl$;
 
 -- ============================================================
--- 10. Build-time verification — proves the invariants this migration
+-- 9. Build-time verification — proves the invariants this migration
 --     claims, exactly like the established Workspace Invitations v5.1
 --     `DO $verify$` convention: a migration that violates its own
 --     security posture fails to apply, it does not silently ship broken.
@@ -809,22 +850,20 @@ DECLARE
   sig text;
   tables text[] := ARRAY[
     'verification_challenges', 'verification_attempts', 'verification_proofs',
-    'verification_delivery_jobs', 'verification_deliveries', 'verification_idempotency'
+    'verification_delivery_attempts', 'verification_idempotency'
   ];
-  append_only_tables text[] := ARRAY['verification_attempts', 'verification_deliveries'];
+  append_only_tables text[] := ARRAY['verification_attempts', 'verification_delivery_attempts'];
   fns text[] := ARRAY[
     'public.gv_execute_idempotent(text, text, text, text, text, uuid, text, jsonb)',
     'public._gv_do_request(jsonb)',
     'public._gv_do_resend(jsonb)',
+    'public.gv_prepare_verification_delivery(text, text, text, text, text, uuid, text, jsonb)',
+    'public.gv_finalize_verification_delivery(text, text, text, text, text, text)',
     'public._gv_do_verify(jsonb)',
     'public.gv_verify_verification_challenge(jsonb)',
     'public._gv_do_revoke(jsonb)',
     'public.gv_consume_verification_proof(text, text, text, uuid, text, text)',
     'public.gv_get_verification_status(text)',
-    'public.gv_claim_verification_jobs(text, integer, integer, text[])',
-    'public.gv_heartbeat_verification_job(uuid, uuid, integer)',
-    'public.gv_complete_verification_job(uuid, uuid, text, text, text, text, text, integer)',
-    'public.gv_reclaim_expired_verification_jobs()',
     'public.gv_purge_expired_idempotency(integer)'
   ];
 BEGIN

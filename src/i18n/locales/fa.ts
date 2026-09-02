@@ -2793,6 +2793,13 @@ const fa: TranslationKeys = {
       degraded: { title: 'سیستم در وضعیت افت عملکرد است', description: 'عامل: {{trigger}} · فقط اطلاع‌رسانی است و قابلیتی مسدود نشده.', criticalAlert: 'هشدار بحرانی', until: 'تا' },
       policy: { title: 'سیاست مؤثر کلاینت', description: 'نمای ثبت‌شده در handshake اپراتور و ویجت. با تغییر این مقدار، انتقال داده بازنشانی می‌شود:', provider: 'ارائه‌دهنده مؤثر', epoch: 'دوره جابه‌جایی', version: 'نسخه سیاست', backoff: 'ضریب تأخیر اتصال مجدد', forcePolling: 'پایش دوره‌ای اجباری', forced: 'اجباری', auto: 'خودکار', typing: 'محدودسازی تایپ', suppressed: 'محدودشده', allowed: 'مجاز', degradedLabel: 'افت عملکرد', locked: 'قفل‌شده' },
     },
+    observability: {
+      title: 'رصدپذیری بلادرنگ', subtitle: 'سیگنال‌ها، کارایی و سلامت عملیاتی پلتفرم را لحظه‌ای پایش کنید.',
+      tabs: { metrics: 'معیارها', performance: 'کارایی', alerts: 'هشدارها', autoActions: 'عملیات خودکار', realtimeControl: 'کنترل بلادرنگ', reliability: 'SLA و سلامت', enforcement: 'اعمال سیاست' },
+      ranges: { hour: 'یک ساعت اخیر', day: '۲۴ ساعت', week: '۷ روز' },
+      metrics: { counters: 'شمارنده‌های معیار ({{range}})', loadFailed: 'بارگذاری خلاصه ناموفق بود.', emptyRange: 'در این بازه رخدادی ثبت نشده است.', filtered: 'فیلترشده', recentEvents: 'رخدادهای اخیر', clearFilter: 'پاک کردن فیلتر', metric: 'معیار', driver: 'درایور', source: 'منبع', tags: 'برچسب‌ها', noEvents: 'رخدادی وجود ندارد.' },
+      performance: { runRollup: 'اجرای تجمیع', endpointLatency: 'تأخیر نقاط پایانی ({{range}})', empty: 'در این بازه درخواست ابزاربندی‌شده‌ای ثبت نشده است.', count: 'تعداد', max: 'بیشترین', errors: 'خطاها', processMetrics: 'معیارهای پردازش (آخرین نمونه)', noSamples: 'هنوز نمونه‌ای ثبت نشده است (نمونه‌برداری هر ۶۰ ثانیه).', heapUsed: 'حافظه Heap مصرف‌شده', duration: '{{hours}} ساعت و {{minutes}} دقیقه', sampleCount: '{{count}} نمونه در بازه انتخاب‌شده.' },
+    },
     bootstrap: {
       title: 'راه‌اندازی مدیر ارشد', intro: 'هنوز مدیر ارشدی وجود ندارد. این نقش را برای حساب زیر فعال کنید:', warning: 'این عملیات بازگشت‌ناپذیر و فقط یک‌بار قابل انجام است. تنها مالک پلتفرم باید ادامه دهد.',
       claim: 'فعال‌سازی نقش مدیر ارشد', working: 'در حال ساخت مدیر…', success: 'اکنون مدیر ارشد پلتفرم هستید.', alreadyExists: 'مدیر ارشد از قبل وجود دارد. با مالک پلتفرم تماس بگیرید.',

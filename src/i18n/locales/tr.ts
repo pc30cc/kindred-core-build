@@ -2797,6 +2797,13 @@ const tr: TranslationKeys = {
       degraded: { title: 'Sistem düşük performanslı olarak işaretlendi', description: '{{trigger}} tarafından tetiklendi · yalnızca bilgilendirme; hiçbir işlev engellenmedi.', criticalAlert: 'kritik uyarı', until: 'Bitiş' },
       policy: { title: 'Etkin istemci politikası', description: 'Operatör ve widget bağlantılarına gömülü anlık görüntü. Bu değer değiştiğinde istemciler aktarımı sıfırlar:', provider: 'Etkin sağlayıcı', epoch: 'Yedek geçiş dönemi', version: 'Politika sürümü', backoff: 'Geri çekilme çarpanı', forcePolling: 'Yoklamayı zorla', forced: 'Zorunlu', auto: 'Otomatik', typing: 'Yazma baskılama', suppressed: 'Baskılandı', allowed: 'İzin verildi', degradedLabel: 'Düşük performans', locked: 'Kilitli' },
     },
+    observability: {
+      title: 'Gerçek Zamanlı Gözlemlenebilirlik', subtitle: 'Platform sinyallerini, performansı ve operasyonel sağlığı gerçek zamanlı izleyin.',
+      tabs: { metrics: 'Metrikler', performance: 'Performans', alerts: 'Uyarılar', autoActions: 'Otomatik işlemler', realtimeControl: 'Gerçek zamanlı kontrol', reliability: 'SLA ve sağlık', enforcement: 'Yaptırım' },
+      ranges: { hour: 'Son saat', day: '24 saat', week: '7 gün' },
+      metrics: { counters: 'Metrik sayaçları ({{range}})', loadFailed: 'Özet yüklenemedi.', emptyRange: 'Bu aralıkta olay kaydedilmedi.', filtered: 'Filtrelendi', recentEvents: 'Son olaylar', clearFilter: 'Filtreyi temizle', metric: 'Metrik', driver: 'Sürücü', source: 'Kaynak', tags: 'Etiketler', noEvents: 'Olay yok.' },
+      performance: { runRollup: 'Toplamayı çalıştır', endpointLatency: 'Uç nokta gecikmesi ({{range}})', empty: 'Bu aralıkta ölçümlenmiş istek kaydedilmedi.', count: 'Sayı', max: 'En yüksek', errors: 'Hatalar', processMetrics: 'İşlem metrikleri (son örnek)', noSamples: 'Henüz işlem örneği yok (her 60 saniyede örneklenir).', heapUsed: 'Kullanılan heap', duration: '{{hours}} sa {{minutes}} dk', sampleCount: 'Seçilen aralıkta {{count}} örnek.' },
+    },
     bootstrap: {
       title: 'Yönetici Başlatma', intro: 'Henüz global yönetici yok. Şu hesap için rolü alın:', warning: 'Bu geri alınamaz işlem yalnızca bir kez çalışır. Yalnızca platform sahibi devam etmelidir.',
       claim: 'Global yönetici rolünü al', working: 'Yönetici oluşturuluyor…', success: 'Artık global platform yöneticisisiniz.', alreadyExists: 'Global yönetici zaten var. Platform sahibiyle iletişime geçin.',

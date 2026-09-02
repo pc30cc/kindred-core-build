@@ -2805,6 +2805,13 @@ const en = {
       degraded: { title: 'System marked as degraded', description: 'Triggered by {{trigger}} · informational only; no functionality is blocked.', criticalAlert: 'critical alert', until: 'Until' },
       policy: { title: 'Effective client policy', description: 'Snapshot embedded in operator and widget handshakes. Clients reset transport when this value changes:', provider: 'Effective provider', epoch: 'Failover epoch', version: 'Policy version', backoff: 'Backoff multiplier', forcePolling: 'Force polling', forced: 'Forced', auto: 'Automatic', typing: 'Typing suppression', suppressed: 'Suppressed', allowed: 'Allowed', degradedLabel: 'Degraded', locked: 'Locked' },
     },
+    observability: {
+      title: 'Realtime Observability', subtitle: 'Monitor platform signals, performance and operational health in real time.',
+      tabs: { metrics: 'Metrics', performance: 'Performance', alerts: 'Alerts', autoActions: 'Auto-actions', realtimeControl: 'Realtime control', reliability: 'SLA and health', enforcement: 'Enforcement' },
+      ranges: { hour: 'Last hour', day: '24 hours', week: '7 days' },
+      metrics: { counters: 'Metric counters ({{range}})', loadFailed: 'Failed to load summary.', emptyRange: 'No events recorded in this range.', filtered: 'Filtered', recentEvents: 'Recent events', clearFilter: 'Clear filter', metric: 'Metric', driver: 'Driver', source: 'Source', tags: 'Tags', noEvents: 'No events.' },
+      performance: { runRollup: 'Run rollup', endpointLatency: 'Endpoint latency ({{range}})', empty: 'No instrumented requests recorded in this range.', count: 'Count', max: 'Maximum', errors: 'Errors', processMetrics: 'Process metrics (latest sample)', noSamples: 'No process samples yet (sampled every 60 seconds).', heapUsed: 'Heap used', duration: '{{hours}}h {{minutes}}m', sampleCount: '{{count}} samples in the selected range.' },
+    },
     bootstrap: {
       title: 'Admin Bootstrap', intro: 'No global administrator exists. Claim the role for:', warning: 'This irreversible action works only once. Only the platform owner should continue.',
       claim: 'Claim global admin role', working: 'Creating administrator…', success: 'You are now the global administrator.', alreadyExists: 'A global administrator already exists. Contact the platform owner.',

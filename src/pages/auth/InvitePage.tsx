@@ -22,6 +22,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { API_BASE } from '@/lib/apiBase';
 import { toast } from '@/lib/toast';
 import { useAuth } from '@/features/auth/AuthContext';
+import { invitationErrorKey } from '@/features/invitations/errors';
+import { formatDateTime } from '@/lib/date';
 import { useRequestIdBook } from '@/features/invitations/requestIds';
 import { Loader2, CheckCircle2, XCircle, Building2, ShieldAlert, LogIn, Clock } from 'lucide-react';
 
@@ -55,6 +57,8 @@ interface Preview {
   masked_phone: string | null;
   requires_otp: boolean;
   account_exists: boolean;
+  inviter_name?: string | null;
+  department_names?: string[] | null;
 }
 
 interface PolicyVersion {
@@ -106,7 +110,7 @@ async function postJson(path: string, body: unknown, timeoutMs = 30_000) {
 export default function InvitePage() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, signOut } = useAuth();
   /**
    * Stable, in-memory request ids (v5.1 B.1). Never persisted; a transport
    * retry of the same logical action reuses the id, a new action mints one.
@@ -388,7 +392,21 @@ export default function InvitePage() {
   if (state === 'wrong_account') {
     return card(<ShieldAlert className="h-8 w-8 text-destructive" />,
       t('invite.wrongAccountTitle'),
-      t('invite.wrongAccountBody'));
+      t('invite.wrongAccountBody'),
+      <div className="space-y-3">
+        {user?.email ? (
+          <p className="text-center text-xs text-muted-foreground">
+            {t('invite.wrongAccountSignedInAs')}: <span dir="ltr">{user.email}</span>
+          </p>
+        ) : null}
+        <Button
+          className="w-full"
+          variant="outline"
+          onClick={async () => { await signOut(); navigate('/auth/login?invited=1'); }}
+        >
+          {t('invite.signOutAndSwitch')}
+        </Button>
+      </div>);
   }
 
   if (state === 'session_failed_login_required') {
@@ -411,17 +429,30 @@ export default function InvitePage() {
         <div>
           <CardTitle>{preview?.workspace_name}</CardTitle>
           <CardDescription>
-            {t('invite.invitedAs')} <Badge variant="secondary">{preview?.role}</Badge>
+            {t('invite.invitedAs')}{' '}
+            <Badge variant="secondary">
+              {preview?.role ? t(`invitations.roles.${preview.role}` as never) : ''}
+            </Badge>
           </CardDescription>
         </div>
       </div>
       <div className="text-sm text-muted-foreground space-y-1">
         <div>{preview?.first_name} {preview?.last_name}</div>
-        <div>{preview?.masked_email}</div>
+        <div dir="ltr" className="text-start">{preview?.masked_email}</div>
+        {preview?.masked_phone ? <div dir="ltr" className="text-start">{preview.masked_phone}</div> : null}
+        <div>
+          {preview?.member_type === 'staff' ? t('invite.memberTypeStaff') : t('invite.memberTypeCustomer')}
+        </div>
+        {preview?.inviter_name ? (
+          <div>{t('invite.invitedBy')}: {preview.inviter_name}</div>
+        ) : null}
+        {preview?.department_names?.length ? (
+          <div>{t('invite.departments')}: {preview.department_names.join('، ')}</div>
+        ) : null}
         {preview?.expires_at ? (
           <div className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
-            {t('invite.expiresAt')}: {new Date(preview.expires_at).toLocaleString(locale)}
+            {t('invite.expiresAt')}: {formatDateTime(preview.expires_at, locale)}
           </div>
         ) : null}
       </div>
@@ -493,7 +524,9 @@ export default function InvitePage() {
             </p>
           ) : null}
 
-          {errorCode ? <p className="text-xs text-destructive">{errorCode}</p> : null}
+          {errorCode ? (
+            <p className="text-xs text-destructive" role="alert">{t(invitationErrorKey(errorCode))}</p>
+          ) : null}
 
           <Button
             className="w-full"

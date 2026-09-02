@@ -208,16 +208,22 @@ export async function sendEmail(
   let fromAddr = request.from || '';
 
   if (templateSlug) {
-    const tpl = await resolveTemplate(supabase, workspaceId, templateSlug, locale || 'en');
+    const tplLocale = locale || 'en';
+    const tpl = await resolveTemplate(supabase, workspaceId, templateSlug, tplLocale);
     if (tpl) {
       subject = tpl.subject;
       html = tpl.html_body;
       text = tpl.text_body || '';
-      if (templateData) {
-        subject = interpolate(subject, templateData);
-        html = interpolate(html, templateData);
-        text = interpolate(text, templateData);
-      }
+      // Branding defaults so every template renders {brand}/{year} correctly,
+      // while explicit templateData always wins.
+      const data: Record<string, string> = {
+        brand: await resolveBrandName(supabase, tplLocale),
+        year: String(new Date().getFullYear()),
+        ...(templateData || {}),
+      };
+      subject = interpolate(subject, data);
+      html = interpolate(html, data);
+      text = interpolate(text, data);
     }
   }
 

@@ -387,8 +387,9 @@ export function InvitationManagement({
                       data-testid="invitation-archive"
                       onClick={() => setArchiving(inv)}
                     >
-                      <Archive className="me-2 h-3.5 w-3.5" />{t('invitations.actionArchive')}
+                      <Trash2 className="me-2 h-3.5 w-3.5" />{t('invitations.actionDelete')}
                     </DropdownMenuItem>
+
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

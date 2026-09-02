@@ -248,7 +248,12 @@ const createSchema = z.object({
   departmentIds: z.array(z.string().uuid()).max(50).optional(),
   jobTitle: z.string().trim().max(120).optional().nullable(),
   staffCode: z.string().trim().max(60).optional().nullable(),
-  expiresInDays: z.number().int().min(1).max(30).optional(),
+  /**
+   * 0 = no expiry: the invitation stays valid until the workspace owner
+   * revokes or deletes it. Anything else is a 1–30 day window.
+   */
+  expiresInDays: z.number().int().min(0).max(30).optional(),
+
   /** Effective UI locale captured by the management surface (fa/tr/en). */
   locale: z.enum(['fa', 'tr', 'en']).optional(),
   requestId: z.string().trim().uuid(),

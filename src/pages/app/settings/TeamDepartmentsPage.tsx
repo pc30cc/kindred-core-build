@@ -184,6 +184,26 @@ export default function TeamDepartmentsPage() {
   const updateCc = useUpdateCallCenterSettings(wsId);
   const ccPlatformEnabled = !!ccCaps?.platform_enabled;
   const ccEnabled = !!ccSettings?.settings?.enabled;
+
+  /* ─── Plan entitlements: hide anything the plan does not include ─── */
+  const { data: ent } = useWorkspaceEffectiveEntitlements(wsId);
+  const has = (bucket: 'modules' | 'features' | 'channels', key: string, fallback = false) => {
+    const v = ent?.[bucket]?.[key];
+    return v ? !!v.value : fallback;
+  };
+  const planCaps = {
+    // While entitlements load we stay conservative and show nothing new.
+    loaded: !!ent,
+    chat: has('modules', 'chat'),
+    tickets: has('modules', 'help_center'),
+    widgetVoice: has('modules', 'voice_video') && has('channels', 'voice'),
+    widgetVideo: has('modules', 'voice_video') && has('channels', 'video'),
+    callCenter: has('modules', 'call_center') && ccPlatformEnabled,
+    ccVoice: has('modules', 'call_center') && has('channels', 'voice'),
+    ccVideo: has('modules', 'call_center') && has('channels', 'video'),
+    ccCallback: has('features', 'call_callbacks') && !!ccCaps?.platform_callback_enabled,
+  };
+
   const toggleCallCenter = (enabled: boolean) => {
     updateCc.mutate(
       { enabled },
@@ -196,6 +216,7 @@ export default function TeamDepartmentsPage() {
       },
     );
   };
+
 
   /* ─── Member actions ─── */
   const [editDeptsFor, setEditDeptsFor] = useState<{ userId: string; name: string } | null>(null);

@@ -124,3 +124,17 @@ export async function runIdempotent<T = any>(config: ServerConfig, call: Idempot
     result: (envelope.result ?? null) as T | null,
   };
 }
+
+/**
+ * Deterministic UUID for a retryable creation (e.g. the new user id of
+ * accept-new): the same requestId always yields the same id, so a retry after
+ * a lost response can never mint a second identity.
+ */
+export function deriveDeterministicUuid(scope: string, requestId: string, salt: string): string {
+  const h = crypto.createHmac('sha256', serverKeySecret()).update(`wi-uuid-v1|${scope}|${salt}|${requestId}`).digest();
+  const b = Buffer.from(h.subarray(0, 16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = b.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

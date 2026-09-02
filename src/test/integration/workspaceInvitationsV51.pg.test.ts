@@ -703,4 +703,110 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     const after = await db.query('SELECT count(*)::int AS n FROM public.workspace_invitations');
     expect(after.rows[0].n).toBe(before.rows[0].n);
   }, 90_000);
+
+  /**
+   * D.3 LOCALE CONTRACT — fa / tr / en are peers. The effective locale comes
+   * from the ONE existing mechanism (explicit selection, then the workspace's
+   * configured site default) and English is only the last resort of that same
+   * resolver. A browser's Accept-Language must never override the configured
+   * site default.
+   */
+  async function acceptWithLocale(
+    ownerRec: { cookie: string; workspaceId: string },
+    email: string,
+    extra: { locale?: string; acceptLanguage?: string },
+  ): Promise<string | null> {
+    capturedEmails = [];
+    const body = invitePayload(ownerRec.workspaceId, { email });
+    const created = await call('POST', '/api/workspace-invitations', { cookie: ownerRec.cookie, body });
+    expect(created.status).toBe(201);
+    const token = tokenFromManualLink(created.json.manualLink);
+    const policies = await activePolicies();
+
+    capturedEmails = [];
+    expect((await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId: rid(), token, purpose: 'manual_handoff' } })).status).toBe(200);
+    await drainOutbox();
+    const otpMail = capturedEmails.find((e) => /verification code/i.test(String(e.text)));
+    const code = String(otpMail!.text).match(/(\d{6})/)![1];
+    const verify = await call('POST', '/api/workspace-invitations/otp/verify', { body: { requestId: rid(), token, purpose: 'manual_handoff', code } });
+    expect(verify.status).toBe(200);
+    const proofCookie = cookieOf(verify, 'wi_proof')!;
+
+    const accept = await call('POST', '/api/workspace-invitations/accept-new', {
+      cookie: proofCookie,
+      headers: extra.acceptLanguage ? { 'accept-language': extra.acceptLanguage } : undefined,
+      body: {
+        requestId: rid(), token, purpose: 'manual_handoff',
+        password: 'CorrectHorseBattery1', consent: true,
+        ...(extra.locale ? { locale: extra.locale } : {}),
+        ...policies,
+      },
+    });
+    expect(accept.status).toBe(200);
+
+    const { rows } = await db.query(
+      `SELECT c.locale FROM public.workspace_invitation_consents c
+         JOIN public.workspace_invitations i ON i.id = c.invitation_id
+        WHERE i.workspace_id = $1 AND i.invited_email_normalized = $2`,
+      [ownerRec.workspaceId, String(body.email).toLowerCase()],
+    );
+    return (rows[0]?.locale as string) ?? null;
+  }
+
+  it('LOCALE 1 — a fa site default is inherited and a tr browser header cannot override it', async () => {
+    const owner = await makeOwner(`ownerLocFa.${Date.now()}@example.test`);
+    await db.query(`UPDATE public.workspaces SET panel_locale = 'fa', default_locale = 'fa' WHERE id = $1`, [owner.workspaceId]);
+
+    const inherited = await acceptWithLocale(owner, `loc.fa.${Date.now()}@example.test`, {
+      acceptLanguage: 'tr-TR,tr;q=0.9,en;q=0.8',
+    });
+    expect(inherited).toBe('fa');
+  }, 120_000);
+
+  it('LOCALE 2 — an explicit selection wins, and tr is a first-class locale', async () => {
+    const owner = await makeOwner(`ownerLocTr.${Date.now()}@example.test`);
+    await db.query(`UPDATE public.workspaces SET panel_locale = 'fa', default_locale = 'fa' WHERE id = $1`, [owner.workspaceId]);
+
+    const chosen = await acceptWithLocale(owner, `loc.tr.${Date.now()}@example.test`, {
+      locale: 'tr',
+      acceptLanguage: 'fa-IR,fa;q=0.9',
+    });
+    expect(chosen).toBe('tr');
+  }, 120_000);
+
+  it('LOCALE 3 — with no configured site default the resolver falls back to en, never to the browser', async () => {
+    const owner = await makeOwner(`ownerLocEn.${Date.now()}@example.test`);
+    await db.query(`UPDATE public.workspaces SET panel_locale = NULL, default_locale = NULL WHERE id = $1`, [owner.workspaceId]);
+
+    const fallback = await acceptWithLocale(owner, `loc.en.${Date.now()}@example.test`, {
+      acceptLanguage: 'fa-IR,fa;q=0.9',
+    });
+    expect(fallback).toBe('en');
+  }, 120_000);
+
+  it('LOCALE 4 — preview policy selection uses the site default, not a hardcoded English', async () => {
+    const owner = await makeOwner(`ownerLocPrev.${Date.now()}@example.test`);
+    await db.query(`UPDATE public.workspaces SET panel_locale = 'fa', default_locale = 'fa' WHERE id = $1`, [owner.workspaceId]);
+    await db.query(
+      `INSERT INTO public.legal_policy_versions (policy_type, version, locale, document_url, content_hash, published_at, effective_from, is_active)
+       VALUES ('terms', 'locale-test-fa', 'fa', '/terms', encode(digest('locale-test-fa','sha256'),'hex'), now(), now(), true)
+       ON CONFLICT (policy_type, version, locale) DO NOTHING`,
+    );
+
+    const created = await call('POST', '/api/workspace-invitations', {
+      cookie: owner.cookie,
+      body: invitePayload(owner.workspaceId, { email: `loc.prev.${Date.now()}@example.test` }),
+    });
+    const token = tokenFromManualLink(created.json.manualLink);
+
+    const preview = await call('POST', '/api/workspace-invitations/preview', {
+      headers: { 'accept-language': 'en-US,en;q=0.9' },
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    });
+    expect(preview.status).toBe(200);
+    expect(preview.json.policies.terms.locale).toBe('fa');
+    // Privacy has no fa row: the resolver falls back within the SAME mechanism.
+    expect(preview.json.policies.privacy.locale).toBe('en');
+  }, 90_000);
 });
+

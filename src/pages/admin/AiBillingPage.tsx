@@ -261,7 +261,17 @@ export default function AiBillingPage() {
           <p className="text-xs text-muted-foreground">
             {t('aiBilling.cycle')}: <span className="font-semibold text-foreground">{overview?.cycleId}</span> ·{' '}
             {t('aiBilling.totalRuns')}: <span className="font-semibold text-foreground">{nf(overview?.runs)}</span>
+            {updatedAt && (
+              <>
+                {' · '}
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  {t('aiBilling.liveUpdated')}: {updatedAt.toLocaleTimeString(locale)}
+                </span>
+              </>
+            )}
           </p>
+
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2">

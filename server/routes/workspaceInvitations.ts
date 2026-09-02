@@ -201,63 +201,83 @@ const createSchema = z.object({
   jobTitle: z.string().trim().max(120).optional().nullable(),
   staffCode: z.string().trim().max(60).optional().nullable(),
   expiresInDays: z.number().int().min(1).max(30).optional(),
-  requestId: z.string().trim().min(8).max(120).optional(),
+  requestId: z.string().trim().uuid(),
 });
 
 workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  if (!parsed.success) {
+    return res.status(400).json({ error: req.body?.requestId ? 'invalid_body' : 'REQUEST_ID_REQUIRED' });
+  }
   const body = parsed.data;
   const config = cfg(req);
-  const sb = getServiceClient(config);
 
   const email = body.email.toLowerCase();
   const manualToken = randomToken();
   const expiresAt = new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000);
-  const nonce = body.requestId || crypto.randomUUID();
+  const nonce = body.requestId;
+  const departmentIds = [...(body.departmentIds ?? [])].sort();
 
-  const outcome = await withIdempotency(
-    config,
-    body.requestId ? `${req.authUser.id}|${body.workspaceId}|create|${body.requestId}` : null,
-    { scopeKind: 'workspace', operation: 'create', workspaceId: body.workspaceId },
-    async () => sb.rpc('create_workspace_invitation_v2', {
-      _workspace_id: body.workspaceId,
-      _actor_id: req.authUser.id,
-      _first_name: body.firstName,
-      _last_name: body.lastName,
-      _email_normalized: email,
-      _phone_e164: body.phone,
-      _member_type: body.memberType,
-      _role: body.role,
-      _expires_at: expiresAt.toISOString(),
-      _department_ids: body.departmentIds ?? null,
-      _manual_token_hash: sha256Hex(manualToken),
-      _manual_token_prefix: tokenPrefix(manualToken),
-      _manual_token_expires_at: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
-      _email_job_idempotency_key: sha256Hex(`email|${body.workspaceId}|${email}|${nonce}`),
-      _sms_job_idempotency_key: sha256Hex(`sms|${body.workspaceId}|${body.phone}|${nonce}`),
-      _email_destination_hash: destinationHash(email),
-      _sms_destination_hash: destinationHash(body.phone),
-      _job_title: body.jobTitle ?? null,
-      _staff_code: body.staffCode ?? null,
-    }),
-  );
+  const outcome = await runIdempotent(config, {
+    operation: 'create',
+    scopeKind: 'workspace',
+    requestId: body.requestId,
+    actorId: req.authUser.id,
+    workspaceId: body.workspaceId,
+    fingerprintInput: {
+      workspaceId: body.workspaceId,
+      email,
+      phone: body.phone,
+      memberType: body.memberType,
+      role: body.role,
+      departmentIds,
+      firstName: body.firstName,
+      lastName: body.lastName,
+      jobTitle: body.jobTitle ?? null,
+      staffCode: body.staffCode ?? null,
+    },
+    args: {
+      first_name: body.firstName,
+      last_name: body.lastName,
+      email_normalized: email,
+      phone_e164: body.phone,
+      member_type: body.memberType,
+      role: body.role,
+      expires_at: expiresAt.toISOString(),
+      department_ids: departmentIds,
+      manual_token_hash: sha256Hex(manualToken),
+      manual_token_prefix: tokenPrefix(manualToken),
+      manual_token_expires_at: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
+      email_job_idempotency_key: sha256Hex(`email|${body.workspaceId}|${email}|${nonce}`),
+      sms_job_idempotency_key: sha256Hex(`sms|${body.workspaceId}|${body.phone}|${nonce}`),
+      email_destination_hash: destinationHash(email),
+      sms_destination_hash: destinationHash(body.phone),
+      job_title: body.jobTitle ?? null,
+      staff_code: body.staffCode ?? null,
+    },
+  });
 
-  if (outcome.replayed) {
-    return res.status(409).json({ error: 'OPERATION_COMMITTED_LINK_NOT_REPLAYABLE' });
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
+    return res.status(mapped.status).json({ error: mapped.code });
   }
 
-  const { data, error } = outcome.result as any;
-  if (error) {
-    const mapped = mapRpcError(error.message);
-    return res.status(mapped.status).json({ error: mapped.code });
+  if (outcome.replayed) {
+    // The raw link is never stored, so a committed create can only be
+    // acknowledged — never replayed with a token.
+    return res.status(409).json({
+      error: 'OPERATION_COMMITTED_LINK_NOT_REPLAYABLE',
+      replayed: true,
+      invitation: outcome.safeResult,
+    });
   }
 
   const appBase = await resolveAppBaseUrl(config);
   // The raw manual link is returned EXACTLY ONCE and never stored or logged.
   return res.status(201).json({
-    invitation: data,
+    invitation: outcome.result,
     manualLink: buildInviteUrl(appBase, manualToken, 'manual_handoff'),
+    replayed: false,
   });
 });
 

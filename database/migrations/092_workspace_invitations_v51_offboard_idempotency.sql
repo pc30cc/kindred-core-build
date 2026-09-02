@@ -254,8 +254,7 @@ BEGIN
     'user_id', coalesce(_result ->> 'user_id', _inv_json ->> 'accepted_by'),
     'role', coalesce(_result ->> 'role', _inv_json ->> 'role'),
     'member_type', coalesce(_result ->> 'member_type', _inv_json ->> 'member_type'),
-    'revoked_invitations', _result -> 'revoked_invitations',
-    'offboarded_at', _result ->> 'offboarded_at'
+    'revoked_invitations', _result -> 'revoked_invitations'
   ));
 
   UPDATE public.workspace_invitation_idempotency

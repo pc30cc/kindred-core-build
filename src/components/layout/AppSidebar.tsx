@@ -240,10 +240,12 @@ export function AppSidebar() {
     { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
 
+  // Operators (agents/viewers) never see the plugins surface.
+  const isWsAdmin = isWorkspaceAdmin(wsRole);
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
     { key: 'widget', path: '/widget', icon: Package, accent: 'violet' },
-    { key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' },
+    ...(isWsAdmin ? [{ key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' } as const] : []),
     { key: 'settings', path: '/settings/general', icon: Settings, accent: 'indigo' },
   ] as const;
 

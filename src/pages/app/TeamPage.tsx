@@ -7,7 +7,6 @@
  * internal 1:1 messaging — no management capabilities at all.
  */
 import { Navigate } from 'react-router-dom';
-import { Navigate as _N } from 'react-router-dom';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import TeamChatPanel from '@/components/inbox/TeamChatPanel';

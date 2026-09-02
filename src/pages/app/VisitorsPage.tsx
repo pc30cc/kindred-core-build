@@ -228,11 +228,27 @@ export default function VisitorsPage() {
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)] animate-fade-in">
+    <div className="flex flex-col h-full min-h-0 animate-fade-in">
       {/* Body: list + map */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] min-h-0">
-        {/* Left: list */}
-        <div className="flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none">
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0">
+        {/* Left: list (resizable on desktop) */}
+        <div
+          className="relative flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none w-full lg:w-auto shrink-0"
+          style={isDesktop ? { width: listWidth } : undefined}
+        >
+          {/* Resize handle (desktop) */}
+          <div
+            onMouseDown={() => setIsResizing(true)}
+            onDoubleClick={() => setListWidth(380)}
+            className={cn(
+              'hidden lg:block absolute inset-y-0 w-1.5 cursor-col-resize z-[500] hover:bg-primary/30 transition-colors',
+              isResizing && 'bg-primary/40'
+            )}
+            style={{ insetInlineEnd: -3 }}
+            role="separator"
+            aria-orientation="vertical"
+          />
+
           {selectedId ? (
             <VisitorDetailPanel
               workspaceId={wsId}

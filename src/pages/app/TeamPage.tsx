@@ -10,7 +10,7 @@ import { useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';

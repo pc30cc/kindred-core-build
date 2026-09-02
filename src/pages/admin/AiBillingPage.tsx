@@ -73,8 +73,11 @@ export default function AiBillingPage() {
   const [multiplier, setMultiplier] = useState('');
   const [card, setCard] = useState({ provider: '', modelKey: '', input: '', output: '' });
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+
+  /** `silent` = background live tick: refresh data without flashing the spinner. */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [o, p, c, r, h] = await Promise.all([
         api<any>('/admin/overview'),
@@ -88,16 +91,33 @@ export default function AiBillingPage() {
       setCoverage(c);
       setRuns(r.runs || []);
       setHealth(h);
+      setUpdatedAt(new Date());
     } catch (err: any) {
-      toast.error(err.message);
+      if (!silent) toast.error(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live stats: poll every 10s while the tab is visible, and immediately on focus.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === 'visible') void load(true);
+    };
+    const id = window.setInterval(tick, 10_000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [load]);
+
 
   const toggleMode = async (enforced: boolean) => {
     setSaving(true);
@@ -207,10 +227,11 @@ export default function AiBillingPage() {
   const kpis = [
     {
       icon: CircleDollarSign,
-      label: t('aiBilling.providerCost'),
-      hint: t('aiBilling.providerCostHint'),
-      value: usd(overview?.totals?.providerCostUsd),
+      label: t('aiBilling.providerCostAllTime'),
+      hint: `${t('aiBilling.providerCostAllTimeHint')} · ${t('aiBilling.cycle')}: ${usd(overview?.totals?.providerCostUsd)}`,
+      value: usd(overview?.providerCostUsdAllTime, 2),
     },
+
     {
       icon: Wallet,
       label: t('aiBilling.internalCost'),
@@ -240,7 +261,17 @@ export default function AiBillingPage() {
           <p className="text-xs text-muted-foreground">
             {t('aiBilling.cycle')}: <span className="font-semibold text-foreground">{overview?.cycleId}</span> ·{' '}
             {t('aiBilling.totalRuns')}: <span className="font-semibold text-foreground">{nf(overview?.runs)}</span>
+            {updatedAt && (
+              <>
+                {' · '}
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  {t('aiBilling.liveUpdated')}: {updatedAt.toLocaleTimeString(locale)}
+                </span>
+              </>
+            )}
           </p>
+
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2">

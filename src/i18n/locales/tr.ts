@@ -1767,6 +1767,9 @@ const tr: TranslationKeys = {
   aiBilling: {
     cycle: 'Faturalandırma dönemi',
     totalRuns: 'Toplam AI çalıştırması',
+    providerCostAllTime: 'Toplam AI harcaması (tüm zamanlar)',
+    providerCostAllTimeHint: 'Bugüne kadar AI için ödenen toplam tutar (USD).',
+    liveUpdated: 'Canlı · güncellendi',
     providerCostHint: 'AI sağlayıcılarının bizden aldığı ücret (USD).',
     internalCostHint: 'Sağlayıcı maliyetinin faturalandırma kuruyla çevrilmiş hâli.',
     customerChargeHint: 'İç maliyet × satış çarpanı — çalışma alanından alınan tutar.',

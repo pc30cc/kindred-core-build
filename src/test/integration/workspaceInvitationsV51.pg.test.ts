@@ -595,8 +595,21 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
     const token = tokenFromManualLink(created.json.manualLink);
 
-    await db.query(`UPDATE public.workspace_invitations SET expires_at = now() - interval '1 day' WHERE id = $1`, [created.json.invitation.id]);
-    await db.query(`UPDATE public.workspace_invitation_tokens SET expires_at = now() - interval '1 day' WHERE invitation_id = $1`, [created.json.invitation.id]);
+    // The real table constraint requires expires_at > created_at, so the whole
+    // row is backdated instead of only its expiry (no constraint weakening).
+    await db.query(
+      `UPDATE public.workspace_invitations
+          SET created_at = now() - interval '3 days', expires_at = now() - interval '1 day'
+        WHERE id = $1`,
+      [created.json.invitation.id],
+    );
+    await db.query(
+      `UPDATE public.workspace_invitation_tokens
+          SET created_at = now() - interval '3 days', expires_at = now() - interval '1 day'
+        WHERE invitation_id = $1`,
+      [created.json.invitation.id],
+    );
+
 
     const preview = await call('POST', '/api/workspace-invitations/preview', { body: { token, purpose: 'manual_handoff' } });
     expect(preview.status).toBe(404);

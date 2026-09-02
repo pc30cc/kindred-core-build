@@ -45,10 +45,16 @@ is what protects it once one does.
   secrecy (destination hash for indexing, IP hash for rate-limit bucketing)
   still use a keyed HMAC via the same pepper, so they can't be pre-computed
   or dictionary-matched offline without the pepper.
-- **Proof tokens** are generated with `crypto.randomBytes` (not derived —
-  there is no crash-safety requirement for a proof, since it is only handed
-  back once, synchronously, to the caller of `verifyVerificationChallenge`).
-  Only `hashProofToken()`'s output is ever persisted.
+- **Proof tokens are deterministically derived, exactly like OTP codes** —
+  `deriveProofToken()` derives the raw token from an HMAC over
+  `(purpose, channel, handle, requestId)` under an explicit key version,
+  never a fresh random draw. This is what makes `verify` itself crash-safe
+  and idempotent (see `docs/GENERIC_VERIFICATION_CORE.md` §Idempotency): a
+  transport loss after a verify call successfully commits is recovered by
+  retrying with the SAME `requestId`, which re-derives the IDENTICAL raw
+  token — still valid, still hashing to the same stored value — without the
+  raw token ever having been persisted anywhere. Only `hashProofToken()`'s
+  output is ever stored, in `verification_proofs.proof_hash`.
 
 ## Key management and rotation
 
@@ -107,16 +113,32 @@ accidentally reused an environment variable value.
 
 ## Rate limiting and abuse prevention
 
-Enforced in the database, inside the same transaction that would create a
-row — not only in Express middleware, which can be bypassed by any direct
-caller and does not coordinate across multiple server instances.
+Enforced ATOMICALLY in the database, inside the same transaction that would
+create a row — not only in Express middleware (which can be bypassed by any
+direct caller and does not coordinate across multiple server instances), and
+not via a racy count-then-insert. `_gv_create_challenge_row` takes a
+`pg_advisory_xact_lock` per bucket (auto-released at transaction commit or
+rollback) BEFORE counting, so concurrent requests targeting the SAME bucket
+serialize on the lock instead of all reading a stale count and all deciding
+independently that they're under the cap:
 
-- **Resend cooldown**: `_gv_do_request` checks
+| Bucket | Scope | Cap |
+|---|---|---|
+| Purpose+channel | system-wide | `maxSendsPerWindow × 20` |
+| Destination | (destination hash, purpose, channel) | `maxSendsPerWindow`, plus a resend cooldown |
+| IP (collapsed) | request IP, /64-collapsed for IPv6 | `maxSendsPerWindow × 10` |
+| Subject | (subject ref hash, purpose), when bound | `maxSendsPerWindow` |
+| Workspace | (workspace id, purpose), when bound | `maxSendsPerWindow × 5` |
+
+Tests Z1–Z5 in `src/test/integration/genericVerificationCore.pg.test.ts` each
+fire real concurrent (`Promise.allSettled`) requests against one bucket and
+assert the cap holds EXACTLY — not "approximately," which is what a
+count-then-insert race would produce under load.
+
+- **Resend cooldown** (destination bucket only): checks
   `max(created_at) FOR (destination_hash, purpose, channel) > now() - cooldown`
   before creating a new challenge row. Floor: `PLATFORM_MAXIMUMS.resendCooldownSecondsMin`
   (a policy may not set a *shorter* cooldown than this, even via override).
-- **Rolling-window send cap**: `count(*) FOR the same tuple within rateWindowSeconds >= maxPerWindow`
-  is checked in the same query, before the same row is created.
 - **Verification-attempt limiting**: each wrong code increments
   `verification_challenges.attempt_count`; reaching `max_attempts` locks the
   challenge (`status = 'locked'`) — no further attempt, correct or not, can
@@ -145,7 +167,7 @@ caller and does not coordinate across multiple server instances.
 
 ## Database-level security posture
 
-- **RLS enabled, zero policies** on all six tables — deny-all for `anon`/
+- **RLS enabled, zero policies** on all five tables — deny-all for `anon`/
   `authenticated` under PostgREST; `service_role` reaches them via the
   `BYPASSRLS` role attribute, not a policy. This is the same pattern used
   throughout this codebase for backend-only tables (see
@@ -155,9 +177,22 @@ caller and does not coordinate across multiple server instances.
   `GRANT` only what the Express service-role connection needs.
 - **Every RPC is `SECURITY DEFINER`** with `SET search_path = public,
   pg_temp` pinned, closing the classic search-path-hijack vector.
-- **`REVOKE ALL ... FROM PUBLIC, anon, authenticated` +
-  `GRANT EXECUTE ... TO service_role`** on every one of the 13 RPCs — no
-  browser-reachable verification RPC exists.
+- **Two disjoint RPC sets, not one flat ACL.** Six INTERNAL functions
+  (`_gv_create_challenge_row`, `_gv_do_request`, `_gv_do_resend`,
+  `_gv_do_verify`, `_gv_do_revoke`, `gv_is_purpose_enabled`) are
+  `REVOKE ALL ... FROM PUBLIC, anon, authenticated, service_role` — nobody
+  can execute them directly, including the backend's own `service_role`
+  connection; they are reachable only as nested calls from within a public
+  wrapper's own `SECURITY DEFINER` context. Six PUBLIC WRAPPER functions
+  (`gv_prepare_verification_delivery`, `gv_finalize_verification_delivery`,
+  `gv_execute_idempotent`, `gv_consume_verification_proof`,
+  `gv_get_verification_status`, `gv_purge_expired_idempotency`) are
+  `REVOKE ALL ... FROM PUBLIC, anon, authenticated` + `GRANT EXECUTE ... TO
+  service_role` — the ONLY verification RPCs ever executable by
+  `service_role`, and never by `anon`/`authenticated`. No browser-reachable
+  verification RPC exists, and no RPC (internal or public) is reachable
+  by any role broader than strictly necessary. Test X2 proves the internal
+  set is unreachable even under `SET ROLE service_role`.
 - **No `auth.uid()` / Supabase Auth identity logic** anywhere in this
   module — subject binding is an opaque `subject_ref`/`subject_ref_hash`
   supplied by the caller (the Express server, which has already
@@ -172,21 +207,38 @@ caller and does not coordinate across multiple server instances.
   `service_role` — history cannot be edited after the fact.
 - **Build-time self-verification**: the migration's own `DO $verify$` block
   queries `pg_class`/`pg_policy`/`has_table_privilege`/
-  `has_function_privilege` for every one of the above invariants and raises
-  an exception — failing the migration itself — if any invariant does not
-  hold. A future edit that accidentally weakens an ACL cannot silently ship.
+  `has_function_privilege` for every one of the above invariants — including
+  the internal/public split above and the database-layer dormancy check
+  below — and raises an exception — failing the migration itself — if any
+  invariant does not hold. A future edit that accidentally weakens an ACL
+  cannot silently ship.
 
-## Dormancy as a security property
+## Dormancy as a security property — enforced at TWO layers
 
-Every purpose ships `enabled: false`. `assertPurposeEnabled`/
-`assertChannelAllowed` are unconditional and are the first statement in
-every `service.ts` entry point — a disabled purpose throws before a Supabase
-client is even constructed, so it is architecturally impossible (not just
-policy) for a disabled purpose to create a challenge row, a delivery-attempt
-row, or send anything. This is verified directly (zero-database-writes) in
-`src/test/integration/genericVerificationCore.pg.test.ts` test case A, and at
-the pure-function level (no database involved) in
-`src/test/verification/purposeDormancy.test.ts`.
+**TypeScript layer.** Every purpose ships `enabled: false`.
+`assertPurposeEnabled`/`assertChannelAllowed`/`assertPolicyBindings` are
+unconditional and are the first statements in every `service.ts` entry point
+(`request`, `resend`, `verify`, `consume`) — a disabled purpose, or one whose
+`requiresAuth`/`subjectBinding`/`tenantBinding` requirement the caller
+doesn't satisfy, throws before a Supabase client is even constructed.
+
+**Database layer, independent of the TypeScript registry.**
+`gv_is_purpose_enabled(_purpose text)` ships hardcoded to
+`SELECT _purpose = ANY(ARRAY[]::text[])` — an empty allow-list. Every public
+wrapper RPC that can write checks this FIRST, before any ledger row is even
+tentatively inserted. This means a bug that flips the TypeScript `enabled`
+flag by mistake, or a direct `SET ROLE service_role` SQL call that skips
+`service.ts` entirely, still cannot write a single row for a disabled
+purpose — proven directly (not via a test override) by test X1, which
+temporarily restores the exact shipped function and confirms zero writes and
+a rolled-back ledger insert. Enabling a purpose for real requires a
+deliberate, reviewed, additive migration touching this function AND a code
+deploy touching the TypeScript registry — never a single-layer change.
+
+Both layers are verified for zero-database-writes in
+`src/test/integration/genericVerificationCore.pg.test.ts` (tests A, X1), and
+the TypeScript layer additionally at the pure-function level (no database
+involved) in `src/test/verification/purposeDormancy.test.ts`.
 
 There is no worker for this subsystem (delivery is Express-direct — see
 `docs/GENERIC_VERIFICATION_CORE.md` §Delivery) and no route calls

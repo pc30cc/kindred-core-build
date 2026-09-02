@@ -275,6 +275,34 @@ export class VerificationChannelNotAllowedError extends Error {
   }
 }
 
+export class VerificationAuthRequiredError extends Error {
+  constructor(purpose: string) {
+    super(`Verification purpose ${purpose} requires an authenticated requester`);
+    this.name = 'VerificationAuthRequiredError';
+  }
+}
+
+export class VerificationSubjectBindingViolationError extends Error {
+  constructor(reason: string) {
+    super(`Verification subject binding violation: ${reason}`);
+    this.name = 'VerificationSubjectBindingViolationError';
+  }
+}
+
+export class VerificationTenantBindingViolationError extends Error {
+  constructor(reason: string) {
+    super(`Verification tenant binding violation: ${reason}`);
+    this.name = 'VerificationTenantBindingViolationError';
+  }
+}
+
+export class VerificationScopeMismatchError extends Error {
+  constructor(reason: string) {
+    super(`Verification scope mismatch: ${reason}`);
+    this.name = 'VerificationScopeMismatchError';
+  }
+}
+
 export function isVerificationPurpose(value: string): value is VerificationPurpose {
   return (ALL_VERIFICATION_PURPOSES as readonly string[]).includes(value);
 }
@@ -291,11 +319,13 @@ export function isVerificationPurpose(value: string): value is VerificationPurpo
 const testOverrides = new Map<VerificationPurpose, Partial<PurposePolicy>>();
 
 export function __setPurposePolicyOverrideForTests(purpose: VerificationPurpose, override: Partial<PurposePolicy> | null): void {
+  assertTestEnvironment('__setPurposePolicyOverrideForTests');
   if (override === null) testOverrides.delete(purpose);
   else testOverrides.set(purpose, override);
 }
 
 export function __clearAllPurposePolicyOverridesForTests(): void {
+  assertTestEnvironment('__clearAllPurposePolicyOverridesForTests');
   testOverrides.clear();
 }
 
@@ -328,6 +358,64 @@ export function assertChannelAllowed(purpose: string, channel: VerificationChann
   return policy;
 }
 
+export interface PolicyBindingContext {
+  /** Omitted (not merely undefined-checked-loosely) for verify/consume, which carry no subjectKind field at all. */
+  subjectKind?: VerificationSubjectKind;
+  subjectRef?: string;
+  workspaceId?: string;
+  authenticatedUserId?: string;
+}
+
+/**
+ * The mandatory second half of the dormancy/authorization gate: even an
+ * ENABLED purpose must have requiresAuth/subjectBinding/tenantBinding
+ * enforced on EVERY mutation (request, resend, verify, consume) — called
+ * immediately after assertChannelAllowed/assertPurposeEnabled, before any
+ * database call. Every check here is a strict presence/equality test —
+ * omitting subjectRef or workspaceId never relaxes a requirement that
+ * exists; there is no "if provided, then check" branch that a caller could
+ * bypass by simply not sending a field.
+ */
+export function assertPolicyBindings(purpose: VerificationPurpose, policy: PurposePolicy, ctx: PolicyBindingContext): void {
+  if (policy.requiresAuth && !ctx.authenticatedUserId) {
+    throw new VerificationAuthRequiredError(purpose);
+  }
+  if (ctx.subjectKind !== undefined && ctx.subjectKind !== policy.subjectBinding) {
+    throw new VerificationSubjectBindingViolationError(
+      `purpose ${purpose} requires subjectKind '${policy.subjectBinding}', got '${ctx.subjectKind}'`,
+    );
+  }
+  if (policy.subjectBinding === 'user') {
+    if (!ctx.subjectRef) {
+      throw new VerificationSubjectBindingViolationError(`purpose ${purpose} requires a subjectRef`);
+    }
+    if (policy.requiresAuth && ctx.subjectRef !== ctx.authenticatedUserId) {
+      throw new VerificationSubjectBindingViolationError(
+        `purpose ${purpose} requires the authenticated requester to act only on their own subject`,
+      );
+    }
+  }
+  if (policy.tenantBinding === 'required' && !ctx.workspaceId) {
+    throw new VerificationTenantBindingViolationError(`purpose ${purpose} requires a workspaceId`);
+  }
+  if (policy.tenantBinding === 'none' && ctx.workspaceId) {
+    throw new VerificationTenantBindingViolationError(`purpose ${purpose} forbids a workspaceId`);
+  }
+}
+
+/**
+ * Guards every test-only override hook so it is unreachable outside a
+ * genuine test process — not merely "no production code imports it" (true
+ * before, but not a hard guarantee), but an active runtime check.
+ */
+function assertTestEnvironment(hookName: string): void {
+  const isVitest = process.env.VITEST === 'true' || typeof process.env.VITEST_WORKER_ID !== 'undefined';
+  const isNodeTestEnv = process.env.NODE_ENV === 'test';
+  if (!isVitest && !isNodeTestEnv) {
+    throw new Error(`${hookName} is only callable under a test environment (VITEST=true or NODE_ENV=test)`);
+  }
+}
+
 // ─── Request/response shapes for the internal service contract ───
 
 export interface RequestChallengeInput {
@@ -341,6 +429,30 @@ export interface RequestChallengeInput {
   idempotencyKey: string;              // caller-supplied, e.g. a client-generated request id
   requester: { ipAddress: string | null; authenticatedUserId?: string };
   metadata?: Record<string, unknown>;  // safe, non-secret — never the OTP, never a raw destination beyond what's already in `destination`
+}
+
+/**
+ * A resend targets one SPECIFIC existing challenge by its own handle — it
+ * is never "find whatever is live for this destination/purpose/channel"
+ * (that loose lookup let a resend in workspace B revoke a live challenge in
+ * workspace A sharing the same destination — see
+ * docs/GENERIC_VERIFICATION_CORE.md §Lifecycle). The claimed scope
+ * (purpose/channel/subjectKind/subjectRef/workspaceId) must match the
+ * EXISTING challenge's own recorded scope exactly, re-validated
+ * server-side under a row lock — this input shape is the caller's claim,
+ * not a trusted fact.
+ */
+export interface ResendChallengeInput {
+  handle: string;
+  purpose: VerificationPurpose;
+  channel: VerificationChannel;
+  subjectKind: VerificationSubjectKind;
+  subjectRef?: string;
+  workspaceId?: string;
+  locale?: VerificationLocale;
+  idempotencyKey: string;
+  requester: { ipAddress: string | null; authenticatedUserId?: string };
+  metadata?: Record<string, unknown>;
 }
 
 export interface RequestChallengeResult {
@@ -366,7 +478,9 @@ export interface VerifyChallengeInput {
   channel: VerificationChannel;
   workspaceId?: string;
   subjectRef?: string;
-  requester: { ipAddress: string | null };
+  /** Required — makes verify idempotent-by-construction. See docs/GENERIC_VERIFICATION_CORE.md §Idempotency. */
+  requestId: string;
+  requester: { ipAddress: string | null; authenticatedUserId?: string };
 }
 
 export interface VerifyChallengeResult {
@@ -381,6 +495,8 @@ export interface ConsumeProofInput {
   channel: VerificationChannel;
   workspaceId?: string;
   subjectRef?: string;
+  /** Only present when the calling context already holds an authenticated session — required for assertPolicyBindings' requiresAuth check. */
+  authenticatedUserId?: string;
   consumedByContext: string;
 }
 

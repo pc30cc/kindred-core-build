@@ -181,6 +181,70 @@ async function resolveBrandName(supabase: any, locale: string): Promise<string> 
 }
 
 /**
+ * Platform-level (workspace-less) provider resolution — only the global
+ * `app_runtime_config.default_email_provider` fallback, none of
+ * resolveProviderConfig's workspace-scoped lookups (those require a
+ * workspace_id to filter on and cannot run without one).
+ */
+async function resolvePlatformProviderConfig(supabase: any): Promise<ProviderConfig | null> {
+  const { data: globalConfig, error } = await (supabase as any)
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', 'default_email_provider')
+    .maybeSingle();
+  if (error) console.warn('[email] platform provider lookup failed:', error.message);
+  return normalizeProviderConfig((globalConfig as any)?.value);
+}
+
+export interface PlatformEmailRequest {
+  to: string;
+  subject: string;
+  html?: string;
+  text?: string;
+  from?: string;
+}
+
+/**
+ * Sends an email with NO workspace binding — for future pre-account flows
+ * (signup-email-verification, password-reset, email-change) that have no
+ * workspace to scope a provider or a log row against. Dormant: nothing in
+ * this codebase calls this yet (see
+ * docs/GENERIC_VERIFICATION_CORE.md §Workspace-less email). Deliberately
+ * does not write to `email_logs` — that table is workspace-scoped
+ * delivery history, not applicable to a send with no workspace.
+ */
+export async function sendPlatformEmail(
+  config: ServerConfig,
+  request: PlatformEmailRequest,
+): Promise<SendResult> {
+  const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
+
+  const providerConfig = await resolvePlatformProviderConfig(supabase);
+  const providerName = providerConfig?.provider_name || 'stub';
+
+  let fromAddr = request.from || '';
+  if (!fromAddr && providerConfig?.config) {
+    const cfg = providerConfig.config as Record<string, string>;
+    const name = cfg.from_name || cfg.sender_name || 'Platform';
+    const email = cfg.from_email || cfg.sender_email || 'noreply@example.com';
+    fromAddr = `${name} <${email}>`;
+  }
+
+  switch (providerName) {
+    case 'resend':
+      return sendViaResend(providerConfig!, request.to, request.subject, request.html || '', request.text || '', fromAddr);
+    case 'sendgrid':
+      return sendViaSendGrid(providerConfig!, request.to, request.subject, request.html || '', request.text || '', fromAddr);
+    case 'smtp':
+      return sendViaSMTP(providerConfig!, request.to, request.subject, request.html || '', request.text || '', fromAddr);
+    case 'stub':
+      return { success: false, provider: 'stub', error: 'Email provider is not configured' };
+    default:
+      return { success: false, provider: providerName, error: `Unknown provider: ${providerName}` };
+  }
+}
+
+/**
  * Main email sending function.
  * Resolves provider, template, and sends email.
  * Logs all delivery attempts to email_logs.

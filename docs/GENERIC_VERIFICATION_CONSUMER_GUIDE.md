@@ -13,7 +13,7 @@ in this codebase.
 
 ```ts
 requestVerificationChallenge(config, input: RequestChallengeInput): Promise<RequestChallengeResult>
-resendVerificationChallenge(config, input: RequestChallengeInput): Promise<RequestChallengeResult>
+resendVerificationChallenge(config, input: ResendChallengeInput): Promise<RequestChallengeResult>
 verifyVerificationChallenge(config, input: VerifyChallengeInput): Promise<VerifyChallengeResult>
 consumeVerificationProof(config, input: ConsumeProofInput): Promise<ConsumeProofResult>
 revokeVerificationChallenge(config, input): Promise<{ ok: boolean }>
@@ -23,17 +23,38 @@ getSafeVerificationStatus(config, handle: string): Promise<SafeVerificationStatu
 `RequestChallengeInput` carries: `purpose`, `channel`, `destination`,
 `subjectKind`, optional `subjectRef`, optional `workspaceId`, optional
 `locale`, a caller-supplied `idempotencyKey`, and `requester` context
-(`ipAddress`, optional `authenticatedUserId`). **The OTP code is never
-returned from `requestVerificationChallenge` or `resendVerificationChallenge`**
-— only `handle`, `generation`, `expiresAt`, `resendAvailableAt`,
-`deliveryOutcome`. Delivery is synchronous: by the time either call
-resolves (or throws), Express has already called the email/SMS provider
-directly — there is no worker, no queue, nothing left to happen later. A
-caller should branch on `deliveryOutcome`: `'provider_accepted'` means the
-code is on its way; anything else (`'retryable_failure'`, `'unconfigured'`,
-`'ambiguous'`, `'permanent_failure'`, `'derivation_key_unavailable'`) means
-the caller should surface a resend affordance to the end user. See
-`docs/GENERIC_VERIFICATION_CORE.md` §Delivery for the full state machine.
+(`ipAddress`, optional `authenticatedUserId`).
+
+`ResendChallengeInput` is **handle-based, not destination-based**: it carries
+the EXISTING challenge's own `handle` plus the caller's claimed scope
+(`purpose`, `channel`, `subjectKind`, optional `subjectRef`, optional
+`workspaceId`) instead of a raw `destination`. This scope is re-validated
+server-side, under a row lock, against the existing challenge's own recorded
+scope before anything is superseded — a resend can never reach, let alone
+revoke, a challenge belonging to a different workspace or subject that
+happens to share the same destination (see
+`docs/GENERIC_VERIFICATION_CORE.md` §Lifecycle).
+
+**The OTP code is never returned from `requestVerificationChallenge` or
+`resendVerificationChallenge`** — only `handle`, `generation`, `expiresAt`,
+`resendAvailableAt`, `deliveryOutcome`. Delivery is synchronous: by the time
+either call resolves (or throws), Express has already called the email/SMS
+provider directly — there is no worker, no queue, nothing left to happen
+later. A caller should branch on `deliveryOutcome`: `'provider_accepted'`
+means the code is on its way; anything else (`'retryable_failure'`,
+`'unconfigured'`, `'ambiguous'`, `'permanent_failure'`,
+`'derivation_key_unavailable'`) means the caller should surface a resend
+affordance to the end user. See `docs/GENERIC_VERIFICATION_CORE.md`
+§Delivery for the full state machine, including the delivery-attempt
+ownership token that protects a resumed/stale prepare-finalize cycle.
+
+`VerifyChallengeInput` REQUIRES a caller-supplied `requestId` — this is what
+makes `verifyVerificationChallenge` idempotent-by-construction (see
+`docs/GENERIC_VERIFICATION_CORE.md` §Idempotency): a route handler should
+generate a fresh `requestId` per logical verify attempt (e.g. a
+client-supplied request id, or one generated server-side per HTTP request)
+and reuse the SAME `requestId` on its own internal retries of that same
+logical attempt, never on a genuinely new one.
 
 `verifyVerificationChallenge` returns `{ ok: false, reason }` on any failure
 (wrong code, expired, locked, revoked, wrong purpose/channel/subject/
@@ -41,7 +62,8 @@ workspace, or not-found — all the same generic shapes) or `{ ok: true,
 proofToken }` on success, where `proofToken` is the **raw, one-time** token —
 this is the only point in the whole system where the raw token exists outside
 the database, and only the caller of `verifyVerificationChallenge` ever sees
-it. Only its hash (`hashProofToken`) is ever persisted.
+it (or re-derives it, byte-for-byte, on a same-`requestId` replay — see
+§Idempotency). Only its hash (`hashProofToken`) is ever persisted.
 
 ## Step 1 — a route calls `requestVerificationChallenge`
 
@@ -59,10 +81,15 @@ res.json({ handle: result.handle, expiresAt: result.expiresAt });
 ```
 
 This will currently throw `VerificationPurposeDisabledError` for every
-purpose, because every purpose ships `enabled: false`. **Enabling a purpose
-is a one-line change in `server/services/verification/types.ts`'s
-`RAW_POLICIES`** — but that change, and the route wiring above, are explicitly
-out of scope for this pass and must go through their own review, since
+purpose, because every purpose ships disabled at TWO independent layers —
+see `docs/GENERIC_VERIFICATION_CORE.md` §Dormancy. **Enabling a purpose for
+real requires a deliberate, reviewed, two-key change**: (1) flipping
+`enabled: true` in `server/services/verification/types.ts`'s
+`RAW_POLICIES`, AND (2) a new, additive migration that adds the purpose's
+name to `gv_is_purpose_enabled`'s allow-list in
+`database/migrations/098_generic_verification_core.sql` (mirrored to
+`supabase/migrations/`). Neither change alone enables anything. This, and
+the route wiring below, are explicitly out of scope for this pass, since
 flipping a purpose live starts sending real OTPs for that flow.
 
 ## Step 2 — a route calls `verifyVerificationChallenge`
@@ -73,6 +100,7 @@ const verified = await verifyVerificationChallenge(config, {
   code: req.body.code,
   purpose: 'password_reset',
   channel: 'email',
+  requestId: req.body.requestId,   // REQUIRED — makes this call idempotent
   requester: { ipAddress: getClientIp(req) },
 });
 if (!verified.ok) return res.status(400).json({ error: verified.reason });
@@ -149,7 +177,9 @@ subject is sufficient, and a mismatch fails closed with a generic reason.
 ## Checklist for a future integration PR
 
 1. Flip the specific purpose's `enabled` to `true` in
-   `server/services/verification/types.ts` (and only that purpose).
+   `server/services/verification/types.ts` (and only that purpose), AND add
+   it to `gv_is_purpose_enabled`'s allow-list in a new, additive migration —
+   both layers, per §Dormancy in `docs/GENERIC_VERIFICATION_CORE.md`.
 2. Add the route(s) that call `requestVerificationChallenge` /
    `verifyVerificationChallenge`.
 3. Add the consumer-side `SECURITY DEFINER` SQL function that nests a call to

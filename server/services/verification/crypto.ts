@@ -160,11 +160,6 @@ export function generateChallengeHandle(): string {
   return `gvc_${randomBytes(24).toString('base64url')}`;
 }
 
-/** Raw, single-use proof token. Only its hash (see hashProofToken) is ever stored. */
-export function generateProofToken(): string {
-  return `gvp_${randomBytes(32).toString('base64url')}`;
-}
-
 // ─── OTP code: derive (crash-safe, reproducible) + digest (stored) ───
 
 export interface OtpDomainInputs {
@@ -239,10 +234,41 @@ export function verifyOtpDigest(candidate: string, stored: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-// ─── Proof hashing ───
+// ─── Proof derivation (crash-safe, reproducible) + hashing ───
 
-export function hashProofToken(rawToken: string, env: NodeJS.ProcessEnv = process.env): string {
-  const version = currentVersion(env);
+export interface ProofDomainInputs {
+  handle: string;
+  requestId: string;
+  purpose: string;
+  channel: string;
+}
+
+/**
+ * Deterministically derives the raw proof token from domain-separated
+ * inputs and an EXPLICIT key version — never a fresh random draw. This is
+ * what makes a verify replay (same requestId) return the exact same,
+ * still-usable raw token without it ever being persisted anywhere: Node
+ * re-derives it from (handle, requestId, purpose, channel) every time,
+ * whether this is the first verify call or a replay of an already-
+ * committed one (e.g. after a transport loss). Only hashProofToken's
+ * output of this value is ever stored.
+ */
+export function deriveProofToken(inputs: ProofDomainInputs, keyVersion: number, env: NodeJS.ProcessEnv = process.env): string {
+  const key = subKey('gv-proof-derive-v1', keyVersion, env);
+  const digest = createHmac('sha256', key)
+    .update(`${inputs.purpose}|${inputs.channel}|${inputs.handle}|${inputs.requestId}`)
+    .digest();
+  return `gvp_${digest.toString('base64url')}`;
+}
+
+/**
+ * `keyVersion` should be the SAME version used to derive the token
+ * (explicit, not "whatever the current rotation happens to be" — matching
+ * the OTP digest's own versioning discipline). Defaults to the current
+ * version only for callers with no challenge-scoped version to pin to.
+ */
+export function hashProofToken(rawToken: string, keyVersion?: number, env: NodeJS.ProcessEnv = process.env): string {
+  const version = keyVersion ?? currentVersion(env);
   const key = subKey('gv-proof-v1', version, env);
   return `v${version}:${createHmac('sha256', key).update(rawToken).digest('hex')}`;
 }

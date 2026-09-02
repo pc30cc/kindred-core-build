@@ -276,7 +276,7 @@ async function signupAndVerify(email: string): Promise<{ cookie: string; userId:
   expect(login.status).toBe(200);
   const cookie = cookieOf(login, 'gs_session')!;
   const { rows } = await db.query('SELECT id FROM public.profiles WHERE lower(email) = lower($1)', [email]);
-  return { cookie, userId: rows[0].id };
+  return { cookie, userId: String((rows[0] as { id: string }).id) };
 }
 
 async function makeOwner(email: string) {

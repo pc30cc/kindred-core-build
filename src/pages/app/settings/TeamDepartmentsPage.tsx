@@ -620,6 +620,12 @@ function DepartmentDialog({
     cc_video_enabled: department?.cc_video_enabled ?? false,
     cc_callback_enabled: department?.cc_callback_enabled ?? false,
   });
+  /* Standalone Call Center master — scoped to THIS department only.
+     The general pool (members without a department) is never affected. */
+  const [deptCcEnabled, setDeptCcEnabled] = useState(
+    !!(department?.cc_voice_enabled || department?.cc_video_enabled || department?.cc_callback_enabled),
+  );
+
 
   const save = useMutation({
     mutationFn: () => mode === 'create'

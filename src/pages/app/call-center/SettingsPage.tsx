@@ -73,6 +73,7 @@ export default function CallCenterSettingsPage() {
   const [s, setS] = useState<any>(null);
   const [original, setOriginal] = useState<any>(null);
   const [previewOnline, setPreviewOnline] = useState(true);
+  const [tab, setTab] = useState('general');
 
   useEffect(() => {
     if (data?.settings) {
@@ -146,7 +147,7 @@ export default function CallCenterSettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl pb-24" dir={dir}>
+    <div className={cn('space-y-6 pb-24', tab === 'presentation' ? 'max-w-6xl' : 'max-w-3xl')} dir={dir}>
       {platformOff && (
         <Card className="p-4 border-destructive/40 bg-destructive/5 flex gap-2 items-start">
           <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
@@ -154,7 +155,7 @@ export default function CallCenterSettingsPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="general" className="space-y-4" dir={dir}>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4" dir={dir}>
       <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">
         <TabsTrigger value="general">{t('callCenter.settingsPage.tabs.general')}</TabsTrigger>
         <TabsTrigger value="presentation">{t('callCenter.settingsPage.tabs.presentation')}</TabsTrigger>

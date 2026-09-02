@@ -452,7 +452,7 @@ export default function InvitePage() {
         {preview?.expires_at ? (
           <div className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
-            {t('invite.expiresAt')}: {formatDateTime(preview.expires_at, locale)}
+            {t('invite.expiresAt')}: {formatDateTime(preview.expires_at, undefined, locale)}
           </div>
         ) : null}
       </div>

@@ -90,6 +90,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/093_workspace_invitations_v51_schema_parity.sql',
     hosted: 'supabase/migrations/20260902155705_31043af0-bc77-47e0-ba22-8115bef292f3.sql',
   },
+  {
+    label: '094 — invitation preview context (inviter name + department names)',
+    selfHost: 'database/migrations/094_workspace_invitations_v51_preview_context.sql',
+    hosted: 'supabase/migrations/20260902161824_bddd59bc-c326-443e-bcbe-6982fdc3f8ad.sql',
+  },
+
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

@@ -62,12 +62,26 @@ const i18nFallbackContext: I18nContextValue = {
 
 const I18nContext = createContext<I18nContextValue>(i18nFallbackContext);
 
+/**
+ * Configured SITE default language (deployment-level, no rebuild required):
+ * `window.__APP_RUNTIME_CONFIG__.defaultLocale` in /runtime-config.js.
+ * Browser language is deliberately NEVER consulted — the configured default
+ * is the source of truth until the user picks a language in the selector.
+ */
+export function getSiteDefaultLocale(): Locale {
+  if (typeof window === 'undefined') return DEFAULT_LOCALE;
+  const configured = (window as any).__APP_RUNTIME_CONFIG__?.defaultLocale;
+  if (configured === 'en' || configured === 'fa' || configured === 'tr') return configured as Locale;
+  return DEFAULT_LOCALE;
+}
+
 export function getStoredLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
   const stored = localStorage.getItem('app-locale');
   if (stored && (stored === 'en' || stored === 'fa' || stored === 'tr')) return stored as Locale;
-  return DEFAULT_LOCALE;
+  return getSiteDefaultLocale();
 }
+
 
 export async function loadLocaleMessages(locale: Locale): Promise<TranslationKeys> {
   if (locale === 'en') return en;

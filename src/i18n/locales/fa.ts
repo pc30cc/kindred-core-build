@@ -1763,7 +1763,6 @@ const fa: TranslationKeys = {
     invitedTo: 'شما به عضویت دعوت شده‌اید',
     workspace: 'ورک‌اسپیس',
     role: 'نقش',
-    invitedBy: 'دعوت‌کننده',
     expires: 'انقضا',
     noExpiration: 'بدون انقضا',
     accept: 'پذیرش دعوت',

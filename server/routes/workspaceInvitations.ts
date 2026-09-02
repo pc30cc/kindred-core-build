@@ -630,6 +630,67 @@ workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl,
   return res.json({ invitation: outcome.result, replayed: false });
 });
 
+/**
+ * DELETE /:id — permanent, irreversible removal.
+ *
+ * Archiving only hid a row: its tokens, OTPs, jobs, deliveries and
+ * idempotency records survived, so a later invitation to the same address kept
+ * colliding with leftover state. Owners asked for real deletion, so this route
+ * removes the invitation and every dependent record (the invitation-scoped
+ * child tables cascade; consents and the idempotency book are cleared first).
+ *
+ * An ACCEPTED invitation is never deleted — the membership it produced
+ * references it, and deleting it would rewrite the workspace's staff history.
+ */
+workspaceInvitationsRouter.delete('/:id', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+  const config = cfg(req);
+  const sb = getServiceClient(config);
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'INVITATION_NOT_FOUND' });
+
+  const { data: inv } = await sb
+    .from('workspace_invitations')
+    .select('id, workspace_id, status')
+    .eq('id', id)
+    .maybeSingle();
+  if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
+
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', inv.workspace_id)
+    .eq('user_id', req.authUser.id)
+    .maybeSingle();
+  if (!member || !['owner', 'admin'].includes(String(member.role))) {
+    return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+
+  if (String(inv.status) === 'accepted') {
+    return res.status(409).json({ error: 'INVITATION_ALREADY_ACCEPTED' });
+  }
+
+  await sb.from('workspace_invitation_consents').delete().eq('invitation_id', id);
+  await sb.from('workspace_invitation_idempotency').delete().eq('invitation_id', id);
+
+  const { error } = await sb.from('workspace_invitations').delete().eq('id', id);
+  if (error) {
+    console.error('[invitations] hard delete failed:', error.message);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+
+  await sb.rpc('wi_audit', {
+    _workspace_id: inv.workspace_id,
+    _actor_id: req.authUser.id,
+    _action: 'invitation.deleted',
+    _invitation_id: null,
+    _metadata: { status: inv.status },
+  }).then(() => undefined, () => undefined);
+
+  return res.json({ deleted: true });
+});
+
+
+
 // ─────────────────────────────────────────────────────────────────────────
 // PUBLIC SURFACE (token possession — JSON body only)
 // ─────────────────────────────────────────────────────────────────────────

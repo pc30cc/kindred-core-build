@@ -227,10 +227,11 @@ export default function AiBillingPage() {
   const kpis = [
     {
       icon: CircleDollarSign,
-      label: t('aiBilling.providerCost'),
-      hint: t('aiBilling.providerCostHint'),
-      value: usd(overview?.totals?.providerCostUsd),
+      label: t('aiBilling.providerCostAllTime'),
+      hint: `${t('aiBilling.providerCostAllTimeHint')} · ${t('aiBilling.cycle')}: ${usd(overview?.totals?.providerCostUsd)}`,
+      value: usd(overview?.providerCostUsdAllTime, 2),
     },
+
     {
       icon: Wallet,
       label: t('aiBilling.internalCost'),

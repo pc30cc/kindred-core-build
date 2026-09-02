@@ -55,6 +55,13 @@ import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName } from '../services/widget/manifest.js';
 import { resolveWidgetAssetBase, getLoaderAssetBase } from '../services/widget/public.js';
 import { widgetTemplateAssetKeys, resolveWidgetTemplateId } from '../services/widget/presentationAssets.js';
+import {
+  callWidgetTemplateAssetKeys,
+  normalizeCallWidgetFormSchema,
+  normalizeCallWidgetOfflineBehavior,
+  normalizeCallWidgetTheme,
+  resolveCallWidgetTemplateId,
+} from '../services/callCenter/presentation.js';
 import crypto from 'crypto';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
@@ -81,10 +88,14 @@ const CALL_WIDGET_ASSETS_VERSION: string = (() => {
     for (const dir of candidates) {
       const js = path.join(dir, 'runtime.js');
       const css = path.join(dir, 'runtime.css');
-      if (existsSync(js) && existsSync(css)) {
-        const h = crypto.createHash('md5');
-        h.update(readFileSync(js));
-        h.update(readFileSync(css));
+      const presentationFiles = [
+        path.join(dir, 'presentation-registry.js'),
+        path.join(dir, 'presentation-default.js'),
+        path.join(dir, 'presentation-default.css'),
+      ];
+      if (existsSync(js) && existsSync(css) && presentationFiles.every(existsSync)) {
+        const h = crypto.createHash('sha256');
+        for (const asset of [js, css, ...presentationFiles]) h.update(readFileSync(asset));
         return h.digest('hex').slice(0, 12);
       }
     }
@@ -638,21 +649,29 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       return base ? `${base}/widget/${name}` : `/widget/${name}`;
     } catch { return null; }
   })();
+  const callTemplateId = resolveCallWidgetTemplateId(ws.widget_template_id);
+  const callTemplateAssets = callWidgetTemplateAssetKeys(callTemplateId);
   res.json({
     status: 'ok',
     session,
     assets_version: CALL_WIDGET_ASSETS_VERSION,
-    assets: { font_style_url: fontAssetUrl },
+    assets: {
+      font_style_url: fontAssetUrl,
+      presentation_registry_url: `/call-widget/${callTemplateAssets.registry}`,
+      presentation_script_url: `/call-widget/${callTemplateAssets.script}`,
+      presentation_style_url: `/call-widget/${callTemplateAssets.style}`,
+    },
     workspace_id: ws.workspace_id,
     visitor: visitorBlock,
     config: {
       display_name: ws.display_name,
       avatar_url: ws.avatar_url,
       widget_position: ws.widget_position,
-      widget_theme: ws.widget_theme,
+      widget_template_id: callTemplateId,
+      widget_theme: normalizeCallWidgetTheme(ws.widget_theme),
       pre_call_form_enabled: ws.pre_call_form_enabled,
-      pre_call_form_schema: ws.pre_call_form_schema,
-      offline_behavior: ws.offline_behavior,
+      pre_call_form_schema: normalizeCallWidgetFormSchema(ws.pre_call_form_schema),
+      offline_behavior: normalizeCallWidgetOfflineBehavior(ws.offline_behavior),
       recording_consent_required: ws.recording_consent_required,
       custom_texts: ws.widget_custom_texts || {},
     },

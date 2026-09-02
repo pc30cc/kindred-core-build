@@ -67,14 +67,34 @@
       link.href = origin + '/call-widget/runtime.css' + bust;
       document.head.appendChild(link);
 
+      var presentationAssets = (bootstrap && bootstrap.assets) || {};
+      function assetUrl(value, fallback) {
+        var path = (typeof value === 'string' && /^\/call-widget\/[a-z0-9.-]+$/i.test(value))
+          ? value : fallback;
+        return origin + path + bust;
+      }
+      var presentationCss = document.createElement('link');
+      presentationCss.rel = 'stylesheet';
+      presentationCss.href = assetUrl(
+        presentationAssets.presentation_style_url,
+        '/call-widget/presentation-default.css'
+      );
+      document.head.appendChild(presentationCss);
+
       // Load the LiveKit SDK locally if the host page hasn't provided one.
       // We reuse the SDK file shipped alongside the chat widget so customers
       // only paste a single call-widget script tag — no external CDN.
-      function loadRuntime() {
+      function loadScript(src, done) {
         var sc = document.createElement('script');
         sc.async = true;
-        sc.src = origin + '/call-widget/runtime.js' + bust;
-        sc.onload = function () {
+        sc.src = src;
+        sc.onload = done;
+        sc.onerror = done;
+        document.body.appendChild(sc);
+      }
+
+      function loadRuntime() {
+        loadScript(origin + '/call-widget/runtime.js' + bust, function () {
           if (window.CallCenterWidget && typeof window.CallCenterWidget.mount === 'function') {
             window.CallCenterWidget.mount({
               apiBase: apiBase,
@@ -82,11 +102,23 @@
               assetsVersion: versionToken,
               runtimeAssetSuffix: bust,
               activeSessionKey: activeSessionKey,
+              pageTitle: document.title,
               bootstrap: bootstrap,
             });
           }
-        };
-        document.body.appendChild(sc);
+        });
+      }
+
+      function loadPresentation() {
+        loadScript(assetUrl(
+          presentationAssets.presentation_registry_url,
+          '/call-widget/presentation-registry.js'
+        ), function () {
+          loadScript(assetUrl(
+            presentationAssets.presentation_script_url,
+            '/call-widget/presentation-default.js'
+          ), loadRuntime);
+        });
       }
 
       function ensureLiveKitSdk(cb) {
@@ -111,7 +143,7 @@
         document.head.appendChild(lk);
       }
 
-      ensureLiveKitSdk(loadRuntime);
+      ensureLiveKitSdk(loadPresentation);
     })
     .catch(function (err) {
       console.warn('[call-widget] bootstrap error', err);

@@ -48,6 +48,15 @@ import {
 import crypto from 'crypto';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
+import {
+  callWidgetFormSchema,
+  callWidgetOfflineBehaviorSchema,
+  callWidgetThemeSchema,
+  normalizeCallWidgetFormSchema,
+  normalizeCallWidgetOfflineBehavior,
+  normalizeCallWidgetTheme,
+  resolveCallWidgetTemplateId,
+} from '../services/callCenter/presentation.js';
 
 export const callCenterRouter = Router();
 
@@ -266,7 +275,14 @@ callCenterRouter.get('/settings', async (req, res) => {
   const effective = computeEffectiveCallCenterCaps(platform, settingsRaw);
   const recording = await computeRecordingCapability(ctx.config, wid, platform, settingsRaw);
   // Sanitize: never expose avatar_storage_path to clients
-  const { avatar_storage_path: _, ...settings } = settingsRaw;
+  const { avatar_storage_path: _, ...storedSettings } = settingsRaw;
+  const settings = {
+    ...storedSettings,
+    widget_template_id: resolveCallWidgetTemplateId(settingsRaw.widget_template_id),
+    widget_theme: normalizeCallWidgetTheme(settingsRaw.widget_theme),
+    pre_call_form_schema: normalizeCallWidgetFormSchema(settingsRaw.pre_call_form_schema),
+    offline_behavior: normalizeCallWidgetOfflineBehavior(settingsRaw.offline_behavior),
+  };
   res.json({ settings, platform, effective, recording });
 });
 
@@ -274,7 +290,8 @@ const settingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
   allowed_domains: z.array(z.string()).optional(),
   widget_position: z.string().optional(),
-  widget_theme: z.record(z.unknown()).optional(),
+  widget_template_id: z.literal('default').optional(),
+  widget_theme: callWidgetThemeSchema.optional(),
   display_name: z.string().nullable().optional(),
   avatar_url: z.string().nullable().optional(),
   // avatar_storage_path is intentionally NOT settable from clients.
@@ -283,9 +300,9 @@ const settingsPatchSchema = z.object({
   video_enabled: z.boolean().optional(),
   callback_enabled: z.boolean().optional(),
   pre_call_form_enabled: z.boolean().optional(),
-  pre_call_form_schema: z.array(z.unknown()).optional(),
+  pre_call_form_schema: callWidgetFormSchema.optional(),
   business_hours: z.record(z.unknown()).optional(),
-  offline_behavior: z.string().optional(),
+  offline_behavior: callWidgetOfflineBehaviorSchema.optional(),
   recording_enabled: z.boolean().optional(),
   recording_consent_required: z.boolean().optional(),
   operator_video_visible_to_visitor: z.boolean().optional(),

@@ -514,10 +514,14 @@ export default function TeamDepartmentsPage() {
       {/* Dialogs */}
       {showCreateDept && wsId && (
         <DepartmentDialog mode="create" workspaceId={wsId}
+          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled}
+          ccBusy={updateCc.isPending || !ccSettings} onToggleCc={toggleCallCenter}
           onClose={() => setShowCreateDept(false)} onSaved={invalidateDepts} />
       )}
       {editingDept && wsId && (
         <DepartmentDialog mode="edit" department={editingDept} workspaceId={wsId}
+          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled}
+          ccBusy={updateCc.isPending || !ccSettings} onToggleCc={toggleCallCenter}
           onClose={() => setEditingDept(null)} onSaved={invalidateDepts} />
       )}
       {membersFor && wsId && (

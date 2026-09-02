@@ -257,28 +257,8 @@ export default function TeamDepartmentsPage() {
         </div>
       </div>
 
-      {/* ═══════════ Standalone Call Center master switch ═══════════ */}
-      <Card className="p-4 border-border/60 flex items-center gap-4">
-        <div className="h-10 w-10 rounded-full bg-muted/60 flex items-center justify-center shrink-0">
-          <PhoneCall className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground">{t('teamDept.ccMasterTitle')}</span>
-            {(!ccEnabled || !ccPlatformEnabled) && (
-              <Badge variant="outline" className="text-[10px]">{t('teamDept.disabledBadge')}</Badge>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-            {ccPlatformEnabled ? t('teamDept.ccMasterHint') : t('teamDept.ccMasterPlatformOff')}
-          </p>
-        </div>
-        <Switch
-          checked={ccPlatformEnabled && ccEnabled}
-          disabled={!ccPlatformEnabled || updateCc.isPending || !ccSettings}
-          onCheckedChange={toggleCallCenter}
-        />
-      </Card>
+
+
 
 
       {/* ═══════════ Section A — Departments ═══════════ */}

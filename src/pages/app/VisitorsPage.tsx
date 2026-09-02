@@ -511,7 +511,8 @@ export default function VisitorsPage() {
 
         {/* Right: map canvas */}
         <div
-          className="relative min-h-[40vh] lg:min-h-0 bg-muted/20"
+          className="relative isolate z-0 flex-1 min-w-0 min-h-[40vh] lg:min-h-0 bg-muted/20"
+
           style={
             mapConfig.data?.display && !mapConfig.data.display.fill_viewport
               ? { height: `${mapConfig.data.display.height_px}px` }

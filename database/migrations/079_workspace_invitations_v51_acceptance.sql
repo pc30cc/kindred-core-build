@@ -254,9 +254,7 @@ BEGIN
   END IF;
   PERFORM public.wi_revoke_secrets(_inv.id, NULL, NULL);
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_inv.workspace_id, _existing_user, 'invitation.accepted_new_user',
-          'workspace_invitation', _inv.id,
+  PERFORM public.wi_audit(_inv.workspace_id, _existing_user, 'invitation.accepted_new_user', _inv.id,
           jsonb_build_object('entitlement', _entitlement,
                              'verification_source', _verification_source,
                              'acceptance_method', _acceptance_method));
@@ -357,9 +355,8 @@ BEGIN
   WHERE invitation_id = _inv.id AND consumed_at IS NULL AND revoked_at IS NULL;
   PERFORM public.wi_revoke_secrets(_inv.id, NULL, NULL);
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_inv.workspace_id, _session_user_id, 'invitation.accepted_existing_user',
-          'workspace_invitation', _inv.id, jsonb_build_object('entitlement', _entitlement));
+  PERFORM public.wi_audit(_inv.workspace_id, _session_user_id, 'invitation.accepted_existing_user', _inv.id,
+          jsonb_build_object('entitlement', _entitlement));
 
   RETURN jsonb_build_object(
     'user_id', _session_user_id,
@@ -487,8 +484,7 @@ BEGIN
   END IF;
 
   -- 12. audit from captured locals
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_workspace_id, _actor_id, 'workspace_member.offboarded', 'workspace_member', _user_id,
+  PERFORM public.wi_audit(_workspace_id, _actor_id, 'workspace_member.offboarded', _user_id,
           jsonb_build_object('role', _target_role, 'revoked_invitations', _revoked,
                              'reason', _reason));
 

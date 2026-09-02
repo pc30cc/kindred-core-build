@@ -157,6 +157,30 @@ AS $$
   WHERE i.id = _invitation_id;
 $$;
 
+
+-- Audit helper. audit_logs.user_id carries a legacy FK to auth.users on some
+-- chains while first-party identity lives in public.profiles; a missing audit
+-- row must never roll back a completed invitation operation.
+CREATE OR REPLACE FUNCTION public.wi_audit(
+  _workspace_id uuid,
+  _actor_id uuid,
+  _action text,
+  _entity_id uuid,
+  _payload jsonb
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  PERFORM public.wi_audit(_workspace_id, _actor_id, _action, _entity_id,
+          _payload);
+EXCEPTION
+  WHEN foreign_key_violation OR not_null_violation THEN
+    NULL;
+END;
+$$;
+
 -- =========================================================================
 -- 1. create_workspace_invitation_v2
 -- =========================================================================
@@ -283,8 +307,7 @@ BEGIN
   FROM public.workspace_invitation_jobs j
   WHERE j.invitation_id = _invitation_id;
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_workspace_id, _actor_id, 'invitation.created', 'workspace_invitation', _invitation_id,
+  PERFORM public.wi_audit(_workspace_id, _actor_id, 'invitation.created', _invitation_id,
           jsonb_build_object('role', _role, 'member_type', _member_type, 'flow_version', 2));
 
   RETURN public.wi_safe_invitation(_invitation_id);
@@ -408,8 +431,7 @@ BEGIN
     WHERE j.invitation_id = _invitation_id AND j.notification_generation = _generation;
   END IF;
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_workspace_id, _actor_id, 'invitation.edited', 'workspace_invitation', _invitation_id,
+  PERFORM public.wi_audit(_workspace_id, _actor_id, 'invitation.edited', _invitation_id,
           jsonb_build_object('contact_changed', _contact_changed, 'generation', _generation));
 
   RETURN public.wi_safe_invitation(_invitation_id);
@@ -473,8 +495,7 @@ BEGIN
     invitation_id, workspace_id, job_id, channel, notification_generation, status
   ) VALUES (_invitation_id, _workspace_id, _job_id, 'email', _inv.notification_generation, 'queued');
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_workspace_id, _actor_id, 'invitation.email_resent', 'workspace_invitation', _invitation_id,
+  PERFORM public.wi_audit(_workspace_id, _actor_id, 'invitation.email_resent', _invitation_id,
           jsonb_build_object('email_token_generation', _next_token_generation));
 
   RETURN jsonb_build_object(
@@ -542,9 +563,8 @@ BEGIN
     _generation, _inv.notification_generation, _token_expires_at
   );
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_workspace_id, _actor_id, 'invitation.manual_link_rotated', 'workspace_invitation',
-          _invitation_id, jsonb_build_object('token_generation', _generation));
+  PERFORM public.wi_audit(_workspace_id, _actor_id, 'invitation.manual_link_rotated', _invitation_id,
+          jsonb_build_object('token_generation', _generation));
 
   RETURN jsonb_build_object(
     'invitation', public.wi_safe_invitation(_invitation_id),
@@ -591,8 +611,7 @@ BEGIN
 
   PERFORM public.wi_revoke_secrets(_invitation_id, NULL, NULL);
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_workspace_id, _actor_id, 'invitation.revoked', 'workspace_invitation', _invitation_id,
+  PERFORM public.wi_audit(_workspace_id, _actor_id, 'invitation.revoked', _invitation_id,
           jsonb_build_object('reason', _reason));
 
   RETURN public.wi_safe_invitation(_invitation_id);
@@ -628,8 +647,8 @@ BEGIN
 
   UPDATE public.workspace_invitations SET archived_at = now() WHERE id = _invitation_id;
 
-  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
-  VALUES (_workspace_id, _actor_id, 'invitation.archived', 'workspace_invitation', _invitation_id, '{}'::jsonb);
+  PERFORM public.wi_audit(_workspace_id, _actor_id, 'invitation.archived', _invitation_id,
+          '{}'::jsonb);
 
   RETURN public.wi_safe_invitation(_invitation_id);
 END;

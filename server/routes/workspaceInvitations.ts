@@ -249,10 +249,13 @@ const createSchema = z.object({
   jobTitle: z.string().trim().max(120).optional().nullable(),
   staffCode: z.string().trim().max(60).optional().nullable(),
   /**
-   * 0 = no expiry: the invitation stays valid until the workspace owner
-   * revokes or deletes it. Anything else is a 1–30 day window.
+   * Legacy clients may still send 0 for no expiry. New clients use the
+   * explicit `neverExpires` flag and omit this field, which also remains
+   * compatible with older API containers while a self-hosted rollout is in
+   * progress.
    */
   expiresInDays: z.number().int().min(0).max(30).optional(),
+  neverExpires: z.boolean().optional(),
 
   /** Effective UI locale captured by the management surface (fa/tr/en). */
   locale: z.enum(['fa', 'tr', 'en']).optional(),
@@ -270,9 +273,9 @@ const createSchema = z.object({
  */
 const NO_EXPIRY_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
-function resolveExpiry(days: number | undefined) {
+function resolveExpiry(days: number | undefined, neverExpires = false) {
   const value = days ?? 7;
-  if (value === 0) {
+  if (neverExpires || value === 0) {
     const farFuture = new Date(Date.now() + NO_EXPIRY_TTL_MS).toISOString();
     return { invitationExpiresAt: farFuture as string | null, tokenExpiresAt: farFuture };
   }
@@ -301,7 +304,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
 
   const email = body.email.toLowerCase();
   const manualToken = randomToken();
-  const expiry = resolveExpiry(body.expiresInDays);
+  const expiry = resolveExpiry(body.expiresInDays, body.neverExpires);
 
   const nonce = body.requestId;
   const departmentIds = [...(body.departmentIds ?? [])].sort();
@@ -327,6 +330,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
       jobTitle: body.jobTitle ?? null,
       staffCode: body.staffCode ?? null,
       expiresInDays: body.expiresInDays ?? 7,
+      neverExpires: body.neverExpires ?? body.expiresInDays === 0,
       locale: effectiveLocale,
     },
     args: {
@@ -489,6 +493,7 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
       jobTitle: body.jobTitle ?? null,
       staffCode: body.staffCode ?? null,
       expiresInDays: body.expiresInDays ?? 7,
+      neverExpires: body.neverExpires ?? body.expiresInDays === 0,
     },
     args: {
       first_name: body.firstName,
@@ -497,7 +502,7 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
       phone_e164: body.phone,
       member_type: body.memberType,
       role: body.role,
-      expires_at: resolveExpiry(body.expiresInDays).invitationExpiresAt,
+      expires_at: resolveExpiry(body.expiresInDays, body.neverExpires).invitationExpiresAt,
       department_ids: departmentIds,
       email_job_idempotency_key: sha256Hex(`email|${id}|${email}|${nonce}`),
       sms_job_idempotency_key: sha256Hex(`sms|${id}|${body.phone}|${nonce}`),

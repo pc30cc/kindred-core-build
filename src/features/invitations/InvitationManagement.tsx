@@ -187,10 +187,10 @@ export function InvitationManagement({
     enabled: !!workspaceId && canManage,
   });
 
-  const scoped = useMemo(
-    () => invitations.filter((inv) => inv.member_type === mode),
-    [invitations, mode],
-  );
+  // Both settings pages show the complete invitation ledger. Previously each
+  // page silently hid invitations created from the other page, making a
+  // successfully-created customer-facing invitation look lost on Staff Access.
+  const scoped = invitations;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['ws-invitations', workspaceId] });
   const fail = (e: unknown) => toast.error(t(invitationErrorKey(e)));
@@ -709,8 +709,13 @@ export function InvitationFormDialog({
         memberType: mode,
         role,
         departmentIds: mode === 'customer_facing' ? [...departmentIds].sort() : [],
-        expiresInDays: Number(expiresInDays),
       };
+      // Use an explicit flag for the unlimited choice and omit expiresInDays.
+      // Older self-hosted API containers ignore the additive flag instead of
+      // rejecting the former numeric 0 while the new server preserves it as a
+      // non-expiring invitation.
+      if (expiresInDays === '0') payload.neverExpires = true;
+      else payload.expiresInDays = Number(expiresInDays);
       // Omit empty optional values rather than serializing them as null. This
       // is accepted by both the original and current invitation API schemas.
       if (jobTitle.trim()) payload.jobTitle = jobTitle.trim();

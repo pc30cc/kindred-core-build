@@ -109,6 +109,7 @@ export default function TeamDepartmentsPage() {
   const wsPath = useWorkspacePath();
   const wsId = workspace?.id;
   const qc = useQueryClient();
+  const requestIds = useRequestIdBook();
 
   /* ─── Departments ─── */
   const { data: departments = [], isLoading: loadingDepts } = useQuery({

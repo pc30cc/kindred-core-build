@@ -22,6 +22,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { toast } from '@/lib/toast';
+import { useRequestIdBook } from '@/features/invitations/requestIds';
 import {
   Shield, UserPlus, Search, Crown, Loader2, Trash2, Settings2,
   ArrowRight, Users,
@@ -94,6 +95,7 @@ export default function StaffAccessPage() {
   const wsPath = useWorkspacePath();
   const wsId = workspace?.id;
   const qc = useQueryClient();
+  const requestIds = useRequestIdBook();
 
   const { data: allMembers = [], isLoading } = useQuery({
     queryKey: ['ws-members', wsId],

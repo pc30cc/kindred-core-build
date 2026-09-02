@@ -85,6 +85,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/092_workspace_invitations_v51_offboard_idempotency.sql',
     hosted: 'supabase/migrations/20260902151219_87793458-f50c-4bfd-8162-91611730b306.sql',
   },
+  {
+    label: '093 — D.3 invitation schema parity (backend-only ACL, no RLS policies)',
+    selfHost: 'database/migrations/093_workspace_invitations_v51_schema_parity.sql',
+    hosted: 'supabase/migrations/20260902155705_31043af0-bc77-47e0-ba22-8115bef292f3.sql',
+  },
+
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered
   // here: the two chains' starting schemas differ (self-host creates 3 tables from

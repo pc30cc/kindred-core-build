@@ -149,6 +149,38 @@ function interpolate(text: string, data: Record<string, string>): string {
 }
 
 /**
+ * Platform brand name for a locale, used to brand every template that
+ * references {brand}. Falls back: locale → en → 'Platform'.
+ */
+async function resolveBrandName(supabase: any, locale: string): Promise<string> {
+  const read = async (lc: string) => {
+    const { data } = await supabase
+      .from('platform_branding_localized')
+      .select('platform_name')
+      .eq('locale', lc)
+      .maybeSingle();
+    return (data?.platform_name || '').trim();
+  };
+  try {
+    const primary = await read(locale);
+    if (primary) return primary;
+    if (locale !== 'en') {
+      const fallback = await read('en');
+      if (fallback) return fallback;
+    }
+    const { data } = await supabase
+      .from('platform_branding')
+      .select('platform_name')
+      .limit(1)
+      .maybeSingle();
+    if (data?.platform_name) return String(data.platform_name).trim();
+  } catch {
+    /* branding is optional — never block delivery */
+  }
+  return 'Platform';
+}
+
+/**
  * Main email sending function.
  * Resolves provider, template, and sends email.
  * Logs all delivery attempts to email_logs.

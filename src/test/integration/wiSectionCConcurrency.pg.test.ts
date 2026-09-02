@@ -16,7 +16,7 @@
  * started, the harness waits until PostgreSQL reports them blocked on that
  * lock, and only then releases. No timing-only sleep decides the interleaving.
  */
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
 if (!DSN && process.env.REQUIRE_WI_DB === '1') {
@@ -58,6 +58,14 @@ suite('Workspace Invitations v5.1 §C.1/C.2 — acceptance concurrency, seats an
   beforeAll(async () => {
     h = await startHarness(DSN!);
   }, 300_000);
+
+  // Seat entitlement is global platform state: reset it after every case so a
+  // failure can never silently change the meaning of the next one.
+  afterEach(async () => {
+    await h.db.query(
+      `SELECT public.set_workspace_seat_entitlement_mode(_mode := 'self_host_unlimited', _source := 'test_reset')`,
+    );
+  });
 
   afterAll(async () => { if (h) await h.stop(); });
 
@@ -158,10 +166,16 @@ suite('Workspace Invitations v5.1 §C.1/C.2 — acceptance concurrency, seats an
     // No partial write survived the rejected transaction.
     expect(await h.countOf('SELECT count(*)::int AS n FROM public.workspace_members WHERE workspace_id = $1', [owner.workspaceId])).toBe(1);
     expect(await h.countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_consents WHERE invitation_id = $1', [ready.invitationId])).toBe(0);
+    // No secret was burned: nothing was consumed or revoked by the rejection.
     expect(await h.countOf(
       `SELECT count(*)::int AS n FROM public.workspace_invitation_tokens
-        WHERE invitation_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`, [ready.invitationId],
-    )).toBe(1);
+        WHERE invitation_id = $1 AND (consumed_at IS NOT NULL OR revoked_at IS NOT NULL)`, [ready.invitationId],
+    )).toBe(0);
+    expect(await h.countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_tokens
+        WHERE invitation_id = $1 AND purpose = 'manual_handoff'
+          AND consumed_at IS NULL AND revoked_at IS NULL`, [ready.invitationId],
+    )).toBeGreaterThanOrEqual(1);
     expect(await h.countOf(
       'SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency WHERE workspace_id = $1 AND operation = $2',
       [owner.workspaceId, 'accept_new'],

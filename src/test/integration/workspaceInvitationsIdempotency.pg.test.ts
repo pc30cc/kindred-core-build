@@ -328,6 +328,19 @@ async function activePolicies() {
   return { termsVersionId: pick('terms'), privacyVersionId: pick('privacy') };
 }
 
+/** Wait for the OTP mail addressed to exactly this invitee (tests share a server). */
+async function otpCodeFor(email: string): Promise<string> {
+  let hit: (typeof capturedEmails)[number] | undefined;
+  for (let i = 0; i < 100 && !hit; i += 1) {
+    hit = capturedEmails.find(
+      (e) => e.to?.toLowerCase() === email.toLowerCase() && /verification code/i.test(String(e.text)),
+    );
+    if (!hit) await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(hit, `no OTP email captured for ${email}`).toBeTruthy();
+  return String(hit!.text).match(/(\d{6})/)![1];
+}
+
 /** Ledger reader — the suite asserts on the REAL table, never on a mock. */
 async function ledger(): Promise<Array<Record<string, any>>> {
   const { rows } = await db.query('SELECT * FROM public.workspace_invitation_idempotency ORDER BY created_at');
@@ -616,15 +629,15 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
   it('CASE 8 — accept-new replay after a lost response creates no duplicate identity and re-issues a session', async () => {
     const owner = await makeOwner(`idem.c8.${Date.now()}@example.test`);
     const policies = await activePolicies();
-    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
+    const payload8 = invitePayload(owner.workspaceId);
+    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload8 });
     const token = tokenFromManualLink(created.json.manualLink);
     const invitationId = created.json.invitation.id;
 
-    capturedEmails = [];
     expect((await call('POST', '/api/workspace-invitations/otp/request', {
       body: { requestId: rid(), token, purpose: 'manual_handoff' },
     })).status).toBe(200);
-    const code = String(capturedEmails.find((e) => /verification code/i.test(String(e.text)))!.text).match(/(\d{6})/)![1];
+    const code = await otpCodeFor(String(payload8.email));
     const verify = await call('POST', '/api/workspace-invitations/otp/verify', {
       body: { requestId: rid(), token, purpose: 'manual_handoff', code },
     });
@@ -700,7 +713,6 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     const token = tokenFromManualLink(created.json.manualLink);
     const id = created.json.invitation.id;
 
-    capturedEmails = [];
     const requestId = rid();
     const first = await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId, token, purpose: 'manual_handoff' } });
     expect(first.status).toBe(200);
@@ -709,19 +721,23 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     expect(second.json.replayed).toBe(true);
 
     expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_otps WHERE invitation_id = $1', [id])).toBe(1);
-    expect(capturedEmails.filter((e) => /verification code/i.test(String(e.text)))).toHaveLength(1);
+    const inviteeEmail10 = String((await db.query('SELECT invited_email_normalized AS e FROM public.workspace_invitations WHERE id = $1', [id])).rows[0].e);
+    await otpCodeFor(inviteeEmail10);
+    expect(capturedEmails.filter(
+      (e) => e.to?.toLowerCase() === inviteeEmail10.toLowerCase() && /verification code/i.test(String(e.text)),
+    )).toHaveLength(1);
   }, 120_000);
 
   // ── 11. OTP VERIFY / LOGIN-CONTEXT RETRY ──────────────────────────────
   it('CASE 11 — OTP verify and login-context retries re-issue the identical cookie and store no raw secret', async () => {
     const owner = await makeOwner(`idem.c11.${Date.now()}@example.test`);
-    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
+    const payload11 = invitePayload(owner.workspaceId);
+    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload11 });
     const token = tokenFromManualLink(created.json.manualLink);
     const id = created.json.invitation.id;
 
-    capturedEmails = [];
     await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
-    const code = String(capturedEmails.find((e) => /verification code/i.test(String(e.text)))!.text).match(/(\d{6})/)![1];
+    const code = await otpCodeFor(String(payload11.email));
 
     const verifyRid = rid();
     const v1 = await call('POST', '/api/workspace-invitations/otp/verify', { body: { requestId: verifyRid, token, purpose: 'manual_handoff', code } });
@@ -788,9 +804,8 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
     const token = tokenFromManualLink(created.json.manualLink);
 
-    capturedEmails = [];
     await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId: rid(), token, purpose: 'manual_handoff' } });
-    const code = String(capturedEmails.find((e) => /verification code/i.test(String(e.text)))!.text).match(/(\d{6})/)![1];
+    const code = await otpCodeFor(String(payload.email));
     const verify = await call('POST', '/api/workspace-invitations/otp/verify', { body: { requestId: rid(), token, purpose: 'manual_handoff', code } });
     expect(verify.status, JSON.stringify(verify.json)).toBe(200);
     const proofCookie = cookieOf(verify, 'wi_proof')!;

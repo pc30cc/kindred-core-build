@@ -1732,6 +1732,9 @@ const en = {
     checking: 'Checking your plan\u2026',
   },
   invite: {
+    invitedBy: 'Invited by',
+    departments: 'Departments',
+    listSeparator: ', ',
     loading: 'Checking your invitation…',
     invalidBody: 'This invitation link is invalid, expired, revoked or already used. Ask your workspace administrator for a new invitation.',
     seatLimitTitle: 'No seats available',

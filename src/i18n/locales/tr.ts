@@ -1724,6 +1724,9 @@ const tr: TranslationKeys = {
     checking: 'Planınız kontrol ediliyor…',
   },
   invite: {
+    invitedBy: 'Davet eden',
+    departments: 'Departmanlar',
+    listSeparator: ', ',
     loading: 'Davetiniz kontrol ediliyor…',
     invalidBody: 'Bu davet bağlantısı geçersiz, süresi dolmuş, iptal edilmiş veya kullanılmış. Yöneticinizden yeni bir davet isteyin.',
     seatLimitTitle: 'Boş üyelik yok',

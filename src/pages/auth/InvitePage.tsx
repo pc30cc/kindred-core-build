@@ -447,7 +447,7 @@ export default function InvitePage() {
           <div>{t('invite.invitedBy')}: {preview.inviter_name}</div>
         ) : null}
         {preview?.department_names?.length ? (
-          <div>{t('invite.departments')}: {preview.department_names.join('، ')}</div>
+          <div>{t('invite.departments')}: {preview.department_names.join(t('invite.listSeparator'))}</div>
         ) : null}
         {preview?.expires_at ? (
           <div className="flex items-center gap-1">

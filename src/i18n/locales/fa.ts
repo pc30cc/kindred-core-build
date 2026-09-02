@@ -1720,6 +1720,9 @@ const fa: TranslationKeys = {
     checking: 'در حال بررسی پلن شما…',
   },
   invite: {
+    invitedBy: 'دعوت‌کننده',
+    departments: 'دپارتمان‌ها',
+    listSeparator: '، ',
     loading: 'در حال بررسی دعوت‌نامه شما…',
     invalidBody: 'این لینک دعوت نامعتبر، منقضی، لغوشده یا قبلاً استفاده شده است. از مدیر ورک‌اسپیس دعوت‌نامه جدید بخواهید.',
     seatLimitTitle: 'ظرفیت خالی نیست',

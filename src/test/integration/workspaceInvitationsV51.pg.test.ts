@@ -198,7 +198,7 @@ const app = express();
 app.use((req, _res, next) => {
   (req as any).serverConfig = {
     supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', supabaseAnonKey: 'k',
-    corsOrigins: ['*'], port: 0, rateLimitWindowMs: 60_000, rateLimitMax: 100_000,
+    corsOrigins: [baseUrl], port: 0, rateLimitWindowMs: 60_000, rateLimitMax: 100_000,
     selfHostBillingUnlimited: true,
   };
   next();
@@ -256,7 +256,6 @@ const rid = () => `req-${crypto.randomUUID()}`;
 
 async function signupAndVerify(email: string): Promise<{ cookie: string; userId: string }> {
   const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });
-  if (signup.status !== 200) console.error("SIGNUP FAIL", signup.status, JSON.stringify(signup.json));
   expect(signup.status).toBe(200);
   const sent = capturedEmails.find((e) => e.templateSlug === 'email_verify' && e.actionUrl && e.to === email);
   const token = new URL(sent!.actionUrl!).searchParams.get('token')!;

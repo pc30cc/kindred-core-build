@@ -262,7 +262,7 @@ const cookieOf = (res: Res, name: string): string | null => {
   return value ? `${name}=${value}` : null;
 };
 
-const rid = () => `req-${crypto.randomUUID()}`;
+const rid = () => crypto.randomUUID();
 
 async function signupAndVerify(email: string): Promise<{ cookie: string; userId: string }> {
   const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });

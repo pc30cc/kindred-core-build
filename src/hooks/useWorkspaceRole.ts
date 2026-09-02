@@ -18,7 +18,10 @@ export function useWorkspaceRole(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['workspace-role', workspaceId, user?.id],
     queryFn: async (): Promise<WorkspaceRole | null> => {
-      const res = await fetch(`${API_BASE}/api/workspaces/${workspaceId}/role`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/api/workspaces/${workspaceId}/role`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(body.error || `API error: ${res.status}`);

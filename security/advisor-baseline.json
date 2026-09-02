@@ -299,7 +299,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS. Part of the dormant Generic Verification Core v1 (database/migrations/098_generic_verification_core.sql) \u2014 no route or consumer is wired to it yet.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only verification-core table written exclusively by the Express backend/worker via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
+      "justification": "Server-only verification-core table written exclusively by the Express backend (synchronous, no worker) via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -312,7 +312,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS. Part of the dormant Generic Verification Core v1 (database/migrations/098_generic_verification_core.sql) \u2014 no route or consumer is wired to it yet.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only verification-core table written exclusively by the Express backend/worker via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
+      "justification": "Server-only verification-core table written exclusively by the Express backend (synchronous, no worker) via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -338,7 +338,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS. Part of the dormant Generic Verification Core v1 (database/migrations/098_generic_verification_core.sql) \u2014 no route or consumer is wired to it yet.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only verification-core table written exclusively by the Express backend/worker via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
+      "justification": "Server-only verification-core table written exclusively by the Express backend (synchronous, no worker) via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },
@@ -351,7 +351,7 @@
       "exposure": "None. The table carries no Data API grants; it is reached only by the Express server through service_role, which bypasses RLS. Part of the dormant Generic Verification Core v1 (database/migrations/098_generic_verification_core.sql) \u2014 no route or consumer is wired to it yet.",
       "intentional": true,
       "decision": "deferred-by-design",
-      "justification": "Server-only verification-core table written exclusively by the Express backend/worker via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
+      "justification": "Server-only verification-core table written exclusively by the Express backend (synchronous, no worker) via service_role; deny-by-default is intended, matching every other backend-only table in this baseline.",
       "owner": "backend/platform",
       "follow_up": "Re-evaluate only if this table is ever exposed directly to the browser."
     },

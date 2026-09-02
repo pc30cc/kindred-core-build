@@ -55,6 +55,23 @@ is what protects it once one does.
   token — still valid, still hashing to the same stored value — without the
   raw token ever having been persisted anywhere. Only `hashProofToken()`'s
   output is ever stored, in `verification_proofs.proof_hash`.
+- **Proof tokens are version-self-describing.** A raw token has the shape
+  `gvp_v<N>_<base64url-value>`, strictly validated by
+  `parseProofToken()`/`InvalidProofTokenFormatError` against
+  `/^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]+)$/`. `hashProofToken()` parses the
+  version out of the token itself rather than accepting or defaulting to an
+  externally supplied "current" version — see §Two rotation domains below
+  for why this matters for correctness across a key rotation.
+- **Proofs are bound to their verified destination, one-way only.**
+  `verification_proofs.destination_normalized`/`destination_hash`/
+  `destination_hash_key_version` are copied from the LOCKED challenge row at
+  the moment of issuance (`_gv_do_verify`), never accepted from caller input,
+  and `gv_consume_verification_proof` RETURNS this value rather than
+  accepting one. There is no field anywhere a caller could set to redirect a
+  proof issued for destination A into authorizing a mutation against
+  destination B for `signup_email`/`signup_phone`/`change_email`/
+  `change_phone` — the property is structural, not merely validated
+  (tests DB1–DB4 in `src/test/integration/genericVerificationCore.pg.test.ts`).
 
 ## Key management and rotation
 
@@ -111,6 +128,46 @@ material is cryptographically independent of Workspace Invitations v5.1's
 pepper ring and Phone Verification's key material, even if an operator
 accidentally reused an environment variable value.
 
+### Two rotation domains — rotating material vs. stable index material
+
+The rotation procedure above governs OTP codes and proof tokens — material
+that is *supposed* to move to a new key version over time. A second,
+independent category of derived material must NEVER move with that
+rotation, or every in-flight challenge, resend, and rate-limit bucket would
+silently break the moment `GENERIC_VERIFICATION_KEY_VERSION` changes:
+
+- **Rotating material**: `deriveOtpCode`/`digestOtpCode` (keyed by the
+  challenge's own recorded `key_version`) and `deriveProofToken`/
+  `hashProofToken` (keyed by the version embedded in the `gvp_v<N>_...`
+  token itself). Both always use the SPECIFIC version recorded on the row
+  or token being re-validated, never "whatever version is current right
+  now."
+- **Stable index material**: `hashDestination`, `hashSubjectRef`,
+  `hashIpForRateLimit`, `deriveIdempotencyKey`, and
+  `deriveRequestFingerprint` are all pinned to a fixed
+  `STABLE_INDEX_KEY_VERSION = 1` constant in `crypto.ts` — completely
+  decoupled from `GENERIC_VERIFICATION_KEY_VERSION`. This is deliberately
+  NOT an environment variable: changing it would require a dedicated
+  re-indexing migration to recompute every existing row's stored hash under
+  the new version, since these hashes are used as lookup/matching keys
+  (finding an existing challenge by handle+scope, matching a rate-limit
+  bucket, replaying an idempotency key), not as secrets that need periodic
+  rotation.
+
+**Why this separation is a security-relevant correctness property, not just
+an implementation detail:** without it, rotating the OTP/proof key would
+silently change what a resend or an idempotency replay hashes a
+destination/subject/IP to, causing a legitimate resend to be misclassified
+as a scope mismatch, an idempotent replay to miss its own ledger row (and
+re-execute), and — most seriously — every rate-limit bucket to reset simply
+because an operator rotated a key for unrelated cryptographic-hygiene
+reasons, defeating the abuse protection described below at the exact moment
+an operator is doing routine key maintenance. Tests KR1 (idempotent replay
+survives rotation), KR2 (a user-bound resend+verify survives rotation),
+KR5a/b/c (destination/subject/IP buckets are NOT reset by rotation) and KR6
+(removing a historical key fails closed for a still-live challenge, then
+recovers once restored) exercise this directly against a real database.
+
 ## Rate limiting and abuse prevention
 
 Enforced ATOMICALLY in the database, inside the same transaction that would
@@ -124,16 +181,32 @@ independently that they're under the cap:
 
 | Bucket | Scope | Cap |
 |---|---|---|
-| Purpose+channel | system-wide | `maxSendsPerWindow × 20` |
 | Destination | (destination hash, purpose, channel) | `maxSendsPerWindow`, plus a resend cooldown |
 | IP (collapsed) | request IP, /64-collapsed for IPv6 | `maxSendsPerWindow × 10` |
 | Subject | (subject ref hash, purpose), when bound | `maxSendsPerWindow` |
 | Workspace | (workspace id, purpose), when bound | `maxSendsPerWindow × 5` |
+| Global (purpose+channel) | system-wide, **opt-in, disabled by default** | `PurposePolicy.globalRateLimit.maxPerWindow` over `.windowSeconds`, only when a deployment explicitly configures it |
 
-Tests Z1–Z5 in `src/test/integration/genericVerificationCore.pg.test.ts` each
+Tests Z1–Z4 in `src/test/integration/genericVerificationCore.pg.test.ts` each
 fire real concurrent (`Promise.allSettled`) requests against one bucket and
 assert the cap holds EXACTLY — not "approximately," which is what a
 count-then-insert race would produce under load.
+
+**The global bucket is opt-in, not derived from the per-identifier limit —
+a P1 correctness/availability fix.** An earlier design derived the
+platform-wide (purpose+channel) cap as `maxSendsPerWindow × 20`: for a
+policy with `maxSendsPerWindow: 5`, that silently caps the ENTIRE
+platform's traffic for that purpose+channel at 100 requests/hour, and every
+unrelated request — regardless of destination, subject, or workspace —
+would contend on the SAME `pg_advisory_xact_lock`, i.e. a single global hot
+lock in the normal request path. `PurposePolicy.globalRateLimit` is now an
+explicit `{ maxPerWindow, windowSeconds } | null` field, `null` for every
+shipped policy; when `null`, `_gv_create_challenge_row` does not acquire
+that advisory lock at all. Test Z5a proves 25 concurrent requests spread
+across unrelated destinations/subjects/IPs all succeed by default — well
+past the old formula's would-be ceiling of 20 — and test Z5b proves an
+explicitly configured `globalRateLimit` still enforces its own cap
+atomically once a deployment opts in.
 
 - **Resend cooldown** (destination bucket only): checks
   `max(created_at) FOR (destination_hash, purpose, channel) > now() - cooldown`
@@ -164,6 +237,45 @@ count-then-insert race would produce under load.
   `safe_result` is the RPC's own return value, which never includes a code,
   proof token, or pepper (test case R asserts this against every table in
   the schema).
+
+## Canonical lock order — deadlock prevention
+
+`_gv_do_request`, `_gv_do_resend`, and `_gv_do_revoke` all acquire a
+workspace/scope-level row lock BEFORE any challenge-row lock, consistently.
+This matters because two of these functions run concurrently against
+different rows in the same workspace in normal operation (one member
+resending an invitation-style challenge while another member's own
+challenge is being created or revoked), and PostgreSQL's deadlock detector
+will abort one side of a genuine lock-order inversion — a real availability
+bug, not merely a theoretical one. `_gv_do_resend` previously acquired the
+challenge-row lock BEFORE the workspace lock, the reverse of
+`_gv_do_request`'s order; this has been corrected to match the single
+documented order. Tests LOCK1–LOCK3 run request-vs-resend,
+request-vs-revoke, and resend-vs-revoke concurrently (via
+`Promise.allSettled` with a bounded `statement_timeout`) against two
+DIFFERENT challenges in the same workspace and assert: no deadlock error
+from either side, no duplicate active challenge, and a consistent final
+state.
+
+## Revoke is scoped and authorized like every other mutation
+
+`revokeVerificationChallenge` previously accepted only `handle`/`purpose`/
+`reason` and executed as an implicit, unauthenticated `system` actor with no
+`assertPolicyBindings` check — meaning any caller who could reach it (once a
+route existed) could revoke any challenge by handle alone, regardless of
+workspace, subject, or channel. It now takes the same context shape as
+`verify`/`resend`: `channel`, `workspaceId`, `subjectRef`, and the
+requester's `authenticatedUserId`, and calls `assertChannelAllowed` +
+`assertPolicyBindings` before any database call. `_gv_do_revoke`
+re-validates the claimed scope under a row lock using the same NULL-safe
+`IS DISTINCT FROM` comparison style as `_gv_do_verify`; a wrong workspace,
+wrong subject, wrong channel, or an unauthenticated caller against a
+`requiresAuth` purpose all receive the identical generic rejection and
+never modify the challenge or its proof — the same "no signal leaks which
+check failed" property this document already documents for verify/consume.
+The revoke idempotency fingerprint also binds the complete claimed scope,
+not just the handle. Tests REV1–REV4 exercise the unauthenticated,
+wrong-workspace, wrong-subject, and wrong-channel cases directly.
 
 ## Database-level security posture
 

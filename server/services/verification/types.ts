@@ -66,6 +66,26 @@ export interface PurposePolicy {
   tenantBinding: 'none' | 'optional' | 'required';
   invalidatesPreviousGeneration: boolean;
   issuesProof: boolean;
+  /**
+   * An OPT-IN, explicitly configured platform-wide cap for this
+   * purpose+channel, independent of `maxSendsPerWindow` (which is a
+   * per-destination/subject/workspace limit, not a platform-wide one).
+   * `null` (the default for every shipped purpose) means NO platform-wide
+   * cap is enforced at the database layer for this purpose+channel at all
+   * — no advisory lock is even acquired in the normal request path — and
+   * platform-wide abuse control is expected to live at the infrastructure
+   * layer (a CDN/API gateway/WAF) instead. This replaces an earlier design
+   * that derived a platform-wide cap as `maxSendsPerWindow × 20` through a
+   * single shared advisory lock: that formula could cap the ENTIRE
+   * platform's traffic for a purpose at a number as low as ~100/hour, and
+   * serialized every request for that purpose+channel through one lock
+   * regardless of how many unrelated users were involved. If a deployment
+   * genuinely wants a database-enforced platform-wide ceiling for a live
+   * purpose, it must configure this field explicitly with numbers sized
+   * for that deployment's real traffic — never inferred from a
+   * per-identifier limit.
+   */
+  globalRateLimit: { maxPerWindow: number; windowSeconds: number } | null;
 }
 
 /**
@@ -83,6 +103,7 @@ export const PLATFORM_MAXIMUMS = Object.freeze({
   rateWindowSeconds: 3600,
   maxVerificationAttempts: 8,
   proofTtlSeconds: 1800,           // 30 minutes
+  globalRateLimitWindowSecondsMax: 86400, // a configured global bucket may not span more than 24h
 });
 
 function clampPolicy(p: PurposePolicy): PurposePolicy {
@@ -96,6 +117,10 @@ function clampPolicy(p: PurposePolicy): PurposePolicy {
     rateWindowSeconds: Math.min(p.rateWindowSeconds, PLATFORM_MAXIMUMS.rateWindowSeconds),
     maxVerificationAttempts: Math.min(p.maxVerificationAttempts, PLATFORM_MAXIMUMS.maxVerificationAttempts),
     proofTtlSeconds: Math.min(p.proofTtlSeconds, PLATFORM_MAXIMUMS.proofTtlSeconds),
+    globalRateLimit: p.globalRateLimit && {
+      maxPerWindow: Math.max(1, p.globalRateLimit.maxPerWindow),
+      windowSeconds: Math.min(Math.max(p.globalRateLimit.windowSeconds, 60), PLATFORM_MAXIMUMS.globalRateLimitWindowSecondsMax),
+    },
   };
 }
 
@@ -124,6 +149,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'none',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
   signup_phone: {
     enabled: false,
@@ -141,6 +167,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'none',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
   password_reset: {
     enabled: false,
@@ -158,6 +185,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'none',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
   login_step_up: {
     enabled: false,
@@ -175,6 +203,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'optional',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
   change_email: {
     enabled: false,
@@ -192,6 +221,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'none',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
   change_phone: {
     enabled: false,
@@ -209,6 +239,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'none',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
   sensitive_action: {
     enabled: false,
@@ -226,6 +257,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'required',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
   workspace_invitation: {
     // Registry placeholder only — see the type-level doc comment above.
@@ -245,6 +277,7 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     tenantBinding: 'required',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
+    globalRateLimit: null,
   },
 };
 
@@ -505,6 +538,40 @@ export interface ConsumeProofResult {
   reason?: string;
   challengeId?: string;
   subjectRef?: string;
+  /**
+   * The AUTHORITATIVE normalized destination the underlying challenge was
+   * actually verified for (email or phone, per channel) — read from the
+   * proof row itself, which is populated from the LOCKED challenge at
+   * verify-time (see `_gv_do_verify` / `verification_proofs.destination_
+   * normalized` in the migration). A future consumer MUST use this value
+   * for its own business mutation (e.g. "which email to actually set as
+   * verified") rather than trusting any client-supplied destination
+   * independently — a proof for destination A can never be used to
+   * authorize an action against destination B, because the consumer never
+   * has to (and must not) accept a destination as input at all when a
+   * verified one is available here.
+   */
+  destinationNormalized?: string;
+}
+
+/**
+ * Revocation is a privileged mutation on an EXISTING challenge and is
+ * scoped/authorized exactly like verify/resend — never accepted on
+ * `handle`+`purpose` alone. `channel`, `workspaceId`, and `subjectRef` are
+ * the caller's CLAIMED scope, re-validated server-side under a row lock
+ * against the challenge's own recorded scope (see `_gv_do_revoke`); a
+ * mismatch on any of them is rejected with the same generic failure as a
+ * non-existent handle.
+ */
+export interface RevokeChallengeInput {
+  handle: string;
+  purpose: VerificationPurpose;
+  channel: VerificationChannel;
+  reason: string;
+  workspaceId?: string;
+  subjectRef?: string;
+  idempotencyKey: string;
+  requester: { ipAddress: string | null; authenticatedUserId?: string };
 }
 
 export interface SafeVerificationStatus {

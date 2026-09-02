@@ -16,7 +16,7 @@ requestVerificationChallenge(config, input: RequestChallengeInput): Promise<Requ
 resendVerificationChallenge(config, input: ResendChallengeInput): Promise<RequestChallengeResult>
 verifyVerificationChallenge(config, input: VerifyChallengeInput): Promise<VerifyChallengeResult>
 consumeVerificationProof(config, input: ConsumeProofInput): Promise<ConsumeProofResult>
-revokeVerificationChallenge(config, input): Promise<{ ok: boolean }>
+revokeVerificationChallenge(config, input: RevokeChallengeInput): Promise<{ ok: boolean }>
 getSafeVerificationStatus(config, handle: string): Promise<SafeVerificationStatus | null>
 ```
 
@@ -55,6 +55,14 @@ generate a fresh `requestId` per logical verify attempt (e.g. a
 client-supplied request id, or one generated server-side per HTTP request)
 and reuse the SAME `requestId` on its own internal retries of that same
 logical attempt, never on a genuinely new one.
+
+`RevokeChallengeInput` takes the same shape of scope/authorization context
+as `verify`/`resend`: `handle`, `purpose`, `channel`, `reason`, optional
+`workspaceId`, optional `subjectRef`, an `idempotencyKey`, and `requester`
+(`ipAddress`, optional `authenticatedUserId`). This is checked with
+`assertChannelAllowed`/`assertPolicyBindings` and re-validated under a row
+lock at the database layer exactly like verify — a caller cannot revoke a
+challenge by handle alone without also presenting the correct scope.
 
 `verifyVerificationChallenge` returns `{ ok: false, reason }` on any failure
 (wrong code, expired, locked, revoked, wrong purpose/channel/subject/
@@ -173,6 +181,19 @@ call the business route) cannot guarantee.
 proof was issued for. A consumer does not need to re-check tenant isolation
 or purpose confusion itself — passing its own purpose/channel/workspace/
 subject is sufficient, and a mismatch fails closed with a generic reason.
+
+**Destination binding, for `signup_email`/`signup_phone`/`change_email`/
+`change_phone`.** The consume result also returns `destinationNormalized` —
+the exact destination the underlying challenge was verified for, copied
+from the locked challenge row at issuance time. A future consumer for one of
+these four purposes **must use this returned value**, never a
+client-supplied "new email"/"new phone" field from the request body, for its
+business mutation (e.g. `UPDATE profiles SET email = <destinationNormalized
+from the consume result>`, not `UPDATE profiles SET email =
+req.body.newEmail`). There is no field in `ConsumeProofInput` to pass a
+destination in, precisely so this can't be gotten wrong: a proof issued for
+destination A cannot be used to authorize a mutation to destination B, by
+construction rather than by a check that could be forgotten.
 
 ## Checklist for a future integration PR
 

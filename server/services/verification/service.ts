@@ -52,7 +52,6 @@ import { sendSms } from '../sms/index.js';
 import {
   assertChannelAllowed,
   assertPolicyBindings,
-  assertPurposeEnabled,
   VerificationPurposeDisabledError,
   VerificationScopeMismatchError,
   type ConsumeProofInput,
@@ -61,6 +60,7 @@ import {
   type RequestChallengeInput,
   type RequestChallengeResult,
   type ResendChallengeInput,
+  type RevokeChallengeInput,
   type SafeVerificationStatus,
   type VerificationLocale,
   type VerifyChallengeInput,
@@ -261,6 +261,12 @@ async function prepareRequestArgs(
       resendCooldownSeconds: policy.resendCooldownSeconds, rateWindowSeconds: policy.rateWindowSeconds,
       maxPerWindow: policy.maxSendsPerWindow, invalidatePrevious: policy.invalidatesPreviousGeneration,
       requestIpHash: requestIpHash ?? null,
+      // OPT-IN platform-wide bucket — null (the default for every shipped
+      // purpose) means _gv_create_challenge_row skips this bucket
+      // entirely, taking no lock and running no count query in the normal
+      // path. See types.ts's PurposePolicy.globalRateLimit doc comment.
+      globalMaxPerWindow: policy.globalRateLimit?.maxPerWindow ?? null,
+      globalWindowSeconds: policy.globalRateLimit?.windowSeconds ?? null,
     },
   };
 }
@@ -328,6 +334,8 @@ async function prepareResendArgs(
       maxSends: policy.maxSendsPerWindow, resendCooldownSeconds: policy.resendCooldownSeconds,
       rateWindowSeconds: policy.rateWindowSeconds, maxPerWindow: policy.maxSendsPerWindow,
       requestIpHash: requestIpHash ?? null,
+      globalMaxPerWindow: policy.globalRateLimit?.maxPerWindow ?? null,
+      globalWindowSeconds: policy.globalRateLimit?.windowSeconds ?? null,
     },
   };
 }
@@ -547,12 +555,21 @@ export async function verifyVerificationChallenge(
   const subjectRefHash = input.subjectRef ? hashSubjectRef(input.subjectRef) : undefined;
   const ipHash = input.requester.ipAddress ? hashIpForRateLimit(input.requester.ipAddress) : undefined;
 
-  const proofKeyVersion = currentVerificationKeyVersion();
+  // The proof key version is pinned to the CHALLENGE's own recorded
+  // key_version (already read above for the OTP digest) — NOT
+  // currentVerificationKeyVersion() — so a replay of this exact call after
+  // the deployment's OTP/proof rotation pointer has advanced still
+  // re-derives the IDENTICAL token. Using "current" here was the exact bug
+  // this fixes: a transport-loss replay landing after a rotation would
+  // otherwise derive a different, unrecoverable token for an
+  // already-committed proof. See crypto.ts's "TWO SEPARATE ROTATION
+  // DOMAINS" doc comment.
+  const proofKeyVersion = chal.key_version;
   const proofToken = deriveProofToken(
     { handle: input.handle, requestId: input.requestId, purpose: input.purpose, channel: input.channel },
     proofKeyVersion,
   );
-  const proofHash = hashProofToken(proofToken, proofKeyVersion);
+  const proofHash = hashProofToken(proofToken);
 
   const idempotencyKey = deriveIdempotencyKey({
     operation: 'verify', scopeKind: input.purpose, actorRef: input.requester.authenticatedUserId ?? 'anonymous', requestId: input.requestId,
@@ -573,7 +590,7 @@ export async function verifyVerificationChallenge(
     _args: {
       handle: input.handle, candidateDigest, purpose: input.purpose, channel: input.channel,
       workspaceId: input.workspaceId ?? null, subjectRefHash: subjectRefHash ?? null, ipHash: ipHash ?? null,
-      issuesProof: policy.issuesProof, proofHash, proofTtlSeconds: policy.proofTtlSeconds,
+      issuesProof: policy.issuesProof, proofHash, proofKeyVersion, proofTtlSeconds: policy.proofTtlSeconds,
     },
   });
   if (verifyError) throwForPrepareError(verifyError.message || '');
@@ -620,28 +637,58 @@ export async function consumeVerificationProof(
     _consumed_by_context: input.consumedByContext,
   });
   if (error) throw new Error(error.message);
-  const result = data as { ok: boolean; reason?: string; challengeId?: string; subjectRef?: string };
+  const result = data as { ok: boolean; reason?: string; challengeId?: string; subjectRef?: string; destinationNormalized?: string };
   if (!result.ok) return { ok: false, reason: result.reason };
-  return { ok: true, challengeId: result.challengeId, subjectRef: result.subjectRef };
+  return { ok: true, challengeId: result.challengeId, subjectRef: result.subjectRef, destinationNormalized: result.destinationNormalized };
 }
 
+/**
+ * Scoped and authorized exactly like verify/resend — NOT the bare
+ * handle+purpose+reason call this used to be. `assertChannelAllowed` and
+ * `assertPolicyBindings` run first, exactly like every other mutation, so
+ * an unauthenticated caller or one claiming the wrong subject/workspace
+ * for a `requiresAuth`/bound purpose is rejected before any database call.
+ * The idempotency fingerprint binds the COMPLETE claimed scope (handle,
+ * purpose, channel, workspaceId, subjectRefHash, reason) — not just
+ * handle+reason as before — so a retried revoke with a DIFFERENT scope
+ * claim is rejected as an idempotency conflict rather than silently
+ * reinterpreted. The actual authorization is still enforced, strictly and
+ * null-safely, by `_gv_do_revoke` under a row lock: a wrong workspace,
+ * subject, or channel gets the same generic rejection as a non-existent
+ * handle, and the challenge/proof are left untouched.
+ */
 export async function revokeVerificationChallenge(
   config: ServerConfig,
-  input: { handle: string; purpose: string; reason: string; idempotencyKey: string },
+  input: RevokeChallengeInput,
 ): Promise<{ ok: boolean }> {
-  assertPurposeEnabled(input.purpose);
+  const policy = assertChannelAllowed(input.purpose, input.channel);
+  assertPolicyBindings(input.purpose, policy, {
+    subjectRef: input.subjectRef,
+    workspaceId: input.workspaceId,
+    authenticatedUserId: input.requester.authenticatedUserId,
+  });
+
   const sb = getServiceClient(config);
-  const idempotencyKey = deriveIdempotencyKey({ operation: 'revoke', scopeKind: input.purpose, actorRef: 'system', requestId: input.idempotencyKey });
-  const fingerprint = deriveRequestFingerprint({ handle: input.handle, reason: input.reason });
+  const subjectRefHash = input.subjectRef ? hashSubjectRef(input.subjectRef) : undefined;
+  const idempotencyKey = deriveIdempotencyKey({
+    operation: 'revoke', scopeKind: input.purpose, actorRef: input.requester.authenticatedUserId ?? 'anonymous', requestId: input.idempotencyKey,
+  });
+  const fingerprint = deriveRequestFingerprint({
+    handle: input.handle, purpose: input.purpose, channel: input.channel,
+    workspaceId: input.workspaceId ?? null, subjectRefHash: subjectRefHash ?? null, reason: input.reason,
+  });
   const { data, error } = await sb.rpc('gv_execute_idempotent', {
     _key: idempotencyKey,
     _scope_kind: input.purpose,
     _operation: 'revoke',
     _request_fingerprint: fingerprint,
     _purpose: input.purpose,
-    _workspace_id: null,
-    _actor_ref_hash: null,
-    _args: { handle: input.handle, reason: input.reason },
+    _workspace_id: input.workspaceId ?? null,
+    _actor_ref_hash: subjectRefHash ?? null,
+    _args: {
+      handle: input.handle, purpose: input.purpose, channel: input.channel,
+      workspaceId: input.workspaceId ?? null, subjectRefHash: subjectRefHash ?? null, reason: input.reason,
+    },
   });
   if (error) throwForPrepareError(error.message || '');
   const outcome = data as { replayed: boolean; result: Record<string, unknown> };

@@ -187,6 +187,33 @@ function extractCode(text: string): string {
   return m[1];
 }
 
+/**
+ * Runs `fn` under a temporarily rotated pepper ring/current-version, and
+ * ALWAYS restores the exact prior env state afterward — including when
+ * `fn` throws or an assertion inside it fails. Rotation tests mutate
+ * process-global env vars read by every OTHER test in this file; without
+ * a try/finally here, a failing assertion partway through one rotation
+ * test would leave the ring rotated for every test that runs after it,
+ * turning one real failure into a cascade of unrelated-looking ones.
+ */
+async function withKeyRotation<T>(ring: Record<string, string | undefined>, version: string, fn: () => Promise<T>): Promise<T> {
+  const { __resetVerificationCryptoCacheForTests } = await import('../../../server/services/verification/crypto');
+  const prevRing = process.env.GENERIC_VERIFICATION_PEPPER_RING;
+  const prevVersion = process.env.GENERIC_VERIFICATION_KEY_VERSION;
+  const prevPepper = process.env.GENERIC_VERIFICATION_PEPPER;
+  process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify(ring);
+  process.env.GENERIC_VERIFICATION_KEY_VERSION = version;
+  __resetVerificationCryptoCacheForTests();
+  try {
+    return await fn();
+  } finally {
+    if (prevRing === undefined) delete process.env.GENERIC_VERIFICATION_PEPPER_RING; else process.env.GENERIC_VERIFICATION_PEPPER_RING = prevRing;
+    if (prevVersion === undefined) delete process.env.GENERIC_VERIFICATION_KEY_VERSION; else process.env.GENERIC_VERIFICATION_KEY_VERSION = prevVersion;
+    if (prevPepper === undefined) delete process.env.GENERIC_VERIFICATION_PEPPER; else process.env.GENERIC_VERIFICATION_PEPPER = prevPepper;
+    __resetVerificationCryptoCacheForTests();
+  }
+}
+
 async function insertWorkspace(): Promise<{ workspaceId: string; ownerId: string }> {
   const workspaceId = randomUUID();
   const email = `owner-${workspaceId}@example.test`;
@@ -330,15 +357,22 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       subjectKind: 'pending_account' as const, idempotencyKey, requester: { ipAddress: '203.0.113.2' },
     };
 
-    const [r1, r2, r3] = await Promise.all([
+    const settled = await Promise.allSettled([
       svc.requestVerificationChallenge(config, input),
       svc.requestVerificationChallenge(config, input),
       svc.requestVerificationChallenge(config, input),
     ]);
-    expect(r1.handle).toBe(r2.handle);
-    expect(r2.handle).toBe(r3.handle);
+    const fulfilled = settled.filter((s): s is PromiseFulfilledResult<Awaited<ReturnType<typeof svc.requestVerificationChallenge>>> => s.status === 'fulfilled');
+    const rejected = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    for (const r of rejected) {
+      expect((r.reason as { name?: string })?.name).toBe('VerificationAlreadyInFlightError');
+    }
+    const handles = new Set(fulfilled.map((f) => f.value.handle));
+    expect(handles.size).toBe(1);
+    const [handle] = handles;
 
-    const rows = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges WHERE handle = $1`, [r1.handle]);
+    const rows = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges WHERE handle = $1`, [handle]);
     expect(rows.rows[0].n).toBe(1);
     expect(smsSendMock.mock.calls.length).toBeLessThanOrEqual(1);
   });
@@ -441,7 +475,10 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230106', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.7' },
     });
-    const revoked = await svc.revokeVerificationChallenge(config, { handle: req.handle, purpose: 'signup_phone', reason: 'test_revoke', idempotencyKey: newIdempotencyKey() });
+    const revoked = await svc.revokeVerificationChallenge(config, {
+      handle: req.handle, purpose: 'signup_phone', channel: 'sms', reason: 'test_revoke',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.7' },
+    });
     expect(revoked.ok).toBe(true);
 
     const result = await svc.verifyVerificationChallenge(config, {
@@ -1228,20 +1265,44 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     expect(succeeded).toBe(5);
   });
 
-  it('Z5 (purpose+channel bucket): concurrent requests across many distinct destinations/IPs/subjects for the SAME purpose+channel are capped atomically at maxPerWindow*20', async () => {
+  it('Z5a (purpose+channel bucket, item 5/P1): by default (globalRateLimit: null), ordinary requests across many unrelated users are NOT capped at maxSendsPerWindow*20 or at all — no platform-wide hot lock in the normal path', async () => {
     __setPurposePolicyOverrideForTests('change_email', { enabled: true, maxSendsPerWindow: 1 }); // dedicated purpose — never used elsewhere in this file
-    const N = 25; // cap = 1*20 = 20
+    const N = 25; // the OLD formula would have capped this purpose+channel at 1*20 = 20
     const results = await Promise.allSettled(
       Array.from({ length: N }, (_, i) => {
         const subjectId = randomUUID();
         return svc.requestVerificationChallenge(config, {
-          purpose: 'change_email', channel: 'email', destination: `z5-${i}@example.test`, subjectKind: 'user',
+          purpose: 'change_email', channel: 'email', destination: `z5a-${i}@example.test`, subjectKind: 'user',
           subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: `203.0.113.${100 + i}`, authenticatedUserId: subjectId },
         });
       }),
     );
     const succeeded = results.filter((r) => r.status === 'fulfilled').length;
-    expect(succeeded).toBe(20);
+    // Every one succeeds — 25 unrelated destinations/subjects/IPs, well
+    // above the old *20 ceiling, none of them sharing a destination,
+    // subject, or workspace bucket with any other.
+    expect(succeeded).toBe(N);
+  });
+
+  it('Z5b (purpose+channel bucket, item 5/P1 opt-in): an EXPLICITLY configured globalRateLimit still enforces its own cap atomically when a deployment opts in', async () => {
+    __setPurposePolicyOverrideForTests('password_reset', {
+      enabled: true,
+      globalRateLimit: { maxPerWindow: 3, windowSeconds: 3600 },
+    }); // dedicated purpose+channel — the ONLY other use of password_reset (X1) is
+    // rejected at the DB layer before any challenge row is written, so this
+    // bucket starts genuinely empty regardless of test execution order.
+    const N = 10;
+    const results = await Promise.allSettled(
+      Array.from({ length: N }, (_, i) => {
+        const subjectId = randomUUID();
+        return svc.requestVerificationChallenge(config, {
+          purpose: 'password_reset', channel: 'email', destination: `z5b-${i}@example.test`, subjectKind: 'user',
+          subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: `203.0.113.${130 + i}` },
+        });
+      }),
+    );
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    expect(succeeded).toBe(3);
   });
 
   // ── BB. provider-captured OTP (item 7) ──────────────────────────────────
@@ -1432,5 +1493,491 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
 
     const chal = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges WHERE destination_normalized = 'dd2@example.test'`);
     expect(chal.rows[0].n).toBe(0);
+  });
+
+  // ── KR. key-rotation correctness (P0 item 1) ────────────────────────────
+  // Every test below rotates GENERIC_VERIFICATION_KEY_VERSION mid-test and
+  // proves something that a "recompute with whatever version is current"
+  // bug would break: idempotency-key/fingerprint stability, rate-limit
+  // bucket hash stability, proof-token identity across a transport-loss
+  // replay, and fail-closed behavior when a historical key is genuinely
+  // removed (not merely superseded).
+  it('KR1: a request replayed with the SAME idempotencyKey AFTER a key rotation returns the ORIGINAL challenge and sends nothing again', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const idempotencyKey = newIdempotencyKey();
+    const destination = '09121230170';
+    const first = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination, subjectKind: 'pending_account',
+      idempotencyKey, requester: { ipAddress: '203.0.113.140' },
+    });
+    expect(smsSendMock).toHaveBeenCalledTimes(1);
+
+    await withKeyRotation({ 1: process.env.GENERIC_VERIFICATION_PEPPER!, 2: 'kr1-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+      // If deriveIdempotencyKey used the CURRENT (now rotated) version
+      // instead of the stable index version, this would compute a
+      // DIFFERENT ledger key than the original call, find no matching
+      // row, and send a SECOND, duplicate code.
+      const replayed = await svc.requestVerificationChallenge(config, {
+        purpose: 'signup_phone', channel: 'sms', destination, subjectKind: 'pending_account',
+        idempotencyKey, requester: { ipAddress: '203.0.113.140' },
+      });
+      expect(replayed.handle).toBe(first.handle);
+      expect(smsSendMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('KR2: a user-bound (subjectRef) challenge can be resent and then verified correctly AFTER a key rotation', async () => {
+    __setPurposePolicyOverrideForTests('login_step_up', { enabled: true });
+    const { workspaceId, ownerId: subjectId } = await insertWorkspace();
+    emailSendMock.mockResolvedValue({ success: true, provider: 'resend', id: 'kr2-msg' });
+    const first = await svc.requestVerificationChallenge(config, {
+      purpose: 'login_step_up', channel: 'email', destination: 'kr2@example.test', subjectKind: 'user',
+      subjectRef: subjectId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.141', authenticatedUserId: subjectId },
+    });
+    await db.query(`UPDATE public.verification_challenges SET created_at = now() - interval '90 seconds' WHERE handle = $1`, [first.handle]);
+
+    await withKeyRotation({ 1: process.env.GENERIC_VERIFICATION_PEPPER!, 2: 'kr2-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+      // If subjectRefHash were derived from the CURRENT (rotated)
+      // version, this resend would find a stable-index mismatch against
+      // the row's ORIGINAL subject_ref_hash and be wrongly rejected as a
+      // scope mismatch, even though the caller presents the correct
+      // subject.
+      const second = await svc.resendVerificationChallenge(config, {
+        handle: first.handle, purpose: 'login_step_up', channel: 'email', subjectKind: 'user',
+        subjectRef: subjectId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.141', authenticatedUserId: subjectId },
+      });
+      expect(second.generation).toBe(first.generation + 1);
+      const capturedCode = extractCode(String(emailSendMock.mock.calls.at(-1)?.[1]?.text ?? ''));
+
+      const verified = await svc.verifyVerificationChallenge(config, {
+        handle: second.handle, code: capturedCode, purpose: 'login_step_up', channel: 'email', workspaceId, subjectRef: subjectId,
+        requestId: newRequestId(), requester: { ipAddress: '203.0.113.141', authenticatedUserId: subjectId },
+      });
+      expect(verified.ok).toBe(true);
+    });
+  });
+
+  it('KR3: a verify transport-loss replay AFTER a key rotation still returns the IDENTICAL, still-consumable raw proof token', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '09121230171', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.142' },
+    });
+    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const requestId = newRequestId();
+
+    forceVerifyResponseLossOnce = true;
+    await expect(
+      svc.verifyVerificationChallenge(config, { handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId, requester: { ipAddress: '203.0.113.142' } }),
+    ).rejects.toThrow(/SIMULATED_TRANSPORT_LOSS_AFTER_VERIFY_COMMIT/);
+
+    // Rotate BETWEEN the lost response and the caller's retry.
+    await withKeyRotation({ 1: process.env.GENERIC_VERIFICATION_PEPPER!, 2: 'kr3-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+      const retried = await svc.verifyVerificationChallenge(config, { handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId, requester: { ipAddress: '203.0.113.142' } });
+      expect(retried.ok).toBe(true);
+      expect(retried.proofToken).toBeTruthy();
+
+      // Successfully consuming it IS the proof of identity: if the
+      // re-derived token differed even by one byte from what was
+      // committed by the FIRST (lost-response) call, its hash would not
+      // match the stored proof_hash and this would fail with 'not_found'.
+      const consumed = await svc.consumeVerificationProof(config, { proofToken: retried.proofToken!, purpose: 'signup_phone', channel: 'sms', consumedByContext: 'test' });
+      expect(consumed.ok).toBe(true);
+    });
+  });
+
+  it('KR4: a proof issued BEFORE a key rotation can still be consumed AFTER it', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '09121230172', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.143' },
+    });
+    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const verified = await svc.verifyVerificationChallenge(config, {
+      handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId: newRequestId(), requester: { ipAddress: '203.0.113.143' },
+    });
+    expect(verified.ok).toBe(true);
+    const proofToken = verified.proofToken!;
+    expect(proofToken).toMatch(/^gvp_v1_/); // issued under key v1
+
+    await withKeyRotation({ 1: process.env.GENERIC_VERIFICATION_PEPPER!, 2: 'kr4-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+      // hashProofToken parses "v1" from the token itself and hashes under
+      // v1 regardless of the fact that "current" is now v2 — this is the
+      // exact bug an unversioned/current-defaulted hash would fail on.
+      const consumed = await svc.consumeVerificationProof(config, { proofToken, purpose: 'signup_phone', channel: 'sms', consumedByContext: 'test' });
+      expect(consumed.ok).toBe(true);
+    });
+  });
+
+  it('KR5a: the DESTINATION rate-limit bucket is not reset merely by rotating the OTP key', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const destination = '09121230173';
+    await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination, subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.144' },
+    });
+
+    await withKeyRotation({ 1: process.env.GENERIC_VERIFICATION_PEPPER!, 2: 'kr5a-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+      await expect(
+        svc.requestVerificationChallenge(config, {
+          purpose: 'signup_phone', channel: 'sms', destination, subjectKind: 'pending_account',
+          idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.144' },
+        }),
+      ).rejects.toBeInstanceOf(svc.VerificationRateLimitedError);
+    });
+  });
+
+  it('KR5b: the SUBJECT rate-limit bucket is not reset merely by rotating the OTP key', async () => {
+    __setPurposePolicyOverrideForTests('login_step_up', { enabled: true, maxSendsPerWindow: 1 });
+    const subjectId = randomUUID();
+    await svc.requestVerificationChallenge(config, {
+      purpose: 'login_step_up', channel: 'email', destination: 'kr5b-a@example.test', subjectKind: 'user',
+      subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.150', authenticatedUserId: subjectId },
+    });
+
+    await withKeyRotation({ 1: process.env.GENERIC_VERIFICATION_PEPPER!, 2: 'kr5b-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+      await expect(
+        svc.requestVerificationChallenge(config, {
+          purpose: 'login_step_up', channel: 'email', destination: 'kr5b-b@example.test', subjectKind: 'user',
+          subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.151', authenticatedUserId: subjectId },
+        }),
+      ).rejects.toBeInstanceOf(svc.VerificationRateLimitedError);
+    });
+  });
+
+  it('KR5c: the IP rate-limit bucket is not reset merely by rotating the OTP key', async () => {
+    __setPurposePolicyOverrideForTests('change_phone', { enabled: true, maxSendsPerWindow: 1 }); // IP cap = 1*10 = 10
+    const ip = '203.0.113.160';
+    for (let i = 0; i < 10; i++) {
+      const subjectId = randomUUID();
+      await svc.requestVerificationChallenge(config, {
+        purpose: 'change_phone', channel: 'sms', destination: `0912123${String(1600 + i).padStart(4, '0')}`, subjectKind: 'user',
+        subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: ip, authenticatedUserId: subjectId },
+      });
+    }
+
+    await withKeyRotation({ 1: process.env.GENERIC_VERIFICATION_PEPPER!, 2: 'kr5c-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+      const subjectId = randomUUID();
+      await expect(
+        svc.requestVerificationChallenge(config, {
+          purpose: 'change_phone', channel: 'sms', destination: '09121231699', subjectKind: 'user',
+          subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: ip, authenticatedUserId: subjectId },
+        }),
+      ).rejects.toBeInstanceOf(svc.VerificationRateLimitedError);
+    });
+  });
+
+  it('KR6: removing a historical key fails CLOSED for a still-live challenge under it, and recovers once the key is restored', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const { __resetVerificationCryptoCacheForTests } = await import('../../../server/services/verification/crypto');
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '09121230180', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.170' },
+    });
+    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const originalPepper = process.env.GENERIC_VERIFICATION_PEPPER!;
+
+    // Genuinely REMOVE v1 (not merely supersede it) — GENERIC_VERIFICATION_PEPPER
+    // is deleted OUTSIDE withKeyRotation's own tracking (it only manages the
+    // RING/VERSION vars), so this test owns restoring it itself in a
+    // try/finally — otherwise a mid-test throw would leak "no pepper
+    // configured at all" into every later test in the file.
+    delete process.env.GENERIC_VERIFICATION_PEPPER;
+    try {
+      await withKeyRotation({ 2: 'kr6-second-ring-key-value-at-least-32-bytes!!' }, '2', async () => {
+        // The still-live v1 challenge fails CLOSED — a loud, specific
+        // error — never a silent fallback to v2 (which would just look
+        // like an ordinary wrong-code response and could mask an
+        // operational mistake).
+        await expect(
+          svc.verifyVerificationChallenge(config, {
+            handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId: newRequestId(), requester: { ipAddress: '203.0.113.170' },
+          }),
+        ).rejects.toThrow(/No pepper available for key version 1/);
+
+        // Restore v1 WITHIN the rotated scope — the SAME challenge now
+        // verifies fine, proving the failure above was purely about key
+        // availability, not a corrupted or already-consumed challenge.
+        process.env.GENERIC_VERIFICATION_PEPPER = originalPepper;
+        process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({ 1: originalPepper, 2: 'kr6-second-ring-key-value-at-least-32-bytes!!' });
+        __resetVerificationCryptoCacheForTests();
+        const recovered = await svc.verifyVerificationChallenge(config, {
+          handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId: newRequestId(), requester: { ipAddress: '203.0.113.170' },
+        });
+        expect(recovered.ok).toBe(true);
+      });
+    } finally {
+      process.env.GENERIC_VERIFICATION_PEPPER = originalPepper;
+      __resetVerificationCryptoCacheForTests();
+    }
+  });
+
+  // ── DB. proofs are bound to the verified destination (P0 item 2) ───────
+  it('DB1 (signup_email): a proof returns EXACTLY the destination it was verified for — never a different one — and consume takes no destination input at all', async () => {
+    __setPurposePolicyOverrideForTests('signup_email', { enabled: true });
+    platformEmailSendMock.mockResolvedValueOnce({ success: true, provider: 'resend', id: 'db1-msg' });
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_email', channel: 'email', destination: 'db1-real@example.test', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.180' },
+    });
+    const capturedCode = extractCode(String(platformEmailSendMock.mock.calls.at(-1)?.[1]?.text ?? ''));
+    const verified = await svc.verifyVerificationChallenge(config, {
+      handle: req.handle, code: capturedCode, purpose: 'signup_email', channel: 'email',
+      requestId: newRequestId(), requester: { ipAddress: '203.0.113.180' },
+    });
+    expect(verified.ok).toBe(true);
+
+    const consumed = await svc.consumeVerificationProof(config, {
+      proofToken: verified.proofToken!, purpose: 'signup_email', channel: 'email', consumedByContext: 'test',
+    });
+    expect(consumed.ok).toBe(true);
+    expect(consumed.destinationNormalized).toBe('db1-real@example.test');
+    expect(consumed.destinationNormalized).not.toBe('attacker-b@example.test');
+  });
+
+  it('DB2 (signup_phone): a proof returns EXACTLY the destination it was verified for — never a different one', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '09121230190', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.181' },
+    });
+    const capturedCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const verified = await svc.verifyVerificationChallenge(config, {
+      handle: req.handle, code: capturedCode, purpose: 'signup_phone', channel: 'sms',
+      requestId: newRequestId(), requester: { ipAddress: '203.0.113.181' },
+    });
+    expect(verified.ok).toBe(true);
+
+    const consumed = await svc.consumeVerificationProof(config, {
+      proofToken: verified.proofToken!, purpose: 'signup_phone', channel: 'sms', consumedByContext: 'test',
+    });
+    expect(consumed.ok).toBe(true);
+    expect(consumed.destinationNormalized).toBe('+989121230190');
+    expect(consumed.destinationNormalized).not.toBe('+989121230199');
+  });
+
+  it('DB3 (change_email): a proof returns EXACTLY the destination it was verified for — never a different (attacker-supplied) one', async () => {
+    __setPurposePolicyOverrideForTests('change_email', { enabled: true });
+    const subjectId = randomUUID();
+    // change_email has tenantBinding: 'none', so it can never carry a
+    // workspaceId — sendOtpDirect always routes it through the
+    // workspace-less platform provider, never the tenant `sendEmail`.
+    platformEmailSendMock.mockResolvedValueOnce({ success: true, provider: 'resend', id: 'db3-msg' });
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'change_email', channel: 'email', destination: 'db3-new-real@example.test', subjectKind: 'user',
+      subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.182', authenticatedUserId: subjectId },
+    });
+    const capturedCode = extractCode(String(platformEmailSendMock.mock.calls.at(-1)?.[1]?.text ?? ''));
+    const verified = await svc.verifyVerificationChallenge(config, {
+      handle: req.handle, code: capturedCode, purpose: 'change_email', channel: 'email', subjectRef: subjectId,
+      requestId: newRequestId(), requester: { ipAddress: '203.0.113.182', authenticatedUserId: subjectId },
+    });
+    expect(verified.ok).toBe(true);
+
+    const consumed = await svc.consumeVerificationProof(config, {
+      proofToken: verified.proofToken!, purpose: 'change_email', channel: 'email', subjectRef: subjectId,
+      authenticatedUserId: subjectId, consumedByContext: 'test',
+    });
+    expect(consumed.ok).toBe(true);
+    // The value a consumer MUST use for its business mutation is exactly
+    // this — there is no `destination`/`newEmail` field anywhere in
+    // ConsumeProofInput a client could set to redirect this to a
+    // different address.
+    expect(consumed.destinationNormalized).toBe('db3-new-real@example.test');
+    expect(consumed.destinationNormalized).not.toBe('attacker-controlled@example.test');
+  });
+
+  it('DB4 (change_phone): a proof returns EXACTLY the destination it was verified for — never a different (attacker-supplied) one', async () => {
+    __setPurposePolicyOverrideForTests('change_phone', { enabled: true });
+    const subjectId = randomUUID();
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'change_phone', channel: 'sms', destination: '09121230195', subjectKind: 'user',
+      subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.183', authenticatedUserId: subjectId },
+    });
+    const capturedCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const verified = await svc.verifyVerificationChallenge(config, {
+      handle: req.handle, code: capturedCode, purpose: 'change_phone', channel: 'sms', subjectRef: subjectId,
+      requestId: newRequestId(), requester: { ipAddress: '203.0.113.183', authenticatedUserId: subjectId },
+    });
+    expect(verified.ok).toBe(true);
+
+    const consumed = await svc.consumeVerificationProof(config, {
+      proofToken: verified.proofToken!, purpose: 'change_phone', channel: 'sms', subjectRef: subjectId,
+      authenticatedUserId: subjectId, consumedByContext: 'test',
+    });
+    expect(consumed.ok).toBe(true);
+    expect(consumed.destinationNormalized).toBe('+989121230195');
+    expect(consumed.destinationNormalized).not.toBe('+989121230199');
+  });
+
+  // ── LOCK. canonical lock order — no deadlock (P0 item 3) ────────────────
+  it('LOCK1 (request-vs-resend): concurrent request and resend on DIFFERENT challenges in the SAME workspace never deadlock, and both settle with a consistent final state', async () => {
+    __setPurposePolicyOverrideForTests('sensitive_action', { enabled: true });
+    const { workspaceId, ownerId } = await insertWorkspace();
+    const existing = await svc.requestVerificationChallenge(config, {
+      purpose: 'sensitive_action', channel: 'email', destination: 'lock1-existing@example.test', subjectKind: 'user',
+      subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.190', authenticatedUserId: ownerId },
+    });
+    await db.query(`UPDATE public.verification_challenges SET created_at = now() - interval '90 seconds' WHERE handle = $1`, [existing.handle]);
+
+    const [freshResult, resendResult] = await Promise.allSettled([
+      svc.requestVerificationChallenge(config, {
+        purpose: 'sensitive_action', channel: 'email', destination: 'lock1-fresh@example.test', subjectKind: 'user',
+        subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.190', authenticatedUserId: ownerId },
+      }),
+      svc.resendVerificationChallenge(config, {
+        handle: existing.handle, purpose: 'sensitive_action', channel: 'email', subjectKind: 'user',
+        subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.190', authenticatedUserId: ownerId },
+      }),
+    ]);
+
+    for (const r of [freshResult, resendResult]) {
+      if (r.status === 'rejected') {
+        expect(String((r.reason as Error)?.message ?? r.reason)).not.toMatch(/deadlock/i);
+      }
+    }
+    expect(freshResult.status).toBe('fulfilled');
+    expect(resendResult.status).toBe('fulfilled');
+
+    const freshRows = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges WHERE destination_normalized = 'lock1-fresh@example.test'`);
+    expect(freshRows.rows[0].n).toBe(1);
+    const activeForExisting = await db.query(
+      `SELECT count(*)::int AS n FROM public.verification_challenges WHERE workspace_id = $1 AND destination_normalized = 'lock1-existing@example.test' AND status IN ('pending_delivery','provider_accepted')`,
+      [workspaceId],
+    );
+    expect(activeForExisting.rows[0].n).toBe(1); // never two simultaneously-active generations
+  });
+
+  it('LOCK2 (request-vs-revoke): concurrent request and revoke on DIFFERENT challenges in the SAME workspace never deadlock', async () => {
+    __setPurposePolicyOverrideForTests('sensitive_action', { enabled: true });
+    const { workspaceId, ownerId } = await insertWorkspace();
+    const toRevoke = await svc.requestVerificationChallenge(config, {
+      purpose: 'sensitive_action', channel: 'email', destination: 'lock2-revoke@example.test', subjectKind: 'user',
+      subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.191', authenticatedUserId: ownerId },
+    });
+
+    const [freshResult, revokeResult] = await Promise.allSettled([
+      svc.requestVerificationChallenge(config, {
+        purpose: 'sensitive_action', channel: 'email', destination: 'lock2-fresh@example.test', subjectKind: 'user',
+        subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.191', authenticatedUserId: ownerId },
+      }),
+      svc.revokeVerificationChallenge(config, {
+        handle: toRevoke.handle, purpose: 'sensitive_action', channel: 'email', workspaceId, subjectRef: ownerId,
+        reason: 'lock_test', idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.191', authenticatedUserId: ownerId },
+      }),
+    ]);
+
+    for (const r of [freshResult, revokeResult]) {
+      if (r.status === 'rejected') {
+        expect(String((r.reason as Error)?.message ?? r.reason)).not.toMatch(/deadlock/i);
+      }
+    }
+    expect(freshResult.status).toBe('fulfilled');
+    expect(revokeResult.status).toBe('fulfilled');
+    if (revokeResult.status === 'fulfilled') expect((revokeResult.value as { ok: boolean }).ok).toBe(true);
+
+    const revokedRow = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [toRevoke.handle]);
+    expect(revokedRow.rows[0].status).toBe('revoked');
+  });
+
+  it('LOCK3 (resend-vs-revoke): concurrent resend and revoke on DIFFERENT challenges in the SAME workspace never deadlock', async () => {
+    __setPurposePolicyOverrideForTests('sensitive_action', { enabled: true });
+    const { workspaceId, ownerId } = await insertWorkspace();
+    const toResend = await svc.requestVerificationChallenge(config, {
+      purpose: 'sensitive_action', channel: 'email', destination: 'lock3-resend@example.test', subjectKind: 'user',
+      subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.192', authenticatedUserId: ownerId },
+    });
+    await db.query(`UPDATE public.verification_challenges SET created_at = now() - interval '90 seconds' WHERE handle = $1`, [toResend.handle]);
+    const toRevoke = await svc.requestVerificationChallenge(config, {
+      purpose: 'sensitive_action', channel: 'email', destination: 'lock3-revoke@example.test', subjectKind: 'user',
+      subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.192', authenticatedUserId: ownerId },
+    });
+
+    const [resendResult, revokeResult] = await Promise.allSettled([
+      svc.resendVerificationChallenge(config, {
+        handle: toResend.handle, purpose: 'sensitive_action', channel: 'email', subjectKind: 'user',
+        subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.192', authenticatedUserId: ownerId },
+      }),
+      svc.revokeVerificationChallenge(config, {
+        handle: toRevoke.handle, purpose: 'sensitive_action', channel: 'email', workspaceId, subjectRef: ownerId,
+        reason: 'lock_test', idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.192', authenticatedUserId: ownerId },
+      }),
+    ]);
+
+    for (const r of [resendResult, revokeResult]) {
+      if (r.status === 'rejected') {
+        expect(String((r.reason as Error)?.message ?? r.reason)).not.toMatch(/deadlock/i);
+      }
+    }
+    expect(resendResult.status).toBe('fulfilled');
+    expect(revokeResult.status).toBe('fulfilled');
+  });
+
+  // ── REV. revoke scoping and authorization (P0 item 4) ───────────────────
+  it('REV1: revoke rejects an unauthenticated requester for a requiresAuth purpose before any database write, and never modifies the challenge', async () => {
+    __setPurposePolicyOverrideForTests('login_step_up', { enabled: true });
+    const subjectId = randomUUID();
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'login_step_up', channel: 'email', destination: 'rev1@example.test', subjectKind: 'user',
+      subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.200', authenticatedUserId: subjectId },
+    });
+    await expect(
+      svc.revokeVerificationChallenge(config, {
+        handle: req.handle, purpose: 'login_step_up', channel: 'email', subjectRef: subjectId,
+        reason: 'test', idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.200' },
+      }),
+    ).rejects.toThrow(/authenticated requester/i);
+    const row = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    expect(row.rows[0].status).not.toBe('revoked');
+  });
+
+  it('REV2: revoke claiming the WRONG workspace is rejected with the same generic failure as a non-existent handle, and never modifies the challenge', async () => {
+    __setPurposePolicyOverrideForTests('sensitive_action', { enabled: true });
+    const { workspaceId: wsA, ownerId } = await insertWorkspace();
+    const { workspaceId: wsB } = await insertWorkspace();
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'sensitive_action', channel: 'email', destination: 'rev2@example.test', subjectKind: 'user',
+      subjectRef: ownerId, workspaceId: wsA, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.201', authenticatedUserId: ownerId },
+    });
+    const revoked = await svc.revokeVerificationChallenge(config, {
+      handle: req.handle, purpose: 'sensitive_action', channel: 'email', workspaceId: wsB, subjectRef: ownerId,
+      reason: 'test', idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.201', authenticatedUserId: ownerId },
+    });
+    expect(revoked.ok).toBe(false);
+    const row = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    expect(row.rows[0].status).not.toBe('revoked');
+  });
+
+  it('REV3: revoke claiming the WRONG subject is rejected the same way, and never modifies the challenge', async () => {
+    __setPurposePolicyOverrideForTests('login_step_up', { enabled: true });
+    const subjectA = randomUUID();
+    const subjectB = randomUUID();
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'login_step_up', channel: 'email', destination: 'rev3@example.test', subjectKind: 'user',
+      subjectRef: subjectA, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.202', authenticatedUserId: subjectA },
+    });
+    const revoked = await svc.revokeVerificationChallenge(config, {
+      handle: req.handle, purpose: 'login_step_up', channel: 'email', subjectRef: subjectB,
+      reason: 'test', idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.202', authenticatedUserId: subjectB },
+    });
+    expect(revoked.ok).toBe(false);
+    const row = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    expect(row.rows[0].status).not.toBe('revoked');
+  });
+
+  it('REV4: revoke claiming the WRONG channel is rejected the same way, and never modifies the challenge', async () => {
+    __setPurposePolicyOverrideForTests('sensitive_action', { enabled: true }); // allows both email and sms
+    const { workspaceId, ownerId } = await insertWorkspace();
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'sensitive_action', channel: 'email', destination: 'rev4@example.test', subjectKind: 'user',
+      subjectRef: ownerId, workspaceId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.203', authenticatedUserId: ownerId },
+    });
+    const revoked = await svc.revokeVerificationChallenge(config, {
+      handle: req.handle, purpose: 'sensitive_action', channel: 'sms', workspaceId, subjectRef: ownerId,
+      reason: 'test', idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.203', authenticatedUserId: ownerId },
+    });
+    expect(revoked.ok).toBe(false);
+    const row = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    expect(row.rows[0].status).not.toBe('revoked');
   });
 });

@@ -35,6 +35,47 @@
  * key recorded on the row, never the newest. An unavailable historical key
  * (rotated out of the ring too early) fails closed
  * (`DerivationKeyUnavailableError`), never falls back to the current key.
+ *
+ * TWO SEPARATE ROTATION DOMAINS — do not conflate them:
+ *
+ *   1. ROTATING material (OTP codes, proof tokens): keyed by whatever
+ *      version is recorded on the specific challenge/proof at the moment it
+ *      was created — `deriveOtpCode`/`digestOtpCode`/`candidateOtpDigest`
+ *      take an explicit `keyVersion` argument (the challenge's own
+ *      `key_version` column), and `deriveProofToken`/`hashProofToken`
+ *      embed their version directly IN the token
+ *      (`gvp_v<N>_<value>` — see §Proof derivation below) and parse it back
+ *      out rather than trusting whatever version happens to be "current"
+ *      at the moment of a later call. `GENERIC_VERIFICATION_KEY_VERSION`
+ *      only ever affects what NEW challenges/proofs are created under —
+ *      it must never be consulted when recomputing a digest for an
+ *      EXISTING row, or every outstanding challenge/proof breaks the
+ *      instant an operator rotates the "current" pointer.
+ *
+ *   2. STABLE INDEX material (destination hash, subject-ref hash, IP
+ *      rate-limit bucket hash, idempotency key, request fingerprint): these
+ *      are used to LOOK UP and MATCH existing rows (`WHERE destination_hash
+ *      = $1`, `WHERE key = $1`, rate-limit bucket counts, a retried
+ *      request's idempotency key) — they must be byte-identical every time
+ *      the same logical input is hashed, REGARDLESS of how many times the
+ *      OTP/proof "current version" has advanced in between. They are
+ *      therefore pinned to `STABLE_INDEX_KEY_VERSION` (see below), which is
+ *      independent of `GENERIC_VERIFICATION_KEY_VERSION` and does NOT
+ *      change when the OTP/proof rotation pointer changes.
+ *
+ * Rotating the STABLE index key itself (as opposed to the OTP/proof
+ * rotation pointer) is a fundamentally different, much rarer operation — it
+ * requires a dedicated re-indexing migration that recomputes every stored
+ * `destination_hash`/`subject_ref_hash`/idempotency `key` under the new
+ * index version, because those values are used as lookup keys, not just
+ * verified against a stored copy. `STABLE_INDEX_KEY_VERSION` is a source
+ * constant (not an env var) precisely to make that operation deliberate and
+ * rare rather than an accidental side effect of an ordinary OTP pepper
+ * rotation. Whatever pepper-ring entry backs `STABLE_INDEX_KEY_VERSION`
+ * must remain present in `GENERIC_VERIFICATION_PEPPER_RING` for as long as
+ * ANY indexed row (a live challenge, a live idempotency-ledger row, a live
+ * proof) exists — removing it prematurely fails closed
+ * (`DerivationKeyUnavailableError`) rather than silently corrupting lookups.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
@@ -53,6 +94,17 @@ export class DerivationKeyUnavailableError extends Error {
 }
 
 const MIN_PEPPER_LENGTH = 32;
+
+/**
+ * The FIXED key version backing every stable-index derivation (destination
+ * hash, subject-ref hash, IP rate-limit hash, idempotency key, request
+ * fingerprint). Deliberately NOT read from an env var and NOT the same
+ * thing as `currentVerificationKeyVersion()` (which only governs NEW
+ * OTP/proof rotation) — see the module-level doc comment's "TWO SEPARATE
+ * ROTATION DOMAINS" section. Changing this constant is a deliberate,
+ * dedicated re-indexing operation, not an ordinary deploy.
+ */
+const STABLE_INDEX_KEY_VERSION = 1;
 
 let cachedRing: Map<number, string> | null = null;
 let cachedCurrentVersion: number | null = null;
@@ -243,47 +295,73 @@ export interface ProofDomainInputs {
   channel: string;
 }
 
+export class InvalidProofTokenFormatError extends Error {
+  constructor() {
+    super('Proof token is not well-formed (expected gvp_v<N>_<value>)');
+    this.name = 'InvalidProofTokenFormatError';
+  }
+}
+
+const PROOF_TOKEN_PATTERN = /^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]+)$/;
+
 /**
  * Deterministically derives the raw proof token from domain-separated
- * inputs and an EXPLICIT key version — never a fresh random draw. This is
- * what makes a verify replay (same requestId) return the exact same,
- * still-usable raw token without it ever being persisted anywhere: Node
- * re-derives it from (handle, requestId, purpose, channel) every time,
- * whether this is the first verify call or a replay of an already-
- * committed one (e.g. after a transport loss). Only hashProofToken's
- * output of this value is ever stored.
+ * inputs and an EXPLICIT key version — never a fresh random draw, and
+ * never `currentVerificationKeyVersion()` read again at replay time (that
+ * was the exact bug this format closes: a proof derived at verify-time T0
+ * would silently re-derive to a DIFFERENT token if the OTP rotation
+ * pointer advanced between T0 and a same-`requestId` replay at T1). The
+ * caller must pass the version that is STABLE for the specific
+ * challenge/request — e.g. the challenge's own recorded `key_version` — not
+ * whatever `currentVerificationKeyVersion()` happens to return right now.
+ *
+ * The version is embedded directly in the output (`gvp_v<N>_<value>`, never
+ * secret) so `hashProofToken` can always recover and use the EXACT version
+ * a token was derived under, without a database round-trip and without any
+ * possibility of hashing it under the wrong (current-at-consume-time) key —
+ * this is what makes a proof issued under key v1 still consumable after the
+ * deployment rotates to v2, as long as v1 remains in the ring.
  */
 export function deriveProofToken(inputs: ProofDomainInputs, keyVersion: number, env: NodeJS.ProcessEnv = process.env): string {
   const key = subKey('gv-proof-derive-v1', keyVersion, env);
   const digest = createHmac('sha256', key)
     .update(`${inputs.purpose}|${inputs.channel}|${inputs.handle}|${inputs.requestId}`)
     .digest();
-  return `gvp_${digest.toString('base64url')}`;
+  return `gvp_v${keyVersion}_${digest.toString('base64url')}`;
+}
+
+/** Strictly parses `gvp_v<N>_<value>`. Returns null for anything else — including the OLD, pre-versioned `gvp_<value>` format, which is deliberately no longer accepted. */
+export function parseProofToken(rawToken: string): { version: number; value: string } | null {
+  const m = PROOF_TOKEN_PATTERN.exec(rawToken);
+  if (!m) return null;
+  return { version: Number.parseInt(m[1], 10), value: m[2] };
 }
 
 /**
- * `keyVersion` should be the SAME version used to derive the token
- * (explicit, not "whatever the current rotation happens to be" — matching
- * the OTP digest's own versioning discipline). Defaults to the current
- * version only for callers with no challenge-scoped version to pin to.
+ * Hashes a raw proof token for storage/comparison, ALWAYS under the version
+ * embedded in the token itself — never an externally supplied or
+ * "current" version. Throws `InvalidProofTokenFormatError` for a
+ * malformed token (callers should treat this as an ordinary consume
+ * failure, not a 500).
  */
-export function hashProofToken(rawToken: string, keyVersion?: number, env: NodeJS.ProcessEnv = process.env): string {
-  const version = keyVersion ?? currentVersion(env);
-  const key = subKey('gv-proof-v1', version, env);
-  return `v${version}:${createHmac('sha256', key).update(rawToken).digest('hex')}`;
+export function hashProofToken(rawToken: string, env: NodeJS.ProcessEnv = process.env): string {
+  const parsed = parseProofToken(rawToken);
+  if (!parsed) throw new InvalidProofTokenFormatError();
+  const key = subKey('gv-proof-v1', parsed.version, env);
+  return `v${parsed.version}:${createHmac('sha256', key).update(rawToken).digest('hex')}`;
 }
 
-// ─── Destination / subject hashing (for domain separation + rate-limit bucketing) ───
+// ─── Destination / subject hashing (stable index material — see the
+// module-level "TWO SEPARATE ROTATION DOMAINS" doc comment; pinned to
+// STABLE_INDEX_KEY_VERSION, NOT the current OTP/proof rotation pointer) ───
 
 export function hashDestination(normalizedDestination: string, env: NodeJS.ProcessEnv = process.env): string {
-  const version = currentVersion(env);
-  const key = subKey('gv-destination-v1', version, env);
+  const key = subKey('gv-destination-v1', STABLE_INDEX_KEY_VERSION, env);
   return createHmac('sha256', key).update(normalizedDestination).digest('hex');
 }
 
 export function hashSubjectRef(rawSubjectRef: string, env: NodeJS.ProcessEnv = process.env): string {
-  const version = currentVersion(env);
-  const key = subKey('gv-subject-v1', version, env);
+  const key = subKey('gv-subject-v1', STABLE_INDEX_KEY_VERSION, env);
   return createHmac('sha256', key).update(rawSubjectRef).digest('hex');
 }
 
@@ -317,16 +395,19 @@ export function collapseIpForRateLimit(ip: string): string {
 
 export function hashIpForRateLimit(ip: string | null, env: NodeJS.ProcessEnv = process.env): string {
   if (!ip) return '';
-  const version = currentVersion(env);
-  const key = subKey('gv-ratelimit-ip-v1', version, env);
+  const key = subKey('gv-ratelimit-ip-v1', STABLE_INDEX_KEY_VERSION, env);
   return createHmac('sha256', key).update(collapseIpForRateLimit(ip)).digest('hex').slice(0, 32);
 }
 
-// ─── Idempotency key / fingerprint derivation ───
+// ─── Idempotency key / fingerprint derivation (stable index material —
+// pinned to STABLE_INDEX_KEY_VERSION so a retried request's idempotency
+// key is byte-identical before and after an OTP/proof key rotation; if it
+// weren't, a retry submitted after a rotation would derive a DIFFERENT
+// ledger key than the original attempt and would never find — let alone
+// correctly replay — the original committed result) ───
 
 export function deriveIdempotencyKey(parts: { operation: string; scopeKind: string; actorRef: string; requestId: string }, env: NodeJS.ProcessEnv = process.env): string {
-  const version = currentVersion(env);
-  const key = subKey('gv-idempotency-key-v1', version, env);
+  const key = subKey('gv-idempotency-key-v1', STABLE_INDEX_KEY_VERSION, env);
   return createHmac('sha256', key)
     .update(['gv-idem-v1', parts.operation, parts.scopeKind, parts.actorRef, parts.requestId].join('|'))
     .digest('hex');
@@ -346,7 +427,6 @@ function canonicalize(value: unknown): unknown {
 }
 
 export function deriveRequestFingerprint(intent: Record<string, unknown>, env: NodeJS.ProcessEnv = process.env): string {
-  const version = currentVersion(env);
-  const key = subKey('gv-idempotency-fingerprint-v1', version, env);
+  const key = subKey('gv-idempotency-fingerprint-v1', STABLE_INDEX_KEY_VERSION, env);
   return createHmac('sha256', key).update(JSON.stringify(canonicalize(intent))).digest('hex');
 }

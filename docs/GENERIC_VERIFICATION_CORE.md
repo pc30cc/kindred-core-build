@@ -72,7 +72,7 @@ a policy) and no Data API grants:
 |---|---|
 | `verification_challenges` | One row per OTP challenge (generation, code digest, key version, status, attempt/max counters, expiry). Supports pre-account challenges — `subject_ref`/`workspace_id` are optional. |
 | `verification_attempts` | Append-only log of every verification attempt (correct/incorrect), no UPDATE/DELETE grant. |
-| `verification_proofs` | One row per issued proof (hash only, never the raw token), single-consume. |
+| `verification_proofs` | One row per issued proof (hash only, never the raw token), single-consume. Carries `proof_key_version` (the OTP/proof key version the token was issued under) and `destination_normalized`/`destination_hash`/`destination_hash_key_version`, copied from the LOCKED challenge at verify time — see §Proofs are bound to their verified destination. |
 | `verification_delivery_attempts` | Append-only evidence of every Express-side provider submission (outcome, provider name/message id, error code) — not a job queue: no claim/lease/status-transition columns, because there is no worker. |
 | `verification_idempotency` | Generic request-idempotency ledger for `request`/`resend`/`verify`/`revoke`, with a `prepared`/`committed`/`failed` state machine that is also the crash-recovery hinge for the two-phase Express-direct delivery model (see §Delivery) and, since this pass, for crash-safe idempotent `verify` too (see §Idempotency). Carries an `attempt_token uuid` column — the delivery-attempt ownership token (see §Delivery). |
 
@@ -312,6 +312,84 @@ constant-time; the challenge's *own recorded* key version is used for OTP
 verification, never the current one, so key rotation never invalidates a
 code that was already sent (or a proof that was already issued).
 
+### Two independent rotation domains
+
+`crypto.ts` deliberately separates two kinds of key-versioned material that
+must NOT share a "current version" pointer:
+
+1. **Rotating material** — OTP codes and proof tokens. These are keyed by
+   the SPECIFIC version recorded on the individual row
+   (`verification_challenges.key_version`, `verification_proofs.proof_key_version`)
+   — never "whichever version happens to be current when the row is later
+   read again." A proof token is now self-describing: it has the shape
+   `gvp_v<N>_<base64url-value>`, strictly parsed by a
+   `/^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]+)$/` pattern
+   (`parseProofToken`/`InvalidProofTokenFormatError`), so `hashProofToken`
+   recovers its key version from the token itself and never needs (or
+   accepts) an externally supplied "current" version. This is what makes a
+   proof issued under key v1 still consumable after rotation to v2 (test
+   KR4), and what makes a verify-replay after rotation still reproduce the
+   identical `gvp_v1_...` token rather than a `gvp_v2_...` one (test KR3).
+2. **Stable index material** — destination hash, subject-ref hash, IP
+   rate-limit hash, the idempotency key, and the request fingerprint. These
+   are pinned to a fixed `STABLE_INDEX_KEY_VERSION = 1` constant, completely
+   independent of `GENERIC_VERIFICATION_KEY_VERSION` (the OTP/proof
+   rotation pointer). It is deliberately not an environment variable:
+   changing it would require a dedicated re-indexing migration, since every
+   existing row's stored hash would need to be recomputed under the new
+   version to remain findable. Without this separation, rotating the OTP
+   key would silently change what a resend/replay/rate-limit lookup hashes
+   to, breaking in-flight challenges and letting rotation reset rate-limit
+   buckets (tests KR1, KR2, KR5a/b/c).
+
+`currentVerificationKeyVersion()` (the rotation pointer) is used ONLY when
+originating a NEW artifact — a fresh challenge or a fresh proof — never when
+re-hashing or re-validating an EXISTING one.
+
+## Proofs are bound to their verified destination
+
+`verification_proofs` carries `destination_normalized`, `destination_hash`,
+and `destination_hash_key_version`, copied from the LOCKED challenge row at
+the moment `_gv_do_verify` issues the proof — never from caller input.
+`gv_consume_verification_proof` returns this authoritative destination
+(`ConsumeProofResult.destinationNormalized`) rather than accepting one: a
+future consumer for `signup_email`/`signup_phone`/`change_email`/
+`change_phone` is expected to use exactly this returned value for its
+business mutation, never a client-supplied "new email"/"new phone" field.
+This makes "a proof issued for destination A authorizes a mutation to
+destination B" structurally impossible rather than merely validated against
+— there is no field in `ConsumeProofInput` a caller could set to redirect
+it. Tests DB1–DB4 prove this for all four destination-bearing purposes.
+
+## Canonical lock order
+
+Every RPC entry point that can touch both a workspace/scope-level lock and a
+challenge-row lock acquires the workspace/scope lock FIRST, consistently:
+`_gv_do_request`, `_gv_do_resend`, and `_gv_do_revoke` all lock in that same
+order. (`_gv_do_resend` previously locked the challenge row before the
+workspace row — the reverse of `_gv_do_request` — a real deadlock risk under
+concurrent request-vs-resend traffic; this has been corrected to match the
+documented invariant.) Tests LOCK1–LOCK3 exercise request-vs-resend,
+request-vs-revoke, and resend-vs-revoke concurrently against two DIFFERENT
+challenges in the same workspace (a bounded lock timeout via
+`statement_timeout`), asserting no deadlock, no duplicate active challenge,
+and a consistent final state.
+
+## Scoped, authorized revoke
+
+`revokeVerificationChallenge` takes the same shape of scope/authorization
+context as `verify`/`resend`: `channel`, `workspaceId`, `subjectRef`, and the
+requester's `authenticatedUserId`. It calls `assertChannelAllowed` and
+`assertPolicyBindings` before any database call, exactly like every other
+mutating entry point, and `_gv_do_revoke` re-validates the claimed scope
+under a row lock with the same NULL-safe `IS DISTINCT FROM` comparisons
+`_gv_do_verify` uses — a wrong workspace, wrong subject, wrong channel, or an
+unauthenticated caller on a `requiresAuth` purpose all receive the same
+generic rejection and never modify the challenge or its proof (tests
+REV1–REV4). This replaces an earlier, narrower revoke contract that took
+only `handle`/`purpose`/`reason` and ran as an unauthenticated `system`
+actor with no scope check at all.
+
 ## Delivery model — Express calls the provider directly, no worker
 
 This is the canonical OTP architecture on `main` today, matching
@@ -434,7 +512,7 @@ at creation time and is not re-resolved on delivery or verification.
 `templates.ts` ships complete fa (RTL), tr, and en templates for both email
 and SMS.
 
-## Abuse prevention — five atomic rate-limit buckets
+## Abuse prevention — atomic rate-limit buckets
 
 Rate limiting is enforced **atomically, in the database**, inside the same
 transaction that creates a challenge — not only at the Express middleware
@@ -445,17 +523,36 @@ serialize instead of racing past a stale count:
 
 | Bucket | Scope | Cap | Rationale |
 |---|---|---|---|
-| Purpose+channel | system-wide | `maxPerWindow × 20` | Catches a purpose-wide flood spread across many destinations, without making ordinary per-destination traffic contend on one lock. |
 | Destination | (destination hash, purpose, channel) | `maxPerWindow`, plus a resend cooldown | The original, tightest check — a fresh challenge to the same destination must also respect the cooldown, not just the rolling-window count. |
 | IP (collapsed) | request IP, /64-collapsed for IPv6 | `maxPerWindow × 10` | Looser than per-destination: one IP legitimately serves many destinations. |
 | Subject | (subject ref hash, purpose), when bound | `maxPerWindow` | Same cap as destination — a subject-bound purpose must not let one subject fan out across many destinations to evade the destination bucket. |
 | Workspace | (workspace id, purpose), when bound | `maxPerWindow × 5` | Looser than per-subject: a busy workspace legitimately has many members triggering challenges independently. |
+| Global (purpose+channel) | system-wide, **opt-in, disabled by default** | `PurposePolicy.globalRateLimit.maxPerWindow` over `.windowSeconds`, only when explicitly configured | See below — this replaces an earlier design that derived a platform-wide cap from `maxSendsPerWindow × 20`. |
 
-The multipliers are a deliberate design choice for this pass, not exact
-numbers specified elsewhere — documented here and in the migration itself.
-Tests Z1–Z5 each prove one bucket's cap holds EXACTLY under real concurrent
-load (`Promise.allSettled` against a real database), not just under
-sequential calls.
+The per-destination/IP/subject/workspace multipliers are a deliberate design
+choice for this pass, not exact numbers specified elsewhere — documented
+here and in the migration itself. Tests Z1–Z4 each prove one bucket's cap
+holds EXACTLY under real concurrent load (`Promise.allSettled` against a
+real database), not just under sequential calls.
+
+### The global bucket is opt-in, not derived
+
+An earlier design derived a platform-wide (purpose+channel) cap as
+`maxSendsPerWindow × 20` — for a policy with `maxSendsPerWindow: 5`, that
+caps the ENTIRE PLATFORM'S traffic for that purpose+channel at 100
+requests/hour, through a single shared advisory lock that every unrelated
+request would contend on. `PurposePolicy.globalRateLimit` is now an explicit,
+independently configured `{ maxPerWindow, windowSeconds } | null` field,
+defaulting to `null` for every shipped policy. When `null`,
+`_gv_create_challenge_row` does not even acquire bucket 1's advisory lock —
+there is no global hot lock in the normal request path at all. A deployment
+that genuinely needs a platform-wide ceiling (or prefers an
+infrastructure-level limiter instead) opts in explicitly with its own cap,
+independent of any per-identifier limit. Test Z5a proves 25 concurrent
+requests across unrelated destinations/subjects/IPs all succeed by default
+(well past the old formula's would-be ceiling of 20); test Z5b proves an
+explicitly configured `globalRateLimit` still enforces its own cap
+atomically when a deployment opts in.
 
 IPs are hashed with IPv6 /64-prefix collapsing
 (`collapseIpForRateLimit`/`hashIpForRateLimit`) — a deliberate improvement

@@ -88,6 +88,43 @@
 -- replaying a committed verify call re-derives and returns the IDENTICAL
 -- usable proof token without it ever being stored — solving the replay
 -- problem without ever persisting a raw secret.
+--
+-- Key rotation — two SEPARATE domains (see crypto.ts's "TWO SEPARATE
+-- ROTATION DOMAINS" doc comment for the full rationale): destination_hash,
+-- subject_ref_hash, request_ip_hash, and every idempotency
+-- key/fingerprint are STABLE-INDEX material, pinned to a fixed index-key
+-- version that never moves when the OTP/proof rotation pointer
+-- (`GENERIC_VERIFICATION_KEY_VERSION`) advances — an earlier iteration of
+-- this subsystem derived these from "whatever version is current right
+-- now", which broke lookups/retries for anything created before a
+-- rotation. OTP codes and proof tokens remain ROTATING material, each
+-- keyed by the SPECIFIC version recorded on their own row
+-- (`verification_challenges.key_version`,
+-- `verification_proofs.proof_key_version` — the latter also embedded
+-- directly in the raw token as `gvp_v<N>_<value>` so it can be recovered
+-- without a database round-trip).
+--
+-- Proof destination binding: `verification_proofs.destination_normalized`/
+-- `destination_hash` are copied from the LOCKED challenge row at
+-- verify-time, never accepted as caller input anywhere — a future
+-- consumer reads the AUTHORITATIVE destination back from
+-- `gv_consume_verification_proof`'s own return value and must use exactly
+-- that value for its business mutation, so a proof issued for one
+-- destination can never be redirected to authorize a different one.
+--
+-- Rate limiting: the purpose+channel bucket is now OPT-IN
+-- (`PurposePolicy.globalRateLimit`, `null` by default) rather than derived
+-- as a multiple of the per-destination limit — the old formula could cap
+-- an entire purpose's platform-wide traffic at a low, accidental number
+-- and forced every unrelated caller through one shared advisory lock. The
+-- destination/IP/subject/workspace buckets are unchanged.
+--
+-- Revoke is scoped and authorized exactly like verify/resend: callers
+-- must supply the full claimed scope (purpose, channel, workspaceId,
+-- subjectRef), and `_gv_do_revoke` re-validates it strictly and
+-- null-safely under a row lock before modifying anything — a wrong
+-- workspace/subject/channel/purpose (or a non-existent handle) all
+-- receive the same generic rejection, exactly like a wrong verify.
 
 -- ============================================================
 -- 1. verification_challenges
@@ -165,12 +202,26 @@ CREATE TABLE IF NOT EXISTS public.verification_proofs (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   challenge_id uuid NOT NULL UNIQUE REFERENCES public.verification_challenges(id) ON DELETE CASCADE,
   proof_hash text NOT NULL UNIQUE,                -- HMAC of the raw proof token — the raw token is NEVER stored
+  proof_key_version integer NOT NULL,             -- the key version embedded in the raw token (gvp_v<N>_...) — see crypto.ts's parseProofToken
   purpose text NOT NULL,
   channel text NOT NULL,
   workspace_id uuid,
   subject_kind text NOT NULL,
   subject_ref text,
   subject_ref_hash text,
+  -- Authoritative destination binding, copied from the LOCKED challenge row
+  -- at verify-time (never from caller input): a future consumer reads
+  -- `destination_normalized` back from gv_consume_verification_proof's own
+  -- return value and uses EXACTLY that value for its business mutation —
+  -- a proof issued for destination A can never be used to authorize an
+  -- action against a client-supplied destination B, because the consumer
+  -- is never trusted to supply a destination independently in the first
+  -- place. `destination_hash_key_version` records which stable-index key
+  -- version `destination_hash` was computed under (see crypto.ts's
+  -- STABLE_INDEX_KEY_VERSION) for future re-indexing audits.
+  destination_normalized text NOT NULL,
+  destination_hash text NOT NULL,
+  destination_hash_key_version integer NOT NULL,
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'consumed', 'revoked', 'expired')),
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
@@ -317,7 +368,8 @@ CREATE OR REPLACE FUNCTION public._gv_create_challenge_row(
   _handle text, _purpose text, _channel text, _workspace_id uuid, _subject_kind text, _subject_ref text, _subject_ref_hash text,
   _destination_normalized text, _destination_hash text, _locale text, _generation integer, _key_version integer,
   _code_digest text, _max_attempts integer, _max_sends integer, _resend_cooldown_seconds integer,
-  _ttl_seconds integer, _rate_window_seconds integer, _max_per_window integer, _request_ip_hash text
+  _ttl_seconds integer, _rate_window_seconds integer, _max_per_window integer, _request_ip_hash text,
+  _global_max_per_window integer, _global_window_seconds integer
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -328,17 +380,28 @@ DECLARE
   _recent integer;
   _last timestamptz;
 BEGIN
-  -- Bucket 1: purpose+channel, system-wide. A deliberately looser
-  -- ceiling than the per-destination cap (20x) — this catches a
-  -- purpose-wide flood that spreads across many distinct destinations,
-  -- without making ordinary per-destination traffic contend on one lock.
-  PERFORM pg_advisory_xact_lock(hashtextextended('gv:bucket:purpose:' || _purpose || ':' || _channel, 0));
-  SELECT count(*)::integer INTO _recent
-    FROM public.verification_challenges
-    WHERE purpose = _purpose AND channel = _channel
-      AND created_at > now() - make_interval(secs => _rate_window_seconds);
-  IF _recent >= _max_per_window * 20 THEN
-    RAISE EXCEPTION 'VERIFICATION_RATE_LIMITED';
+  -- Bucket 1: purpose+channel, system-wide — OPT-IN ONLY. Unlike a
+  -- previous version of this function, this is NOT derived as a multiple
+  -- of `_max_per_window` (that formula could cap the ENTIRE platform's
+  -- traffic for one purpose at as few as ~100 requests/hour, and forced
+  -- every unrelated caller through a single shared advisory lock). A NULL
+  -- `_global_max_per_window` (the default for every shipped purpose — see
+  -- PurposePolicy.globalRateLimit in types.ts) means this bucket is
+  -- SKIPPED ENTIRELY: no lock is acquired and no count query runs in the
+  -- normal request path. A deployment that wants a database-enforced
+  -- platform-wide ceiling for a live purpose must configure
+  -- `globalRateLimit` explicitly with numbers sized for its own real
+  -- traffic; the default posture is that platform-wide abuse control lives
+  -- at the infrastructure layer (CDN/API gateway/WAF), not here.
+  IF _global_max_per_window IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('gv:bucket:purpose:' || _purpose || ':' || _channel, 0));
+    SELECT count(*)::integer INTO _recent
+      FROM public.verification_challenges
+      WHERE purpose = _purpose AND channel = _channel
+        AND created_at > now() - make_interval(secs => _global_window_seconds);
+    IF _recent >= _global_max_per_window THEN
+      RAISE EXCEPTION 'VERIFICATION_RATE_LIMITED';
+    END IF;
   END IF;
 
   -- Bucket 2: destination (the original, tightest check) — rolling-window
@@ -416,7 +479,7 @@ BEGIN
   );
 END;
 $function$;
-REVOKE ALL ON FUNCTION public._gv_create_challenge_row(text, text, text, uuid, text, text, text, text, text, text, integer, integer, text, integer, integer, integer, integer, integer, integer, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public._gv_create_challenge_row(text, text, text, uuid, text, text, text, text, text, text, integer, integer, text, integer, integer, integer, integer, integer, integer, text, integer, integer) FROM PUBLIC;
 
 -- 8b. INTERNAL — brand-new challenge (generation 1). No existing
 --     challenge to lock; a scoped previous-generation invalidation
@@ -451,7 +514,14 @@ DECLARE
   _invalidate_previous boolean := COALESCE((_args->>'invalidatePrevious')::boolean, true);
   _request_ip_hash text := NULLIF(_args->>'requestIpHash', '');
   _handle text := _args->>'handle';
+  _global_max_per_window integer := (_args->>'globalMaxPerWindow')::integer;
+  _global_window_seconds integer := (_args->>'globalWindowSeconds')::integer;
 BEGIN
+  -- CANONICAL LOCK ORDER (see the migration's top-of-file note): the
+  -- workspace/scope lock (when bound) is ALWAYS acquired before any
+  -- challenge-row lock, in every entry point that touches both — this is
+  -- what request and resend must agree on to avoid deadlocking against
+  -- each other under concurrency.
   IF _workspace_id IS NOT NULL THEN
     PERFORM 1 FROM public.workspaces WHERE id = _workspace_id FOR UPDATE;
   END IF;
@@ -468,7 +538,8 @@ BEGIN
   RETURN public._gv_create_challenge_row(
     _handle, _purpose, _channel, _workspace_id, _subject_kind, _subject_ref, _subject_ref_hash,
     _destination_normalized, _destination_hash, _locale, 1, _key_version, _code_digest,
-    _max_attempts, _max_sends, _resend_cooldown_seconds, _ttl_seconds, _rate_window_seconds, _max_per_window, _request_ip_hash
+    _max_attempts, _max_sends, _resend_cooldown_seconds, _ttl_seconds, _rate_window_seconds, _max_per_window, _request_ip_hash,
+    _global_max_per_window, _global_window_seconds
   );
 END;
 $function$;
@@ -501,9 +572,29 @@ DECLARE
   _rate_window_seconds integer := (_args->>'rateWindowSeconds')::integer;
   _max_per_window integer := (_args->>'maxPerWindow')::integer;
   _request_ip_hash text := NULLIF(_args->>'requestIpHash', '');
+  _global_max_per_window integer := (_args->>'globalMaxPerWindow')::integer;
+  _global_window_seconds integer := (_args->>'globalWindowSeconds')::integer;
   _existing public.verification_challenges%ROWTYPE;
   _new_generation integer;
 BEGIN
+  -- CANONICAL LOCK ORDER: the CALLER-CLAIMED workspace (if any) is locked
+  -- FIRST, BEFORE the existing challenge row — matching `_gv_do_request`'s
+  -- own order exactly. An earlier version of this function locked the
+  -- challenge row first and the workspace second, which is the REVERSE of
+  -- `_gv_do_request`'s order and created a real deadlock opportunity: a
+  -- concurrent `request` (holding the workspace lock, waiting on a
+  -- challenge-row UPDATE) and a concurrent `resend` on a challenge in that
+  -- same workspace (holding the challenge-row lock, waiting on the
+  -- workspace lock) could each block on what the other already holds.
+  -- Locking the CLAIMED workspace here — before we've even confirmed the
+  -- claim matches the existing row's real scope — is safe: at worst it
+  -- locks a workspace row that turns out to be irrelevant once the scope
+  -- check below rejects the mismatch, which costs nothing beyond the lock
+  -- itself and preserves one universal order across every entry point.
+  IF _workspace_id IS NOT NULL THEN
+    PERFORM 1 FROM public.workspaces WHERE id = _workspace_id FOR UPDATE;
+  END IF;
+
   SELECT * INTO _existing FROM public.verification_challenges WHERE handle = _existing_handle FOR UPDATE;
 
   -- Same generic rejection for "does not exist" and "exists but wrong
@@ -523,10 +614,6 @@ BEGIN
 
   _new_generation := _existing.generation + 1;
 
-  IF _workspace_id IS NOT NULL THEN
-    PERFORM 1 FROM public.workspaces WHERE id = _workspace_id FOR UPDATE;
-  END IF;
-
   UPDATE public.verification_challenges
   SET status = 'revoked', revoked_at = now(), revoked_reason = 'superseded_by_resend'
   WHERE id = _existing.id;
@@ -534,7 +621,8 @@ BEGIN
   RETURN public._gv_create_challenge_row(
     _handle, _existing.purpose, _existing.channel, _existing.workspace_id, _existing.subject_kind, _existing.subject_ref, _existing.subject_ref_hash,
     _existing.destination_normalized, _existing.destination_hash, _existing.locale, _new_generation, _key_version, _code_digest,
-    _max_attempts, _max_sends, _resend_cooldown_seconds, _ttl_seconds, _rate_window_seconds, _max_per_window, _request_ip_hash
+    _max_attempts, _max_sends, _resend_cooldown_seconds, _ttl_seconds, _rate_window_seconds, _max_per_window, _request_ip_hash,
+    _global_max_per_window, _global_window_seconds
   );
 END;
 $function$;
@@ -813,6 +901,7 @@ DECLARE
   _ip_hash text := NULLIF(_args->>'ipHash', '');
   _issues_proof boolean := COALESCE((_args->>'issuesProof')::boolean, true);
   _proof_hash text := _args->>'proofHash';
+  _proof_key_version integer := (_args->>'proofKeyVersion')::integer;
   _proof_ttl_seconds integer := (_args->>'proofTtlSeconds')::integer;
   _chal public.verification_challenges%ROWTYPE;
   _next_attempt integer;
@@ -873,10 +962,18 @@ BEGIN
   WHERE id = _chal.id;
 
   IF _issues_proof THEN
+    -- destination_normalized/destination_hash are copied from the LOCKED
+    -- challenge row, never from caller input — this is what makes a proof
+    -- for destination A structurally impossible to redirect toward
+    -- destination B: the value a future consumer reads back via
+    -- gv_consume_verification_proof is always exactly what THIS challenge
+    -- was actually verified for.
     INSERT INTO public.verification_proofs (
-      challenge_id, proof_hash, purpose, channel, workspace_id, subject_kind, subject_ref, subject_ref_hash, expires_at
+      challenge_id, proof_hash, proof_key_version, purpose, channel, workspace_id, subject_kind, subject_ref, subject_ref_hash,
+      destination_normalized, destination_hash, destination_hash_key_version, expires_at
     ) VALUES (
-      _chal.id, _proof_hash, _chal.purpose, _chal.channel, _chal.workspace_id, _chal.subject_kind, _chal.subject_ref, _chal.subject_ref_hash,
+      _chal.id, _proof_hash, _proof_key_version, _chal.purpose, _chal.channel, _chal.workspace_id, _chal.subject_kind, _chal.subject_ref, _chal.subject_ref_hash,
+      _chal.destination_normalized, _chal.destination_hash, 1,
       now() + make_interval(secs => _proof_ttl_seconds)
     );
     RETURN jsonb_build_object('ok', true, 'challengeId', _chal.id, 'proofIssued', true);
@@ -887,8 +984,13 @@ END;
 $function$;
 REVOKE ALL ON FUNCTION public._gv_do_verify(jsonb) FROM PUBLIC;
 
--- 8g. INTERNAL — revoke. Explicit admin/system cancellation, also revokes
---     any live proof.
+-- 8g. INTERNAL — revoke. Scoped and authorized exactly like verify: the
+--     caller's claimed purpose/channel/workspace/subject is re-validated,
+--     strictly and null-safely, against the LOCKED challenge's own
+--     recorded scope before anything is modified — a wrong workspace,
+--     subject, or channel (or a non-existent handle) all get the SAME
+--     generic rejection, and the challenge/proof are left completely
+--     untouched. Also revokes any live proof for the same challenge.
 CREATE OR REPLACE FUNCTION public._gv_do_revoke(_args jsonb) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -896,21 +998,48 @@ SET search_path = public, pg_temp
 AS $function$
 DECLARE
   _handle text := _args->>'handle';
+  _purpose text := _args->>'purpose';
+  _channel text := _args->>'channel';
+  _workspace_id uuid := NULLIF(_args->>'workspaceId', '')::uuid;
+  _subject_ref_hash text := NULLIF(_args->>'subjectRefHash', '');
   _reason text := COALESCE(_args->>'reason', 'revoked');
-  _chal_id uuid;
+  _chal public.verification_challenges%ROWTYPE;
 BEGIN
-  UPDATE public.verification_challenges
-  SET status = 'revoked', revoked_at = now(), revoked_reason = _reason
-  WHERE handle = _handle AND status IN ('pending_delivery', 'provider_accepted', 'verified')
-  RETURNING id INTO _chal_id;
-
-  IF _chal_id IS NOT NULL THEN
-    UPDATE public.verification_proofs
-    SET status = 'revoked', revoked_at = now()
-    WHERE challenge_id = _chal_id AND status = 'active';
+  -- CANONICAL LOCK ORDER: lock the caller-claimed workspace (if any)
+  -- before the challenge row, matching request/resend — revoke never
+  -- holds more than these two locks, so this ordering is what protects it
+  -- against deadlocking with a concurrent request/resend on the same
+  -- workspace.
+  IF _workspace_id IS NOT NULL THEN
+    PERFORM 1 FROM public.workspaces WHERE id = _workspace_id FOR UPDATE;
   END IF;
 
-  RETURN jsonb_build_object('ok', _chal_id IS NOT NULL);
+  SELECT * INTO _chal FROM public.verification_challenges WHERE handle = _handle FOR UPDATE;
+
+  -- Same generic rejection for "does not exist" and "exists but wrong
+  -- scope" — never a distinguishing signal, exactly like verify/resend.
+  IF NOT FOUND
+     OR _chal.purpose <> _purpose
+     OR _chal.channel <> _channel
+     OR _chal.workspace_id IS DISTINCT FROM _workspace_id
+     OR _chal.subject_ref_hash IS DISTINCT FROM _subject_ref_hash
+  THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'invalid_target');
+  END IF;
+
+  IF _chal.status NOT IN ('pending_delivery', 'provider_accepted', 'verified') THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'invalid_target');
+  END IF;
+
+  UPDATE public.verification_challenges
+  SET status = 'revoked', revoked_at = now(), revoked_reason = _reason
+  WHERE id = _chal.id;
+
+  UPDATE public.verification_proofs
+  SET status = 'revoked', revoked_at = now()
+  WHERE challenge_id = _chal.id AND status = 'active';
+
+  RETURN jsonb_build_object('ok', true, 'challengeId', _chal.id);
 END;
 $function$;
 REVOKE ALL ON FUNCTION public._gv_do_revoke(jsonb) FROM PUBLIC;
@@ -1068,7 +1197,8 @@ BEGIN
 
   RETURN jsonb_build_object(
     'ok', true, 'challengeId', _proof.challenge_id, 'subjectKind', _proof.subject_kind,
-    'subjectRef', _proof.subject_ref, 'subjectRefHash', _proof.subject_ref_hash
+    'subjectRef', _proof.subject_ref, 'subjectRefHash', _proof.subject_ref_hash,
+    'destinationNormalized', _proof.destination_normalized
   );
 END;
 $function$;
@@ -1134,7 +1264,7 @@ DO $acl$
 DECLARE
   fn text;
   internal_fns text[] := ARRAY[
-    'public._gv_create_challenge_row(text, text, text, uuid, text, text, text, text, text, text, integer, integer, text, integer, integer, integer, integer, integer, integer, text)',
+    'public._gv_create_challenge_row(text, text, text, uuid, text, text, text, text, text, text, integer, integer, text, integer, integer, integer, integer, integer, integer, text, integer, integer)',
     'public._gv_do_request(jsonb)',
     'public._gv_do_resend(jsonb)',
     'public._gv_do_verify(jsonb)',
@@ -1177,7 +1307,7 @@ DECLARE
   ];
   append_only_tables text[] := ARRAY['verification_attempts', 'verification_delivery_attempts'];
   internal_fns text[] := ARRAY[
-    'public._gv_create_challenge_row(text, text, text, uuid, text, text, text, text, text, text, integer, integer, text, integer, integer, integer, integer, integer, integer, text)',
+    'public._gv_create_challenge_row(text, text, text, uuid, text, text, text, text, text, text, integer, integer, text, integer, integer, integer, integer, integer, integer, text, integer, integer)',
     'public._gv_do_request(jsonb)',
     'public._gv_do_resend(jsonb)',
     'public._gv_do_verify(jsonb)',

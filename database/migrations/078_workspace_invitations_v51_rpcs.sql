@@ -174,8 +174,8 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  PERFORM public.wi_audit(_workspace_id, _actor_id, _action, _entity_id,
-          _payload);
+  INSERT INTO public.audit_logs (workspace_id, user_id, action, entity_type, entity_id, new_value)
+  VALUES (_workspace_id, _actor_id, _action, _entity_type, _entity_id, _payload);
 EXCEPTION
   WHEN foreign_key_violation OR not_null_violation THEN
     NULL;

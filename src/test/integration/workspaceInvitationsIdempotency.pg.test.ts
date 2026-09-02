@@ -1327,4 +1327,80 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
       `SELECT count(*)::int AS n FROM public.workspace_invitation_otps WHERE code_digest !~ '^v[0-9]+:[0-9a-f]{64}$'`,
     )).toBe(0);
   }, 180_000);
+
+  itFresh('P0.6 — a committed OTP verify replays after its pepper version is retired (no 400/503, no second mutation)', async () => {
+    const owner = await makeOwner(`p0.peek.owner.${Date.now()}@example.test`);
+    const payload = invitePayload(owner.workspaceId);
+    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
+    const token = tokenFromManualLink(String(created.json.manualLink));
+    const invitationId = created.json.invitation.id;
+
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+    const code = await otpCodeFor(String(payload.email));
+
+    const verifyRid = rid();
+    const first = await call('POST', '/api/workspace-invitations/otp/verify', {
+      body: { requestId: verifyRid, token, purpose: 'manual_handoff', code },
+    });
+    expect(first.status).toBe(200);
+    expect(first.json.replayed).toBe(false);
+    const proofsAfterFirst = await countOf(
+      'SELECT count(*)::int AS n FROM public.workspace_invitation_proofs WHERE invitation_id = $1', [invitationId],
+    );
+    expect(proofsAfterFirst).toBe(1);
+    const consumedAt = String((await db.query(
+      `SELECT consumed_at FROM public.workspace_invitation_otps WHERE invitation_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [invitationId],
+    )).rows[0].consumed_at);
+    expect(consumedAt).toBeTruthy();
+
+    const prevPepper = process.env.INVITATION_OTP_PEPPER;
+    try {
+      // Retire the pepper version that signed this code.
+      delete process.env.INVITATION_OTP_PEPPER;
+      process.env.INVITATION_OTP_PEPPER_RING = JSON.stringify({ 2: 'rotated-otp-pepper-value-32bytes-long!!' });
+      process.env.INVITATION_OTP_KEY_VERSION = '2';
+
+      // Canonical committed replay: resolved from the ledger, never re-verified.
+      const replay = await call('POST', '/api/workspace-invitations/otp/verify', {
+        body: { requestId: verifyRid, token, purpose: 'manual_handoff', code },
+      });
+      expect(replay.status).toBe(200);
+      expect(replay.json.replayed).toBe(true);
+      expect(cookieOf(replay, 'wi_proof')).toBe(cookieOf(first, 'wi_proof'));
+
+      // Nothing mutated a second time.
+      expect(await countOf(
+        'SELECT count(*)::int AS n FROM public.workspace_invitation_proofs WHERE invitation_id = $1', [invitationId],
+      )).toBe(1);
+      expect(String((await db.query(
+        `SELECT consumed_at FROM public.workspace_invitation_otps WHERE invitation_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [invitationId],
+      )).rows[0].consumed_at)).toBe(consumedAt);
+
+      // A FRESH requestId over the same unverifiable code still fails closed.
+      const fresh = await call('POST', '/api/workspace-invitations/otp/verify', {
+        body: { requestId: rid(), token, purpose: 'manual_handoff', code },
+      });
+      expect([400, 503]).toContain(fresh.status);
+      expect(fresh.json.replayed).toBeUndefined();
+      expect(await countOf(
+        'SELECT count(*)::int AS n FROM public.workspace_invitation_proofs WHERE invitation_id = $1', [invitationId],
+      )).toBe(1);
+    } finally {
+      if (prevPepper) process.env.INVITATION_OTP_PEPPER = prevPepper;
+      delete process.env.INVITATION_OTP_PEPPER_RING;
+      delete process.env.INVITATION_OTP_KEY_VERSION;
+    }
+
+    // Fingerprint conflict detection is NOT weakened by the peek.
+    const otherCode = code === '000000' ? '111111' : '000000';
+    const conflict = await call('POST', '/api/workspace-invitations/otp/verify', {
+      body: { requestId: verifyRid, token, purpose: 'manual_handoff', code: otherCode },
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.json.error).toBe('IDEMPOTENCY_KEY_REUSED');
+  }, 180_000);
 });

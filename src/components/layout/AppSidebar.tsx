@@ -35,6 +35,7 @@ import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -92,6 +93,7 @@ export function AppSidebar() {
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
   const { data: callCenterCaps, isError: callCenterCapsError } = useCallCenterCapabilities(workspace?.id);
   const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const { data: wsRole } = useWorkspaceRole(workspace?.id);
   // Fail-CLOSED: hide unless capabilities explicitly say visible.
   const callCenterVisible =
     !callCenterCapsError && !!callCenterCaps?.workspace_call_center_visible;
@@ -240,10 +242,12 @@ export function AppSidebar() {
     { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
 
+  // Operators (agents/viewers) never see the plugins surface.
+  const isWsAdmin = isWorkspaceAdmin(wsRole);
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
     { key: 'widget', path: '/widget', icon: Package, accent: 'violet' },
-    { key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' },
+    ...(isWsAdmin ? [{ key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' } as const] : []),
     { key: 'settings', path: '/settings/general', icon: Settings, accent: 'indigo' },
   ] as const;
 

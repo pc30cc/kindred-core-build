@@ -12049,10 +12049,67 @@ export type Database = {
         }
         Returns: boolean
       }
+      wi_complete_invitation_job: {
+        Args: {
+          _claim_token: string
+          _error_code?: string
+          _job_id: string
+          _outcome: string
+          _provider_message_id?: string
+          _provider_name?: string
+          _retry_in_seconds?: number
+          _safe_error_message?: string
+        }
+        Returns: Json
+      }
+      wi_consume_login_context: {
+        Args: { _handle_hash: string }
+        Returns: Json
+      }
+      wi_create_login_context: {
+        Args: {
+          _expires_at: string
+          _handle_hash: string
+          _purpose: string
+          _token_hash: string
+        }
+        Returns: Json
+      }
       wi_expire_due: { Args: { _workspace_id: string }; Returns: number }
+      wi_job_still_sendable: {
+        Args: { _claim_token: string; _job_id: string }
+        Returns: boolean
+      }
       wi_lock_and_validate_token: {
         Args: { _purpose: string; _token_hash: string }
         Returns: Record<string, unknown>
+      }
+      wi_prepare_invitation_job: {
+        Args: {
+          _claim_token: string
+          _derivation_key_version?: number
+          _job_id: string
+          _token_expires_at?: string
+          _token_hash?: string
+          _token_prefix?: string
+        }
+        Returns: Json
+      }
+      wi_preview_invitation: {
+        Args: { _purpose: string; _token_hash: string }
+        Returns: Json
+      }
+      wi_request_invitation_otp: {
+        Args: {
+          _code_digest: string
+          _cooldown_seconds?: number
+          _expires_at: string
+          _ip_hash?: string
+          _max_per_window?: number
+          _token_hash: string
+          _window_seconds?: number
+        }
+        Returns: Json
       }
       wi_resolve_seat_capacity: {
         Args: { _workspace_id: string }
@@ -12063,6 +12120,10 @@ export type Database = {
           version: number
         }[]
       }
+      wi_revoke_login_context: {
+        Args: { _handle_hash: string }
+        Returns: undefined
+      }
       wi_revoke_secrets: {
         Args: {
           _generation?: number
@@ -12072,6 +12133,15 @@ export type Database = {
         Returns: undefined
       }
       wi_safe_invitation: { Args: { _invitation_id: string }; Returns: Json }
+      wi_verify_invitation_otp: {
+        Args: {
+          _code_digest: string
+          _proof_expires_at: string
+          _proof_hash: string
+          _token_hash: string
+        }
+        Returns: Json
+      }
       workspace_health_snapshot_compute: { Args: never; Returns: Json }
       workspace_owner_phone_verified: {
         Args: { _workspace_id: string }

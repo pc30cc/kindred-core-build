@@ -184,6 +184,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/auth/check-email" element={<CheckEmailPage />} />
                 <Route path="/auth/email-confirmed" element={<EmailConfirmedPage />} />
                 <Route path="/auth/invite" element={<InvitePage />} />
+                <Route path="/invite" element={<InvitePage />} />
               </Route>
 
               {/* Admin Bootstrap */}

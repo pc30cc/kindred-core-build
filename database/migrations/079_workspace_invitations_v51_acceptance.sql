@@ -401,6 +401,7 @@ DECLARE
   _invitation_id uuid;
   _joined_at timestamptz;
   _revoked integer := 0;
+  _revoked_ids uuid[] := ARRAY[]::uuid[];
 BEGIN
   -- 1. workspace lock
   SELECT owner_id INTO _owner_id FROM public.workspaces WHERE id = _workspace_id FOR UPDATE;

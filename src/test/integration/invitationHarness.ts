@@ -20,6 +20,9 @@ import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
 import type { PgQueryable } from './pgMigrationChain';
 
+process.env.INVITATION_LINK_SECRET ||= 'test-invitation-link-secret-value-32b!!';
+process.env.INVITATION_OTP_PEPPER ||= 'test-invitation-otp-pepper-value-32bytes';
+
 export type PgTestClient = PgQueryable & { end(): Promise<void> };
 
 export interface CapturedEmail {

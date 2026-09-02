@@ -134,8 +134,14 @@ export default function StaffAccessPage() {
 
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
-      await staffApi(`/api/workspace-members/${memberId}?workspaceId=${wsId}`, { method: 'DELETE' });
+      // Offboarding is destructive: a transport retry must replay the
+      // committed result, so the requestId is stable per logical removal.
+      await staffApi(`/api/workspace-members/${memberId}?workspaceId=${wsId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ requestId: requestIds.get(`offboard:${wsId}:${memberId}`) }),
+      });
     },
+    onSettled: (_d, _e, memberId) => requestIds.reset(`offboard:${wsId}:${memberId}`),
     onSuccess: () => {
       toast.success(t('staffAccess.memberRemoved'));
       qc.invalidateQueries({ queryKey: ['ws-members', wsId] });

@@ -263,7 +263,10 @@ async function signupAndVerify(email: string): Promise<{ cookie: string; userId:
   // so wait for the real delivery instead of assuming a same-tick send.
   let sent: (typeof capturedEmails)[number] | undefined;
   for (let i = 0; i < 100 && !sent; i += 1) {
-    sent = capturedEmails.find((e) => e.templateSlug === 'email_verify' && e.actionUrl && e.to === email);
+    // Addresses are normalized to lowercase server-side before delivery.
+    sent = capturedEmails.find(
+      (e) => e.templateSlug === 'email_verify' && e.actionUrl && e.to?.toLowerCase() === email.toLowerCase(),
+    );
     if (!sent) await new Promise((r) => setTimeout(r, 20));
   }
   expect(sent, `no verification email captured for ${email}`).toBeTruthy();

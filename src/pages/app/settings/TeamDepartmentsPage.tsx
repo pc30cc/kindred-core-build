@@ -580,9 +580,21 @@ function ToggleRow({
   );
 }
 
+type DeptPlanCaps = {
+  loaded: boolean;
+  chat: boolean;
+  tickets: boolean;
+  widgetVoice: boolean;
+  widgetVideo: boolean;
+  callCenter: boolean;
+  ccVoice: boolean;
+  ccVideo: boolean;
+  ccCallback: boolean;
+};
+
 function DepartmentDialog({
   mode, department, workspaceId, onClose, onSaved,
-  ccPlatformEnabled, ccEnabled, ccBusy, onToggleCc,
+  ccPlatformEnabled, ccEnabled, ccBusy, onToggleCc, planCaps,
 }: {
   mode: 'create' | 'edit';
   department?: Department;
@@ -593,6 +605,7 @@ function DepartmentDialog({
   ccEnabled: boolean;
   ccBusy: boolean;
   onToggleCc: (v: boolean) => void;
+  planCaps: DeptPlanCaps;
 }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({

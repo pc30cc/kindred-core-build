@@ -286,7 +286,7 @@ function invitePayload(workspaceId: string, over: Record<string, unknown> = {}) 
     email: `invitee${seq}.${Date.now()}@example.test`,
     phone: `+9891234${String(10000 + seq).slice(-5)}`,
     memberType: 'staff',
-    role: 'agent',
+    role: 'viewer',
     requestId: rid(),
     ...over,
   };

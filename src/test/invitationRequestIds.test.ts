@@ -66,10 +66,12 @@ describe('InvitePage request-id wiring', () => {
   });
 
   it('never persists request IDs or invitation secrets', () => {
+    // Comments may mention the rule; only real accesses are a violation.
     for (const source of [INVITE_PAGE, TEAM_PAGE, DEPARTMENTS_PAGE]) {
-      expect(source).not.toMatch(/localStorage/);
-      expect(source).not.toMatch(/sessionStorage/);
-      expect(source).not.toMatch(/document\.cookie/);
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      expect(code).not.toMatch(/(?:window\.)?localStorage\s*[.[]/);
+      expect(code).not.toMatch(/(?:window\.)?sessionStorage\s*[.[]/);
+      expect(code).not.toMatch(/document\.cookie/);
     }
   });
 

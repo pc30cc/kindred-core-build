@@ -82,6 +82,7 @@ function collectServerRpcNames(): string[] {
     const src = fs.readFileSync(f, 'utf8');
     for (const m of src.matchAll(/\.rpc\(\s*'([a-z0-9_]+)'/g)) names.add(m[1]);
   }
+  for (const n of EXECUTOR_DISPATCHED) names.add(n);
   return [...names].filter((n) => !NOT_INVITATION_SPECIFIC.has(n)).sort();
 }
 

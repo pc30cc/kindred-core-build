@@ -22,6 +22,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { useRequestIdBook } from '@/features/invitations/requestIds';
 import { toast } from '@/lib/toast';
 import {
   Building2, Plus, Trash2, Users, MessageSquare, Phone, Video,
@@ -833,8 +834,15 @@ export function InviteMemberDialog({
     enabled: mode === 'customer',
   });
 
+  // Stable per-intent request id: a retry of the same submission reuses it,
+  // an edited field is a new logical action (v5.1 B.1).
+  const requestIds = useRequestIdBook();
   const create = useMutation({
     mutationFn: async () => {
+      const intent = [
+        workspaceId, firstName.trim(), lastName.trim(), email.trim(), phone.trim(),
+        mode, role, [...departmentIds].sort().join(','),
+      ].join('|');
       const { invitation, manualLink } = await teamApi<{ invitation: any; manualLink: string }>('/api/workspace-invitations', {
         method: 'POST',
         body: JSON.stringify({
@@ -847,7 +855,7 @@ export function InviteMemberDialog({
           role,
           departmentIds: mode === 'customer' ? departmentIds : [],
           expiresInDays: 30,
-          requestId: crypto.randomUUID(),
+          requestId: requestIds.get('create_invitation', intent),
         }),
       });
       return { invitation, manualLink };

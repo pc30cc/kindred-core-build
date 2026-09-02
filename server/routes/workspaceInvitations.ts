@@ -32,7 +32,7 @@ import {
   sha256Hex,
   randomToken,
   tokenPrefix,
-  generateOtpCode,
+  deriveOtpCode,
   otpDigest,
   destinationHash,
   resolveAppBaseUrl,
@@ -48,6 +48,7 @@ import {
   runIdempotent,
   deriveScopedSecret,
   deriveDeterministicUuid,
+  deriveIntentDigest,
 } from '../services/invitations/idempotency.js';
 
 export const workspaceInvitationsRouter = Router();
@@ -235,6 +236,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
       lastName: body.lastName,
       jobTitle: body.jobTitle ?? null,
       staffCode: body.staffCode ?? null,
+      expiresInDays: body.expiresInDays ?? 7,
     },
     args: {
       first_name: body.firstName,
@@ -385,6 +387,7 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
       lastName: body.lastName,
       jobTitle: body.jobTitle ?? null,
       staffCode: body.staffCode ?? null,
+      expiresInDays: body.expiresInDays ?? 7,
     },
     args: {
       first_name: body.firstName,
@@ -628,7 +631,6 @@ workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl,
   const sb = getServiceClient(config);
 
   const invitationHash = tokenHashOf(parsed.data.token);
-  const code = generateOtpCode();
 
   // Read-only probe: resolves the invitation id the digest is bound to. It
   // mutates nothing, so it stays outside the idempotent transaction.
@@ -638,16 +640,26 @@ workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl,
   });
   if (probeError || !probe) return res.status(404).json(PUBLIC_ERROR);
 
+  const invitationId = String((probe as any).invitation_id);
+  // Deterministic OTP identity + code (v5.1 B.5): the code is NEVER stored and
+  // NEVER sent inline. It is re-derivable by the delivery worker from the OTP
+  // id plus the process-local pepper, so a crash between commit and delivery
+  // is recoverable instead of stranding a live code nobody received.
+  const otpId = deriveDeterministicUuid('otp_request', requestId, invitationHash);
+  const code = deriveOtpCode(invitationId, otpId);
+
   const outcome = await runIdempotent(config, {
     operation: 'otp_request',
     scopeKind: 'public',
     requestId,
-    invitationId: String((probe as any).invitation_id),
+    invitationId,
     fingerprintInput: { tokenHash: invitationHash },
     args: {
       token_hash: invitationHash,
-      code_digest: otpDigest(String((probe as any).invitation_id), code),
+      otp_id: otpId,
+      code_digest: otpDigest(invitationId, code),
       expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString(),
+      job_idempotency_key: `otp:${otpId}`,
       ip_hash: hashIp(getClientIp(req)),
     },
   });
@@ -656,26 +668,12 @@ workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl,
     const mapped = mapRpcError(outcome.error.message);
     // Uniform response: never reveal invitation/account existence.
     if (mapped.code === 'OTP_RATE_LIMITED') return res.status(429).json({ error: 'OTP_RATE_LIMITED' });
+    if (mapped.code === 'IDEMPOTENCY_KEY_REUSED') return res.status(409).json({ error: 'IDEMPOTENCY_KEY_REUSED' });
     return res.status(404).json(PUBLIC_ERROR);
   }
 
-  // A replay must NOT send a second code: the first one is still the live one.
-  if (!outcome.replayed) {
-    try {
-      const { sendEmail } = await import('../services/email/index.js');
-      const data = outcome.result as any;
-      await sendEmail(config, {
-        workspaceId: String(data.workspace_id),
-        to: String(data.email_normalized),
-        subject: 'Your verification code',
-        text: `Verification code: ${code}\nIt expires in 10 minutes.`,
-        html: `<p>Verification code: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
-      });
-    } catch {
-      // Delivery problems never leak invitation state to the caller.
-    }
-  }
-
+  // Delivery is owned by the durable outbox worker; the OTP row and its job
+  // were committed together, so nothing is "sent" from this request path.
   return res.json({ ok: true, expiresInSeconds: Math.floor(OTP_TTL_MS / 1000), replayed: outcome.replayed });
 });
 
@@ -704,7 +702,11 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
     scopeKind: 'public',
     requestId,
     invitationId: String((probe as any).invitation_id),
-    fingerprintInput: { tokenHash: invitationHash, code: sha256Hex(`code|${parsed.data.code}`) },
+    // Keyed digest: an unkeyed hash of a six-digit code is brute-forceable.
+    fingerprintInput: {
+      tokenHash: invitationHash,
+      codeDigest: deriveIntentDigest('otp_code', `${String((probe as any).invitation_id)}|${parsed.data.code}`),
+    },
     args: {
       token_hash: invitationHash,
       code_digest: otpDigest(String((probe as any).invitation_id), parsed.data.code),
@@ -787,8 +789,14 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
     fingerprintInput: {
       tokenHash,
       purpose: body.purpose,
+      // Argon2 hashes are salted, so the stored hash cannot be a fingerprint
+      // input: use a deterministic keyed digest of the raw password instead.
+      // The raw password is never stored and never logged.
+      passwordIntent: deriveIntentDigest('accept_new_password', body.password),
+      proofBinding: proofRaw ? deriveIntentDigest('accept_new_proof', String(proofRaw)) : null,
       termsVersionId: body.termsVersionId,
       privacyVersionId: body.privacyVersionId,
+      locale: body.locale ?? null,
     },
     args: {
       token_hash: tokenHash,
@@ -863,8 +871,10 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
     fingerprintInput: {
       handleHash,
       userId: session.userId,
+      sessionEmail: deriveIntentDigest('session_email', session.email.toLowerCase()),
       termsVersionId: body.termsVersionId,
       privacyVersionId: body.privacyVersionId,
+      locale: body.locale ?? null,
     },
     args: {
       handle_hash: handleHash,

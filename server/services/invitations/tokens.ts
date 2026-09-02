@@ -179,6 +179,24 @@ export function generateOtpCode(): string {
   return n.toString().padStart(6, '0');
 }
 
+/**
+ * Deterministic OTP code for the durable delivery outbox (v5.1 B.5).
+ *
+ * The database stores ONLY the keyed digest of the code. The delivery worker
+ * must still be able to e-mail the very same code after a crash, so the code
+ * is derived from non-secret job material (invitation id + otp id) plus the
+ * process-local OTP pepper. Nothing recoverable from a database dump: without
+ * the pepper the code cannot be derived, and the digest cannot be brute-forced
+ * because it is keyed by the same pepper.
+ */
+export function deriveOtpCode(invitationId: string, otpId: string): string {
+  const digest = crypto
+    .createHmac('sha256', otpPepper())
+    .update(`wi-otp-code-v1|${invitationId}|${otpId}`, 'utf8')
+    .digest();
+  return String(digest.readUInt32BE(0) % 1_000_000).padStart(6, '0');
+}
+
 export function otpDigest(invitationId: string, code: string): string {
   return crypto
     .createHmac('sha256', otpPepper())

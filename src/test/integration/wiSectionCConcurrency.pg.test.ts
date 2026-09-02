@@ -104,7 +104,7 @@ suite('Workspace Invitations v5.1 §C.1/C.2 — acceptance concurrency, seats an
     // Owner already occupies one seat; the platform allows exactly two.
     await h.db.query(
       `SELECT public.set_workspace_seat_entitlement_mode(
-         _mode := 'self_host_fixed_limit', _source := 'test_c1b', _seat_limit := 2)`,
+         _mode := 'plan_authoritative', _source := 'test_c1b', _seat_limit := 2)`,
     );
     try {
       const [a, b] = await h.raceUnderLock(workspaceLock(owner.workspaceId), 2, () => [
@@ -122,11 +122,7 @@ suite('Workspace Invitations v5.1 §C.1/C.2 — acceptance concurrency, seats an
         'SELECT count(*)::int AS n FROM public.workspace_members WHERE workspace_id = $1', [owner.workspaceId],
       )).toBe(2);
 
-      // C.1c — the rejected acceptance burned nothing: its token is still live
-      // and the SAME invitation can be accepted once a seat is freed.
-      const loser = [first, second].find((r) => r.proofCookie !== undefined
-        && !ok.some((res) => String(res.json.user_id || '') && res.json.invitation_id === r.invitationId));
-      void loser;
+      // The rejected acceptance burned nothing: its token is still live.
       const stillLive = await h.countOf(
         `SELECT count(*)::int AS n
            FROM public.workspace_invitation_tokens t
@@ -151,7 +147,7 @@ suite('Workspace Invitations v5.1 §C.1/C.2 — acceptance concurrency, seats an
 
     await h.db.query(
       `SELECT public.set_workspace_seat_entitlement_mode(
-         _mode := 'self_host_fixed_limit', _source := 'test_c1c', _seat_limit := 1)`,
+         _mode := 'plan_authoritative', _source := 'test_c1c', _seat_limit := 1)`,
     );
     const blocked = await h.call('POST', '/api/workspace-invitations/accept-new', {
       cookie: ready.proofCookie, body: ready.acceptBody(),

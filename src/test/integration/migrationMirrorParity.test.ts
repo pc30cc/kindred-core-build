@@ -80,6 +80,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/075_ai_billing_recovery_lease.sql',
     hosted: 'supabase/migrations/20260901105630_5ba30ba4-19b7-4cc7-85fc-9aeb4a6bedc6.sql',
   },
+  {
+    label: '092 — offboarding idempotency (executor gains the offboard operation)',
+    selfHost: 'database/migrations/092_workspace_invitations_v51_offboard_idempotency.sql',
+    hosted: 'supabase/migrations/20260902151219_87793458-f50c-4bfd-8162-91611730b306.sql',
+  },
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered
   // here: the two chains' starting schemas differ (self-host creates 3 tables from
@@ -143,5 +148,37 @@ describe('hosted mirror chain completeness', () => {
     });
     expect(stamps).toEqual([...stamps].sort());
     expect(new Set(stamps).size).toBe(stamps.length);
+  });
+});
+/**
+ * Executor parity: the two chains must agree on WHAT the idempotent executor
+ * can do, not merely on its signature. A hosted mirror that kept the old
+ * operation list would pass a signature check and still be functionally
+ * divergent, so the operation allow-list and every dispatch target are
+ * compared directly.
+ */
+const EXECUTOR_MIRROR = MIRRORS.find((m) => m.label.startsWith('092'))!;
+
+function executorOperations(path: string): string[] {
+  const sql = functionalSql(path);
+  return [...new Set([...sql.matchAll(/WHEN '([a-z_]+)' THEN/g)].map((m) => m[1]))].sort();
+}
+function dispatchTargets(path: string): string[] {
+  const sql = functionalSql(path);
+  const body = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.wi_execute_idempotent'));
+  return [...new Set([...body.matchAll(/public\.([a-z0-9_]+)\s*\(/g)].map((m) => m[1]))].sort();
+}
+
+describe('idempotent executor operation parity', () => {
+  it('both chains expose the SAME operation allow-list, including offboard', () => {
+    const selfHost = executorOperations(EXECUTOR_MIRROR.selfHost);
+    expect(selfHost).toContain('offboard');
+    expect(executorOperations(EXECUTOR_MIRROR.hosted)).toEqual(selfHost);
+  });
+
+  it('both chains dispatch each operation to the SAME target functions', () => {
+    const selfHost = dispatchTargets(EXECUTOR_MIRROR.selfHost);
+    expect(selfHost).toContain('offboard_workspace_member');
+    expect(dispatchTargets(EXECUTOR_MIRROR.hosted)).toEqual(selfHost);
   });
 });

@@ -34,6 +34,7 @@ import InvitePage from "@/pages/auth/InvitePage";
 import OverviewPage from "@/pages/app/OverviewPage";
 import InboxPage from "@/pages/app/InboxPage";
 import ContactsPage from "@/pages/app/ContactsPage";
+import TeamPage from "@/pages/app/TeamPage";
 import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";

@@ -11,9 +11,9 @@
 -- This migration re-creates public.wi_execute_idempotent with ONE addition:
 -- the 'offboard' operation. Everything else — the fingerprint/scope binding,
 -- the in-transaction commit of the ledger row and the secret-free projection
--- allow-list — is byte-for-byte the 088 behaviour. Two extra projected keys
--- ('revoked_invitations', 'offboarded_at') are non-secret counters/timestamps
--- returned by the offboarding RPC itself.
+-- allow-list — is byte-for-byte the 088 behaviour. One extra projected key
+-- ('revoked_invitations') is the non-secret counter returned by the
+-- offboarding RPC itself.
 --
 -- 087/088 are NOT modified. This file only replaces the function body.
 -- =========================================================================

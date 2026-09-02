@@ -12116,6 +12116,10 @@ export type Database = {
         Args: { _handle_hash: string }
         Returns: Json
       }
+      wi_purge_expired_idempotency: {
+        Args: { _limit?: number }
+        Returns: number
+      }
       wi_request_invitation_otp: {
         Args: {
           _code_digest: string

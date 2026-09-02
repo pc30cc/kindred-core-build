@@ -63,11 +63,6 @@ interface PolicyVersion {
   document_url: string | null;
 }
 
-const tt = (t: any, key: string, fallback: string) => {
-  const val = t(key);
-  return val === key ? fallback : val;
-};
-
 /** Reads and immediately erases the token from the URL fragment. */
 function consumeFragmentToken(): { token: string | null; purpose: Purpose } {
   const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
@@ -199,7 +194,7 @@ export default function InvitePage() {
     if (!ok) {
       if (transportUnknown) {
         setState(user ? 'ready' : 'account_exists_login_required');
-        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        toast.error(t('invite.networkError'));
         return;
       }
       const code = String(data?.error || 'INVITATION_NOT_FOUND');
@@ -238,16 +233,16 @@ export default function InvitePage() {
     if (!ok) {
       if (transportUnknown) {
         // Outcome unknown: keep the SAME requestId so the retry is a replay.
-        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        toast.error(t('invite.networkError'));
         return;
       }
       toast.error(status === 429
-        ? tt(t, 'invite.otpRateLimited', 'Too many requests. Try again shortly.')
-        : tt(t, 'invite.otpFailed', 'Could not send the code.'));
+        ? t('invite.otpRateLimited')
+        : t('invite.otpFailed'));
       return;
     }
     otpDeliveredRef.current = true;
-    toast.success(tt(t, 'invite.otpSent', 'Verification code sent to your email.'));
+    toast.success(t('invite.otpSent'));
   };
 
   const verifyOtp = async () => {
@@ -260,12 +255,12 @@ export default function InvitePage() {
     });
     if (!ok) {
       if (transportUnknown) {
-        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        toast.error(t('invite.networkError'));
         return;
       }
       toast.error(status === 429
-        ? tt(t, 'invite.otpRateLimited', 'Too many attempts. Try again later.')
-        : tt(t, 'invite.otpInvalid', 'Invalid or expired code.'));
+        ? t('invite.otpRateLimited')
+        : t('invite.otpInvalid'));
       return;
     }
     setOtpCode('');
@@ -283,7 +278,7 @@ export default function InvitePage() {
     });
     if (!ok) {
       if (transportUnknown) {
-        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        toast.error(t('invite.networkError'));
         return; // token kept: the same logical action may be retried
       }
       tokenRef.current = null;
@@ -297,7 +292,7 @@ export default function InvitePage() {
   const acceptNew = async () => {
     if (!tokenRef.current || !policies.terms || !policies.privacy) return;
     if (password.length < 10 || password !== confirm) {
-      toast.error(tt(t, 'invite.passwordMismatch', 'Passwords must match and be at least 10 characters.'));
+      toast.error(t('invite.passwordMismatch'));
       return;
     }
     setState('accepting');
@@ -321,7 +316,7 @@ export default function InvitePage() {
       if (transportUnknown) {
         // Unknown outcome: stay retryable and KEEP the same requestId.
         setState('ready');
-        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        toast.error(t('invite.networkError'));
         return;
       }
       setPassword('');
@@ -362,51 +357,51 @@ export default function InvitePage() {
 
   if (state === 'loading') {
     return card(<Loader2 className="h-8 w-8 animate-spin text-primary" />,
-      tt(t, 'invite.loading', 'Checking your invitation…'), '');
+      t('invite.loading'), '');
   }
 
   if (state === 'invalid') {
     return card(<XCircle className="h-8 w-8 text-destructive" />,
-      tt(t, 'invite.invalidTitle', 'Invitation unavailable'),
-      tt(t, 'invite.invalidBody', 'This invitation link is invalid, expired, revoked or already used. Ask your workspace administrator for a new invitation.'));
+      t('invite.invalidTitle'),
+      t('invite.invalidBody'));
   }
 
   if (state === 'seat_limit_reached') {
     return card(<ShieldAlert className="h-8 w-8 text-destructive" />,
-      tt(t, 'invite.seatLimitTitle', 'No seats available'),
-      tt(t, 'invite.seatLimitBody', 'This workspace has reached its member limit. Your invitation is still valid — ask an administrator to free a seat or upgrade the plan.'));
+      t('invite.seatLimitTitle'),
+      t('invite.seatLimitBody'));
   }
 
   if (state === 'entitlement_unavailable') {
     return card(<ShieldAlert className="h-8 w-8 text-destructive" />,
-      tt(t, 'invite.entitlementTitle', 'Temporarily unavailable'),
-      tt(t, 'invite.entitlementBody', 'Membership limits cannot be verified right now. Please try again shortly.'));
+      t('invite.entitlementTitle'),
+      t('invite.entitlementBody'));
   }
 
   if (state === 'account_exists_login_required') {
     return card(<LogIn className="h-8 w-8 text-primary" />,
-      tt(t, 'invite.loginTitle', 'Sign in to accept'),
-      tt(t, 'invite.loginBody', 'An account already exists for this email address. Sign in and you will be returned here to accept the invitation.'),
-      <Button className="w-full" onClick={goToLogin}>{tt(t, 'invite.goToLogin', 'Continue to sign in')}</Button>);
+      t('invite.loginTitle'),
+      t('invite.loginBody'),
+      <Button className="w-full" onClick={goToLogin}>{t('invite.goToLogin')}</Button>);
   }
 
   if (state === 'wrong_account') {
     return card(<ShieldAlert className="h-8 w-8 text-destructive" />,
-      tt(t, 'invite.wrongAccountTitle', 'This invitation belongs to another account'),
-      tt(t, 'invite.wrongAccountBody', 'Sign out and use the email address shown on the invitation.'));
+      t('invite.wrongAccountTitle'),
+      t('invite.wrongAccountBody'));
   }
 
   if (state === 'session_failed_login_required') {
     return card(<CheckCircle2 className="h-8 w-8 text-primary" />,
-      tt(t, 'invite.sessionFailedTitle', 'Membership created'),
-      tt(t, 'invite.sessionFailedBody', 'Your membership is active but the session could not be started. Please sign in.'),
-      <Button className="w-full" onClick={() => navigate('/auth/login')}>{tt(t, 'invite.goToLogin', 'Continue to sign in')}</Button>);
+      t('invite.sessionFailedTitle'),
+      t('invite.sessionFailedBody'),
+      <Button className="w-full" onClick={() => navigate('/auth/login')}>{t('invite.goToLogin')}</Button>);
   }
 
   if (state === 'accepted') {
     return card(<CheckCircle2 className="h-8 w-8 text-emerald-500" />,
-      tt(t, 'invite.acceptedTitle', 'Welcome aboard'),
-      tt(t, 'invite.acceptedBody', 'Your membership is active. Taking you to the workspace…'));
+      t('invite.acceptedTitle'),
+      t('invite.acceptedBody'));
   }
 
   const header = (
@@ -416,7 +411,7 @@ export default function InvitePage() {
         <div>
           <CardTitle>{preview?.workspace_name}</CardTitle>
           <CardDescription>
-            {tt(t, 'invite.invitedAs', 'Invited as')} <Badge variant="secondary">{preview?.role}</Badge>
+            {t('invite.invitedAs')} <Badge variant="secondary">{preview?.role}</Badge>
           </CardDescription>
         </div>
       </div>
@@ -426,7 +421,7 @@ export default function InvitePage() {
         {preview?.expires_at ? (
           <div className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
-            {tt(t, 'invite.expiresAt', 'Expires')}: {new Date(preview.expires_at).toLocaleString(locale)}
+            {t('invite.expiresAt')}: {new Date(preview.expires_at).toLocaleString(locale)}
           </div>
         ) : null}
       </div>
@@ -440,18 +435,18 @@ export default function InvitePage() {
           {header}
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {tt(t, 'invite.otpBody', 'To continue, verify the email address on this invitation with a one-time code.')}
+              {t('invite.otpBody')}
             </p>
             <Button variant="outline" className="w-full" onClick={requestOtp} disabled={otpSending}>
-              {otpSending ? <Loader2 className="h-4 w-4 animate-spin" /> : tt(t, 'invite.sendCode', 'Send code')}
+              {otpSending ? <Loader2 className="h-4 w-4 animate-spin" /> : t('invite.sendCode')}
             </Button>
             <div className="space-y-2">
-              <Label htmlFor="otp">{tt(t, 'invite.code', 'Verification code')}</Label>
+              <Label htmlFor="otp">{t('invite.code')}</Label>
               <Input id="otp" inputMode="numeric" maxLength={6} value={otpCode}
                      onChange={(e) => { bumpRev('otp_verify'); setOtpCode(e.target.value.replace(/\D/g, '')); }} />
             </div>
             <Button className="w-full" disabled={otpCode.length !== 6} onClick={verifyOtp}>
-              {tt(t, 'invite.verify', 'Verify')}
+              {t('invite.verify')}
             </Button>
           </CardContent>
         </Card>
@@ -465,12 +460,12 @@ export default function InvitePage() {
         {header}
         <CardContent className="space-y-4">
           {!existingContinuation ? <><div className="space-y-2">
-            <Label htmlFor="pw">{tt(t, 'invite.password', 'Create a password')}</Label>
+            <Label htmlFor="pw">{t('invite.password')}</Label>
             <Input id="pw" type="password" value={password} autoComplete="new-password"
                    onChange={(e) => { bumpRev('accept_new'); setPassword(e.target.value); }} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="pw2">{tt(t, 'invite.confirmPassword', 'Confirm password')}</Label>
+            <Label htmlFor="pw2">{t('invite.confirmPassword')}</Label>
             <Input id="pw2" type="password" value={confirm} autoComplete="new-password"
                    onChange={(e) => { bumpRev('accept_new'); setConfirm(e.target.value); }} />
           </div></> : null}
@@ -478,15 +473,15 @@ export default function InvitePage() {
           <div className="flex items-start gap-2">
             <Checkbox id="consent" checked={consent} onCheckedChange={(v) => setConsent(v === true)} />
             <Label htmlFor="consent" className="text-sm font-normal leading-5">
-              {tt(t, 'invite.consent', 'I accept the Terms of Service and the Privacy Policy')}
+              {t('invite.consent')}
               {policies.terms?.document_url ? (
                 <> — <a className="underline" href={policies.terms.document_url} target="_blank" rel="noreferrer">
-                  {tt(t, 'invite.terms', 'Terms')}
+                  {t('invite.terms')}
                 </a></>
               ) : null}
               {policies.privacy?.document_url ? (
                 <> · <a className="underline" href={policies.privacy.document_url} target="_blank" rel="noreferrer">
-                  {tt(t, 'invite.privacy', 'Privacy')}
+                  {t('invite.privacy')}
                 </a></>
               ) : null}
             </Label>
@@ -494,7 +489,7 @@ export default function InvitePage() {
 
           {!policies.terms || !policies.privacy ? (
             <p className="text-xs text-destructive">
-              {tt(t, 'invite.policiesMissing', 'Legal policy versions are not published yet. Contact your administrator.')}
+              {t('invite.policiesMissing')}
             </p>
           ) : null}
 
@@ -507,7 +502,7 @@ export default function InvitePage() {
           >
             {state === 'accepting'
               ? <Loader2 className="h-4 w-4 animate-spin" />
-              : tt(t, 'invite.accept', 'Accept invitation')}
+              : t('invite.accept')}
           </Button>
         </CardContent>
       </Card>

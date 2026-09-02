@@ -3957,7 +3957,6 @@ export type Database = {
           widget_default_locale: string | null
           widget_enabled_locales: string[] | null
           widget_position: string
-          widget_template_id: string
           widget_theme: Json
           workspace_id: string
         }
@@ -3989,7 +3988,6 @@ export type Database = {
           widget_default_locale?: string | null
           widget_enabled_locales?: string[] | null
           widget_position?: string
-          widget_template_id?: string
           widget_theme?: Json
           workspace_id: string
         }
@@ -4021,7 +4019,6 @@ export type Database = {
           widget_default_locale?: string | null
           widget_enabled_locales?: string[] | null
           widget_position?: string
-          widget_template_id?: string
           widget_theme?: Json
           workspace_id?: string
         }

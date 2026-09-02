@@ -73,6 +73,7 @@ export default function CallCenterSettingsPage() {
   const [s, setS] = useState<any>(null);
   const [original, setOriginal] = useState<any>(null);
   const [previewOnline, setPreviewOnline] = useState(true);
+  const [tab, setTab] = useState('general');
 
   useEffect(() => {
     if (data?.settings) {
@@ -146,7 +147,7 @@ export default function CallCenterSettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl pb-24" dir={dir}>
+    <div className={cn('space-y-6 pb-24', tab === 'presentation' ? 'max-w-6xl' : 'max-w-3xl')} dir={dir}>
       {platformOff && (
         <Card className="p-4 border-destructive/40 bg-destructive/5 flex gap-2 items-start">
           <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
@@ -154,7 +155,7 @@ export default function CallCenterSettingsPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="general" className="space-y-4" dir={dir}>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4" dir={dir}>
       <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">
         <TabsTrigger value="general">{t('callCenter.settingsPage.tabs.general')}</TabsTrigger>
         <TabsTrigger value="presentation">{t('callCenter.settingsPage.tabs.presentation')}</TabsTrigger>
@@ -197,7 +198,8 @@ export default function CallCenterSettingsPage() {
       </Section>
       </TabsContent>
 
-      <TabsContent value="presentation" className="space-y-6 mt-0">
+      <TabsContent value="presentation" className="mt-0">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] items-start">
         <Section
           title={t('callCenter.settingsPage.presentationTitle')}
           description={t('callCenter.settingsPage.presentationHint')}
@@ -274,20 +276,24 @@ export default function CallCenterSettingsPage() {
             </Row>
           </div>
         </Section>
-        <Section
-          title={t('callCenter.settingsPage.livePreview')}
-          description={t('callCenter.settingsPage.livePreviewHint')}
-        >
-          <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
-              <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
-            </SelectContent>
-          </Select>
-          <CallWidgetPreview settings={s} online={previewOnline} />
-        </Section>
+        <div className="lg:sticky lg:top-4">
+          <Section
+            title={t('callCenter.settingsPage.livePreview')}
+            description={t('callCenter.settingsPage.livePreviewHint')}
+          >
+            <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
+              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
+                <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <CallWidgetPreview settings={s} online={previewOnline} />
+          </Section>
+        </div>
+        </div>
       </TabsContent>
+
 
       <TabsContent value="languages" className="space-y-6 mt-0">
       {(() => {

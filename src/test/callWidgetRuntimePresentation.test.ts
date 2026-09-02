@@ -11,6 +11,7 @@ function mount(config: Record<string, unknown>, online = true) {
     runScripts: 'outside-only',
   });
   const win = dom.window as unknown as Window & {
+    eval(code: string): unknown;
     CallCenterWidget: { mount(options: unknown): void };
   };
   win.eval(source('presentation-registry.js'));

@@ -1640,6 +1640,7 @@ const en = {
     ccMasterHint: 'Master switch for the standalone Call Center. When off, the Call Center is hidden from operators and its surfaces are disabled workspace-wide.',
     ccMasterOn: 'Call Center enabled',
     ccMasterOff: 'Call Center disabled',
+    ccMasterPlatformOff: 'The standalone Call Center is disabled by the platform administrator.',
     title: 'Team & Departments',
     subtitleBefore: 'People who handle visitor chats and calls, and the departments that route them. For internal access (billing, SEO, analytics, developers), see ',
     staffAccess: 'Staff Access',

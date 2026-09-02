@@ -12,7 +12,6 @@
     OFFLINE: 'offline',
     PRE_CALL: 'pre_call_form',
     QUEUE: 'queue_waiting',
-    RINGING: 'ringing',
     IN_CALL: 'in_call',
     ENDED: 'ended',
     CALLBACK: 'callback_form',
@@ -27,7 +26,7 @@
   };
   var I18N = {
     en: {
-      talk_now: 'Talk now', callback: 'Callback', live_support: 'Live support', leave_details: 'Leave details', support: 'Support',
+      talk_now: 'Talk now', callback: 'Callback', live_support: 'Live support', leave_details: 'Leave details', support: 'Support', required: 'Required',
       operators_available: 'Operators available', callback_desk: 'Callback desk', loading: 'Loading…', offline: 'Offline',
       leave_callback_request: 'Leave a callback request', offline_copy: 'Our team is offline right now, but we can call you back.', request_callback: 'Request callback',
       live_now: 'Live now', channels: 'Voice · Video · Callback', talk_to_team: 'Talk to our team', online_copy: 'Start a secure voice or video call with the next available operator.',
@@ -54,7 +53,7 @@
       rate_thanks: 'Thank you for your feedback!'
     },
     fa: {
-      talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی',
+      talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی', required: 'الزامی',
       operators_available: 'اپراتورها آماده‌اند', callback_desk: 'میز درخواست تماس', loading: 'در حال بارگذاری…', offline: 'آفلاین',
       leave_callback_request: 'درخواست تماس ثبت کنید', offline_copy: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', request_callback: 'درخواست تماس',
       live_now: 'آنلاین', channels: 'صوتی · تصویری · درخواست تماس', talk_to_team: 'با تیم ما صحبت کنید', online_copy: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.',
@@ -81,7 +80,7 @@
       rate_thanks: 'از بازخورد شما متشکریم!'
     },
     tr: {
-      talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek',
+      talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek', required: 'Zorunlu',
       operators_available: 'Operatörler müsait', callback_desk: 'Geri arama masası', loading: 'Yükleniyor…', offline: 'Çevrimdışı',
       leave_callback_request: 'Geri arama isteği bırakın', offline_copy: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.', request_callback: 'Geri arama iste',
       live_now: 'Canlı', channels: 'Ses · Video · Geri arama', talk_to_team: 'Ekibimizle konuşun', online_copy: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.',
@@ -563,7 +562,7 @@
       call_type: 'voice', consent: false, department_id: '',
       callback_channel: 'audio', callback_urgency: 'normal',
       callback_when: 'now', callback_scheduled_for: '',
-      hp_company: '',
+      hp_company: '', custom: {},
     };
     this.callbackOpenedAt = 0;
     this.callbackCooldownUntil = 0;
@@ -616,6 +615,7 @@
     this.runtimeAssetSuffix = opts.runtimeAssetSuffix || (this.assetsVersion ? ('?v=' + encodeURIComponent(String(this.assetsVersion).slice(0, 16))) : '');
     this.activeSessionKey = opts.activeSessionKey || '';
     this.bootstrap = opts.bootstrap;
+    this.preview = opts.preview === true;
     this.session = opts.bootstrap && opts.bootstrap.session;
     this.initLocale();
 
@@ -637,6 +637,14 @@
     link.rel = 'stylesheet';
     link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
+    var presentationLink = document.createElement('link');
+    presentationLink.rel = 'stylesheet';
+    var presentationStyle = this.bootstrap && this.bootstrap.assets && this.bootstrap.assets.presentation_style_url;
+    presentationLink.href = this.origin +
+      (/^\/call-widget\/[a-z0-9.-]+$/i.test(presentationStyle || '')
+        ? presentationStyle : '/call-widget/presentation-default.css') +
+      this.runtimeAssetSuffix;
+    shadow.appendChild(presentationLink);
     // Shared, hashed font asset — the URL comes from the bootstrap payload
     // (`assets.font_style_url`). This runtime hard-codes no font path and no
     // font family; it just injects the stylesheet the server points at, at
@@ -655,6 +663,10 @@
     root.className = 'ccw-root';
     shadow.appendChild(root);
     this.root = root;
+    var registry = window.CallWidgetPresentations;
+    var requestedPresentation = this.bootstrap && this.bootstrap.config && this.bootstrap.config.widget_template_id;
+    this.presentation = registry && registry.resolve(requestedPresentation);
+    this.presentationInstance = null;
 
     if (!this.bootstrap || this.bootstrap.status !== 'ok') {
       this.state = STATES.OFFLINE; this.render(); return;
@@ -663,6 +675,7 @@
       // still allow visit but warn — will block at request time
     }
     this.state = (this.isOnline() ? STATES.ONLINE : STATES.OFFLINE);
+    if (this.preview) this.open = true;
     this.render();
     // Resume any in-flight call across refresh / navigation.
     try { this.resumeActiveCall(); } catch (_) {}
@@ -690,6 +703,9 @@
 
   CallCenterWidgetCtor.prototype.api = function (path, opts) {
     opts = opts || {};
+    if (this.preview) {
+      return Promise.resolve({ ok: false, status: 409, body: { error: 'preview_mode' } });
+    }
     var headers = { 'Content-Type': 'application/json' };
     if (this.session) headers['x-cc-session'] = this.session;
     try {
@@ -757,6 +773,12 @@
       Ringback.startFromGesture((this.bootstrap && this.bootstrap.queue_experience) || {});
     } catch (_) {}
     var rec = (this.bootstrap && this.bootstrap.recording) || {};
+    var invalidField = this.validatePreCallForm();
+    if (invalidField) {
+      try { Ringback.stop(); } catch (_) {}
+      this.error = invalidField.label + ': ' + this.t('required');
+      this.render(); return;
+    }
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     if (consentNeeded && !this.formData.consent) {
       try { Ringback.stop(); } catch (_) {}
@@ -780,6 +802,7 @@
         recording_consent: !!this.formData.consent,
         recording_consent_at: consentAt,
         department_id: this.formData.department_id || null,
+        form_data: Object.assign({}, this.formData.custom || {}),
       },
     }).then(function (r) {
       if (!r.ok) {
@@ -840,6 +863,21 @@
       self.error = sanitize(String(e && e.message || e));
       self.state = STATES.ERROR; self.render();
     });
+  };
+
+  CallCenterWidgetCtor.prototype.validatePreCallForm = function () {
+    var cfg = (this.bootstrap && this.bootstrap.config) || {};
+    var schema = Array.isArray(cfg.pre_call_form_schema) ? cfg.pre_call_form_schema : [];
+    if (!cfg.pre_call_form_enabled || !schema.length) return null;
+    for (var i = 0; i < schema.length; i++) {
+      var field = schema[i];
+      if (!field || !field.required) continue;
+      var value = ['name', 'email', 'phone', 'subject'].indexOf(field.id) >= 0
+        ? this.formData[field.id]
+        : this.formData.custom && this.formData.custom[field.id];
+      if (field.type === 'checkbox' ? value !== true : !String(value || '').trim()) return field;
+    }
+    return null;
   };
 
   CallCenterWidgetCtor.prototype.startTimer = function () {
@@ -1490,7 +1528,7 @@
     });
   };
 
-  CallCenterWidgetCtor.prototype.render = function () {
+  CallCenterWidgetCtor.prototype.renderLegacy = function () {
     if (!this.root) return;
     var self = this;
     var tr = function (key, vars) { return self.t(key, vars); };
@@ -1500,9 +1538,16 @@
     this.root.setAttribute('dir', (LOCALE_META[this.locale] && LOCALE_META[this.locale].dir) || 'ltr');
     var caps = (this.bootstrap && this.bootstrap.capabilities) || {};
     var cfg = (this.bootstrap && this.bootstrap.config) || {};
+    var offlineBehavior = cfg.offline_behavior || 'show_callback';
+
+    // The hide policy applies only while offline. In-flight states remain
+    // visible so a network/status transition can never strand a visitor.
+    if (this.state === STATES.OFFLINE && offlineBehavior === 'hide') return;
 
     // Launcher always present
-    var launcherText = this.isOnline() ? tr('talk_now') : tr('callback');
+    var launcherText = this.isOnline()
+      ? tr('talk_now')
+      : (offlineBehavior === 'show_callback' ? tr('callback') : tr('support'));
     var launcher = el('button', {
       class: 'ccw-launcher ' + pos,
       'aria-label': launcherText,
@@ -1511,7 +1556,10 @@
       el('span', { class: 'ccw-launcher-pulse' }, [el('span', { class: 'ccw-launcher-icon' }, ['☎'])]),
       el('span', { class: 'ccw-launcher-copy' }, [
         el('span', { class: 'ccw-launcher-text' }, [launcherText]),
-        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? tr('live_support') : tr('leave_details')]),
+        el('span', { class: 'ccw-launcher-sub' }, [
+          this.isOnline() ? tr('live_support')
+            : (offlineBehavior === 'show_callback' ? tr('leave_details') : tr('offline')),
+        ]),
       ]),
       this.isOnline() ? el('span', { class: 'ccw-launcher-dot' }) : null,
     ]);
@@ -1560,6 +1608,7 @@
   CallCenterWidgetCtor.prototype.renderState = function (caps, cfg) {
     var self = this;
     var tr = function (key, vars) { return self.t(key, vars); };
+    var offlineBehavior = cfg.offline_behavior || 'show_callback';
     switch (this.state) {
       case STATES.LOADING:
         return el('div', { class: 'ccw-loading' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, [tr('loading')])]);
@@ -1571,7 +1620,9 @@
             el('div', { class: 'ccw-mini-sub' }, [tr('offline_copy')]),
           ]),
         ]);
-        if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback')]));
+        if (offlineBehavior === 'show_callback' && caps.callback) {
+          off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback')]));
+        }
         return off;
       }
 
@@ -1961,18 +2012,59 @@
         ]),
       ]));
     }
-    var fields = alreadyIdentified
+    var configuredFields = forCall && Array.isArray(cfg.pre_call_form_schema)
+      ? cfg.pre_call_form_schema : [];
+    var fields = configuredFields.length ? configuredFields : (alreadyIdentified
       ? [['subject', tr('subject'), 'text']]
       : [
         ['name', tr('full_name'), 'text'],
         ['email', !forCall && policy.require_contact ? tr('email_required') : tr('email'), 'email'],
         ['phone', !forCall && policy.require_contact ? tr('phone_required') : tr('phone_field'), 'tel'],
         ['subject', tr('subject'), 'text'],
-      ];
+      ]);
+    if (configuredFields.length && alreadyIdentified) {
+      fields = fields.filter(function (field) {
+        return ['name', 'email', 'phone'].indexOf(field.id) < 0;
+      });
+    }
     fields.forEach(function (f) {
-      var label = el('label', { class: 'ccw-label' }, [f[1]]);
-      var input = el('input', { class: 'ccw-input', type: f[2], value: self.formData[f[0]] || '' });
-      input.addEventListener('input', function (e) { self.formData[f[0]] = e.target.value; });
+      var descriptor = Array.isArray(f)
+        ? { id: f[0], label: f[1], type: f[2], required: false }
+        : f;
+      var label = el('label', { class: 'ccw-label' }, [
+        descriptor.label + (descriptor.required ? ' *' : ''),
+      ]);
+      var builtIn = ['name', 'email', 'phone', 'subject'].indexOf(descriptor.id) >= 0;
+      self.formData.custom = self.formData.custom || {};
+      var current = builtIn ? self.formData[descriptor.id] : self.formData.custom[descriptor.id];
+      var input;
+      if (descriptor.type === 'textarea') {
+        input = el('textarea', { class: 'ccw-textarea', placeholder: descriptor.placeholder || '' });
+        input.value = current || '';
+      } else if (descriptor.type === 'select') {
+        input = el('select', { class: 'ccw-input' });
+        input.appendChild(el('option', { value: '' }, [descriptor.placeholder || '—']));
+        (descriptor.options || []).forEach(function (option) {
+          var optionEl = el('option', { value: option.value }, [option.label]);
+          if (current === option.value) optionEl.selected = true;
+          input.appendChild(optionEl);
+        });
+      } else if (descriptor.type === 'checkbox') {
+        input = el('input', { type: 'checkbox' });
+        input.checked = current === true;
+      } else {
+        input = el('input', {
+          class: 'ccw-input',
+          type: descriptor.type || 'text',
+          value: current || '',
+          placeholder: descriptor.placeholder || '',
+        });
+      }
+      input.addEventListener(descriptor.type === 'checkbox' ? 'change' : 'input', function (e) {
+        var value = descriptor.type === 'checkbox' ? !!e.target.checked : e.target.value;
+        if (builtIn) self.formData[descriptor.id] = value;
+        else self.formData.custom[descriptor.id] = value;
+      });
       box.appendChild(label);
       box.appendChild(input);
     });
@@ -2056,6 +2148,59 @@
     ]);
     box.appendChild(actions);
     return box;
+  };
+
+  CallCenterWidgetCtor.prototype.render = function () {
+    if (!this.root) return;
+    var self = this;
+    var theme = (this.bootstrap && this.bootstrap.config && this.bootstrap.config.widget_theme) || {};
+    var context = {
+      contractVersion: 1,
+      root: this.root,
+      theme: theme,
+      viewModel: this.getPresentationViewModel(),
+      intents: this.getPresentationIntents(),
+      render: function () { self.renderLegacy(); },
+    };
+    if (!this.presentation) {
+      this.renderLegacy();
+      return;
+    }
+    if (!this.presentationInstance) {
+      this.presentationInstance = this.presentation.mount(context);
+    } else {
+      this.presentation.update(this.presentationInstance, context);
+    }
+  };
+
+  CallCenterWidgetCtor.prototype.getPresentationViewModel = function () {
+    return Object.freeze({
+      state: this.state,
+      open: !!this.open,
+      locale: this.locale,
+      direction: (LOCALE_META[this.locale] && LOCALE_META[this.locale].dir) || 'ltr',
+      online: this.isOnline(),
+      position: this.position(),
+      config: Object.freeze(Object.assign({}, (this.bootstrap && this.bootstrap.config) || {})),
+      capabilities: Object.freeze(Object.assign({}, (this.bootstrap && this.bootstrap.capabilities) || {})),
+      error: this.error || null,
+      queuePosition: this.queuePosition,
+      queueEta: this.queueEta,
+      connectStatus: this.connectStatus || null,
+    });
+  };
+
+  CallCenterWidgetCtor.prototype.getPresentationIntents = function () {
+    var self = this;
+    return Object.freeze({
+      toggleOpen: function () { self.toggleOpen(); },
+      startVoiceCall: function () { self.startCall('voice'); },
+      startVideoCall: function () { self.startCall('video'); },
+      requestCallback: function () { self.openCallback(); },
+      cancelCall: function () { self.cancelCall(); },
+      reset: function () { self.reset(); },
+      setLocale: function (locale) { self.setLocale(locale); },
+    });
   };
 
   window.CallCenterWidget = new CallCenterWidgetCtor();

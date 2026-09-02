@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ChevronDown, RotateCcw, Save, Languages } from 'lucide-react';
+import { AlertCircle, ChevronDown, RotateCcw, Save, Languages, Plus, Trash2 } from 'lucide-react';
 import { CheckCircle2, XCircle, ShieldCheck, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
@@ -72,6 +72,7 @@ export default function CallCenterSettingsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [s, setS] = useState<any>(null);
   const [original, setOriginal] = useState<any>(null);
+  const [previewOnline, setPreviewOnline] = useState(true);
 
   useEffect(() => {
     if (data?.settings) {
@@ -88,6 +89,7 @@ export default function CallCenterSettingsPage() {
       'recording_consent_required', 'routing_mode', 'widget_position',
       'default_department_id', 'widget_default_locale', 'widget_enabled_locales',
       'widget_custom_texts', 'operator_video_visible_to_visitor',
+      'widget_template_id', 'widget_theme', 'pre_call_form_schema',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -114,6 +116,9 @@ export default function CallCenterSettingsPage() {
       offline_behavior: s.offline_behavior, recording_enabled: s.recording_enabled,
       recording_consent_required: s.recording_consent_required, routing_mode: s.routing_mode,
       widget_position: s.widget_position, business_hours: s.business_hours,
+      widget_template_id: s.widget_template_id || 'default',
+      widget_theme: s.widget_theme || {},
+      pre_call_form_schema: s.pre_call_form_schema || [],
       default_department_id: s.default_department_id ?? null,
       widget_default_locale: s.widget_default_locale ?? null,
       widget_enabled_locales: s.widget_enabled_locales ?? null,
@@ -152,6 +157,7 @@ export default function CallCenterSettingsPage() {
       <Tabs defaultValue="general" className="space-y-4" dir={dir}>
       <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">
         <TabsTrigger value="general">{t('callCenter.settingsPage.tabs.general')}</TabsTrigger>
+        <TabsTrigger value="presentation">{t('callCenter.settingsPage.tabs.presentation')}</TabsTrigger>
         <TabsTrigger value="languages">{t('callCenter.settingsPage.tabs.languages')}</TabsTrigger>
         <TabsTrigger value="channels">{t('callCenter.settingsPage.tabs.channels')}</TabsTrigger>
         <TabsTrigger value="availability">{t('callCenter.settingsPage.tabs.availability')}</TabsTrigger>
@@ -189,6 +195,98 @@ export default function CallCenterSettingsPage() {
           onChange={(next) => setS({ ...s, widget_custom_texts: next })}
         />
       </Section>
+      </TabsContent>
+
+      <TabsContent value="presentation" className="space-y-6 mt-0">
+        <Section
+          title={t('callCenter.settingsPage.presentationTitle')}
+          description={t('callCenter.settingsPage.presentationHint')}
+        >
+          <Row label={t('callCenter.settingsPage.template')}>
+            <Select
+              value={s.widget_template_id || 'default'}
+              onValueChange={(v) => setS({ ...s, widget_template_id: v })}
+            >
+              <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">{t('callCenter.settingsPage.defaultTemplate')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </Row>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              ['primary', t('callCenter.settingsPage.primaryColor'), '#3b82f6'],
+              ['accent', t('callCenter.settingsPage.accentColor'), '#10b981'],
+              ['surface', t('callCenter.settingsPage.surfaceColor'), '#ffffff'],
+              ['text', t('callCenter.settingsPage.textColor'), '#111827'],
+              ['muted', t('callCenter.settingsPage.mutedColor'), '#64748b'],
+              ['danger', t('callCenter.settingsPage.dangerColor'), '#dc2626'],
+            ].map(([key, label, fallback]) => (
+              <div key={key} className="space-y-1.5">
+                <Label>{label}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="color"
+                    className="w-12 px-1"
+                    value={s.widget_theme?.[key] || fallback}
+                    onChange={(e) => setS({
+                      ...s,
+                      widget_theme: { ...(s.widget_theme || {}), [key]: e.target.value },
+                    })}
+                  />
+                  <Input
+                    value={s.widget_theme?.[key] || ''}
+                    placeholder={fallback}
+                    onChange={(e) => setS({
+                      ...s,
+                      widget_theme: { ...(s.widget_theme || {}), [key]: e.target.value },
+                    })}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Row label={t('callCenter.settingsPage.radius')}>
+              <Select
+                value={s.widget_theme?.radius || 'md'}
+                onValueChange={(v) => setS({ ...s, widget_theme: { ...(s.widget_theme || {}), radius: v } })}
+              >
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sm">{t('callCenter.settingsPage.small')}</SelectItem>
+                  <SelectItem value="md">{t('callCenter.settingsPage.medium')}</SelectItem>
+                  <SelectItem value="lg">{t('callCenter.settingsPage.large')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Row>
+            <Row label={t('callCenter.settingsPage.density')}>
+              <Select
+                value={s.widget_theme?.density || 'comfortable'}
+                onValueChange={(v) => setS({ ...s, widget_theme: { ...(s.widget_theme || {}), density: v } })}
+              >
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="compact">{t('callCenter.settingsPage.compact')}</SelectItem>
+                  <SelectItem value="comfortable">{t('callCenter.settingsPage.comfortable')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Row>
+          </div>
+        </Section>
+        <Section
+          title={t('callCenter.settingsPage.livePreview')}
+          description={t('callCenter.settingsPage.livePreviewHint')}
+        >
+          <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
+            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
+              <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <CallWidgetPreview settings={s} online={previewOnline} />
+        </Section>
       </TabsContent>
 
       <TabsContent value="languages" className="space-y-6 mt-0">
@@ -327,7 +425,11 @@ export default function CallCenterSettingsPage() {
       </Section>
 
       <Section title={t('callCenter.settingsPage.preCallFormSection')} description={t('callCenter.settingsPage.preCallFormSectionHint')}>
-        <p className="text-xs text-muted-foreground">{t('callCenter.settings.preCallFormPlaceholder')}</p>
+        <PreCallFormBuilder
+          value={Array.isArray(s.pre_call_form_schema) ? s.pre_call_form_schema : []}
+          onChange={(value) => setS({ ...s, pre_call_form_schema: value })}
+          t={t}
+        />
       </Section>
       </TabsContent>
 
@@ -431,6 +533,198 @@ export default function CallCenterSettingsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+type PreCallField = {
+  id: string;
+  type: 'text' | 'email' | 'tel' | 'textarea' | 'select' | 'checkbox';
+  label: string;
+  placeholder?: string;
+  required?: boolean;
+  options?: Array<{ value: string; label: string }>;
+};
+
+function PreCallFormBuilder({
+  value,
+  onChange,
+  t,
+}: {
+  value: PreCallField[];
+  onChange: (value: PreCallField[]) => void;
+  t: (key: string) => string;
+}) {
+  const updateField = (index: number, patch: Partial<PreCallField>) => {
+    onChange(value.map((field, fieldIndex) => fieldIndex === index ? { ...field, ...patch } : field));
+  };
+  const addField = () => {
+    if (value.length >= 12) return;
+    let suffix = value.length + 1;
+    while (value.some((field) => field.id === `field_${suffix}`)) suffix += 1;
+    onChange([...value, { id: `field_${suffix}`, type: 'text', label: t('callCenter.settingsPage.newField'), required: false }]);
+  };
+
+  return (
+    <div className="space-y-3">
+      {value.length === 0 && (
+        <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.defaultFormHint')}</p>
+      )}
+      {value.map((field, index) => (
+        <Card key={`${field.id}-${index}`} className="p-3 space-y-3 bg-muted/20">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>{t('callCenter.settingsPage.fieldLabel')}</Label>
+              <Input value={field.label} maxLength={120} onChange={(e) => updateField(index, { label: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label>{t('callCenter.settingsPage.fieldId')}</Label>
+              <Input
+                value={field.id}
+                maxLength={40}
+                onChange={(e) => updateField(index, {
+                  id: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '').replace(/^[^a-z]+/, ''),
+                })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>{t('callCenter.settingsPage.fieldType')}</Label>
+              <Select
+                value={field.type}
+                onValueChange={(type: PreCallField['type']) => updateField(index, {
+                  type,
+                  options: type === 'select' ? (field.options?.length ? field.options : [{ value: 'option_1', label: 'Option 1' }]) : undefined,
+                })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(['text', 'email', 'tel', 'textarea', 'select', 'checkbox'] as const).map((type) => (
+                    <SelectItem key={type} value={type}>{type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>{t('callCenter.settingsPage.placeholder')}</Label>
+              <Input
+                value={field.placeholder || ''}
+                maxLength={160}
+                disabled={field.type === 'checkbox'}
+                onChange={(e) => updateField(index, { placeholder: e.target.value || undefined })}
+              />
+            </div>
+          </div>
+          {field.type === 'select' && (
+            <div className="space-y-2">
+              <Label>{t('callCenter.settingsPage.options')}</Label>
+              {(field.options || []).map((option, optionIndex) => (
+                <div key={optionIndex} className="flex gap-2">
+                  <Input
+                    value={option.label}
+                    maxLength={120}
+                    onChange={(e) => {
+                      const options = [...(field.options || [])];
+                      options[optionIndex] = { ...option, label: e.target.value };
+                      updateField(index, { options });
+                    }}
+                  />
+                  <Input
+                    value={option.value}
+                    maxLength={80}
+                    onChange={(e) => {
+                      const options = [...(field.options || [])];
+                      options[optionIndex] = { ...option, value: e.target.value };
+                      updateField(index, { options });
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={(field.options || []).length <= 1}
+                    onClick={() => updateField(index, { options: field.options?.filter((_, i) => i !== optionIndex) })}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={(field.options || []).length >= 30}
+                onClick={() => updateField(index, {
+                  options: [...(field.options || []), { value: `option_${(field.options?.length || 0) + 1}`, label: `Option ${(field.options?.length || 0) + 1}` }],
+                })}
+              >
+                <Plus className="h-3.5 w-3.5 me-1" />{t('callCenter.settingsPage.addOption')}
+              </Button>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={!!field.required} onCheckedChange={(required) => updateField(index, { required })} />
+              {t('callCenter.settingsPage.requiredField')}
+            </label>
+            <Button type="button" size="sm" variant="ghost" onClick={() => onChange(value.filter((_, i) => i !== index))}>
+              <Trash2 className="h-3.5 w-3.5 me-1" />{t('callCenter.settingsPage.removeField')}
+            </Button>
+          </div>
+        </Card>
+      ))}
+      <Button type="button" variant="outline" size="sm" disabled={value.length >= 12} onClick={addField}>
+        <Plus className="h-3.5 w-3.5 me-1" />{t('callCenter.settingsPage.addField')}
+      </Button>
+    </div>
+  );
+}
+
+function CallWidgetPreview({ settings, online }: { settings: any; online: boolean }) {
+  const bootstrap = {
+    status: 'ok',
+    provider_ready: true,
+    assets_version: 'preview',
+    session: 'preview',
+    config: {
+      display_name: settings.display_name,
+      avatar_url: settings.avatar_url,
+      widget_position: settings.widget_position,
+      widget_template_id: settings.widget_template_id || 'default',
+      widget_theme: settings.widget_theme || {},
+      pre_call_form_enabled: settings.pre_call_form_enabled,
+      pre_call_form_schema: settings.pre_call_form_schema || [],
+      offline_behavior: settings.offline_behavior || 'show_callback',
+      custom_texts: settings.widget_custom_texts || {},
+    },
+    capabilities: {
+      voice: online && settings.voice_enabled !== false,
+      video: online && settings.video_enabled !== false,
+      callback: settings.callback_enabled !== false,
+      recording: false,
+      operator_video_visible: true,
+    },
+    callback_policy: { enabled: true, show_when_online: true },
+    departments: { voice: [], video: [], callback: [] },
+    recording: { effective_enabled: false },
+    i18n: {
+      default_locale: settings.widget_default_locale || 'en',
+      available_locales: settings.widget_enabled_locales?.length ? settings.widget_enabled_locales : ['en'],
+    },
+  };
+  const data = JSON.stringify(bootstrap).replace(/</g, '\\u003c');
+  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+    <script src="/call-widget/presentation-registry.js"></script>
+    <script src="/call-widget/presentation-default.js"></script>
+    <script src="/call-widget/runtime.js"></script>
+    <script>window.CallCenterWidget.mount({apiBase:'',origin:parent.location.origin,preview:true,bootstrap:${data}});</script>
+  </body></html>`;
+  return (
+    <iframe
+      key={data}
+      title="Call Widget live preview"
+      sandbox="allow-scripts allow-same-origin"
+      srcDoc={srcDoc}
+      className="w-full h-[700px] rounded-lg border bg-muted/20"
+    />
   );
 }
 

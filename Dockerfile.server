@@ -49,6 +49,9 @@ COPY public/widget/vendor ./public/widget/vendor
 RUN test -f /app/public/call-widget/l.js          || (echo "❌ public/call-widget/l.js missing"          && exit 1)
 RUN test -f /app/public/call-widget/runtime.js    || (echo "❌ public/call-widget/runtime.js missing"    && exit 1)
 RUN test -f /app/public/call-widget/runtime.css   || (echo "❌ public/call-widget/runtime.css missing"   && exit 1)
+RUN test -f /app/public/call-widget/presentation-registry.js || (echo "❌ Call Widget presentation registry missing" && exit 1)
+RUN test -f /app/public/call-widget/presentation-default.js  || (echo "❌ Call Widget default presentation missing" && exit 1)
+RUN test -f /app/public/call-widget/presentation-default.css || (echo "❌ Call Widget default presentation CSS missing" && exit 1)
 RUN test -f /app/public/widget/vendor/livekit-client.umd.min.js || (echo "❌ livekit-client.umd.min.js missing" && exit 1)
 
 EXPOSE 3001

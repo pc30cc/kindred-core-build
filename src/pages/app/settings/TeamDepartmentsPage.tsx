@@ -175,6 +175,20 @@ export default function TeamDepartmentsPage() {
   /* ─── Member actions ─── */
   const [editDeptsFor, setEditDeptsFor] = useState<{ userId: string; name: string } | null>(null);
 
+  const setBan = useMutation({
+    mutationFn: async ({ memberId, suspended }: { memberId: string; suspended: boolean }) => {
+      await teamApi(`/api/workspace-members/${memberId}/suspension?workspaceId=${wsId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ suspended }),
+      });
+    },
+    onSuccess: (_d, v) => {
+      toast.success(t(v.suspended ? 'memberBan.toastBanned' : 'memberBan.toastUnbanned'));
+      qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
       // Offboarding is destructive: a transport retry must replay the
@@ -382,6 +396,11 @@ export default function TeamDepartmentsPage() {
                         </span>
                         {isCurrent && <Badge variant="outline" className="text-[9px] px-1.5 py-0">{t('teamDept.youBadge')}</Badge>}
                         {isOwner && <Crown className="w-3.5 h-3.5 text-amber-400" />}
+                        {m.suspended_at && (
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-destructive/40 text-destructive">
+                            {t('memberBan.bannedBadge')}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
                     </div>
@@ -422,6 +441,14 @@ export default function TeamDepartmentsPage() {
                           >
                             <Building2 className="w-3.5 h-3.5 me-2" />
                             {t('teamDept.manageDepartments')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setBan.mutate({ memberId: m.id, suspended: !m.suspended_at })}
+                          >
+                            {m.suspended_at
+                              ? <ShieldCheck className="w-3.5 h-3.5 me-2" />
+                              : <Ban className="w-3.5 h-3.5 me-2" />}
+                            {t(m.suspended_at ? 'memberBan.unbanAction' : 'memberBan.banAction')}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => removeMember.mutate(m.id)}

@@ -9,6 +9,7 @@ import type { Locale } from "@/i18n/config";
 import type { TranslationKeys } from "@/i18n/locales/en";
 import { ProviderContextProvider } from "@/providers";
 import { AuthContextProvider } from "@/features/auth/AuthContext";
+import { IdentityCacheBoundary } from "@/features/auth/IdentityCacheBoundary";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
 import { RequireWorkspaceAdmin } from "@/features/auth/RequireWorkspaceAdmin";
@@ -157,6 +158,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
       >
         <ProviderContextProvider>
         <AuthContextProvider>
+          <IdentityCacheBoundary>
           <PlatformBrandingGate>
           <TooltipProvider>
           <Toaster />
@@ -343,6 +345,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           </BrowserRouter>
           </TooltipProvider>
           </PlatformBrandingGate>
+          </IdentityCacheBoundary>
         </AuthContextProvider>
         </ProviderContextProvider>
       </ThemeProvider>

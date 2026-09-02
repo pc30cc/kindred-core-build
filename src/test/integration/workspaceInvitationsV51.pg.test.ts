@@ -250,7 +250,7 @@ let baseUrl: string;
 
 type Res = { status: number; json: any; setCookie: string[] };
 
-function call(method: string, path: string, opts: { body?: unknown; cookie?: string } = {}): Promise<Res> {
+function call(method: string, path: string, opts: { body?: unknown; cookie?: string; headers?: Record<string, string> } = {}): Promise<Res> {
   const payload = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -259,10 +259,12 @@ function call(method: string, path: string, opts: { body?: unknown; cookie?: str
         method,
         headers: {
           origin: baseUrl,
+          ...(opts.headers || {}),
           ...(opts.cookie ? { cookie: opts.cookie } : {}),
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
+
       (res) => {
         let d = '';
         res.on('data', (c) => (d += c));

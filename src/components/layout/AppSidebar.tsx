@@ -229,8 +229,11 @@ export function AppSidebar() {
   // entitlements are loading, not on entitlement lookup errors. It behaves
   // exactly like Inbox or Contacts.
 
+  // Operators (agents/viewers) never see AI assistant, widget or plugins.
+  const isWsAdmin = isWorkspaceAdmin(wsRole);
+
   const mainNav = [
-    ...(aiAgentVisible
+    ...(aiAgentVisible && isWsAdmin
       ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, accent: 'violet', locked: !aiAssistantPlanEnabled } as const]
       : []),
     ...(callCenterVisible
@@ -242,14 +245,13 @@ export function AppSidebar() {
     { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
 
-  // Operators (agents/viewers) never see the plugins surface.
-  const isWsAdmin = isWorkspaceAdmin(wsRole);
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
-    { key: 'widget', path: '/widget', icon: Package, accent: 'violet' },
+    ...(isWsAdmin ? [{ key: 'widget', path: '/widget', icon: Package, accent: 'violet' } as const] : []),
     ...(isWsAdmin ? [{ key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' } as const] : []),
     { key: 'settings', path: '/settings/general', icon: Settings, accent: 'indigo' },
   ] as const;
+
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';

@@ -401,7 +401,7 @@ export async function startHarness(dsn: string): Promise<Harness> {
       const jobs = await rows(
         `SELECT channel, status, attempt_count, last_error FROM public.workspace_invitation_jobs ORDER BY created_at DESC LIMIT 5`,
       );
-      expect(hit, `no OTP email captured for ${email}; recent jobs=${JSON.stringify(jobs)}`).toBeTruthy();
+      expect(hit, `no OTP email captured for ${email}; recent jobs=${JSON.stringify(jobs)}; captured=${JSON.stringify(harnessState.capturedEmails.slice(-5))}`).toBeTruthy();
     }
     return String(hit!.text).match(/(\d{6})/)![1];
   }

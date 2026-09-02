@@ -748,6 +748,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.set_workspace_seat_entitlement_mode(
   _mode text,
   _source text,
+  _seat_limit integer DEFAULT NULL,
   _updated_by uuid DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
@@ -761,18 +762,30 @@ BEGIN
     RAISE EXCEPTION 'INVALID_SEAT_ENTITLEMENT_MODE';
   END IF;
 
-  INSERT INTO public.workspace_seat_entitlement_mode (id, mode, source, config_version, updated_by, updated_at)
-  VALUES (true, _mode, _source, 1, _updated_by, now())
+  IF _mode = 'self_host_unlimited' THEN
+    _seat_limit := NULL;
+  ELSIF _seat_limit IS NOT NULL AND _seat_limit < 0 THEN
+    RAISE EXCEPTION 'INVALID_SEAT_LIMIT';
+  END IF;
+
+  INSERT INTO public.workspace_seat_entitlement_mode
+    (id, mode, source, seat_limit, config_version, updated_by, updated_at)
+  VALUES (true, _mode, _source, _seat_limit, 1, _updated_by, now())
   ON CONFLICT (id) DO UPDATE
     SET mode = EXCLUDED.mode,
         source = EXCLUDED.source,
+        seat_limit = EXCLUDED.seat_limit,
         config_version = public.workspace_seat_entitlement_mode.config_version
-          + CASE WHEN public.workspace_seat_entitlement_mode.mode <> EXCLUDED.mode THEN 1 ELSE 0 END,
+          + CASE WHEN public.workspace_seat_entitlement_mode.mode <> EXCLUDED.mode
+                   OR public.workspace_seat_entitlement_mode.seat_limit IS DISTINCT FROM EXCLUDED.seat_limit
+                 THEN 1 ELSE 0 END,
         updated_by = EXCLUDED.updated_by,
         updated_at = now()
   RETURNING * INTO _row;
 
-  RETURN jsonb_build_object('mode', _row.mode, 'source', _row.source, 'config_version', _row.config_version);
+  RETURN jsonb_build_object('mode', _row.mode, 'source', _row.source,
+                            'seat_limit', _row.seat_limit,
+                            'config_version', _row.config_version);
 END;
 $$;
 

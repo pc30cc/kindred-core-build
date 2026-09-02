@@ -568,17 +568,29 @@ workspaceInvitationsRouter.post('/preview', requireOrigin, rejectTokenInUrl, pub
 
 workspaceInvitationsRouter.post('/login-context', requireOrigin, rejectTokenInUrl, publicLimiter, async (req: any, res) => {
   const parsed = tokenBody.safeParse(req.body);
-  if (!parsed.success) return res.status(404).json(PUBLIC_ERROR);
+  const requestId = readRequestId(req);
+  if (!parsed.success || !requestId) return res.status(404).json(PUBLIC_ERROR);
   const config = cfg(req);
+  const tokenHash = tokenHashOf(parsed.data.token);
 
-  const handle = randomToken();
-  const { data, error } = await getServiceClient(config).rpc('wi_create_login_context', {
-    _token_hash: tokenHashOf(parsed.data.token),
-    _purpose: parsed.data.purpose,
-    _handle_hash: sha256Hex(handle),
-    _expires_at: new Date(Date.now() + CONTEXT_TTL_MS).toISOString(),
+  // Deterministic handle: a retry with the same requestId re-derives the very
+  // same raw cookie value, so a lost response can be recovered without a
+  // second context row. The raw handle is never stored.
+  const handle = deriveScopedSecret('login_context', requestId, tokenHash);
+
+  const outcome = await runIdempotent(config, {
+    operation: 'login_context',
+    scopeKind: 'public',
+    requestId,
+    fingerprintInput: { tokenHash, purpose: parsed.data.purpose },
+    args: {
+      token_hash: tokenHash,
+      purpose: parsed.data.purpose,
+      handle_hash: sha256Hex(handle),
+      expires_at: new Date(Date.now() + CONTEXT_TTL_MS).toISOString(),
+    },
   });
-  if (error || !data) return res.status(404).json(PUBLIC_ERROR);
+  if (outcome.error) return res.status(404).json(PUBLIC_ERROR);
 
   res.cookie(CONTEXT_COOKIE_NAME, handle, {
     httpOnly: true,
@@ -588,8 +600,12 @@ workspaceInvitationsRouter.post('/login-context', requireOrigin, rejectTokenInUr
     maxAge: CONTEXT_TTL_MS,
   });
 
+  const invitationId = outcome.replayed
+    ? (outcome.safeResult as any).invitation_id
+    : (outcome.result as any)?.invitation_id;
+
   // The redirect URL carries NO token and no invitation secret.
-  return res.json({ invitationId: (data as any).invitation_id, loginPath: '/auth/login?invited=1' });
+  return res.json({ invitationId, loginPath: '/auth/login?invited=1', replayed: outcome.replayed });
 });
 
 workspaceInvitationsRouter.post('/context-preview', requireOrigin, rejectTokenInUrl, publicLimiter, async (req: any, res) => {
@@ -606,55 +622,69 @@ workspaceInvitationsRouter.post('/context-preview', requireOrigin, rejectTokenIn
 
 workspaceInvitationsRouter.post('/otp/request', requireOrigin, rejectTokenInUrl, otpLimiter, async (req: any, res) => {
   const parsed = tokenBody.safeParse(req.body);
-  if (!parsed.success || parsed.data.purpose !== 'manual_handoff') return res.status(404).json(PUBLIC_ERROR);
+  const requestId = readRequestId(req);
+  if (!parsed.success || !requestId || parsed.data.purpose !== 'manual_handoff') return res.status(404).json(PUBLIC_ERROR);
   const config = cfg(req);
   const sb = getServiceClient(config);
 
   const invitationHash = tokenHashOf(parsed.data.token);
   const code = generateOtpCode();
 
-  // The digest is bound to the invitation id, so it is computed after the RPC
-  // resolves the invitation — a two-step that never persists the raw code.
+  // Read-only probe: resolves the invitation id the digest is bound to. It
+  // mutates nothing, so it stays outside the idempotent transaction.
   const { data: probe, error: probeError } = await sb.rpc('wi_preview_invitation', {
     _token_hash: invitationHash,
     _purpose: 'manual_handoff',
   });
   if (probeError || !probe) return res.status(404).json(PUBLIC_ERROR);
 
-  const { data, error } = await sb.rpc('wi_request_invitation_otp', {
-    _token_hash: invitationHash,
-    _code_digest: otpDigest(String((probe as any).invitation_id), code),
-    _expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString(),
-    _ip_hash: hashIp(getClientIp(req)),
+  const outcome = await runIdempotent(config, {
+    operation: 'otp_request',
+    scopeKind: 'public',
+    requestId,
+    invitationId: String((probe as any).invitation_id),
+    fingerprintInput: { tokenHash: invitationHash },
+    args: {
+      token_hash: invitationHash,
+      code_digest: otpDigest(String((probe as any).invitation_id), code),
+      expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString(),
+      ip_hash: hashIp(getClientIp(req)),
+    },
   });
-  if (error) {
-    const mapped = mapRpcError(error.message);
+
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     // Uniform response: never reveal invitation/account existence.
     if (mapped.code === 'OTP_RATE_LIMITED') return res.status(429).json({ error: 'OTP_RATE_LIMITED' });
     return res.status(404).json(PUBLIC_ERROR);
   }
 
-  try {
-    const { sendEmail } = await import('../services/email/index.js');
-    await sendEmail(config, {
-      workspaceId: String((data as any).workspace_id),
-      to: String((data as any).email_normalized),
-      subject: 'Your verification code',
-      text: `Verification code: ${code}\nIt expires in 10 minutes.`,
-      html: `<p>Verification code: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
-    });
-  } catch {
-    // Delivery problems never leak invitation state to the caller.
+  // A replay must NOT send a second code: the first one is still the live one.
+  if (!outcome.replayed) {
+    try {
+      const { sendEmail } = await import('../services/email/index.js');
+      const data = outcome.result as any;
+      await sendEmail(config, {
+        workspaceId: String(data.workspace_id),
+        to: String(data.email_normalized),
+        subject: 'Your verification code',
+        text: `Verification code: ${code}\nIt expires in 10 minutes.`,
+        html: `<p>Verification code: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
+      });
+    } catch {
+      // Delivery problems never leak invitation state to the caller.
+    }
   }
 
-  return res.json({ ok: true, expiresInSeconds: Math.floor(OTP_TTL_MS / 1000) });
+  return res.json({ ok: true, expiresInSeconds: Math.floor(OTP_TTL_MS / 1000), replayed: outcome.replayed });
 });
 
 const otpVerifySchema = tokenBody.extend({ code: z.string().trim().regex(/^\d{6}$/) });
 
 workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, otpLimiter, async (req: any, res) => {
   const parsed = otpVerifySchema.safeParse(req.body);
-  if (!parsed.success || parsed.data.purpose !== 'manual_handoff') return res.status(404).json(PUBLIC_ERROR);
+  const requestId = readRequestId(req);
+  if (!parsed.success || !requestId || parsed.data.purpose !== 'manual_handoff') return res.status(404).json(PUBLIC_ERROR);
   const config = cfg(req);
   const sb = getServiceClient(config);
   const invitationHash = tokenHashOf(parsed.data.token);
@@ -665,17 +695,29 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
   });
   if (probeError || !probe) return res.status(404).json(PUBLIC_ERROR);
 
-  const proof = randomToken();
-  const { error } = await sb.rpc('wi_verify_invitation_otp', {
-    _token_hash: invitationHash,
-    _code_digest: otpDigest(String((probe as any).invitation_id), parsed.data.code),
-    _proof_hash: sha256Hex(proof),
-    _proof_expires_at: new Date(Date.now() + PROOF_TTL_MS).toISOString(),
+  // Deterministic proof: a retry re-issues the identical HttpOnly cookie
+  // instead of minting a second proof row. The raw proof is never stored.
+  const proof = deriveScopedSecret('otp_proof', requestId, invitationHash);
+
+  const outcome = await runIdempotent(config, {
+    operation: 'otp_verify',
+    scopeKind: 'public',
+    requestId,
+    invitationId: String((probe as any).invitation_id),
+    fingerprintInput: { tokenHash: invitationHash, code: sha256Hex(`code|${parsed.data.code}`) },
+    args: {
+      token_hash: invitationHash,
+      code_digest: otpDigest(String((probe as any).invitation_id), parsed.data.code),
+      proof_hash: sha256Hex(proof),
+      proof_expires_at: new Date(Date.now() + PROOF_TTL_MS).toISOString(),
+    },
   });
-  if (error) {
-    const mapped = mapRpcError(error.message);
+
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     if (mapped.code === 'OTP_INVALID') return res.status(400).json({ error: 'OTP_INVALID' });
     if (mapped.code === 'OTP_RATE_LIMITED') return res.status(429).json({ error: 'OTP_RATE_LIMITED' });
+    if (mapped.code === 'IDEMPOTENCY_KEY_REUSED') return res.status(409).json({ error: 'IDEMPOTENCY_KEY_REUSED' });
     return res.status(404).json(PUBLIC_ERROR);
   }
 
@@ -688,7 +730,7 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
     maxAge: PROOF_TTL_MS,
   });
 
-  return res.json({ ok: true });
+  return res.json({ ok: true, replayed: outcome.replayed });
 });
 
 const acceptNewSchema = tokenBody.extend({

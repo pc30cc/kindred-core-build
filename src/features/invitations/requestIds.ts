@@ -28,6 +28,13 @@ export interface RequestIdBook {
   reset(key: string): void;
   /** Drop every entry (flow abandoned / page unmounted). */
   clear(): void;
+  /**
+   * Safe inspection interface for tests and assertions: returns the retained
+   * keys and intents. Intents are contractually NON-SECRET (revision counters,
+   * policy version ids); this interface exists so a test can PROVE no raw
+   * token, password or OTP code is retained.
+   */
+  entries(): Array<{ key: string; intent: string }>;
 }
 
 function randomUuid(): string {
@@ -57,6 +64,9 @@ export function createRequestIdBook(generate: () => string = randomUuid): Reques
     },
     clear() {
       entries.clear();
+    },
+    entries() {
+      return Array.from(entries.entries()).map(([key, v]) => ({ key, intent: v.intent }));
     },
   };
 }

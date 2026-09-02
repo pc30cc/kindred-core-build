@@ -414,18 +414,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     // (e) a disabled account still reports account_exists = true, matching the
     // accept-new contract which raises ACCOUNT_DISABLED rather than silently
     // creating a second identity.
-    const blockedCol = (await db.query(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'profiles'
-         AND column_name IN ('is_blocked', 'blocked_at', 'is_active') LIMIT 1`,
-    )).rows[0] as { column_name: string } | undefined;
-    expect(blockedCol, 'profiles has no disable flag').toBeTruthy();
-    const disableSql = blockedCol!.column_name === 'blocked_at'
-      ? 'UPDATE public.profiles SET blocked_at = now() WHERE id = $1'
-      : blockedCol!.column_name === 'is_active'
-        ? 'UPDATE public.profiles SET is_active = false WHERE id = $1'
-        : 'UPDATE public.profiles SET is_blocked = true WHERE id = $1';
-    await db.query(disableSql, [userId]);
+    await db.query(`UPDATE public.user_credentials SET status = 'disabled' WHERE user_id = $1`, [userId]);
     expect((await previewOf()).account_exists).toBe(true);
     const ctxPreview3 = await call('POST', '/api/workspace-invitations/context-preview', { cookie: ctxCookie, body: {} });
     expect(ctxPreview3.json.preview.account_exists).toBe(true);
@@ -520,9 +509,9 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     // Force a business failure: a staff invitation with a department is illegal.
     const deptId = crypto.randomUUID();
     await db.query(
-      `INSERT INTO public.workspace_departments (id, workspace_id, name, created_by)
-       VALUES ($1, $2, 'Support', $3)`,
-      [deptId, owner.workspaceId, owner.userId],
+      `INSERT INTO public.workspace_departments (id, workspace_id, name)
+       VALUES ($1, $2, 'Support')`,
+      [deptId, owner.workspaceId],
     );
 
     const payload = invitePayload(owner.workspaceId, { departmentIds: [deptId] });
@@ -808,7 +797,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
       cookie: proofCookie,
       body: { requestId: rid(), token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
     });
-    expect(accept.status).toBe(200);
+    expect(accept.status, JSON.stringify(accept.json)).toBe(200);
 
     const dump = JSON.stringify(await ledger());
     for (const secret of [

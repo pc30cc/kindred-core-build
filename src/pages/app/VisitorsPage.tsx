@@ -103,7 +103,9 @@ export default function VisitorsPage() {
     if (!isResizing) return;
     const isRtl = document.documentElement.dir === 'rtl';
     const onMove = (e: MouseEvent) => {
-      const w = isRtl ? window.innerWidth - e.clientX : e.clientX;
+      const rect = listRef.current?.getBoundingClientRect();
+      const edge = isRtl ? (rect?.right ?? window.innerWidth) : (rect?.left ?? 0);
+      const w = isRtl ? edge - e.clientX : e.clientX - edge;
       setListWidth(Math.min(680, Math.max(280, w)));
     };
     const onUp = () => setIsResizing(false);

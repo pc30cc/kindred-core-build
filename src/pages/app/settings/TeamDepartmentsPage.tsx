@@ -560,12 +560,17 @@ function ToggleRow({
 
 function DepartmentDialog({
   mode, department, workspaceId, onClose, onSaved,
+  ccPlatformEnabled, ccEnabled, ccBusy, onToggleCc,
 }: {
   mode: 'create' | 'edit';
   department?: Department;
   workspaceId: string;
   onClose: () => void;
   onSaved: () => void;
+  ccPlatformEnabled: boolean;
+  ccEnabled: boolean;
+  ccBusy: boolean;
+  onToggleCc: (v: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({

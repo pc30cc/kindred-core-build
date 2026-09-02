@@ -317,7 +317,7 @@ export function AppSidebar() {
         </button>
 
         {/* Dropdown menu */}
-        {wsMenuOpen && !collapsed && (
+        {wsMenuOpen && !collapsed && isWsAdmin && (
           <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 animate-fade-in max-h-[60vh] overflow-y-auto">
             {/* Workspace list */}
             {workspaces.map(ws => {

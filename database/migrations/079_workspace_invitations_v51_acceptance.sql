@@ -441,7 +441,8 @@ BEGIN
     _actor_id, _reason
   );
 
-  -- 6. revoke matching pending invitations using the CAPTURED contact values
+  -- 6. revoke matching pending invitations using the CAPTURED contact values.
+  --    Only the invitations revoked by THIS statement lose their secrets.
   IF _email IS NOT NULL OR _phone IS NOT NULL THEN
     WITH revoked AS (
       UPDATE public.workspace_invitations
@@ -452,13 +453,14 @@ BEGIN
         AND (invited_email_normalized = _email OR invited_phone_e164 = _phone)
       RETURNING id
     )
-    SELECT count(*) INTO _revoked FROM revoked;
+    SELECT count(*)::integer, COALESCE(array_agg(id), ARRAY[]::uuid[])
+      INTO _revoked, _revoked_ids
+    FROM revoked;
 
-    PERFORM public.wi_revoke_secrets(i.id, NULL, NULL)
-    FROM public.workspace_invitations i
-    WHERE i.workspace_id = _workspace_id
-      AND i.status = 'revoked'
-      AND (i.invited_email_normalized = _email OR i.invited_phone_e164 = _phone);
+    IF array_length(_revoked_ids, 1) IS NOT NULL THEN
+      PERFORM public.wi_revoke_secrets(rid, NULL, NULL)
+      FROM unnest(_revoked_ids) AS rid;
+    END IF;
   END IF;
 
   -- 7. explicit non-cascading children (nothing cascades from workspace_members)

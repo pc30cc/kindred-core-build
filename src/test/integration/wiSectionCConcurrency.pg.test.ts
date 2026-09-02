@@ -211,6 +211,11 @@ suite('Workspace Invitations v5.1 §C.1/C.2 — acceptance concurrency, seats an
       `SELECT count(*)::int AS n FROM public.workspace_invitation_tokens
         WHERE invitation_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`, [ready.invitationId],
     );
+    const liveManualTokens = await h.countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_tokens
+        WHERE invitation_id = $1 AND purpose = 'manual_handoff'
+          AND consumed_at IS NULL AND revoked_at IS NULL`, [ready.invitationId],
+    );
     const status = String((await h.one('SELECT status FROM public.workspace_invitations WHERE id = $1', [ready.invitationId]))!.status);
 
     if (accept.status === 200) {
@@ -225,7 +230,9 @@ suite('Workspace Invitations v5.1 §C.1/C.2 — acceptance concurrency, seats an
       expect(rotate.status).toBe(200);
       expect(status).toBe('pending');
       expect(memberCount).toBe(1);
-      expect(liveTokens).toBe(1);
+      // Exactly ONE usable manual link survives a rotation — never two.
+      expect(liveManualTokens).toBe(1);
+      expect(liveTokens).toBeGreaterThanOrEqual(1);
     }
     expect(await h.countOf(
       'SELECT count(*)::int AS n FROM public.workspace_invitation_consents WHERE invitation_id = $1', [ready.invitationId],

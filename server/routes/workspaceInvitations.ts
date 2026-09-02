@@ -354,56 +354,70 @@ workspaceInvitationsRouter.get('/:id', rejectTokenInUrl, requireUser, async (req
   });
 });
 
-const editSchema = createSchema.omit({ workspaceId: true, requestId: true }).extend({
-  requestId: z.string().trim().min(8).max(120).optional(),
-});
+const editSchema = createSchema.omit({ workspaceId: true });
 
 workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const parsed = editSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  if (!parsed.success) {
+    return res.status(400).json({ error: req.body?.requestId ? 'invalid_body' : 'REQUEST_ID_REQUIRED' });
+  }
   const body = parsed.data;
   const config = cfg(req);
-  const sb = getServiceClient(config);
   const id = String(req.params.id);
   const email = body.email.toLowerCase();
-  const nonce = body.requestId || crypto.randomUUID();
+  const nonce = body.requestId;
+  const departmentIds = [...(body.departmentIds ?? [])].sort();
 
-  const outcome = await withIdempotency(config, body.requestId ? `${req.authUser.id}|${id}|edit|${body.requestId}` : null,
-    { scopeKind: 'invitation', operation: 'edit', invitationId: id }, async () => sb.rpc('edit_workspace_invitation_v2', {
-    _invitation_id: id,
-    _actor_id: req.authUser.id,
-    _first_name: body.firstName,
-    _last_name: body.lastName,
-    _email_normalized: email,
-    _phone_e164: body.phone,
-    _member_type: body.memberType,
-    _role: body.role,
-    _expires_at: new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000).toISOString(),
-    _department_ids: body.departmentIds ?? null,
-    _email_job_idempotency_key: sha256Hex(`email|${id}|${email}|${nonce}`),
-    _sms_job_idempotency_key: sha256Hex(`sms|${id}|${body.phone}|${nonce}`),
-    _email_destination_hash: destinationHash(email),
-    _sms_destination_hash: destinationHash(body.phone),
-    _job_title: body.jobTitle ?? null,
-    _staff_code: body.staffCode ?? null,
-  }));
-  if (outcome.replayed) return res.status(409).json({ error: 'IDEMPOTENT_OPERATION_IN_PROGRESS_OR_COMMITTED', state: outcome.state });
-  const { data, error } = outcome.result as any;
+  const outcome = await runIdempotent(config, {
+    operation: 'edit',
+    scopeKind: 'invitation',
+    requestId: body.requestId,
+    actorId: req.authUser.id,
+    invitationId: id,
+    fingerprintInput: {
+      invitationId: id,
+      email,
+      phone: body.phone,
+      memberType: body.memberType,
+      role: body.role,
+      departmentIds,
+      firstName: body.firstName,
+      lastName: body.lastName,
+      jobTitle: body.jobTitle ?? null,
+      staffCode: body.staffCode ?? null,
+    },
+    args: {
+      first_name: body.firstName,
+      last_name: body.lastName,
+      email_normalized: email,
+      phone_e164: body.phone,
+      member_type: body.memberType,
+      role: body.role,
+      expires_at: new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000).toISOString(),
+      department_ids: departmentIds,
+      email_job_idempotency_key: sha256Hex(`email|${id}|${email}|${nonce}`),
+      sms_job_idempotency_key: sha256Hex(`sms|${id}|${body.phone}|${nonce}`),
+      email_destination_hash: destinationHash(email),
+      sms_destination_hash: destinationHash(body.phone),
+      job_title: body.jobTitle ?? null,
+      staff_code: body.staffCode ?? null,
+    },
+  });
 
-  if (error) {
-    const mapped = mapRpcError(error.message);
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
-  return res.json({ invitation: data });
+  if (outcome.replayed) return res.json({ invitation: outcome.safeResult, replayed: true });
+  return res.json({ invitation: outcome.result, replayed: false });
 });
 
 workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const config = cfg(req);
   const sb = getServiceClient(config);
   const id = String(req.params.id);
-  const requestId = z.string().trim().min(8).max(120).safeParse(req.body?.requestId);
-  if (!requestId.success) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
-  const nonce = requestId.data;
+  const requestId = readRequestId(req);
+  if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
 
   const { data: inv } = await sb
     .from('workspace_invitations')
@@ -412,86 +426,114 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
     .maybeSingle();
   if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
 
-  const outcome = await withIdempotency(config, `${req.authUser.id}|${id}|resend|${nonce}`,
-    { scopeKind: 'invitation', operation: 'resend', invitationId: id }, async () => sb.rpc('resend_invitation_email_v2', {
-    _invitation_id: id,
-    _actor_id: req.authUser.id,
-    _job_idempotency_key: sha256Hex(`email|${id}|resend|${nonce}`),
-    _destination_hash: destinationHash(String(inv.invited_email_normalized)),
-  }));
-  if (outcome.replayed) return res.status(409).json({ error: 'IDEMPOTENT_OPERATION_IN_PROGRESS_OR_COMMITTED', state: outcome.state });
-  const { data, error } = outcome.result as any;
-  if (error) {
-    const mapped = mapRpcError(error.message);
+  const outcome = await runIdempotent(config, {
+    operation: 'resend',
+    scopeKind: 'invitation',
+    requestId,
+    actorId: req.authUser.id,
+    invitationId: id,
+    fingerprintInput: { invitationId: id },
+    args: {
+      job_idempotency_key: sha256Hex(`email|${id}|resend|${requestId}`),
+      destination_hash: destinationHash(String(inv.invited_email_normalized)),
+    },
+  });
+
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
-  return res.json(data);
+  if (outcome.replayed) return res.json({ ...outcome.safeResult, replayed: true });
+  return res.json({ ...(outcome.result as any), replayed: false });
 });
 
 workspaceInvitationsRouter.post('/:id/rotate-link', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const config = cfg(req);
-  const sb = getServiceClient(config);
   const id = String(req.params.id);
   const manualToken = randomToken();
-  const requestId = z.string().trim().min(8).max(120).safeParse(req.body?.requestId);
-  if (!requestId.success) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
+  const requestId = readRequestId(req);
+  if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
 
-  const outcome = await withIdempotency(config, `${req.authUser.id}|${id}|rotate|${requestId.data}`,
-    { scopeKind: 'invitation', operation: 'rotate', invitationId: id }, async () => sb.rpc('rotate_manual_link_v2', {
-    _invitation_id: id,
-    _actor_id: req.authUser.id,
-    _token_hash: sha256Hex(manualToken),
-    _token_prefix: tokenPrefix(manualToken),
-    _token_expires_at: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
-  }));
-  if (outcome.replayed) return res.status(409).json({ error: 'OPERATION_COMMITTED_LINK_NOT_REPLAYABLE', state: outcome.state });
-  const { data, error } = outcome.result as any;
-  if (error) {
-    const mapped = mapRpcError(error.message);
+  const outcome = await runIdempotent(config, {
+    operation: 'rotate',
+    scopeKind: 'invitation',
+    requestId,
+    actorId: req.authUser.id,
+    invitationId: id,
+    fingerprintInput: { invitationId: id },
+    args: {
+      token_hash: sha256Hex(manualToken),
+      token_prefix: tokenPrefix(manualToken),
+      token_expires_at: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
+    },
+  });
+
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
+  }
+  if (outcome.replayed) {
+    return res.status(409).json({
+      error: 'OPERATION_COMMITTED_LINK_NOT_REPLAYABLE',
+      replayed: true,
+      invitation: outcome.safeResult,
+    });
   }
 
   const appBase = await resolveAppBaseUrl(config);
-  return res.json({ ...(data as any), manualLink: buildInviteUrl(appBase, manualToken, 'manual_handoff') });
+  return res.json({
+    ...(outcome.result as any),
+    manualLink: buildInviteUrl(appBase, manualToken, 'manual_handoff'),
+    replayed: false,
+  });
 });
 
 workspaceInvitationsRouter.post('/:id/revoke', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const config = cfg(req);
   const reason = String(req.body?.reason || '').trim();
   if (!reason) return res.status(400).json({ error: 'REVOKE_REASON_REQUIRED' });
-  const requestId = z.string().trim().min(8).max(120).safeParse(req.body?.requestId);
-  if (!requestId.success) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
-  const outcome = await withIdempotency(config, `${req.authUser.id}|${req.params.id}|revoke|${requestId.data}`,
-    { scopeKind: 'invitation', operation: 'revoke', invitationId: String(req.params.id) }, async () => getServiceClient(config).rpc('revoke_invitation_v2', {
-    _invitation_id: String(req.params.id),
-    _actor_id: req.authUser.id,
-    _reason: reason,
-  }));
-  if (outcome.replayed) return res.status(409).json({ error: 'IDEMPOTENT_OPERATION_IN_PROGRESS_OR_COMMITTED', state: outcome.state });
-  const { data, error } = outcome.result as any;
-  if (error) {
-    const mapped = mapRpcError(error.message);
+  const requestId = readRequestId(req);
+  if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
+
+  const outcome = await runIdempotent(config, {
+    operation: 'revoke',
+    scopeKind: 'invitation',
+    requestId,
+    actorId: req.authUser.id,
+    invitationId: String(req.params.id),
+    fingerprintInput: { invitationId: String(req.params.id), reason },
+    args: { reason },
+  });
+
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
-  return res.json({ invitation: data });
+  if (outcome.replayed) return res.json({ invitation: outcome.safeResult, replayed: true });
+  return res.json({ invitation: outcome.result, replayed: false });
 });
 
 workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
-  const requestId = z.string().trim().min(8).max(120).safeParse(req.body?.requestId);
-  if (!requestId.success) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
+  const requestId = readRequestId(req);
+  if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
   const config = cfg(req);
-  const outcome = await withIdempotency(config, `${req.authUser.id}|${req.params.id}|archive|${requestId.data}`,
-    { scopeKind: 'invitation', operation: 'archive', invitationId: String(req.params.id) }, async () => getServiceClient(config).rpc('archive_invitation_v2', {
-    _invitation_id: String(req.params.id),
-    _actor_id: req.authUser.id,
-  }));
-  if (outcome.replayed) return res.status(409).json({ error: 'IDEMPOTENT_OPERATION_IN_PROGRESS_OR_COMMITTED', state: outcome.state });
-  const { data, error } = outcome.result as any;
-  if (error) {
-    const mapped = mapRpcError(error.message);
+
+  const outcome = await runIdempotent(config, {
+    operation: 'archive',
+    scopeKind: 'invitation',
+    requestId,
+    actorId: req.authUser.id,
+    invitationId: String(req.params.id),
+    fingerprintInput: { invitationId: String(req.params.id) },
+    args: {},
+  });
+
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
-  return res.json({ invitation: data });
+  if (outcome.replayed) return res.json({ invitation: outcome.safeResult, replayed: true });
+  return res.json({ invitation: outcome.result, replayed: false });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

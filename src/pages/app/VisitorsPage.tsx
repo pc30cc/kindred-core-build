@@ -84,6 +84,49 @@ export default function VisitorsPage() {
   const [filterHasConv, setFilterHasConv] = useState(false);
   const [filterCountry, setFilterCountry] = useState<string>('all');
 
+  // Resizable visitor list width (desktop only), persisted like the inbox list.
+  const [listWidth, setListWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('visitors.listWidth'));
+    return saved >= 280 && saved <= 680 ? saved : 380;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const listPaneRef = useRef<HTMLDivElement | null>(null);
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  useEffect(() => {
+    if (!isResizing) return;
+    const isRtl = document.documentElement.dir === 'rtl';
+    const onMove = (e: MouseEvent) => {
+      const rect = listPaneRef.current?.getBoundingClientRect();
+      const edge = isRtl ? (rect?.right ?? window.innerWidth) : (rect?.left ?? 0);
+      const w = isRtl ? edge - e.clientX : e.clientX - edge;
+      setListWidth(Math.min(680, Math.max(280, w)));
+    };
+    const onUp = () => setIsResizing(false);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizing]);
+  useEffect(() => {
+    localStorage.setItem('visitors.listWidth', String(listWidth));
+  }, [listWidth]);
+
+
+
   const live = useLiveVisitors(wsId, includeOffline);
   const map = useVisitorMap(wsId);
   const mapConfig = useVisitorMapConfig(wsId);
@@ -228,11 +271,28 @@ export default function VisitorsPage() {
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)] animate-fade-in">
+    <div className="flex flex-col h-full min-h-0 animate-fade-in">
       {/* Body: list + map */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] min-h-0">
-        {/* Left: list */}
-        <div className="flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none">
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0">
+        {/* Left: list (resizable on desktop) */}
+        <div
+          ref={listPaneRef}
+          className="relative flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none w-full lg:w-auto shrink-0"
+          style={isDesktop ? { width: listWidth } : undefined}
+        >
+          {/* Resize handle (desktop) */}
+          <div
+            onMouseDown={() => setIsResizing(true)}
+            onDoubleClick={() => setListWidth(380)}
+            className={cn(
+              'hidden lg:block absolute inset-y-0 w-1.5 cursor-col-resize z-[500] hover:bg-primary/30 transition-colors',
+              isResizing && 'bg-primary/40'
+            )}
+            style={{ insetInlineEnd: -3 }}
+            role="separator"
+            aria-orientation="vertical"
+          />
+
           {selectedId ? (
             <VisitorDetailPanel
               workspaceId={wsId}
@@ -495,7 +555,8 @@ export default function VisitorsPage() {
 
         {/* Right: map canvas */}
         <div
-          className="relative min-h-[40vh] lg:min-h-0 bg-muted/20"
+          className="relative isolate z-0 flex-1 min-w-0 min-h-[40vh] lg:min-h-0 bg-muted/20"
+
           style={
             mapConfig.data?.display && !mapConfig.data.display.fill_viewport
               ? { height: `${mapConfig.data.display.height_px}px` }

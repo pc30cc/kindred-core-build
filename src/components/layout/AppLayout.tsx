@@ -166,6 +166,7 @@ export function AppLayout() {
   const isFullBleed =
     /\/inbox(\/|$)/.test(pathname) ||
     /\/settings(\/|$)/.test(pathname) ||
+    /\/visitors(\/|$)/.test(pathname) ||
     /\/ai-agent(\/|$)/.test(pathname);
 
   // Strict: if slug doesn't match any workspace, show 404

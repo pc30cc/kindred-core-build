@@ -115,6 +115,9 @@ export default function TeamPage() {
   const [inviteExpiration, setInviteExpiration] = useState<ExpirationOption>('30d');
   const [inviteCustomDate, setInviteCustomDate] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteFirstName, setInviteFirstName] = useState('');
+  const [inviteLastName, setInviteLastName] = useState('');
+  const [invitePhone, setInvitePhone] = useState('');
   const [inviteLink, setInviteLink] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [editDeptsFor, setEditDeptsFor] = useState<{
@@ -150,7 +153,7 @@ export default function TeamPage() {
     queryKey: ['ws-invitations', wsId],
     queryFn: async () => {
       const { invitations } = await teamApi<{ invitations: any[] }>(
-        `/api/workspace-members/invitations?workspaceId=${wsId}`,
+        `/api/workspace-invitations?workspaceId=${wsId}&archived=1`,
       );
       return invitations;
     },
@@ -165,60 +168,43 @@ export default function TeamPage() {
   const generateInvite = useMutation({
     mutationFn: async () => {
       const expiresAt = getExpiresAt(inviteExpiration, inviteCustomDate);
-      const { invitation } = await teamApi<{ invitation: any }>('/api/workspace-members/invitations', {
+      const expiresInDays = expiresAt
+        ? Math.max(1, Math.min(30, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86400000)))
+        : 30;
+      const result = await teamApi<{ invitation: any; manualLink: string }>('/api/workspace-invitations', {
         method: 'POST',
         body: JSON.stringify({
           workspaceId: wsId,
+          firstName: inviteFirstName.trim(),
+          lastName: inviteLastName.trim(),
+          email: inviteEmail.trim(),
+          phone: invitePhone.trim(),
+          memberType: 'staff',
           role: inviteRole,
-          invitedEmail: inviteEmail.trim() || null,
-          expiresAt: expiresAt || null,
+          departmentIds: [],
+          expiresInDays,
+          requestId: crypto.randomUUID(),
         }),
       });
-      return invitation;
+      return result;
     },
-    onSuccess: (data: any) => {
-      const link = `${window.location.origin}/auth/invite?token=${data.token}`;
-      setInviteLink(link);
-      navigator.clipboard.writeText(link);
+    onSuccess: ({ manualLink }: { invitation: any; manualLink: string }) => {
+      setInviteLink(manualLink);
+      navigator.clipboard.writeText(manualLink);
       toast.success(t('team.inviteCreated'));
-
-      // Send invitation email if email is provided
-      if (inviteEmail.trim() && API_BASE) {
-        sendInviteEmail(data.token, inviteEmail.trim(), data.role);
-      }
-
       queryClient.invalidateQueries({ queryKey: ['ws-invitations'] });
       setInviteEmail('');
+      setInviteFirstName('');
+      setInviteLastName('');
+      setInvitePhone('');
     },
     onError: (e: any) => toast.error(e.message),
   });
 
-  // Send invite email via self-hosted backend
-  const sendInviteEmail = async (token: string, email: string, role: string) => {
-    try {
-      const link = `${window.location.origin}/auth/invite?token=${token}`;
-      await fetch(`${API_BASE}/api/email/send`, {credentials: 'include',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          workspaceId: wsId,
-          to: email,
-          subject: `You've been invited to ${workspace?.name}`,
-          html: buildInviteEmailHtml(workspace?.name || '', role, user?.email || '', link),
-          from: undefined, // Let backend resolve from config
-        }),
-      });
-    } catch (err) {
-      console.warn('[team] Failed to send invite email:', err);
-    }
-  };
-
   // Revoke invite
   const revokeInvite = useMutation({
     mutationFn: async (id: string) => {
-      await teamApi(`/api/workspace-members/invitations/${id}?workspaceId=${wsId}`, { method: 'PATCH' });
+      await teamApi(`/api/workspace-invitations/${id}/revoke`, { method: 'POST', body: JSON.stringify({ reason: 'Revoked by workspace manager', requestId: crypto.randomUUID() }) });
     },
     onSuccess: () => {
       toast.success(t('team.inviteRevoked'));
@@ -226,10 +212,10 @@ export default function TeamPage() {
     },
   });
 
-  // Delete invite
+  // Archive invite without deleting its security/audit history.
   const deleteInvite = useMutation({
     mutationFn: async (id: string) => {
-      await teamApi(`/api/workspace-members/invitations/${id}?workspaceId=${wsId}`, { method: 'DELETE' });
+      await teamApi(`/api/workspace-invitations/${id}/archive`, { method: 'POST', body: JSON.stringify({ requestId: crypto.randomUUID() }) });
     },
     onSuccess: () => {
       toast.success(t('team.inviteDeleted'));
@@ -240,13 +226,24 @@ export default function TeamPage() {
   // Resend invite email
   const resendInviteEmail = useMutation({
     mutationFn: async (inv: any) => {
-      if (!inv.invited_email) throw new Error('No email associated with this invitation');
-      await sendInviteEmail(inv.token, inv.invited_email, inv.role);
+      await teamApi(`/api/workspace-invitations/${inv.id}/resend`, { method: 'POST', body: JSON.stringify({ requestId: crypto.randomUUID() }) });
     },
     onSuccess: () => {
       toast.success(t('team.inviteResent'));
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  const rotateInviteLink = useMutation({
+    mutationFn: async (id: string) => teamApi<{ manualLink: string }>(`/api/workspace-invitations/${id}/rotate-link`, {
+      method: 'POST', body: JSON.stringify({ requestId: crypto.randomUUID() }),
+    }),
+    onSuccess: ({ manualLink }) => {
+      setInviteLink(manualLink);
+      navigator.clipboard.writeText(manualLink);
+      toast.success(t('team.linkCopied'));
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   // Update member role
@@ -459,6 +456,14 @@ export default function TeamPage() {
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="space-y-2">
+                  <Label className="text-xs">{t('team.firstName')}</Label>
+                  <Input value={inviteFirstName} onChange={e => setInviteFirstName(e.target.value)} autoComplete="given-name" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('team.lastName')}</Label>
+                  <Input value={inviteLastName} onChange={e => setInviteLastName(e.target.value)} autoComplete="family-name" />
+                </div>
+                <div className="space-y-2">
                   <Label className="text-xs">{t('team.inviteEmail')}</Label>
                   <Input
                     type="email"
@@ -468,7 +473,10 @@ export default function TeamPage() {
                     dir="ltr"
                     className="text-left text-xs"
                   />
-                  <p className="text-[10px] text-muted-foreground">{t('team.inviteEmailHint')}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('team.phone')}</Label>
+                  <Input type="tel" value={invitePhone} onChange={e => setInvitePhone(e.target.value)} placeholder="+989121234567" dir="ltr" className="text-left text-xs" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs">{t('team.inviteRole')}</Label>
@@ -508,7 +516,7 @@ export default function TeamPage() {
                   </div>
                 )}
               </div>
-              <Button onClick={() => generateInvite.mutate()} disabled={generateInvite.isPending} className="w-full sm:w-auto gap-2">
+              <Button onClick={() => generateInvite.mutate()} disabled={generateInvite.isPending || !inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !/^\+[1-9]\d{6,14}$/.test(invitePhone.trim())} className="w-full sm:w-auto gap-2">
                 {generateInvite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                 {t('team.generateLink')}
               </Button>
@@ -537,9 +545,9 @@ export default function TeamPage() {
                     key={inv.id}
                     inv={inv}
                     getRoleLabel={getRoleLabel}
-                    onCopy={() => { navigator.clipboard.writeText(`${window.location.origin}/auth/invite?token=${inv.token}`); toast.success(t('team.linkCopied')); }}
+                    onCopy={() => rotateInviteLink.mutate(inv.id)}
                     onRevoke={() => revokeInvite.mutate(inv.id)}
-                    onResend={inv.invited_email ? () => resendInviteEmail.mutate(inv) : undefined}
+                    onResend={inv.invited_email_normalized ? () => resendInviteEmail.mutate(inv) : undefined}
                     onDelete={() => deleteInvite.mutate(inv.id)}
                     t={t}
                     active

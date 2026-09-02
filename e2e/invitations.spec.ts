@@ -80,9 +80,10 @@ for (const locale of ['fa', 'tr', 'en'] as Locale[]) {
 test.describe('invitation management authorization', () => {
   test('the management surface is not reachable without a session', async ({ page }) => {
     await withSiteDefault(page, 'fa');
-    await page.goto('/app/settings/team-departments', { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1500);
+    await page.goto('/app/w/e2e-probe/settings/team-departments', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2000);
     // Unauthenticated visitors are bounced to the first-party login surface.
     expect(page.url()).toMatch(/\/auth\/login|\/login/);
+
   });
 });

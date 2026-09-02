@@ -90,6 +90,7 @@ export default function VisitorsPage() {
     return saved >= 280 && saved <= 680 ? saved : 380;
   });
   const [isResizing, setIsResizing] = useState(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
   );
@@ -275,6 +276,7 @@ export default function VisitorsPage() {
       <div className="flex-1 flex flex-col lg:flex-row min-h-0">
         {/* Left: list (resizable on desktop) */}
         <div
+          ref={listRef}
           className="relative flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none w-full lg:w-auto shrink-0"
           style={isDesktop ? { width: listWidth } : undefined}
         >

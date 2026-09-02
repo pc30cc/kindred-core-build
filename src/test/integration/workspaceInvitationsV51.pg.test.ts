@@ -776,13 +776,30 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
 
   it('LOCALE 3 — with no configured site default the resolver falls back to en, never to the browser', async () => {
     const owner = await makeOwner(`ownerLocEn.${Date.now()}@example.test`);
+    // No site default at all — the resolver must reach its own last resort.
     await db.query(`UPDATE public.workspaces SET panel_locale = NULL, default_locale = NULL WHERE id = $1`, [owner.workspaceId]);
+    // A fa policy row exists, so an Accept-Language-driven resolver WOULD pick fa.
+    await db.query(
+      `INSERT INTO public.legal_policy_versions (policy_type, version, locale, document_url, content_hash, published_at, effective_from, is_active)
+       VALUES ('terms', 'locale-test-fa', 'fa', '/terms', encode(digest('locale-test-fa','sha256'),'hex'), now(), now(), true)
+       ON CONFLICT (policy_type, version, locale) DO NOTHING`,
+    );
 
-    const fallback = await acceptWithLocale(owner, `loc.en.${Date.now()}@example.test`, {
-      acceptLanguage: 'fa-IR,fa;q=0.9',
+    const created = await call('POST', '/api/workspace-invitations', {
+      cookie: owner.cookie,
+      body: invitePayload(owner.workspaceId, { email: `loc.en.${Date.now()}@example.test` }),
     });
-    expect(fallback).toBe('en');
+    expect(created.status).toBe(201);
+    const token = tokenFromManualLink(created.json.manualLink);
+
+    const preview = await call('POST', '/api/workspace-invitations/preview', {
+      headers: { 'accept-language': 'fa-IR,fa;q=0.9' },
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    });
+    expect(preview.status).toBe(200);
+    expect(preview.json.policies.terms.locale).toBe('en');
   }, 120_000);
+
 
   it('LOCALE 4 — preview policy selection uses the site default, not a hardcoded English', async () => {
     const owner = await makeOwner(`ownerLocPrev.${Date.now()}@example.test`);

@@ -26,7 +26,15 @@ import { ensureAuthChainInstalled } from './authStubSchema';
 import type { PgQueryable } from './pgMigrationChain';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
+if (!DSN && process.env.REQUIRE_WI_DB === '1') {
+  // Mandatory CI job: a missing database must FAIL, never silently skip.
+  throw new Error(
+    'REQUIRE_WI_DB=1 but neither TEST_DATABASE_URL nor CLEAN_INSTALL_DATABASE_URL is set — ' +
+      'the workspace-invitation PostgreSQL suite is mandatory and must not be skipped.',
+  );
+}
 const suite = DSN ? describe : describe.skip;
+
 
 type PgTestClient = PgQueryable & { end(): Promise<void> };
 

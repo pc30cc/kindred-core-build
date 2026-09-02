@@ -10,7 +10,7 @@ import { useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -36,7 +36,7 @@ export default function TeamPage() {
   const pMap = useMemo(() => presenceMap((presence as any)?.presence), [presence]);
 
   if (isPending) return <div className="h-full w-full" />;
-  if (role === 'owner') return <Navigate to="../settings/team-departments" replace />;
+  if (isWorkspaceAdmin(role)) return <Navigate to="../settings/team-departments" replace />;
 
   return (
     <div className="h-full w-full overflow-hidden p-6" dir={dir}>

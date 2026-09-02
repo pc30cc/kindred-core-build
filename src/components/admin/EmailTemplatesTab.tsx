@@ -63,7 +63,7 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   magic_link: ['{name}', '{brand}', '{action_url}', '{expiry_time}'],
   welcome: ['{name}', '{brand}', '{action_url}'],
   invite_member: ['{name}', '{brand}', '{inviter}', '{workspace}', '{role}', '{action_url}'],
-  invite_otp: ['{code}', '{expiry_minutes}'],
+  invite_otp: ['{code}', '{expiry_minutes}', '{brand}', '{year}'],
   payment_success: ['{name}', '{brand}', '{amount}', '{currency}', '{plan}', '{invoice_url}'],
   payment_failed: ['{name}', '{brand}', '{amount}', '{currency}', '{reason}', '{action_url}'],
   subscription_renewed: ['{name}', '{brand}', '{plan}', '{next_date}', '{amount}'],

@@ -157,6 +157,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
       >
         <ProviderContextProvider>
         <AuthContextProvider>
+          <IdentityCacheBoundary>
           <PlatformBrandingGate>
           <TooltipProvider>
           <Toaster />

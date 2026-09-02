@@ -19,6 +19,7 @@ import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
 import { workspacesRouter } from './routes/workspaces.js';
 import { workspaceMembersRouter } from './routes/workspaceMembers.js';
+import { workspaceInvitationsRouter } from './routes/workspaceInvitations.js';
 import { widgetSettingsRouter } from './routes/widgetSettings.js';
 import { workspaceIntegrationsRouter } from './routes/workspaceIntegrations.js';
 import { notificationsRouter } from './routes/notifications.js';
@@ -64,6 +65,8 @@ import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startRecordingRetentionJanitor } from './services/recordings/retentionJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
+import { startInvitationWorker } from './services/invitations/worker.js';
+import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startMetricsRollup } from './services/observability/rollupTicker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
@@ -349,6 +352,8 @@ app.use('/api/account', accountRouter);
 // See docs/MAX_AGENTS_POLICY.md and server/routes/workspaceMembers.ts.
 app.use('/api/workspaces', workspacesRouter);
 app.use('/api/workspace-members', workspaceMembersRouter);
+// Workspace Invitations v5.1 — canonical invitation API (Express-only).
+app.use('/api/workspace-invitations', workspaceInvitationsRouter);
 app.use('/api/widget-settings', widgetSettingsRouter);
 app.use('/api/workspace-integrations', workspaceIntegrationsRouter);
 
@@ -504,6 +509,8 @@ app.listen(config.port, () => {
   startRecordingRetentionJanitor(config);
   // GDPR — start privacy job worker (in-process loop).
   startPrivacyWorker(config);
+  // Workspace Invitations v5.1 — authoritative seat-entitlement mode + outbox.
+  void syncSeatEntitlementMode(config).finally(() => startInvitationWorker(config));
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
 

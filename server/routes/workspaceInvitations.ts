@@ -433,10 +433,6 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
   const email = body.email.toLowerCase();
   const nonce = body.requestId;
   const departmentIds = [...(body.departmentIds ?? [])].sort();
-  // Notification locale snapshot: explicit selection → configured workspace
-  // default → application last resort. Accept-Language is never consulted.
-  const effectiveLocale = await resolveEffectiveLocale(config, body.workspaceId, body.locale);
-
   const outcome = await runIdempotent(config, {
     operation: 'edit',
     scopeKind: 'invitation',
@@ -548,17 +544,6 @@ workspaceInvitationsRouter.post('/:id/rotate-link', requireOrigin, rejectTokenIn
       error: 'OPERATION_COMMITTED_LINK_NOT_REPLAYABLE',
       replayed: true,
       invitation: outcome.safeResult,
-    });
-  }
-
-  // Persist the resolved locale snapshot for the notification worker. The
-  // create RPC's signature is unchanged; this is a backend-only follow-up
-  // restricted to pending invitations.
-  const createdId = (outcome.result as any)?.invitation_id || (outcome.result as any)?.id;
-  if (createdId) {
-    await getServiceClient(config).rpc('wi_set_invitation_locale', {
-      _invitation_id: createdId,
-      _locale: effectiveLocale,
     });
   }
 

@@ -84,6 +84,46 @@ export default function VisitorsPage() {
   const [filterHasConv, setFilterHasConv] = useState(false);
   const [filterCountry, setFilterCountry] = useState<string>('all');
 
+  // Resizable visitor list width (desktop only), persisted like the inbox list.
+  const [listWidth, setListWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('visitors.listWidth'));
+    return saved >= 280 && saved <= 680 ? saved : 380;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  useEffect(() => {
+    if (!isResizing) return;
+    const isRtl = document.documentElement.dir === 'rtl';
+    const onMove = (e: MouseEvent) => {
+      const w = isRtl ? window.innerWidth - e.clientX : e.clientX;
+      setListWidth(Math.min(680, Math.max(280, w)));
+    };
+    const onUp = () => setIsResizing(false);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizing]);
+  useEffect(() => {
+    localStorage.setItem('visitors.listWidth', String(listWidth));
+  }, [listWidth]);
+
+
+
   const live = useLiveVisitors(wsId, includeOffline);
   const map = useVisitorMap(wsId);
   const mapConfig = useVisitorMapConfig(wsId);

@@ -40,6 +40,7 @@ const suite = DSN ? describe : describe.skip;
 type PgTestClient = PgQueryable & { end(): Promise<void> };
 
 let db: PgTestClient;
+let emailTransportFailure = false;
 let capturedEmails: Array<{ to: string; subject?: string; text?: string; templateSlug?: string; actionUrl: string | null }> = [];
 
 process.env.INVITATION_LINK_SECRET ||= 'test-invitation-link-secret-value-32b!!';
@@ -53,6 +54,9 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 
 vi.mock('../../../server/services/email/index.js', () => ({
   sendEmail: async (_config: unknown, req: any) => {
+    if (emailTransportFailure) {
+      return { success: false, provider: 'test-provider', error: 'provider outage (injected)' };
+    }
     capturedEmails.push({
       to: req.to,
       subject: req.subject,

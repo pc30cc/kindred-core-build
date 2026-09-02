@@ -145,6 +145,49 @@ function readRequestId(req: any): string | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * Effective locale resolution (v5.1 locale contract).
+ *
+ * There is exactly ONE language mechanism in this product: an explicit
+ * user/site selection persisted on the workspace (`panel_locale`, then
+ * `default_locale`). This helper reuses it instead of introducing a second
+ * default — English is only the final fallback of that existing resolver, and
+ * the browser's Accept-Language header is deliberately never consulted, so a
+ * visitor's browser can never silently override the configured site default.
+ */
+const SUPPORTED_LOCALES = new Set(['en', 'fa', 'tr']);
+const LAST_RESORT_LOCALE = 'en';
+
+function normalizeLocale(value: unknown): string | null {
+  const v = String(value ?? '').trim().toLowerCase();
+  return SUPPORTED_LOCALES.has(v) ? v : null;
+}
+
+async function resolveEffectiveLocale(
+  config: ServerConfig,
+  workspaceId: string | null | undefined,
+  requested: unknown,
+): Promise<string> {
+  // 1. explicit selection made through the existing language selector
+  const selected = normalizeLocale(requested);
+  if (selected) return selected;
+
+  // 2. the site default configured for this workspace
+  if (workspaceId) {
+    const { data } = await getServiceClient(config)
+      .from('workspaces')
+      .select('panel_locale, default_locale')
+      .eq('id', workspaceId)
+      .maybeSingle();
+    const siteDefault =
+      normalizeLocale((data as any)?.panel_locale) || normalizeLocale((data as any)?.default_locale);
+    if (siteDefault) return siteDefault;
+  }
+
+  // 3. the existing resolver's own last resort
+  return LAST_RESORT_LOCALE;
+}
+
 async function activePolicyVersions(config: ServerConfig, locale: string) {
   const sb = getServiceClient(config);
   const { data } = await sb
@@ -156,12 +199,13 @@ async function activePolicyVersions(config: ServerConfig, locale: string) {
 
   const pick = (type: string) =>
     (data || []).find((r: any) => r.policy_type === type && r.locale === locale)
-    || (data || []).find((r: any) => r.policy_type === type && r.locale === 'en')
+    || (data || []).find((r: any) => r.policy_type === type && r.locale === LAST_RESORT_LOCALE)
     || (data || []).find((r: any) => r.policy_type === type)
     || null;
 
   return { terms: pick('terms'), privacy: pick('privacy') };
 }
+
 
 // ── Rate limiters (public surface) ──────────────────────────────────────
 
@@ -566,8 +610,9 @@ workspaceInvitationsRouter.post('/preview', requireOrigin, rejectTokenInUrl, pub
   });
   if (error || !data) return res.status(404).json(PUBLIC_ERROR);
 
-  const locale = String(req.body?.locale || 'en');
+  const locale = await resolveEffectiveLocale(config, (data as any)?.workspace_id, req.body?.locale);
   const policies = await activePolicyVersions(config, locale);
+
 
   return res.json({ preview: data, policies });
 });
@@ -622,7 +667,9 @@ workspaceInvitationsRouter.post('/context-preview', requireOrigin, rejectTokenIn
     _handle_hash: sha256Hex(String(handle)),
   });
   if (error || !data) return res.status(404).json(PUBLIC_ERROR);
-  const policies = await activePolicyVersions(config, String(req.body?.locale || 'en'));
+  const contextLocale = await resolveEffectiveLocale(config, (data as any)?.workspace_id, req.body?.locale);
+  const policies = await activePolicyVersions(config, contextLocale);
+
   return res.json({ preview: data, policies });
 });
 
@@ -817,6 +864,19 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
   // second user for the same logical acceptance.
   const userId = deriveDeterministicUuid('accept_new', body.requestId, tokenHash);
 
+  // Read-only probe used only to resolve the invitation's workspace so the
+  // persisted consent locale can inherit the configured site default. It
+  // mutates nothing and never widens the public error surface.
+  const { data: localeProbe } = await getServiceClient(config).rpc('wi_preview_invitation', {
+    _token_hash: tokenHash,
+    _purpose: body.purpose,
+  });
+  const persistedLocale = await resolveEffectiveLocale(
+    config,
+    (localeProbe as any)?.workspace_id,
+    body.locale,
+  );
+
   const outcome = await runIdempotent(config, {
     operation: 'accept_new',
     scopeKind: 'public',
@@ -831,6 +891,8 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
       proofBinding: proofRaw ? deriveIntentDigest('accept_new_proof', String(proofRaw)) : null,
       termsVersionId: body.termsVersionId,
       privacyVersionId: body.privacyVersionId,
+      // The REQUESTED locale stays the fingerprint input: changing the site
+      // default between two retries must not invalidate a replay.
       locale: body.locale ?? null,
     },
     args: {
@@ -842,11 +904,12 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
       terms_version_id: body.termsVersionId,
       privacy_version_id: body.privacyVersionId,
       acceptance_method: body.purpose === 'manual_handoff' ? 'manual_handoff_otp' : 'email_claim',
-      locale: body.locale ?? null,
+      locale: persistedLocale,
       ip: getClientIp(req),
       user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
     },
   });
+
 
   if (outcome.error) {
     const mapped = mapRpcError(outcome.error.message);
@@ -898,6 +961,17 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
   if (!handle) return res.status(404).json(PUBLIC_ERROR);
   const handleHash = sha256Hex(String(handle));
 
+  // Read-only projection: resolves the workspace so the persisted consent
+  // locale inherits the configured site default. It never consumes the context.
+  const { data: ctxProbe } = await getServiceClient(config).rpc('wi_preview_login_context', {
+    _handle_hash: handleHash,
+  });
+  const persistedLocale = await resolveEffectiveLocale(
+    config,
+    (ctxProbe as any)?.workspace_id,
+    body.locale,
+  );
+
   const outcome = await runIdempotent(config, {
     operation: 'accept_existing',
     scopeKind: 'public',
@@ -909,6 +983,7 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
       sessionEmail: deriveIntentDigest('session_email', session.email.toLowerCase()),
       termsVersionId: body.termsVersionId,
       privacyVersionId: body.privacyVersionId,
+      // Requested locale only — see /accept-new for the rationale.
       locale: body.locale ?? null,
     },
     args: {
@@ -917,11 +992,12 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
       session_email_normalized: session.email.toLowerCase(),
       terms_version_id: body.termsVersionId,
       privacy_version_id: body.privacyVersionId,
-      locale: body.locale ?? null,
+      locale: persistedLocale,
       ip: getClientIp(req),
       user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
     },
   });
+
 
   if (outcome.error) {
     const mapped = mapRpcError(outcome.error.message);

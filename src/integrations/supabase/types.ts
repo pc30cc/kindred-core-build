@@ -6202,6 +6202,42 @@ export type Database = {
         }
         Relationships: []
       }
+      legal_policy_versions: {
+        Row: {
+          content_hash: string
+          document_url: string | null
+          effective_from: string
+          id: string
+          is_active: boolean
+          locale: string
+          policy_type: string
+          published_at: string
+          version: string
+        }
+        Insert: {
+          content_hash: string
+          document_url?: string | null
+          effective_from?: string
+          id?: string
+          is_active?: boolean
+          locale: string
+          policy_type: string
+          published_at?: string
+          version: string
+        }
+        Update: {
+          content_hash?: string
+          document_url?: string | null
+          effective_from?: string
+          id?: string
+          is_active?: boolean
+          locale?: string
+          policy_type?: string
+          published_at?: string
+          version?: string
+        }
+        Relationships: []
+      }
       livekit_webhook_events: {
         Row: {
           egress_id: string | null
@@ -9631,43 +9667,697 @@ export type Database = {
         }
         Relationships: []
       }
-      workspace_invitations: {
+      workspace_invitation_consents: {
+        Row: {
+          acceptance_method: string
+          accepted_at: string
+          id: string
+          invitation_id: string
+          ip: string | null
+          locale: string | null
+          privacy_content_hash: string
+          privacy_version_id: string
+          terms_content_hash: string
+          terms_version_id: string
+          user_agent: string | null
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          acceptance_method: string
+          accepted_at?: string
+          id?: string
+          invitation_id: string
+          ip?: string | null
+          locale?: string | null
+          privacy_content_hash: string
+          privacy_version_id: string
+          terms_content_hash: string
+          terms_version_id: string
+          user_agent?: string | null
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          acceptance_method?: string
+          accepted_at?: string
+          id?: string
+          invitation_id?: string
+          ip?: string | null
+          locale?: string | null
+          privacy_content_hash?: string
+          privacy_version_id?: string
+          terms_content_hash?: string
+          terms_version_id?: string
+          user_agent?: string | null
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_consents_invitation_id_fkey"
+            columns: ["invitation_id"]
+            isOneToOne: true
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_consents_privacy_version_id_fkey"
+            columns: ["privacy_version_id"]
+            isOneToOne: false
+            referencedRelation: "legal_policy_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_consents_terms_version_id_fkey"
+            columns: ["terms_version_id"]
+            isOneToOne: false
+            referencedRelation: "legal_policy_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_consents_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_consents_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_invitation_contexts: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          handle_hash: string
+          id: string
+          invitation_id: string
+          notification_generation: number
+          purpose: string
+          revoked_at: string | null
+          token_generation: number
+          token_id: string
+          workspace_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          handle_hash: string
+          id?: string
+          invitation_id: string
+          notification_generation: number
+          purpose: string
+          revoked_at?: string | null
+          token_generation: number
+          token_id: string
+          workspace_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          handle_hash?: string
+          id?: string
+          invitation_id?: string
+          notification_generation?: number
+          purpose?: string
+          revoked_at?: string | null
+          token_generation?: number
+          token_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_contexts_invitation_fk"
+            columns: ["invitation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_contexts_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitation_tokens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_contexts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_invitation_deliveries: {
+        Row: {
+          attempt_number: number
+          channel: string
+          created_at: string
+          delivered_at: string | null
+          error_code: string | null
+          failed_at: string | null
+          id: string
+          invitation_id: string
+          job_id: string | null
+          metadata: Json
+          notification_generation: number
+          provider_accepted_at: string | null
+          provider_message_id: string | null
+          provider_name: string | null
+          safe_error_message: string | null
+          sent_at: string | null
+          status: string
+          workspace_id: string
+        }
+        Insert: {
+          attempt_number?: number
+          channel: string
+          created_at?: string
+          delivered_at?: string | null
+          error_code?: string | null
+          failed_at?: string | null
+          id?: string
+          invitation_id: string
+          job_id?: string | null
+          metadata?: Json
+          notification_generation: number
+          provider_accepted_at?: string | null
+          provider_message_id?: string | null
+          provider_name?: string | null
+          safe_error_message?: string | null
+          sent_at?: string | null
+          status: string
+          workspace_id: string
+        }
+        Update: {
+          attempt_number?: number
+          channel?: string
+          created_at?: string
+          delivered_at?: string | null
+          error_code?: string | null
+          failed_at?: string | null
+          id?: string
+          invitation_id?: string
+          job_id?: string | null
+          metadata?: Json
+          notification_generation?: number
+          provider_accepted_at?: string | null
+          provider_message_id?: string | null
+          provider_name?: string | null
+          safe_error_message?: string | null
+          sent_at?: string | null
+          status?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_deliveries_invitation_fk"
+            columns: ["invitation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_deliveries_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitation_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_invitation_departments: {
         Row: {
           created_at: string
-          created_by: string
-          expires_at: string | null
-          id: string
-          invited_email: string | null
-          max_uses: number
-          revoked_at: string | null
-          role: Database["public"]["Enums"]["workspace_role"]
-          token: string
-          use_count: number
+          department_id: string
+          invitation_id: string
           workspace_id: string
         }
         Insert: {
           created_at?: string
-          created_by: string
-          expires_at?: string | null
-          id?: string
-          invited_email?: string | null
-          max_uses?: number
-          revoked_at?: string | null
-          role?: Database["public"]["Enums"]["workspace_role"]
-          token?: string
-          use_count?: number
+          department_id: string
+          invitation_id: string
           workspace_id: string
         }
         Update: {
           created_at?: string
-          created_by?: string
-          expires_at?: string | null
+          department_id?: string
+          invitation_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_departments_department_fk"
+            columns: ["department_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_departments"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_departments_invitation_fk"
+            columns: ["invitation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
+      workspace_invitation_idempotency: {
+        Row: {
+          created_at: string
+          expires_at: string
+          invitation_id: string | null
+          key: string
+          operation: string
+          response_digest: string | null
+          result_state: string
+          scope_kind: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          invitation_id?: string | null
+          key: string
+          operation: string
+          response_digest?: string | null
+          result_state: string
+          scope_kind: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          invitation_id?: string | null
+          key?: string
+          operation?: string
+          response_digest?: string | null
+          result_state?: string
+          scope_kind?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      workspace_invitation_jobs: {
+        Row: {
+          attempt_count: number
+          available_at: string
+          channel: string
+          claim_expires_at: string | null
+          claim_token: string | null
+          created_at: string
+          derivation_key_version: number | null
+          destination_hash: string
+          email_token_generation: number | null
+          id: string
+          idempotency_key: string
+          invitation_id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          max_attempts: number
+          notification_generation: number
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          available_at?: string
+          channel: string
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          created_at?: string
+          derivation_key_version?: number | null
+          destination_hash: string
+          email_token_generation?: number | null
           id?: string
-          invited_email?: string | null
-          max_uses?: number
+          idempotency_key: string
+          invitation_id: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          notification_generation: number
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          attempt_count?: number
+          available_at?: string
+          channel?: string
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          created_at?: string
+          derivation_key_version?: number | null
+          destination_hash?: string
+          email_token_generation?: number | null
+          id?: string
+          idempotency_key?: string
+          invitation_id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          notification_generation?: number
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_jobs_invitation_fk"
+            columns: ["invitation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
+      workspace_invitation_otps: {
+        Row: {
+          attempts: number
+          code_digest: string
+          consumed_at: string | null
+          created_at: string
+          email_normalized: string
+          expires_at: string
+          id: string
+          invitation_id: string
+          ip_hash: string | null
+          manual_token_generation: number
+          manual_token_id: string
+          max_attempts: number
+          notification_generation: number
+          purpose: string
+          revoked_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          attempts?: number
+          code_digest: string
+          consumed_at?: string | null
+          created_at?: string
+          email_normalized: string
+          expires_at: string
+          id?: string
+          invitation_id: string
+          ip_hash?: string | null
+          manual_token_generation: number
+          manual_token_id: string
+          max_attempts?: number
+          notification_generation: number
+          purpose?: string
           revoked_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          attempts?: number
+          code_digest?: string
+          consumed_at?: string | null
+          created_at?: string
+          email_normalized?: string
+          expires_at?: string
+          id?: string
+          invitation_id?: string
+          ip_hash?: string | null
+          manual_token_generation?: number
+          manual_token_id?: string
+          max_attempts?: number
+          notification_generation?: number
+          purpose?: string
+          revoked_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_otps_invitation_fk"
+            columns: ["invitation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_otps_manual_token_id_fkey"
+            columns: ["manual_token_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitation_tokens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_otps_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_invitation_proofs: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          email_normalized: string
+          expires_at: string
+          id: string
+          invitation_id: string
+          manual_token_generation: number
+          manual_token_id: string
+          notification_generation: number
+          otp_id: string
+          proof_hash: string
+          purpose: string
+          revoked_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          email_normalized: string
+          expires_at: string
+          id?: string
+          invitation_id: string
+          manual_token_generation: number
+          manual_token_id: string
+          notification_generation: number
+          otp_id: string
+          proof_hash: string
+          purpose?: string
+          revoked_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          email_normalized?: string
+          expires_at?: string
+          id?: string
+          invitation_id?: string
+          manual_token_generation?: number
+          manual_token_id?: string
+          notification_generation?: number
+          otp_id?: string
+          proof_hash?: string
+          purpose?: string
+          revoked_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_proofs_invitation_fk"
+            columns: ["invitation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_proofs_manual_token_id_fkey"
+            columns: ["manual_token_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitation_tokens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_proofs_otp_id_fkey"
+            columns: ["otp_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitation_otps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_proofs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_invitation_tokens: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          derivation_key_version: number | null
+          expires_at: string
+          id: string
+          invitation_id: string
+          notification_generation: number
+          purpose: string
+          revoked_at: string | null
+          token_generation: number
+          token_hash: string
+          token_prefix: string
+          workspace_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          derivation_key_version?: number | null
+          expires_at: string
+          id?: string
+          invitation_id: string
+          notification_generation?: number
+          purpose: string
+          revoked_at?: string | null
+          token_generation?: number
+          token_hash: string
+          token_prefix: string
+          workspace_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          derivation_key_version?: number | null
+          expires_at?: string
+          id?: string
+          invitation_id?: string
+          notification_generation?: number
+          purpose?: string
+          revoked_at?: string | null
+          token_generation?: number
+          token_hash?: string
+          token_prefix?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invitation_tokens_invitation_fk"
+            columns: ["invitation_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workspace_invitation_tokens_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_invitations: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          archived_at: string | null
+          created_at: string
+          created_by: string
+          expired_at: string | null
+          expires_at: string | null
+          first_name: string | null
+          id: string
+          invitation_flow_version: number
+          invited_email: string | null
+          invited_email_normalized: string | null
+          invited_phone_e164: string | null
+          job_title: string | null
+          last_email_status: string | null
+          last_name: string | null
+          last_sms_status: string | null
+          max_uses: number
+          member_type: string | null
+          notification_generation: number
+          revoked_at: string | null
+          revoked_by: string | null
+          revoked_reason: string | null
+          role: Database["public"]["Enums"]["workspace_role"]
+          staff_code: string | null
+          status: string
+          token: string | null
+          use_count: number
+          workspace_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          archived_at?: string | null
+          created_at?: string
+          created_by: string
+          expired_at?: string | null
+          expires_at?: string | null
+          first_name?: string | null
+          id?: string
+          invitation_flow_version?: number
+          invited_email?: string | null
+          invited_email_normalized?: string | null
+          invited_phone_e164?: string | null
+          job_title?: string | null
+          last_email_status?: string | null
+          last_name?: string | null
+          last_sms_status?: string | null
+          max_uses?: number
+          member_type?: string | null
+          notification_generation?: number
+          revoked_at?: string | null
+          revoked_by?: string | null
+          revoked_reason?: string | null
           role?: Database["public"]["Enums"]["workspace_role"]
-          token?: string
+          staff_code?: string | null
+          status?: string
+          token?: string | null
+          use_count?: number
+          workspace_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string
+          expired_at?: string | null
+          expires_at?: string | null
+          first_name?: string | null
+          id?: string
+          invitation_flow_version?: number
+          invited_email?: string | null
+          invited_email_normalized?: string | null
+          invited_phone_e164?: string | null
+          job_title?: string | null
+          last_email_status?: string | null
+          last_name?: string | null
+          last_sms_status?: string | null
+          max_uses?: number
+          member_type?: string | null
+          notification_generation?: number
+          revoked_at?: string | null
+          revoked_by?: string | null
+          revoked_reason?: string | null
+          role?: Database["public"]["Enums"]["workspace_role"]
+          staff_code?: string | null
+          status?: string
+          token?: string | null
           use_count?: number
           workspace_id?: string
         }
@@ -9712,6 +10402,148 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "workspace_limit_overrides_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_member_details: {
+        Row: {
+          first_name: string
+          invitation_id: string | null
+          invited_by: string | null
+          job_title: string | null
+          joined_at: string
+          last_name: string
+          member_type: string
+          staff_code: string | null
+          updated_at: string
+          user_id: string
+          work_email_normalized: string
+          work_phone_e164: string
+          workspace_id: string
+        }
+        Insert: {
+          first_name: string
+          invitation_id?: string | null
+          invited_by?: string | null
+          job_title?: string | null
+          joined_at?: string
+          last_name: string
+          member_type: string
+          staff_code?: string | null
+          updated_at?: string
+          user_id: string
+          work_email_normalized: string
+          work_phone_e164: string
+          workspace_id: string
+        }
+        Update: {
+          first_name?: string
+          invitation_id?: string | null
+          invited_by?: string | null
+          job_title?: string | null
+          joined_at?: string
+          last_name?: string
+          member_type?: string
+          staff_code?: string | null
+          updated_at?: string
+          user_id?: string
+          work_email_normalized?: string
+          work_phone_e164?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_member_details_invitation_id_fkey"
+            columns: ["invitation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_member_details_member_fk"
+            columns: ["workspace_id", "user_id"]
+            isOneToOne: true
+            referencedRelation: "workspace_members"
+            referencedColumns: ["workspace_id", "user_id"]
+          },
+        ]
+      }
+      workspace_member_details_history: {
+        Row: {
+          first_name: string | null
+          id: string
+          invitation_id: string | null
+          invited_by: string | null
+          job_title: string | null
+          joined_at: string | null
+          last_name: string | null
+          member_type: string | null
+          offboarded_at: string
+          offboarded_by: string | null
+          reason: string | null
+          staff_code: string | null
+          user_id: string | null
+          work_email_normalized: string | null
+          work_phone_e164: string | null
+          workspace_id: string
+        }
+        Insert: {
+          first_name?: string | null
+          id?: string
+          invitation_id?: string | null
+          invited_by?: string | null
+          job_title?: string | null
+          joined_at?: string | null
+          last_name?: string | null
+          member_type?: string | null
+          offboarded_at?: string
+          offboarded_by?: string | null
+          reason?: string | null
+          staff_code?: string | null
+          user_id?: string | null
+          work_email_normalized?: string | null
+          work_phone_e164?: string | null
+          workspace_id: string
+        }
+        Update: {
+          first_name?: string | null
+          id?: string
+          invitation_id?: string | null
+          invited_by?: string | null
+          job_title?: string | null
+          joined_at?: string | null
+          last_name?: string | null
+          member_type?: string | null
+          offboarded_at?: string
+          offboarded_by?: string | null
+          reason?: string | null
+          staff_code?: string | null
+          user_id?: string | null
+          work_email_normalized?: string | null
+          work_phone_e164?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_member_details_history_invitation_id_fkey"
+            columns: ["invitation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_invitations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_member_details_history_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_member_details_history_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -9886,6 +10718,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      workspace_seat_entitlement_mode: {
+        Row: {
+          config_version: number
+          id: boolean
+          mode: string
+          seat_limit: number | null
+          source: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          config_version?: number
+          id?: boolean
+          mode: string
+          seat_limit?: number | null
+          source: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          config_version?: number
+          id?: boolean
+          mode?: string
+          seat_limit?: number | null
+          source?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       workspace_settings: {
         Row: {
@@ -10509,6 +11371,10 @@ export type Database = {
         Args: { p_workspace_id: string }
         Returns: undefined
       }
+      archive_invitation_v2: {
+        Args: { _actor_id: string; _invitation_id: string }
+        Returns: Json
+      }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
       bulk_create_contacts: {
         Args: { _contacts: Json; _workspace_id: string }
@@ -10621,6 +11487,42 @@ export type Database = {
           source: string
         }[]
       }
+      claim_invitation_jobs: {
+        Args: {
+          _channels?: string[]
+          _lease_seconds?: number
+          _limit?: number
+          _worker_id: string
+        }
+        Returns: {
+          attempt_count: number
+          available_at: string
+          channel: string
+          claim_expires_at: string | null
+          claim_token: string | null
+          created_at: string
+          derivation_key_version: number | null
+          destination_hash: string
+          email_token_generation: number | null
+          id: string
+          idempotency_key: string
+          invitation_id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          max_attempts: number
+          notification_generation: number
+          status: string
+          updated_at: string
+          workspace_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "workspace_invitation_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_kb_change_events: {
         Args: { _lease_seconds?: number; _limit?: number; _worker_id: string }
         Returns: {
@@ -10711,6 +11613,30 @@ export type Database = {
         }
         Returns: string
       }
+      create_workspace_invitation_v2: {
+        Args: {
+          _actor_id: string
+          _department_ids: string[]
+          _email_destination_hash: string
+          _email_job_idempotency_key: string
+          _email_normalized: string
+          _expires_at: string
+          _first_name: string
+          _job_title?: string
+          _last_name: string
+          _manual_token_expires_at: string
+          _manual_token_hash: string
+          _manual_token_prefix: string
+          _member_type: string
+          _phone_e164: string
+          _role: Database["public"]["Enums"]["workspace_role"]
+          _sms_destination_hash: string
+          _sms_job_idempotency_key: string
+          _staff_code?: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
       deduct_ai_credits: {
         Args: { _credits?: number; _period?: string; _workspace_id: string }
         Returns: Json
@@ -10728,6 +11654,27 @@ export type Database = {
           _worker_id: string
         }
         Returns: number
+      }
+      edit_workspace_invitation_v2: {
+        Args: {
+          _actor_id: string
+          _department_ids: string[]
+          _email_destination_hash?: string
+          _email_job_idempotency_key?: string
+          _email_normalized: string
+          _expires_at: string
+          _first_name: string
+          _invitation_id: string
+          _job_title?: string
+          _last_name: string
+          _member_type: string
+          _phone_e164: string
+          _role: Database["public"]["Enums"]["workspace_role"]
+          _sms_destination_hash?: string
+          _sms_job_idempotency_key?: string
+          _staff_code?: string
+        }
+        Returns: Json
       }
       enqueue_entitlement_fanout: {
         Args: { _plan_id?: string; _scope: string; _source: string }
@@ -10753,6 +11700,7 @@ export type Database = {
         }[]
       }
       evaluate_alert_rules: { Args: never; Returns: Json }
+      expire_invitations_v2: { Args: { _limit?: number }; Returns: number }
       expire_stale_trials: { Args: never; Returns: number }
       fail_entitlement_fanout: {
         Args: {
@@ -10960,6 +11908,7 @@ export type Database = {
         Returns: undefined
       }
       realtime_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      reclaim_expired_invitation_jobs: { Args: never; Returns: number }
       redeem_email_verify_token: {
         Args: { _token_hash: string }
         Returns: {
@@ -10987,6 +11936,15 @@ export type Database = {
         Args: { _integration_id: string }
         Returns: undefined
       }
+      resend_invitation_email_v2: {
+        Args: {
+          _actor_id: string
+          _destination_hash: string
+          _invitation_id: string
+          _job_idempotency_key: string
+        }
+        Returns: Json
+      }
       resolve_privacy_subject: {
         Args: {
           _subject_id: string
@@ -10995,10 +11953,70 @@ export type Database = {
         }
         Returns: Json
       }
+      revoke_invitation_v2: {
+        Args: { _actor_id: string; _invitation_id: string; _reason: string }
+        Returns: Json
+      }
+      rotate_manual_link_v2: {
+        Args: {
+          _actor_id: string
+          _invitation_id: string
+          _token_expires_at: string
+          _token_hash: string
+          _token_prefix: string
+        }
+        Returns: Json
+      }
+      set_workspace_seat_entitlement_mode: {
+        Args: {
+          _mode: string
+          _seat_limit?: number
+          _source: string
+          _updated_by?: string
+        }
+        Returns: Json
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
+      wi_audit: {
+        Args: {
+          _action: string
+          _actor_id: string
+          _entity_id: string
+          _entity_type?: string
+          _payload: Json
+          _workspace_id: string
+        }
+        Returns: undefined
+      }
+      wi_can_manage_invitation: {
+        Args: {
+          _actor_role: Database["public"]["Enums"]["workspace_role"]
+          _target_role: Database["public"]["Enums"]["workspace_role"]
+        }
+        Returns: boolean
+      }
+      wi_expire_due: { Args: { _workspace_id: string }; Returns: number }
+      wi_resolve_seat_capacity: {
+        Args: { _workspace_id: string }
+        Returns: {
+          limit_value: number
+          source: string
+          used: number
+          version: number
+        }[]
+      }
+      wi_revoke_secrets: {
+        Args: {
+          _generation?: number
+          _invitation_id: string
+          _purpose?: string
+        }
+        Returns: undefined
+      }
+      wi_safe_invitation: { Args: { _invitation_id: string }; Returns: Json }
       workspace_health_snapshot_compute: { Args: never; Returns: Json }
       workspace_owner_phone_verified: {
         Args: { _workspace_id: string }

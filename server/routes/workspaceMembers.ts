@@ -254,7 +254,7 @@ workspaceMembersRouter.get('/', async (req, res) => {
   const sb = getServiceClient(config);
   const { data: members, error: memberErr } = await sb
     .from('workspace_members')
-    .select('id, role, created_at, user_id')
+    .select('id, role, created_at, user_id, suspended_at, suspend_reason')
     .eq('workspace_id', workspaceId);
   if (memberErr) return res.status(500).json({ error: memberErr.message });
 
@@ -322,6 +322,64 @@ workspaceMembersRouter.patch('/:memberId', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ ok: true });
 });
+
+const suspensionSchema = z.object({
+  suspended: z.boolean(),
+  reason: z.string().trim().max(500).optional().nullable(),
+});
+
+// PATCH /api/workspace-members/:memberId/suspension?workspaceId=...
+// Bans (suspends) or reinstates a member. A suspended member keeps their
+// membership row — history, assignments and audit stay intact — but
+// authorizeWorkspaceAccess denies every workspace capability while the ban
+// is active. The canonical owner can never be banned, and an owner/admin
+// cannot ban themselves (that would lock the workspace out of management).
+workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
+  const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
+  const parsedBody = suspensionSchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ error: 'invalid_body' });
+  const { workspaceId } = parsedQuery.data;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('user_id')
+    .eq('id', req.params.memberId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (!member) return res.status(404).json({ error: 'member_not_found' });
+  const targetUserId = (member as { user_id: string }).user_id;
+
+  if (await isCanonicalOwner(sb, workspaceId, targetUserId)) {
+    return res.status(403).json({ error: 'cannot_modify_owner' });
+  }
+  if (targetUserId === auth.userId) {
+    return res.status(403).json({ error: 'cannot_suspend_self' });
+  }
+
+  const { error } = await sb
+    .from('workspace_members')
+    .update(
+      parsedBody.data.suspended
+        ? {
+            suspended_at: new Date().toISOString(),
+            suspended_by: auth.userId,
+            suspend_reason: parsedBody.data.reason || null,
+          }
+        : { suspended_at: null, suspended_by: null, suspend_reason: null },
+    )
+    .eq('id', req.params.memberId)
+    .eq('workspace_id', workspaceId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true, suspended: parsedBody.data.suspended });
+});
+
+
 
 // DELETE /api/workspace-members/:memberId?workspaceId=... — remove a member.
 //

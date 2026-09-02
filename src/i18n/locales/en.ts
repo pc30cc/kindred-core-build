@@ -1074,6 +1074,18 @@ const en = {
     primaryColor: 'Primary Color',
     installInstructions: 'Add this code snippet to your website, just before the closing </head> tag.',
   },
+  memberBan: {
+    banAction: 'Ban from workspace',
+    unbanAction: 'Lift ban',
+    bannedBadge: 'Banned',
+    reasonTitle: 'Ban this member?',
+    reasonHint: 'The member keeps their history but loses all workspace access until you lift the ban.',
+    reasonPlaceholder: 'Reason (optional)',
+    confirm: 'Ban member',
+    cancel: 'Cancel',
+    toastBanned: 'Member banned',
+    toastUnbanned: 'Ban lifted',
+  },
   staffAccess: {
     title: 'Staff Access',
     subtitle: "Internal access for people who don't handle visitor chats — billing, SEO, analytics, marketing, developers and admins.",

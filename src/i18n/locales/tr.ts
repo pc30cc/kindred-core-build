@@ -1066,6 +1066,18 @@ const tr: TranslationKeys = {
     primaryColor: 'Ana Renk',
     installInstructions: 'Bu kodu web sitenize </head> kapanış etiketinden önce ekleyin.',
   },
+  memberBan: {
+    banAction: 'Çalışma alanından yasakla',
+    unbanAction: 'Yasağı kaldır',
+    bannedBadge: 'Yasaklı',
+    reasonTitle: 'Bu üye yasaklansın mı?',
+    reasonHint: 'Üyenin geçmişi korunur ancak yasak kaldırılana kadar çalışma alanına erişemez.',
+    reasonPlaceholder: 'Neden (isteğe bağlı)',
+    confirm: 'Üyeyi yasakla',
+    cancel: 'İptal',
+    toastBanned: 'Üye yasaklandı',
+    toastUnbanned: 'Yasak kaldırıldı',
+  },
   staffAccess: {
     title: 'Personel Erişimi',
     subtitle: 'Ziyaretçi sohbetlerini yönetmeyen kişiler için dahili erişim — faturalandırma, SEO, analiz, pazarlama, geliştiriciler ve yöneticiler.',

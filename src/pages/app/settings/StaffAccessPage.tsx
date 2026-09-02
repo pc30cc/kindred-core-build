@@ -24,7 +24,7 @@ import { Link } from 'react-router-dom';
 import { toast } from '@/lib/toast';
 import { useRequestIdBook } from '@/features/invitations/requestIds';
 import {
-  Shield, Search, Crown, Loader2, Trash2, Settings2,
+  Shield, Search, Crown, Loader2, Trash2, Settings2, Ban, ShieldCheck,
   ArrowRight, Users,
 } from 'lucide-react';
 
@@ -129,6 +129,22 @@ export default function StaffAccessPage() {
     },
     onSuccess: () => {
       toast.success(t('staffAccess.roleUpdated'));
+      qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Banning keeps the membership row (history/audit intact) but the server
+  // denies every workspace capability while the ban is active.
+  const setBan = useMutation({
+    mutationFn: async ({ memberId, suspended }: { memberId: string; suspended: boolean }) => {
+      await staffApi(`/api/workspace-members/${memberId}/suspension?workspaceId=${wsId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ suspended }),
+      });
+    },
+    onSuccess: (_d, v) => {
+      toast.success(t(v.suspended ? 'memberBan.toastBanned' : 'memberBan.toastUnbanned'));
       qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -278,6 +294,11 @@ export default function StaffAccessPage() {
                       </span>
                       {isCurrent && <Badge variant="outline" className="text-[9px] px-1.5 py-0">{t('staffAccess.youBadge')}</Badge>}
                       {isOwner && <Crown className="w-3.5 h-3.5 text-amber-400" />}
+                      {m.suspended_at && (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-destructive/40 text-destructive">
+                          {t('memberBan.bannedBadge')}
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
                   </div>
@@ -306,6 +327,14 @@ export default function StaffAccessPage() {
                             {t('staffAccess.changeTo', { role: roleLabel(r) })}
                           </DropdownMenuItem>
                         ))}
+                        <DropdownMenuItem
+                          onClick={() => setBan.mutate({ memberId: m.id, suspended: !m.suspended_at })}
+                        >
+                          {m.suspended_at
+                            ? <ShieldCheck className="w-3.5 h-3.5 me-2" />
+                            : <Ban className="w-3.5 h-3.5 me-2" />}
+                          {t(m.suspended_at ? 'memberBan.unbanAction' : 'memberBan.banAction')}
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => removeMember.mutate(m.id)}
                           className="text-destructive focus:text-destructive"

@@ -98,7 +98,13 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(String((body as any)?.error || 'INTERNAL_ERROR'));
+  if (!res.ok) {
+    const err = new Error(String((body as any)?.error || 'INTERNAL_ERROR')) as Error & { fields?: string[] };
+    const fields = (body as any)?.fields;
+    if (Array.isArray(fields) && fields.length) err.fields = fields.map(String);
+    throw err;
+  }
+
   return body as T;
 }
 
@@ -728,7 +734,13 @@ export function InvitationFormDialog({
       else { toast.success(t('invitations.toastCreated')); onCreated(String(manualLink)); }
       onClose();
     },
-    onError: (e: unknown) => toast.error(t(invitationErrorKey(e))),
+    onError: (e: unknown) => {
+      const fields = (e as { fields?: string[] })?.fields;
+      toast.error(t(invitationErrorKey(e)), {
+        description: fields?.length ? fields.join(', ') : undefined,
+      });
+    },
+
   });
 
   const err = (field: keyof typeof errors) =>

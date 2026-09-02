@@ -10577,6 +10577,9 @@ export type Database = {
           created_at: string | null
           id: string
           role: Database["public"]["Enums"]["workspace_role"]
+          suspend_reason: string | null
+          suspended_at: string | null
+          suspended_by: string | null
           user_id: string
           workspace_id: string
         }
@@ -10584,6 +10587,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           role?: Database["public"]["Enums"]["workspace_role"]
+          suspend_reason?: string | null
+          suspended_at?: string | null
+          suspended_by?: string | null
           user_id: string
           workspace_id: string
         }
@@ -10591,6 +10597,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           role?: Database["public"]["Enums"]["workspace_role"]
+          suspend_reason?: string | null
+          suspended_at?: string | null
+          suspended_by?: string | null
           user_id?: string
           workspace_id?: string
         }

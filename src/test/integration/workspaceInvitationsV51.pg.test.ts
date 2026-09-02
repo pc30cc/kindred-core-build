@@ -313,6 +313,8 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     db = new Pool({ connectionString: DSN, max: 10 }) as unknown as PgTestClient;
     await db.query('DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS auth CASCADE; CREATE SCHEMA public;');
     await ensureAuthChainInstalled(db);
+    // Server bootstrap equivalent: the seat entitlement authority row.
+    await db.query(`SELECT public.set_workspace_seat_entitlement_mode(_mode := 'self_host_unlimited', _source := 'test_bootstrap')`);
     server = http.createServer(app).listen(0);
     await new Promise<void>((r) => server.once('listening', () => r()));
     baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
@@ -609,7 +611,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
 
   it('CASE 11 — seat limit reached: creation fails and consumes no invitation, token or job', async () => {
     const owner = await makeOwner(`ownerSeat.${Date.now()}@example.test`);
-    await db.query(`SELECT public.set_workspace_seat_entitlement_mode(_mode := 'static', _source := 'test', _seat_limit := 0, _updated_by := $1)`, [owner.userId]);
+    await db.query(`SELECT public.set_workspace_seat_entitlement_mode(_mode := 'plan_authoritative', _source := 'test', _seat_limit := 0, _updated_by := $1)`, [owner.userId]);
     try {
       const before = await db.query('SELECT count(*)::int AS n FROM public.workspace_invitation_tokens');
       const res = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: invitePayload(owner.workspaceId) });
@@ -619,7 +621,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
       const after = await db.query('SELECT count(*)::int AS n FROM public.workspace_invitation_tokens');
       expect(after.rows[0].n).toBe(before.rows[0].n);
     } finally {
-      await db.query(`SELECT public.set_workspace_seat_entitlement_mode(_mode := 'unlimited', _source := 'test', _seat_limit := NULL, _updated_by := $1)`, [owner.userId]);
+      await db.query(`SELECT public.set_workspace_seat_entitlement_mode(_mode := 'self_host_unlimited', _source := 'test_bootstrap', _seat_limit := NULL, _updated_by := $1)`, [owner.userId]);
     }
   }, 90_000);
 

@@ -451,7 +451,6 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
       jobTitle: body.jobTitle ?? null,
       staffCode: body.staffCode ?? null,
       expiresInDays: body.expiresInDays ?? 7,
-      locale: effectiveLocale,
     },
     args: {
       first_name: body.firstName,

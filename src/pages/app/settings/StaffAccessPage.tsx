@@ -24,7 +24,7 @@ import { Link } from 'react-router-dom';
 import { toast } from '@/lib/toast';
 import { useRequestIdBook } from '@/features/invitations/requestIds';
 import {
-  Shield, UserPlus, Search, Crown, Loader2, Trash2, Settings2,
+  Shield, Search, Crown, Loader2, Trash2, Settings2,
   ArrowRight, Users,
 } from 'lucide-react';
 
@@ -40,7 +40,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { InviteMemberDialog } from './TeamDepartmentsPage';
+import { InvitationManagement } from '@/features/invitations/InvitationManagement';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 /**
@@ -151,7 +151,6 @@ export default function StaffAccessPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const [showInvite, setShowInvite] = useState(false);
 
   const roleLabel = (role: string) =>
     t(`staffAccess.roles.${role}` as Parameters<typeof t>[0]);
@@ -185,9 +184,6 @@ export default function StaffAccessPage() {
             {subtitleBefore}{teamLink}{subtitleAfter}
           </p>
         </div>
-        <Button onClick={() => setShowInvite(true)} size="sm">
-          <UserPlus className="h-4 w-4 me-2" /> {t('staffAccess.inviteStaff')}
-        </Button>
       </div>
 
       {/* Access types overview */}
@@ -251,9 +247,6 @@ export default function StaffAccessPage() {
                 <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
                   {t('staffAccess.emptyHint')}
                 </p>
-                <Button variant="outline" onClick={() => setShowInvite(true)}>
-                  <UserPlus className="h-4 w-4 me-2" /> {t('staffAccess.inviteStaff')}
-                </Button>
               </>
             )}
           </div>
@@ -330,6 +323,8 @@ export default function StaffAccessPage() {
         )}
       </Card>
 
+      {wsId && <InvitationManagement workspaceId={wsId} mode="staff" />}
+
       <Card className="p-4 border-border/60 bg-muted/20">
         <div className="flex items-start gap-3 text-sm">
           <ArrowRight className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
@@ -344,15 +339,6 @@ export default function StaffAccessPage() {
         </div>
       </Card>
 
-      {showInvite && wsId && (
-        <InviteMemberDialog
-          workspaceId={wsId}
-          workspaceName={workspace.name}
-          inviterEmail={user?.email || ''}
-          mode="staff"
-          onClose={() => setShowInvite(false)}
-        />
-      )}
     </div>
   );
 }

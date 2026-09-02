@@ -159,8 +159,33 @@ aiBillingRouter.get('/admin/overview', async (req, res) => {
     .select('id', { count: 'exact', head: true })
     .eq('billing_quality', 'UNRESOLVED');
 
-  res.json({ cycleId: cycle, totals, margin, marginPct, runs: runs ?? 0, unresolved: unresolved ?? 0, mode: await getBillingMode(cfg(req)) });
+  // ALL-TIME provider spend in USD — what AI has actually cost us since day one.
+  // Paged so the total stays exact as settlement volume grows.
+  let providerCostUsdAllTime = 0;
+  for (let from = 0; ; from += 1000) {
+    const { data: page } = await sb
+      .from('ai_run_settlements')
+      .select('provider_cost_usd')
+      .order('id', { ascending: true })
+      .range(from, from + 999);
+    if (!page || page.length === 0) break;
+    for (const r of page as any[]) providerCostUsdAllTime += Number(r.provider_cost_usd) || 0;
+    if (page.length < 1000) break;
+  }
+
+  res.json({
+    cycleId: cycle,
+    totals,
+    providerCostUsdAllTime,
+    margin,
+    marginPct,
+    runs: runs ?? 0,
+    unresolved: unresolved ?? 0,
+    generatedAt: new Date().toISOString(),
+    mode: await getBillingMode(cfg(req)),
+  });
 });
+
 
 aiBillingRouter.get('/admin/pricing', async (req, res) => {
   const sb = getServiceClient(cfg(req));

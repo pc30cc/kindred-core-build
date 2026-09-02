@@ -259,6 +259,28 @@ const createSchema = z.object({
   requestId: z.string().trim().uuid(),
 });
 
+/**
+ * `expiresInDays === 0` means "no expiry — valid until the owner decides".
+ * The invitation row keeps `expires_at NULL` (the sweeper already skips NULL)
+ * and the handoff link is issued with a far-future validity so the link cannot
+ * die before the invitation itself.
+ */
+const NO_EXPIRY_TOKEN_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+
+function resolveExpiry(days: number | undefined) {
+  const value = days ?? 7;
+  if (value === 0) {
+    return {
+      invitationExpiresAt: null as string | null,
+      tokenExpiresAt: new Date(Date.now() + NO_EXPIRY_TOKEN_TTL_MS).toISOString(),
+    };
+  }
+  return {
+    invitationExpiresAt: new Date(Date.now() + value * 24 * 60 * 60 * 1000).toISOString(),
+    tokenExpiresAt: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
+  };
+}
+
 workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -269,7 +291,8 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
 
   const email = body.email.toLowerCase();
   const manualToken = randomToken();
-  const expiresAt = new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000);
+  const expiry = resolveExpiry(body.expiresInDays);
+
   const nonce = body.requestId;
   const departmentIds = [...(body.departmentIds ?? [])].sort();
   // Notification locale snapshot: explicit selection → configured workspace

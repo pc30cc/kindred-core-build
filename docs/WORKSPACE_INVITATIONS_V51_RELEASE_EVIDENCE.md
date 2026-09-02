@@ -135,8 +135,21 @@ may produce a duplicate external submission.
   SECURITY DEFINER (admin functions marked actionable, rest internally scoped),
   1 leaked-password protection (not on any live login path — first-party
   Argon2id auth is authoritative).
-- The hosted advisor UI reports 77; the extra entry is a relation the catalog
-  enumeration does not classify as a plain table. CI diffs catalog fingerprints.
+### 12.1 Hosted 77 vs machine 76 — reconciliation attempt (2026-09-02)
+
+Live hosted advisor run after migration 095 reports **77** findings:
+44 RLS-enabled-no-policy + 2 extension-in-public + 8 anon-executable
+SECURITY DEFINER + 22 authenticated-executable SECURITY DEFINER + 1
+leaked-password-protection.
+
+Direct catalog enumeration on the same database returns **43** relations for
+the RLS category (`pg_class`, `relkind IN ('r','p')`, `relrowsecurity`, no
+`pg_policy` row) and the identical count via `pg_tables`/`pg_policies`. The
+44th relation the hosted advisor counts could **not** be identified from the
+catalog and is therefore **UNRECONCILED** — it is not hidden or dismissed. CI
+diffs fingerprints, not totals, so the discrepancy cannot mask a new finding,
+but the item stays open until the hosted advisor export can be obtained
+object-by-object (requires hosted advisor API access, not available here).
 
 ## 13. CI workflows
 
@@ -153,7 +166,7 @@ total is not pinned to 76.
 
 ## 14. Deployment order
 
-1. Apply `database/migrations/076 → 094` (self-host) or the mirrored
+1. Apply `database/migrations/076 → 095` (self-host) or the mirrored
    `supabase/migrations` tail (hosted), in order, with `ON_ERROR_STOP=1`.
 2. Deploy the Express server (invitation routes + outbox worker).
 3. Deploy the frontend build.
@@ -200,7 +213,14 @@ No values are recorded in this document or in the repository.
    no disposable project; production must never be reset).
 2. Seeded browser E2E flows (happy path, OTP, resend/rotate, offboarding,
    role denial) require the same disposable backend.
-3. Advisor findings marked **actionable** (`admin_*` SECURITY DEFINER grants to
+3. Hosted advisor 77 vs enumerable 76: the extra RLS-category relation is
+   unidentified (§12.1). Open.
+4. `admin_*` SECURITY DEFINER remediation (caller tracing, EXECUTE revoke,
+   pinned `search_path`, live ACL tests) is **not done**.
+5. No GitHub Actions run exists for this commit: this environment cannot
+   dispatch workflows, so CI is **not proven green** — local command output
+   only.
+6. Advisor findings marked **actionable** (`admin_*` SECURITY DEFINER grants to
    `anon`/`authenticated`) need a dedicated hardening migration, tracked
    outside this release.
 

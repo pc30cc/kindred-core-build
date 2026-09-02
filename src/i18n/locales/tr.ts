@@ -1767,7 +1767,6 @@ const tr: TranslationKeys = {
     invitedTo: 'Katılmaya davet edildiniz',
     workspace: 'Çalışma Alanı',
     role: 'Rol',
-    invitedBy: 'Davet eden',
     expires: 'Son kullanma',
     noExpiration: 'Süresiz',
     accept: 'Daveti Kabul Et',

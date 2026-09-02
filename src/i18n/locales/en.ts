@@ -1775,7 +1775,6 @@ const en = {
     invitedTo: "You've been invited to join",
     workspace: 'Workspace',
     role: 'Role',
-    invitedBy: 'Invited by',
     expires: 'Expires',
     noExpiration: 'No expiration',
     accept: 'Accept Invitation',

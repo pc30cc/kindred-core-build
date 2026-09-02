@@ -37,6 +37,8 @@ DECLARE
   _inv public.workspace_invitations%ROWTYPE;
   _tok public.workspace_invitation_tokens%ROWTYPE;
   _ws_name text;
+  _local text;
+  _domain text;
 BEGIN
   SELECT * INTO _c FROM public.workspace_invitation_contexts
   WHERE handle_hash = _handle_hash;
@@ -61,6 +63,8 @@ BEGIN
   END IF;
 
   SELECT name INTO _ws_name FROM public.workspaces WHERE id = _inv.workspace_id;
+  _local  := split_part(_inv.invited_email_normalized, '@', 1);
+  _domain := split_part(_inv.invited_email_normalized, '@', 2);
 
   -- Secret-free projection: no token hash, no handle, no phone number.
   RETURN jsonb_build_object(
@@ -69,7 +73,9 @@ BEGIN
     'workspace_name', _ws_name,
     'first_name',     _inv.first_name,
     'last_name',      _inv.last_name,
-    'email_masked',   public.wi_mask_email(_inv.invited_email_normalized),
+    'masked_email',
+      CASE WHEN length(_local) <= 2 THEN left(_local, 1) || '***@' || _domain
+           ELSE left(_local, 2) || '***@' || _domain END,
     'member_type',    _inv.member_type,
     'role',           _inv.role,
     'job_title',      _inv.job_title,

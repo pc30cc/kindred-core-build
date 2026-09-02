@@ -44,34 +44,23 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
 }
 
 /**
- * database/migrations/*.sql in filename order, EXCLUDING two files with a
- * pre-existing, documented, auth-unrelated gap in the self-host chain: each
- * references a table no earlier self-host migration ever creates
- * (`widget_smart_rules` for 017, `call_sessions`/`call_queue_entries` for
- * 018 — Smart Engagement and Call Center base schema, respectively, never
- * ported to the self-host chain at all). Neither file is reachable from —
- * or a dependency of — anything the first-party Auth migration chain
- * touches (024-041), so excluding them here does not weaken this suite's
- * Auth coverage.
+ * database/migrations/*.sql in filename order, with NO exclusions.
  *
- * An earlier pass on this branch (commit bf6a76f, since reverted) added
- * full base-table ports for both features directly into 017/018 so the
- * ENTIRE self-host chain — including unrelated Smart Engagement/Call
- * Center product schema — would apply with zero exclusions. That expanded
- * this Auth-only migration branch into general self-host product-parity
- * work, which is explicitly out of scope here. The gap is real (confirmed:
- * a fresh, unexcluded chain fails at 017 with "relation
- * public.widget_smart_rules does not exist") and is tracked as separate
- * self-host parity debt — see database/README.md / the branch's own final
- * report — not something this Auth test harness claims to fix or to prove
- * closed. This harness's job is narrower: prove the first-party Auth chain
- * (024-041 plus 042+) installs and behaves correctly, which does not
- * require 017/018 to apply at all.
+ * 017 and 018 used to be skipped here: they reference base product tables
+ * (`widget_smart_rules` for 017, `call_sessions`/`call_queue_entries` for
+ * 018) that no earlier self-host migration created, so a fresh, unexcluded
+ * chain failed at 017 with "relation public.widget_smart_rules does not
+ * exist". That gap — plus the same one behind 047/056/064/067
+ * (`billing_plans`, `ai_agent_settings`, `widget_prechat_settings`) — is now
+ * closed by `016a_selfhost_product_parity_base_tables.sql` and
+ * `084_selfhost_parity_table_policies.sql`, so the whole chain replays
+ * against an empty database with ON_ERROR_STOP=1 and this set is empty.
+ *
+ * Keep it (rather than deleting it) so a future, genuinely unavoidable
+ * exclusion has one documented place to live instead of being scattered.
  */
-export const AUTH_CHAIN_EXCLUDED_FILES = new Set([
-  '017_smart_rules_published_snapshot.sql',
-  '018_call_visitor_session_link.sql',
-]);
+export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>([]);
+
 
 /**
  * Ensures the full auth-relevant self-host migration chain (000 through the

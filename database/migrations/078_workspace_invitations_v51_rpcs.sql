@@ -850,6 +850,7 @@ DO $$
 DECLARE
   _fn text;
   _fns text[] := ARRAY[
+    'wi_can_manage_invitation(public.workspace_role,public.workspace_role)',
     'wi_expire_due(uuid)',
     'wi_revoke_secrets(uuid,integer,text)',
     'wi_safe_invitation(uuid)',

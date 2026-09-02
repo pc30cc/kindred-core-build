@@ -257,28 +257,8 @@ export default function TeamDepartmentsPage() {
         </div>
       </div>
 
-      {/* ═══════════ Standalone Call Center master switch ═══════════ */}
-      <Card className="p-4 border-border/60 flex items-center gap-4">
-        <div className="h-10 w-10 rounded-full bg-muted/60 flex items-center justify-center shrink-0">
-          <PhoneCall className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground">{t('teamDept.ccMasterTitle')}</span>
-            {(!ccEnabled || !ccPlatformEnabled) && (
-              <Badge variant="outline" className="text-[10px]">{t('teamDept.disabledBadge')}</Badge>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-            {ccPlatformEnabled ? t('teamDept.ccMasterHint') : t('teamDept.ccMasterPlatformOff')}
-          </p>
-        </div>
-        <Switch
-          checked={ccPlatformEnabled && ccEnabled}
-          disabled={!ccPlatformEnabled || updateCc.isPending || !ccSettings}
-          onCheckedChange={toggleCallCenter}
-        />
-      </Card>
+
+
 
 
       {/* ═══════════ Section A — Departments ═══════════ */}
@@ -534,10 +514,14 @@ export default function TeamDepartmentsPage() {
       {/* Dialogs */}
       {showCreateDept && wsId && (
         <DepartmentDialog mode="create" workspaceId={wsId}
+          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled}
+          ccBusy={updateCc.isPending || !ccSettings} onToggleCc={toggleCallCenter}
           onClose={() => setShowCreateDept(false)} onSaved={invalidateDepts} />
       )}
       {editingDept && wsId && (
         <DepartmentDialog mode="edit" department={editingDept} workspaceId={wsId}
+          ccPlatformEnabled={ccPlatformEnabled} ccEnabled={ccEnabled}
+          ccBusy={updateCc.isPending || !ccSettings} onToggleCc={toggleCallCenter}
           onClose={() => setEditingDept(null)} onSaved={invalidateDepts} />
       )}
       {membersFor && wsId && (
@@ -576,12 +560,17 @@ function ToggleRow({
 
 function DepartmentDialog({
   mode, department, workspaceId, onClose, onSaved,
+  ccPlatformEnabled, ccEnabled, ccBusy, onToggleCc,
 }: {
   mode: 'create' | 'edit';
   department?: Department;
   workspaceId: string;
   onClose: () => void;
   onSaved: () => void;
+  ccPlatformEnabled: boolean;
+  ccEnabled: boolean;
+  ccBusy: boolean;
+  onToggleCc: (v: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({
@@ -651,14 +640,28 @@ function DepartmentDialog({
           </div>
           <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
             <Label className="text-xs uppercase tracking-wide text-muted-foreground">{t('teamDept.grpCallCenter')}</Label>
-            <p className="text-[11px] text-muted-foreground -mt-1">
+            <div className="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-1">
+              <ToggleRow
+                label={t('teamDept.ccMasterTitle')}
+                checked={ccPlatformEnabled && ccEnabled}
+                disabled={!ccPlatformEnabled || ccBusy}
+                onChange={onToggleCc}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {ccPlatformEnabled ? t('teamDept.ccMasterHint') : t('teamDept.ccMasterPlatformOff')}
+              </p>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
               {t('teamDept.grpCallCenterHint')}
             </p>
             <ToggleRow label={t('teamDept.tgCcVoice')} checked={form.cc_voice_enabled}
+              disabled={!ccPlatformEnabled || !ccEnabled}
               onChange={(v) => setForm({ ...form, cc_voice_enabled: v })} />
             <ToggleRow label={t('teamDept.tgCcVideo')} checked={form.cc_video_enabled}
+              disabled={!ccPlatformEnabled || !ccEnabled}
               onChange={(v) => setForm({ ...form, cc_video_enabled: v })} />
             <ToggleRow label={t('teamDept.tgCcCallback')} checked={form.cc_callback_enabled}
+              disabled={!ccPlatformEnabled || !ccEnabled}
               onChange={(v) => setForm({ ...form, cc_callback_enabled: v })} />
           </div>
           <div className="rounded-md border border-border/60 p-3">

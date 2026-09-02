@@ -330,7 +330,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
       department_ids: departmentIds,
       manual_token_hash: sha256Hex(manualToken),
       manual_token_prefix: tokenPrefix(manualToken),
-      manual_token_expires_at: new Date(Date.now() + MANUAL_TOKEN_TTL_MS).toISOString(),
+      manual_token_expires_at: expiry.tokenExpiresAt,
       email_job_idempotency_key: sha256Hex(`email|${body.workspaceId}|${email}|${nonce}`),
       sms_job_idempotency_key: sha256Hex(`sms|${body.workspaceId}|${body.phone}|${nonce}`),
       email_destination_hash: destinationHash(email),

@@ -163,7 +163,10 @@ export function AppLayout() {
   useOperatorHeartbeat(workspace?.id);
   // Inbox is a full-bleed workspace surface: no page gutters, no page scroll.
   const { pathname } = useLocation();
-  const isFullBleed = /\/inbox(\/|$)/.test(pathname) || /\/settings(\/|$)/.test(pathname);
+  const isFullBleed =
+    /\/inbox(\/|$)/.test(pathname) ||
+    /\/settings(\/|$)/.test(pathname) ||
+    /\/ai-agent(\/|$)/.test(pathname);
 
   // Strict: if slug doesn't match any workspace, show 404
   if (!isLoading && notFound) {

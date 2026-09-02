@@ -667,7 +667,8 @@ export function InvitationFormDialog({
   const [role, setRole] = useState<string>(invitation?.role ?? roles[0]);
   const [jobTitle, setJobTitle] = useState(invitation?.job_title ?? '');
   const [staffCode, setStaffCode] = useState(invitation?.staff_code ?? '');
-  const [expiresInDays, setExpiresInDays] = useState('7');
+  // '0' = no expiry: valid until the workspace owner revokes or deletes it.
+  const [expiresInDays, setExpiresInDays] = useState('0');
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [touched, setTouched] = useState(false);
 
@@ -701,7 +702,7 @@ export function InvitationFormDialog({
         departmentIds: mode === 'customer_facing' ? [...departmentIds].sort() : [],
         jobTitle: jobTitle.trim() || null,
         staffCode: staffCode.trim() || null,
-        expiresInDays: Number(expiresInDays) || 7,
+        expiresInDays: Number(expiresInDays),
       };
       const intent = JSON.stringify(payload);
       const key = isEdit ? `edit_invitation:${invitation!.id}` : 'create_invitation';
@@ -872,6 +873,7 @@ export function InvitationFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="0">{t('invitations.expiryUnlimited')}</SelectItem>
                 {['1', '3', '7', '14', '30'].map((d) => (
                   <SelectItem key={d} value={d}>{t('invitations.expiryDays', { days: d })}</SelectItem>
                 ))}

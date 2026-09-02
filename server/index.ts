@@ -67,6 +67,8 @@ import { startRecordingRetentionJanitor } from './services/recordings/retentionJ
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startInvitationWorker } from './services/invitations/worker.js';
 import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
+import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.js';
+
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startMetricsRollup } from './services/observability/rollupTicker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';

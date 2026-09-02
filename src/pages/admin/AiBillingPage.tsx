@@ -73,8 +73,11 @@ export default function AiBillingPage() {
   const [multiplier, setMultiplier] = useState('');
   const [card, setCard] = useState({ provider: '', modelKey: '', input: '', output: '' });
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+
+  /** `silent` = background live tick: refresh data without flashing the spinner. */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [o, p, c, r, h] = await Promise.all([
         api<any>('/admin/overview'),
@@ -88,16 +91,33 @@ export default function AiBillingPage() {
       setCoverage(c);
       setRuns(r.runs || []);
       setHealth(h);
+      setUpdatedAt(new Date());
     } catch (err: any) {
-      toast.error(err.message);
+      if (!silent) toast.error(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live stats: poll every 10s while the tab is visible, and immediately on focus.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === 'visible') void load(true);
+    };
+    const id = window.setInterval(tick, 10_000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [load]);
+
 
   const toggleMode = async (enforced: boolean) => {
     setSaving(true);

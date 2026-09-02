@@ -90,7 +90,7 @@ async function postJson(path: string, body: unknown) {
 }
 
 export default function InvitePage() {
-  const { t, i18n } = useTranslation();
+  const { t, locale } = useTranslation();
   const navigate = useNavigate();
 
   // Module-lifetime secret: never persisted anywhere.
@@ -107,7 +107,6 @@ export default function InvitePage() {
   const [consent, setConsent] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
-  const locale = i18n?.language || 'en';
 
   const loadPreview = useCallback(async () => {
     const token = tokenRef.current;

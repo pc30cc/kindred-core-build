@@ -25,7 +25,10 @@ import { getServiceClient } from '../../supabase.js';
 
 export type IdempotentOperation =
   | 'create' | 'edit' | 'resend' | 'rotate' | 'revoke' | 'archive'
-  | 'login_context' | 'otp_request' | 'otp_verify' | 'accept_new' | 'accept_existing';
+  | 'login_context' | 'otp_request' | 'otp_verify' | 'accept_new' | 'accept_existing'
+  // Destructive member lifecycle (Section C.3): a retried DELETE must replay
+  // the committed offboarding, never run a second one.
+  | 'offboard';
 
 export interface IdempotentCall {
   operation: IdempotentOperation;

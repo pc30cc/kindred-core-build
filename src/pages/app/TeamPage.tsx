@@ -18,6 +18,7 @@ import { useTranslation } from '@/i18n';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { IdentityListSkeleton } from '@/components/common/IdentitySkeleton';
+import { useRequestIdBook } from '@/features/invitations/requestIds';
 import { toast } from '@/lib/toast';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
@@ -165,6 +166,8 @@ export default function TeamPage() {
   );
 
   // Generate invite
+  const requestIds = useRequestIdBook();
+
   const generateInvite = useMutation({
     mutationFn: async () => {
       const expiresAt = getExpiresAt(inviteExpiration, inviteCustomDate);
@@ -183,7 +186,10 @@ export default function TeamPage() {
           role: inviteRole,
           departmentIds: [],
           expiresInDays,
-          requestId: crypto.randomUUID(),
+          requestId: requestIds.get(
+            'create_invitation',
+            [inviteFirstName.trim(), inviteLastName.trim(), inviteEmail.trim(), invitePhone.trim(), inviteRole, expiresInDays].join('|'),
+          ),
         }),
       });
       return result;
@@ -204,7 +210,7 @@ export default function TeamPage() {
   // Revoke invite
   const revokeInvite = useMutation({
     mutationFn: async (id: string) => {
-      await teamApi(`/api/workspace-invitations/${id}/revoke`, { method: 'POST', body: JSON.stringify({ reason: 'Revoked by workspace manager', requestId: crypto.randomUUID() }) });
+      await teamApi(`/api/workspace-invitations/${id}/revoke`, { method: 'POST', body: JSON.stringify({ reason: 'Revoked by workspace manager', requestId: requestIds.get(`revoke:${id}`) }) });
     },
     onSuccess: () => {
       toast.success(t('team.inviteRevoked'));
@@ -215,7 +221,7 @@ export default function TeamPage() {
   // Archive invite without deleting its security/audit history.
   const deleteInvite = useMutation({
     mutationFn: async (id: string) => {
-      await teamApi(`/api/workspace-invitations/${id}/archive`, { method: 'POST', body: JSON.stringify({ requestId: crypto.randomUUID() }) });
+      await teamApi(`/api/workspace-invitations/${id}/archive`, { method: 'POST', body: JSON.stringify({ requestId: requestIds.get(`archive:${id}`) }) });
     },
     onSuccess: () => {
       toast.success(t('team.inviteDeleted'));
@@ -226,9 +232,11 @@ export default function TeamPage() {
   // Resend invite email
   const resendInviteEmail = useMutation({
     mutationFn: async (inv: any) => {
-      await teamApi(`/api/workspace-invitations/${inv.id}/resend`, { method: 'POST', body: JSON.stringify({ requestId: crypto.randomUUID() }) });
+      await teamApi(`/api/workspace-invitations/${inv.id}/resend`, { method: 'POST', body: JSON.stringify({ requestId: requestIds.get(`resend:${inv.id}:${inv.notification_generation ?? 0}`) }) });
     },
-    onSuccess: () => {
+    onSuccess: (_data, inv: any) => {
+      // A second deliberate resend is a new action.
+      requestIds.reset(`resend:${inv.id}:${inv.notification_generation ?? 0}`);
       toast.success(t('team.inviteResent'));
     },
     onError: (e: any) => toast.error(e.message),
@@ -236,9 +244,10 @@ export default function TeamPage() {
 
   const rotateInviteLink = useMutation({
     mutationFn: async (id: string) => teamApi<{ manualLink: string }>(`/api/workspace-invitations/${id}/rotate-link`, {
-      method: 'POST', body: JSON.stringify({ requestId: crypto.randomUUID() }),
+      method: 'POST', body: JSON.stringify({ requestId: requestIds.get(`rotate:${id}`) }),
     }),
-    onSuccess: ({ manualLink }) => {
+    onSuccess: ({ manualLink }, id: string) => {
+      requestIds.reset(`rotate:${id}`);
       setInviteLink(manualLink);
       navigator.clipboard.writeText(manualLink);
       toast.success(t('team.linkCopied'));

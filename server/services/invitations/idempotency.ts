@@ -14,13 +14,14 @@
  *   - the same key with a different fingerprint fails closed (409).
  *
  * Raw tokens, manual links, OTP codes, proofs, context handles, passwords and
- * session tokens are never part of the key, the fingerprint input digest or
- * the stored result.
+ * session tokens are never STORED. Where a mutation's intent genuinely depends
+ * on such a value (OTP code, password), the canonical fingerprint input carries
+ * only a keyed HMAC digest of it (see deriveIntentDigest) — never the raw value
+ * and never an unkeyed hash, so a database dump cannot brute-force it.
  */
 import crypto from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { sha256Hex } from './tokens.js';
 
 export type IdempotentOperation =
   | 'create' | 'edit' | 'resend' | 'rotate' | 'revoke' | 'archive'
@@ -45,6 +46,54 @@ export interface IdempotentOutcome<T = any> {
   safeResult: Record<string, unknown>;
   result: T | null;
   error?: { message: string };
+}
+
+/**
+ * Domain-separated key derivation. The raw INVITATION_LINK_SECRET is never
+ * used directly as an HMAC key: every purpose gets its own HKDF-derived key,
+ * so a compromise in one surface cannot forge another.
+ */
+const derivedKeys = new Map<string, Buffer>();
+function domainKey(label: string): Buffer {
+  const cached = derivedKeys.get(label);
+  if (cached) return cached;
+  const key = Buffer.from(
+    crypto.hkdfSync(
+      'sha256',
+      Buffer.from(serverKeySecret(), 'utf8'),
+      Buffer.from('workspace-invitation-idempotency', 'utf8'),
+      Buffer.from(label, 'utf8'),
+      32,
+    ),
+  );
+  derivedKeys.set(label, key);
+  return key;
+}
+
+/** Test/rotation support: forget cached derived keys. */
+export function resetDerivedKeyCache(): void {
+  derivedKeys.clear();
+}
+
+/** Constant-time hex digest comparison for any check performed outside PostgreSQL. */
+export function timingSafeEqualHex(a: string, b: string): boolean {
+  const ab = Buffer.from(String(a), 'utf8');
+  const bb = Buffer.from(String(b), 'utf8');
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+/**
+ * Keyed digest of a low-entropy or personal value (six-digit OTP, raw
+ * password, email) for inclusion in a canonical fingerprint input.
+ *
+ * Unkeyed SHA-256 would let anyone holding a database dump brute-force a
+ * six-digit OTP by hashing all one million candidates; the HKDF-derived key
+ * lives only in the process environment, so the dump alone is useless.
+ * The raw value is never stored and never logged.
+ */
+export function deriveIntentDigest(label: string, rawValue: string): string {
+  return crypto.createHmac('sha256', domainKey(`intent:${label}:v1`)).update(rawValue, 'utf8').digest('hex');
 }
 
 function serverKeySecret(): string {
@@ -79,8 +128,16 @@ export function deriveIdempotencyKey(call: Pick<IdempotentCall, 'operation' | 's
   return crypto.createHmac('sha256', serverKeySecret()).update(material).digest('hex');
 }
 
+/**
+ * Keyed request fingerprint (v5.1 B.2). Only the final HMAC digest is stored;
+ * the canonical input — which may contain an email, a phone number or an
+ * intent digest — is never persisted and never logged.
+ */
 export function deriveFingerprint(operation: string, input: Record<string, unknown>): string {
-  return sha256Hex(`wi-fp-v1|${operation}|${canonical(input)}`);
+  return crypto
+    .createHmac('sha256', domainKey('fingerprint:v2'))
+    .update(`wi-fp-v2|${operation}|${canonical(input)}`, 'utf8')
+    .digest('hex');
 }
 
 /**

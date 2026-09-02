@@ -27,6 +27,7 @@ import {
   buildInviteUrl,
   EMAIL_TOKEN_TTL_MS,
   DerivationKeyUnavailable,
+  deriveOtpCode,
 } from './tokens.js';
 
 const WORKER_ID = `invitations-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -133,6 +134,60 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
   });
   if (!sendable) return;
 
+  if (job.channel === 'otp_email') {
+    // v5.1 B.5: the code was never stored — re-derive it from the OTP id and
+    // the process-local pepper, so a crash before delivery is recoverable.
+    const { data: state } = await sb.rpc('wi_otp_job_sendable', {
+      _job_id: job.id,
+      _claim_token: claimToken,
+    });
+    const otpState = (state || {}) as any;
+    if (!otpState.sendable) {
+      await complete(config, job.id, claimToken, 'permanently_failed', {
+        errorCode: 'OTP_NO_LONGER_LIVE',
+        message: 'otp consumed, revoked or expired',
+      }).catch(() => undefined);
+      return;
+    }
+
+    const code = deriveOtpCode(String(otpState.invitation_id), String(otpState.otp_id));
+    const result = await sendEmail(config, {
+      workspaceId: String(otpState.workspace_id),
+      to: String(otpState.email),
+      subject: 'Your verification code',
+      text: `Verification code: ${code}\nIt expires in 10 minutes.`,
+      html: `<p>Verification code: <strong>${escapeHtml(code)}</strong></p><p>It expires in 10 minutes.</p>`,
+    });
+
+    if (result.success && result.provider !== 'stub') {
+      await complete(config, job.id, claimToken, 'provider_accepted', {
+        provider: result.provider, messageId: result.id,
+      });
+      return;
+    }
+
+    const terminal = result.provider === 'stub' || job.attempt_count + 1 >= (job.max_attempts ?? 3);
+    if (terminal) {
+      // No human can receive this code: revoke it so nothing stays live, and
+      // leave the failure visible in the delivery state.
+      await sb.rpc('wi_revoke_undelivered_otp', { _job_id: job.id });
+      await complete(config, job.id, claimToken, result.provider === 'stub' ? 'unconfigured' : 'permanently_failed', {
+        provider: result.provider,
+        errorCode: result.provider === 'stub' ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
+        message: result.error || 'otp delivery failed',
+      });
+      return;
+    }
+
+    await complete(config, job.id, claimToken, 'retry', {
+      provider: result.provider,
+      errorCode: 'OTP_SEND_FAILED',
+      message: result.error || 'send failed',
+      retryIn: backoffSeconds(job.attempt_count),
+    });
+    return;
+  }
+
   if (job.channel === 'email') {
     const appBase = await resolveAppBaseUrl(config);
     const link = buildInviteUrl(appBase, emailToken as string, 'email_claim');
@@ -203,11 +258,13 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
   }
 }
 
-async function tick(config: ServerConfig): Promise<void> {
-  if (running) return;
-  running = true;
-  try {
-    const sb = getServiceClient(config);
+/**
+ * One full outbox pass. Exported so the integration suites can drain the queue
+ * deterministically instead of waiting on the interval timer; production still
+ * drives it from `tick`.
+ */
+export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
+  const sb = getServiceClient(config);
 
     await sb.rpc('reclaim_expired_invitation_jobs');
     await sb.rpc('expire_invitations_v2', { _limit: 200 });
@@ -216,7 +273,7 @@ async function tick(config: ServerConfig): Promise<void> {
       _worker_id: WORKER_ID,
       _limit: BATCH,
       _lease_seconds: LEASE_SECONDS,
-      _channels: ['email', 'sms'],
+      _channels: ['email', 'sms', 'otp_email'],
     });
     if (error || !Array.isArray(jobs)) return;
 
@@ -233,6 +290,13 @@ async function tick(config: ServerConfig): Promise<void> {
         } catch { /* the lease reaper will requeue */ }
       }
     }
+}
+
+async function tick(config: ServerConfig): Promise<void> {
+  if (running) return;
+  running = true;
+  try {
+    await drainInvitationJobs(config);
   } catch (err: any) {
     console.warn('[invitationWorker] tick failed:', err?.message || err);
   } finally {

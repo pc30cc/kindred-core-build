@@ -22,6 +22,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { API_BASE } from '@/lib/apiBase';
 import { toast } from '@/lib/toast';
 import { useAuth } from '@/features/auth/AuthContext';
+import { useRequestIdBook } from '@/features/invitations/requestIds';
 import { Loader2, CheckCircle2, XCircle, Building2, ShieldAlert, LogIn, Clock } from 'lucide-react';
 
 type Purpose = 'email_claim' | 'manual_handoff';
@@ -94,6 +95,12 @@ export default function InvitePage() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
+  /**
+   * Stable, in-memory request ids (v5.1 B.1). Never persisted; a transport
+   * retry of the same logical action reuses the id, a new action mints one.
+   */
+  const requestIds = useRequestIdBook();
+  const otpDeliveredRef = useRef(false);
   const [existingContinuation, setExistingContinuation] = useState(false);
 
   // Module-lifetime secret: never persisted anywhere.
@@ -156,6 +163,7 @@ export default function InvitePage() {
     if (!policies.terms || !policies.privacy) return;
     setState('accepting');
     const { ok, data } = await postJson('/api/workspace-invitations/accept-existing', {
+      requestId: requestIds.get('accept_existing', `${policies.terms.id}|${policies.privacy.id}|${locale}`),
       consent: true,
       termsVersionId: policies.terms.id,
       privacyVersionId: policies.privacy.id,
@@ -178,7 +186,14 @@ export default function InvitePage() {
   const requestOtp = async () => {
     if (!tokenRef.current) return;
     setOtpSending(true);
+    // An explicit "send me another code" after a confirmed delivery is a NEW
+    // logical action; a transport retry of the same click is not.
+    if (otpDeliveredRef.current) {
+      requestIds.reset('otp_request');
+      otpDeliveredRef.current = false;
+    }
     const { ok, status } = await postJson('/api/workspace-invitations/otp/request', {
+      requestId: requestIds.get('otp_request'),
       token: tokenRef.current,
       purpose: purposeRef.current,
     });
@@ -189,12 +204,14 @@ export default function InvitePage() {
         : tt(t, 'invite.otpFailed', 'Could not send the code.'));
       return;
     }
+    otpDeliveredRef.current = true;
     toast.success(tt(t, 'invite.otpSent', 'Verification code sent to your email.'));
   };
 
   const verifyOtp = async () => {
     if (!tokenRef.current) return;
     const { ok, status } = await postJson('/api/workspace-invitations/otp/verify', {
+      requestId: requestIds.get('otp_verify', otpCode),
       token: tokenRef.current,
       purpose: purposeRef.current,
       code: otpCode,
@@ -214,6 +231,7 @@ export default function InvitePage() {
     // The token is exchanged for a short-lived HttpOnly context cookie; the
     // redirect URL below carries no invitation secret at all.
     const { ok, data } = await postJson('/api/workspace-invitations/login-context', {
+      requestId: requestIds.get('login_context'),
       token: tokenRef.current,
       purpose: purposeRef.current,
     });
@@ -230,6 +248,12 @@ export default function InvitePage() {
     }
     setState('accepting');
     const { ok, data } = await postJson('/api/workspace-invitations/accept-new', {
+      requestId: requestIds.get(
+        'accept_new',
+        // Intent = token + password + consent versions. Changing any of them is
+        // a new logical action, so the server must not replay the old one.
+        `${tokenRef.current}|${password}|${policies.terms.id}|${policies.privacy.id}|${purposeRef.current}`,
+      ),
       token: tokenRef.current,
       purpose: purposeRef.current,
       password,

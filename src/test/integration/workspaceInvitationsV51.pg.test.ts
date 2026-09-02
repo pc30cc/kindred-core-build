@@ -202,6 +202,30 @@ const { workspacesRouter } = await import('../../../server/routes/workspaces.js'
 const { workspaceMembersRouter } = await import('../../../server/routes/workspaceMembers.js');
 const { workspaceInvitationsRouter } = await import('../../../server/routes/workspaceInvitations.js');
 
+const WORKER_CONFIG: any = {
+  supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', supabaseAnonKey: 'k',
+  corsOrigins: [], port: 0, rateLimitWindowMs: 60_000, rateLimitMax: 100_000,
+  selfHostBillingUnlimited: true,
+};
+
+/**
+ * v5.1 B.5: OTP codes are no longer e-mailed inline by the request path — the
+ * OTP row and its delivery job commit together and the REAL durable worker
+ * delivers them. Drain the outbox exactly like production does.
+ */
+async function drainOutbox(): Promise<void> {
+  const { drainInvitationJobs } = await import('../../../server/services/invitations/worker.js');
+  // Each pass claims a bounded batch; loop until the queue is quiet so an
+  // older backlog cannot hide the job under test.
+  for (let i = 0; i < 20; i += 1) {
+    const { rows } = await db.query(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_jobs WHERE status IN ('queued','retrying') AND available_at <= now()`,
+    );
+    if (!Number((rows[0] as any).n)) return;
+    await drainInvitationJobs(WORKER_CONFIG);
+  }
+}
+
 const ORIGIN = 'http://127.0.0.1';
 
 const app = express();
@@ -439,6 +463,7 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
 
     capturedEmails = [];
     expect((await call('POST', '/api/workspace-invitations/otp/request', { body: { requestId: rid(), token, purpose: 'manual_handoff' } })).status).toBe(200);
+    await drainOutbox();
     const otpMail = capturedEmails.find((e) => /verification code/i.test(String(e.text)));
     const code = String(otpMail!.text).match(/(\d{6})/)![1];
 

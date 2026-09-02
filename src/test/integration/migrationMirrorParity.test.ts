@@ -95,6 +95,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/094_workspace_invitations_v51_preview_context.sql',
     hosted: 'supabase/migrations/20260902161824_bddd59bc-c326-443e-bcbe-6982fdc3f8ad.sql',
   },
+  {
+    label: '095 — persisted invitation notification locale (fa/tr/en)',
+    selfHost: 'database/migrations/095_workspace_invitations_v51_notification_locale.sql',
+    hosted: 'supabase/migrations/20260902165446_fbbfe1b1-eaa3-487c-bf16-3b7e1497222e.sql',
+  },
 
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026

@@ -653,7 +653,7 @@ export function InvitationFormDialog({
   onCreated: (manualLink: string) => void;
   onEdited: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const requestIds = useRequestIdBook();
   const isEdit = !!invitation;
 
@@ -715,7 +715,9 @@ export function InvitationFormDialog({
       }
       const out = await api<{ manualLink: string }>('/api/workspace-invitations', {
         method: 'POST',
-        body: JSON.stringify({ workspaceId, ...payload, requestId }),
+        // Locale snapshot for the invitation's emails/SMS: the currently
+        // effective site language, resolved by the existing i18n mechanism.
+        body: JSON.stringify({ workspaceId, ...payload, locale, requestId }),
       });
       return out.manualLink;
     },

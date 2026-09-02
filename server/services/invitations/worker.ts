@@ -18,6 +18,13 @@ import { getServiceClient } from '../../supabase.js';
 import { sendEmail } from '../email/index.js';
 import { sendSms } from '../sms/index.js';
 import {
+  renderOtpEmail,
+  renderInviteEmail,
+  renderInviteSms,
+  renderDeliveryFailure,
+  normalizeNotificationLocale,
+} from './notificationTemplates.js';
+import {
   deriveEmailToken,
   currentKeyVersion,
   hasDerivationKey,
@@ -186,7 +193,7 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       // Fail closed: never send a link derived from a different key.
       await complete(config, job.id, claimToken, 'derivation_key_unavailable', {
         errorCode: 'DERIVATION_KEY_UNAVAILABLE',
-        message: 'invitation link key unavailable',
+        message: renderDeliveryFailure(job.locale, 'DERIVATION_KEY_UNAVAILABLE'),
       });
       return;
     }
@@ -242,18 +249,23 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       // Fail closed and atomically: revoke the OTP nobody can ever verify.
       await failOtpAtomically(config, job, claimToken, 'derivation_key_unavailable', {
         errorCode: 'DERIVATION_KEY_UNAVAILABLE',
-        message: 'otp derivation key unavailable',
+        message: renderDeliveryFailure(otpState.locale, 'DERIVATION_KEY_UNAVAILABLE'),
       });
       return;
     }
 
     const code = deriveOtpCode(String(otpState.invitation_id), String(otpState.otp_id), otpVersion);
+    // Localized OTP mail (fa/tr/en) — the locale resolved and persisted at
+    // invitation creation time; Accept-Language is never consulted.
+    const otpLocale = normalizeNotificationLocale(otpState.locale);
+    const otpMail = renderOtpEmail(otpLocale, code);
     const result = await sendEmail(config, {
       workspaceId: String(otpState.workspace_id),
       to: String(otpState.email),
-      subject: 'Your verification code',
-      text: `Verification code: ${code}\nIt expires in 10 minutes.`,
-      html: `<p>Verification code: <strong>${escapeHtml(code)}</strong></p><p>It expires in 10 minutes.</p>`,
+      locale: otpLocale,
+      subject: otpMail.subject,
+      text: otpMail.text,
+      html: otpMail.html,
     });
 
     if (result.success && result.provider !== 'stub') {
@@ -274,7 +286,10 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
         {
           provider: result.provider,
           errorCode: result.provider === 'stub' ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
-          message: result.error || 'otp delivery failed',
+          message: renderDeliveryFailure(
+            otpLocale,
+            result.provider === 'stub' ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
+          ),
         },
       );
       return;
@@ -283,7 +298,7 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
     await complete(config, job.id, claimToken, 'retry', {
       provider: result.provider,
       errorCode: 'OTP_SEND_FAILED',
-      message: result.error || 'send failed',
+      message: renderDeliveryFailure(otpLocale, 'OTP_SEND_FAILED'),
       retryIn: backoffSeconds(job.attempt_count),
     });
     return;
@@ -293,19 +308,27 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
   if (job.channel === 'email') {
     const appBase = await resolveAppBaseUrl(config);
     const link = buildInviteUrl(appBase, emailToken as string, 'email_claim');
+    const mailLocale = normalizeNotificationLocale(payload.locale);
+    const mail = renderInviteEmail(mailLocale, {
+      firstName: payload.first_name,
+      workspaceName: payload.workspace_name,
+      link,
+      expiresAt: payload.expires_at ?? null,
+      timeZone: payload.time_zone ?? null,
+    });
     const result = await sendEmail(config, {
       workspaceId: payload.workspace_id,
       to: payload.email,
       templateSlug: 'invite_member',
-      locale: payload.locale || 'en',
+      locale: mailLocale,
       templateData: {
         name: escapeHtml(payload.first_name), brand: escapeHtml(payload.workspace_name),
         workspace: escapeHtml(payload.workspace_name), inviter: '', role: escapeHtml(payload.role),
         action_url: escapeHtml(link),
       },
-      subject: `You are invited to ${payload.workspace_name}`,
-      text: `Hello ${payload.first_name},\n\nYou were invited to join ${payload.workspace_name}.\nOpen this link to accept:\n${link}\n`,
-      html: `<p>Hello ${escapeHtml(payload.first_name)},</p><p>You were invited to join <strong>${escapeHtml(payload.workspace_name)}</strong>.</p><p><a href="${escapeHtml(link)}">Accept the invitation</a></p>`,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
     });
 
     if (result.success && result.provider !== 'stub') {
@@ -317,13 +340,13 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       await complete(config, job.id, claimToken, 'unconfigured', {
         provider: 'stub',
         errorCode: 'EMAIL_PROVIDER_UNCONFIGURED',
-        message: 'no email provider configured',
+        message: renderDeliveryFailure(mailLocale, 'EMAIL_PROVIDER_UNCONFIGURED'),
       });
     } else {
       await complete(config, job.id, claimToken, 'retry', {
         provider: result.provider,
         errorCode: 'EMAIL_SEND_FAILED',
-        message: result.error || 'send failed',
+        message: renderDeliveryFailure(mailLocale, 'EMAIL_SEND_FAILED'),
         retryIn: backoffSeconds(job.attempt_count),
       });
     }
@@ -331,12 +354,8 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
   }
 
   // SMS notification carries NO token — only the fact of an invitation.
-  const smsLocale = String(payload.locale || 'en');
-  const smsBody = smsLocale === 'fa'
-    ? `${payload.workspace_name}: برای عضویت در تیم دعوت شده‌اید. برای پذیرش، ایمیل ${payload.email} را بررسی کنید.`
-    : smsLocale === 'tr'
-      ? `${payload.workspace_name}: ekibe davet edildiniz. Kabul etmek için ${payload.email} e-postasını kontrol edin.`
-      : `${payload.workspace_name}: you were invited to join the team. Check your email (${payload.email}) to accept.`;
+  const smsLocale = normalizeNotificationLocale(payload.locale);
+  const smsBody = renderInviteSms(smsLocale, payload.workspace_name, payload.email);
   const smsResult = await sendSms(config, {
     to: payload.phone,
     body: smsBody,
@@ -351,7 +370,7 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
     await complete(config, job.id, claimToken, 'retry', {
       provider: smsResult.provider,
       errorCode: (smsResult as any).errorCode || 'SMS_SEND_FAILED',
-      message: 'sms send failed',
+      message: renderDeliveryFailure(smsLocale, 'SMS_SEND_FAILED'),
       retryIn: backoffSeconds(job.attempt_count),
     });
   }

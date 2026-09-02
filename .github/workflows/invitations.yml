@@ -49,6 +49,7 @@ jobs:
           bunx vitest run \
             src/test/invitationTranslationGuard.test.ts \
             src/test/invitationSecurityGuards.test.ts \
+            src/test/invitationServerTemplates.test.ts \
             src/test/invitationWorkerLifecycle.test.ts \
             src/test/invitationFingerprint.test.ts \
             src/test/invitationRequestIds.test.ts \

@@ -1,19 +1,3 @@
--- 079 — Workspace Invitations v5.1: acceptance state machine + offboarding
--- (self-host chain).
---
--- Both acceptance paths and offboarding are single transactions following the
--- canonical lock order (v5.1 §6):
---   workspace -> invitation -> token/proof/context -> job -> membership rows.
---
--- Express NEVER passes a raw token: only sha256 hashes and server-resolved
--- ids reach these functions. Plaintext passwords never reach the database —
--- only the Argon2id hash produced by Express.
-
--- =========================================================================
--- 0. Shared acceptance guard
--- =========================================================================
--- Resolves an invitation from a token hash, takes the canonical locks and
--- revalidates every binding. Returns the locked invitation + token row ids.
 CREATE OR REPLACE FUNCTION public.wi_lock_and_validate_token(
   _token_hash text,
   _purpose text,
@@ -29,7 +13,6 @@ DECLARE
   _inv public.workspace_invitations%ROWTYPE;
   _tok public.workspace_invitation_tokens%ROWTYPE;
 BEGIN
-  -- Unlocked lookup ONLY to locate lock targets.
   SELECT t.invitation_id, t.workspace_id INTO invitation_id, workspace_id
   FROM public.workspace_invitation_tokens t
   WHERE t.token_hash = _token_hash AND t.purpose = _purpose;
@@ -65,7 +48,6 @@ BEGIN
 END;
 $$;
 
--- Seat enforcement, always executed under the workspace lock.
 CREATE OR REPLACE FUNCTION public.wi_assert_seat_available(_workspace_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -90,7 +72,6 @@ BEGIN
 END;
 $$;
 
--- Department assignment from the invitation's own rows (same workspace only).
 CREATE OR REPLACE FUNCTION public.wi_apply_departments(
   _invitation_id uuid,
   _workspace_id uuid,
@@ -109,9 +90,6 @@ BEGIN
 END;
 $$;
 
--- =========================================================================
--- 1. accept_invitation_new_user_v2
--- =========================================================================
 CREATE OR REPLACE FUNCTION public.accept_invitation_new_user_v2(
   _token_hash text,
   _purpose text,
@@ -150,8 +128,6 @@ BEGIN
   SELECT * INTO _ctx FROM public.wi_lock_and_validate_token(_token_hash, _purpose);
   SELECT * INTO _inv FROM public.workspace_invitations WHERE id = _ctx.invitation_id;
 
-  -- The manual link demands a fresh OTP proof; the email link proves the
-  -- mailbox by itself.
   IF _purpose = 'manual_handoff' THEN
     IF _proof_hash IS NULL THEN
       RAISE EXCEPTION 'EMAIL_PROOF_REQUIRED';
@@ -177,10 +153,8 @@ BEGIN
     _verification_source := 'workspace_invitation_email_claim';
   END IF;
 
-  -- Entitlement + seats, resolved and enforced inside this transaction.
   _entitlement := public.wi_assert_seat_available(_inv.workspace_id);
 
-  -- A live password-protected account must log in instead.
   SELECT p.id, c.password_hash INTO _existing_user, _existing_hash
   FROM public.profiles p
   LEFT JOIN public.user_credentials c ON c.user_id = p.id
@@ -268,12 +242,6 @@ BEGIN
 END;
 $$;
 
--- =========================================================================
--- 2. accept_invitation_existing_user_v2
--- =========================================================================
--- Requires BOTH a verified gs_session identity (resolved by Express) AND a
--- current invitation token. No OTP: an authenticated login on the invited
--- address is itself mailbox proof — but the token is still consumed.
 CREATE OR REPLACE FUNCTION public.accept_invitation_existing_user_v2(
   _token_hash text,
   _purpose text,
@@ -367,14 +335,9 @@ BEGIN
 END;
 $$;
 
--- =========================================================================
--- 3. offboard_workspace_member — FK-accurate order (v5.1 §16, blocker 5)
--- =========================================================================
--- SELF-HOST BODY. The hosted mirror deliberately differs: it also cleans
--- call_center_department_agents, operator_call_availability,
--- user_notification_prefs and the workspace-scoped user_availability_prefs
--- row — none of which exist on this chain. No to_regclass guessing, no
--- dynamic SQL: each chain names exactly the tables it has.
+-- HOSTED BODY: this chain additionally owns call-centre, availability and
+-- notification-preference tables. Child rows are deleted before the parent
+-- membership; global (NULL-workspace) preference rows are never touched.
 CREATE OR REPLACE FUNCTION public.offboard_workspace_member(
   _workspace_id uuid,
   _user_id uuid,
@@ -389,7 +352,6 @@ DECLARE
   _owner_id uuid;
   _actor_role public.workspace_role;
   _target_role public.workspace_role;
-  -- values captured BEFORE any delete
   _first_name text;
   _last_name text;
   _email text;
@@ -403,16 +365,13 @@ DECLARE
   _revoked integer := 0;
   _revoked_ids uuid[] := ARRAY[]::uuid[];
 BEGIN
-  -- 1. workspace lock
   SELECT owner_id INTO _owner_id FROM public.workspaces WHERE id = _workspace_id FOR UPDATE;
   IF _owner_id IS NULL THEN RAISE EXCEPTION 'WORKSPACE_NOT_FOUND'; END IF;
 
-  -- 2. resolve + lock the target membership
   SELECT role INTO _target_role FROM public.workspace_members
   WHERE workspace_id = _workspace_id AND user_id = _user_id FOR UPDATE;
   IF _target_role IS NULL THEN RAISE EXCEPTION 'MEMBER_NOT_FOUND'; END IF;
 
-  -- 3. protect the canonical owner
   IF _user_id = _owner_id OR _target_role = 'owner'::public.workspace_role THEN
     RAISE EXCEPTION 'CANNOT_REMOVE_WORKSPACE_OWNER';
   END IF;
@@ -423,7 +382,6 @@ BEGIN
     RAISE EXCEPTION 'FORBIDDEN_ROLE_ESCALATION';
   END IF;
 
-  -- 4. capture everything the later steps need, while details still exist
   SELECT d.first_name, d.last_name, d.work_email_normalized, d.work_phone_e164,
          d.member_type, d.job_title, d.staff_code, d.invited_by, d.invitation_id, d.joined_at
     INTO _first_name, _last_name, _email, _phone,
@@ -431,7 +389,6 @@ BEGIN
   FROM public.workspace_member_details d
   WHERE d.workspace_id = _workspace_id AND d.user_id = _user_id;
 
-  -- 5. immutable history snapshot
   INSERT INTO public.workspace_member_details_history (
     workspace_id, user_id, first_name, last_name, work_email_normalized, work_phone_e164,
     member_type, job_title, staff_code, invited_by, invitation_id, joined_at,
@@ -442,8 +399,6 @@ BEGIN
     _actor_id, _reason
   );
 
-  -- 6. revoke matching pending invitations using the CAPTURED contact values.
-  --    Only the invitations revoked by THIS statement lose their secrets.
   IF _email IS NOT NULL OR _phone IS NOT NULL THEN
     WITH revoked AS (
       UPDATE public.workspace_invitations
@@ -459,34 +414,47 @@ BEGIN
     FROM revoked;
 
     IF array_length(_revoked_ids, 1) IS NOT NULL THEN
-      PERFORM public.wi_revoke_secrets(rid, NULL, NULL)
-      FROM unnest(_revoked_ids) AS rid;
+      PERFORM public.wi_revoke_secrets(rid, NULL, NULL) FROM unnest(_revoked_ids) AS rid;
     END IF;
   END IF;
 
-  -- 7. explicit non-cascading children (nothing cascades from workspace_members)
+  DELETE FROM public.call_center_department_agents
+  WHERE workspace_id = _workspace_id AND user_id = _user_id;
+
+  DELETE FROM public.call_center_agent_presence
+  WHERE workspace_id = _workspace_id AND user_id = _user_id;
+
+  DELETE FROM public.operator_call_availability
+  WHERE workspace_id = _workspace_id AND user_id = _user_id;
+
+  DELETE FROM public.user_notification_prefs
+  WHERE workspace_id = _workspace_id AND user_id = _user_id;
+
+  -- Workspace-scoped availability only. The global (workspace_id IS NULL)
+  -- preference row must survive.
+  DELETE FROM public.user_availability_prefs
+  WHERE workspace_id = _workspace_id AND user_id = _user_id;
+
   DELETE FROM public.workspace_department_members
   WHERE workspace_id = _workspace_id AND user_id = _user_id;
 
-  -- 8. RESTRICT child of workspace_members
   DELETE FROM public.workspace_member_details
   WHERE workspace_id = _workspace_id AND user_id = _user_id;
 
-  -- 9. membership itself
   DELETE FROM public.workspace_members
   WHERE workspace_id = _workspace_id AND user_id = _user_id;
 
-  -- 10/11. verify no workspace-scoped authorization row survives
   IF EXISTS (SELECT 1 FROM public.workspace_members
              WHERE workspace_id = _workspace_id AND user_id = _user_id)
      OR EXISTS (SELECT 1 FROM public.workspace_department_members
                 WHERE workspace_id = _workspace_id AND user_id = _user_id)
      OR EXISTS (SELECT 1 FROM public.workspace_member_details
+                WHERE workspace_id = _workspace_id AND user_id = _user_id)
+     OR EXISTS (SELECT 1 FROM public.call_center_department_agents
                 WHERE workspace_id = _workspace_id AND user_id = _user_id) THEN
     RAISE EXCEPTION 'OFFBOARDING_INCOMPLETE';
   END IF;
 
-  -- 12. audit from captured locals
   PERFORM public.wi_audit(_workspace_id, _actor_id, 'workspace_member.offboarded', _user_id,
           jsonb_build_object('role', _target_role, 'revoked_invitations', _revoked,
                              'reason', _reason), 'workspace_member');
@@ -499,9 +467,6 @@ BEGIN
 END;
 $$;
 
--- =========================================================================
--- 4. ACL — service_role only
--- =========================================================================
 DO $$
 DECLARE
   _fn text;
@@ -516,34 +481,8 @@ DECLARE
 BEGIN
   FOREACH _fn IN ARRAY _fns LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM PUBLIC', _fn);
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-      EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM anon', _fn);
-    END IF;
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-      EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM authenticated', _fn);
-    END IF;
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-      EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO service_role', _fn);
-    END IF;
+    EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM anon', _fn);
+    EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM authenticated', _fn);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO service_role', _fn);
   END LOOP;
 END $$;
-
-DO $verify$
-DECLARE
-  _bad text;
-BEGIN
-  SELECT string_agg(p.proname || ':' || r.rolname, ', ') INTO _bad
-  FROM pg_proc p
-  CROSS JOIN (VALUES ('anon'), ('authenticated')) AS r(rolname)
-  WHERE p.pronamespace = 'public'::regnamespace
-    AND p.proname IN ('wi_lock_and_validate_token','wi_assert_seat_available','wi_apply_departments',
-                      'accept_invitation_new_user_v2','accept_invitation_existing_user_v2',
-                      'offboard_workspace_member')
-    AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r.rolname)
-    AND has_function_privilege(r.rolname, p.oid, 'EXECUTE');
-
-  IF _bad IS NOT NULL THEN
-    RAISE EXCEPTION 'invitations v5.1 acceptance: unexpected client EXECUTE (%)', _bad;
-  END IF;
-END
-$verify$;

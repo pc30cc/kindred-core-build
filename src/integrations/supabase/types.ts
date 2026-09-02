@@ -11028,6 +11028,36 @@ export type Database = {
       }
     }
     Functions: {
+      accept_invitation_existing_user_v2: {
+        Args: {
+          _ip?: string
+          _locale?: string
+          _privacy_version_id: string
+          _purpose: string
+          _session_email_normalized: string
+          _session_user_id: string
+          _terms_version_id: string
+          _token_hash: string
+          _user_agent?: string
+        }
+        Returns: Json
+      }
+      accept_invitation_new_user_v2: {
+        Args: {
+          _acceptance_method: string
+          _ip?: string
+          _locale?: string
+          _password_hash: string
+          _privacy_version_id: string
+          _proof_hash: string
+          _purpose: string
+          _terms_version_id: string
+          _token_hash: string
+          _user_agent?: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       accept_workspace_invitation: { Args: { _token: string }; Returns: Json }
       accept_workspace_invitation_as: {
         Args: { _token: string; _user_id: string }
@@ -11799,6 +11829,15 @@ export type Database = {
         Returns: Json
       }
       normalize_domain: { Args: { _input: string }; Returns: string }
+      offboard_workspace_member: {
+        Args: {
+          _actor_id: string
+          _reason?: string
+          _user_id: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
       patch_conversation_ai_memory: {
         Args: {
           p_conversation_id: string
@@ -11980,6 +12019,18 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
+      wi_apply_departments: {
+        Args: {
+          _invitation_id: string
+          _user_id: string
+          _workspace_id: string
+        }
+        Returns: undefined
+      }
+      wi_assert_seat_available: {
+        Args: { _workspace_id: string }
+        Returns: Json
+      }
       wi_audit: {
         Args: {
           _action: string
@@ -11999,6 +12050,10 @@ export type Database = {
         Returns: boolean
       }
       wi_expire_due: { Args: { _workspace_id: string }; Returns: number }
+      wi_lock_and_validate_token: {
+        Args: { _purpose: string; _token_hash: string }
+        Returns: Record<string, unknown>
+      }
       wi_resolve_seat_capacity: {
         Args: { _workspace_id: string }
         Returns: {

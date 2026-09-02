@@ -739,62 +739,93 @@ const acceptNewSchema = tokenBody.extend({
   termsVersionId: z.string().uuid(),
   privacyVersionId: z.string().uuid(),
   locale: z.string().trim().max(10).optional(),
+  requestId: z.string().trim().uuid(),
 });
+
+async function issueSessionFor(config: ServerConfig, req: any, res: any, userId: string): Promise<boolean> {
+  try {
+    const sb = getServiceClient(config);
+    const { data: profile } = await sb.from('profiles').select('email').eq('id', userId).maybeSingle();
+    const session = await createSession(config, {
+      userId,
+      email: String(profile?.email || ''),
+      ipAddress: getClientIp(req),
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+    });
+    setSessionCookie(res, session.token, session.expiresAt);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, acceptLimiter, async (req: any, res) => {
   const parsed = acceptNewSchema.safeParse(req.body);
   if (!parsed.success) {
     const consentMissing = req.body?.consent !== true;
+    if (!req.body?.requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
     return res.status(400).json({ error: consentMissing ? 'CONSENT_REQUIRED' : 'invalid_body' });
   }
   const body = parsed.data;
   const config = cfg(req);
-  const sb = getServiceClient(config);
 
   const proofRaw = req.cookies?.[PROOF_COOKIE_NAME];
   if (body.purpose === 'manual_handoff' && !proofRaw) {
     return res.status(400).json({ error: 'EMAIL_PROOF_REQUIRED' });
   }
 
+  const tokenHash = tokenHashOf(body.token);
   const passwordHash = await hashPassword(body.password);
+  // Deterministic identity: a retry after a lost response can never create a
+  // second user for the same logical acceptance.
+  const userId = deriveDeterministicUuid('accept_new', body.requestId, tokenHash);
 
-  const { data, error } = await sb.rpc('accept_invitation_new_user_v2', {
-    _token_hash: tokenHashOf(body.token),
-    _purpose: body.purpose,
-    _proof_hash: proofRaw ? sha256Hex(String(proofRaw)) : null,
-    _user_id: crypto.randomUUID(),
-    _password_hash: passwordHash,
-    _terms_version_id: body.termsVersionId,
-    _privacy_version_id: body.privacyVersionId,
-    _acceptance_method: body.purpose === 'manual_handoff' ? 'manual_handoff_otp' : 'email_claim',
-    _locale: body.locale ?? null,
-    _ip: getClientIp(req),
-    _user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
+  const outcome = await runIdempotent(config, {
+    operation: 'accept_new',
+    scopeKind: 'public',
+    requestId: body.requestId,
+    fingerprintInput: {
+      tokenHash,
+      purpose: body.purpose,
+      termsVersionId: body.termsVersionId,
+      privacyVersionId: body.privacyVersionId,
+    },
+    args: {
+      token_hash: tokenHash,
+      purpose: body.purpose,
+      proof_hash: proofRaw ? sha256Hex(String(proofRaw)) : null,
+      user_id: userId,
+      password_hash: passwordHash,
+      terms_version_id: body.termsVersionId,
+      privacy_version_id: body.privacyVersionId,
+      acceptance_method: body.purpose === 'manual_handoff' ? 'manual_handoff_otp' : 'email_claim',
+      locale: body.locale ?? null,
+      ip: getClientIp(req),
+      user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
+    },
   });
 
-  if (error) {
-    const mapped = mapRpcError(error.message);
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
 
   res.clearCookie(PROOF_COOKIE_NAME, { path: '/api/workspace-invitations/accept-new' });
 
-  const result = data as any;
-  try {
-    const { data: profile } = await sb.from('profiles').select('email').eq('id', result.user_id).maybeSingle();
-    const session = await createSession(config, {
-      userId: result.user_id,
-      email: String(profile?.email || ''),
-      ipAddress: getClientIp(req),
-      userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
-    });
-    setSessionCookie(res, session.token, session.expiresAt);
-  } catch {
-    return res.status(200).json({ ...result, session: 'SESSION_CREATE_FAILED_LOGIN_REQUIRED' });
+  // Replay of a committed acceptance: the membership/consent already exist, so
+  // recover the logical result and mint a FRESH session for the same user
+  // instead of failing with INVITATION_NOT_FOUND.
+  const safe = outcome.safeResult as any;
+  const result = (outcome.replayed ? safe : outcome.result) as any;
+  const recoveredUserId = String(result?.user_id || safe?.user_id || userId);
+
+  const created = await issueSessionFor(config, req, res, recoveredUserId);
+  if (!created) {
+    return res.status(200).json({ ...result, replayed: outcome.replayed, session: 'SESSION_CREATE_FAILED_LOGIN_REQUIRED' });
   }
 
   res.clearCookie(CONTEXT_COOKIE_NAME, { path: '/' });
-  return res.json({ ...result, session: 'created' });
+  return res.json({ ...result, replayed: outcome.replayed, session: 'created' });
 });
 
 const acceptExistingSchema = z.object({
@@ -804,38 +835,55 @@ const acceptExistingSchema = z.object({
   termsVersionId: z.string().uuid(),
   privacyVersionId: z.string().uuid(),
   locale: z.string().trim().max(10).optional(),
+  requestId: z.string().trim().uuid(),
 });
 
 workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenInUrl, acceptLimiter, async (req: any, res) => {
   const parsed = acceptExistingSchema.safeParse(req.body);
   if (!parsed.success) {
     const consentMissing = req.body?.consent !== true;
+    if (!req.body?.requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
     return res.status(400).json({ error: consentMissing ? 'CONSENT_REQUIRED' : 'invalid_body' });
   }
   const body = parsed.data;
   const config = cfg(req);
-  const sb = getServiceClient(config);
 
   const session = await validateSessionToken(config, req.cookies?.[SESSION_COOKIE_NAME]);
   if (!session) return res.status(401).json({ error: 'SESSION_REQUIRED' });
 
   const handle = req.cookies?.[CONTEXT_COOKIE_NAME];
   if (!handle) return res.status(404).json(PUBLIC_ERROR);
-  const { data, error } = await sb.rpc('accept_invitation_existing_context_v2', {
-    _handle_hash: sha256Hex(String(handle)),
-    _session_user_id: session.userId,
-    _session_email_normalized: session.email.toLowerCase(),
-    _terms_version_id: body.termsVersionId,
-    _privacy_version_id: body.privacyVersionId,
-    _locale: body.locale ?? null,
-    _ip: getClientIp(req),
-    _user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
+  const handleHash = sha256Hex(String(handle));
+
+  const outcome = await runIdempotent(config, {
+    operation: 'accept_existing',
+    scopeKind: 'public',
+    requestId: body.requestId,
+    actorId: session.userId,
+    fingerprintInput: {
+      handleHash,
+      userId: session.userId,
+      termsVersionId: body.termsVersionId,
+      privacyVersionId: body.privacyVersionId,
+    },
+    args: {
+      handle_hash: handleHash,
+      session_user_id: session.userId,
+      session_email_normalized: session.email.toLowerCase(),
+      terms_version_id: body.termsVersionId,
+      privacy_version_id: body.privacyVersionId,
+      locale: body.locale ?? null,
+      ip: getClientIp(req),
+      user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
+    },
   });
 
-  if (error) {
-    const mapped = mapRpcError(error.message);
+  if (outcome.error) {
+    const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
+
   res.clearCookie(CONTEXT_COOKIE_NAME, { path: '/' });
-  return res.json({ ...(data as any), session: 'existing' });
+  const payload = outcome.replayed ? outcome.safeResult : (outcome.result as any);
+  return res.json({ ...payload, replayed: outcome.replayed, session: 'existing' });
 });

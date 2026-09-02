@@ -1141,14 +1141,12 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     const owner = await makeOwner(`p0.backlog.owner.${Date.now()}@example.test`);
 
     // Build a backlog LARGER than the worker batch, all older than the OTP.
-    const backlog: string[] = [];
     for (let i = 0; i < 4; i += 1) {
       const created = await call('POST', '/api/workspace-invitations', {
         cookie: owner.cookie,
         body: invitePayload(owner.workspaceId),
       });
       expect([200, 201]).toContain(created.status);
-      backlog.push(String(created.json.invitation.id ?? created.json.invitation.invitation_id));
     }
     // 8 backlog jobs (email + sms per invitation) all due well before the OTP.
     await db.query(

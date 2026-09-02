@@ -890,4 +890,248 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
       );
     }
   }, 120_000);
+
+  // ── 15. FULL-INTENT FINGERPRINTS (v5.1 B.3) ───────────────────────────
+  itFresh('CASE 15 — create: the same requestId with a different expiry is refused (409)', async () => {
+    const owner = await makeOwner(`idem.c15.${Date.now()}@example.test`);
+    const base = invitePayload(owner.workspaceId, { expiresInDays: 7 });
+    const first = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: base });
+    expect(first.status).toBe(201);
+
+    const conflict = await call('POST', '/api/workspace-invitations', {
+      cookie: owner.cookie,
+      body: { ...base, expiresInDays: 14 },
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.json.error).toBe('IDEMPOTENCY_KEY_REUSED');
+    expect(conflict.json.manualLink).toBeUndefined();
+  }, 120_000);
+
+  itFresh('CASE 16 — accept-new: the same requestId with a different password is refused (409)', async () => {
+    const owner = await makeOwner(`idem.c16.${Date.now()}@example.test`);
+    const policies = await activePolicies();
+    const payload = invitePayload(owner.workspaceId);
+    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
+    const token = tokenFromManualLink(created.json.manualLink);
+
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+    const code = await otpCodeFor(String(payload.email));
+    const verify = await call('POST', '/api/workspace-invitations/otp/verify', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff', code },
+    });
+    const proofCookie = cookieOf(verify, 'wi_proof')!;
+
+    const acceptId = rid();
+    const accept = await call('POST', '/api/workspace-invitations/accept-new', {
+      cookie: proofCookie,
+      body: { requestId: acceptId, token, purpose: 'manual_handoff', password: 'CorrectHorseBattery1', consent: true, ...policies },
+    });
+    expect(accept.status).toBe(200);
+
+    const conflict = await call('POST', '/api/workspace-invitations/accept-new', {
+      cookie: proofCookie,
+      body: { requestId: acceptId, token, purpose: 'manual_handoff', password: 'TotallyDifferent9Password', consent: true, ...policies },
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.json.error).toBe('IDEMPOTENCY_KEY_REUSED');
+  }, 120_000);
+
+  itFresh('CASE 17 — OTP verify: the same requestId with a different code is refused (409)', async () => {
+    const owner = await makeOwner(`idem.c17.${Date.now()}@example.test`);
+    const payload = invitePayload(owner.workspaceId);
+    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
+    const token = tokenFromManualLink(created.json.manualLink);
+
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+    const code = await otpCodeFor(String(payload.email));
+
+    const verifyId = rid();
+    expect((await call('POST', '/api/workspace-invitations/otp/verify', {
+      body: { requestId: verifyId, token, purpose: 'manual_handoff', code },
+    })).status).toBe(200);
+
+    const otherCode = code === '000000' ? '111111' : '000000';
+    const conflict = await call('POST', '/api/workspace-invitations/otp/verify', {
+      body: { requestId: verifyId, token, purpose: 'manual_handoff', code: otherCode },
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.json.error).toBe('IDEMPOTENCY_KEY_REUSED');
+  }, 120_000);
+
+  itFresh('CASE 18 — accept-existing: the same requestId with a different context is refused (409)', async () => {
+    const stamp = Date.now();
+    const policies = await activePolicies();
+    const inviteeEmail = `idem.c18.invitee.${stamp}@example.test`;
+    const invitee = await signupAndVerify(inviteeEmail);
+    const ownerA = await makeOwner(`idem.c18.a.${stamp}@example.test`);
+    const ownerB = await makeOwner(`idem.c18.b.${stamp}@example.test`);
+
+    async function contextCookieFor(owner: { cookie: string; workspaceId: string }) {
+      const created = await call('POST', '/api/workspace-invitations', {
+        cookie: owner.cookie,
+        body: invitePayload(owner.workspaceId, { email: inviteeEmail }),
+      });
+      expect(created.status).toBe(201);
+      const token = tokenFromManualLink(created.json.manualLink);
+      const ctx = await call('POST', '/api/workspace-invitations/login-context', {
+        body: { requestId: rid(), token, purpose: 'manual_handoff' },
+      });
+      expect(ctx.status).toBe(200);
+      return cookieOf(ctx, 'wi_ctx')!;
+    }
+
+    const ctxA = await contextCookieFor(ownerA);
+    const acceptId = rid();
+    const first = await call('POST', '/api/workspace-invitations/accept-existing', {
+      cookie: `${invitee.cookie}; ${ctxA}`,
+      body: { requestId: acceptId, consent: true, ...policies },
+    });
+    expect(first.status).toBe(200);
+
+    const ctxB = await contextCookieFor(ownerB);
+    const conflict = await call('POST', '/api/workspace-invitations/accept-existing', {
+      cookie: `${invitee.cookie}; ${ctxB}`,
+      body: { requestId: acceptId, consent: true, ...policies },
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.json.error).toBe('IDEMPOTENCY_KEY_REUSED');
+  }, 120_000);
+
+  // ── 19. REAL TRANSPORT LOSS (v5.1 B.4) ────────────────────────────────
+  itFresh('CASE 19 — a destroyed client connection after commit leaves exactly one mutation and a safe replay', async () => {
+    const owner = await makeOwner(`idem.c19.${Date.now()}@example.test`);
+    const payload = invitePayload(owner.workspaceId);
+
+    // A real HTTP request whose socket is destroyed before the response is
+    // read: the server keeps running and the transaction still commits.
+    await new Promise<void>((resolve) => {
+      const body = JSON.stringify(payload);
+      const req = http.request(`${baseUrl}/api/workspace-invitations`, {
+        method: 'POST',
+        localAddress: clientAddr,
+        family: 4,
+        headers: {
+          origin: baseUrl, cookie: owner.cookie,
+          'content-type': 'application/json', 'content-length': Buffer.byteLength(body),
+        },
+      });
+      req.on('error', () => resolve());
+      req.on('socket', (socket) => {
+        socket.on('connect', () => setTimeout(() => socket.destroy(), 25));
+      });
+      req.write(body);
+      req.end();
+      setTimeout(resolve, 500);
+    });
+
+    // Poll the ledger until the interrupted request has committed.
+    let committed = false;
+    for (let i = 0; i < 100 && !committed; i += 1) {
+      committed = (await countOf(
+        `SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency
+         WHERE operation = 'create' AND workspace_id = $1 AND result_state = 'committed'`,
+        [owner.workspaceId],
+      )) === 1;
+      if (!committed) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(committed).toBe(true);
+
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitations WHERE workspace_id = $1', [owner.workspaceId])).toBe(1);
+
+    // The client retries with the SAME requestId: no second mutation, and the
+    // raw manual link is never replayed.
+    const retry = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
+    expect(retry.status).toBe(409);
+    expect(retry.json.error).toBe('OPERATION_COMMITTED_LINK_NOT_REPLAYABLE');
+    expect(retry.json.manualLink).toBeUndefined();
+
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitations WHERE workspace_id = $1', [owner.workspaceId])).toBe(1);
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_tokens WHERE workspace_id = $1', [owner.workspaceId])).toBe(1);
+    expect(await countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_jobs WHERE workspace_id = $1 AND channel = 'email'`,
+      [owner.workspaceId],
+    )).toBe(1);
+  }, 120_000);
+
+  // ── 20. OTP COMMIT/DELIVERY CRASH WINDOW (v5.1 B.5) ───────────────────
+  itFresh('CASE 20 — an OTP whose delivery permanently fails is revoked and a new request recovers the flow', async () => {
+    const owner = await makeOwner(`idem.c20.${Date.now()}@example.test`);
+    const payload = invitePayload(owner.workspaceId);
+    const created = await call('POST', '/api/workspace-invitations', { cookie: owner.cookie, body: payload });
+    const token = tokenFromManualLink(created.json.manualLink);
+    const invitationId = created.json.invitation.id;
+
+    // The request path commits the OTP AND its delivery job together, so the
+    // process may die here without stranding an undeliverable live code.
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+
+    expect(await countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_jobs
+       WHERE invitation_id = $1 AND channel = 'otp_email' AND status IN ('queued','retrying')`,
+      [invitationId],
+    )).toBe(1);
+    // Only the digest is persisted — never the code.
+    const { rows: otpRows } = await db.query(
+      'SELECT id, code_digest FROM public.workspace_invitation_otps WHERE invitation_id = $1',
+      [invitationId],
+    );
+    expect(otpRows).toHaveLength(1);
+    expect(String((otpRows[0] as any).code_digest)).toMatch(/^[0-9a-f]{64}$/);
+
+    // Injected provider outage for every attempt.
+    emailTransportFailure = true;
+    try {
+      const { drainInvitationJobs } = await import('../../../server/services/invitations/worker.js');
+      for (let i = 0; i < 8; i += 1) {
+        await db.query(
+          `UPDATE public.workspace_invitation_jobs SET available_at = now()
+           WHERE invitation_id = $1 AND channel = 'otp_email'`,
+          [invitationId],
+        );
+        await drainInvitationJobs(WORKER_CONFIG);
+      }
+    } finally {
+      emailTransportFailure = false;
+    }
+
+    const { rows: jobRows } = await db.query(
+      `SELECT status FROM public.workspace_invitation_jobs
+       WHERE invitation_id = $1 AND channel = 'otp_email'`,
+      [invitationId],
+    );
+    // The failure is visible in the delivery state — never reported as sent.
+    expect(String((jobRows[0] as any).status)).toBe('permanently_failed');
+    expect(await countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_deliveries
+       WHERE invitation_id = $1 AND channel = 'otp_email' AND status <> 'provider_accepted'`,
+      [invitationId],
+    )).toBeGreaterThan(0);
+
+    // Recovery: the undelivered code is dead …
+    expect(await countOf(
+      'SELECT count(*)::int AS n FROM public.workspace_invitation_otps WHERE invitation_id = $1 AND revoked_at IS NOT NULL',
+      [invitationId],
+    )).toBe(1);
+
+    // … and a brand-new request mints a fresh generation the healthy provider
+    // delivers.
+    await db.query(
+      `UPDATE public.workspace_invitation_otps SET created_at = created_at - interval '2 minutes' WHERE invitation_id = $1`,
+      [invitationId],
+    );
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+    const code = await otpCodeFor(String(payload.email));
+    expect(code).toMatch(/^\d{6}$/);
+    expect((await call('POST', '/api/workspace-invitations/otp/verify', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff', code },
+    })).status).toBe(200);
+  }, 180_000);
 });

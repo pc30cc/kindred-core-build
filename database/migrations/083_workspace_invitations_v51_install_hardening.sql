@@ -126,11 +126,12 @@ BEGIN
     RAISE EXCEPTION 'INVALID_LEASE_SECONDS';
   END IF;
   UPDATE public.workspace_invitation_jobs
-  SET locked_until = now() + make_interval(secs => _lease_seconds),
+  SET claim_expires_at = now() + make_interval(secs => _lease_seconds),
       updated_at = now()
   WHERE id = _job_id
     AND claim_token = _claim_token
-    AND status = 'processing';
+    AND status = 'claimed'
+    AND claim_expires_at > now();
   RETURN FOUND;
 END;
 $$;

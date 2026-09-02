@@ -777,8 +777,16 @@ END;
 $$;
 
 -- Authoritative seat capacity, resolved ENTIRELY inside the database.
--- limit_value IS NULL  => unlimited (explicit stored mode or the -1 sentinel)
--- Raises ENTITLEMENT_UNAVAILABLE when the authority cannot be read.
+--
+-- SELF-HOST CHAIN BODY (v5.1 §16, blocker 4). The self-host schema has no
+-- billing tables (server/services/billing/entitlementParse.ts), so this body
+-- never references them: no to_regclass probing, no dynamic SQL. The authority
+-- is the protected public.workspace_seat_entitlement_mode row, written by the
+-- server bootstrap through set_workspace_seat_entitlement_mode():
+--   self_host_unlimited -> unlimited (limit_value IS NULL)
+--   plan_authoritative  -> the explicit seat_limit stored on that row
+-- Anything else, including a missing row or a missing seat_limit, fails closed
+-- with ENTITLEMENT_UNAVAILABLE. Missing state is NEVER unlimited.
 CREATE OR REPLACE FUNCTION public.wi_resolve_seat_capacity(_workspace_id uuid)
 RETURNS TABLE (limit_value integer, used integer, source text, version integer)
 LANGUAGE plpgsql
@@ -789,12 +797,10 @@ AS $$
 DECLARE
   _mode text;
   _config_version integer;
-  _limit integer;
-  _status text;
-  _plan_id uuid;
-  _raw text;
+  _seat_limit integer;
 BEGIN
-  SELECT m.mode, m.config_version INTO _mode, _config_version
+  SELECT m.mode, m.config_version, m.seat_limit
+    INTO _mode, _config_version, _seat_limit
   FROM public.workspace_seat_entitlement_mode m WHERE m.id = true;
 
   IF _mode IS NULL THEN
@@ -812,35 +818,12 @@ BEGIN
     RETURN;
   END IF;
 
-  -- plan_authoritative: workspace_subscriptions -> billing_plans.limits->>'max_agents'
-  IF to_regclass('public.workspace_subscriptions') IS NULL
-     OR to_regclass('public.billing_plans') IS NULL THEN
+  IF _seat_limit IS NULL OR _seat_limit < 0 THEN
     RAISE EXCEPTION 'ENTITLEMENT_UNAVAILABLE';
   END IF;
 
-  EXECUTE $q$
-    SELECT s.status, s.plan_id, p.limits->>'max_agents'
-    FROM public.workspace_subscriptions s
-    LEFT JOIN public.billing_plans p ON p.id = s.plan_id
-    WHERE s.workspace_id = $1
-  $q$ INTO _status, _plan_id, _raw USING _workspace_id;
-
-  IF _status IS NULL OR _plan_id IS NULL OR _raw IS NULL OR _raw !~ '^-?[0-9]+$' THEN
-    RAISE EXCEPTION 'ENTITLEMENT_UNAVAILABLE';
-  END IF;
-
-  IF _status IN ('canceled', 'unpaid', 'expired', 'incomplete', 'paused') THEN
-    -- No headroom for NEW members; existing members are untouched.
-    limit_value := 0;
-    source := 'subscription_inactive';
-    version := _config_version;
-    RETURN NEXT;
-    RETURN;
-  END IF;
-
-  _limit := _raw::integer;
-  limit_value := CASE WHEN _limit < 0 THEN NULL ELSE _limit END;
-  source := 'plan_authoritative';
+  limit_value := _seat_limit;
+  source := 'self_host_fixed_limit';
   version := _config_version;
   RETURN NEXT;
 END;

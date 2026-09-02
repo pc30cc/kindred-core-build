@@ -302,19 +302,41 @@ suite('Workspace Invitations v5.1 §C.4 residual — offboarding fault injection
     expect(String((await h.one('SELECT archived_at FROM public.workspace_invitations WHERE id = $1', [idA]))!.archived_at))
       .toBe(String(archivedAt));
 
-    // Same requestId, different invitation → conflict, and B stays live.
-    const conflict = await h.call('POST', `/api/workspace-invitations/${idB}/archive`, {
+    // The key is scope-bound (operation + workspace + invitation + requestId),
+    // so the SAME requestId against invitation B is a different operation and
+    // is executed on its own merits — it can never archive A twice.
+    const otherTarget = await h.call('POST', `/api/workspace-invitations/${idB}/archive`, {
       cookie: owner.cookie, body: { requestId },
+    });
+    expect(otherTarget.status, JSON.stringify(otherTarget.json)).toBe(200);
+    expect(otherTarget.json.replayed).toBe(false);
+    expect(String((await h.one('SELECT archived_at FROM public.workspace_invitations WHERE id = $1', [idA]))!.archived_at))
+      .toBe(String(archivedAt));
+
+    // A genuine PAYLOAD CONFLICT — same key, different arguments — fails closed.
+    const conflictRequestId = h.rid();
+    const third = await h.call('POST', '/api/workspace-invitations', {
+      cookie: owner.cookie, body: h.invitePayload(owner.workspaceId),
+    });
+    expect(third.status).toBe(201);
+    const idC = String(third.json.invitation.id);
+    const revokedOnce = await h.call('POST', `/api/workspace-invitations/${idC}/revoke`, {
+      cookie: owner.cookie, body: { requestId: conflictRequestId, reason: 'reason-one' },
+    });
+    expect(revokedOnce.status, JSON.stringify(revokedOnce.json)).toBe(200);
+    const conflict = await h.call('POST', `/api/workspace-invitations/${idC}/revoke`, {
+      cookie: owner.cookie, body: { requestId: conflictRequestId, reason: 'reason-two' },
     });
     expect(conflict.status).toBe(409);
     expect(conflict.json.error).toBe('IDEMPOTENCY_KEY_REUSED');
-    expect((await h.one('SELECT archived_at FROM public.workspace_invitations WHERE id = $1', [idB]))!.archived_at).toBeNull();
+    expect(String((await h.one('SELECT revoked_reason FROM public.workspace_invitations WHERE id = $1', [idC]))!.revoked_reason))
+      .toBe('reason-one');
 
     // Exactly one committed archive ledger row.
     expect(await h.countOf(
       `SELECT count(*)::int AS n FROM public.workspace_invitation_idempotency
         WHERE workspace_id = $1 AND operation = 'archive' AND result_state = 'committed'`,
       [owner.workspaceId],
-    )).toBe(1);
+    )).toBe(2);
   }, 300_000);
 });

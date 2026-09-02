@@ -259,8 +259,14 @@ const rid = () => `req-${crypto.randomUUID()}`;
 async function signupAndVerify(email: string): Promise<{ cookie: string; userId: string }> {
   const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });
   expect(signup.status).toBe(200);
-  const sent = capturedEmails.find((e) => e.templateSlug === 'email_verify' && e.actionUrl && e.to === email);
-  if (!sent) console.log('[signup-debug]', signup.status, JSON.stringify(signup.json), JSON.stringify(capturedEmails));
+  // The verification mail is dispatched after the HTTP response is flushed,
+  // so wait for the real delivery instead of assuming a same-tick send.
+  let sent: (typeof capturedEmails)[number] | undefined;
+  for (let i = 0; i < 100 && !sent; i += 1) {
+    sent = capturedEmails.find((e) => e.templateSlug === 'email_verify' && e.actionUrl && e.to === email);
+    if (!sent) await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(sent, `no verification email captured for ${email}`).toBeTruthy();
   const token = new URL(sent!.actionUrl!).searchParams.get('token')!;
   expect((await call('POST', '/api/auth-email/verify-email', { body: { token } })).status).toBe(200);
   const login = await call('POST', '/api/auth/login', { body: { email, password: 'CorrectHorseBattery1' } });

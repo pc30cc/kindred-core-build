@@ -41,6 +41,7 @@ import {
   useCallCenterSettings,
   useUpdateCallCenterSettings,
 } from '@/hooks/useCallCenter';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import {
   listDepartments, createDepartment, updateDepartment, deleteDepartment,

@@ -863,7 +863,7 @@ DECLARE
     'expire_invitations_v2(integer)',
     'claim_invitation_jobs(text,integer,integer,text[])',
     'reclaim_expired_invitation_jobs()',
-    'set_workspace_seat_entitlement_mode(text,text,uuid)'
+    'set_workspace_seat_entitlement_mode(text,text,integer,uuid)'
   ];
 BEGIN
   FOREACH _fn IN ARRAY _fns LOOP

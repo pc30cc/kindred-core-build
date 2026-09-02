@@ -541,6 +541,7 @@ CREATE TABLE IF NOT EXISTS public.workspace_seat_entitlement_mode (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   mode text NOT NULL CHECK (mode IN ('plan_authoritative', 'self_host_unlimited')),
   source text NOT NULL,
+  seat_limit integer CHECK (seat_limit IS NULL OR seat_limit >= 0),
   config_version integer NOT NULL DEFAULT 1,
   updated_by uuid,
   updated_at timestamptz NOT NULL DEFAULT now()

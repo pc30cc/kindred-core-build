@@ -275,7 +275,7 @@ async function signupAndVerify(email: string): Promise<{ cookie: string; userId:
   const login = await call('POST', '/api/auth/login', { body: { email, password: 'CorrectHorseBattery1' } });
   expect(login.status).toBe(200);
   const cookie = cookieOf(login, 'gs_session')!;
-  const { rows } = await db.query('SELECT id FROM public.profiles WHERE email = $1', [email]);
+  const { rows } = await db.query('SELECT id FROM public.profiles WHERE lower(email) = lower($1)', [email]);
   return { cookie, userId: rows[0].id };
 }
 

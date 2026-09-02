@@ -424,19 +424,41 @@ export default function AiBillingPage() {
                         <TableCell className="font-mono text-sm">{c.model_key}</TableCell>
                         <TableCell className="tabular-nums">{nf(c.version)}</TableCell>
                         <TableCell className="text-sm">
-                          <div className="flex flex-wrap gap-1">
-                            {(c.ai_rate_card_components || []).map((k: any, i: number) => (
-                              <Badge key={i} variant="outline" className="font-mono text-xs">
-                                {k.component_type === 'INPUT_TOKENS'
-                                  ? t('aiBilling.componentInput')
-                                  : k.component_type === 'OUTPUT_TOKENS'
-                                    ? t('aiBilling.componentOutput')
-                                    : k.component_type}
-                                : ${k.unit_amount}/{nf(k.per_units)}
-                              </Badge>
-                            ))}
+                          <div className="space-y-1">
+                            {(c.ai_rate_card_components || []).map((k: any, i: number) => {
+                              const per = Number(k.per_units) || 1;
+                              const providerUsd = ((Number(k.unit_amount) || 0) / per) * 1_000_000;
+                              const fxRate = Number(activeFx?.rate) || 0;
+                              const mult = Number(activePolicy?.multiplier) || 1;
+                              const internalIrr = providerUsd * fxRate;
+                              const customerIrr = internalIrr * mult;
+                              const profitIrr = customerIrr - internalIrr;
+                              return (
+                                <div key={i} className="rounded-md border bg-muted/30 px-2 py-1.5">
+                                  <div className="mb-1 flex items-center gap-2">
+                                    <Badge variant="outline" className="text-xs">
+                                      {k.component_type === 'INPUT_TOKENS'
+                                        ? t('aiBilling.componentInput')
+                                        : k.component_type === 'OUTPUT_TOKENS'
+                                          ? t('aiBilling.componentOutput')
+                                          : k.component_type}
+                                    </Badge>
+                                    <span className="text-xs text-muted-foreground">{t('aiBilling.perMillionTitle')}</span>
+                                  </div>
+                                  <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                                    <dt className="text-muted-foreground">{t('aiBilling.colProviderPay')}</dt>
+                                    <dd className="tabular-nums">{usd(providerUsd, 2)}{fxRate ? ` · ${money(internalIrr)}` : ''}</dd>
+                                    <dt className="text-muted-foreground">{t('aiBilling.colCustomerPay')}</dt>
+                                    <dd className="tabular-nums">{fxRate ? money(customerIrr) : '—'}</dd>
+                                    <dt className="text-muted-foreground">{t('aiBilling.colProfit')}</dt>
+                                    <dd className="tabular-nums text-emerald-600">{fxRate ? money(profitIrr) : '—'}</dd>
+                                  </dl>
+                                </div>
+                              );
+                            })}
                           </div>
                         </TableCell>
+
                         <TableCell className="text-sm">{when(c.effective_from)}</TableCell>
                         <TableCell>
                           <Badge variant={c.effective_to ? 'secondary' : 'default'}>

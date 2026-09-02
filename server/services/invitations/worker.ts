@@ -174,9 +174,15 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
   }
 
   // SMS notification carries NO token — only the fact of an invitation.
+  const smsLocale = String(payload.locale || 'en');
+  const smsBody = smsLocale === 'fa'
+    ? `${payload.workspace_name}: برای عضویت در تیم دعوت شده‌اید. برای پذیرش، ایمیل ${payload.email} را بررسی کنید.`
+    : smsLocale === 'tr'
+      ? `${payload.workspace_name}: ekibe davet edildiniz. Kabul etmek için ${payload.email} e-postasını kontrol edin.`
+      : `${payload.workspace_name}: you were invited to join the team. Check your email (${payload.email}) to accept.`;
   const smsResult = await sendSms(config, {
     to: payload.phone,
-    body: `${payload.workspace_name}: you were invited to join the team. Check your email (${payload.email}) to accept.`,
+    body: smsBody,
   } as any);
 
   if (smsResult.success) {

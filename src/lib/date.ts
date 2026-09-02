@@ -2,8 +2,13 @@
  * Central date/time localization.
  *
  * Goal: every date rendered in the app follows the active UI locale —
- * for Persian (fa) that means the **Jalali (Shamsi) calendar** in the
- * **Asia/Tehran** timezone, everywhere, without touching each call site.
+ * for Persian (fa) that means the **Jalali (Shamsi) calendar**.
+ *
+ * CALENDAR AND TIMEZONE ARE INDEPENDENT. Persian selects the Jalali calendar
+ * only; it NEVER forces Asia/Tehran. The clock comes from the configured
+ * application timezone (workspace/user/site) when one exists, otherwise from
+ * the browser/environment timezone. A Persian-speaking user in Istanbul sees
+ * an Istanbul clock with Jalali dates.
  *
  * How it works:
  *  1. `setAppDateLocale()` records the active locale (called from i18n).
@@ -18,7 +23,29 @@
 
 export type AppDateLocale = 'en' | 'fa' | 'tr';
 
+/** Kept for callers that legitimately need an explicit Tehran clock. */
 export const TEHRAN_TIME_ZONE = 'Asia/Tehran';
+
+/**
+ * Configured application timezone (workspace → user → site). `null` means
+ * "use the browser/environment timezone", which is the existing fallback.
+ */
+let appTimeZone: string | null = null;
+
+/** Record the configured application timezone. Pass null to fall back. */
+export function setAppTimeZone(timeZone: string | null | undefined) {
+  appTimeZone = timeZone && timeZone.trim() ? timeZone.trim() : null;
+}
+
+/** The configured timezone, or the environment timezone when none is set. */
+export function getAppTimeZone(): string | undefined {
+  if (appTimeZone) return appTimeZone;
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const BCP47: Record<AppDateLocale, string> = {
   en: 'en-US',
@@ -53,13 +80,15 @@ function isPersian(resolved: string | string[] | undefined): boolean {
   return typeof tag === 'string' && tag.startsWith('fa');
 }
 
-function withTehran(
-  resolved: string | string[] | undefined,
-  options?: Intl.DateTimeFormatOptions,
-): Intl.DateTimeFormatOptions | undefined {
-  if (!isPersian(resolved)) return options;
+/**
+ * Apply the CONFIGURED application timezone (never a locale-derived one).
+ * An explicit `timeZone` on the call always wins; when nothing is configured
+ * the environment timezone is used by omitting the option entirely.
+ */
+function withAppTimeZone(options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions | undefined {
   if (options?.timeZone) return options;
-  return { ...(options ?? {}), timeZone: TEHRAN_TIME_ZONE };
+  if (!appTimeZone) return options;
+  return { ...(options ?? {}), timeZone: appTimeZone };
 }
 
 function toDate(value: Date | string | number | null | undefined): Date | null {
@@ -70,10 +99,10 @@ function toDate(value: Date | string | number | null | undefined): Date | null {
 
 function fmt(value: Date, options: Intl.DateTimeFormatOptions, locale?: string): string {
   const resolved = resolveDateLocale(locale);
-  return new Intl.DateTimeFormat(resolved, withTehran(resolved, options)).format(value);
+  return new Intl.DateTimeFormat(resolved, withAppTimeZone(options)).format(value);
 }
 
-/** Date only, medium style. Jalali + Tehran for fa. */
+/** Date only, medium style. Jalali calendar for fa, configured/environment clock. */
 export function formatDate(
   value: Date | string | number | null | undefined,
   options?: Intl.DateTimeFormatOptions,
@@ -84,7 +113,7 @@ export function formatDate(
   return fmt(d, options ?? { year: 'numeric', month: 'short', day: 'numeric' }, locale);
 }
 
-/** Date + time. Jalali + Tehran for fa. */
+/** Date + time. Jalali calendar for fa, configured/environment clock. */
 export function formatDateTime(
   value: Date | string | number | null | undefined,
   options?: Intl.DateTimeFormatOptions,
@@ -99,7 +128,7 @@ export function formatDateTime(
   );
 }
 
-/** Time only. Tehran clock for fa. */
+/** Time only. Configured application clock, or the environment timezone. */
 export function formatTime(
   value: Date | string | number | null | undefined,
   options?: Intl.DateTimeFormatOptions,
@@ -134,7 +163,7 @@ export function formatPattern(
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
-    ...(persian ? { timeZone: TEHRAN_TIME_ZONE } : {}),
+    ...(appTimeZone ? { timeZone: appTimeZone } : {}),
   }).formatToParts(d);
   const get = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((p) => p.type === type)?.value.padStart(2, '0') ?? '';
@@ -173,7 +202,7 @@ export function formatLongDate(
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: TEHRAN_TIME_ZONE,
+    ...(appTimeZone ? { timeZone: appTimeZone } : {}),
   }).formatToParts(d);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
   return `${get('weekday')} ${get('day')} ${get('month')} ${get('year')}`.trim();
@@ -221,7 +250,7 @@ export function installLocalizedDateDefaults() {
     options?: Intl.DateTimeFormatOptions,
   ) {
     const resolved = resolveDateLocale(locales as string | string[] | undefined);
-    return new OriginalDTF(resolved as string | string[] | undefined, withTehran(resolved, options));
+    return new OriginalDTF(resolved as string | string[] | undefined, withAppTimeZone(options));
   } as unknown as typeof Intl.DateTimeFormat;
 
   Object.defineProperty(PatchedDTF, 'prototype', { value: OriginalDTF.prototype });

@@ -10304,6 +10304,7 @@ export type Database = {
           last_email_status: string | null
           last_name: string | null
           last_sms_status: string | null
+          locale: string | null
           max_uses: number
           member_type: string | null
           notification_generation: number
@@ -10335,6 +10336,7 @@ export type Database = {
           last_email_status?: string | null
           last_name?: string | null
           last_sms_status?: string | null
+          locale?: string | null
           max_uses?: number
           member_type?: string | null
           notification_generation?: number
@@ -10366,6 +10368,7 @@ export type Database = {
           last_email_status?: string | null
           last_name?: string | null
           last_sms_status?: string | null
+          locale?: string | null
           max_uses?: number
           member_type?: string | null
           notification_generation?: number
@@ -12243,6 +12246,10 @@ export type Database = {
       }
       wi_revoke_undelivered_otp: { Args: { _job_id: string }; Returns: boolean }
       wi_safe_invitation: { Args: { _invitation_id: string }; Returns: Json }
+      wi_set_invitation_locale: {
+        Args: { _invitation_id: string; _locale: string }
+        Returns: Json
+      }
       wi_verify_invitation_otp: {
         Args: {
           _code_digest: string

@@ -261,19 +261,20 @@ const createSchema = z.object({
 
 /**
  * `expiresInDays === 0` means "no expiry — valid until the owner decides".
- * The invitation row keeps `expires_at NULL` (the sweeper already skips NULL)
- * and the handoff link is issued with a far-future validity so the link cannot
- * die before the invitation itself.
+ *
+ * The v2 required-field CHECK on `workspace_invitations` demands
+ * `expires_at IS NOT NULL`, so "no expiry" is materialised as a far-future
+ * timestamp (100 years) rather than NULL. The sweeper will therefore never
+ * expire it in practice, and the handoff link gets the same validity so the
+ * link cannot die before the invitation itself.
  */
-const NO_EXPIRY_TOKEN_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+const NO_EXPIRY_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
 function resolveExpiry(days: number | undefined) {
   const value = days ?? 7;
   if (value === 0) {
-    return {
-      invitationExpiresAt: null as string | null,
-      tokenExpiresAt: new Date(Date.now() + NO_EXPIRY_TOKEN_TTL_MS).toISOString(),
-    };
+    const farFuture = new Date(Date.now() + NO_EXPIRY_TTL_MS).toISOString();
+    return { invitationExpiresAt: farFuture as string | null, tokenExpiresAt: farFuture };
   }
   return {
     invitationExpiresAt: new Date(Date.now() + value * 24 * 60 * 60 * 1000).toISOString(),
@@ -281,11 +282,20 @@ function resolveExpiry(days: number | undefined) {
   };
 }
 
+/** Field names only — never values — so a 400 is diagnosable without leaking PII. */
+function invalidFields(parsed: { error?: z.ZodError }): string[] {
+  return (parsed.error?.issues || []).map((i) => i.path.join('.')).filter(Boolean);
+}
+
 workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: req.body?.requestId ? 'invalid_body' : 'REQUEST_ID_REQUIRED' });
+    return res.status(400).json({
+      error: req.body?.requestId ? 'invalid_body' : 'REQUEST_ID_REQUIRED',
+      fields: invalidFields(parsed),
+    });
   }
+
   const body = parsed.data;
   const config = cfg(req);
 

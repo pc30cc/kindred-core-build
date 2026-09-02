@@ -127,7 +127,7 @@ export async function authorizeWorkspaceAccess(
 
   const { data: member, error: roleError } = await sb
     .from('workspace_members')
-    .select('role')
+    .select('role, suspended_at')
     .eq('workspace_id', workspaceId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -135,7 +135,14 @@ export async function authorizeWorkspaceAccess(
     res.status(500).json({ error: 'Authorization check failed' });
     return null;
   }
+  // A suspended (banned) member keeps their membership row for audit/history
+  // but loses every workspace capability until an owner/admin lifts the ban.
+  if ((member as { suspended_at?: string | null } | null)?.suspended_at) {
+    res.status(403).json({ error: 'membership_suspended' });
+    return null;
+  }
   const role = ((member as { role?: string } | null)?.role) ?? null;
+
 
   if (opts.manage && role !== 'owner' && role !== 'admin') {
     res.status(403).json({ error: 'Insufficient workspace permissions' });

@@ -1062,6 +1062,18 @@ const fa: TranslationKeys = {
     primaryColor: 'رنگ اصلی',
     installInstructions: 'این کد را قبل از تگ بسته </head> به وبسایت خود اضافه کنید.',
   },
+  memberBan: {
+    banAction: 'مسدودسازی در ورک‌اسپیس',
+    unbanAction: 'رفع مسدودی',
+    bannedBadge: 'مسدود',
+    reasonTitle: 'این عضو مسدود شود؟',
+    reasonHint: 'سوابق عضو حفظ می‌شود اما تا زمان رفع مسدودی هیچ دسترسی‌ای به ورک‌اسپیس نخواهد داشت.',
+    reasonPlaceholder: 'دلیل (اختیاری)',
+    confirm: 'مسدود کن',
+    cancel: 'انصراف',
+    toastBanned: 'عضو مسدود شد',
+    toastUnbanned: 'مسدودی برداشته شد',
+  },
   staffAccess: {
     title: 'دسترسی کارکنان',
     subtitle: 'دسترسی داخلی برای افرادی که مستقیماً با گفتگوی بازدیدکنندگان سروکار ندارند — مالی، سئو، تحلیل داده، بازاریابی، توسعه‌دهندگان و مدیران.',

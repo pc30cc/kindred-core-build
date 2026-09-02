@@ -543,3 +543,53 @@ html[lang="en"] * {
 [dir="rtl"] [data-radix-popper-content-wrapper] {
   text-align: right;
 }
+
+/* ─── Super Admin visual system ──────────────────────────────────────
+   A shared polish layer keeps legacy and newly localized admin pages
+   visually consistent without coupling product pages to the shell. */
+.admin-main {
+  background:
+    linear-gradient(135deg, hsl(var(--primary) / 0.035), transparent 34%),
+    radial-gradient(circle at 88% 8%, hsl(265 85% 60% / 0.06), transparent 26%);
+}
+.admin-main > div > div {
+  animation: admin-page-enter 240ms ease-out both;
+}
+.admin-main h1 {
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.admin-main [class*="border"][class*="rounded-lg"],
+.admin-main [class*="border"][class*="rounded-xl"] {
+  border-color: hsl(var(--border) / 0.72);
+}
+.admin-main [class*="rounded-lg"][class*="bg-card"],
+.admin-main [class*="rounded-xl"][class*="bg-card"] {
+  box-shadow: 0 1px 2px hsl(220 30% 5% / 0.04), 0 12px 34px hsl(220 30% 5% / 0.035);
+  backdrop-filter: blur(10px);
+}
+.admin-main table {
+  font-variant-numeric: tabular-nums;
+}
+.admin-main thead tr {
+  background: hsl(var(--muted) / 0.45);
+}
+.admin-main tbody tr {
+  transition: background-color 150ms ease;
+}
+.admin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--sidebar-border)) transparent;
+}
+.admin-scrollbar::-webkit-scrollbar { width: 5px; }
+.admin-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: hsl(var(--sidebar-border));
+}
+@keyframes admin-page-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-main > div > div { animation: none; }
+}

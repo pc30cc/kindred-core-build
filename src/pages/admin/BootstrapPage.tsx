@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Navigate } from 'react-router-dom';
 import { toast } from '@/lib/toast';
 import { Shield } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 
 export default function AdminBootstrapPage() {
+  const { t } = useTranslation();
   const { user, isLoading: authLoading } = useAuth();
   const { data: isAdmin, isLoading: roleLoading } = useIsGlobalAdmin();
   const bootstrap = useBootstrapAdmin();
@@ -26,17 +28,17 @@ export default function AdminBootstrapPage() {
     try {
       const result = await bootstrap.mutateAsync();
       if (result) {
-        toast.success('You are now the global admin!');
+        toast.success(t('admin.bootstrap.success' as any));
       } else {
-        toast.error('A global admin already exists. Contact the platform admin.');
+        toast.error(t('admin.bootstrap.alreadyExists' as any));
       }
     } catch (err: any) {
       const messages: Record<string, string> = {
-        bootstrap_not_configured: 'Admin bootstrap is not configured for this deployment. Set INITIAL_ADMIN_EMAIL in the server environment.',
-        email_verification_required: 'Please verify your email before bootstrapping the admin account.',
-        not_authorized: 'This account is not authorized to bootstrap the platform admin.',
+        bootstrap_not_configured: t('admin.bootstrap.notConfigured' as any),
+        email_verification_required: t('admin.bootstrap.verifyEmail' as any),
+        not_authorized: t('admin.bootstrap.notAuthorized' as any),
       };
-      toast.error(messages[err?.message] || 'Bootstrap failed.');
+      toast.error(messages[err?.message] || t('admin.bootstrap.failed' as any));
     }
   };
 
@@ -45,21 +47,21 @@ export default function AdminBootstrapPage() {
       <Card className="max-w-md w-full bg-card border-border">
         <CardHeader className="text-center">
           <Shield className="h-12 w-12 mx-auto text-red-400 mb-2" />
-          <CardTitle className="text-foreground text-xl">Admin Bootstrap</CardTitle>
+          <CardTitle className="text-foreground text-xl">{t('admin.bootstrap.title' as any)}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-center">
           <p className="text-muted-foreground text-sm">
-            No global admin exists yet. As <strong className="text-foreground">{user.email}</strong>, you can claim the admin role.
+            {t('admin.bootstrap.intro' as any)} <strong className="text-foreground">{user.email}</strong>
           </p>
           <p className="text-muted-foreground/70 text-xs">
-            This action is irreversible and only works once. Only the platform owner should proceed.
+            {t('admin.bootstrap.warning' as any)}
           </p>
           <Button
             onClick={handleBootstrap}
             disabled={bootstrap.isPending}
             className="w-full bg-red-600 hover:bg-red-700"
           >
-            {bootstrap.isPending ? 'Bootstrapping…' : 'Claim Global Admin Role'}
+            {bootstrap.isPending ? t('admin.bootstrap.working' as any) : t('admin.bootstrap.claim' as any)}
           </Button>
         </CardContent>
       </Card>

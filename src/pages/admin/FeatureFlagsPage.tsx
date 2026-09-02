@@ -4,8 +4,10 @@ import { Switch } from '@/components/ui/switch';
 import { useAdminFeatureFlags, adminFetch } from '@/hooks/useAdmin';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
+import { useTranslation } from '@/i18n';
 
 export default function AdminFeatureFlagsPage() {
+  const { t } = useTranslation();
   const { data: flags, isLoading } = useAdminFeatureFlags();
   const qc = useQueryClient();
 
@@ -16,31 +18,31 @@ export default function AdminFeatureFlagsPage() {
         body: JSON.stringify({ enabled }),
       });
     } catch {
-      toast.error('Failed to update flag');
+      toast.error(t('admin.featureFlags.updateFailed' as any));
       return;
     }
-    toast.success('Flag updated');
+    toast.success(t('admin.featureFlags.updated' as any));
     qc.invalidateQueries({ queryKey: ['admin-feature-flags'] });
   };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Feature Flags</h1>
-      <p className="text-muted-foreground text-sm">Global feature flags (workspace_id = null). Toggle features on/off across the entire platform.</p>
+      <h1 className="text-2xl font-bold text-foreground">{t('admin.featureFlags.title' as any)}</h1>
+      <p className="text-muted-foreground text-sm">{t('admin.featureFlags.subtitle' as any)}</p>
 
       <Card className="bg-card border-border">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow className="border-border">
-                <TableHead className="text-muted-foreground">Key</TableHead>
-                <TableHead className="text-muted-foreground">Description</TableHead>
-                <TableHead className="text-muted-foreground">Enabled</TableHead>
+                <TableHead className="text-muted-foreground">{t('admin.featureFlags.key' as any)}</TableHead>
+                <TableHead className="text-muted-foreground">{t('admin.common.description' as any)}</TableHead>
+                <TableHead className="text-muted-foreground">{t('admin.common.enabled' as any)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">{t('admin.common.loading' as any)}</TableCell></TableRow>
               )}
               {flags?.map(f => (
                 <TableRow key={f.id} className="border-border hover:bg-muted/50">

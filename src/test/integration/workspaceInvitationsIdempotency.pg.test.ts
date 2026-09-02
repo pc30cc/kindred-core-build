@@ -1082,7 +1082,7 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
       [invitationId],
     );
     expect(otpRows).toHaveLength(1);
-    expect(String((otpRows[0] as any).code_digest)).toMatch(/^[0-9a-f]{64}$/);
+    expect(String((otpRows[0] as any).code_digest)).toMatch(/^v[0-9]+:[0-9a-f]{64}$/);
 
     // Injected provider outage for every attempt.
     emailTransportFailure = true;
@@ -1133,5 +1133,200 @@ suite('Workspace Invitations v5.1 §10 — atomic crash-safe idempotency (real P
     expect((await call('POST', '/api/workspace-invitations/otp/verify', {
       body: { requestId: rid(), token, purpose: 'manual_handoff', code },
     })).status).toBe(200);
+  }, 180_000);
+
+  // ── PHASE 0 — production worker runtime hardening ─────────────────────
+
+  itFresh('P0.1 — one real production tick delivers a fresh OTP behind a large email/SMS backlog', async () => {
+    const owner = await makeOwner(`p0.backlog.owner.${Date.now()}@example.test`);
+
+    // Build a backlog LARGER than the worker batch, all older than the OTP.
+    const backlog: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const created = await call('POST', '/api/workspace-invitations', {
+        cookie: owner.cookie,
+        body: invitePayload(owner.workspaceId),
+      });
+      expect([200, 201]).toContain(created.status);
+      backlog.push(String(created.json.invitation.id ?? created.json.invitation.invitation_id));
+    }
+    // 8 backlog jobs (email + sms per invitation) all due well before the OTP.
+    await db.query(
+      `UPDATE public.workspace_invitation_jobs
+          SET available_at = now() - interval '1 hour', created_at = now() - interval '1 hour'
+        WHERE channel IN ('email','sms') AND status IN ('queued','retrying')`,
+    );
+    const backlogTotal = await countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_jobs
+        WHERE channel IN ('email','sms') AND status IN ('queued','retrying')`,
+    );
+    expect(backlogTotal).toBeGreaterThan(5); // strictly larger than BATCH
+
+    // A fresh manual invitation whose OTP must not starve behind that backlog.
+    const payload = invitePayload(owner.workspaceId);
+    const invited = await call('POST', '/api/workspace-invitations', {
+      cookie: owner.cookie,
+      body: payload,
+    });
+    expect([200, 201]).toContain(invited.status);
+    const token = tokenFromManualLink(String(invited.json.manualLink));
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+
+    const before = capturedEmails.length;
+    // EXACTLY ONE real production tick — no test-side looping.
+    const { drainInvitationJobs } = await import('../../../server/services/invitations/worker.js');
+    await drainInvitationJobs(WORKER_CONFIG);
+
+    const delivered = capturedEmails
+      .slice(before)
+      .find((e) => e.to?.toLowerCase() === String(payload.email).toLowerCase() && /verification code/i.test(String(e.text)));
+    expect(delivered, 'OTP starved behind the email/SMS backlog').toBeTruthy();
+
+    // The OTP is still live (not expired behind the backlog) and verifies.
+    expect(await countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_otps o
+        WHERE o.revoked_at IS NULL AND o.consumed_at IS NULL AND o.expires_at > now()
+          AND o.email_normalized = lower($1)`,
+      [String(payload.email)],
+    )).toBe(1);
+
+    // Fairness: the normal backlog progressed during the same tick.
+    const remaining = await countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_jobs
+        WHERE channel IN ('email','sms') AND status IN ('queued','retrying')`,
+    );
+    expect(remaining).toBeLessThan(backlogTotal);
+  }, 180_000);
+
+  itFresh('P0.2 — wi_fail_otp_job_atomic revokes the OTP and finalizes the job in one guarded transaction', async () => {
+    const owner = await makeOwner(`p0.atomic.owner.${Date.now()}@example.test`);
+    const payload = invitePayload(owner.workspaceId);
+    const invited = await call('POST', '/api/workspace-invitations', {
+      cookie: owner.cookie,
+      body: payload,
+    });
+    const token = tokenFromManualLink(String(invited.json.manualLink));
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+
+    const { rows: jobRows } = await db.query(
+      `SELECT id, otp_id FROM public.workspace_invitation_jobs WHERE channel = 'otp_email' ORDER BY created_at DESC LIMIT 1`,
+    );
+    const jobId = String((jobRows[0] as any).id);
+
+    // Claim it the way the worker does.
+    const { rows: claimed } = await db.query(
+      `SELECT * FROM public.claim_invitation_jobs('p0-worker', 5, 120, ARRAY['otp_email'])`,
+    );
+    const claim = claimed.find((r: any) => String(r.id) === jobId) as any;
+    expect(claim, 'otp job not claimable').toBeTruthy();
+
+    // A foreign claim token can never finalize the job.
+    const { rows: foreign } = await db.query(
+      `SELECT public.wi_fail_otp_job_atomic($1, gen_random_uuid(), 'p0-worker', 'permanently_failed') AS r`,
+      [jobId],
+    );
+    expect((foreign[0] as any).r.applied).toBe(false);
+
+    // A foreign worker identity cannot either.
+    const { rows: otherWorker } = await db.query(
+      `SELECT public.wi_fail_otp_job_atomic($1, $2, 'someone-else', 'permanently_failed') AS r`,
+      [jobId, claim.claim_token],
+    );
+    expect((otherWorker[0] as any).r.applied).toBe(false);
+    expect(await countOf('SELECT count(*)::int AS n FROM public.workspace_invitation_otps WHERE id = $1 AND revoked_at IS NOT NULL', [claim.otp_id])).toBe(0);
+
+    // The rightful owner finalizes everything atomically.
+    const { rows: applied } = await db.query(
+      `SELECT public.wi_fail_otp_job_atomic($1, $2, 'p0-worker', 'permanently_failed', 'test-provider', 'OTP_SEND_FAILED', 'injected') AS r`,
+      [jobId, claim.claim_token],
+    );
+    expect((applied[0] as any).r.applied).toBe(true);
+    expect((applied[0] as any).r.otp_revoked).toBe(true);
+
+    const { rows: after } = await db.query(
+      `SELECT j.status, j.claim_token, j.locked_by, o.revoked_at,
+              (SELECT count(*)::int FROM public.workspace_invitation_deliveries d
+                WHERE d.job_id = j.id AND d.status = 'permanently_failed') AS deliveries
+         FROM public.workspace_invitation_jobs j
+         JOIN public.workspace_invitation_otps o ON o.id = j.otp_id
+        WHERE j.id = $1`,
+      [jobId],
+    );
+    const row = after[0] as any;
+    expect(row.status).toBe('permanently_failed');
+    expect(row.claim_token).toBeNull();
+    expect(row.locked_by).toBeNull();
+    expect(row.revoked_at).not.toBeNull();
+    expect(Number(row.deliveries)).toBe(1);
+
+    // Non-OTP channels are rejected outright.
+    const { rows: emailJob } = await db.query(
+      `SELECT id FROM public.workspace_invitation_jobs WHERE channel = 'email' LIMIT 1`,
+    );
+    await expect(db.query(
+      `SELECT public.wi_fail_otp_job_atomic($1, gen_random_uuid(), 'p0-worker', 'permanently_failed')`,
+      [String((emailJob[0] as any).id)],
+    )).rejects.toThrow(/JOB_CHANNEL_MISMATCH/);
+  }, 180_000);
+
+  itFresh('P0.5 — an OTP pepper rotation never e-mails an unverifiable code (fails closed and revokes)', async () => {
+    const owner = await makeOwner(`p0.rotate.owner.${Date.now()}@example.test`);
+    const payload = invitePayload(owner.workspaceId);
+    const invited = await call('POST', '/api/workspace-invitations', {
+      cookie: owner.cookie,
+      body: payload,
+    });
+    const token = tokenFromManualLink(String(invited.json.manualLink));
+    expect((await call('POST', '/api/workspace-invitations/otp/request', {
+      body: { requestId: rid(), token, purpose: 'manual_handoff' },
+    })).status).toBe(200);
+
+    // The stored digest records the NON-SECRET derivation version.
+    const { rows: digestRows } = await db.query(
+      `SELECT code_digest, public.wi_otp_digest_key_version(code_digest) AS v
+         FROM public.workspace_invitation_otps ORDER BY created_at DESC LIMIT 1`,
+    );
+    expect(Number((digestRows[0] as any).v)).toBe(1);
+    expect(String((digestRows[0] as any).code_digest).startsWith('v1:')).toBe(true);
+
+    const prevPepper = process.env.INVITATION_OTP_PEPPER;
+    const before = capturedEmails.length;
+    try {
+      // Rotate to a ring that no longer contains version 1.
+      delete process.env.INVITATION_OTP_PEPPER;
+      process.env.INVITATION_OTP_PEPPER_RING = JSON.stringify({ 2: 'rotated-otp-pepper-value-32bytes-long!!' });
+      process.env.INVITATION_OTP_KEY_VERSION = '2';
+
+      const { drainInvitationJobs } = await import('../../../server/services/invitations/worker.js');
+      await drainInvitationJobs(WORKER_CONFIG);
+
+      // Nothing was e-mailed for this invitee …
+      expect(capturedEmails.slice(before).some(
+        (e) => e.to?.toLowerCase() === String(payload.email).toLowerCase() && /verification code/i.test(String(e.text)),
+      )).toBe(false);
+    } finally {
+      if (prevPepper) process.env.INVITATION_OTP_PEPPER = prevPepper;
+      delete process.env.INVITATION_OTP_PEPPER_RING;
+      delete process.env.INVITATION_OTP_KEY_VERSION;
+    }
+
+    // … and the unusable OTP is dead with a deterministic recovery state.
+    const { rows: state } = await db.query(
+      `SELECT j.status, j.last_error, o.revoked_at
+         FROM public.workspace_invitation_jobs j
+         JOIN public.workspace_invitation_otps o ON o.id = j.otp_id
+        WHERE j.channel = 'otp_email' ORDER BY j.created_at DESC LIMIT 1`,
+    );
+    expect(String((state[0] as any).status)).toBe('derivation_key_unavailable');
+    expect((state[0] as any).revoked_at).not.toBeNull();
+
+    // No raw pepper or raw code ever reaches the database.
+    expect(await countOf(
+      `SELECT count(*)::int AS n FROM public.workspace_invitation_otps WHERE code_digest !~ '^v[0-9]+:[0-9a-f]{64}$'`,
+    )).toBe(0);
   }, 180_000);
 });

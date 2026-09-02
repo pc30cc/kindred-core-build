@@ -148,18 +148,65 @@ export function deriveEmailToken(input: EmailTokenInput): string {
     .digest('base64url');
 }
 
-// ── OTP ─────────────────────────────────────────────────────────────────
+// ── OTP key ring ────────────────────────────────────────────────────────
+// INVITATION_OTP_PEPPER        -> version 1 (default)
+// INVITATION_OTP_PEPPER_RING   -> optional JSON {"1":"...","2":"..."}
+// INVITATION_OTP_KEY_VERSION   -> optional current version (default: highest)
+//
+// Phase 0.5: a queued OTP job must still be deliverable after a pepper
+// rotation, so the NON-SECRET version travels inside the stored digest
+// ("v<version>:<hmac>"). The worker derives the code with that version; when
+// the version is no longer configured it fails CLOSED (the OTP is atomically
+// revoked and the job records DERIVATION_KEY_UNAVAILABLE) — a code that could
+// never verify is never e-mailed. Old keys must stay in the ring for at least
+// the maximum OTP lifetime (10 minutes) plus the job retry window.
 
-function otpPepper(): string {
-  const pepper = process.env.INVITATION_OTP_PEPPER?.trim();
-  if (!pepper) throw new Error('INVITATION_OTP_PEPPER_MISSING');
+function otpKeyRing(): Map<number, string> {
+  const ring = new Map<number, string>();
+  const base = process.env.INVITATION_OTP_PEPPER?.trim();
+  if (base) ring.set(1, base);
+  const raw = process.env.INVITATION_OTP_PEPPER_RING?.trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, string>;
+      for (const [k, v] of Object.entries(parsed)) {
+        const version = Number.parseInt(k, 10);
+        if (Number.isInteger(version) && version > 0 && typeof v === 'string' && Buffer.byteLength(v, 'utf8') >= 32) {
+          ring.set(version, v);
+        }
+      }
+    } catch {
+      // malformed ring never downgrades to "no key": derivation fails closed.
+    }
+  }
+  return ring;
+}
+
+export function currentOtpKeyVersion(): number {
+  const ring = otpKeyRing();
+  if (ring.size === 0) throw new Error('INVITATION_OTP_PEPPER_MISSING');
+  const configured = Number.parseInt(process.env.INVITATION_OTP_KEY_VERSION || '', 10);
+  if (Number.isInteger(configured) && ring.has(configured)) return configured;
+  return Math.max(...ring.keys());
+}
+
+export function hasOtpKey(version: number): boolean {
+  return otpKeyRing().has(version);
+}
+
+function otpPepper(version: number = currentOtpKeyVersion()): string {
+  const pepper = otpKeyRing().get(version);
+  if (!pepper) throw new DerivationKeyUnavailable(version);
   return pepper;
 }
 
 export function validateInvitationSecrets(): void {
-  const pepper = otpPepper();
-  if (Buffer.byteLength(pepper, 'utf8') < 32) {
-    throw new Error('INVITATION_OTP_PEPPER must contain at least 32 bytes');
+  const otpRing = otpKeyRing();
+  if (otpRing.size === 0) throw new Error('INVITATION_OTP_PEPPER_MISSING');
+  for (const [version, pepper] of otpRing) {
+    if (Buffer.byteLength(pepper, 'utf8') < 32) {
+      throw new Error(`INVITATION_OTP_PEPPER version ${version} must contain at least 32 bytes`);
+    }
   }
   const ring = keyRing();
   if (ring.size === 0) throw new Error('INVITATION_LINK_SECRET_MISSING');
@@ -167,8 +214,10 @@ export function validateInvitationSecrets(): void {
     if (Buffer.byteLength(key, 'utf8') < 32) {
       throw new Error(`INVITATION_LINK_SECRET version ${version} must contain at least 32 bytes`);
     }
-    if (safeEqual(key, pepper)) {
-      throw new Error('INVITATION_OTP_PEPPER must be distinct from every invitation link key');
+    for (const pepper of otpRing.values()) {
+      if (safeEqual(key, pepper)) {
+        throw new Error('INVITATION_OTP_PEPPER must be distinct from every invitation link key');
+      }
     }
   }
 }
@@ -185,24 +234,27 @@ export function generateOtpCode(): string {
  * The database stores ONLY the keyed digest of the code. The delivery worker
  * must still be able to e-mail the very same code after a crash, so the code
  * is derived from non-secret job material (invitation id + otp id) plus the
- * process-local OTP pepper. Nothing recoverable from a database dump: without
- * the pepper the code cannot be derived, and the digest cannot be brute-forced
- * because it is keyed by the same pepper.
+ * OTP pepper of the recorded key version. Nothing recoverable from a database
+ * dump: without the pepper the code cannot be derived, and the digest cannot
+ * be brute-forced because it is keyed by the same pepper.
  */
-export function deriveOtpCode(invitationId: string, otpId: string): string {
+export function deriveOtpCode(invitationId: string, otpId: string, version: number = currentOtpKeyVersion()): string {
   const digest = crypto
-    .createHmac('sha256', otpPepper())
+    .createHmac('sha256', otpPepper(version))
     .update(`wi-otp-code-v1|${invitationId}|${otpId}`, 'utf8')
     .digest();
   return String(digest.readUInt32BE(0) % 1_000_000).padStart(6, '0');
 }
 
-export function otpDigest(invitationId: string, code: string): string {
-  return crypto
-    .createHmac('sha256', otpPepper())
+/** `v<version>:<hmac>` — the version is non-secret and stays queryable in SQL. */
+export function otpDigest(invitationId: string, code: string, version: number = currentOtpKeyVersion()): string {
+  const mac = crypto
+    .createHmac('sha256', otpPepper(version))
     .update(`${invitationId}:${code}`)
     .digest('hex');
+  return `v${version}:${mac}`;
 }
+
 
 // ── Destination hashing (job idempotency, never reversible) ─────────────
 

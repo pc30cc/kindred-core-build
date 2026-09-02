@@ -28,12 +28,15 @@ import {
   EMAIL_TOKEN_TTL_MS,
   DerivationKeyUnavailable,
   deriveOtpCode,
+  hasOtpKey,
 } from './tokens.js';
 
 const WORKER_ID = `invitations-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const POLL_MS = 5_000;
 const LEASE_SECONDS = 120;
 const BATCH = 5;
+const MAX_BATCHES_PER_TICK = 20;
+const TICK_BUDGET_MS = 20_000;
 
 let timer: NodeJS.Timeout | null = null;
 let running = false;
@@ -64,6 +67,32 @@ async function complete(
     _error_code: extra.errorCode ?? null,
     _safe_error_message: extra.message ? String(extra.message).slice(0, 300) : null,
     _retry_in_seconds: extra.retryIn ?? 60,
+  });
+  if (error || !(data as any)?.applied) {
+    throw new Error(error?.message || 'JOB_CLAIM_LOST');
+  }
+}
+
+/**
+ * Phase 0.2 — terminal OTP failure in ONE transaction: the still-live OTP is
+ * revoked, the delivery row written, the claim cleared and the job marked
+ * terminal together, under a claim-token + worker-identity + lease guard.
+ */
+async function failOtpAtomically(
+  config: ServerConfig,
+  job: any,
+  claimToken: string,
+  outcome: 'permanently_failed' | 'unconfigured' | 'derivation_key_unavailable',
+  extra: { provider?: string; errorCode?: string; message?: string } = {},
+): Promise<void> {
+  const { data, error } = await getServiceClient(config).rpc('wi_fail_otp_job_atomic', {
+    _job_id: job.id,
+    _claim_token: claimToken,
+    _worker_id: WORKER_ID,
+    _outcome: outcome,
+    _provider_name: extra.provider ?? null,
+    _error_code: extra.errorCode ?? null,
+    _safe_error_message: extra.message ? String(extra.message).slice(0, 300) : null,
   });
   if (error || !(data as any)?.applied) {
     throw new Error(error?.message || 'JOB_CLAIM_LOST');
@@ -136,21 +165,32 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
 
   if (job.channel === 'otp_email') {
     // v5.1 B.5: the code was never stored — re-derive it from the OTP id and
-    // the process-local pepper, so a crash before delivery is recoverable.
+    // the pepper of the RECORDED key version, so a crash before delivery is
+    // recoverable and a pepper rotation can never e-mail an invalid code.
     const { data: state } = await sb.rpc('wi_otp_job_sendable', {
       _job_id: job.id,
       _claim_token: claimToken,
     });
     const otpState = (state || {}) as any;
     if (!otpState.sendable) {
-      await complete(config, job.id, claimToken, 'permanently_failed', {
+      await failOtpAtomically(config, job, claimToken, 'permanently_failed', {
         errorCode: 'OTP_NO_LONGER_LIVE',
         message: 'otp consumed, revoked or expired',
       }).catch(() => undefined);
       return;
     }
 
-    const code = deriveOtpCode(String(otpState.invitation_id), String(otpState.otp_id));
+    const otpVersion = Number(otpState.key_version ?? 1);
+    if (!hasOtpKey(otpVersion)) {
+      // Fail closed and atomically: revoke the OTP nobody can ever verify.
+      await failOtpAtomically(config, job, claimToken, 'derivation_key_unavailable', {
+        errorCode: 'DERIVATION_KEY_UNAVAILABLE',
+        message: 'otp derivation key unavailable',
+      });
+      return;
+    }
+
+    const code = deriveOtpCode(String(otpState.invitation_id), String(otpState.otp_id), otpVersion);
     const result = await sendEmail(config, {
       workspaceId: String(otpState.workspace_id),
       to: String(otpState.email),
@@ -168,14 +208,18 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
 
     const terminal = result.provider === 'stub' || job.attempt_count + 1 >= (job.max_attempts ?? 3);
     if (terminal) {
-      // No human can receive this code: revoke it so nothing stays live, and
-      // leave the failure visible in the delivery state.
-      await sb.rpc('wi_revoke_undelivered_otp', { _job_id: job.id });
-      await complete(config, job.id, claimToken, result.provider === 'stub' ? 'unconfigured' : 'permanently_failed', {
-        provider: result.provider,
-        errorCode: result.provider === 'stub' ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
-        message: result.error || 'otp delivery failed',
-      });
+      // No human can receive this code: revoking it and recording the terminal
+      // delivery state happen in ONE claim-guarded transaction, so a crash can
+      // never leave a revoked OTP behind a still-claimed job.
+      await failOtpAtomically(
+        config, job, claimToken,
+        result.provider === 'stub' ? 'unconfigured' : 'permanently_failed',
+        {
+          provider: result.provider,
+          errorCode: result.provider === 'stub' ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
+          message: result.error || 'otp delivery failed',
+        },
+      );
       return;
     }
 
@@ -187,6 +231,7 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
     });
     return;
   }
+
 
   if (job.channel === 'email') {
     const appBase = await resolveAppBaseUrl(config);
@@ -266,16 +311,24 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
 export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
   const sb = getServiceClient(config);
 
-    await sb.rpc('reclaim_expired_invitation_jobs');
-    await sb.rpc('expire_invitations_v2', { _limit: 200 });
+  await sb.rpc('reclaim_expired_invitation_jobs');
+  await sb.rpc('expire_invitations_v2', { _limit: 200 });
 
+  const deadline = Date.now() + TICK_BUDGET_MS;
+  let batches = 0;
+
+  async function claimAndRun(channels: string[]): Promise<number> {
     const { data: jobs, error } = await sb.rpc('claim_invitation_jobs', {
       _worker_id: WORKER_ID,
       _limit: BATCH,
       _lease_seconds: LEASE_SECONDS,
-      _channels: ['email', 'sms', 'otp_email'],
+      _channels: channels,
     });
-    if (error || !Array.isArray(jobs)) return;
+    if (error) {
+      console.warn('[invitationWorker] claim failed:', error.message);
+      return 0;
+    }
+    if (!Array.isArray(jobs) || jobs.length === 0) return 0;
 
     for (const job of jobs) {
       try {
@@ -290,6 +343,25 @@ export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
         } catch { /* the lease reaper will requeue */ }
       }
     }
+    return jobs.length;
+  }
+
+  // Phase 0.1 — bounded priority with fairness. OTP codes live for ten
+  // minutes, so they are claimed FIRST in every round; invitation email/SMS
+  // is then always given its own round, so an OTP flood cannot starve it
+  // either. The loop is bounded by both a batch count and a time budget:
+  // never unbounded.
+  while (batches < MAX_BATCHES_PER_TICK && Date.now() < deadline) {
+    const otp = await claimAndRun(['otp_email']);
+    if (otp > 0) batches += 1;
+
+    if (batches >= MAX_BATCHES_PER_TICK || Date.now() >= deadline) break;
+
+    const normal = await claimAndRun(['email', 'sms']);
+    if (normal > 0) batches += 1;
+
+    if (otp === 0 && normal === 0) break; // nothing due: stop this tick
+  }
 }
 
 async function tick(config: ServerConfig): Promise<void> {

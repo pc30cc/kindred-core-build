@@ -34,6 +34,8 @@ import {
   tokenPrefix,
   deriveOtpCode,
   otpDigest,
+  hasOtpKey,
+  currentOtpKeyVersion,
   destinationHash,
   resolveAppBaseUrl,
   buildInviteUrl,
@@ -693,6 +695,16 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
   });
   if (probeError || !probe) return res.status(404).json(PUBLIC_ERROR);
 
+  // The live OTP records the (non-secret) pepper version its digest was built
+  // with, so a rotation cannot silently invalidate a code already in flight.
+  const { data: otpKeyVersion } = await sb.rpc('wi_otp_pending_key_version', {
+    _token_hash: invitationHash,
+  });
+  // No OTP generation at all: digest with the current key and let the RPC
+  // return the uniform OTP_INVALID — the HTTP path never leaks OTP existence.
+  const verifyKeyVersion = otpKeyVersion == null ? currentOtpKeyVersion() : Number(otpKeyVersion);
+  if (!hasOtpKey(verifyKeyVersion)) return res.status(503).json({ error: 'DERIVATION_KEY_UNAVAILABLE' });
+
   // Deterministic proof: a retry re-issues the identical HttpOnly cookie
   // instead of minting a second proof row. The raw proof is never stored.
   const proof = deriveScopedSecret('otp_proof', requestId, invitationHash);
@@ -709,7 +721,7 @@ workspaceInvitationsRouter.post('/otp/verify', requireOrigin, rejectTokenInUrl, 
     },
     args: {
       token_hash: invitationHash,
-      code_digest: otpDigest(String((probe as any).invitation_id), parsed.data.code),
+      code_digest: otpDigest(String((probe as any).invitation_id), parsed.data.code, verifyKeyVersion),
       proof_hash: sha256Hex(proof),
       proof_expires_at: new Date(Date.now() + PROOF_TTL_MS).toISOString(),
     },

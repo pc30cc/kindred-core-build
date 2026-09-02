@@ -80,15 +80,32 @@ function consumeFragmentToken(): { token: string | null; purpose: Purpose } {
   return { token, purpose };
 }
 
-async function postJson(path: string, body: unknown) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data } as const;
+/**
+ * Phase 0.4 — no invitation mutation may leave the UI stuck. A rejected fetch,
+ * an aborted request, a non-JSON body or a 5xx all resolve to a normal result
+ * with `transportUnknown = true`, so the caller can re-enable its button and
+ * RETRY WITH THE SAME requestId (the server may already have committed).
+ */
+async function postJson(path: string, body: unknown, timeoutMs = 30_000) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller ? controller.signal : undefined,
+    });
+    let data: any = {};
+    try { data = await res.json(); } catch { data = {}; }
+    return { ok: res.ok, status: res.status, data, transportUnknown: res.status >= 500 } as const;
+  } catch {
+    // Network rejection / abort / timeout: outcome genuinely unknown.
+    return { ok: false, status: 0, data: {} as any, transportUnknown: true } as const;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export default function InvitePage() {
@@ -101,6 +118,16 @@ export default function InvitePage() {
    */
   const requestIds = useRequestIdBook();
   const otpDeliveredRef = useRef(false);
+  /**
+   * Phase 0.3 — request-id intents must stay NON-SECRET. Instead of hashing the
+   * raw token/password/code into the in-memory book, each secret-bearing input
+   * owns a revision counter that is bumped on change: a different value is a
+   * new logical action, an unchanged retry reuses the same id, and no secret
+   * is ever retained.
+   */
+  const secretRevRef = useRef<Record<string, number>>({});
+  const rev = (key: string) => secretRevRef.current[key] ?? 0;
+  const bumpRev = (key: string) => { secretRevRef.current[key] = rev(key) + 1; };
   const [existingContinuation, setExistingContinuation] = useState(false);
 
   // Module-lifetime secret: never persisted anywhere.
@@ -162,7 +189,7 @@ export default function InvitePage() {
   const acceptExisting = async () => {
     if (!policies.terms || !policies.privacy) return;
     setState('accepting');
-    const { ok, data } = await postJson('/api/workspace-invitations/accept-existing', {
+    const { ok, data, transportUnknown } = await postJson('/api/workspace-invitations/accept-existing', {
       requestId: requestIds.get('accept_existing', `${policies.terms.id}|${policies.privacy.id}|${locale}`),
       consent: true,
       termsVersionId: policies.terms.id,
@@ -170,6 +197,11 @@ export default function InvitePage() {
       locale,
     });
     if (!ok) {
+      if (transportUnknown) {
+        setState(user ? 'ready' : 'account_exists_login_required');
+        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        return;
+      }
       const code = String(data?.error || 'INVITATION_NOT_FOUND');
       setErrorCode(code);
       if (code === 'WRONG_ACCOUNT') setState('wrong_account');
@@ -192,13 +224,23 @@ export default function InvitePage() {
       requestIds.reset('otp_request');
       otpDeliveredRef.current = false;
     }
-    const { ok, status } = await postJson('/api/workspace-invitations/otp/request', {
-      requestId: requestIds.get('otp_request'),
-      token: tokenRef.current,
-      purpose: purposeRef.current,
-    });
-    setOtpSending(false);
+    let ok = false; let status = 0; let transportUnknown = false;
+    try {
+      ({ ok, status, transportUnknown } = await postJson('/api/workspace-invitations/otp/request', {
+        requestId: requestIds.get('otp_request'),
+        token: tokenRef.current,
+        purpose: purposeRef.current,
+      }));
+    } finally {
+      // The button is ALWAYS actionable again, whatever the transport did.
+      setOtpSending(false);
+    }
     if (!ok) {
+      if (transportUnknown) {
+        // Outcome unknown: keep the SAME requestId so the retry is a replay.
+        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        return;
+      }
       toast.error(status === 429
         ? tt(t, 'invite.otpRateLimited', 'Too many requests. Try again shortly.')
         : tt(t, 'invite.otpFailed', 'Could not send the code.'));
@@ -210,13 +252,17 @@ export default function InvitePage() {
 
   const verifyOtp = async () => {
     if (!tokenRef.current) return;
-    const { ok, status } = await postJson('/api/workspace-invitations/otp/verify', {
-      requestId: requestIds.get('otp_verify', otpCode),
+    const { ok, status, transportUnknown } = await postJson('/api/workspace-invitations/otp/verify', {
+      requestId: requestIds.get('otp_verify', `code-rev:${rev('otp_verify')}`),
       token: tokenRef.current,
       purpose: purposeRef.current,
       code: otpCode,
     });
     if (!ok) {
+      if (transportUnknown) {
+        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        return;
+      }
       toast.error(status === 429
         ? tt(t, 'invite.otpRateLimited', 'Too many attempts. Try again later.')
         : tt(t, 'invite.otpInvalid', 'Invalid or expired code.'));
@@ -230,13 +276,21 @@ export default function InvitePage() {
     if (!tokenRef.current) return;
     // The token is exchanged for a short-lived HttpOnly context cookie; the
     // redirect URL below carries no invitation secret at all.
-    const { ok, data } = await postJson('/api/workspace-invitations/login-context', {
+    const { ok, data, transportUnknown } = await postJson('/api/workspace-invitations/login-context', {
       requestId: requestIds.get('login_context'),
       token: tokenRef.current,
       purpose: purposeRef.current,
     });
+    if (!ok) {
+      if (transportUnknown) {
+        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        return; // token kept: the same logical action may be retried
+      }
+      tokenRef.current = null;
+      setState('invalid');
+      return;
+    }
     tokenRef.current = null;
-    if (!ok) { setState('invalid'); return; }
     navigate(String(data?.loginPath || '/auth/login?invited=1'));
   };
 
@@ -247,12 +301,13 @@ export default function InvitePage() {
       return;
     }
     setState('accepting');
-    const { ok, data } = await postJson('/api/workspace-invitations/accept-new', {
+    const { ok, data, transportUnknown } = await postJson('/api/workspace-invitations/accept-new', {
       requestId: requestIds.get(
         'accept_new',
-        // Intent = token + password + consent versions. Changing any of them is
-        // a new logical action, so the server must not replay the old one.
-        `${tokenRef.current}|${password}|${policies.terms.id}|${policies.privacy.id}|${purposeRef.current}`,
+        // Intent = NON-SECRET revision + consent versions + purpose. Changing
+        // the password bumps the revision, so it is a new logical action, and
+        // the raw password/token is never retained anywhere.
+        `pw-rev:${rev('accept_new')}|${policies.terms.id}|${policies.privacy.id}|${purposeRef.current}`,
       ),
       token: tokenRef.current,
       purpose: purposeRef.current,
@@ -262,10 +317,15 @@ export default function InvitePage() {
       privacyVersionId: policies.privacy.id,
       locale,
     });
-    setPassword('');
-    setConfirm('');
-
     if (!ok) {
+      if (transportUnknown) {
+        // Unknown outcome: stay retryable and KEEP the same requestId.
+        setState('ready');
+        toast.error(tt(t, 'invite.networkError', 'Network problem. Please try again.'));
+        return;
+      }
+      setPassword('');
+      setConfirm('');
       const code = String(data?.error || 'INVITATION_NOT_FOUND');
       setErrorCode(code);
       if (code === 'ACCOUNT_EXISTS_LOGIN_REQUIRED') setState('account_exists_login_required');
@@ -276,6 +336,8 @@ export default function InvitePage() {
       return;
     }
 
+    setPassword('');
+    setConfirm('');
     tokenRef.current = null;
     if (data?.session === 'SESSION_CREATE_FAILED_LOGIN_REQUIRED') {
       setState('session_failed_login_required');
@@ -386,7 +448,7 @@ export default function InvitePage() {
             <div className="space-y-2">
               <Label htmlFor="otp">{tt(t, 'invite.code', 'Verification code')}</Label>
               <Input id="otp" inputMode="numeric" maxLength={6} value={otpCode}
-                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))} />
+                     onChange={(e) => { bumpRev('otp_verify'); setOtpCode(e.target.value.replace(/\D/g, '')); }} />
             </div>
             <Button className="w-full" disabled={otpCode.length !== 6} onClick={verifyOtp}>
               {tt(t, 'invite.verify', 'Verify')}
@@ -405,12 +467,12 @@ export default function InvitePage() {
           {!existingContinuation ? <><div className="space-y-2">
             <Label htmlFor="pw">{tt(t, 'invite.password', 'Create a password')}</Label>
             <Input id="pw" type="password" value={password} autoComplete="new-password"
-                   onChange={(e) => setPassword(e.target.value)} />
+                   onChange={(e) => { bumpRev('accept_new'); setPassword(e.target.value); }} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="pw2">{tt(t, 'invite.confirmPassword', 'Confirm password')}</Label>
             <Input id="pw2" type="password" value={confirm} autoComplete="new-password"
-                   onChange={(e) => setConfirm(e.target.value)} />
+                   onChange={(e) => { bumpRev('accept_new'); setConfirm(e.target.value); }} />
           </div></> : null}
 
           <div className="flex items-start gap-2">

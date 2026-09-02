@@ -12142,6 +12142,10 @@ export type Database = {
         Args: { _claim_token: string; _job_id: string; _lease_seconds?: number }
         Returns: boolean
       }
+      wi_invitation_public_context: {
+        Args: { _invitation_id: string }
+        Returns: Json
+      }
       wi_job_still_sendable: {
         Args: { _claim_token: string; _job_id: string }
         Returns: boolean

@@ -23,6 +23,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useRequestIdBook } from '@/features/invitations/requestIds';
+import { InvitationManagement } from '@/features/invitations/InvitationManagement';
 import { toast } from '@/lib/toast';
 import {
   Building2, Plus, Trash2, Users, MessageSquare, Phone, Video,
@@ -173,7 +174,6 @@ export default function TeamDepartmentsPage() {
 
   /* ─── Member actions ─── */
   const [editDeptsFor, setEditDeptsFor] = useState<{ userId: string; name: string } | null>(null);
-  const [showInvite, setShowInvite] = useState(false);
 
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
@@ -308,9 +308,6 @@ export default function TeamDepartmentsPage() {
               {t('teamDept.teamMembersHint')}
             </p>
           </div>
-          <Button onClick={() => setShowInvite(true)} size="sm">
-            <UserPlus className="h-4 w-4 me-2" /> {t('teamDept.inviteMember')}
-          </Button>
         </div>
 
         <Card className="overflow-hidden border-border/60">
@@ -344,9 +341,6 @@ export default function TeamDepartmentsPage() {
                   <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
                     {t('teamDept.noMembersHint')}
                   </p>
-                  <Button variant="outline" onClick={() => setShowInvite(true)}>
-                    <UserPlus className="h-4 w-4 me-2" /> {t('teamDept.inviteMember')}
-                  </Button>
                 </>
               )}
             </div>
@@ -482,15 +476,9 @@ export default function TeamDepartmentsPage() {
           onClose={() => setEditDeptsFor(null)}
         />
       )}
-      {showInvite && wsId && (
-        <InviteMemberDialog
-          workspaceId={wsId}
-          workspaceName={workspace.name}
-          inviterEmail={user?.email || ''}
-          mode="customer"
-          onClose={() => setShowInvite(false)}
-        />
-      )}
+
+      {wsId && <InvitationManagement workspaceId={wsId} mode="customer_facing" />}
+
     </div>
   );
 }
@@ -797,159 +785,5 @@ function MemberDepartmentsDialog({
   );
 }
 
-/* Shared invite dialog (also used by Staff Access) */
-
-/**
- * Hardened default for customer-facing invites. Workspace owners never see or
- * choose a role from Team & Departments — every customer-facing member is
- * created with this single base operator role. Department membership is the
- * only visible concept. Do not replace this with `roles[0]`-style indexing.
- */
+/* Canonical customer-facing base role (shared invitation UI reuses it) */
 export const DEFAULT_CUSTOMER_FACING_ROLE = 'agent' as const;
-
-const STAFF_INVITE_ROLES = ['admin', 'marketing_manager', 'seo_manager', 'analyst', 'developer', 'billing', 'viewer'];
-
-export function InviteMemberDialog({
-  workspaceId, workspaceName: _workspaceName, inviterEmail: _inviterEmail, mode, onClose,
-}: {
-  workspaceId: string;
-  workspaceName: string;
-  inviterEmail: string;
-  mode: 'customer' | 'staff';
-  onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  // Customer-facing members all share one base operator role
-  // (DEFAULT_CUSTOMER_FACING_ROLE). The raw role taxonomy is intentionally
-  // hidden from workspace owners — they only think in terms of "team members"
-  // and "departments". Staff Access keeps the role selector because internal
-  // permission bundles are the correct mental model there.
-  const staffRoles = STAFF_INVITE_ROLES;
-  const [email, setEmail] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
-  const [role, setRole] = useState<string>(
-    mode === 'customer' ? DEFAULT_CUSTOMER_FACING_ROLE : staffRoles[0],
-  );
-  const [link, setLink] = useState('');
-  const { data: departments = [] } = useQuery({
-    queryKey: ['ws-departments-list', workspaceId],
-    queryFn: () => listDepartments(workspaceId),
-    enabled: mode === 'customer',
-  });
-
-  // Stable per-intent request id: a retry of the same submission reuses it,
-  // an edited field is a new logical action (v5.1 B.1).
-  const requestIds = useRequestIdBook();
-  const create = useMutation({
-    mutationFn: async () => {
-      const intent = [
-        workspaceId, firstName.trim(), lastName.trim(), email.trim(), phone.trim(),
-        mode, role, [...departmentIds].sort().join(','),
-      ].join('|');
-      const { invitation, manualLink } = await teamApi<{ invitation: any; manualLink: string }>('/api/workspace-invitations', {
-        method: 'POST',
-        body: JSON.stringify({
-          workspaceId,
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          memberType: mode === 'customer' ? 'customer_facing' : 'staff',
-          role,
-          departmentIds: mode === 'customer' ? departmentIds : [],
-          expiresInDays: 30,
-          requestId: requestIds.get('create_invitation', intent),
-        }),
-      });
-      return { invitation, manualLink };
-    },
-    onSuccess: async ({ manualLink }: { invitation: any; manualLink: string }) => {
-      setLink(manualLink);
-      await navigator.clipboard.writeText(manualLink);
-      toast.success(t('teamDept.toastInviteCopied'));
-      queryClient.invalidateQueries({ queryKey: ['ws-invitations', workspaceId] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {mode === 'customer' ? t('teamDept.dlgInviteTeam') : t('teamDept.dlgInviteStaff')}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-5 py-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">{t('teamDept.firstName')}</Label>
-              <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">{t('teamDept.lastName')}</Label>
-              <Input value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">{t('teamDept.email')}</Label>
-            <Input type="email" value={email} dir="ltr"
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@example.com"
-              className="text-left text-xs" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">{t('teamDept.phone')}</Label>
-            <Input type="tel" value={phone} dir="ltr" onChange={(e) => setPhone(e.target.value)} placeholder="+989121234567" className="text-left text-xs" />
-          </div>
-          {mode === 'staff' ? (
-            <div className="space-y-1.5">
-              <Label className="text-xs">{t('teamDept.internalAccess')}</Label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {staffRoles.map(r => (
-                    <SelectItem key={r} value={r}>
-                      {r.replace(/_/g, ' ')}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label className="text-xs">{t('teamDept.departments')}</Label>
-              <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border/60 p-2">
-                {departments.map((department: any) => (
-                  <label key={department.id} className="flex items-center gap-2 rounded p-1.5 text-xs hover:bg-muted/40">
-                    <Checkbox checked={departmentIds.includes(department.id)} onCheckedChange={(checked) => setDepartmentIds((current) => checked ? [...current, department.id] : current.filter((id) => id !== department.id))} />
-                    <span>{department.name}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          {link && (
-            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1.5">
-              <p className="text-xs font-medium text-foreground">{t('teamDept.inviteLinkCopiedTitle')}</p>
-              <Input value={link} readOnly dir="ltr" className="font-mono text-[11px]" />
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>{t('teamDept.close')}</Button>
-          <Button onClick={() => create.mutate()} disabled={create.isPending || !firstName.trim() || !lastName.trim() || !email.trim() || !/^\+[1-9]\d{6,14}$/.test(phone.trim()) || (mode === 'customer' && departmentIds.length === 0)}>
-            {create.isPending
-              ? <Loader2 className="h-4 w-4 me-2 animate-spin" />
-              : <Mail className="h-4 w-4 me-2" />}
-            {link ? t('teamDept.generateAnother') : t('teamDept.generateInvite')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}

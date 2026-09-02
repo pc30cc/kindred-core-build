@@ -16,6 +16,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 
 const read = (p: string) => readFileSync(p, 'utf8');
 const INVITE_PAGE = read('src/pages/auth/InvitePage.tsx');
+const MANAGEMENT = read('src/features/invitations/InvitationManagement.tsx');
 const TEAM_PAGE = read('src/pages/app/TeamPage.tsx');
 const DEPARTMENTS_PAGE = read('src/pages/app/settings/TeamDepartmentsPage.tsx');
 
@@ -67,7 +68,7 @@ describe('InvitePage request-id wiring', () => {
 
   it('never persists request IDs or invitation secrets', () => {
     // Comments may mention the rule; only real accesses are a violation.
-    for (const source of [INVITE_PAGE, TEAM_PAGE, DEPARTMENTS_PAGE]) {
+    for (const source of [INVITE_PAGE, MANAGEMENT, DEPARTMENTS_PAGE]) {
       const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       expect(code).not.toMatch(/(?:window\.)?localStorage\s*[.[]/);
       expect(code).not.toMatch(/(?:window\.)?sessionStorage\s*[.[]/);
@@ -77,13 +78,18 @@ describe('InvitePage request-id wiring', () => {
 
   it('never logs tokens, codes, passwords, proofs or context handles', () => {
     const forbidden = /console\.(log|info|warn|error)\([^)]*\b(token|code|password|proof|handle|requestId)\b/i;
-    for (const source of [INVITE_PAGE, TEAM_PAGE, DEPARTMENTS_PAGE]) {
+    for (const source of [INVITE_PAGE, MANAGEMENT, DEPARTMENTS_PAGE]) {
       expect(source).not.toMatch(forbidden);
     }
   });
 
-  it('management pages take their request IDs from the shared book, not inline UUIDs', () => {
-    for (const source of [TEAM_PAGE, DEPARTMENTS_PAGE]) {
+  it('legacy /team is only a redirect to the canonical surface', () => {
+    expect(TEAM_PAGE).toContain('Navigate');
+    expect(TEAM_PAGE).not.toContain('workspace-invitations');
+  });
+
+  it('management surfaces take their request IDs from the shared book, not inline UUIDs', () => {
+    for (const source of [MANAGEMENT, DEPARTMENTS_PAGE]) {
       expect(source).toContain('useRequestIdBook');
       expect(source).not.toMatch(/requestId:\s*crypto\.randomUUID\(\)/);
     }

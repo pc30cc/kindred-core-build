@@ -219,12 +219,27 @@ suite('Workspace Invitations v5.1 §C.4 residual — offboarding fault injection
     const owner = await h.makeOwner(`c4h.owner.${Date.now()}@example.test`);
     const member = await onboardMember(owner);
 
-    // The same person owns their own workspace elsewhere.
-    const own = await h.call('POST', '/api/workspaces', {
-      cookie: member.sessionCookie!, body: { name: 'Their Own Workspace' },
+    // The same person is ALSO a member of a second, unrelated workspace,
+    // joined through the real existing-account acceptance flow.
+    h.freshAddr();
+    const other = await h.makeOwner(`c4h.other.${Date.now()}@example.test`);
+    const inviteB = await h.call('POST', '/api/workspace-invitations', {
+      cookie: other.cookie, body: h.invitePayload(other.workspaceId, { email: member.email }),
     });
-    expect(own.status, JSON.stringify(own.json)).toBeLessThan(300);
-    const otherWorkspaceId = String(own.json.workspace?.id ?? own.json.id);
+    expect(inviteB.status, JSON.stringify(inviteB.json)).toBe(201);
+    const tokenB = h.tokenFromManualLink(inviteB.json.manualLink);
+    const ctx = await h.call('POST', '/api/workspace-invitations/login-context', {
+      body: { requestId: h.rid(), token: tokenB, purpose: 'manual_handoff' },
+    });
+    expect(ctx.status, JSON.stringify(ctx.json)).toBe(200);
+    const ctxCookie = h.cookieOf(ctx, 'wi_ctx')!;
+    const policies = await h.activePolicies();
+    const joined = await h.call('POST', '/api/workspace-invitations/accept-existing', {
+      cookie: `${member.sessionCookie}; ${ctxCookie}`,
+      body: { requestId: h.rid(), consent: true, ...policies },
+    });
+    expect(joined.status, JSON.stringify(joined.json)).toBe(200);
+    const otherWorkspaceId = other.workspaceId;
 
     const credentialsBefore = await h.one(
       'SELECT user_id, password_hash FROM public.user_credentials WHERE user_id = $1', [member.userId],
@@ -261,6 +276,14 @@ suite('Workspace Invitations v5.1 §C.4 residual — offboarding fault injection
     expect(second.status).toBe(201);
     const idA = String(first.json.invitation.id);
     const idB = String(second.json.invitation.id);
+
+    // Archiving is only legal once an invitation is no longer pending.
+    for (const id of [idA, idB]) {
+      const revoked = await h.call('POST', `/api/workspace-invitations/${id}/revoke`, {
+        cookie: owner.cookie, body: { requestId: h.rid(), reason: 'obsolete' },
+      });
+      expect(revoked.status, JSON.stringify(revoked.json)).toBe(200);
+    }
 
     const requestId = h.rid();
     const archive = await h.call('POST', `/api/workspace-invitations/${idA}/archive`, {

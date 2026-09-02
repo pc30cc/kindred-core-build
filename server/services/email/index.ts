@@ -215,8 +215,10 @@ export async function sendEmail(
       result = await sendViaSMTP(providerConfig!, to, subject, html, text, fromAddr);
       break;
     case 'stub':
-      console.log(`[email] STUB: Would send "${subject}" to ${to}`);
-      result = { success: true, id: `stub-${Date.now()}`, provider: 'stub' };
+      // Never claim delivery when no provider is active. Invitation/OTP
+      // workers use this result to fail closed and keep their delivery state
+      // truthful instead of reporting a message that was never sent.
+      result = { success: false, provider: 'stub', error: 'Email provider is not configured' };
       break;
     default:
       result = { success: false, provider: providerName, error: `Unknown provider: ${providerName}` };

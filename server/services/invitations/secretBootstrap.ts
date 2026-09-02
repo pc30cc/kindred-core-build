@@ -37,6 +37,7 @@ export async function ensureInvitationSecrets(
   const envLink = process.env.INVITATION_LINK_SECRET?.trim();
   const envOtp = process.env.INVITATION_OTP_PEPPER?.trim();
   if (envLink && envOtp) {
+    validateInvitationSecrets();
     return { linkSecret: 'env', otpPepper: 'env' };
   }
 

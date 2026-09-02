@@ -121,7 +121,7 @@ function makePgServiceClient(pg: PgTestClient) {
           }),
           then: (resolve: any) => exec()
             .then((r: any) => resolve({ data: r.rows, error: null }))
-            .catch((e: any) => resolve({ data: null, error: { message: e.message, code: e.code } })),
+            .catch((e: any) => { if (process.env.WI_TEST_DEBUG) console.error('[insert]', table, e.message); return resolve({ data: null, error: { message: e.message, code: e.code } }); }),
         };
       },
       update(patch: Record<string, unknown>) { state.patch = patch; return builder; },

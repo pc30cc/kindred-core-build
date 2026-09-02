@@ -335,7 +335,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="regression-runs" element={<AdvancedAiAgentGuard><AiAgentRegressionRunsPage /></AdvancedAiAgentGuard>} />
                 </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
-                <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />
+                {/* Team: owners are redirected to settings inside the page;
+                    operators get the read-only member directory. */}
+                <Route path="team" element={<TeamPage />} />
                 <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />
                 <Route path="ai" element={<Navigate to="../settings/ai" replace />} />
               </Route>

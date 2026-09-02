@@ -150,16 +150,33 @@ function makePgServiceClient(pg: PgTestClient) {
   /** Generic named-notation RPC bridge: every function is called for real. */
   async function rpc(name: string, args: Record<string, unknown> = {}) {
     const keys = Object.keys(args);
-    const call = keys.length
-      ? `SELECT public.${name}(${keys.map((k, i) => `${k} := $${i + 1}`).join(', ')}) AS result`
-      : `SELECT public.${name}() AS result`;
+    const argList = keys.map((k, i) => `${k} := $${i + 1}`).join(', ');
+    const values = keys.map((k) => args[k]);
     try {
-      const r = await pg.query(call, keys.map((k) => args[k]));
+      // Match PostgREST's shape: set-returning functions yield an array of
+      // rows, composite returns yield one object, scalars yield the value.
+      const shape = await pg.query(
+        `SELECT p.proretset, t.typtype
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+           JOIN pg_type t ON t.oid = p.prorettype
+          WHERE n.nspname = 'public' AND p.proname = $1
+          LIMIT 1`,
+        [name],
+      );
+      const retset = shape.rows[0]?.proretset === true;
+      const composite = shape.rows[0]?.typtype === 'c';
+      if (retset || composite) {
+        const r = await pg.query(`SELECT * FROM public.${name}(${argList})`, values);
+        return { data: retset ? r.rows : (r.rows[0] ?? null), error: null };
+      }
+      const r = await pg.query(`SELECT public.${name}(${argList}) AS result`, values);
       return { data: r.rows[0]?.result ?? null, error: null };
     } catch (e: any) {
       return { data: null, error: { message: e.message, code: e.code } };
     }
   }
+
 
   return { from, rpc };
 }

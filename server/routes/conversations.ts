@@ -1115,8 +1115,12 @@ conversationsRouter.get('/inbox-counts', async (req: any, res: any) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const base = () =>
-      sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+    const seesAll =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    const base = () => {
+      const q = sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+      return seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+    };
     const [mainRes, autoRes, needsRes, spamRes] = await Promise.all([
       base().eq('is_spam', false).neq('status', 'closed').or('ai_state.is.null,ai_state.neq.ai_managed'),
       base().eq('is_spam', false).neq('status', 'closed').eq('ai_state', 'ai_managed').is('assigned_to', null),

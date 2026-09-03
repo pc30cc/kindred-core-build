@@ -136,3 +136,72 @@ export async function applyPostSendAction(
     return { changed: false, blocked: 'exception' };
   }
 }
+
+/**
+ * Non-RPC fallback for `conversation_apply_post_send_action`.
+ * Keeps the same guards as the SQL function:
+ *   • conversation must exist in the workspace and be in an allowed status
+ *   • no inbound customer message newer than the agent's message
+ * The final UPDATE is conditional on the still-allowed status, so a concurrent
+ * change loses the race instead of overwriting it.
+ */
+async function applyPostSendFallback(
+  sb: ReturnType<typeof getServiceClient>,
+  input: {
+    workspaceId: string;
+    conversationId: string;
+    targetStatus: string;
+    allowedFrom: string[];
+    afterMessageId: string | null;
+  },
+): Promise<{ changed: boolean; new_status?: string; changed_at?: string; blocked_reason?: string }> {
+  const { data: conv, error: convErr } = await sb
+    .from('conversations')
+    .select('id, status')
+    .eq('id', input.conversationId)
+    .eq('workspace_id', input.workspaceId)
+    .maybeSingle();
+
+  if (convErr) return { changed: false, blocked_reason: 'rpc_error' };
+  if (!conv) return { changed: false, blocked_reason: 'not_found' };
+  if (!input.allowedFrom.includes(conv.status as string)) {
+    return { changed: false, blocked_reason: 'status_conflict' };
+  }
+
+  if (input.afterMessageId) {
+    const { data: anchor } = await sb
+      .from('conversation_messages')
+      .select('created_at')
+      .eq('id', input.afterMessageId)
+      .maybeSingle();
+    if (anchor?.created_at) {
+      const { data: newer } = await sb
+        .from('conversation_messages')
+        .select('id')
+        .eq('conversation_id', input.conversationId)
+        .eq('sender_type', 'contact')
+        .gt('created_at', anchor.created_at)
+        .limit(1);
+      if (newer && newer.length > 0) {
+        return { changed: false, blocked_reason: 'customer_replied' };
+      }
+    }
+  }
+
+  const changedAt = new Date().toISOString();
+  const { data: updated, error: updErr } = await sb
+    .from('conversations')
+    .update({ status: input.targetStatus, updated_at: changedAt })
+    .eq('id', input.conversationId)
+    .eq('workspace_id', input.workspaceId)
+    .in('status', input.allowedFrom)
+    .select('id')
+    .maybeSingle();
+
+  if (updErr) {
+    console.warn('[conversationPostSend] fallback update failed:', updErr.message);
+    return { changed: false, blocked_reason: 'rpc_error' };
+  }
+  if (!updated) return { changed: false, blocked_reason: 'status_conflict' };
+  return { changed: true, new_status: input.targetStatus, changed_at: changedAt };
+}

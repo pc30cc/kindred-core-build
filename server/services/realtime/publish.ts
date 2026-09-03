@@ -100,7 +100,19 @@ export function buildMessageEnvelope(row: {
   created_at: string | null;
   metadata?: Record<string, unknown> | null;
   seen_at?: string | null;
+  /**
+   * Operator/AI identity. Realtime used to omit these, so a live operator
+   * reply rendered with no avatar until the visitor reloaded (only /poll and
+   * /history enriched the sender). Any caller that inserts an agent message
+   * must pass them so the widget can draw the avatar immediately.
+   */
+  sender_id?: string | null;
+  sender_name?: string | null;
+  sender_avatar?: string | null;
+  attachment?: unknown;
+  attachments?: unknown;
 }): ConversationEventEnvelope {
+  const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata as Record<string, any> : {};
   return {
     type: 'message',
     payload: {
@@ -119,9 +131,15 @@ export function buildMessageEnvelope(row: {
       created_at: row.created_at,
       seen_at: row.seen_at ?? null,
       metadata: row.metadata ?? {},
+      sender_id: row.sender_id ?? null,
+      sender_name: row.sender_name ?? meta.agent_name ?? null,
+      sender_avatar: row.sender_avatar ?? meta.agent_logo_url ?? null,
+      ...(row.attachment ? { attachment: row.attachment } : {}),
+      ...(row.attachments ? { attachments: row.attachments } : {}),
     },
   };
 }
+
 
 // ─────────────────────────────────────────────────────────────────────
 // Operator event envelopes (Phase 5 — realtime push for non-message events)

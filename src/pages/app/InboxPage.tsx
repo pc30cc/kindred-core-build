@@ -176,11 +176,11 @@ export default function InboxPage() {
   // queue param is constrained to the real queues. Any other value (incl.
   // the legacy `needs_human`) collapses to Main Inbox; the legacy URL is
   // rewritten by the effect below into `?filter=needs_human`.
-  const queue: InboxQueue =
+  const rawQueue: InboxQueue =
     queueParam === 'automated' ? 'automated'
       : queueParam === 'spam' ? 'spam'
       : 'main';
-  const isQueueMode = queue !== 'main';
+
 
   const filter: FilterStatus =
     statusParam === 'open' || statusParam === 'pending' ||

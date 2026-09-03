@@ -354,6 +354,17 @@ GRANT SELECT, INSERT, UPDATE ON public.verification_proofs TO service_role;
 GRANT SELECT, INSERT ON public.verification_delivery_attempts TO service_role; -- append-only, no UPDATE/DELETE
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.verification_idempotency TO service_role; -- DELETE needed for the purge RPC
 
+-- A hosted Supabase project's own platform-level bootstrap applies
+-- `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO service_role`
+-- outside of any customer migration, so a freshly-created table starts
+-- with service_role already holding UPDATE/DELETE — the GRANTs above only
+-- ADD privileges and can never strip that platform default back down.
+-- Revoke explicitly so the two append-only tables are actually
+-- append-only regardless of what a given environment's platform bootstrap
+-- already granted.
+REVOKE UPDATE, DELETE ON public.verification_attempts FROM service_role;
+REVOKE UPDATE, DELETE ON public.verification_delivery_attempts FROM service_role;
+
 -- ============================================================
 -- 7. Database-facing dormancy contract — independent of, and in addition
 --    to, the TypeScript purpose registry. Empty by design: EVERY purpose

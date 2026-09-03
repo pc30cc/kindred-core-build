@@ -3182,8 +3182,18 @@ const tr: TranslationKeys = {
       notConfigured: 'Yönetici başlatma yapılandırılmamış. Sunucu ortamında INITIAL_ADMIN_EMAIL değerini ayarlayın.', verifyEmail: 'Yönetici oluşturmadan önce e-postanızı doğrulayın.',
       notAuthorized: 'Bu hesabın platform yöneticisi oluşturma yetkisi yok.', failed: 'Yönetici başlatılamadı.',
     },
+    finance: {
+      title: 'Finans ve Denetim',
+      subtitle: 'Platform faturalandırma, yapay zeka maliyeti ve değişiklik izi tek yerde',
+      tabs: {
+        billing: 'Faturalar ve ödemeler',
+        ai: 'Yapay zeka',
+        audit: 'Denetim günlüğü',
+      },
+    },
     nav: {
       title: 'Süper Yönetici',
+      finance: 'Finans ve Denetim',
       dashboard: 'Gösterge Paneli',
       users: 'Kullanıcılar',
       workspaces: 'Çalışma Alanları',

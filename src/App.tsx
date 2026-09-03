@@ -105,8 +105,6 @@ import AdminObservabilityPage from "@/pages/admin/ObservabilityPage";
 import AdminFeatureFlagsPage from "@/pages/admin/FeatureFlagsPage";
 import AdminBrandingPage from "@/pages/admin/BrandingPage";
 import AdminDomainsPage from "@/pages/admin/DomainsPage";
-import AdminAuditLogsPage from "@/pages/admin/AuditLogsPage";
-import AdminBillingPage from "@/pages/admin/BillingPage";
 import AdminPlansPage from "@/pages/admin/PlansPage";
 import AdminPluginsPage from "@/pages/admin/PluginsPage";
 import AdminPluginDetailPage from "@/pages/admin/PluginDetailPage";
@@ -119,7 +117,7 @@ import AdminMapGeoPage from "@/pages/admin/MapGeoPage";
 import AdminVoiceVideoPage from "@/pages/admin/VoiceVideoPage";
 import AdminAiAgentControlPage from "@/pages/admin/AiAgentControlPage";
 import AdminCallCenterPage from "@/pages/admin/CallCenterPage";
-import AdminAiBillingPage from "@/pages/admin/AiBillingPage";
+import AdminFinancePage from "@/pages/admin/FinancePage";
 
 import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
 import CallCenterOverviewPage from "@/pages/app/call-center/OverviewPage";
@@ -222,7 +220,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/voice-video" element={<AdminVoiceVideoPage />} />
                 <Route path="/admin/ai-agent" element={<AdminAiAgentControlPage />} />
                 <Route path="/admin/call-center" element={<AdminCallCenterPage />} />
-                <Route path="/admin/ai-billing" element={<AdminAiBillingPage />} />
+                <Route path="/admin/ai-billing" element={<Navigate to="/admin/finance?tab=ai" replace />} />
                 {/* Legacy Advanced Routing page replaced by Widget Settings → Advanced Routing tab. */}
                 <Route
                   path="/admin/advanced-routing"
@@ -233,8 +231,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />
                 <Route path="/admin/branding" element={<AdminBrandingPage />} />
                 <Route path="/admin/domains" element={<AdminDomainsPage />} />
-                <Route path="/admin/audit-logs" element={<AdminAuditLogsPage />} />
-                <Route path="/admin/billing" element={<AdminBillingPage />} />
+                <Route path="/admin/finance" element={<AdminFinancePage />} />
+                <Route path="/admin/audit-logs" element={<Navigate to="/admin/finance?tab=audit" replace />} />
+                <Route path="/admin/billing" element={<Navigate to="/admin/finance?tab=billing" replace />} />
                 <Route path="/admin/plans" element={<AdminPlansPage />} />
                 <Route path="/admin/plugins" element={<AdminPluginsPage />} />
                 <Route path="/admin/plugins/:pluginId" element={<AdminPluginDetailPage />} />

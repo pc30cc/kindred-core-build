@@ -653,6 +653,10 @@ function RenewalDialog({
 
             <dl className="text-sm space-y-2.5">
               <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t('billingIran.invoice.issuedAt')}</dt><dd className="font-medium">{jalaliDate(invoice?.issuedAt)}</dd></div>
+              {invoice?.workspaceName && (
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t('billingIran.invoice.workspace')}</dt><dd className="font-medium">{invoice.workspaceName}</dd></div>
+              )}
+
               <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t('billingIran.renewal.planLabel')}</dt><dd className="font-medium">{planName}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t('billingIran.renewal.periodLabel')}</dt><dd className="font-medium">{interval === 'monthly' ? t('billingIran.plans.monthly') : t('billingIran.plans.yearly')}</dd></div>
               <div className="flex justify-between gap-4">

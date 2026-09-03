@@ -3,8 +3,18 @@
  * Left: workspace operator directory (presence, unread, last message).
  * Right: 1:1 thread with the selected colleague.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Send, Users, MessageSquare, Loader2, ArrowLeft } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Search, Send, Users, MessageSquare, Loader2, ArrowLeft,
+  Paperclip, Mic, Square, Trash2, FileText, ImageIcon, X,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { toast } from '@/hooks/use-toast';
+import { conversationsApi } from '@/lib/conversations-api';
+import { EmojiPicker } from '@/components/inbox/EmojiPicker';
+import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAttachmentView';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -22,6 +32,19 @@ import {
 } from '@/hooks/useTeamChat';
 import { formatTime, formatRelative, formatLongDate } from '@/lib/date';
 
+const ALLOWED_TEAM_MIMES = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+  'application/pdf', 'text/plain',
+  'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
+]);
+const MAX_TEAM_BYTES = 25 * 1024 * 1024;
+
+function clock(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
 function initials(name?: string | null, email?: string | null) {
   const src = (name || email || '?').trim();
   const parts = src.split(/\s+/).filter(Boolean);
@@ -37,6 +60,8 @@ export default function TeamChatPanel() {
   const [peerId, setPeerId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: dirData, isLoading } = useColleagues(workspace?.id);
   const { data: presence } = useTeamPresence(workspace?.id);
@@ -44,6 +69,29 @@ export default function TeamChatPanel() {
   const { data: threadData, isLoading: threadLoading } = useTeamThread(workspace?.id, peerId);
   const send = useSendTeamMessage(workspace?.id);
   const markRead = useMarkTeamThreadRead(workspace?.id);
+  const recorder = useVoiceRecorder();
+
+  // ─── Pending attachment (single per draft, mirrors the Inbox composer) ───
+  const [att, setAtt] = useState<{
+    file: File | null;
+    attachmentId: string | null;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    status: 'idle' | 'uploading' | 'ready' | 'error';
+    progress: number;
+    error: string;
+  }>({
+    file: null, attachmentId: null, fileName: '', mimeType: '',
+    sizeBytes: 0, status: 'idle', progress: 0, error: '',
+  });
+
+  const resetAttachment = useCallback(() => {
+    setAtt({
+      file: null, attachmentId: null, fileName: '', mimeType: '',
+      sizeBytes: 0, status: 'idle', progress: 0, error: '',
+    });
+  }, []);
 
   const colleagues = dirData?.colleagues ?? [];
   const peer: Colleague | undefined = colleagues.find(c => c.user_id === peerId);
@@ -65,14 +113,97 @@ export default function TeamChatPanel() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, peerId]);
 
+  // Switching colleague drops any half-composed draft attachment.
+  useEffect(() => { resetAttachment(); recorder.cancel(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [peerId]);
+
+  /** Upload through the same authenticated operator attachment endpoints. */
+  const beginUpload = useCallback(async (file: File) => {
+    if (!workspace?.id) return;
+    if (!ALLOWED_TEAM_MIMES.has(file.type)) {
+      toast({
+        title: t('inbox.attachInvalidType') || 'File type not allowed',
+        description: file.type || 'unknown',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (file.size > MAX_TEAM_BYTES) {
+      toast({
+        title: t('inbox.attachTooLarge') || 'File too large',
+        description: humanSize(MAX_TEAM_BYTES),
+        variant: 'destructive',
+      });
+      return;
+    }
+    setAtt({
+      file, attachmentId: null, fileName: file.name, mimeType: file.type,
+      sizeBytes: file.size, status: 'uploading', progress: 5, error: '',
+    });
+    try {
+      const init = await conversationsApi.initAttachment({
+        workspace_id: workspace.id,
+        conversation_id: null, // internal message — never bound to a visitor thread
+        file,
+      });
+      setAtt((s) => ({ ...s, attachmentId: init.attachment_id, progress: 20 }));
+      await conversationsApi.uploadAttachment({
+        workspace_id: workspace.id,
+        attachment_id: init.attachment_id,
+        file,
+        onProgress: (pct) => setAtt((s) => ({ ...s, progress: Math.max(s.progress, pct) })),
+      });
+      setAtt((s) => ({ ...s, status: 'ready', progress: 100 }));
+    } catch (e: any) {
+      setAtt((s) => ({ ...s, status: 'error', error: e?.message || 'Upload failed' }));
+      toast({
+        title: t('inbox.attachUploadFailed') || 'Upload failed',
+        description: e?.message || '',
+        variant: 'destructive',
+      });
+    }
+  }, [workspace?.id, t]);
+
+  const onFilePicked: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) void beginUpload(file);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    if (!el) { setDraft((d) => d + emoji); return; }
+    const start = el.selectionStart ?? draft.length;
+    const end = el.selectionEnd ?? draft.length;
+    const next = draft.slice(0, start) + emoji + draft.slice(end);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const caret = start + emoji.length;
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const stopAndSendVoice = async () => {
+    const file = await recorder.stop();
+    if (file) void beginUpload(file);
+  };
+
+  const hasAttachment = att.status === 'ready' && !!att.attachmentId;
+  const sendDisabled = (!draft.trim() && !hasAttachment)
+    || !peerId || send.isPending || att.status === 'uploading';
+
   const submit = () => {
     const body = draft.trim();
-    if (!body || !peerId || send.isPending) return;
+    if (!peerId || send.isPending) return;
+    if (!body && !hasAttachment) return;
+    const attachmentId = hasAttachment ? att.attachmentId : null;
     setDraft('');
-    send.mutate({ recipient_id: peerId, body });
+    resetAttachment();
+    send.mutate({ recipient_id: peerId, body, attachment_id: attachmentId });
   };
 
   const isOnline = (id: string) => (pMap.get(id) as any)?.state === 'online';
+
 
   return (
     <div className="flex h-full w-full" dir={dir}>
@@ -159,7 +290,13 @@ export default function TeamChatPanel() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[11.5px] text-muted-foreground truncate">
                         {c.last_message
-                          ? (c.last_message.outgoing ? `${t('inbox.you') || 'You'}: ` : '') + c.last_message.body
+                          ? (c.last_message.outgoing ? `${t('inbox.you') || 'You'}: ` : '')
+                            + (c.last_message.body
+                              || (c.last_message.attachment_kind === 'image' ? (t('inbox.previewImage') || 'Photo')
+                                : c.last_message.attachment_kind === 'audio' ? (t('inbox.previewAudio') || 'Voice message')
+                                : c.last_message.attachment_kind === 'video' ? (t('inbox.previewVideo') || 'Video')
+                                : c.last_message.attachment_kind ? (t('inbox.previewFile') || 'File')
+                                : ''))
                           : c.role}
                       </span>
                       {c.unread > 0 && (
@@ -250,7 +387,17 @@ export default function TeamChatPanel() {
                               ? 'bg-primary text-primary-foreground rounded-ee-md'
                               : 'bg-card border border-border text-foreground rounded-es-md',
                           )}>
-                            <p className="whitespace-pre-wrap break-words" dir="auto">{m.body}</p>
+                            {/* Same media bubbles the Inbox renders — image
+                                lightbox, voice player, file card — on both
+                                sides of the thread. */}
+                            {m.attachment && (
+                              <div className={cn(m.body ? 'mb-1.5' : '')}>
+                                <MessageAttachmentView att={m.attachment} t={t as any} isAgent={mine} />
+                              </div>
+                            )}
+                            {!!m.body && (
+                              <p className="whitespace-pre-wrap break-words" dir="auto">{m.body}</p>
+                            )}
                             <div className={cn('mt-1 text-[10px] tabular-nums', mine ? 'text-primary-foreground/70 text-end' : 'text-muted-foreground')}>
                               {formatTime(m.created_at)}
                             </div>
@@ -265,30 +412,139 @@ export default function TeamChatPanel() {
             </ScrollArea>
 
             <div className="border-t border-border bg-card p-3">
-              <div className="max-w-3xl mx-auto flex items-end gap-2">
-                <textarea
-                  value={draft}
-                  onChange={e => setDraft(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-                  }}
-                  rows={1}
-                  dir="auto"
-                  placeholder={(t('inbox.messageColleague') || 'Message {{name}}').replace('{{name}}', peer.full_name || peer.email || '')}
-                  className="flex-1 resize-none max-h-40 min-h-[40px] rounded-xl bg-secondary/50 border border-transparent focus:border-primary/30 focus:outline-none px-3 py-2.5 text-[13px]"
-                />
-                <button
-                  onClick={submit}
-                  disabled={!draft.trim() || send.isPending}
-                  className="h-10 w-10 shrink-0 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 transition-opacity"
-                  aria-label={t('inbox.send') || 'Send'}
-                >
-                  {send.isPending
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <Send className={cn('w-4 h-4', dir === 'rtl' && 'rotate-180')} />}
-                </button>
+              <div className="max-w-3xl mx-auto">
+                {/* Pending attachment chip */}
+                {att.status !== 'idle' && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
+                    <div className="w-8 h-8 rounded-md bg-background flex items-center justify-center shrink-0 text-muted-foreground">
+                      {att.mimeType.startsWith('image/') ? <ImageIcon className="w-4 h-4" />
+                        : att.mimeType.startsWith('audio/') ? <Mic className="w-4 h-4" />
+                        : <FileText className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium text-foreground truncate">{att.fileName}</div>
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                        <span>{humanSize(att.sizeBytes)}</span>
+                        <span className="opacity-40">•</span>
+                        <span className={cn(
+                          att.status === 'error' ? 'text-destructive'
+                            : att.status === 'ready' ? 'text-success' : 'text-muted-foreground',
+                        )}>
+                          {att.status === 'uploading' && (t('inbox.attachUploading') || 'Uploading…')}
+                          {att.status === 'ready' && (t('inbox.attachReady') || 'Ready to send')}
+                          {att.status === 'error' && (att.error || t('inbox.attachUploadFailed') || 'Upload failed')}
+                        </span>
+                      </div>
+                      {att.status === 'uploading' && <Progress value={att.progress} className="h-1 mt-1.5" />}
+                    </div>
+                    {att.status === 'error' && att.file && (
+                      <button
+                        onClick={() => void beginUpload(att.file as File)}
+                        className="text-[11px] font-medium text-primary hover:underline px-1.5"
+                      >
+                        {t('inbox.attachRetry') || 'Retry'}
+                      </button>
+                    )}
+                    <button
+                      onClick={resetAttachment}
+                      className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                      aria-label={t('inbox.attachRemove') || 'Remove'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Composer bar — same geometry as the Inbox composer. */}
+                <div className={cn(
+                  'relative flex gap-1 items-end rounded-xl border bg-background p-1.5 transition-shadow shadow-sm',
+                  'border-border focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15',
+                )}>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,audio/*"
+                    onChange={onFilePicked}
+                  />
+
+                  {recorder.recording ? (
+                    <div className="flex-1 flex items-center gap-3 px-2 py-1.5" dir="ltr">
+                      <span className="w-2.5 h-2.5 rounded-full bg-destructive animate-pulse shrink-0" />
+                      <span className="text-[12px] tabular-nums text-foreground">{clock(recorder.seconds)}</span>
+                      <span className="text-[11.5px] text-muted-foreground truncate">
+                        {t('inbox.recording') || 'Recording voice message…'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => recorder.cancel()}
+                        className="ms-auto h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
+                        title={t('inbox.cancelRecording') || 'Discard'}
+                        aria-label={t('inbox.cancelRecording') || 'Discard'}
+                      >
+                        <Trash2 className="w-[18px] h-[18px]" />
+                      </button>
+                      <Button
+                        onClick={() => void stopAndSendVoice()}
+                        className="h-9 gap-1.5 px-3 transition-transform active:scale-95"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-current" />
+                        {t('inbox.stopRecording') || 'Stop'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={att.status === 'uploading'}
+                        className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 self-center disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={t('inbox.attachFile') || 'Attach file'}
+                        aria-label={t('inbox.attachFile') || 'Attach file'}
+                      >
+                        <Paperclip className="w-[18px] h-[18px]" />
+                      </button>
+                      <EmojiPicker onPick={insertEmoji} />
+                      {recorder.supported && (
+                        <button
+                          onClick={() => void recorder.start()}
+                          disabled={att.status === 'uploading'}
+                          className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 self-center disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={t('inbox.recordVoice') || 'Record voice message'}
+                          aria-label={t('inbox.recordVoice') || 'Record voice message'}
+                        >
+                          <Mic className="w-[18px] h-[18px]" />
+                        </button>
+                      )}
+                      <textarea
+                        ref={inputRef}
+                        value={draft}
+                        onChange={e => setDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+                        }}
+                        rows={1}
+                        dir={dir}
+                        placeholder={(t('inbox.messageColleague') || 'Message {{name}}').replace('{{name}}', peer.full_name || peer.email || '')}
+                        className="flex-1 min-h-[36px] max-h-32 resize-none border-0 bg-transparent text-[14px] leading-relaxed focus:outline-none px-1.5 py-1.5"
+                      />
+                      <Button
+                        onClick={submit}
+                        disabled={sendDisabled}
+                        title={t('inbox.send') || 'Send'}
+                        aria-label={t('inbox.send') || 'Send'}
+                        className="h-9 gap-1.5 px-3 shrink-0 transition-transform active:scale-95"
+                      >
+                        {send.isPending
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <Send className={cn('w-4 h-4', dir === 'rtl' && 'rotate-180')} />}
+                        <span className="hidden sm:inline text-[12.5px]">{t('inbox.send') || 'Send'}</span>
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
+
           </>
         )}
       </div>

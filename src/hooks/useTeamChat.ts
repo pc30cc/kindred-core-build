@@ -18,6 +18,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface TeamAttachment {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: 'image' | 'audio' | 'video' | 'file';
+}
+
 export interface Colleague {
   user_id: string;
   role: string;
@@ -25,7 +33,12 @@ export interface Colleague {
   email: string | null;
   avatar_url: string | null;
   unread: number;
-  last_message: { body: string; created_at: string; outgoing: boolean } | null;
+  last_message: {
+    body: string;
+    created_at: string;
+    outgoing: boolean;
+    attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null;
+  } | null;
 }
 
 export interface TeamMessage {
@@ -33,6 +46,8 @@ export interface TeamMessage {
   sender_id: string;
   recipient_id: string;
   body: string;
+  attachment_id?: string | null;
+  attachment?: TeamAttachment | null;
   read_at: string | null;
   created_at: string;
 }
@@ -67,7 +82,7 @@ export function useTeamThread(workspaceId: string | undefined, peerId: string | 
 export function useSendTeamMessage(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { recipient_id: string; body: string }) =>
+    mutationFn: (vars: { recipient_id: string; body: string; attachment_id?: string | null }) =>
       api<{ message: TeamMessage }>('/api/team-chat/messages', {
         method: 'POST',
         body: JSON.stringify({ workspace_id: workspaceId, ...vars }),

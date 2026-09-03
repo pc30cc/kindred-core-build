@@ -411,7 +411,7 @@ export default function OverviewPage() {
               </span>
               <span className="font-medium tabular-nums text-foreground">
                 {formatBytes(storageBytes, numberLocale)}
-                {storageLimitGb > 0 ? ` / ${fmt(storageLimitGb)} GB` : ' / ∞'}
+                {isUnlimited(storageLimitGb) ? ' / ∞' : ` / ${fmt(storageLimitGb)} GB`}
               </span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">

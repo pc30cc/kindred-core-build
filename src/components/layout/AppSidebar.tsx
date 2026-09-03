@@ -233,18 +233,34 @@ export function AppSidebar() {
   // Operators (agents/viewers) never see AI assistant, widget or plugins.
   const isWsAdmin = isWorkspaceAdmin(wsRole);
 
+  // Plan visibility: a top-level menu whose MODULE is not in the plan is not
+  // rendered at all (no locked placeholder). Entries stay visible while the
+  // entitlement snapshot is still loading, so nothing flickers away; only an
+  // explicit `false` from the resolved snapshot hides them.
+  const moduleInPlan = (key: string): boolean => {
+    if (!entitlements?.modules) return true; // not resolved yet — keep visible
+    const state = entitlements.modules[key];
+    return state == null || state.value === true;
+  };
+
   const mainNav = [
-    ...(aiAgentVisible && isWsAdmin
-      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, accent: 'violet', locked: !aiAssistantPlanEnabled } as const]
+    ...(aiAgentVisible && isWsAdmin && aiAssistantPlanEnabled
+      ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles, accent: 'violet', locked: false } as const]
       : []),
-    ...(callCenterVisible
+    ...(callCenterVisible && moduleInPlan('call_center')
       ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall, accent: 'emerald', locked: false } as const]
       : []),
-    { key: 'visitors', path: '/visitors', icon: Eye, accent: 'sky', locked: false },
-    { key: 'contacts', path: '/contacts', icon: Users, accent: 'amber', locked: false },
+    ...(moduleInPlan('visitor_tracking')
+      ? [{ key: 'visitors', path: '/visitors', icon: Eye, accent: 'sky', locked: false } as const]
+      : []),
+    ...(moduleInPlan('contacts')
+      ? [{ key: 'contacts', path: '/contacts', icon: Users, accent: 'amber', locked: false } as const]
+      : []),
+    // Knowledge Base and Team are CORE products — never plan-gated.
     { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, accent: 'cyan', locked: false },
     { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
+
 
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },

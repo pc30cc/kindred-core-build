@@ -11920,6 +11920,10 @@ export type Database = {
         Args: { _actor_user_id: string; _workspace_id: string }
         Returns: boolean
       }
+      admin_export_database: {
+        Args: { _actor_user_id: string; _scope?: string }
+        Returns: Json
+      }
       admin_get_user_detail: {
         Args: { _actor_user_id: string; _user_id: string }
         Returns: Json
@@ -11979,6 +11983,21 @@ export type Database = {
               updated_at: string
             }[]
           }
+      admin_purge_database: {
+        Args: { _actor_user_id: string; _scope?: string }
+        Returns: Json
+      }
+      admin_reset_identity_tables: { Args: never; Returns: string[] }
+      admin_reset_preserved_tables: {
+        Args: { _scope: string }
+        Returns: string[]
+      }
+      admin_reset_settings_tables: { Args: never; Returns: string[] }
+      admin_reset_target_tables: { Args: { _scope: string }; Returns: string[] }
+      admin_restore_database: {
+        Args: { _actor_user_id: string; _payload: Json }
+        Returns: Json
+      }
       admin_security_stats: { Args: never; Returns: Json }
       admin_set_password_and_revoke_sessions: {
         Args: { _new_password_hash: string; _user_id: string }

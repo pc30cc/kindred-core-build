@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,10 +13,12 @@ import {
   Database, Download, Clock, HardDrive,
   Cloud, Server, FolderSync, CalendarDays, CalendarRange,
   Calendar, ArrowRightLeft,
-  AlertCircle, CheckCircle, Loader2, Trash2,
+  AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase } from '@/lib/api';
 
 interface BackupRecord {
   id: string;
@@ -34,7 +36,173 @@ const mockBackups: BackupRecord[] = [
   { id: '3', name: 'backup_2026-04-12_daily.sql.gz', size: '23.8 MB', createdAt: '2026-04-12T03:00:00Z', destination: 'ftp', status: 'completed', type: 'scheduled' },
 ];
 
+function MaintenanceCard() {
+  const { t, dir } = useTranslation();
+  const isRtl = dir === 'rtl';
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<null | 'backup' | 'restore' | 'data' | 'full'>(null);
+  const [confirmScope, setConfirmScope] = useState<null | 'data' | 'full'>(null);
+  const [confirmText, setConfirmText] = useState('');
+
+  const handleBackup = async () => {
+    setBusy('backup');
+    try {
+      await downloadDatabaseBackup();
+      toast.success(t('admin.database.backupDownloaded'));
+    } catch (e: any) {
+      toast.error(e?.message || t('admin.database.opFailed'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRestoreFile = async (file: File) => {
+    setBusy('restore');
+    try {
+      const payload = JSON.parse(await file.text());
+      await restoreDatabaseBackup(payload);
+      toast.success(t('admin.database.restoreDone'));
+    } catch (e: any) {
+      toast.error(e?.message || t('admin.database.opFailed'));
+    } finally {
+      setBusy(null);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const runPurge = async () => {
+    if (!confirmScope) return;
+    setBusy(confirmScope);
+    try {
+      await purgeDatabase(confirmScope);
+      toast.success(t('admin.database.purgeDone'));
+      setConfirmScope(null);
+      setConfirmText('');
+    } catch (e: any) {
+      toast.error(e?.message || t('admin.database.opFailed'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>
+            <ShieldAlert className="h-4 w-4" />
+            {t('admin.database.maintenance')}
+          </CardTitle>
+          <CardDescription className="text-muted-foreground text-start">{t('admin.database.maintenanceDesc')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className={cn('flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.downloadBackup')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.downloadBackupDesc')}</p>
+            </div>
+            <Button onClick={handleBackup} disabled={busy !== null} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
+              {busy === 'backup' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {busy === 'backup' ? t('admin.database.working') : t('admin.database.downloadBackup')}
+            </Button>
+          </div>
+
+          <div className={cn('flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.restoreBackup')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.restoreBackupDesc')}</p>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) void handleRestoreFile(f); }}
+            />
+            <Button
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => fileRef.current?.click()}
+              className={cn('gap-2', isRtl && 'flex-row-reverse')}
+            >
+              {busy === 'restore' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {busy === 'restore' ? t('admin.database.working') : t('admin.database.selectBackupFile')}
+            </Button>
+          </div>
+
+          <div className={cn('flex flex-col gap-3 rounded-md border border-warning/30 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.purgeData')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.purgeDataDesc')}</p>
+            </div>
+            <Button
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => { setConfirmScope('data'); setConfirmText(''); }}
+              className={cn('gap-2 border-warning/50 text-warning hover:bg-warning/10', isRtl && 'flex-row-reverse')}
+            >
+              <Trash2 className="h-4 w-4" />
+              {t('admin.database.purgeData')}
+            </Button>
+          </div>
+
+          <div className={cn('flex flex-col gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.purgeAll')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.purgeAllDesc')}</p>
+            </div>
+            <Button
+              variant="destructive"
+              disabled={busy !== null}
+              onClick={() => { setConfirmScope('full'); setConfirmText(''); }}
+              className={cn('gap-2', isRtl && 'flex-row-reverse')}
+            >
+              <Trash2 className="h-4 w-4" />
+              {t('admin.database.purgeAll')}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={confirmScope !== null} onOpenChange={open => { if (!open && busy === null) { setConfirmScope(null); setConfirmText(''); } }}>
+        <DialogContent dir={dir} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-start">{t('admin.database.purgeConfirmTitle')}</DialogTitle>
+            <DialogDescription className="text-start">
+              {confirmScope === 'full' ? t('admin.database.purgeAllDesc') : t('admin.database.purgeDataDesc')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-start">
+            <p className="text-xs text-muted-foreground">{t('admin.database.purgeConfirmBody')}</p>
+            <Input
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              placeholder={t('admin.database.confirmWord')}
+              className="bg-input border-border text-foreground text-start"
+            />
+          </div>
+          <DialogFooter className={cn('gap-2', isRtl && 'sm:flex-row-reverse')}>
+            <Button variant="ghost" disabled={busy !== null} onClick={() => { setConfirmScope(null); setConfirmText(''); }}>
+              {t('admin.database.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={confirmText.trim() !== 'DELETE' || busy !== null}
+              onClick={runPurge}
+              className={cn('gap-2', isRtl && 'flex-row-reverse')}
+            >
+              {busy === 'data' || busy === 'full' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {busy === 'data' || busy === 'full' ? t('admin.database.working') : t('admin.database.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function BackupTab() {
+
   const { t, dir } = useTranslation();
   const isRtl = dir === 'rtl';
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -75,6 +243,8 @@ function BackupTab() {
 
   return (
     <div dir={dir} className="space-y-6 text-start">
+      <MaintenanceCard />
+
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>

@@ -225,7 +225,7 @@ export default function LiveQueuePage() {
   const { t, locale } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { slug } = useParams();
-  const base = `/app/w/${slug}/call-center`;
+  const base = `/${slug}/call-center`;
   const { data, isLoading } = useCallCenterQueue(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const { data: settingsBundle } = useCallCenterSettings(workspace?.id);

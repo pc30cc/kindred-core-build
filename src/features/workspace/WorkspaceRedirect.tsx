@@ -1,5 +1,5 @@
 /**
- * WorkspaceRedirect: Redirects /app to /app/w/:slug using the user's first workspace.
+ * WorkspaceRedirect: Redirects /app to /:slug using the user's first workspace.
  * If user has no workspaces, auto-provisions one.
  */
 import { Navigate, useLocation } from 'react-router-dom';
@@ -115,7 +115,7 @@ export function WorkspaceRedirect() {
   }
 
   if (workspaces?.length) {
-    return <Navigate to={`/app/w/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
+    return <Navigate to={`/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
   }
 
   return (

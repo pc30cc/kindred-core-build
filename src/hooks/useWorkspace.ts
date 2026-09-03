@@ -41,7 +41,7 @@ export function useWorkspaces() {
 
 /**
  * Route-based active workspace — STRICT resolution.
- * Reads :slug from /app/w/:slug/* and resolves against user's workspaces.
+ * Reads :slug from /:slug/* and resolves against user's workspaces.
  * Returns `notFound: true` if slug doesn't match any workspace the user has access to.
  * NEVER falls back to a different workspace.
  */
@@ -71,7 +71,7 @@ export function useCurrentWorkspace() {
 export function useWorkspacePath() {
   const { workspace } = useActiveWorkspace();
   return useCallback(
-    (path: string) => workspace ? `/app/w/${workspace.slug}${path}` : `/app${path}`,
+    (path: string) => workspace ? `/${workspace.slug}${path}` : `/app${path}`,
     [workspace]
   );
 }

@@ -494,7 +494,7 @@ export default function CallCenterSettingsPage() {
             <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
             <span>
               {t('callCenter.settingsPage.noDeptEnabled')}{' '}
-              <Link to={`/app/w/${slug}/settings/team-departments`} className="text-primary underline">
+              <Link to={`/${slug}/settings/team-departments`} className="text-primary underline">
                 {t('callCenter.settingsPage.teamDepartmentsLink')}
               </Link>
             </span>
@@ -520,7 +520,7 @@ export default function CallCenterSettingsPage() {
           <div><b>{t('callCenter.settingsPage.leastBusyOption').split('—')[0].trim()}</b> — {t('callCenter.settingsPage.leastBusyDesc')}</div>
         </div>
         <Button asChild variant="outline" size="sm">
-          <Link to={`/app/w/${slug}/settings/team-departments`}>{t('callCenter.settingsPage.manageDepartments')}</Link>
+          <Link to={`/${slug}/settings/team-departments`}>{t('callCenter.settingsPage.manageDepartments')}</Link>
         </Button>
       </Section>
       </TabsContent>

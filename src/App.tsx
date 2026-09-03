@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -143,6 +143,17 @@ import HelpSearchPage from "@/pages/public/kb/HelpSearchPage";
 
 const queryClient = new QueryClient();
 
+/**
+ * Legacy URL shape `/app/w/<slug>/<rest>` → short URL `/<slug>/<rest>`.
+ * Kept permanently so bookmarks, emails and gateway callbacks never 404.
+ */
+const LegacyWorkspaceUrlRedirect = () => {
+  const params = useParams();
+  const location = useLocation();
+  const rest = params['*'] ? `/${params['*']}` : '';
+  return <Navigate to={`/${params.slug}${rest}${location.search}${location.hash}`} replace />;
+};
+
 interface AppProps {
   initialLocale?: Locale;
   initialTranslations?: TranslationKeys;
@@ -240,8 +251,15 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <RequireAuth><WorkspaceRedirect /></RequireAuth>
               } />
 
-              {/* Workspace-scoped app (route-based active workspace) */}
-              <Route path="/app/w/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
+              {/* Legacy workspace URLs: /app/w/<slug>/... → /<slug>/... */}
+              <Route path="/app/w/:slug/*" element={<LegacyWorkspaceUrlRedirect />} />
+              <Route path="/app/w/:slug" element={<LegacyWorkspaceUrlRedirect />} />
+
+              {/* Workspace-scoped app (route-based active workspace).
+                  Short URLs: /<workspace-slug>/<page>. Declared after every
+                  static top-level route so /admin, /auth, /help keep priority
+                  (React Router ranks static segments above dynamic ones). */}
+              <Route path="/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<InboxPage />} />
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />

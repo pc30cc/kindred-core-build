@@ -190,7 +190,7 @@ export function FloatingOperatorCallWindow() {
   };
 
   const dockToInbox = () => {
-    if (slug && !isInboxRoute) navigate(`/app/w/${slug}/inbox`);
+    if (slug && !isInboxRoute) navigate(`/${slug}/inbox`);
     setFloatingMode('docked');
   };
 

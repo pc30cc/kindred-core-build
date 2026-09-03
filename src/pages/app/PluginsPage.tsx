@@ -257,7 +257,7 @@ export default function PluginsPage() {
                           </Button>
                         )}
                         <Button asChild size="sm" disabled={comingSoon}>
-                          <Link to={`/app/w/${slug}/plugins/${item.id}`}>
+                          <Link to={`/${slug}/plugins/${item.id}`}>
                             <Settings2 className="me-1.5 h-4 w-4" />
                             {item.installed ? t('plugins.action.configure') : t('plugins.action.details')}
                           </Link>

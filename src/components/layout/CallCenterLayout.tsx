@@ -55,7 +55,7 @@ export function CallCenterLayout() {
   const { workspace } = useActiveWorkspace();
   const { user } = useAuth();
   const { t } = useTranslation();
-  const base = `/app/w/${slug}/call-center`;
+  const base = `/${slug}/call-center`;
   const { data: caps } = useCallCenterCapabilities(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const qc = useQueryClient();

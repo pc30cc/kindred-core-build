@@ -303,7 +303,7 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
     <Card>
       <CardContent className="pt-5">
         <h3 className="text-sm font-semibold text-foreground mb-4">{t('billingIran.overview.usageTitle')}</h3>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3">
           {items.map((i) => {
             const unlimited = i.limit === -1;
             const pct = !unlimited && i.limit > 0 ? Math.min(100, Math.round((i.used / i.limit) * 100)) : null;
@@ -312,7 +312,7 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
               ? t('billingIran.overview.unlimited')
               : `${Number(i.limit).toLocaleString('fa-IR')}${i.unit ? ` ${i.unit}` : ''}`;
             return (
-              <div key={i.key} className="rounded-xl border border-border/60 bg-card p-4 flex flex-col items-center text-center gap-2">
+              <div key={i.key} className="rounded-xl border border-border/60 bg-card p-3 flex flex-col items-center text-center gap-1.5">
                 <UsageDonut
                   percent={pct}
                   used={Number(i.used)}
@@ -322,14 +322,15 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
                   usedName={t('billingIran.aiCredit.usedLabel')}
                   remainingName={t('billingIran.overview.remaining')}
                 />
-                <div className="text-xs text-muted-foreground">{i.label}</div>
-                <div className="text-sm font-semibold text-foreground">
+                <div className="text-[11px] text-muted-foreground">{i.label}</div>
+                <div className="text-xs font-semibold text-foreground">
                   {usedLabel} / {limitLabel}
                 </div>
               </div>
             );
           })}
         </div>
+
       </CardContent>
     </Card>
   );

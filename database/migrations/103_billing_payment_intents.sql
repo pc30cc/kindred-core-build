@@ -33,10 +33,12 @@ CREATE INDEX IF NOT EXISTS idx_billing_payment_intents_status ON public.billing_
 
 ALTER TABLE public.billing_payment_intents ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Workspace admins can view own payment intents" ON public.billing_payment_intents;
 CREATE POLICY "Workspace admins can view own payment intents" ON public.billing_payment_intents
   FOR SELECT TO authenticated
   USING (get_workspace_role(workspace_id, auth.uid()) IN ('owner', 'admin'));
 
+DROP POLICY IF EXISTS "Global admins can view all payment intents" ON public.billing_payment_intents;
 CREATE POLICY "Global admins can view all payment intents" ON public.billing_payment_intents
   FOR SELECT TO authenticated
   USING (has_role(auth.uid(), 'admin'));

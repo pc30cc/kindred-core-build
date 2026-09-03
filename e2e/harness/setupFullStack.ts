@@ -114,12 +114,24 @@ export default async function globalSetup() {
   // baseline, so replicate exactly what that image provides — `service_role`
   // already carries BYPASSRLS (000_selfhost_roles_bootstrap.sql), so this
   // grants no capability the role wasn't already designed to have.
+  // Function EXECUTE privilege is separate from table grants. Several
+  // gv_admin_* helpers (099/100) do `REVOKE ALL ... FROM PUBLIC` and are
+  // meant to be reached only via another SECURITY DEFINER function's body
+  // (which runs as the definer, not the caller) — except adminSettings.ts
+  // calls a few of them (gv_admin_consumer_implemented,
+  // gv_admin_deployment_allowlisted) directly over PostgREST as
+  // service_role, which needs its own EXECUTE grant same as the table
+  // case above. REVOKE ALL FROM PUBLIC never touches a role-specific grant
+  // like this one, so applying it after the chain is equivalent to a real
+  // Supabase project's platform-level baseline being present from the start.
   await db.query(`
     GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
     GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
     GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
   `);
 
   // 3. Seed two real identities + a workspace the workspace-admin belongs to.

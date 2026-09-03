@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import FinanceReport from '@/components/admin/FinanceReport';
 
 function formatPrice(amount: number, currency: string, locale: string): string {
   const normalizedLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
@@ -169,14 +170,20 @@ export default function AdminBillingPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="providers">
+      <Tabs defaultValue="report">
         <TabsList className="bg-muted h-auto w-full justify-start overflow-x-auto">
+          <TabsTrigger value="report" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.report' as any)}</TabsTrigger>
           <TabsTrigger value="providers" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.providers' as any, { count: ALL_PROVIDERS.length })}</TabsTrigger>
           <TabsTrigger value="plans" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.plans' as any)}</TabsTrigger>
           <TabsTrigger value="payments" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.payments' as any)}</TabsTrigger>
           <TabsTrigger value="events" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.events' as any)}</TabsTrigger>
           <TabsTrigger value="admin" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.admin' as any)}</TabsTrigger>
         </TabsList>
+
+        {/* Financial report */}
+        <TabsContent value="report" className="pt-4">
+          <FinanceReport />
+        </TabsContent>
 
         {/* Providers Tab */}
         <TabsContent value="providers" className="space-y-4">

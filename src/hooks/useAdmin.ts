@@ -230,15 +230,53 @@ export function useAdminFeatureFlags() {
   });
 }
 
-export function useAdminAuditLogs(limit = 50) {
+export interface AdminAuditLogRow {
+  id: string;
+  workspace_id: string | null;
+  user_id: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  old_value: any;
+  new_value: any;
+  ip_address: string | null;
+  created_at: string;
+  actor_email: string | null;
+  actor_name: string | null;
+  workspace_name: string | null;
+}
+
+export interface AdminAuditLogFilters {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  action?: string;
+  entityType?: string;
+  from?: string;
+  to?: string;
+}
+
+export function useAdminAuditLogs(filters: AdminAuditLogFilters = {}) {
+  const { limit = 50, offset = 0, search = '', action = '', entityType = '', from = '', to = '' } = filters;
   return useQuery({
-    queryKey: ['admin-audit-logs', limit],
+    queryKey: ['admin-audit-logs', limit, offset, search, action, entityType, from, to],
     queryFn: async () => {
-      const { logs } = await adminFetch<{ logs: any[] }>(`/api/admin/management/audit-logs?limit=${limit}`);
-      return logs;
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      if (search) params.set('search', search);
+      if (action) params.set('action', action);
+      if (entityType) params.set('entityType', entityType);
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      return adminFetch<{
+        logs: AdminAuditLogRow[];
+        total: number;
+        facets: { actions: string[]; entityTypes: string[] };
+      }>(`/api/admin/management/audit-logs?${params}`);
     },
+    placeholderData: (prev) => prev,
   });
 }
+
 
 export function useAdminProviderConfigs() {
   return useQuery({

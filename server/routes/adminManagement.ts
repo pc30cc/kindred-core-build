@@ -282,22 +282,79 @@ adminManagementRouter.get('/feature-flags', async (req, res) => {
 });
 
 // ── Audit logs (platform-wide, read-only) ───────────────────────────────
-const auditLogsQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(500).default(50) });
+// Filterable, paginated, and enriched with the actor's identity and the
+// workspace name so the operator never has to read raw UUIDs.
+const auditLogsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+  search: z.string().trim().max(200).optional().default(''),
+  action: z.string().trim().max(120).optional().default(''),
+  entityType: z.string().trim().max(120).optional().default(''),
+  userId: z.string().uuid().optional(),
+  workspaceId: z.string().uuid().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+});
 
 adminManagementRouter.get('/audit-logs', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const parsed = auditLogsQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const q = parsed.data;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('audit_logs')
-    .select('*')
+
+  let query = sb.from('audit_logs').select('*', { count: 'exact' });
+  if (q.action) query = query.eq('action', q.action);
+  if (q.entityType) query = query.eq('entity_type', q.entityType);
+  if (q.userId) query = query.eq('user_id', q.userId);
+  if (q.workspaceId) query = query.eq('workspace_id', q.workspaceId);
+  if (q.from) query = query.gte('created_at', new Date(q.from).toISOString());
+  if (q.to) query = query.lte('created_at', new Date(q.to).toISOString());
+  if (q.search) {
+    const s = q.search.replace(/[%,]/g, ' ');
+    query = query.or(`action.ilike.%${s}%,entity_type.ilike.%${s}%,ip_address.ilike.%${s}%`);
+  }
+
+  const { data, error, count } = await query
     .order('created_at', { ascending: false })
-    .limit(parsed.data.limit);
+    .range(q.offset, q.offset + q.limit - 1);
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ logs: data });
+
+  const logs = data || [];
+  const userIds = [...new Set(logs.map((l: any) => l.user_id).filter(Boolean))];
+  const workspaceIds = [...new Set(logs.map((l: any) => l.workspace_id).filter(Boolean))];
+
+  const [profiles, workspaces, facets] = await Promise.all([
+    userIds.length
+      ? sb.from('profiles').select('id, email, full_name').in('id', userIds)
+      : Promise.resolve({ data: [] as any[] }),
+    workspaceIds.length
+      ? sb.from('workspaces').select('id, name, slug').in('id', workspaceIds)
+      : Promise.resolve({ data: [] as any[] }),
+    sb.from('audit_logs').select('action, entity_type').order('created_at', { ascending: false }).limit(1000),
+  ]);
+
+  const profileById = new Map((profiles.data || []).map((p: any) => [p.id, p]));
+  const workspaceById = new Map((workspaces.data || []).map((w: any) => [w.id, w]));
+
+  const enriched = logs.map((l: any) => ({
+    ...l,
+    actor_email: profileById.get(l.user_id)?.email ?? null,
+    actor_name: profileById.get(l.user_id)?.full_name ?? null,
+    workspace_name: workspaceById.get(l.workspace_id)?.name ?? null,
+  }));
+
+  return res.json({
+    logs: enriched,
+    total: count ?? enriched.length,
+    facets: {
+      actions: [...new Set((facets.data || []).map((r: any) => r.action).filter(Boolean))].sort(),
+      entityTypes: [...new Set((facets.data || []).map((r: any) => r.entity_type).filter(Boolean))].sort(),
+    },
+  });
 });
+
 
 // ── Provider configs (platform-wide, read-only from this surface — writes
 // go through the existing dedicated provider-config routes) ────────────

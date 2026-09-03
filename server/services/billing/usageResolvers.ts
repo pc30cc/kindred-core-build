@@ -515,6 +515,8 @@ const RESOLVERS: Record<string, Resolver> = {
   max_call_minutes_per_month: resolveMaxCallMinutesPerMonth,
   max_call_recordings: resolveMaxCallRecordings,
   max_call_recording_storage_mb: resolveMaxCallRecordingStorageMb,
+  max_kb_articles: resolveMaxKbArticles,
+
 };
 
 /**

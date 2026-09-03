@@ -1215,10 +1215,43 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
       base().eq('ai_state', 'needs_human'),
       automatedQuery,
     ]);
+    // Same ownership rule as the list: a finished thread another operator
+    // handled is not part of this operator's Resolved tab.
+    let resolvedCount = resolvedRes.count ?? 0;
+    if (!seesAll && resolvedCount > 0) {
+      const { data: resolvedRows } = await sb
+        .from('conversations')
+        .select('id, assigned_to')
+        .eq('workspace_id', workspaceId)
+        .eq('is_spam', false)
+        .in('status', ['resolved', 'closed'])
+        .or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`)
+        .limit(2000);
+      const rows = (resolvedRows || []) as any[];
+      const ids = rows.map((r) => r.id);
+      const handled: Record<string, Set<string>> = {};
+      if (ids.length) {
+        const { data: agentMsgs } = await sb
+          .from('conversation_messages')
+          .select('conversation_id, sender_id')
+          .in('conversation_id', ids)
+          .eq('sender_type', 'agent')
+          .limit(5000);
+        for (const m of (agentMsgs || []) as any[]) {
+          if (!m.sender_id) continue;
+          (handled[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
+        }
+      }
+      resolvedCount = rows.filter((r) => {
+        if (r.assigned_to && r.assigned_to !== auth.userId) return false;
+        const set = handled[r.id];
+        return !set || set.size === 0 || set.has(auth.userId);
+      }).length;
+    }
     return res.json({
       open: openRes.count ?? 0,
       pending: pendingRes.count ?? 0,
-      resolved: resolvedRes.count ?? 0,
+      resolved: resolvedCount,
       all: allRes.count ?? 0,
       needs_human: needsRes.count ?? 0,
       automated: automatedRes.count ?? 0,

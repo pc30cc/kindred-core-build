@@ -1217,7 +1217,28 @@ export default function InboxPage() {
         postSendAction: actionOverride ?? sendAction,
       },
       {
-        onSuccess: () => { pendingSendKeyRef.current = null; },
+        onSuccess: (res: any) => {
+          pendingSendKeyRef.current = null;
+          const action = actionOverride ?? sendAction;
+          if (action === 'none') return;
+          // Status buckets changed → refresh tab counters immediately, and
+          // tell the operator when the server refused the transition
+          // (a newer customer message, or a failed provider delivery).
+          qc.invalidateQueries({ queryKey: ['inbox-tab-counts'] });
+          if (res?.post_send?.changed) {
+            toast({
+              title: action === 'resolve'
+                ? (t('inbox.sendAndResolve') || 'Send & resolve')
+                : (t('inbox.sendAndWait') || 'Send & wait for customer'),
+            });
+          } else if (res?.post_send?.blocked && res.post_send.blocked !== 'no_change') {
+            toast({
+              variant: 'destructive',
+              title: t('inbox.sendActionBlocked') || 'Status was not changed',
+              description: String(res.post_send.blocked),
+            });
+          }
+        },
         onError: () => {
           // Restore draft on failure so the operator can retry without
           // losing what they typed.
@@ -1225,6 +1246,7 @@ export default function InboxPage() {
         },
       },
     );
+
 
   };
 

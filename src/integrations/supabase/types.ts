@@ -3592,6 +3592,7 @@ export type Database = {
           expires_at: string
           failure_reason: string | null
           id: string
+          invoice_number: string | null
           metadata: Json
           plan_id: string | null
           processing_at: string | null
@@ -3612,6 +3613,7 @@ export type Database = {
           expires_at?: string
           failure_reason?: string | null
           id?: string
+          invoice_number?: string | null
           metadata?: Json
           plan_id?: string | null
           processing_at?: string | null
@@ -3632,6 +3634,7 @@ export type Database = {
           expires_at?: string
           failure_reason?: string | null
           id?: string
+          invoice_number?: string | null
           metadata?: Json
           plan_id?: string | null
           processing_at?: string | null
@@ -3675,6 +3678,7 @@ export type Database = {
           created_at: string | null
           currency: string
           id: string
+          invoice_number: string | null
           metadata: Json | null
           paid_at: string | null
           payment_intent_id: string | null
@@ -3694,6 +3698,7 @@ export type Database = {
           created_at?: string | null
           currency?: string
           id?: string
+          invoice_number?: string | null
           metadata?: Json | null
           paid_at?: string | null
           payment_intent_id?: string | null
@@ -3713,6 +3718,7 @@ export type Database = {
           created_at?: string | null
           currency?: string
           id?: string
+          invoice_number?: string | null
           metadata?: Json | null
           paid_at?: string | null
           payment_intent_id?: string | null

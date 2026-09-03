@@ -5,16 +5,18 @@
  */
 import { formatDate } from '@/lib/date';
 
-export type TxStatus = 'succeeded' | 'pending' | 'failed' | 'refunded' | 'canceled';
+export type TxStatus = 'succeeded' | 'pending' | 'failed' | 'refunded' | 'canceled' | 'expired';
 
-/** billing_payments.status / provider verify result → customer-facing Persian. */
+/** billing_payments.status / intent status → customer-facing Persian bucket. */
 export function mapPaymentStatus(raw: string | null | undefined): TxStatus {
   switch (raw) {
     case 'succeeded': return 'succeeded';
     case 'refunded':
     case 'partially_refunded': return 'refunded';
     case 'canceled': return 'canceled';
-    case 'pending': return 'pending';
+    case 'expired': return 'expired';
+    case 'pending':
+    case 'processing': return 'pending';
     default: return 'failed';
   }
 }

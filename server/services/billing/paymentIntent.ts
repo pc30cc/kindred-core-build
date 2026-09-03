@@ -30,6 +30,7 @@ import {
   getProviderReferenceContract,
   requiresReferenceBinding,
 } from './providerBinding.js';
+import { issueInvoiceNumber } from './invoiceNumber.js';
 
 export type PurchaseType = 'subscription' | 'ai_credit_topup';
 export type IntentStatus =
@@ -51,6 +52,7 @@ export interface PaymentIntentRow {
   amount_irr: number;
   status: IntentStatus;
   provider_ref: string | null;
+  invoice_number: string | null;
   metadata: Record<string, unknown>;
   expires_at: string;
   processing_at: string | null;
@@ -100,6 +102,7 @@ export async function createSubscriptionIntent(
       billing_interval: input.interval,
       provider_name: input.providerName,
       amount_irr: input.amountIrr,
+      invoice_number: await issueInvoiceNumber(config),
       metadata: input.metadata || {},
       expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
     })
@@ -127,6 +130,7 @@ export async function createAiCreditTopupIntent(
       action_type: 'ai_credit_topup',
       provider_name: input.providerName,
       amount_irr: input.amountIrr,
+      invoice_number: await issueInvoiceNumber(config),
       metadata: input.metadata || {},
       expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
     })
@@ -134,6 +138,24 @@ export async function createAiCreditTopupIntent(
     .single();
   if (error || !data) throw new Error(error?.message || 'Failed to create payment intent');
   return data as PaymentIntentRow;
+}
+
+/**
+ * Customer-initiated abandonment. A `pending` intent the customer explicitly
+ * walked away from becomes `canceled` so it shows up truthfully in the
+ * transaction history instead of silently expiring.
+ */
+export async function markPaymentIntentCanceled(
+  config: ServerConfig,
+  intentId: string,
+  reason = 'customer_canceled',
+): Promise<void> {
+  const supabase = getServiceClient(config);
+  await supabase
+    .from('billing_payment_intents')
+    .update({ status: 'canceled', failure_reason: reason, updated_at: new Date().toISOString() })
+    .eq('id', intentId)
+    .eq('status', 'pending');
 }
 
 export async function getPaymentIntent(

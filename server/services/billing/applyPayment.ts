@@ -32,6 +32,7 @@ export interface CustomerPaymentInput {
   providerName: string;
   providerPaymentId?: string | null;
   paymentIntentId?: string | null;
+  invoiceNumber?: string | null;
   amount: number;
   currency: string;
   purchaseType: 'subscription' | 'ai_credit_topup';
@@ -65,6 +66,7 @@ export async function recordCustomerPayment(
       provider_name: input.providerName,
       provider_payment_id: input.providerPaymentId ?? null,
       payment_intent_id: input.paymentIntentId ?? null,
+      invoice_number: input.invoiceNumber ?? null,
       amount: input.amount,
       currency: input.currency,
       status: 'succeeded',

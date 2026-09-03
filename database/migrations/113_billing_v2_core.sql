@@ -287,7 +287,7 @@ ALTER TABLE public.billing_payments
 
 ALTER TABLE public.billing_payments DROP CONSTRAINT IF EXISTS billing_payments_reconciliation_state_check;
 ALTER TABLE public.billing_payments ADD CONSTRAINT billing_payments_reconciliation_state_check
-  CHECK (reconciliation_state IN ('settled', 'unapplied', 'credited_to_wallet', 'refunded'));
+  CHECK (reconciliation_state IN ('settled', 'unapplied', 'credited_to_wallet', 'refunded', 'legacy'));
 
 CREATE INDEX IF NOT EXISTS ix_billing_payments_invoice
   ON public.billing_payments (invoice_id) WHERE invoice_id IS NOT NULL;

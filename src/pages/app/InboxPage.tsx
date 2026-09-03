@@ -1540,9 +1540,23 @@ export default function InboxPage() {
                         )}>
                           {(() => {
                             const last = (conv as any).last_message as
-                              | { body: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_kind?: string | null }
+                              | { body: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_kind?: string | null; system_kind?: string | null; actor_name?: string | null; to_name?: string | null }
                               | null
                               | undefined;
+                            // System routing notices are persisted in English —
+                            // render them from metadata so the preview follows
+                            // the app locale (fa/tr included).
+                            if (last?.system_kind === 'conversation_transferred' || last?.system_kind === 'conversation_unassigned') {
+                              const actor = String(last.actor_name || '').trim();
+                              const to = String(last.to_name || '').trim();
+                              const isTransfer = last.system_kind === 'conversation_transferred';
+                              const tpl = isTransfer ? t('inbox.system.transferred') : t('inbox.system.unassigned');
+                              return tpl && !tpl.startsWith('inbox.')
+                                ? tpl.replace('{actor}', actor).replace('{to}', to)
+                                : (isTransfer
+                                  ? `${actor} transferred this conversation to ${to}`
+                                  : `${actor} unassigned this conversation`);
+                            }
                             // Name the operator who actually wrote the last
                             // reply; only fall back to "You" when it was me.
                             const agentLabel = !last ? '' :

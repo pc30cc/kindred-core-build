@@ -1057,7 +1057,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .limit(2000);
 
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; actor_name?: string | null; to_name?: string | null }> = {};
       // Human operators who ever wrote in the thread — drives "who handled
       // this" visibility for resolved threads and the list preview label.
       const agentParticipants: Record<string, Set<string>> = {};
@@ -1093,6 +1093,11 @@ conversationsRouter.get('/', async (req: any, res: any) => {
             // describe the media instead of claiming "no messages yet".
             attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
             attachment_kind: null,
+            // System notices (transfer / unassign) are stored in English:
+            // ship the structured metadata so the UI can localize the preview.
+            system_kind: (meta as any)?.kind ? String((meta as any).kind) : null,
+            actor_name: (meta as any)?.actor_name ? String((meta as any).actor_name) : null,
+            to_name: (meta as any)?.to_name ? String((meta as any).to_name) : null,
           };
         }
         if (m.sender_type === 'agent' && m.sender_id) {

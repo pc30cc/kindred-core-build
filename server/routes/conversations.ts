@@ -930,6 +930,8 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     const needsHuman = parsed.data.needs_human === 'true';
     const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
     if (!auth) return;
+    const canSeeAllAssignments =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
 
     const sb = getServiceClient(config);
     let q = sb

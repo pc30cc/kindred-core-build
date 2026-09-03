@@ -202,26 +202,34 @@ export interface PlanChangeResult {
   pending: boolean;
 }
 
+export type TransactionStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'canceled'
+  | 'failed'
+  | 'expired'
+  | 'refunded';
+
 export interface CustomerTransaction {
-  intentId: string | null;
-  invoiceNumber: string | null;
-  amountIrr: number;
-  status: string;
+  id: string;
+  /** WebYar proforma/order number — NOT a bank reference. */
+  documentNumber: string | null;
+  type: string | null;
   purchaseType: 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
-  actionType: string | null;
   planName: string | null;
-  providerName: string | null;
-  trackingCode: string | null;
+  billingInterval: 'monthly' | 'yearly' | null;
+  amountIrr: number;
+  status: TransactionStatus;
   createdAt: string;
   paidAt: string | null;
+  canceledAt: string | null;
+  provider: string | null;
+  /** Bank tracking code — deliberately distinct from the document number. */
+  providerReference: string | null;
+  settled: boolean;
+  /** Money arrived but is not applied yet: "under review", never a failure. */
   needsReview?: boolean;
-}
-
-export interface Paged<T> {
-  page: number;
-  pageSize: number;
-  total: number;
-  items: T[];
 }
 
 // ─── Reads ─────────────────────────────────────────────────────────────────

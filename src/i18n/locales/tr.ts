@@ -723,6 +723,9 @@ const tr: TranslationKeys = {
     'system.agentJoined': '{name} sohbete katıldı',
     'system.agentJoinedGeneric': 'Bir meslektaşımız sohbete katıldı',
     'system.noAgentAvailable': 'Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız.',
+    'system.transferred': '{actor} bu görüşmeyi {to} kişisine aktardı',
+    'system.unassigned': '{actor} bu görüşmenin atamasını kaldırdı',
+
     'callSurface.expand': 'Genişlet',
     'callSurface.expandAria': 'Arama penceresini genişlet',
     'callSurface.minimize': 'Küçült',

@@ -15,6 +15,7 @@ import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { isTypingSuppressed } from '@/realtime/policySnapshot';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -234,6 +235,16 @@ export default function InboxPage() {
   }, [updateUrl]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Assignment scope. Everyone (owners included) defaults to 'mine' so a
+  // conversation transferred to another operator leaves this Inbox. Managers
+  // can flip to the full workspace view; the server enforces the privilege.
+  const { data: wsRole } = useWorkspaceRole(workspace?.id);
+  const canSwitchScope = isWorkspaceAdmin(wsRole) || wsRole === 'team_lead';
+  const [inboxScope, setInboxScope] = useState<'mine' | 'all'>(
+    () => (localStorage.getItem('inbox.scope') === 'all' ? 'all' : 'mine'),
+  );
+  useEffect(() => { localStorage.setItem('inbox.scope', inboxScope); }, [inboxScope]);
+  const scope: 'mine' | 'all' = canSwitchScope && inboxScope === 'all' ? 'all' : 'mine';
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);
@@ -347,8 +358,9 @@ export default function InboxPage() {
       ? {
           needsHuman: extraChip === 'needs_human',
           assignedToMe: extraChip === 'assigned_to_me' ? (user?.id ?? null) : null,
+          scope,
         }
-      : {},
+      : { scope },
   );
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);
@@ -943,7 +955,7 @@ export default function InboxPage() {
   /* Every tab shows its own number immediately — counts come from parallel
      server-side HEAD counts, not from the (filter-scoped) conversation list.
      This also keeps tab widths stable while switching filters. */
-  const { data: tabCounts } = useInboxTabCounts(workspace?.id);
+  const { data: tabCounts } = useInboxTabCounts(workspace?.id, scope);
   const { data: colleagueDir } = useColleagues(workspace?.id);
   const colleagueUnread = colleagueDir?.total_unread ?? 0;
   const stableCounts: Record<string, number> = tabCounts ?? {};
@@ -1202,6 +1214,27 @@ export default function InboxPage() {
               <span className={headTabAccent(extraChip === 'colleagues')} />
               <span className={headTabSeam(extraChip === 'colleagues')} />
             </button>
+            {/* Managers only: switch between "my conversations" (default,
+                transferred threads disappear) and the full workspace view. */}
+            {canSwitchScope ? (
+              <button
+                type="button"
+                onClick={() => setInboxScope(scope === 'all' ? 'mine' : 'all')}
+                title={t('inbox.scopeHint') || 'Show conversations assigned to other operators too'}
+                aria-pressed={scope === 'all'}
+                className={cn(
+                  'mb-1.5 ms-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150',
+                  scope === 'all'
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                )}
+              >
+                <Users className="w-3.5 h-3.5" />
+                {scope === 'all'
+                  ? (t('inbox.scopeAll') || 'All conversations')
+                  : (t('inbox.scopeMine') || 'My conversations')}
+              </button>
+            ) : null}
           </div>
   );
 

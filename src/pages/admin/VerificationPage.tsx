@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -622,10 +622,12 @@ function NumberField({
   label: string; ceilingLabel?: string; baselineLabel?: string; invalid?: boolean; invalidMessage?: string;
   value: number; onChange: (v: number) => void; min?: number; max?: number;
 }) {
+  const inputId = useId();
   return (
     <div className="space-y-1">
-      <Label>{label}</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <Input
+        id={inputId}
         type="number"
         value={value}
         min={min}

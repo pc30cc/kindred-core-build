@@ -37,6 +37,11 @@ vi.mock('../../../server/supabase.js', () => ({
           return this;
         },
         _in: undefined as any,
+        // Awaiting the builder without `.maybeSingle()` (plain update) must
+        // apply the same filters — that is how markIntentSucceeded runs.
+        then(resolve: any, reject: any) {
+          return builder.maybeSingle().then(resolve, reject);
+        },
         maybeSingle: async () => {
           const match = Object.values(intents).find((row) => {
             const eqOk = Object.entries(builder._filters).every(([k, v]) => (row as any)[k] === v);

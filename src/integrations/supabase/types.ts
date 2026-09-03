@@ -3584,13 +3584,17 @@ export type Database = {
       }
       billing_payment_intents: {
         Row: {
+          action_type: string | null
           amount_irr: number
+          attempt_count: number
           billing_interval: string | null
           created_at: string
           expires_at: string
+          failure_reason: string | null
           id: string
           metadata: Json
           plan_id: string | null
+          processing_at: string | null
           provider_name: string
           provider_ref: string | null
           purchase_type: string
@@ -3600,13 +3604,17 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          action_type?: string | null
           amount_irr: number
+          attempt_count?: number
           billing_interval?: string | null
           created_at?: string
           expires_at?: string
+          failure_reason?: string | null
           id?: string
           metadata?: Json
           plan_id?: string | null
+          processing_at?: string | null
           provider_name: string
           provider_ref?: string | null
           purchase_type: string
@@ -3616,13 +3624,17 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          action_type?: string | null
           amount_irr?: number
+          attempt_count?: number
           billing_interval?: string | null
           created_at?: string
           expires_at?: string
+          failure_reason?: string | null
           id?: string
           metadata?: Json
           plan_id?: string | null
+          processing_at?: string | null
           provider_name?: string
           provider_ref?: string | null
           purchase_type?: string
@@ -3657,42 +3669,84 @@ export type Database = {
       }
       billing_payments: {
         Row: {
+          action_type: string | null
           amount: number
+          billing_interval: string | null
           created_at: string | null
           currency: string
           id: string
           metadata: Json | null
+          paid_at: string | null
+          payment_intent_id: string | null
+          plan_id: string | null
+          plan_name_snapshot: string | null
           provider_name: string
           provider_payment_id: string | null
+          purchase_type: string | null
           refund_amount: number | null
           status: string
           workspace_id: string
         }
         Insert: {
+          action_type?: string | null
           amount?: number
+          billing_interval?: string | null
           created_at?: string | null
           currency?: string
           id?: string
           metadata?: Json | null
+          paid_at?: string | null
+          payment_intent_id?: string | null
+          plan_id?: string | null
+          plan_name_snapshot?: string | null
           provider_name: string
           provider_payment_id?: string | null
+          purchase_type?: string | null
           refund_amount?: number | null
           status?: string
           workspace_id: string
         }
         Update: {
+          action_type?: string | null
           amount?: number
+          billing_interval?: string | null
           created_at?: string | null
           currency?: string
           id?: string
           metadata?: Json | null
+          paid_at?: string | null
+          payment_intent_id?: string | null
+          plan_id?: string | null
+          plan_name_snapshot?: string | null
           provider_name?: string
           provider_payment_id?: string | null
+          purchase_type?: string | null
           refund_amount?: number | null
           status?: string
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "billing_payments_payment_intent_id_fkey"
+            columns: ["payment_intent_id"]
+            isOneToOne: false
+            referencedRelation: "billing_payment_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_payments_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_payments_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "billing_payments_workspace_id_fkey"
             columns: ["workspace_id"]
@@ -3761,6 +3815,80 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      billing_subscription_applications: {
+        Row: {
+          action_type: string
+          applied_at: string
+          billing_interval: string
+          created_at: string
+          id: string
+          payment_intent_id: string
+          period_end: string
+          period_start: string
+          plan_id: string | null
+          provider_name: string | null
+          stacked: boolean
+          workspace_id: string
+        }
+        Insert: {
+          action_type: string
+          applied_at?: string
+          billing_interval: string
+          created_at?: string
+          id?: string
+          payment_intent_id: string
+          period_end: string
+          period_start: string
+          plan_id?: string | null
+          provider_name?: string | null
+          stacked?: boolean
+          workspace_id: string
+        }
+        Update: {
+          action_type?: string
+          applied_at?: string
+          billing_interval?: string
+          created_at?: string
+          id?: string
+          payment_intent_id?: string
+          period_end?: string
+          period_start?: string
+          plan_id?: string | null
+          provider_name?: string | null
+          stacked?: boolean
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_subscription_applications_payment_intent_id_fkey"
+            columns: ["payment_intent_id"]
+            isOneToOne: false
+            referencedRelation: "billing_payment_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_subscription_applications_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_subscription_applications_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_subscription_applications_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       business_metrics_hourly: {
         Row: {
@@ -11401,6 +11529,7 @@ export type Database = {
       }
       workspace_subscriptions: {
         Row: {
+          billing_interval: string | null
           cancel_at_period_end: boolean | null
           created_at: string | null
           current_period_end: string | null
@@ -11417,6 +11546,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          billing_interval?: string | null
           cancel_at_period_end?: boolean | null
           created_at?: string | null
           current_period_end?: string | null
@@ -11433,6 +11563,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          billing_interval?: string | null
           cancel_at_period_end?: boolean | null
           created_at?: string | null
           current_period_end?: string | null
@@ -12050,6 +12181,17 @@ export type Database = {
       }
       archive_invitation_v2: {
         Args: { _actor_id: string; _invitation_id: string }
+        Returns: Json
+      }
+      billing_apply_subscription_payment: {
+        Args: {
+          p_interval: string
+          p_now?: string
+          p_payment_intent_id: string
+          p_plan_id: string
+          p_provider_name: string
+          p_workspace_id: string
+        }
         Returns: Json
       }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }

@@ -812,7 +812,8 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       const first = await q(
         `SELECT id FROM public.billing_subscription_periods WHERE workspace_id=$1`, [ws]);
       const again = (await one(`SELECT public.billing_v2_activate($1,NULL,'again') AS r`, [ws])).r;
-      expect(again.already_active).toBe(true);
+      expect(again.replayed).toBe(true);
+      expect(again.activated).toBe(false);
       const after = await q(
         `SELECT id FROM public.billing_subscription_periods WHERE workspace_id=$1`, [ws]);
       expect(after.length).toBe(first.length);
@@ -825,8 +826,8 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       // bound = money may still land: processing, or pending with a provider ref
       await client.query(
         `INSERT INTO public.billing_payment_intents
-           (workspace_id, invoice_number, amount_irr, status, provider_ref, purchase_type)
-         VALUES ($1,$2,100000,'pending','REF-1','subscription')`, [ws, docNumber()]);
+           (workspace_id, invoice_number, amount_irr, status, provider_ref, purchase_type, provider_name)
+         VALUES ($1,$2,100000,'pending','REF-1','subscription','test')`, [ws, docNumber()]);
       const readiness = (await one(`SELECT public.billing_v2_evaluate_cutover($1) AS r`, [ws])).r;
       expect(readiness.ready).toBe(false);
       expect(JSON.stringify(readiness.blockers)).toContain('legacy_payment_intent');
@@ -839,8 +840,8 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
         `UPDATE public.billing_payment_intents SET status='expired' WHERE workspace_id=$1`, [ws]);
       const unbound = await one(
         `INSERT INTO public.billing_payment_intents
-           (workspace_id, invoice_number, amount_irr, status, purchase_type)
-         VALUES ($1,$2,50000,'pending','subscription') RETURNING id`, [ws, docNumber()]);
+           (workspace_id, invoice_number, amount_irr, status, purchase_type, provider_name)
+         VALUES ($1,$2,50000,'pending','subscription','test') RETURNING id`, [ws, docNumber()]);
 
       const r = (await one(`SELECT public.billing_v2_activate($1,NULL,'drain') AS r`, [ws])).r;
       expect(r.state).toBe('v2_active');
@@ -857,8 +858,8 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       const ws = await makeWorkspace();
       const intent = await one(
         `INSERT INTO public.billing_payment_intents
-           (workspace_id, invoice_number, amount_irr, status, purchase_type)
-         VALUES ($1,$2,10000,'pending','subscription') RETURNING id, billing_engine_version`,
+           (workspace_id, invoice_number, amount_irr, status, purchase_type, provider_name)
+         VALUES ($1,$2,10000,'pending','subscription','test') RETURNING id, billing_engine_version`,
         [ws, docNumber()]);
       expect(intent.billing_engine_version).toBe('v1');
       await expect(
@@ -905,7 +906,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
         q(`INSERT INTO public.workspace_ai_balance_lots
              (workspace_id, source_type, billing_cycle_id, original_amount, remaining_amount, allowance_source)
            VALUES ($1,'PLAN_ALLOWANCE','2026-03',100000,100000,'plan')`, [ws]),
-      ).rejects.toThrow(/billing_v2_legacy_allowance_blocked/);
+      ).rejects.toThrow(/billing_v2_legacy_allowance_grant_forbidden/);
 
       // the period-bound V2 grant is still allowed
       await q(

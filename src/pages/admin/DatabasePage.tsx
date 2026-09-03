@@ -40,6 +40,8 @@ function MaintenanceCard() {
   const { t, dir } = useTranslation();
   const isRtl = dir === 'rtl';
   const fileRef = useRef<HTMLInputElement>(null);
+  const fullFileRef = useRef<HTMLInputElement>(null);
+
   const [busy, setBusy] = useState<null | 'backup' | 'fullBackup' | 'restore' | 'fullRestore' | 'data' | 'full'>(null);
   const [confirmScope, setConfirmScope] = useState<null | 'data' | 'full'>(null);
   const [confirmText, setConfirmText] = useState('');

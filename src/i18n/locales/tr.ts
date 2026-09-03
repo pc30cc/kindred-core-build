@@ -43,11 +43,26 @@ const tr: TranslationKeys = {
       increaseCta: 'Kredi ekle',
       usedPct: '%{{percent}} kullanıldı',
       sourceHint: 'Aylık AI krediniz çalışma alanı planınızdan gelir ve her fatura döneminin başında yeniden tanımlanır; kullanılmayan aylık kredi devretmez. Satın alınan kredi ayrıdır ve dönem sonunda sona ermez.',
+      historyCta: 'Kullanım geçmişi',
+      history: {
+        title: 'AI kredisi kullanım geçmişi',
+        date: 'Tarih', type: 'Tür', amount: 'Tutar', reason: 'Açıklama', cycle: 'Dönem',
+        empty: 'Henüz kullanım kaydı yok.',
+        typeDebit: 'Kullanım', typeGrant: 'Plan kredisi', typePurchase: 'Kredi satın alma',
+        typeRefund: 'İade', typeReserve: 'Rezerve', typeRelease: 'Rezerv serbest', typeExpire: 'Kredi süresi doldu',
+        page: 'Sayfa {{page}} / {{total}}', prev: 'Önceki', next: 'Sonraki', close: 'Kapat',
+        totalCount: '{{count}} kayıt',
+      },
       topup: {
         title: 'AI kredisi ekle', presetLabel: 'Yükleme tutarı', customAmountLabel: 'Özel tutar (Toman)',
         customAmountPlaceholder: 'örn. 200.000', minMaxHint: 'Tutar {{min}} ile {{max}} Toman arasında olmalıdır.',
         payCta: 'Öde', cancel: 'Vazgeç', invalidAmount: 'Girilen tutar geçersiz.',
+        continueCta: 'Devam et ve proformayı gör',
+        invoiceTitle: 'AI kredisi proforması',
+        invoiceDescription: 'Açıklama', invoiceDescriptionValue: 'AI kredisi yüklemesi',
+        gatewayCta: 'Banka ödeme sayfasına git', back: 'Geri',
       },
+
     },
     result: {
       successTitle: 'Ödeme başarılı', failureTitle: 'Ödeme başarısız', pendingTitle: 'Ödeme durumu doğrulanıyor',

@@ -37,7 +37,10 @@ export interface OperatorPresence {
     | 'within_schedule'
     | 'outside_schedule'
     | 'day_disabled'
+    | 'not_connected'
     | 'no_prefs';
+  /** Last heartbeat bucket seen for this operator (null when never/stale). */
+  last_seen_at?: string | null;
 }
 
 interface RawPrefs {

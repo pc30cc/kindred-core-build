@@ -98,10 +98,10 @@ async function authorizeWorkspaceMember(
   res: any,
   _config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; isAdmin: boolean; role: string | null } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
-  return { userId: auth.userId };
+  return { userId: auth.userId, isAdmin: auth.isAdmin, role: auth.role };
 }
 
 /**
@@ -930,6 +930,8 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     const needsHuman = parsed.data.needs_human === 'true';
     const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
     if (!auth) return;
+    const canSeeAllAssignments =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
 
     const sb = getServiceClient(config);
     let q = sb
@@ -949,7 +951,14 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       } else {
         q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
       }
-      if (assigned_to_me) q = q.eq('assigned_to', assigned_to_me);
+      if (assigned_to_me) {
+        q = q.eq('assigned_to', assigned_to_me);
+      } else if (!canSeeAllAssignments) {
+        // A claimed conversation belongs to the operator who took it: other
+        // agents must not keep seeing it in their Inbox. Owners/admins and
+        // team leads still get the full workspace view.
+        q = q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+      }
       if (status && status !== 'all') {
         const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
         q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
@@ -1106,8 +1115,12 @@ conversationsRouter.get('/inbox-counts', async (req: any, res: any) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const base = () =>
-      sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+    const seesAll =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    const base = () => {
+      const q = sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+      return seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+    };
     const [mainRes, autoRes, needsRes, spamRes] = await Promise.all([
       base().eq('is_spam', false).neq('status', 'closed').or('ai_state.is.null,ai_state.neq.ai_managed'),
       base().eq('is_spam', false).neq('status', 'closed').eq('ai_state', 'ai_managed').is('assigned_to', null),
@@ -1136,13 +1149,17 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
+    const seesAll =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    const scopeAssignment = (q: any) =>
+      seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
     const base = () =>
-      sb.from('conversations').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed');
+      scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed'));
     /* The AI tab lives outside `base()` scope: it counts exactly the
        ai_managed threads that base() excludes. */
-    const automatedQuery = sb.from('conversations').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed');
+    const automatedQuery = scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed'));
     const [openRes, pendingRes, resolvedRes, allRes, needsRes, automatedRes] = await Promise.all([
       base().eq('status', 'open'),
       base().eq('status', 'pending'),

@@ -48,7 +48,7 @@ function classifyError(err: unknown): { category: string; message: string; retry
   return { category: 'internal_error', message, retryable: true };
 }
 
-async function processCrawl(config: ReturnType<typeof loadConfig>, jobId: string, crawl: SeoCrawlRow): Promise<void> {
+export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId: string, crawl: SeoCrawlRow): Promise<void> {
   const sb = getServiceClient(config);
   await sb.from('seo_crawls').update({ status: 'running', started_at: new Date().toISOString(), progress_stage: 'preparing' }).eq('id', crawl.id);
 

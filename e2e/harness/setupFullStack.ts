@@ -223,6 +223,13 @@ export default async function globalSetup() {
     CORS_ORIGINS: `http://localhost:${PROXY_PORT}`,
     SELF_HOST_BILLING_MODE: 'unlimited',
     NODE_ENV: 'development',
+    // Lets any crawler built on safeCrawlFetch.ts (Data Hub, SEO audit) fetch
+    // a 127.0.0.1 target — the same documented dev-only escape hatch a
+    // self-hoster uses to test crawling against a local site
+    // (safeCrawlFetch.ts's allowLocal(): only live when NODE_ENV==='development',
+    // never in production). e2e/seoAudit.spec.ts relies on this to crawl a
+    // real local HTTP server end-to-end instead of mocking the transport.
+    AI_KB_ALLOW_LOCAL: '1',
   };
   const expressProc = spawn(tsxBin, [path.join(ROOT, 'server/index.ts')], {
     cwd: ROOT,
@@ -289,6 +296,12 @@ export default async function globalSetup() {
         baseURL: `http://localhost:${PROXY_PORT}`,
         superAdmin: { userId: SUPER_ADMIN_ID, token: superAdminToken },
         workspaceAdmin: { userId: WORKSPACE_ADMIN_ID, token: workspaceAdminToken, workspaceId: WORKSPACE_ID },
+        // For specs (e.g. seoAudit.spec.ts) that spawn their OWN worker
+        // process against this same scratch stack — same credentials the
+        // Express process above was given, minted from the fixed
+        // e2e-only JWT_SECRET.
+        serviceRoleKey: serviceKey,
+        anonKey,
       },
       null,
       2,

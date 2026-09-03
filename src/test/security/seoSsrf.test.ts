@@ -7,7 +7,7 @@
  * redirecting to a private IP), byte caps enforced, and redirect loops
  * bounded.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { seoFetch } from '../../../server/services/seo/crawler/seoFetch.js';
 import { isSameDomain } from '../../../server/services/ai-agent/crawler/urlRules.js';
 
@@ -133,6 +133,43 @@ describe('seoFetch SSRF hardening', () => {
     expect(res.ok).toBe(false);
     expect(res.error).toBe('too_many_redirects');
     expect(res.redirectChain.length).toBeGreaterThan(1);
+  });
+
+  it('a DNS lookup failure fails CLOSED, not open (no fetch is ever attempted)', async () => {
+    const failingDns = async () => { throw new Error('ENOTFOUND'); };
+    const fetchImpl = vi.fn(async () => htmlResponse('should never be reached'));
+    const res = await seoFetch('https://example.com/', {
+      ...baseOpts,
+      lookupImpl: failingDns,
+      fetchImpl: fetchImpl as any,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('dns_failure');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('a DNS lookup returning zero answers fails CLOSED', async () => {
+    const emptyDns = async () => [] as any[];
+    const fetchImpl = vi.fn(async () => htmlResponse('should never be reached'));
+    const res = await seoFetch('https://example.com/', {
+      ...baseOpts,
+      lookupImpl: emptyDns,
+      fetchImpl: fetchImpl as any,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('dns_failure');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('an IPv6 private/unique-local address (fc00::/7) is blocked', async () => {
+    const res = await seoFetch('https://internal.example.com/', {
+      ...baseOpts,
+      isUrlAllowed: () => true,
+      lookupImpl: async () => [{ address: 'fd12:3456:789a::1', family: 6 }] as any,
+      fetchImpl: (async () => htmlResponse('secret')) as any,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('blocked_host');
   });
 
   it('captures response timing and headers on success', async () => {

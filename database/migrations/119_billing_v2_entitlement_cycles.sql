@@ -417,14 +417,17 @@ BEGIN
     RETURNING 1)
   SELECT count(*) INTO v_expired FROM closed;
 
-  -- Cycles of superseded periods stop when their period does.
+  -- Cycles of superseded periods stop when their period does: the live one is
+  -- closed as history, the future ones never happen at all.
   UPDATE public.billing_entitlement_cycles
-     SET status = 'completed', completed_at = now(),
+     SET status = CASE WHEN status = 'active' THEN 'completed' ELSE 'canceled' END,
+         completed_at = CASE WHEN status = 'active' THEN now() ELSE completed_at END,
          allowance_state = CASE WHEN allowance_state IN ('pending', 'failed')
                                 THEN 'skipped' ELSE allowance_state END
    WHERE workspace_id = v_period.workspace_id
      AND subscription_period_id <> v_period.id
-     AND status = 'active';
+     AND status IN ('scheduled', 'active');
+
 
   -- The one cycle that is live right now.
   SELECT * INTO v_cycle FROM public.billing_entitlement_cycles

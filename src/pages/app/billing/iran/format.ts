@@ -32,3 +32,33 @@ export function describeTransaction(event: { event_type?: string; metadata?: any
   if (event.metadata?.isUpgrade) return 'upgrade';
   return 'renewal';
 }
+
+/**
+ * Plan highlight rows for a plan card — 5 to 7 concrete, customer-readable
+ * capabilities derived from the plan's own limits. Never invented copy: a
+ * row only appears when the plan actually declares that limit.
+ */
+export interface PlanHighlight { key: string; value: number }
+
+const HIGHLIGHT_KEYS = [
+  'max_agents',
+  'max_conversations',
+  'max_visitors',
+  'storage_gb',
+  'max_call_minutes_per_month',
+  'max_kb_articles',
+  'max_departments',
+];
+
+export function planHighlights(plan: { limits?: Record<string, unknown> | null }): PlanHighlight[] {
+  const limits = (plan?.limits || {}) as Record<string, unknown>;
+  const rows: PlanHighlight[] = [];
+  for (const key of HIGHLIGHT_KEYS) {
+    const raw = limits[key];
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(value) || value === 0) continue;
+    rows.push({ key, value });
+    if (rows.length === 7) break;
+  }
+  return rows;
+}

@@ -14,6 +14,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Loader2, Sparkles } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { formatToman, tomanLabel } from '@/lib/money';
 import { toast } from '@/lib/toast';
 import { billingError } from '@/lib/billing-i18n';
@@ -131,6 +132,7 @@ function TopupDialog({
   workspaceId, open, onOpenChange, onSuccess,
 }: { workspaceId: string; open: boolean; onOpenChange: (v: boolean) => void; onSuccess: () => void }) {
   const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
   const [config, setConfig] = useState<{ presetsToman: number[]; minToman: number; maxToman: number } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [custom, setCustom] = useState('');
@@ -155,7 +157,7 @@ function TopupDialog({
     try {
       const result = await aiCreditTopupCheckout(workspaceId, {
         amountToman: amount,
-        callbackUrl: `${window.location.origin}/app/billing`,
+        callbackUrl: `${window.location.origin}${wsPath('/billing')}`,
       });
       if (result.paymentUrl) window.location.href = result.paymentUrl;
     } catch (e: any) {

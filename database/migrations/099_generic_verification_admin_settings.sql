@@ -143,6 +143,18 @@ GRANT SELECT ON public.verification_purpose_settings TO service_role;
 GRANT SELECT ON public.verification_purpose_settings_audit TO service_role;
 -- No grant at all on verification_admin_idempotency — RPC-internal only.
 
+-- A hosted Supabase project's own platform-level bootstrap applies
+-- `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO service_role`
+-- outside of any customer migration, so a freshly-created table starts
+-- with service_role already holding INSERT/UPDATE/DELETE — the GRANTs
+-- above only ADD privileges and can never strip that platform default
+-- back down. Revoke explicitly so these two tables are actually
+-- SELECT-only for service_role (every write goes through the RPC below)
+-- regardless of what a given environment's platform bootstrap already
+-- granted.
+REVOKE INSERT, UPDATE, DELETE ON public.verification_purpose_settings FROM service_role;
+REVOKE INSERT, UPDATE, DELETE ON public.verification_purpose_settings_audit FROM service_role;
+
 -- ============================================================
 -- 5. Seed all eight registered purposes with safe defaults, admin_enabled
 --    = false. Values mirror server/services/verification/types.ts's

@@ -39,6 +39,7 @@ import {
   IRAN_PROVIDERS,
   type PaymentIntentRow,
 } from '../services/billing/paymentIntent.js';
+import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import {
   applySubscriptionPayment,
   recordCustomerPayment,

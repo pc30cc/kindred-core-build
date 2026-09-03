@@ -1369,6 +1369,22 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
   const { workspaceId, planId, status, expiresAt } = req.body;
   if (!workspaceId || !planId) return res.status(400).json({ error: 'Missing workspaceId or planId' });
 
+  // Even an admin grant must not write the subscription window directly once
+  // V2 owns the workspace — the invoice is the only authority. The database
+  // trigger enforces this too; this returns the structured answer.
+  try {
+    await assertLegacyPathAllowed(serverConfigOf(req), {
+      workspaceId,
+      path: 'legacy_admin_grant',
+      nextAction: 'CREATE_INVOICE',
+    });
+  } catch (guard) {
+    if (guard instanceof LegacyPathRejectedError) {
+      return res.status(409).json({ error: 'BILLING_V2_REQUIRED', nextAction: guard.nextAction });
+    }
+    throw guard;
+  }
+
   const supabase = createClient(url, key);
   const { data, error } = await supabase.from('workspace_subscriptions').upsert({
     workspace_id: workspaceId,

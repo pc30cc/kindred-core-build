@@ -201,6 +201,8 @@ DECLARE
   v_start    TIMESTAMPTZ;
   v_end      TIMESTAMPTZ;
   v_anchor   TIMESTAMPTZ;
+  v_base     TIMESTAMPTZ;
+  v_step     INTEGER := 1;
   v_idx      INTEGER := 0;
   v_created  INTEGER := 0;
   v_amount   BIGINT;
@@ -229,19 +231,24 @@ BEGIN
 
   v_start := v_period.period_start;
   IF v_prev.id IS NOT NULL AND v_prev.cycle_end < v_period.period_end THEN
-    v_anchor := v_prev.cycle_end;
+    v_base   := v_prev.cycle_end;
+    v_step   := 0;
     v_prev_m := COALESCE((v_prev.snapshot->>'monthly_allowance_irr')::bigint, v_prev.ai_allowance_irr);
   ELSE
-    v_anchor := public.billing_v2_add_interval(v_start, 'monthly', 1);
+    v_base := v_start;
+    v_step := 1;
   END IF;
 
   LOOP
-    v_end := LEAST(v_anchor, v_period.period_end);
+    -- Every boundary is measured from the ORIGINAL anchor, never from the
+    -- previous boundary: 31 Jan → 28 Feb → 31 Mar, with no month-end drift.
+    v_anchor := public.billing_v2_add_interval(v_base, 'monthly', v_step);
+    v_end    := LEAST(v_anchor, v_period.period_end);
     EXIT WHEN v_end <= v_start;
 
     -- No slivers: when the next anchor would overshoot the period, the final
     -- cycle absorbs the remainder instead of spawning a few-hour 13th cycle.
-    IF public.billing_v2_add_interval(v_anchor, 'monthly', 1) > v_period.period_end THEN
+    IF public.billing_v2_add_interval(v_base, 'monthly', v_step + 1) > v_period.period_end THEN
       v_end := v_period.period_end;
     END IF;
 
@@ -280,9 +287,9 @@ BEGIN
 
     IF FOUND THEN v_created := v_created + 1; END IF;
 
-    v_start  := v_end;
-    v_anchor := public.billing_v2_add_interval(v_anchor, 'monthly', 1);
-    v_idx    := v_idx + 1;
+    v_start := v_end;
+    v_step  := v_step + 1;
+    v_idx   := v_idx + 1;
     EXIT WHEN v_start >= v_period.period_end OR v_idx > 24;  -- hard bound
   END LOOP;
 

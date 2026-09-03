@@ -830,7 +830,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
          VALUES ($1,$2,100000,'pending','REF-1','ai_credit_topup','test')`, [ws, docNumber()]);
       const readiness = (await one(`SELECT public.billing_v2_evaluate_cutover($1) AS r`, [ws])).r;
       expect(readiness.ready).toBe(false);
-      expect(JSON.stringify(readiness.blockers)).toContain('legacy_payment_intent');
+      expect(JSON.stringify(readiness.blockers)).toContain('legacy_intent_bound');
       await expect(
         q(`SELECT public.billing_v2_activate($1,NULL,'x')`, [ws]),
       ).rejects.toThrow(/billing_v2_cutover_blocked/);

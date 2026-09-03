@@ -9,7 +9,7 @@ const fa: TranslationKeys = {
       activeUntil: 'فعال تا {{date}}', daysLeft: '{{days}} روز تا پایان دوره', perMonth: '/ ماه', perYear: '/ سال',
       renewCta: 'تمدید پلن', changeCta: 'تغییر پلن', upgradeCta: 'ارتقای پلن', managePortal: 'مدیریت پرداخت',
       usageTitle: 'خلاصه مصرف', conversations: 'گفتگوها', operators: 'اپراتورها', storage: 'فضای ذخیره‌سازی',
-      callMinutes: 'دقایق تماس', unlimited: 'نامحدود', gb: 'گیگابایت', remaining: 'باقی‌مانده',
+      callMinutes: 'دقایق تماس', unlimited: 'نامحدود', gb: 'گیگابایت', remaining: 'باقی‌مانده', visitors: 'بازدیدکنندگان', aiCredits: 'اعتبار هوش مصنوعی', kbArticles: 'مقالات پایگاه دانش', departments: 'دپارتمان‌ها',
     },
     plans: {
       monthly: 'ماهانه', yearly: 'سالانه', yearlyHint: 'پرداخت سالانه — به‌صرفه‌تر', discountBadge: '{{percent}}٪ تخفیف',

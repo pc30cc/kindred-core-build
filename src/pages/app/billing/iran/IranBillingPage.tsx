@@ -288,9 +288,14 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
   const items = [
     { key: 'conversations', label: t('billingIran.overview.conversations'), used: usage.conversations_count, limit: limits.max_conversations?.value },
     { key: 'operators', label: t('billingIran.overview.operators'), used: operatorsUsed, limit: limits.max_agents?.value },
+    { key: 'visitors', label: t('billingIran.overview.visitors'), used: usage.visitors_count, limit: limits.max_visitors?.value },
+    { key: 'aiCredits', label: t('billingIran.overview.aiCredits'), used: usage.ai_credits_used, limit: limits.ai_credits_per_month?.value },
     { key: 'storage', label: t('billingIran.overview.storage'), used: typeof usage.storage_bytes === 'number' ? Number((usage.storage_bytes / 1024 ** 3).toFixed(1)) : undefined, limit: limits.storage_gb?.value, unit: t('billingIran.overview.gb') },
     { key: 'callMinutes', label: t('billingIran.overview.callMinutes'), used: usage.call_minutes_used, limit: limits.max_call_minutes_per_month?.value },
+    { key: 'kbArticles', label: t('billingIran.overview.kbArticles'), used: usage.kb_articles_count, limit: limits.max_kb_articles?.value },
+    { key: 'departments', label: t('billingIran.overview.departments'), used: usage.departments_count, limit: limits.max_departments?.value },
   ].filter((i) => typeof i.used === 'number' && i.limit != null);
+
 
   if (items.length === 0) return null;
 
@@ -298,7 +303,7 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
     <Card>
       <CardContent className="pt-5">
         <h3 className="text-sm font-semibold text-foreground mb-4">{t('billingIran.overview.usageTitle')}</h3>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3">
           {items.map((i) => {
             const unlimited = i.limit === -1;
             const pct = !unlimited && i.limit > 0 ? Math.min(100, Math.round((i.used / i.limit) * 100)) : null;
@@ -307,7 +312,7 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
               ? t('billingIran.overview.unlimited')
               : `${Number(i.limit).toLocaleString('fa-IR')}${i.unit ? ` ${i.unit}` : ''}`;
             return (
-              <div key={i.key} className="rounded-xl border border-border/60 bg-card p-4 flex flex-col items-center text-center gap-2">
+              <div key={i.key} className="rounded-xl border border-border/60 bg-card p-3 flex flex-col items-center text-center gap-1.5">
                 <UsageDonut
                   percent={pct}
                   used={Number(i.used)}
@@ -317,14 +322,15 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
                   usedName={t('billingIran.aiCredit.usedLabel')}
                   remainingName={t('billingIran.overview.remaining')}
                 />
-                <div className="text-xs text-muted-foreground">{i.label}</div>
-                <div className="text-sm font-semibold text-foreground">
+                <div className="text-[11px] text-muted-foreground">{i.label}</div>
+                <div className="text-xs font-semibold text-foreground">
                   {usedLabel} / {limitLabel}
                 </div>
               </div>
             );
           })}
         </div>
+
       </CardContent>
     </Card>
   );
@@ -351,15 +357,15 @@ function UsageDonut({
       ].filter((d) => d.value > 0);
 
   return (
-    <div className="relative mx-auto h-[128px] w-[128px]">
+    <div className="relative mx-auto h-[84px] w-[84px]">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
             data={data}
             dataKey="value"
             nameKey="label"
-            innerRadius={42}
-            outerRadius={60}
+            innerRadius={27}
+            outerRadius={40}
             paddingAngle={data.length > 1 ? 2 : 0}
             stroke="none"
             startAngle={90}
@@ -375,7 +381,7 @@ function UsageDonut({
           )}
         </PieChart>
       </ResponsiveContainer>
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-base font-bold text-foreground">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-bold text-foreground">
         {unlimited ? '∞' : percent !== null ? `${percent.toLocaleString('fa-IR')}٪` : '—'}
       </div>
     </div>

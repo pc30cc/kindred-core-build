@@ -1043,6 +1043,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE lot RECORD; v_free NUMERIC; v_entry UUID; n INTEGER := 0;
 BEGIN
+  PERFORM public.ai_wallet_lock(p_workspace_id);
   FOR lot IN
     SELECT * FROM public.workspace_ai_balance_lots
      WHERE workspace_id = p_workspace_id

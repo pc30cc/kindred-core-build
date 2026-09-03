@@ -76,6 +76,8 @@ export interface OperatorPresence {
   full_name?: string | null;
   email?: string | null;
   avatar_url?: string | null;
+  /** Last heartbeat seen for this operator (null when never/stale). */
+  last_seen_at?: string | null;
 }
 
 export interface TeamPresenceResponse {

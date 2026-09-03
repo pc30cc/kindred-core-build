@@ -17,7 +17,10 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { ALL_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS, type VerificationPurpose } from './types.js';
+import {
+  ALL_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS, findPolicyWeakeningViolations,
+  type VerificationPurpose,
+} from './types.js';
 
 export class VerificationAdminError extends Error {
   constructor(public readonly code: string, public readonly status: number) {
@@ -33,6 +36,7 @@ const ERROR_STATUS: Record<string, number> = {
   ADMIN_REQUEST_CONFLICT: 409,
   ADMIN_REQUEST_ID_INVALID: 400,
   ADMIN_ACTION_UNKNOWN: 400,
+  POLICY_WEAKENING_NOT_ALLOWED: 400,
 };
 
 function throwForRpcError(message: string): never {
@@ -236,7 +240,20 @@ async function callUpdateRpc(
   };
 }
 
+/**
+ * Fast, clean 400 for the common case — the database RPC (migration 100's
+ * gv_admin_update_purpose_settings) independently re-enforces the SAME
+ * tightening-only rule against the SAME canonical baseline
+ * (gv_admin_default_settings, proven identical to getAdminPolicyBaseline by
+ * a parity test), so a caller that reaches the RPC directly — bypassing
+ * this service layer entirely — still cannot widen a purpose's policy.
+ */
 export async function updatePurposeSettings(config: ServerConfig, input: UpdatePurposeSettingsInput): Promise<UpdatePurposeSettingsResult> {
+  assertKnownPurpose(input.purpose);
+  const violations = findPolicyWeakeningViolations(input.purpose, input);
+  if (violations.length > 0) {
+    throw new VerificationAdminError('POLICY_WEAKENING_NOT_ALLOWED', 400);
+  }
   return callUpdateRpc(config, 'update', input);
 }
 
@@ -312,5 +329,6 @@ export function getPlatformCeilings() {
     maxVerificationAttempts: PLATFORM_MAXIMUMS.maxVerificationAttempts,
     proofTtlSeconds: PLATFORM_MAXIMUMS.proofTtlSeconds,
     globalRateLimitWindowSecondsMax: PLATFORM_MAXIMUMS.globalRateLimitWindowSecondsMax,
+    globalRateLimitMaxPerWindowMax: PLATFORM_MAXIMUMS.globalRateLimitMaxPerWindowMax,
   };
 }

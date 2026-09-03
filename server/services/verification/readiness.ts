@@ -10,8 +10,22 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { getVerificationCryptoReadiness } from './crypto.js';
 import { getSmsProviderInfo } from '../sms/index.js';
+import type { SmsProviderInfo } from '../sms/types.js';
 import { ALL_VERIFICATION_PURPOSES, type VerificationPurpose } from './types.js';
 import { getAllPurposeOverviews, type PurposeOverview } from './adminSettings.js';
+
+/**
+ * Readiness is OBSERVATIONAL ONLY — computing one of these values never
+ * sends anything and never creates a challenge. Four states, not a
+ * boolean, because "no row in app_runtime_config" (unconfigured), "a row
+ * exists but is missing the credential a real send would need" (invalid),
+ * and "the readiness check itself could not reach the database"
+ * (unavailable) are different operational situations that a Super Admin
+ * needs to tell apart from "genuinely ready" (configured) — collapsing
+ * them into one boolean previously reported "configured" for a
+ * provider_name with no usable credential at all.
+ */
+export type ProviderReadinessState = 'unconfigured' | 'configured' | 'invalid' | 'unavailable';
 
 export interface ReadinessSnapshot {
   status: 'dormant' | 'configured' | 'error';
@@ -20,8 +34,8 @@ export interface ReadinessSnapshot {
   currentKeyVersion: number | null;
   stableIndexKeyVersion: number;
   cryptoErrorCode?: string;
-  emailProviderConfigured: boolean;
-  smsProviderConfigured: boolean;
+  emailProviderStatus: ProviderReadinessState;
+  smsProviderStatus: ProviderReadinessState;
   databaseAvailable: boolean;
   purposes: Array<{
     purpose: VerificationPurpose;
@@ -34,15 +48,72 @@ export interface ReadinessSnapshot {
   }>;
 }
 
-async function isPlatformEmailProviderConfigured(config: ServerConfig): Promise<boolean> {
+function nonEmptyString(source: Record<string, unknown> | undefined, key: string): boolean {
+  const value = source?.[key];
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * Classifies the SAME shape `default_email_provider` stores
+ * (`{provider_name, config, secrets}` — see server/services/email/index.ts's
+ * own `normalizeProviderConfig`) into a readiness state without importing
+ * that module's send-path internals. Only checks for the PRESENCE of the
+ * credential field each provider's own adapter requires
+ * (server/services/email/providers/{resend,sendgrid,smtp}.ts) — never its
+ * value.
+ */
+export function classifyEmailProviderConfig(value: unknown, env: NodeJS.ProcessEnv = process.env): ProviderReadinessState {
+  const row = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  const providerNameRaw = typeof row?.provider_name === 'string' ? row.provider_name : typeof row?.provider === 'string' ? row.provider : '';
+  const providerName = providerNameRaw.trim().toLowerCase();
+  if (!providerName || providerName === 'disabled') return 'unconfigured';
+
+  const cfg = row?.config && typeof row.config === 'object' && !Array.isArray(row.config) ? (row.config as Record<string, unknown>) : undefined;
+  const secrets = row?.secrets && typeof row.secrets === 'object' && !Array.isArray(row.secrets) ? (row.secrets as Record<string, unknown>) : undefined;
+  const hasCredential = (key: string) => nonEmptyString(cfg, key) || nonEmptyString(secrets, key);
+
+  switch (providerName) {
+    case 'resend':
+      return hasCredential('api_key') || Boolean(env.RESEND_API_KEY) ? 'configured' : 'invalid';
+    case 'sendgrid':
+      return hasCredential('api_key') || Boolean(env.SENDGRID_API_KEY) ? 'configured' : 'invalid';
+    case 'smtp':
+      return hasCredential('smtp_host') || Boolean(env.SMTP_HOST) ? 'configured' : 'invalid';
+    default:
+      // A provider_name that isn't one of the platform's own adapters.
+      return 'invalid';
+  }
+}
+
+async function getEmailProviderStatus(config: ServerConfig): Promise<ProviderReadinessState> {
   try {
     const sb = getServiceClient(config);
     const { data, error } = await sb.from('app_runtime_config').select('value').eq('key', 'default_email_provider').maybeSingle();
-    if (error) return false;
-    const value = (data as { value?: unknown } | null)?.value;
-    return Boolean(value && typeof value === 'object' && Object.keys(value as object).length > 0);
+    if (error) return 'unavailable';
+    return classifyEmailProviderConfig((data as { value?: unknown } | null)?.value);
   } catch {
-    return false;
+    return 'unavailable';
+  }
+}
+
+/**
+ * Classifies an already-redacted `SmsProviderInfo` (server/services/sms/
+ * index.ts's `getSmsProviderInfo` — never reads a raw credential itself)
+ * into the same four-state readiness contract as email.
+ */
+export function classifySmsProviderInfo(info: SmsProviderInfo): ProviderReadinessState {
+  if (info.providerName === 'disabled' || !info.hasApiKey) return 'unconfigured';
+  if (info.providerName === 'kavenegar' && !info.sender) return 'invalid';
+  if (info.providerName === 'smsir' && (!info.lineNumber || info.verifyTemplateId == null)) return 'invalid';
+  return 'configured';
+}
+
+async function getSmsProviderStatus(config: ServerConfig): Promise<ProviderReadinessState> {
+  try {
+    const info = await getSmsProviderInfo(config);
+    return classifySmsProviderInfo(info);
+  } catch {
+    return 'unavailable';
   }
 }
 
@@ -58,9 +129,9 @@ async function isDatabaseAvailable(config: ServerConfig): Promise<boolean> {
 
 export async function getReadinessSnapshot(config: ServerConfig): Promise<ReadinessSnapshot> {
   const crypto = getVerificationCryptoReadiness();
-  const [emailConfigured, smsInfo, databaseAvailable, overviews] = await Promise.all([
-    isPlatformEmailProviderConfigured(config),
-    getSmsProviderInfo(config).catch(() => ({ configured: false }) as { configured: boolean }),
+  const [emailProviderStatus, smsProviderStatus, databaseAvailable, overviews] = await Promise.all([
+    getEmailProviderStatus(config),
+    getSmsProviderStatus(config),
     isDatabaseAvailable(config),
     getAllPurposeOverviews(config).catch((): PurposeOverview[] => []),
   ]);
@@ -87,8 +158,8 @@ export async function getReadinessSnapshot(config: ServerConfig): Promise<Readin
     currentKeyVersion: crypto.currentVersion,
     stableIndexKeyVersion: crypto.stableIndexVersion,
     cryptoErrorCode: crypto.errorCode,
-    emailProviderConfigured: emailConfigured,
-    smsProviderConfigured: Boolean(smsInfo.configured),
+    emailProviderStatus,
+    smsProviderStatus,
     databaseAvailable,
     purposes,
   };

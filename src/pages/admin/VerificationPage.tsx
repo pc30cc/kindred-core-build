@@ -20,7 +20,7 @@ import { formatPattern as format } from '@/lib/date';
 import {
   useVerificationOverview, useVerificationPurpose, useUpdatePurposeSettings, useResetPurposeSettings,
   useVerificationAudit, useTemplatePreview, VerificationAdminApiError,
-  type VerificationPurpose, type PurposeOverview, type PlatformCeilings,
+  type VerificationPurpose, type PurposeOverview, type PlatformCeilings, type ProviderReadinessState,
 } from '@/hooks/useVerificationAdmin';
 import type { Locale } from '@/i18n/config';
 
@@ -99,19 +99,17 @@ export default function AdminVerificationPage() {
                 okText={t('admin.verification.readiness.databaseOk' as any)}
                 badText={t('admin.verification.readiness.databaseError' as any)}
               />
-              <ReadinessRow
+              <ProviderReadinessRow
                 icon={<Mail className="h-4 w-4" />}
                 label={t('admin.verification.readiness.email' as any)}
-                ok={overview.data?.readiness.emailProviderConfigured ?? false}
-                okText={t('admin.verification.readiness.emailOk' as any)}
-                badText={t('admin.verification.readiness.emailMissing' as any)}
+                state={overview.data?.readiness.emailProviderStatus ?? 'unconfigured'}
+                textFor={(s) => t(`admin.verification.readiness.email${s === 'configured' ? 'Ok' : s === 'unconfigured' ? 'Missing' : s === 'invalid' ? 'Invalid' : 'Unavailable'}` as any)}
               />
-              <ReadinessRow
+              <ProviderReadinessRow
                 icon={<MessageSquare className="h-4 w-4" />}
                 label={t('admin.verification.readiness.sms' as any)}
-                ok={overview.data?.readiness.smsProviderConfigured ?? false}
-                okText={t('admin.verification.readiness.smsOk' as any)}
-                badText={t('admin.verification.readiness.smsMissing' as any)}
+                state={overview.data?.readiness.smsProviderStatus ?? 'unconfigured'}
+                textFor={(s) => t(`admin.verification.readiness.sms${s === 'configured' ? 'Ok' : s === 'unconfigured' ? 'Missing' : s === 'invalid' ? 'Invalid' : 'Unavailable'}` as any)}
               />
               <div className="rounded-lg border p-3 space-y-1 col-span-1 md:col-span-2 lg:col-span-3">
                 <div className="flex items-center gap-2 text-sm font-medium"><KeyRound className="h-4 w-4" />{t('admin.verification.readiness.crypto' as any)}</div>
@@ -209,7 +207,22 @@ export default function AdminVerificationPage() {
                     <div className="text-sm font-medium">{t('admin.verification.preview.emailText' as any)}</div>
                     <pre className="rounded border p-2 text-sm whitespace-pre-wrap" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{preview.data.email.text}</pre>
                     <div className="text-sm font-medium">{t('admin.verification.preview.emailHtml' as any)}</div>
-                    <iframe title="email-preview" className="w-full h-40 rounded border" srcDoc={preview.data.email.html} />
+                    {/*
+                      A fully locked-down sandbox: no script execution, no
+                      origin-equivalent access to this app's cookies or
+                      storage, no top-level navigation, no form submission,
+                      no popups — this renders untrusted-shaped HTML (a real
+                      send would build from the same template), so an empty
+                      sandbox allow-list is deliberate and must stay empty.
+                      Proven by a static test (adminPreviewSandbox.test.ts)
+                      that fails the build if any allow-* token appears.
+                    */}
+                    <iframe
+                      title={t('admin.verification.preview.iframeTitle' as any)}
+                      sandbox=""
+                      className="w-full h-40 rounded border"
+                      srcDoc={preview.data.email.html}
+                    />
                   </div>
                   <div className="space-y-2">
                     <div className="text-sm font-medium">{t('admin.verification.preview.smsText' as any)}</div>
@@ -289,6 +302,28 @@ function ReadinessRow({ icon, label, ok, okText, badText }: { icon: React.ReactN
     <div className="rounded-lg border p-3 space-y-1">
       <div className="flex items-center gap-2 text-sm font-medium">{icon}{label}</div>
       <div className={`text-sm ${ok ? 'text-emerald-500' : 'text-muted-foreground'}`}>{ok ? okText : badText}</div>
+    </div>
+  );
+}
+
+/**
+ * Providers are one of FOUR safe states, never a boolean — a stored
+ * provider_name with no usable credential ('invalid') and a readiness
+ * check that could not reach the database ('unavailable') both need to
+ * read differently from 'configured' and from 'unconfigured'.
+ */
+function ProviderReadinessRow({
+  icon, label, state, textFor,
+}: { icon: React.ReactNode; label: string; state: ProviderReadinessState; textFor: (s: ProviderReadinessState) => string }) {
+  const colorClass = state === 'configured'
+    ? 'text-emerald-500'
+    : state === 'invalid' || state === 'unavailable'
+      ? 'text-destructive'
+      : 'text-muted-foreground';
+  return (
+    <div className="rounded-lg border p-3 space-y-1">
+      <div className="flex items-center gap-2 text-sm font-medium">{icon}{label}</div>
+      <div className={`text-sm ${colorClass}`}>{textFor(state)}</div>
     </div>
   );
 }

@@ -53,7 +53,10 @@ export interface PlatformCeilings {
   maxVerificationAttempts: number;
   proofTtlSeconds: number;
   globalRateLimitWindowSecondsMax: number;
+  globalRateLimitMaxPerWindowMax: number;
 }
+
+export type ProviderReadinessState = 'unconfigured' | 'configured' | 'invalid' | 'unavailable';
 
 export interface ReadinessSnapshot {
   status: 'dormant' | 'configured' | 'error';
@@ -62,8 +65,8 @@ export interface ReadinessSnapshot {
   currentKeyVersion: number | null;
   stableIndexKeyVersion: number;
   cryptoErrorCode?: string;
-  emailProviderConfigured: boolean;
-  smsProviderConfigured: boolean;
+  emailProviderStatus: ProviderReadinessState;
+  smsProviderStatus: ProviderReadinessState;
   databaseAvailable: boolean;
   purposes: Array<{
     purpose: VerificationPurpose;

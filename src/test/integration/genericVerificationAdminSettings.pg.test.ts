@@ -19,6 +19,7 @@ import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import { ensureAuthChainInstalled } from './authStubSchema';
 import type { PgQueryable } from './pgMigrationChain';
+import { ALL_VERIFICATION_PURPOSES, getAdminPolicyBaseline } from '../../../server/services/verification/types';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
 if (!DSN && process.env.REQUIRE_GV_DB === '1') {
@@ -202,6 +203,18 @@ async function resetSettingsRow(purpose: string) {
   await db.query(`DELETE FROM public.verification_purpose_settings_audit WHERE purpose = $1`, [purpose]);
 }
 
+/**
+ * Every field here is chosen to be at least as strict as EVERY purpose's
+ * own baseline (server/services/verification/types.ts's RAW_POLICIES), not
+ * just one purpose's — so this fixture stays a valid tightening submission
+ * for whichever purpose a test happens to target, now that migration 100
+ * rejects a weakening submission from inside the RPC itself. Concretely:
+ * rateWindowSeconds/proofTtlSeconds use the tightest extreme across all 8
+ * purposes (3600 is the LARGEST baseline rateWindowSeconds — using it
+ * satisfies "not smaller than baseline" for every purpose; 180 is the
+ * SMALLEST baseline proofTtlSeconds — using it satisfies "not larger than
+ * baseline" for every purpose).
+ */
 function fullUpdatePayload(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     requestId: randomUUID(),
@@ -212,8 +225,8 @@ function fullUpdatePayload(overrides: Partial<Record<string, unknown>> = {}) {
     maxVerificationAttempts: 4,
     resendCooldownSeconds: 90,
     maxSendsPerWindow: 3,
-    rateWindowSeconds: 1800,
-    proofTtlSeconds: 300,
+    rateWindowSeconds: 3600,
+    proofTtlSeconds: 180,
     globalRateLimitEnabled: false,
     globalRateLimitMaxPerWindow: null,
     globalRateLimitWindowSeconds: null,
@@ -272,7 +285,18 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     expect(row.rows[0].revision).toBe(1);
   });
 
-  it('a direct service-role write flipping admin_enabled=true (bypassing the RPC entirely) still cannot make effectiveEnabled true', async () => {
+  // NOTE: `db` here is the migration-owning test connection (e.g. `app_test`),
+  // NOT the Postgres `service_role` role — migration 099 explicitly denies
+  // `service_role` a direct UPDATE on this table (see the ACL test below),
+  // so this is an owner-level/raw-SQL bypass, one level of privilege ABOVE
+  // what any real application code path (which only ever runs as
+  // service_role or through the RPC) could ever reach. It is included
+  // because it is the STRONGEST possible bypass this migration set can be
+  // tested against: if even an owner-level raw UPDATE cannot flip
+  // effectiveEnabled, then service_role (which has less privilege) and the
+  // RPC (which enforces the rule in application logic on top of that)
+  // certainly cannot either.
+  it('an owner-level raw SQL UPDATE flipping admin_enabled=true (bypassing the RPC and even service_role\'s own ACL) still cannot make effectiveEnabled true', async () => {
     await resetSettingsRow('signup_phone');
     await db.query(`UPDATE public.verification_purpose_settings SET admin_enabled = true WHERE purpose = 'signup_phone'`);
     const res = await call('GET', '/api/admin/verification/purposes/signup_phone', 'super-admin-token');
@@ -280,6 +304,31 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     expect(res.json.gates.adminEnabled).toBe(true);
     expect(res.json.gates.effectiveEnabled).toBe(false);
     await resetSettingsRow('signup_phone');
+  });
+
+  it('service_role itself cannot UPDATE verification_purpose_settings directly, but CAN reach the same mutation through the RPC', async () => {
+    await resetSettingsRow('change_phone');
+    const client = await (db as unknown as { connect(): Promise<any> }).connect();
+    try {
+      await client.query('SET ROLE service_role');
+      await expect(
+        client.query(`UPDATE public.verification_purpose_settings SET admin_enabled = true WHERE purpose = 'change_phone'`),
+      ).rejects.toThrow(/permission denied/i);
+
+      const rpcResult = await client.query(
+        `SELECT public.gv_admin_update_purpose_settings($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) AS result`,
+        ['acl-service-role-rpc-001', 'change_phone', 'update', null, 1, false, 6, 200, 5, 60, 5, 3600, 600, false, null, null, 'en', null, null, 'en'],
+      );
+      expect(rpcResult.rows[0].result.replayed).toBe(false);
+      await client.query('RESET ROLE');
+    } finally {
+      client.release ? client.release() : client.end?.();
+    }
+
+    const row = await db.query(`SELECT otp_ttl_seconds, revision FROM public.verification_purpose_settings WHERE purpose = 'change_phone'`);
+    expect(row.rows[0].otp_ttl_seconds).toBe(200);
+    expect(row.rows[0].revision).toBe(2);
+    await resetSettingsRow('change_phone');
   });
 
   // ── Validation / ceilings ────────────────────────────────────────────
@@ -329,7 +378,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     const requestId = randomUUID();
     const r1 = await call('PUT', '/api/admin/verification/purposes/change_phone', 'super-admin-token', fullUpdatePayload({ requestId }));
     expect(r1.status).toBe(200);
-    const r2 = await call('PUT', '/api/admin/verification/purposes/change_phone', 'super-admin-token', fullUpdatePayload({ requestId, otpLength: 5, expectedRevision: 2 }));
+    const r2 = await call('PUT', '/api/admin/verification/purposes/change_phone', 'super-admin-token', fullUpdatePayload({ requestId, otpTtlSeconds: 200, expectedRevision: 2 }));
     expect(r2.status).toBe(409);
     expect(r2.json.error).toBe('ADMIN_REQUEST_CONFLICT');
   });
@@ -417,5 +466,165 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     } finally {
       client.release ? client.release() : client.end?.();
     }
+  });
+
+  // ── Migration 100 hardening: policy-tightening-only enforcement ──────
+  const WEAKENING_CASES: Array<{ field: string; purpose: string; weaken: Record<string, unknown> }> = [
+    { field: 'otpLength', purpose: 'signup_email', weaken: { otpLength: 5 } },           // baseline 6, submitting less
+    { field: 'otpTtlSeconds', purpose: 'signup_email', weaken: { otpTtlSeconds: 700 } },  // baseline 600, submitting more
+    { field: 'maxVerificationAttempts', purpose: 'signup_email', weaken: { maxVerificationAttempts: 6 } }, // baseline 5
+    { field: 'resendCooldownSeconds', purpose: 'signup_email', weaken: { resendCooldownSeconds: 50 } },    // baseline 60, submitting less
+    { field: 'maxSendsPerWindow', purpose: 'password_reset', weaken: { maxSendsPerWindow: 4 } },           // baseline 3 (below the platform ceiling of 5)
+    { field: 'rateWindowSeconds', purpose: 'signup_email', weaken: { rateWindowSeconds: 3000 } },          // baseline 3600, submitting less
+    { field: 'proofTtlSeconds', purpose: 'signup_email', weaken: { proofTtlSeconds: 700 } },               // baseline 600, submitting more
+  ];
+
+  for (const { field, purpose, weaken } of WEAKENING_CASES) {
+    it(`weakening ${field} below/above its purpose baseline is rejected with POLICY_WEAKENING_NOT_ALLOWED, with zero residue`, async () => {
+      await resetSettingsRow(purpose);
+      const requestId = randomUUID();
+      const res = await call('PUT', `/api/admin/verification/purposes/${purpose}`, 'super-admin-token', fullUpdatePayload({ requestId, ...weaken }));
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe('POLICY_WEAKENING_NOT_ALLOWED');
+      const row = await db.query(`SELECT revision FROM public.verification_purpose_settings WHERE purpose=$1`, [purpose]);
+      expect(row.rows[0].revision).toBe(1);
+      const audit = await db.query(`SELECT count(*)::int AS n FROM public.verification_purpose_settings_audit WHERE purpose=$1`, [purpose]);
+      expect(audit.rows[0].n).toBe(0);
+      const idem = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id=$1`, [requestId]);
+      expect(idem.rows[0].n).toBe(0);
+    });
+  }
+
+  it('a submission exactly equal to a purpose\'s own baseline is accepted (equal is never a weakening)', async () => {
+    // login_step_up's own baseline: otp6, ttl300, attempts5, cooldown45, maxSends5, rateWindow1800, proofTtl300.
+    await resetSettingsRow('login_step_up');
+    const res = await call('PUT', '/api/admin/verification/purposes/login_step_up', 'super-admin-token', fullUpdatePayload({
+      otpLength: 6, otpTtlSeconds: 300, maxVerificationAttempts: 5, resendCooldownSeconds: 45,
+      maxSendsPerWindow: 5, rateWindowSeconds: 1800, proofTtlSeconds: 300,
+    }));
+    expect(res.status).toBe(200);
+    expect(res.json.settings.otpTtlSeconds).toBe(300);
+  });
+
+  it('a stricter-than-baseline submission is accepted', async () => {
+    await resetSettingsRow('workspace_invitation');
+    const res = await call('PUT', '/api/admin/verification/purposes/workspace_invitation', 'super-admin-token', fullUpdatePayload());
+    expect(res.status).toBe(200);
+  });
+
+  it('a Node-layer bypass (direct RPC call, skipping adminSettings.ts entirely) still rejects a weakening submission', async () => {
+    await resetSettingsRow('change_email');
+    await expect(
+      db.query(
+        `SELECT public.gv_admin_update_purpose_settings($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+        ['bypass-weaken-001', 'change_email', 'update', null, 1, false, 5, 600, 5, 60, 5, 3600, 600, false, null, null, 'en', null, null, 'en'],
+      ),
+    ).rejects.toThrow(/POLICY_WEAKENING_NOT_ALLOWED/);
+    const row = await db.query(`SELECT revision FROM public.verification_purpose_settings WHERE purpose='change_email'`);
+    expect(row.rows[0].revision).toBe(1);
+  });
+
+  it('the TypeScript baseline (getAdminPolicyBaseline) is identical to the SQL baseline (gv_admin_default_settings) for every purpose', async () => {
+    for (const purpose of ALL_VERIFICATION_PURPOSES) {
+      const tsBaseline = getAdminPolicyBaseline(purpose);
+      const sqlResult = await db.query(`SELECT public.gv_admin_default_settings($1) AS defaults`, [purpose]);
+      const sqlBaseline = sqlResult.rows[0].defaults;
+      expect(sqlBaseline.otpLength).toBe(tsBaseline.otpLength);
+      expect(sqlBaseline.otpTtlSeconds).toBe(tsBaseline.otpTtlSeconds);
+      expect(sqlBaseline.maxVerificationAttempts).toBe(tsBaseline.maxVerificationAttempts);
+      expect(sqlBaseline.resendCooldownSeconds).toBe(tsBaseline.resendCooldownSeconds);
+      expect(sqlBaseline.maxSendsPerWindow).toBe(tsBaseline.maxSendsPerWindow);
+      expect(sqlBaseline.rateWindowSeconds).toBe(tsBaseline.rateWindowSeconds);
+      expect(sqlBaseline.proofTtlSeconds).toBe(tsBaseline.proofTtlSeconds);
+    }
+  });
+
+  // ── Migration 100 hardening: concurrency-safe idempotency ────────────
+  it('concurrent requests with the SAME requestId and SAME payload result in exactly one mutation, one audit row, and a deterministic replay', async () => {
+    await resetSettingsRow('login_step_up');
+    const requestId = randomUUID();
+    const payload = fullUpdatePayload({ requestId });
+    const [r1, r2] = await Promise.all([
+      call('PUT', '/api/admin/verification/purposes/login_step_up', 'super-admin-token', payload),
+      call('PUT', '/api/admin/verification/purposes/login_step_up', 'super-admin-token', payload),
+    ]);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect(r1.json.settings.revision).toBe(2);
+    expect(r2.json.settings.revision).toBe(2);
+    const row = await db.query(`SELECT revision FROM public.verification_purpose_settings WHERE purpose='login_step_up'`);
+    expect(row.rows[0].revision).toBe(2);
+    const audit = await db.query(
+      `SELECT count(*)::int AS n FROM public.verification_purpose_settings_audit WHERE purpose='login_step_up' AND request_id=$1`,
+      [requestId],
+    );
+    expect(audit.rows[0].n).toBe(1);
+  });
+
+  it('concurrent requests with the SAME requestId but DIFFERENT payloads result in exactly one success and one stable ADMIN_REQUEST_CONFLICT', async () => {
+    await resetSettingsRow('sensitive_action');
+    const requestId = randomUUID();
+    const [r1, r2] = await Promise.all([
+      call('PUT', '/api/admin/verification/purposes/sensitive_action', 'super-admin-token', fullUpdatePayload({ requestId, otpTtlSeconds: 250 })),
+      call('PUT', '/api/admin/verification/purposes/sensitive_action', 'super-admin-token', fullUpdatePayload({ requestId, otpTtlSeconds: 200 })),
+    ]);
+    const statuses = [r1.status, r2.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const conflictRes = r1.status === 409 ? r1 : r2;
+    expect(conflictRes.json.error).toBe('ADMIN_REQUEST_CONFLICT');
+    const row = await db.query(`SELECT revision FROM public.verification_purpose_settings WHERE purpose='sensitive_action'`);
+    expect(row.rows[0].revision).toBe(2); // bumped exactly once, never twice
+    const audit = await db.query(
+      `SELECT count(*)::int AS n FROM public.verification_purpose_settings_audit WHERE purpose='sensitive_action' AND request_id=$1`,
+      [requestId],
+    );
+    expect(audit.rows[0].n).toBe(1);
+  });
+
+  it('a rejected update leaves zero residue, and a retry with a fresh requestId succeeds cleanly', async () => {
+    await resetSettingsRow('workspace_invitation');
+    const failedRequestId = randomUUID();
+    const failRes = await call('PUT', '/api/admin/verification/purposes/workspace_invitation', 'super-admin-token', fullUpdatePayload({ requestId: failedRequestId, otpLength: 5 }));
+    expect(failRes.status).toBe(400);
+    expect(failRes.json.error).toBe('POLICY_WEAKENING_NOT_ALLOWED');
+
+    const rowAfterFail = await db.query(`SELECT revision FROM public.verification_purpose_settings WHERE purpose='workspace_invitation'`);
+    expect(rowAfterFail.rows[0].revision).toBe(1);
+    const auditAfterFail = await db.query(`SELECT count(*)::int AS n FROM public.verification_purpose_settings_audit WHERE purpose='workspace_invitation'`);
+    expect(auditAfterFail.rows[0].n).toBe(0);
+    const idemAfterFail = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id=$1`, [failedRequestId]);
+    expect(idemAfterFail.rows[0].n).toBe(0);
+
+    const retryRes = await call('PUT', '/api/admin/verification/purposes/workspace_invitation', 'super-admin-token', fullUpdatePayload());
+    expect(retryRes.status).toBe(200);
+    expect(retryRes.json.settings.revision).toBe(2);
+  });
+
+  // ── Migration 100 hardening: bounded idempotency retention + purge ───
+  it('gv_admin_purge_expired_idempotency deletes only expired ledger rows and never touches the audit trail', async () => {
+    await resetSettingsRow('signup_phone');
+    const requestId = randomUUID();
+    const putRes = await call('PUT', '/api/admin/verification/purposes/signup_phone', 'super-admin-token', fullUpdatePayload({ requestId }));
+    expect(putRes.status).toBe(200);
+
+    await db.query(`UPDATE public.verification_admin_idempotency SET expires_at = now() - interval '1 day' WHERE request_id = $1`, [requestId]);
+    const auditBefore = await db.query(`SELECT count(*)::int AS n FROM public.verification_purpose_settings_audit WHERE purpose='signup_phone'`);
+
+    const purged = await db.query(`SELECT public.gv_admin_purge_expired_idempotency($1) AS n`, [1000]);
+    expect(purged.rows[0].n).toBeGreaterThanOrEqual(1);
+
+    const idemAfter = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id=$1`, [requestId]);
+    expect(idemAfter.rows[0].n).toBe(0);
+    const auditAfter = await db.query(`SELECT count(*)::int AS n FROM public.verification_purpose_settings_audit WHERE purpose='signup_phone'`);
+    expect(auditAfter.rows[0].n).toBe(auditBefore.rows[0].n);
+  });
+
+  it('gv_admin_purge_expired_idempotency never touches an unexpired row', async () => {
+    await resetSettingsRow('signup_email');
+    const requestId = randomUUID();
+    await call('PUT', '/api/admin/verification/purposes/signup_email', 'super-admin-token', fullUpdatePayload({ requestId }));
+    await db.query(`SELECT public.gv_admin_purge_expired_idempotency($1)`, [1000]);
+    const idem = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id=$1`, [requestId]);
+    expect(idem.rows[0].n).toBe(1);
   });
 });

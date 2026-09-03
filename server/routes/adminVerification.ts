@@ -84,7 +84,7 @@ const settingsBodySchema = z.object({
   rateWindowSeconds: z.number().int().min(60).max(PLATFORM_MAXIMUMS.rateWindowSeconds),
   proofTtlSeconds: z.number().int().min(30).max(PLATFORM_MAXIMUMS.proofTtlSeconds),
   globalRateLimitEnabled: z.boolean(),
-  globalRateLimitMaxPerWindow: z.number().int().min(1).nullable(),
+  globalRateLimitMaxPerWindow: z.number().int().min(1).max(PLATFORM_MAXIMUMS.globalRateLimitMaxPerWindowMax).nullable(),
   globalRateLimitWindowSeconds: z.number().int().min(60).max(PLATFORM_MAXIMUMS.globalRateLimitWindowSecondsMax).nullable(),
   defaultLocale: z.enum(['fa', 'tr', 'en']),
   locale: z.enum(['fa', 'tr', 'en']),

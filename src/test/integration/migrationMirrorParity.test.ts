@@ -110,6 +110,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/099_generic_verification_admin_settings.sql',
     hosted: 'supabase/migrations/20260903000000_generic_verification_admin_settings.sql',
   },
+  {
+    label: '100 — Generic Verification Core Super Admin settings hardening (policy-tightening, concurrency-safe idempotency, retention)',
+    selfHost: 'database/migrations/100_generic_verification_admin_settings_hardening.sql',
+    hosted: 'supabase/migrations/20260904000000_generic_verification_admin_settings_hardening.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

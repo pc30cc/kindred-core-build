@@ -242,8 +242,8 @@
 
   html, body {
     @apply bg-background text-foreground antialiased;
-    font-size: 15px;
-    line-height: 1.65;
+    font-size: 16px;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
@@ -592,4 +592,43 @@ html[lang="en"] * {
 }
 @media (prefers-reduced-motion: reduce) {
   .admin-main > div > div { animation: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Global type scale normalisation.
+   Legacy screens use many hard-coded arbitrary font sizes
+   (text-[9px] … text-[15px]). These rules lift every one of them
+   to a readable, consistent floor without touching 900+ call sites.
+   Declared after all @layer blocks so they win over the utilities.
+   ───────────────────────────────────────────────────────────── */
+.text-\[9px\],
+.text-\[10px\],
+.text-\[10\.5px\] {
+  font-size: 0.75rem !important;   /* 12px */
+  line-height: 1.45 !important;
+}
+
+.text-\[11px\],
+.text-\[11\.5px\] {
+  font-size: 0.8125rem !important; /* 13px */
+  line-height: 1.5 !important;
+}
+
+.text-\[12px\],
+.text-\[12\.5px\] {
+  font-size: 0.875rem !important;  /* 14px */
+  line-height: 1.5 !important;
+}
+
+.text-\[13px\],
+.text-\[13\.5px\],
+.text-\[14px\],
+.text-\[14\.5px\] {
+  font-size: 0.9375rem !important; /* 15px */
+  line-height: 1.55 !important;
+}
+
+.text-\[15px\] {
+  font-size: 1rem !important;      /* 16px */
+  line-height: 1.6 !important;
 }

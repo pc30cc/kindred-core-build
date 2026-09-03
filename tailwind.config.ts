@@ -13,6 +13,17 @@ export default {
       },
     },
     extend: {
+      fontSize: {
+        // Readable, consistent scale (base = 16px)
+        xs: ["0.8125rem", { lineHeight: "1.5" }],   // 13px
+        sm: ["0.875rem", { lineHeight: "1.55" }],   // 14px
+        base: ["1rem", { lineHeight: "1.6" }],      // 16px
+        lg: ["1.125rem", { lineHeight: "1.55" }],   // 18px
+        xl: ["1.25rem", { lineHeight: "1.45" }],    // 20px
+        "2xl": ["1.5rem", { lineHeight: "1.35" }],  // 24px
+        "3xl": ["1.875rem", { lineHeight: "1.25" }],
+        "4xl": ["2.25rem", { lineHeight: "1.2" }],
+      },
       fontFamily: {
         sans: ['var(--font-primary)', 'IRANSans', 'InterWY', 'system-ui', '-apple-system', 'sans-serif'],
         rtl: ['var(--font-primary)', 'IRANSans', 'InterWY', 'system-ui', 'sans-serif'],

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';

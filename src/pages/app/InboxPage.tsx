@@ -1182,10 +1182,13 @@ export default function InboxPage() {
               <span className={headTabAccent(queue === 'automated')} />
               <span className={headTabSeam(queue === 'automated')} />
             </button>
+            ) : null}
 
 
-            {/* Needs human */}
+            {/* Needs human — plan-gated */}
+            {needsHumanTabAllowed ? (
             <button
+
               role="tab"
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}

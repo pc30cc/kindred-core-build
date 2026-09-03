@@ -73,9 +73,9 @@ export async function compareShadow(
     .eq('status', 'active')
     .maybeSingle();
 
-  const { data: plan } = await sub.plan_id
-    ? await sb.from('billing_plans').select('id, limits').eq('id', sub.plan_id).maybeSingle()
-    : { data: null };
+  const plan = sub.plan_id
+    ? (await sb.from('billing_plans').select('id, limits').eq('id', sub.plan_id).maybeSingle()).data
+    : null;
 
   const planAllowance = Number(
     (plan as any)?.limits?.included_ai_allowance_irr ?? (plan as any)?.limits?.ai_credits_per_month ?? 0,
@@ -83,7 +83,7 @@ export async function compareShadow(
 
   const interval = ((sub.billing_interval as string) || 'monthly') as BillingInterval;
   const window = computeSubscriptionWindow({
-    actionType: 'plan_renewal',
+    action: 'plan_renewal',
     interval,
     now: new Date(),
     currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end as string) : null,
@@ -120,8 +120,8 @@ export async function compareShadow(
     compared: true,
     mismatches,
     expected: {
-      periodStart: (period?.period_start as string | undefined) ?? window.periodStart.toISOString(),
-      periodEnd: (period?.period_end as string | undefined) ?? window.periodEnd.toISOString(),
+      periodStart: (period?.period_start as string | undefined) ?? window.start.toISOString(),
+      periodEnd: (period?.period_end as string | undefined) ?? window.end.toISOString(),
       planId: (sub.plan_id as string | null) ?? null,
       aiAllowanceIrr: planAllowance,
       nextInvoiceAt: periodEnd,

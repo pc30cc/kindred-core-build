@@ -3589,12 +3589,17 @@ export type Database = {
           attempt_count: number
           billing_interval: string | null
           created_at: string
+          discount_irr: number
           expires_at: string
           failure_reason: string | null
+          final_amount_irr: number | null
           id: string
           invoice_number: string | null
           metadata: Json
+          period_end: string | null
+          period_start: string | null
           plan_id: string | null
+          plan_name_snapshot: string | null
           processing_at: string | null
           provider_name: string
           provider_ref: string | null
@@ -3603,6 +3608,7 @@ export type Database = {
           succeeded_at: string | null
           updated_at: string
           workspace_id: string
+          workspace_name_snapshot: string | null
         }
         Insert: {
           action_type?: string | null
@@ -3610,12 +3616,17 @@ export type Database = {
           attempt_count?: number
           billing_interval?: string | null
           created_at?: string
+          discount_irr?: number
           expires_at?: string
           failure_reason?: string | null
+          final_amount_irr?: number | null
           id?: string
           invoice_number?: string | null
           metadata?: Json
+          period_end?: string | null
+          period_start?: string | null
           plan_id?: string | null
+          plan_name_snapshot?: string | null
           processing_at?: string | null
           provider_name: string
           provider_ref?: string | null
@@ -3624,6 +3635,7 @@ export type Database = {
           succeeded_at?: string | null
           updated_at?: string
           workspace_id: string
+          workspace_name_snapshot?: string | null
         }
         Update: {
           action_type?: string | null
@@ -3631,12 +3643,17 @@ export type Database = {
           attempt_count?: number
           billing_interval?: string | null
           created_at?: string
+          discount_irr?: number
           expires_at?: string
           failure_reason?: string | null
+          final_amount_irr?: number | null
           id?: string
           invoice_number?: string | null
           metadata?: Json
+          period_end?: string | null
+          period_start?: string | null
           plan_id?: string | null
+          plan_name_snapshot?: string | null
           processing_at?: string | null
           provider_name?: string
           provider_ref?: string | null
@@ -3645,6 +3662,7 @@ export type Database = {
           succeeded_at?: string | null
           updated_at?: string
           workspace_id?: string
+          workspace_name_snapshot?: string | null
         }
         Relationships: [
           {

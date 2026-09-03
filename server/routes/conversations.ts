@@ -1013,11 +1013,16 @@ conversationsRouter.get('/', async (req: any, res: any) => {
             body: m.body ?? '',
             created_at: m.created_at,
             sender_type: m.sender_type,
+            sender_id: m.sender_id ?? null,
+            sender_name: null,
             // A file-only message has an empty body: the list preview must
             // describe the media instead of claiming "no messages yet".
             attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
             attachment_kind: null,
           };
+        }
+        if (m.sender_type === 'agent' && m.sender_id) {
+          (agentParticipants[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
         }
 
 

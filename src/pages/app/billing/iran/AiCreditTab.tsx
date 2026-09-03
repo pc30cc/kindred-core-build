@@ -127,15 +127,6 @@ export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
 }
 
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-border/60 bg-card p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
-    </div>
-  );
-}
-
 function TopupDialog({
   workspaceId, open, onOpenChange, onSuccess,
 }: { workspaceId: string; open: boolean; onOpenChange: (v: boolean) => void; onSuccess: () => void }) {

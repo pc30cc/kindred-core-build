@@ -78,6 +78,10 @@ export const V2_METRICS = {
   billing_v2_cutover_blocked: 0,
   billing_v2_legacy_intent_blocker: 0,
   billing_v2_legacy_path_rejected: 0,
+  // Phase C — scheduler health counters.
+  billing_v2_invoice_scheduler_failures: 0,
+  billing_v2_wallet_autopay_failures: 0,
+  billing_v2_period_activation_failures: 0,
 };
 export type V2MetricName = keyof typeof V2_METRICS;
 

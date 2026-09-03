@@ -205,6 +205,19 @@ jobs:
           REQUIRE_BILLING_DB: '1'
         run: bunx vitest run src/test/integration/billingEngineV2.pg.test.ts --no-file-parallelism
 
+      # Phase C schedulers get a FRESH database: the renewal/auto-pay/activation
+      # invariants must hold on a clean forward apply of 113–118.
+      - name: Create Billing Engine V2 Phase C database
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_v2_phase_c'
+
+      - name: Billing Engine V2 invariants (Phase C schedulers)
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_v2_phase_c
+          REQUIRE_BILLING_DB: '1'
+        run: bunx vitest run src/test/integration/billingV2PhaseC.pg.test.ts --no-file-parallelism
+
       - name: AI Billing in-process suites (context propagation, scheduler, failure semantics)
         run: bunx vitest run src/test/aiBilling
 

@@ -73,6 +73,7 @@ import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startMetricsRollup } from './services/observability/rollupTicker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
+import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
 import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
@@ -543,6 +544,8 @@ app.listen(config.port, () => {
   startMetricsRollup(config);
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);
+  // Billing Engine V2 — renewal invoices, wallet auto-pay and period activation.
+  startBillingV2Schedulers(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   startAlertingTicker(config);

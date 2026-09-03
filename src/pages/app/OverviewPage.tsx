@@ -453,7 +453,7 @@ export default function OverviewPage() {
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn('h-full rounded-full bg-gradient-to-r transition-all duration-500', row.grad)}
-                      style={{ width: `${unlimited ? 6 : Math.max(pct, 3)}%` }}
+                      style={{ width: `${unlimited ? 6 : row.limit === 0 ? 0 : Math.max(pct, 3)}%` }}
                     />
                   </div>
                 </div>

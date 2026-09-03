@@ -297,10 +297,15 @@ function OverviewCard({
                 <span className="text-xs">{t('billingIran.overview.perMonth')}</span>
               </p>
             )}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge className={isActive ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-muted text-muted-foreground'}>
                 {isActive ? t('billingIran.overview.statusActive') : t('billingIran.overview.statusInactive')}
               </Badge>
+              {isTrial && (
+                <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+                  {t('billingIran.overview.trialBadge')}
+                </Badge>
+              )}
               {periodEnd && (
                 <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Calendar className="w-3.5 h-3.5" />
@@ -308,16 +313,20 @@ function OverviewCard({
                 </span>
               )}
             </div>
-            {daysLeft !== null && daysLeft <= 60 && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">{t('billingIran.overview.daysLeft', { days: daysLeft.toLocaleString('fa-IR') })}</p>
+            {daysLeft !== null && (isTrial || daysLeft <= 60) && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {t(isTrial ? 'billingIran.overview.trialDaysLeft' : 'billingIran.overview.daysLeft', { days: daysLeft.toLocaleString('fa-IR') })}
+              </p>
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             {nonPurchasable ? (
+              // Trial → "انتخاب پلن"; Free → "ارتقای پلن". Neither may offer a
+              // renewal or show a 0 Toman price.
               <Button size="lg" className="h-12 px-7 text-base font-semibold rounded-xl shadow-sm" onClick={onChangePlan}>
                 <ArrowRight className="w-4 h-4 me-2 rotate-180" />
-                {t('billingIran.overview.upgradeCta')}
+                {t(isTrial ? 'billingIran.overview.trialCta' : 'billingIran.overview.upgradeCta')}
               </Button>
             ) : (
               <>
@@ -331,6 +340,7 @@ function OverviewCard({
                 </Button>
               </>
             )}
+
             {hasCustomerPortal && subscription?.provider_customer_id && (
               <Button
                 variant="ghost"

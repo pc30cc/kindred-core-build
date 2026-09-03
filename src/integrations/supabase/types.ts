@@ -11883,6 +11883,10 @@ export type Database = {
         Returns: number
       }
       activate_auto_actions: { Args: never; Returns: Json }
+      admin_apply_schema: {
+        Args: { _actor_user_id: string; _statements: Json }
+        Returns: Json
+      }
       admin_change_user_email: {
         Args: { _new_email: string; _user_id: string }
         Returns: {
@@ -11923,6 +11927,10 @@ export type Database = {
       admin_export_database: {
         Args: { _actor_user_id: string; _scope?: string }
         Returns: Json
+      }
+      admin_export_schema_ddl: {
+        Args: { _actor_user_id: string }
+        Returns: string[]
       }
       admin_export_table: {
         Args: {

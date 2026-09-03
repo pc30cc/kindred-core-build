@@ -1081,10 +1081,35 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         }
       }
 
+      // Resolve display names for the operators whose message is the list
+      // preview, so the row reads "Ali: …" instead of always "You: …".
+      const agentSenderIds = Array.from(new Set(
+        Object.values(lastByConv)
+          .filter((l) => l.sender_type === 'agent' && l.sender_id)
+          .map((l) => String(l.sender_id)),
+      ));
+      if (agentSenderIds.length) {
+        const { data: profs } = await sb
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', agentSenderIds);
+        const nameById = new Map<string, string>(
+          ((profs || []) as any[]).map((p) => [
+            String(p.id),
+            String(p.full_name || String(p.email || '').split('@')[0] || ''),
+          ]),
+        );
+        for (const last of Object.values(lastByConv)) {
+          if (last.sender_type !== 'agent' || !last.sender_id) continue;
+          last.sender_name = nameById.get(String(last.sender_id)) || null;
+        }
+      }
+
       for (const c of convos) {
         c.last_visitor_message = byConv[c.id] ?? null;
         c.last_message = lastByConv[c.id] ?? null;
         c.unread_count = unreadByConv[c.id] ?? 0;
+        c.handled_by = Array.from(agentParticipants[c.id] ?? []);
         // Only an `open` thread can owe the customer an answer: `pending`
         // means we are waiting for THEM, `resolved`/`closed` are done.
         c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
@@ -1103,6 +1128,20 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         const humanTouched = !!c.assigned_to || c.ai_state === 'human_active'
           || (c.last_message && c.last_message.sender_type === 'agent');
         return !introOnly || humanTouched;
+      });
+    }
+
+    // A finished thread belongs to whoever actually handled it. An operator
+    // must not see resolved/closed threads that another operator answered,
+    // even when nobody claimed them (`assigned_to` stays null on the
+    // "send & resolve" path). Owners/admins/team leads keep the full view.
+    if (!canSeeAllAssignments) {
+      result = result.filter((c) => {
+        if (c.status !== 'resolved' && c.status !== 'closed') return true;
+        if (c.assigned_to && c.assigned_to !== auth.userId) return false;
+        const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
+        if (handled.length === 0) return true; // AI/system resolved → shared
+        return handled.includes(auth.userId);
       });
     }
 

@@ -13,16 +13,12 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Loader2, ShieldAlert, AlertTriangle, Archive, Clock, Play, Download, Eye, EyeOff } from 'lucide-react';
 import {
@@ -51,34 +47,36 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { CalendarClock } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 
 const PAGE_SIZE = 25;
 
 export function RetentionStatusBadge({ status }: { status: RecordingRetentionStatus }) {
+  const { t } = useTranslation();
   switch (status) {
     case 'on_hold':
       return (
         <Badge variant="secondary" className="gap-1 text-[10px]" data-testid="status-on_hold">
-          <ShieldAlert className="h-3 w-3" /> Legal hold
+          <ShieldAlert className="h-3 w-3" /> {t('admin.voiceVideo.recordings.statusOnHold' as any)}
         </Badge>
       );
     case 'expired':
       return (
         <Badge variant="destructive" className="gap-1 text-[10px]" data-testid="status-expired">
-          <AlertTriangle className="h-3 w-3" /> Expired (pending janitor)
+          <AlertTriangle className="h-3 w-3" /> {t('admin.voiceVideo.recordings.statusExpired' as any)}
         </Badge>
       );
     case 'legacy_unmanaged':
       return (
         <Badge variant="outline" className="gap-1 text-[10px]" data-testid="status-legacy_unmanaged">
-          <Archive className="h-3 w-3" /> Legacy (unmanaged)
+          <Archive className="h-3 w-3" /> {t('admin.voiceVideo.recordings.statusLegacy' as any)}
         </Badge>
       );
     case 'expires_at':
     default:
       return (
         <Badge variant="default" className="gap-1 text-[10px]" data-testid="status-expires_at">
-          <Clock className="h-3 w-3" /> Retained
+          <Clock className="h-3 w-3" /> {t('admin.voiceVideo.recordings.statusRetained' as any)}
         </Badge>
       );
   }
@@ -130,7 +128,11 @@ function classifyMediaKind(contentType: string): 'audio' | 'video' | 'unsupporte
  * path which DOES know the real Content-Type.
  */
 function rowMediaKindHint(row: AdminRecordingRow): 'audio' | 'video' | null {
-  const ext = String(row.storage_path || '').toLowerCase().split('.').pop() || '';
+  const ext =
+    String(row.storage_path || '')
+      .toLowerCase()
+      .split('.')
+      .pop() || '';
   const videoExt = new Set(['mp4', 'webm', 'mkv', 'mov']);
   const audioExt = new Set(['mp3', 'm4a', 'wav', 'ogg', 'opus', 'aac']);
   if (videoExt.has(ext)) return 'video';
@@ -141,11 +143,11 @@ function rowMediaKindHint(row: AdminRecordingRow): 'audio' | 'video' | null {
 }
 
 function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
   const mut = useMutation({
-    mutationFn: (enabled: boolean) =>
-      setAdminRecordingLegalHold(row.id, enabled, reason.trim() || undefined),
+    mutationFn: (enabled: boolean) => setAdminRecordingLegalHold(row.id, enabled, reason.trim() || undefined),
     onSuccess: () => {
       setReason('');
       qc.invalidateQueries({ queryKey: ['admin', 'call-recordings'] });
@@ -159,7 +161,7 @@ function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
         <Switch
           checked={!!row.legal_hold}
           disabled={pending}
-          aria-label={`Toggle legal hold for recording ${row.id}`}
+          aria-label={t('admin.voiceVideo.recordings.toggleLegalHold' as any, { id: row.id })}
           data-testid={`legal-hold-toggle-${row.id}`}
           onCheckedChange={(next) => mut.mutate(next)}
         />
@@ -168,7 +170,7 @@ function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
         <Input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Reason (optional)"
+          placeholder={t('admin.voiceVideo.recordings.reasonOptional' as any)}
           className="h-7 text-[11px] w-44"
           disabled={pending}
           maxLength={500}
@@ -176,7 +178,7 @@ function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
       )}
       {mut.isError && (
         <span className="text-[10px] text-destructive max-w-[180px] text-right">
-          {(mut.error as Error)?.message || 'Failed'}
+          {(mut.error as Error)?.message || t('admin.voiceVideo.recordings.failed' as any)}
         </span>
       )}
     </div>
@@ -198,6 +200,7 @@ function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
  *   • Unlimited (clears the stamped expiry; janitor never selects the row)
  */
 function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'exact' | 'days_from_now' | 'unlimited'>('days_from_now');
@@ -212,10 +215,11 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
         input = { mode: 'unlimited', reason: reason.trim() || undefined };
       } else if (mode === 'days_from_now') {
         const n = Number(days);
-        if (!Number.isFinite(n) || n < 0 || n > 3650) throw new Error('days must be 0–3650');
+        if (!Number.isFinite(n) || n < 0 || n > 3650)
+          throw new Error(t('admin.voiceVideo.recordings.daysValidation' as any));
         input = { mode: 'days_from_now', days: Math.floor(n), reason: reason.trim() || undefined };
       } else {
-        if (!exact) throw new Error('Pick a date and time');
+        if (!exact) throw new Error(t('admin.voiceVideo.recordings.pickDateTime' as any));
         const iso = new Date(exact).toISOString();
         input = { mode: 'exact', expires_at: iso, reason: reason.trim() || undefined };
       }
@@ -229,46 +233,48 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
   });
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) mut.reset(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) mut.reset();
+      }}
+    >
       <DialogTrigger asChild>
         <Button
           size="sm"
           variant="outline"
           className="h-6 px-2 text-[10px] gap-1"
           data-testid={`retention-override-open-${row.id}`}
-          aria-label={`Edit retention override for ${row.id}`}
+          aria-label={t('admin.voiceVideo.recordings.editOverrideAria' as any, { id: row.id })}
         >
-          <CalendarClock className="h-3 w-3" /> Override
+          <CalendarClock className="h-3 w-3" /> {t('admin.voiceVideo.recordings.override' as any)}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md" data-testid={`retention-override-dialog-${row.id}`}>
         <DialogHeader>
-          <DialogTitle className="text-sm">Override retention for this recording</DialogTitle>
+          <DialogTitle className="text-sm">{t('admin.voiceVideo.recordings.overrideTitle' as any)}</DialogTitle>
           <DialogDescription className="text-xs">
-            Sets only this row's retention. Legal hold is unchanged and still overrides expiry.
-            The retention janitor remains the sole deletion path. This action is audit-logged.
+            {t('admin.voiceVideo.recordings.overrideDescription' as any)}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label className="text-[11px]">Mode</Label>
+            <Label className="text-[11px]">{t('admin.voiceVideo.recordings.mode' as any)}</Label>
             <Select value={mode} onValueChange={(v) => setMode(v as any)}>
-              <SelectTrigger
-                className="h-8 text-xs"
-                data-testid={`retention-override-mode-${row.id}`}
-              >
+              <SelectTrigger className="h-8 text-xs" data-testid={`retention-override-mode-${row.id}`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="days_from_now">Days from now</SelectItem>
-                <SelectItem value="exact">Exact date/time</SelectItem>
-                <SelectItem value="unlimited">Unlimited (no expiry)</SelectItem>
+                <SelectItem value="days_from_now">{t('admin.voiceVideo.recordings.daysFromNow' as any)}</SelectItem>
+                <SelectItem value="exact">{t('admin.voiceVideo.recordings.exactDateTime' as any)}</SelectItem>
+                <SelectItem value="unlimited">{t('admin.voiceVideo.recordings.unlimited' as any)}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {mode === 'days_from_now' && (
             <div className="space-y-1">
-              <Label className="text-[11px]">Days</Label>
+              <Label className="text-[11px]">{t('admin.voiceVideo.recordings.days' as any)}</Label>
               <Input
                 type="number"
                 min={0}
@@ -282,7 +288,7 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
           )}
           {mode === 'exact' && (
             <div className="space-y-1">
-              <Label className="text-[11px]">Expires at</Label>
+              <Label className="text-[11px]">{t('admin.voiceVideo.recordings.expiresAt' as any)}</Label>
               <Input
                 type="datetime-local"
                 value={exact}
@@ -293,23 +299,26 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
             </div>
           )}
           <div className="space-y-1">
-            <Label className="text-[11px]">Reason (optional)</Label>
+            <Label className="text-[11px]">{t('admin.voiceVideo.recordings.reasonOptional' as any)}</Label>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Litigation hold extension"
+              placeholder={t('admin.voiceVideo.recordings.overrideReasonPlaceholder' as any)}
               maxLength={500}
               className="h-8 text-xs"
             />
           </div>
           <div className="text-[10px] text-muted-foreground">
-            Current: {row.retention_expires_at ? fmtDate(row.retention_expires_at) : 'no expiry stamped'}
-            {row.retention_policy ? ` · policy ${row.retention_policy}` : ''}
-            {row.legal_hold ? ' · legal hold active' : ''}
+            {t('admin.voiceVideo.recordings.current' as any)}:{' '}
+            {row.retention_expires_at
+              ? fmtDate(row.retention_expires_at)
+              : t('admin.voiceVideo.recordings.noExpiry' as any)}
+            {row.retention_policy ? ` · ${t('admin.voiceVideo.recordings.policy' as any)} ${row.retention_policy}` : ''}
+            {row.legal_hold ? ` · ${t('admin.voiceVideo.recordings.legalHoldActive' as any)}` : ''}
           </div>
           {mut.isError && (
             <div className="text-[11px] text-destructive" data-testid={`retention-override-error-${row.id}`}>
-              {(mut.error as Error)?.message || 'Override failed'}
+              {(mut.error as Error)?.message || t('admin.voiceVideo.recordings.overrideFailed' as any)}
             </div>
           )}
         </div>
@@ -321,7 +330,7 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
             disabled={mut.isPending}
             onClick={() => setOpen(false)}
           >
-            Cancel
+            {t('admin.voiceVideo.recordings.cancel' as any)}
           </Button>
           <Button
             size="sm"
@@ -331,7 +340,7 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
             data-testid={`retention-override-submit-${row.id}`}
           >
             {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-            Apply override
+            {t('admin.voiceVideo.recordings.applyOverride' as any)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -350,6 +359,7 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
  * unmanaged rows do not see this control and the server refuses them.
  */
 function RetentionRestoreButton({ row }: { row: AdminRecordingRow }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -363,47 +373,53 @@ function RetentionRestoreButton({ row }: { row: AdminRecordingRow }) {
   });
   if (!row.retention_policy?.startsWith('override:')) return null;
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) mut.reset(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) mut.reset();
+      }}
+    >
       <DialogTrigger asChild>
         <Button
           size="sm"
           variant="ghost"
           className="h-6 px-2 text-[10px]"
           data-testid={`retention-restore-open-${row.id}`}
-          aria-label={`Restore inherited retention for ${row.id}`}
+          aria-label={t('admin.voiceVideo.recordings.restoreAria' as any, { id: row.id })}
         >
-          Restore inherited
+          {t('admin.voiceVideo.recordings.restoreInherited' as any)}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md" data-testid={`retention-restore-dialog-${row.id}`}>
         <DialogHeader>
-          <DialogTitle className="text-sm">Restore inherited retention</DialogTitle>
+          <DialogTitle className="text-sm">{t('admin.voiceVideo.recordings.restoreInherited' as any)}</DialogTitle>
           <DialogDescription className="text-xs">
-            Recomputes this row's retention from the workspace's current effective
-            plan, anchored at the recording's creation time. Legal hold is unchanged
-            and still overrides expiry. The retention janitor remains the sole
-            deletion path. This action is audit-logged.
+            {t('admin.voiceVideo.recordings.restoreDescription' as any)}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="text-[10px] text-muted-foreground">
-            Current: {row.retention_expires_at ? fmtDate(row.retention_expires_at) : 'no expiry stamped'}
-            {row.retention_policy ? ` · policy ${row.retention_policy}` : ''}
-            {row.legal_hold ? ' · legal hold active' : ''}
+            {t('admin.voiceVideo.recordings.current' as any)}:{' '}
+            {row.retention_expires_at
+              ? fmtDate(row.retention_expires_at)
+              : t('admin.voiceVideo.recordings.noExpiry' as any)}
+            {row.retention_policy ? ` · ${t('admin.voiceVideo.recordings.policy' as any)} ${row.retention_policy}` : ''}
+            {row.legal_hold ? ` · ${t('admin.voiceVideo.recordings.legalHoldActive' as any)}` : ''}
           </div>
           <div className="space-y-1">
-            <Label className="text-[11px]">Reason (optional)</Label>
+            <Label className="text-[11px]">{t('admin.voiceVideo.recordings.reasonOptional' as any)}</Label>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Override no longer required"
+              placeholder={t('admin.voiceVideo.recordings.restoreReasonPlaceholder' as any)}
               maxLength={500}
               className="h-8 text-xs"
             />
           </div>
           {mut.isError && (
             <div className="text-[11px] text-destructive" data-testid={`retention-restore-error-${row.id}`}>
-              {(mut.error as Error)?.message || 'Restore failed'}
+              {(mut.error as Error)?.message || t('admin.voiceVideo.recordings.restoreFailed' as any)}
             </div>
           )}
         </div>
@@ -415,7 +431,7 @@ function RetentionRestoreButton({ row }: { row: AdminRecordingRow }) {
             disabled={mut.isPending}
             onClick={() => setOpen(false)}
           >
-            Cancel
+            {t('admin.voiceVideo.recordings.cancel' as any)}
           </Button>
           <Button
             size="sm"
@@ -425,7 +441,7 @@ function RetentionRestoreButton({ row }: { row: AdminRecordingRow }) {
             data-testid={`retention-restore-submit-${row.id}`}
           >
             {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-            Restore inherited
+            {t('admin.voiceVideo.recordings.restoreInherited' as any)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -445,6 +461,7 @@ function RetentionRestoreButton({ row }: { row: AdminRecordingRow }) {
  * `legal_hold`. The janitor remains the sole deletion path.
  */
 function RetentionAdoptButton({ row }: { row: AdminRecordingRow }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -459,48 +476,49 @@ function RetentionAdoptButton({ row }: { row: AdminRecordingRow }) {
   const isLegacy = row.retention_policy == null && row.retention_expires_at == null;
   if (!isLegacy) return null;
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) mut.reset(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) mut.reset();
+      }}
+    >
       <DialogTrigger asChild>
         <Button
           size="sm"
           variant="ghost"
           className="h-6 px-2 text-[10px]"
           data-testid={`retention-adopt-open-${row.id}`}
-          aria-label={`Adopt retention for ${row.id}`}
+          aria-label={t('admin.voiceVideo.recordings.adoptAria' as any, { id: row.id })}
         >
-          Adopt retention
+          {t('admin.voiceVideo.recordings.adoptRetention' as any)}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md" data-testid={`retention-adopt-dialog-${row.id}`}>
         <DialogHeader>
-          <DialogTitle className="text-sm">Adopt legacy recording into managed retention</DialogTitle>
+          <DialogTitle className="text-sm">{t('admin.voiceVideo.recordings.adoptTitle' as any)}</DialogTitle>
           <DialogDescription className="text-xs">
-            Stamps this legacy recording with the workspace's current effective
-            retention, anchored at the recording's creation time. If the
-            resulting expiry already lies in the past, the row becomes eligible
-            for the retention janitor on its next sweep — adoption itself never
-            removes anything. Legal hold is unchanged and still overrides
-            expiry. This action is audit-logged and affects only this one row.
+            {t('admin.voiceVideo.recordings.adoptDescription' as any)}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="text-[10px] text-muted-foreground">
-            Currently: legacy / unmanaged (no expiry stamped, janitor skips)
-            {row.legal_hold ? ' · legal hold active' : ''}
+            {t('admin.voiceVideo.recordings.currentlyLegacy' as any)}
+            {row.legal_hold ? ` · ${t('admin.voiceVideo.recordings.legalHoldActive' as any)}` : ''}
           </div>
           <div className="space-y-1">
-            <Label className="text-[11px]">Reason (optional)</Label>
+            <Label className="text-[11px]">{t('admin.voiceVideo.recordings.reasonOptional' as any)}</Label>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Bringing pre-launch recording under policy"
+              placeholder={t('admin.voiceVideo.recordings.adoptReasonPlaceholder' as any)}
               maxLength={500}
               className="h-8 text-xs"
             />
           </div>
           {mut.isError && (
             <div className="text-[11px] text-destructive" data-testid={`retention-adopt-error-${row.id}`}>
-              {(mut.error as Error)?.message || 'Adoption failed'}
+              {(mut.error as Error)?.message || t('admin.voiceVideo.recordings.adoptionFailed' as any)}
             </div>
           )}
         </div>
@@ -512,7 +530,7 @@ function RetentionAdoptButton({ row }: { row: AdminRecordingRow }) {
             disabled={mut.isPending}
             onClick={() => setOpen(false)}
           >
-            Cancel
+            {t('admin.voiceVideo.recordings.cancel' as any)}
           </Button>
           <Button
             size="sm"
@@ -522,7 +540,7 @@ function RetentionAdoptButton({ row }: { row: AdminRecordingRow }) {
             data-testid={`retention-adopt-submit-${row.id}`}
           >
             {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-            Adopt retention
+            {t('admin.voiceVideo.recordings.adoptRetention' as any)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -542,6 +560,7 @@ function RetentionAdoptButton({ row }: { row: AdminRecordingRow }) {
  *   "preview unsupported" hint that preserves Open/Save fallbacks.
  */
 function InlinePreview({ row }: { row: AdminRecordingRow }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
@@ -563,7 +582,11 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
   useEffect(() => {
     return () => {
       if (urlRef.current) {
-        try { URL.revokeObjectURL(urlRef.current); } catch { /* ignore */ }
+        try {
+          URL.revokeObjectURL(urlRef.current);
+        } catch {
+          /* ignore */
+        }
         urlRef.current = null;
       }
     };
@@ -591,37 +614,38 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
             // fall back to the bearer-protected Blob path so playback
             // still works.
             if (cancelled) return;
-            return fetchAdminRecordingBlob(row.id, 'inline').then(({ blob, contentType }) => {
-              if (cancelled) return;
-              const k = classifyMediaKind(contentType);
-              setKind(k);
-              if (k === 'unsupported') {
-                setObjectUrl(null);
-                return;
-              }
-              const url = URL.createObjectURL(blob);
-              setObjectUrl(url);
-            }).catch((e: any) => {
-              if (cancelled) return;
-              setError(e?.message || tokErr?.message || 'Failed to load recording');
-            });
+            return fetchAdminRecordingBlob(row.id, 'inline')
+              .then(({ blob, contentType }) => {
+                if (cancelled) return;
+                const k = classifyMediaKind(contentType);
+                setKind(k);
+                if (k === 'unsupported') {
+                  setObjectUrl(null);
+                  return;
+                }
+                const url = URL.createObjectURL(blob);
+                setObjectUrl(url);
+              })
+              .catch((e: any) => {
+                if (cancelled) return;
+                setError(e?.message || tokErr?.message || t('admin.voiceVideo.recordings.loadRecordingFailed' as any));
+              });
           })
-      : fetchAdminRecordingBlob(row.id, 'inline')
-      .then(({ blob, contentType }) => {
-        if (cancelled) return;
-        const k = classifyMediaKind(contentType);
-        setKind(k);
-        if (k === 'unsupported') {
-          setObjectUrl(null);
-          return;
-        }
-        const url = URL.createObjectURL(blob);
-        setObjectUrl(url);
-      });
+      : fetchAdminRecordingBlob(row.id, 'inline').then(({ blob, contentType }) => {
+          if (cancelled) return;
+          const k = classifyMediaKind(contentType);
+          setKind(k);
+          if (k === 'unsupported') {
+            setObjectUrl(null);
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          setObjectUrl(url);
+        });
     Promise.resolve(start)
       .catch((e: any) => {
         if (cancelled) return;
-        setError(e?.message || 'Failed to load recording');
+        setError(e?.message || t('admin.voiceVideo.recordings.loadRecordingFailed' as any));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -637,16 +661,13 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
         className="flex items-center gap-2 text-[11px] text-muted-foreground"
         data-testid={`recording-preview-loading-${row.id}`}
       >
-        <Loader2 className="h-3 w-3 animate-spin" /> Loading preview…
+        <Loader2 className="h-3 w-3 animate-spin" /> {t('admin.voiceVideo.recordings.loadingPreview' as any)}
       </div>
     );
   }
   if (error) {
     return (
-      <div
-        className="text-[11px] text-destructive"
-        data-testid={`recording-preview-error-${row.id}`}
-      >
+      <div className="text-[11px] text-destructive" data-testid={`recording-preview-error-${row.id}`}>
         {error}
       </div>
     );
@@ -663,26 +684,21 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
             recordingId={row.id}
             durationHint={row.duration_seconds ?? null}
             className="w-full max-w-md"
-            mediaClassName={
-              kind === 'video'
-                ? 'w-full max-w-md rounded-md bg-black'
-                : 'w-full max-w-md'
-            }
+            mediaClassName={kind === 'video' ? 'w-full max-w-md rounded-md bg-black' : 'w-full max-w-md'}
           />
           {streamExpiresAt && (
             <div className="text-[10px] text-muted-foreground">
-              Playback link expires {new Date(streamExpiresAt).toLocaleTimeString()}
+              {t('admin.voiceVideo.recordings.playbackExpires' as any, {
+                time: new Date(streamExpiresAt).toLocaleTimeString(),
+              })}
             </div>
           )}
         </div>
       );
     }
     return (
-      <div
-        className="text-[11px] text-muted-foreground"
-        data-testid={`recording-preview-unsupported-${row.id}`}
-      >
-        Inline preview is not supported for this file type. Use Save to download it.
+      <div className="text-[11px] text-muted-foreground" data-testid={`recording-preview-unsupported-${row.id}`}>
+        {t('admin.voiceVideo.recordings.previewUnsupported' as any)}
       </div>
     );
   }
@@ -722,6 +738,7 @@ function ArtifactActions({
   previewOpen: boolean;
   onTogglePreview: () => void;
 }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState<null | 'inline' | 'attachment'>(null);
   const [error, setError] = useState<string | null>(null);
   const disabled = !row.storage_path;
@@ -745,7 +762,7 @@ function ArtifactActions({
       // Revoke after a short delay so the new tab / download has time to read it.
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e: any) {
-      setError(e?.message || 'Failed to load recording');
+      setError(e?.message || t('admin.voiceVideo.recordings.loadRecordingFailed' as any));
     } finally {
       setBusy(null);
     }
@@ -762,10 +779,18 @@ function ArtifactActions({
           onClick={onTogglePreview}
           data-testid={`recording-preview-toggle-${row.id}`}
           aria-pressed={previewOpen}
-          aria-label={previewOpen ? `Hide preview for ${row.id}` : `Preview recording ${row.id}`}
+          aria-label={
+            previewOpen
+              ? t('admin.voiceVideo.recordings.hidePreviewAria' as any, { id: row.id })
+              : t('admin.voiceVideo.recordings.previewAria' as any, { id: row.id })
+          }
         >
           {previewOpen ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-          <span className="ml-1">{previewOpen ? 'Hide' : 'Preview'}</span>
+          <span className="ms-1">
+            {previewOpen
+              ? t('admin.voiceVideo.recordings.hide' as any)
+              : t('admin.voiceVideo.recordings.preview' as any)}
+          </span>
         </Button>
         <Button
           size="sm"
@@ -774,10 +799,10 @@ function ArtifactActions({
           disabled={disabled || busy !== null}
           onClick={() => run('inline')}
           data-testid={`recording-open-${row.id}`}
-          aria-label={`Open recording ${row.id}`}
+          aria-label={t('admin.voiceVideo.recordings.openAria' as any, { id: row.id })}
         >
           {busy === 'inline' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-          <span className="ml-1">Open</span>
+          <span className="ms-1">{t('admin.voiceVideo.recordings.open' as any)}</span>
         </Button>
         <Button
           size="sm"
@@ -786,14 +811,14 @@ function ArtifactActions({
           disabled={disabled || busy !== null}
           onClick={() => run('attachment')}
           data-testid={`recording-download-${row.id}`}
-          aria-label={`Download recording ${row.id}`}
+          aria-label={t('admin.voiceVideo.recordings.downloadAria' as any, { id: row.id })}
         >
           {busy === 'attachment' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-          <span className="ml-1">Save</span>
+          <span className="ms-1">{t('admin.voiceVideo.recordings.download' as any)}</span>
         </Button>
       </div>
       {disabled && (
-        <span className="text-[10px] text-muted-foreground">No stored artifact</span>
+        <span className="text-[10px] text-muted-foreground">{t('admin.voiceVideo.recordings.noArtifact' as any)}</span>
       )}
       {error && (
         <span className="text-[10px] text-destructive max-w-[180px]" data-testid={`recording-error-${row.id}`}>
@@ -805,6 +830,7 @@ function ArtifactActions({
 }
 
 export function RecordingRetentionPanel() {
+  const { t } = useTranslation();
   const [workspaceId, setWorkspaceId] = useState('');
   const [workspaceFilter, setWorkspaceFilter] = useState('');
   const [status, setStatus] = useState<RecordingRetentionStatus | 'all'>('all');
@@ -812,10 +838,11 @@ export function RecordingRetentionPanel() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkReason, setBulkReason] = useState('');
-  const [bulkResult, setBulkResult] = useState<
-    | null
-    | { succeeded: number; failures: Array<{ id: string; error: string }>; enabled: boolean }
-  >(null);
+  const [bulkResult, setBulkResult] = useState<null | {
+    succeeded: number;
+    failures: Array<{ id: string; error: string }>;
+    enabled: boolean;
+  }>(null);
 
   const params = useMemo(
     () => ({
@@ -849,17 +876,12 @@ export function RecordingRetentionPanel() {
     });
   }, [items]);
 
-  const allVisibleSelected =
-    items.length > 0 && items.every((r) => selectedIds.has(r.id));
+  const allVisibleSelected = items.length > 0 && items.every((r) => selectedIds.has(r.id));
   const someVisibleSelected = items.some((r) => selectedIds.has(r.id));
 
   const bulkMut = useMutation({
     mutationFn: (enabled: boolean) =>
-      bulkSetAdminRecordingLegalHold(
-        Array.from(selectedIds),
-        enabled,
-        bulkReason.trim() || undefined,
-      ),
+      bulkSetAdminRecordingLegalHold(Array.from(selectedIds), enabled, bulkReason.trim() || undefined),
     onSuccess: (r) => {
       setBulkResult({ succeeded: r.succeeded.length, failures: r.failures, enabled: r.enabled });
       setSelectedIds(new Set());
@@ -893,23 +915,22 @@ export function RecordingRetentionPanel() {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          <Archive className="h-4 w-4" /> Recording retention
+          <Archive className="h-4 w-4" /> {t('admin.voiceVideo.recordings.title' as any)}
         </CardTitle>
         <CardDescription className="text-xs">
-          Super-admin visibility for call recordings. Deletion is performed exclusively by the
-          retention janitor — this surface only toggles <code>legal_hold</code>. Recordings without
-          a stamped expiry are labeled <em>Legacy (unmanaged)</em> and intentionally left untouched.
+          {t('admin.voiceVideo.recordings.descriptionBefore' as any)} <code>legal_hold</code>.{' '}
+          {t('admin.voiceVideo.recordings.descriptionAfter' as any)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
-            <Label className="text-[11px]">Workspace ID</Label>
+            <Label className="text-[11px]">{t('admin.voiceVideo.recordings.workspaceId' as any)}</Label>
             <div className="flex gap-2">
               <Input
                 value={workspaceId}
                 onChange={(e) => setWorkspaceId(e.target.value)}
-                placeholder="UUID (optional)"
+                placeholder={t('admin.voiceVideo.recordings.uuidOptional' as any)}
                 className="h-8 w-72 text-xs"
                 data-testid="workspace-filter-input"
               />
@@ -921,7 +942,7 @@ export function RecordingRetentionPanel() {
                   setWorkspaceFilter(workspaceId.trim());
                 }}
               >
-                Apply
+                {t('admin.voiceVideo.recordings.apply' as any)}
               </Button>
               {workspaceFilter && (
                 <Button
@@ -933,13 +954,13 @@ export function RecordingRetentionPanel() {
                     setPage(0);
                   }}
                 >
-                  Clear
+                  {t('admin.voiceVideo.recordings.clear' as any)}
                 </Button>
               )}
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-[11px]">Status</Label>
+            <Label className="text-[11px]">{t('admin.voiceVideo.recordings.status' as any)}</Label>
             <Select
               value={status}
               onValueChange={(v) => {
@@ -951,16 +972,18 @@ export function RecordingRetentionPanel() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="expires_at">Retained</SelectItem>
-                <SelectItem value="on_hold">Legal hold</SelectItem>
-                <SelectItem value="expired">Expired (pending janitor)</SelectItem>
-                <SelectItem value="legacy_unmanaged">Legacy (unmanaged)</SelectItem>
+                <SelectItem value="all">{t('admin.voiceVideo.recordings.all' as any)}</SelectItem>
+                <SelectItem value="expires_at">{t('admin.voiceVideo.recordings.statusRetained' as any)}</SelectItem>
+                <SelectItem value="on_hold">{t('admin.voiceVideo.recordings.statusOnHold' as any)}</SelectItem>
+                <SelectItem value="expired">{t('admin.voiceVideo.recordings.statusExpired' as any)}</SelectItem>
+                <SelectItem value="legacy_unmanaged">{t('admin.voiceVideo.recordings.statusLegacy' as any)}</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div className="ml-auto text-[11px] text-muted-foreground">
-            {q.isFetching ? 'Loading…' : `${total} total`}
+          <div className="ms-auto text-[11px] text-muted-foreground">
+            {q.isFetching
+              ? t('admin.voiceVideo.recordings.loading' as any)
+              : t('admin.voiceVideo.recordings.total' as any, { count: String(total) })}
           </div>
         </div>
 
@@ -970,12 +993,12 @@ export function RecordingRetentionPanel() {
             data-testid="bulk-action-bar"
           >
             <span className="text-[11px] font-medium">
-              {selectedIds.size} selected
+              {t('admin.voiceVideo.recordings.selected' as any, { count: String(selectedIds.size) })}
             </span>
             <Input
               value={bulkReason}
               onChange={(e) => setBulkReason(e.target.value)}
-              placeholder="Reason (optional)"
+              placeholder={t('admin.voiceVideo.recordings.reasonOptional' as any)}
               className="h-7 text-[11px] w-56"
               maxLength={500}
               disabled={bulkMut.isPending}
@@ -989,12 +1012,8 @@ export function RecordingRetentionPanel() {
               onClick={() => bulkMut.mutate(true)}
               data-testid="bulk-hold-on"
             >
-              {bulkMut.isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <ShieldCheck className="h-3 w-3" />
-              )}
-              Set legal hold ON
+              {bulkMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+              {t('admin.voiceVideo.recordings.setHoldOn' as any)}
             </Button>
             <Button
               size="sm"
@@ -1004,12 +1023,8 @@ export function RecordingRetentionPanel() {
               onClick={() => bulkMut.mutate(false)}
               data-testid="bulk-hold-off"
             >
-              {bulkMut.isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <ShieldOff className="h-3 w-3" />
-              )}
-              Set legal hold OFF
+              {bulkMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldOff className="h-3 w-3" />}
+              {t('admin.voiceVideo.recordings.setHoldOff' as any)}
             </Button>
             <Button
               size="sm"
@@ -1019,26 +1034,27 @@ export function RecordingRetentionPanel() {
               onClick={() => setSelectedIds(new Set())}
               data-testid="bulk-clear"
             >
-              Clear
+              {t('admin.voiceVideo.recordings.clear' as any)}
             </Button>
             {bulkMut.isError && (
               <span className="text-[10px] text-destructive">
-                {(bulkMut.error as Error)?.message || 'Bulk action failed'}
+                {(bulkMut.error as Error)?.message || t('admin.voiceVideo.recordings.bulkFailed' as any)}
               </span>
             )}
           </div>
         )}
         {bulkResult && (
-          <div
-            className="text-[11px] text-muted-foreground"
-            data-testid="bulk-result"
-          >
-            Legal hold {bulkResult.enabled ? 'ON' : 'OFF'} applied to{' '}
-            {bulkResult.succeeded} recording(s).
+          <div className="text-[11px] text-muted-foreground" data-testid="bulk-result">
+            {t('admin.voiceVideo.recordings.bulkApplied' as any, {
+              state: bulkResult.enabled
+                ? t('admin.voiceVideo.recordings.on' as any)
+                : t('admin.voiceVideo.recordings.off' as any),
+              count: String(bulkResult.succeeded),
+            })}
             {bulkResult.failures.length > 0 && (
               <span className="text-destructive">
                 {' '}
-                {bulkResult.failures.length} failed.
+                {t('admin.voiceVideo.recordings.failedCount' as any, { count: String(bulkResult.failures.length) })}
               </span>
             )}
           </div>
@@ -1046,15 +1062,15 @@ export function RecordingRetentionPanel() {
 
         {q.isLoading ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground py-8 justify-center">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading recordings…
+            <Loader2 className="h-4 w-4 animate-spin" /> {t('admin.voiceVideo.recordings.loadingRecordings' as any)}
           </div>
         ) : q.isError ? (
           <div className="text-xs text-destructive py-4" data-testid="recordings-error">
-            {(q.error as Error)?.message || 'Failed to load recordings.'}
+            {(q.error as Error)?.message || t('admin.voiceVideo.recordings.loadFailed' as any)}
           </div>
         ) : items.length === 0 ? (
           <div className="text-xs text-muted-foreground py-8 text-center" data-testid="recordings-empty">
-            No recordings match the current filters.
+            {t('admin.voiceVideo.recordings.empty' as any)}
           </div>
         ) : (
           <div className="overflow-x-auto border border-border rounded-md">
@@ -1065,85 +1081,87 @@ export function RecordingRetentionPanel() {
                     <Checkbox
                       checked={allVisibleSelected}
                       onCheckedChange={toggleAllVisible}
-                      aria-label="Select all visible recordings"
+                      aria-label={t('admin.voiceVideo.recordings.selectAll' as any)}
                       data-testid="bulk-select-all"
                     />
                   </th>
-                  <th className="text-left p-2 font-medium">Recording</th>
-                  <th className="text-left p-2 font-medium">Workspace</th>
-                  <th className="text-left p-2 font-medium">Created</th>
-                  <th className="text-left p-2 font-medium">Duration</th>
-                  <th className="text-left p-2 font-medium">Size</th>
-                  <th className="text-left p-2 font-medium">Expires</th>
-                  <th className="text-left p-2 font-medium">Status</th>
-                  <th className="text-left p-2 font-medium">Artifact</th>
-                  <th className="text-right p-2 font-medium">Legal hold</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.recording' as any)}</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.workspace' as any)}</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.created' as any)}</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.duration' as any)}</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.size' as any)}</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.expires' as any)}</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.status' as any)}</th>
+                  <th className="text-start p-2 font-medium">{t('admin.voiceVideo.recordings.artifact' as any)}</th>
+                  <th className="text-end p-2 font-medium">{t('admin.voiceVideo.recordings.legalHold' as any)}</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((r) => (
                   <Fragment key={r.id}>
-                  <tr className="border-t border-border align-top" data-testid={`recording-row-${r.id}`}>
-                    <td className="p-2 align-top">
-                      <Checkbox
-                        checked={selectedIds.has(r.id)}
-                        onCheckedChange={() => toggleRow(r.id)}
-                        aria-label={`Select recording ${r.id}`}
-                        data-testid={`bulk-select-${r.id}`}
-                      />
-                    </td>
-                    <td className="p-2 font-mono text-[10px] break-all max-w-[180px]">
-                      <div>{r.id}</div>
-                      <div className="text-muted-foreground">
-                        {r.provider || '—'} · {r.recording_type || '—'}
-                      </div>
-                    </td>
-                    <td className="p-2 font-mono text-[10px] break-all max-w-[180px]">
-                      {r.workspace_id || '—'}
-                    </td>
-                    <td className="p-2 whitespace-nowrap">{fmtDate(r.created_at)}</td>
-                    <td className="p-2 whitespace-nowrap">{fmtDuration(r.duration_seconds)}</td>
-                    <td className="p-2 whitespace-nowrap">{fmtBytes(r.size_bytes)}</td>
-                    <td className="p-2 whitespace-nowrap">
-                      <div className="flex flex-col items-start gap-1">
-                        <span>{fmtDate(r.retention_expires_at)}</span>
-                        {r.retention_policy?.startsWith('override:') && (
-                          <span
-                            className="text-[10px] text-muted-foreground"
-                            data-testid={`retention-overridden-${r.id}`}
-                          >
-                            Overridden ({r.retention_policy.replace(/^override:/, '')})
-                          </span>
-                        )}
-                        <div className="flex items-center gap-1">
-                          <RetentionOverrideEditor row={r} />
-                          <RetentionRestoreButton row={r} />
-                          <RetentionAdoptButton row={r} />
+                    <tr className="border-t border-border align-top" data-testid={`recording-row-${r.id}`}>
+                      <td className="p-2 align-top">
+                        <Checkbox
+                          checked={selectedIds.has(r.id)}
+                          onCheckedChange={() => toggleRow(r.id)}
+                          aria-label={t('admin.voiceVideo.recordings.selectRecording' as any, { id: r.id })}
+                          data-testid={`bulk-select-${r.id}`}
+                        />
+                      </td>
+                      <td className="p-2 font-mono text-[10px] break-all max-w-[180px]">
+                        <div>{r.id}</div>
+                        <div className="text-muted-foreground">
+                          {r.provider || '—'} · {r.recording_type || '—'}
                         </div>
-                      </div>
-                    </td>
-                    <td className="p-2"><RetentionStatusBadge status={r.status} /></td>
-                    <td className="p-2">
-                      <ArtifactActions
-                        row={r}
-                        previewOpen={previewId === r.id}
-                        onTogglePreview={() =>
-                          setPreviewId((cur) => (cur === r.id ? null : r.id))
-                        }
-                      />
-                    </td>
-                    <td className="p-2"><LegalHoldToggle row={r} /></td>
-                  </tr>
-                  {previewId === r.id && (
-                    <tr
-                      className="border-t border-border bg-secondary/20"
-                      data-testid={`recording-preview-row-${r.id}`}
-                    >
-                      <td colSpan={10} className="p-3">
-                        <InlinePreview row={r} />
+                      </td>
+                      <td className="p-2 font-mono text-[10px] break-all max-w-[180px]">{r.workspace_id || '—'}</td>
+                      <td className="p-2 whitespace-nowrap">{fmtDate(r.created_at)}</td>
+                      <td className="p-2 whitespace-nowrap">{fmtDuration(r.duration_seconds)}</td>
+                      <td className="p-2 whitespace-nowrap">{fmtBytes(r.size_bytes)}</td>
+                      <td className="p-2 whitespace-nowrap">
+                        <div className="flex flex-col items-start gap-1">
+                          <span>{fmtDate(r.retention_expires_at)}</span>
+                          {r.retention_policy?.startsWith('override:') && (
+                            <span
+                              className="text-[10px] text-muted-foreground"
+                              data-testid={`retention-overridden-${r.id}`}
+                            >
+                              {t('admin.voiceVideo.recordings.overridden' as any, {
+                                policy: r.retention_policy.replace(/^override:/, ''),
+                              })}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1">
+                            <RetentionOverrideEditor row={r} />
+                            <RetentionRestoreButton row={r} />
+                            <RetentionAdoptButton row={r} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-2">
+                        <RetentionStatusBadge status={r.status} />
+                      </td>
+                      <td className="p-2">
+                        <ArtifactActions
+                          row={r}
+                          previewOpen={previewId === r.id}
+                          onTogglePreview={() => setPreviewId((cur) => (cur === r.id ? null : r.id))}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <LegalHoldToggle row={r} />
                       </td>
                     </tr>
-                  )}
+                    {previewId === r.id && (
+                      <tr
+                        className="border-t border-border bg-secondary/20"
+                        data-testid={`recording-preview-row-${r.id}`}
+                      >
+                        <td colSpan={10} className="p-3">
+                          <InlinePreview row={r} />
+                        </td>
+                      </tr>
+                    )}
                   </Fragment>
                 ))}
               </tbody>
@@ -1153,7 +1171,7 @@ export function RecordingRetentionPanel() {
 
         <div className="flex items-center justify-between pt-2">
           <div className="text-[11px] text-muted-foreground">
-            Page {page + 1} of {maxPage + 1}
+            {t('admin.voiceVideo.recordings.pageOf' as any, { page: String(page + 1), total: String(maxPage + 1) })}
           </div>
           <div className="flex gap-2">
             <Button
@@ -1162,7 +1180,7 @@ export function RecordingRetentionPanel() {
               disabled={page === 0 || q.isFetching}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
             >
-              Previous
+              {t('admin.voiceVideo.recordings.previous' as any)}
             </Button>
             <Button
               size="sm"
@@ -1170,7 +1188,7 @@ export function RecordingRetentionPanel() {
               disabled={page >= maxPage || q.isFetching}
               onClick={() => setPage((p) => Math.min(maxPage, p + 1))}
             >
-              Next
+              {t('admin.voiceVideo.recordings.next' as any)}
             </Button>
           </div>
         </div>

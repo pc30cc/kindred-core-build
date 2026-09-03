@@ -884,7 +884,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
         q(`UPDATE public.workspace_subscriptions
               SET current_period_end = now() + interval '400 days'
             WHERE workspace_id=$1`, [ws]),
-      ).rejects.toThrow(/billing_v2_legacy_write_blocked/);
+      ).rejects.toThrow(/billing_v2_direct_subscription_mutation_forbidden/);
       // non-financial columns stay writable
       await q(`UPDATE public.workspace_subscriptions SET updated_at=now() WHERE workspace_id=$1`, [ws]);
     });
@@ -903,14 +903,14 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
 
       await expect(
         q(`INSERT INTO public.workspace_ai_balance_lots
-             (workspace_id, source_type, billing_cycle_id, amount_irr, remaining_irr, allowance_source)
+             (workspace_id, source_type, billing_cycle_id, original_amount, remaining_amount, allowance_source)
            VALUES ($1,'PLAN_ALLOWANCE','2026-03',100000,100000,'plan')`, [ws]),
       ).rejects.toThrow(/billing_v2_legacy_allowance_blocked/);
 
       // the period-bound V2 grant is still allowed
       await q(
         `INSERT INTO public.workspace_ai_balance_lots
-           (workspace_id, source_type, billing_cycle_id, amount_irr, remaining_irr, allowance_source)
+           (workspace_id, source_type, billing_cycle_id, original_amount, remaining_amount, allowance_source)
          VALUES ($1,'PLAN_ALLOWANCE',$2,100000,100000,'plan')`, [ws, `period:${period.id}`]);
     });
   });
@@ -946,7 +946,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
         q(`UPDATE public.workspace_subscriptions
               SET current_period_end = now() + interval '30 days'
             WHERE workspace_id=$1`, [v2]),
-      ).rejects.toThrow(/billing_v2_legacy_write_blocked/);
+      ).rejects.toThrow(/billing_v2_direct_subscription_mutation_forbidden/);
     });
   });
 

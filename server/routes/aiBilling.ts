@@ -148,6 +148,88 @@ aiBillingRouter.get('/workspaces/:workspaceId/topup/config', async (req, res) =>
 const topupCheckoutSchema = z.object({
   amountToman: z.number().int().positive(),
   callbackUrl: z.string().url(),
+  /** Proforma the customer just confirmed (from /topup/preview) — reused instead of issuing a second one. */
+  intentId: z.string().uuid().optional(),
+});
+
+const topupPreviewSchema = z.object({
+  amountToman: z.number().int().positive(),
+});
+
+/**
+ * Proforma (پیش‌فاکتور) shown BEFORE the customer is handed to the bank.
+ * It is a real payment intent with a unique document number, so the amount
+ * displayed is exactly the amount charged and an abandoned proforma stays
+ * visible in the transaction history.
+ */
+aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) => {
+  const config = cfg(req);
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const workspaceId = req.params.workspaceId;
+
+  const parsed = topupPreviewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
+  const { amountToman } = parsed.data;
+
+  const topup = await getTopupConfig(config);
+  if (amountToman < topup.minToman || amountToman > topup.maxToman) {
+    return res.status(400).json({ error: `amountToman must be between ${topup.minToman} and ${topup.maxToman}` });
+  }
+
+  const resolved = await resolveBillingConfig(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
+  if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
+  if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
+    return res.status(400).json({ error: 'AI credit top-up is not supported for the configured provider' });
+  }
+
+  const amountIrr = amountToman * 10;
+  const sb = getServiceClient(config);
+  try {
+    const { data: workspace } = await sb.from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
+
+    // Re-opening the dialog for the SAME amount must show the SAME document
+    // number — only a still-usable, unbound, identical intent is reused.
+    const { data: reusable } = await sb
+      .from('billing_payment_intents')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'pending')
+      .eq('purchase_type', 'ai_credit_topup')
+      .eq('amount_irr', amountIrr)
+      .eq('provider_name', resolved.provider.name)
+      .is('provider_ref', null)
+      .not('invoice_number', 'is', null)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const intent = (reusable as any) || await createAiCreditTopupIntent(config, {
+      workspaceId,
+      providerName: resolved.provider.name,
+      amountIrr,
+      workspaceNameSnapshot: (workspace as any)?.name ?? null,
+      metadata: { origin: 'topup_preview' },
+    });
+
+    res.json({
+      invoice: {
+        intentId: intent.id,
+        invoiceNumber: intent.invoice_number,
+        issuedAt: intent.created_at,
+        expiresAt: intent.expires_at,
+        workspaceName: intent.workspace_name_snapshot || (workspace as any)?.name || null,
+        purchaseType: 'ai_credit_topup',
+        amountIrr: intent.amount_irr ?? amountIrr,
+        discountIrr: intent.discount_irr ?? 0,
+        totalIrr: intent.final_amount_irr ?? amountIrr,
+        providerName: resolved.provider.name,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res) => {
@@ -159,6 +241,7 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
   const parsed = topupCheckoutSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
   const { amountToman, callbackUrl } = parsed.data;
+
 
   const topup = await getTopupConfig(config);
   if (amountToman < topup.minToman || amountToman > topup.maxToman) {

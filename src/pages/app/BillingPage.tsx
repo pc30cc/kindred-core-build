@@ -17,7 +17,7 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { displayCurrency } from '@/lib/region';
 import { formatToman } from '@/lib/money';
 import { SkeletonStats, SkeletonCard, SkeletonTable } from '@/components/common/Skeletons';
-import IranBillingPage from './billing/iran/IranBillingPage';
+import IranBillingEntry from './billing/v2/IranBillingEntry';
 
 const CURRENCY_MAP: Record<string, { locale: string; divider: number }> = {
   USD: { locale: 'en-US', divider: 100 },
@@ -56,7 +56,7 @@ const STATUS_LABEL: Record<string, { fa: string; en: string; tr: string }> = {
  */
 export default function BillingPage() {
   const { mode: regionMode } = usePlatformRegion();
-  if (regionMode === 'iran') return <IranBillingPage />;
+  if (regionMode === 'iran') return <IranBillingEntry />;
   return <LegacyBillingPage />;
 }
 

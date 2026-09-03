@@ -536,7 +536,7 @@ export default function TeamChatPanel() {
                       >
                         {send.isPending
                           ? <Loader2 className="w-4 h-4 animate-spin" />
-                          : <Send className={cn('w-4 h-4', dir === 'rtl' && 'rotate-180')} />}
+                          : <Send className={cn('w-4 h-4', dir === 'rtl' && '-scale-x-100')} />}
                         <span className="hidden sm:inline text-[12.5px]">{t('inbox.send') || 'Send'}</span>
                       </Button>
                     </>

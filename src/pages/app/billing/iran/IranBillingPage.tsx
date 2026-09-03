@@ -671,10 +671,25 @@ function RenewalDialog({
                   <dd className="font-medium">{t('billingIran.invoice.coverageValue', { from: jalaliDate(invoice.periodStart), to: jalaliDate(invoice.periodEnd) })}</dd>
                 </div>
               )}
+              {/* A discount line appears ONLY when the proforma really carries
+                  one — never a decorative 0. */}
+              {!!invoice?.discountIrr && invoice.discountIrr > 0 && (
+                <>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">{t('billingIran.invoice.subtotal')}</dt>
+                    <dd className="font-medium">{formatToman(invoice.amountIrr, 'fa')}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">{t('billingIran.invoice.discount')}</dt>
+                    <dd className="font-medium text-emerald-600 dark:text-emerald-400">{formatToman(invoice.discountIrr, 'fa')}</dd>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between gap-4 border-t border-border/60 pt-2.5">
                 <dt className="text-muted-foreground">{t('billingIran.renewal.payableLabel')}</dt>
                 <dd className="text-lg font-bold text-foreground">{formatToman(amount, 'fa')}</dd>
               </div>
+
             </dl>
 
             {stacks && (

@@ -812,9 +812,12 @@ export default function AdminBrandingPage() {
           <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.settings' as any)}</TabsTrigger>
           <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailSettings' as any)}</TabsTrigger>
           <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailTemplates' as any)}</TabsTrigger>
+          <TabsTrigger value="ui-defaults" className="gap-1.5"><Type className="h-4 w-4" /> {t('admin.brandingPage.tabs.uiDefaults' as any)}</TabsTrigger>
           <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.domains' as any)}</TabsTrigger>
         </TabsList>
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
+        <TabsContent value="ui-defaults" className="mt-4"><UiDefaultsSection /></TabsContent>
+
         <TabsContent value="settings" className="mt-4"><SettingsSection /></TabsContent>
         <TabsContent value="email-settings" className="mt-4"><EmailSettingsSection /></TabsContent>
         <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab /></TabsContent>

@@ -417,7 +417,7 @@ export default function OverviewPage() {
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
-                style={{ width: `${storageLimitGb > 0 ? Math.max(storagePct, 3) : 6}%` }}
+                style={{ width: `${isUnlimited(storageLimitGb) ? 6 : Math.max(storagePct, storageLimitGb === 0 ? 0 : 3)}%` }}
               />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2">

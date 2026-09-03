@@ -11,17 +11,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
-import { LayoutGrid, Sparkles, Receipt, Gauge, Calendar, Loader2, ArrowRight, CreditCard } from 'lucide-react';
+import { LayoutGrid, Sparkles, Receipt, Gauge, Calendar, Loader2, ArrowRight, CreditCard, Check, AlertTriangle, RefreshCw } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingError } from '@/lib/billing-i18n';
 import { formatToman } from '@/lib/money';
-import { billingCheckout, billingVerifyCallback, billingGetPortal, billingGetPaymentIntent, type BillingReceipt } from '@/lib/api';
+import { billingCheckout, billingVerifyCallback, billingGetPortal, billingGetPaymentIntent, aiBillingSummary, type BillingReceipt, type AiBillingSummary } from '@/lib/api';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { useIranBilling } from './useIranBilling';
-import { jalaliDate } from './format';
+import { jalaliDate, planHighlights } from './format';
 import PaymentResult, { type PaymentResultStatus } from './PaymentResult';
 import AiCreditTab from './AiCreditTab';
 import TransactionsTab from './TransactionsTab';
@@ -178,33 +178,31 @@ export default function IranBillingPage() {
   return (
     <div className="space-y-6 animate-fade-in text-start" dir="rtl">
       {/* Hero header — same language as the rest of the app pages */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
-        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative flex items-start gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
-            <CreditCard className="h-6 w-6 text-primary-foreground" />
+      <div className="rounded-2xl border border-border/60 bg-card p-5 sm:p-6">
+        <div className="flex items-start gap-3.5">
+          <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <CreditCard className="h-5 w-5" />
           </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('billingIran.pageTitle')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{t('billingIran.pageSubtitle')}</p>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{t('billingIran.pageTitle')}</h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">{t('billingIran.pageSubtitle')}</p>
           </div>
         </div>
       </div>
 
 
       <Tabs value={activeTab} onValueChange={setActiveTab} dir="rtl">
-        <TabsList className="w-full md:w-auto inline-flex h-auto gap-1 p-1.5 rounded-2xl bg-gradient-to-r from-muted/80 to-muted/40 border border-border/60 shadow-sm">
-          <TabsTrigger value="overview" className="gap-2 px-4 py-2 rounded-xl text-sm font-medium data-[state=active]:bg-background data-[state=active]:shadow-md">
+        <TabsList className="w-full md:w-auto flex md:inline-flex h-auto gap-1 p-1.5 rounded-2xl bg-muted/60 border border-border/60 overflow-x-auto no-scrollbar">
+          <TabsTrigger value="overview" className="flex-1 md:flex-none justify-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium whitespace-nowrap data-[state=active]:bg-background data-[state=active]:shadow-sm">
             <Gauge className="w-4 h-4" /> {t('billingIran.tabs.overview')}
           </TabsTrigger>
-          <TabsTrigger value="plans" className="gap-2 px-4 py-2 rounded-xl text-sm font-medium data-[state=active]:bg-background data-[state=active]:shadow-md">
+          <TabsTrigger value="plans" className="flex-1 md:flex-none justify-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium whitespace-nowrap data-[state=active]:bg-background data-[state=active]:shadow-sm">
             <LayoutGrid className="w-4 h-4" /> {t('billingIran.tabs.plans')}
           </TabsTrigger>
-          <TabsTrigger value="aiCredit" className="gap-2 px-4 py-2 rounded-xl text-sm font-medium data-[state=active]:bg-background data-[state=active]:shadow-md">
+          <TabsTrigger value="aiCredit" className="flex-1 md:flex-none justify-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium whitespace-nowrap data-[state=active]:bg-background data-[state=active]:shadow-sm">
             <Sparkles className="w-4 h-4" /> {t('billingIran.tabs.aiCredit')}
           </TabsTrigger>
-          <TabsTrigger value="transactions" className="gap-2 px-4 py-2 rounded-xl text-sm font-medium data-[state=active]:bg-background data-[state=active]:shadow-md">
+          <TabsTrigger value="transactions" className="flex-1 md:flex-none justify-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium whitespace-nowrap data-[state=active]:bg-background data-[state=active]:shadow-sm">
             <Receipt className="w-4 h-4" /> {t('billingIran.tabs.transactions')}
           </TabsTrigger>
         </TabsList>
@@ -219,7 +217,12 @@ export default function IranBillingPage() {
             onRenew={() => setRenewalPlan(currentPlan)}
             onChangePlan={() => setActiveTab('plans')}
           />
-          <UsageSummary effective={effective} operatorsUsed={members?.length ?? 0} />
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <UsageSummary effective={effective} operatorsUsed={members?.length ?? 0} />
+            </div>
+            <AiCreditSummaryCard workspaceId={workspaceId} onOpen={() => setActiveTab('aiCredit')} />
+          </div>
         </TabsContent>
 
         <TabsContent value="plans" className="mt-5">
@@ -244,7 +247,8 @@ export default function IranBillingPage() {
       <RenewalDialog
         plan={renewalPlan}
         interval={interval}
-        isUpgrade={!!renewalPlan && renewalPlan.id !== currentPlan?.id}
+        currentPlan={currentPlan}
+        periodEnd={subscription?.current_period_end || null}
         submitting={checkingOut}
         onCancel={() => setRenewalPlan(null)}
         onConfirm={(targetInterval) => startCheckout(renewalPlan, targetInterval)}
@@ -345,7 +349,12 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
     { key: 'callMinutes', label: t('billingIran.overview.callMinutes'), used: usage.call_minutes_used, limit: limits.max_call_minutes_per_month?.value },
     { key: 'kbArticles', label: t('billingIran.overview.kbArticles'), used: usage.kb_articles_count, limit: limits.max_kb_articles?.value },
     { key: 'departments', label: t('billingIran.overview.departments'), used: usage.departments_count, limit: limits.max_departments?.value },
-  ].filter((i) => typeof i.used === 'number' && i.limit != null);
+  ]
+    .filter((i) => typeof i.used === 'number' && i.limit != null)
+    // Overview stays readable: only the four metrics customers actually watch.
+    // Everything else lives in the plan comparison.
+    .filter((i) => ['conversations', 'operators', 'aiCredits', 'storage'].includes(i.key))
+    .slice(0, 4);
 
 
   if (items.length === 0) return null;
@@ -354,7 +363,7 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
     <Card>
       <CardContent className="pt-5">
         <h3 className="text-sm font-semibold text-foreground mb-4">{t('billingIran.overview.usageTitle')}</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {items.map((i) => {
             const unlimited = i.limit === -1;
             const pct = !unlimited && i.limit > 0 ? Math.min(100, Math.round((i.used / i.limit) * 100)) : null;
@@ -517,6 +526,21 @@ function PlansGrid({
                 </div>
 
 
+                <ul className="space-y-2 text-sm">
+                  {planHighlights(plan).map((h) => (
+                    <li key={h.key} className="flex items-start gap-2 text-muted-foreground">
+                      <Check className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                      <span className="text-foreground/90">
+                        {t(`billingIran.planFeatures.${h.key}` as any, {
+                          value: h.value === -1
+                            ? t('billingIran.overview.unlimited')
+                            : Number(h.value).toLocaleString('fa-IR'),
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
                 {isCurrent ? (
                   <Button className="w-full" variant="outline" disabled>{t('billingIran.plans.currentCta')}</Button>
                 ) : isFree ? null : (
@@ -535,35 +559,123 @@ function PlansGrid({
 }
 
 function RenewalDialog({
-  plan, interval, isUpgrade, submitting, onCancel, onConfirm,
+  plan, interval, currentPlan, periodEnd, submitting, onCancel, onConfirm,
 }: {
-  plan: any | null; interval: Interval; isUpgrade: boolean; submitting: boolean;
+  plan: any | null; interval: Interval; currentPlan: any; periodEnd: string | null; submitting: boolean;
   onCancel: () => void; onConfirm: (interval: Interval) => void;
 }) {
   const { t } = useTranslation();
   if (!plan) return null;
   const planName = ((plan.localized || {}).fa?.name || '').trim() || plan.name;
   const amount = plan.prices?.IRR?.[interval] ?? 0;
+  const isSamePlan = currentPlan?.id === plan.id;
+  const isUpgrade = !isSamePlan && (plan.sort_order ?? 0) > (currentPlan?.sort_order ?? 0);
+  const isDowngrade = !isSamePlan && (plan.sort_order ?? 0) < (currentPlan?.sort_order ?? 0);
+  // Early renewal never burns paid days — the server stacks the new period on
+  // top of the current one, so say so before the customer pays.
+  const stacks = isSamePlan && !!periodEnd && new Date(periodEnd).getTime() > Date.now();
 
   return (
     <Dialog open={!!plan} onOpenChange={(v) => !v && onCancel()}>
       <DialogContent dir="rtl">
         <DialogHeader>
-          <DialogTitle>{t(isUpgrade ? 'billingIran.renewal.titleUpgrade' : 'billingIran.renewal.title', { plan: planName })}</DialogTitle>
+          <DialogTitle>
+            {t(
+              isUpgrade ? 'billingIran.renewal.titleUpgrade'
+                : isDowngrade ? 'billingIran.renewal.titleDowngrade'
+                  : 'billingIran.renewal.title',
+              { plan: planName },
+            )}
+          </DialogTitle>
         </DialogHeader>
         <dl className="text-sm space-y-2.5">
           <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.renewal.planLabel')}</dt><dd className="font-medium">{planName}</dd></div>
           <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.renewal.periodLabel')}</dt><dd className="font-medium">{interval === 'monthly' ? t('billingIran.plans.monthly') : t('billingIran.plans.yearly')}</dd></div>
           <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.renewal.payableLabel')}</dt><dd className="font-semibold text-foreground">{formatToman(amount, 'fa')}</dd></div>
         </dl>
+        {stacks && (
+          <p className="rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+            {t('billingIran.renewal.stackHint', { date: jalaliDate(periodEnd) })}
+          </p>
+        )}
+        {isDowngrade && (
+          <p className="rounded-xl bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            {t('billingIran.renewal.downgradeHint')}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onCancel} disabled={submitting}>{t('billingIran.renewal.cancel')}</Button>
           <Button onClick={() => onConfirm(interval)} disabled={submitting}>
             {submitting ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : null}
-            {t(isUpgrade ? 'billingIran.renewal.payUpgradeCta' : 'billingIran.renewal.payCta')}
+            {t(isUpgrade ? 'billingIran.renewal.payUpgradeCta' : isDowngrade ? 'billingIran.renewal.payDowngradeCta' : 'billingIran.renewal.payCta')}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Compact AI-credit summary for the Overview tab: remaining credit and how
+ * much of this cycle is used, with a single way into the full tab.
+ */
+function AiCreditSummaryCard({ workspaceId, onOpen }: { workspaceId: string; onOpen: () => void }) {
+  const { t } = useTranslation();
+  const [summary, setSummary] = useState<AiBillingSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setFailed(false);
+    aiBillingSummary(workspaceId)
+      .then((s) => { if (!cancelled) setSummary(s); })
+      .catch(() => { if (!cancelled) setFailed(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  if (loading) return <SkeletonCard lines={3} />;
+
+  if (failed || !summary) {
+    return (
+      <Card>
+        <CardContent className="pt-5 text-center space-y-3">
+          <AlertTriangle className="w-5 h-5 mx-auto text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">{t('billingIran.overview.aiCreditLoadFailed')}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const total = summary.available + summary.usedThisCycle;
+  const pct = total > 0 ? Math.min(100, Math.round((summary.usedThisCycle / total) * 100)) : 0;
+
+  return (
+    <Card>
+      <CardContent className="pt-5 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-foreground inline-flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-primary" /> {t('billingIran.aiCredit.title')}
+          </h3>
+          <Badge variant="outline" className="text-[11px]">{t('billingIran.aiCredit.usedPct', { percent: pct.toLocaleString('fa-IR') })}</Badge>
+        </div>
+        <div>
+          <div className="text-2xl font-bold text-foreground">{formatToman(summary.available, 'fa')}</div>
+          <p className="text-xs text-muted-foreground mt-1">{t('billingIran.aiCredit.remainingLabel')}</p>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <dl className="text-xs space-y-1.5">
+          <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.aiCredit.monthlyRemainingLabel')}</dt><dd className="font-medium">{formatToman(summary.planRemaining, 'fa')}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.aiCredit.purchasedRemainingLabel')}</dt><dd className="font-medium">{formatToman(summary.purchasedRemaining, 'fa')}</dd></div>
+        </dl>
+        <Button variant="outline" size="sm" className="w-full" onClick={onOpen}>
+          <Sparkles className="w-4 h-4 me-2" /> {t('billingIran.aiCredit.increaseCta')}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

@@ -949,7 +949,14 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       } else {
         q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
       }
-      if (assigned_to_me) q = q.eq('assigned_to', assigned_to_me);
+      if (assigned_to_me) {
+        q = q.eq('assigned_to', assigned_to_me);
+      } else if (!canSeeAllAssignments) {
+        // A claimed conversation belongs to the operator who took it: other
+        // agents must not keep seeing it in their Inbox. Owners/admins and
+        // team leads still get the full workspace view.
+        q = q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+      }
       if (status && status !== 'all') {
         const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
         q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);

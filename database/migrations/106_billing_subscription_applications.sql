@@ -247,5 +247,16 @@ EXCEPTION
 END;
 $$;
 
+-- Supabase default privileges grant EXECUTE on new public functions to anon
+-- and authenticated; REVOKE ... FROM PUBLIC does NOT remove those role grants.
+-- This SECURITY DEFINER financial RPC must be service-role only.
 REVOKE ALL ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) FROM authenticated;
+  END IF;
+END $$;
 GRANT EXECUTE ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) TO service_role;

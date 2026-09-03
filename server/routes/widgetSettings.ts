@@ -140,6 +140,14 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
 
+  // Plan enforcement — the pre-chat form is a plan-gated tab.
+  const prechatEnt = await resolveWidgetEntitlements(config, workspaceId);
+  if (prechatEnt.features.widget_prechat_form === false) {
+    return res.status(403).json({ error: 'plan_upgrade_required', denied: ['widget_prechat_form'] });
+  }
+
+
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_prechat_settings')

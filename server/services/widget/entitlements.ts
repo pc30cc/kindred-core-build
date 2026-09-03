@@ -90,10 +90,15 @@ export const WIDGET_CAPABILITY_KEYS = [
   'widget_composer_placeholder',
   'widget_team_avatars',
   'widget_workspace_logo',
+  // Tab-level surfaces (Appearance / Behaviour / Pre-chat form).
+  'widget_appearance',
+  'widget_behavior',
+  'widget_prechat_form',
   // Grants the workspace switch that may hide the powered-by footer. Never
   // mapped in WIDGET_SETTING_CAPABILITY: denial forces `show_powered_by` ON.
   'widget_powered_by_toggle',
 ] as const;
+
 
 async function resolveBoolean(
   config: ServerConfig,
@@ -175,12 +180,20 @@ export function applyWidgetEntitlementsToSettings<T extends Record<string, any>>
   if (ent.features.widget_business_hours === false && out.business_hours) {
     out.business_hours = { ...(out.business_hours as any), enabled: false };
   }
+  // Plans without the domain allowlist do not get embed restrictions at all —
+  // the stored list is ignored everywhere (operator UI, bootstrap, origin
+  // rules), never silently enforced.
+  if (ent.features.widget_domain_allowlist === false) {
+    if ('allowed_domains' in out) out.allowed_domains = [];
+    if ('allow_subdomains' in out) out.allow_subdomains = false;
+  }
   // Plans without automatic routing fall back to manual assignment.
   if (ent.features.widget_assignment_routing === false && 'assignment_mode' in out) {
     out.assignment_mode = 'manual';
   }
   return out as T;
 }
+
 
 export interface PatchGuardResult {
   ok: boolean;

@@ -192,15 +192,28 @@ export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId:
   if (widgetError) throw widgetError;
   if (domainError) throw domainError;
 
+  // Plan gate: when the plan does not include the embed domain allowlist the
+  // workspace list is ignored entirely (the feature is off, not enforced).
+  let allowlistGranted = true;
+  try {
+    const { resolveWidgetEntitlements } = await import('./entitlements.js');
+    const ent = await resolveWidgetEntitlements(config, workspaceId);
+    allowlistGranted = ent.features.widget_domain_allowlist !== false;
+  } catch {
+    /* best-effort: keep the stored rules on resolution failure */
+  }
+
   const domains = uniqueStrings([
-    ...((widgetData?.allowed_domains as string[] | null) || []),
+    ...(allowlistGranted ? ((widgetData?.allowed_domains as string[] | null) || []) : []),
     ...((domainData || []).map((row: any) => row.domain)),
   ]);
 
+
   const result = {
     domains,
-    allowSubdomains: widgetData?.allow_subdomains ?? false,
+    allowSubdomains: allowlistGranted ? (widgetData?.allow_subdomains ?? false) : false,
   };
+
 
   originRulesCache.set(workspaceId, { ...result, ts: Date.now() });
   return result;

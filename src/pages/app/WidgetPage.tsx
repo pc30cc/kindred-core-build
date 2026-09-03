@@ -304,6 +304,42 @@ function WidgetPageContent() {
     updateWidget.mutate({ allowed_domains: current.filter(d => d !== domain) } as any);
   };
 
+  /**
+   * Plan-driven tab visibility. A tab whose plan feature is denied is NOT
+   * rendered at all (no locked/blurred placeholder) — the matching workspace
+   * configuration is already ignored by the server runtime. `install` has no
+   * capability: it is the embed snippet and always available.
+   */
+  const TAB_CAPABILITY: Record<string, string | null> = {
+    appearance: 'widget_appearance',
+    behavior: 'widget_behavior',
+    smart: 'widget_smart_engagement',
+    prechat: 'widget_prechat_form',
+    availability: 'widget_business_hours',
+    domains: 'widget_domain_allowlist',
+    install: null,
+  };
+  const visibleTabs = ([
+    { v: 'appearance', icon: Palette },
+    { v: 'behavior', icon: Settings },
+    { v: 'smart', icon: Sparkles },
+    { v: 'prechat', icon: MessageSquare },
+    { v: 'availability', icon: Clock },
+    { v: 'domains', icon: Shield },
+    { v: 'install', icon: Code },
+  ] as const).filter(({ v }) => {
+    const cap = TAB_CAPABILITY[v];
+    return !cap || capAllowed(cap);
+  });
+  const visibleTabValues = visibleTabs.map((x) => x.v as string).join(',');
+
+  // Never leave the page on a tab the plan just removed.
+  useEffect(() => {
+    const values = visibleTabValues.split(',').filter(Boolean);
+    if (values.length && !values.includes(tab)) setTab(values[0]);
+  }, [visibleTabValues, tab]);
+
+
   if (isLoading) {
     return (
       <div className="space-y-5 p-1" dir={dir}>
@@ -344,15 +380,7 @@ function WidgetPageContent() {
           </div>
 
           <TabsList className="mt-4 flex h-auto w-full flex-wrap items-center justify-start gap-1 rounded-full border border-border/70 bg-secondary/40 p-1">
-            {([
-              { v: 'appearance', icon: Palette },
-              { v: 'behavior', icon: Settings },
-              { v: 'smart', icon: Sparkles },
-              { v: 'prechat', icon: MessageSquare },
-              { v: 'availability', icon: Clock },
-              { v: 'domains', icon: Shield },
-              { v: 'install', icon: Code },
-            ] as const).map(({ v, icon: Icon }) => (
+            {visibleTabs.map(({ v, icon: Icon }) => (
               <TabsTrigger
                 key={v}
                 value={v}
@@ -368,6 +396,7 @@ function WidgetPageContent() {
               </TabsTrigger>
             ))}
           </TabsList>
+
         </div>
 
         {/* The smart tab owns its own scenario studio, so the generic preview

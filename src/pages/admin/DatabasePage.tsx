@@ -110,9 +110,20 @@ function MaintenanceCard() {
               <p className="text-sm text-foreground">{t('admin.database.downloadBackup')}</p>
               <p className="text-xs text-muted-foreground">{t('admin.database.downloadBackupDesc')}</p>
             </div>
-            <Button onClick={handleBackup} disabled={busy !== null} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
+            <Button onClick={() => void handleBackup(false)} disabled={busy !== null} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
               {busy === 'backup' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {busy === 'backup' ? t('admin.database.working') : t('admin.database.downloadBackup')}
+            </Button>
+          </div>
+
+          <div className={cn('flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.downloadFullBackup')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.downloadFullBackupDesc')}</p>
+            </div>
+            <Button onClick={() => void handleBackup(true)} disabled={busy !== null} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
+              {busy === 'fullBackup' ? <Loader2 className="h-4 w-4 animate-spin" /> : <DatabaseBackup className="h-4 w-4" />}
+              {busy === 'fullBackup' ? t('admin.database.working') : t('admin.database.downloadFullBackup')}
             </Button>
           </div>
 
@@ -138,6 +149,30 @@ function MaintenanceCard() {
               {busy === 'restore' ? t('admin.database.working') : t('admin.database.selectBackupFile')}
             </Button>
           </div>
+
+          <div className={cn('flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.restoreFullBackup')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.restoreFullBackupDesc')}</p>
+            </div>
+            <input
+              ref={fullFileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) void handleRestoreFile(f, true); }}
+            />
+            <Button
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => fullFileRef.current?.click()}
+              className={cn('gap-2', isRtl && 'flex-row-reverse')}
+            >
+              {busy === 'fullRestore' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {busy === 'fullRestore' ? t('admin.database.working') : t('admin.database.selectBackupFile')}
+            </Button>
+          </div>
+
 
           <div className={cn('flex flex-col gap-3 rounded-md border border-warning/30 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
             <div className="text-start">

@@ -25,6 +25,7 @@ import { WorkspacePrivacyStorageCard } from '@/features/providers/WorkspacePriva
 import { WorkspaceCallSettingsCard } from '@/features/providers/WorkspaceCallSettingsCard';
 import { WorkspaceRolePermissionsCard } from '@/features/providers/WorkspaceRolePermissionsCard';
 import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
+import { SkeletonCard } from '@/components/common/Skeletons';
 
 // ─── Status Badge ────────────────────────────────────────────────
 

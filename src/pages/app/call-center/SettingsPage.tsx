@@ -24,6 +24,7 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useQuery } from '@tanstack/react-query';
 import { listDepartments } from '@/lib/workspace-departments-api';
 import { useTranslation } from '@/i18n';
+import { SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skeletons';
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (

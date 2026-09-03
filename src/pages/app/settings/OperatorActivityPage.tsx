@@ -20,6 +20,7 @@ import { exportSummaryCsv, exportDetailedCsv, exportOperatorCsv } from '@/lib/op
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 
 const RANGES = [1, 7, 30] as const;
 

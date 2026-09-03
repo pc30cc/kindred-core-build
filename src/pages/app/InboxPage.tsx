@@ -350,7 +350,7 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkConvId]);
 
-  const { data: conversations, isLoading } = useConversations(
+  const { data: conversations, isLoading: isLoadingConvos, isPlaceholderData: isStaleConvos } = useConversations(
     workspace?.id,
     filter === 'all' ? undefined : filter === 'resolved' ? 'resolved,closed' : filter,
     queue,
@@ -1400,7 +1400,10 @@ export default function InboxPage() {
 
         {/* Conversation items */}
         <ScrollArea className="flex-1 [&>div>div]:!block">
-          {isLoading ? (
+          {/* While switching tab/queue react-query keeps the previous list as
+              placeholder data — showing it would flash the wrong conversations.
+              Treat placeholder state as loading and render skeletons instead. */}
+          {(isLoadingConvos || isStaleConvos) ? (
             <div className="px-3 py-3 space-y-2" dir={dir} aria-busy="true" aria-label="Loading conversations">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="flex gap-3 p-2 animate-pulse">

@@ -9,7 +9,7 @@ const tr: TranslationKeys = {
       activeUntil: '{{date}} tarihine kadar aktif', daysLeft: 'Dönem sonuna {{days}} gün kaldı', perMonth: '/ ay', perYear: '/ yıl',
       renewCta: 'Planı yenile', changeCta: 'Planı değiştir', upgradeCta: 'Planı yükselt', managePortal: 'Ödemeyi yönet',
       usageTitle: 'Kullanım özeti', conversations: 'Görüşmeler', operators: 'Operatörler', storage: 'Depolama',
-      callMinutes: 'Çağrı dakikaları', unlimited: 'Sınırsız', gb: 'GB', remaining: 'Kalan',
+      callMinutes: 'Çağrı dakikaları', unlimited: 'Sınırsız', gb: 'GB', remaining: 'Kalan', visitors: 'Ziyaretçiler', aiCredits: 'AI kredisi', kbArticles: 'Bilgi bankası makaleleri', departments: 'Departmanlar',
     },
     plans: {
       monthly: 'Aylık', yearly: 'Yıllık', yearlyHint: 'Yıllık ödeme — daha avantajlı', discountBadge: '%{{percent}} indirim',

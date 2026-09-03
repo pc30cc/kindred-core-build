@@ -357,15 +357,15 @@ function UsageDonut({
       ].filter((d) => d.value > 0);
 
   return (
-    <div className="relative mx-auto h-[128px] w-[128px]">
+    <div className="relative mx-auto h-[84px] w-[84px]">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
             data={data}
             dataKey="value"
             nameKey="label"
-            innerRadius={42}
-            outerRadius={60}
+            innerRadius={27}
+            outerRadius={40}
             paddingAngle={data.length > 1 ? 2 : 0}
             stroke="none"
             startAngle={90}
@@ -381,7 +381,7 @@ function UsageDonut({
           )}
         </PieChart>
       </ResponsiveContainer>
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-base font-bold text-foreground">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-bold text-foreground">
         {unlimited ? '∞' : percent !== null ? `${percent.toLocaleString('fa-IR')}٪` : '—'}
       </div>
     </div>

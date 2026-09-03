@@ -939,3 +939,36 @@ export async function resendMyVerificationEmail(locale?: string): Promise<Resend
   if (res.status === 502) throw new ResendVerificationError('email_send_failed');
   throw new ResendVerificationError('unknown');
 }
+
+// ─── Admin: database maintenance (backup / restore / purge) ──────
+
+export async function downloadDatabaseBackup(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/admin/database/backup`, { credentials: 'include' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `API error: ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function restoreDatabaseBackup(payload: unknown) {
+  return request<{ ok: boolean; result: unknown }>('/api/admin/database/restore', {
+    method: 'POST',
+    body: JSON.stringify({ payload }),
+  });
+}
+
+export function purgeDatabase(scope: 'data' | 'full') {
+  return request<{ ok: boolean; result: { scope: string; tables_truncated: number } }>(
+    '/api/admin/database/purge',
+    { method: 'POST', body: JSON.stringify({ scope, confirm: 'DELETE' }) },
+  );
+}

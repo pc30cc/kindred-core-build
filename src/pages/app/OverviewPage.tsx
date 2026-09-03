@@ -190,15 +190,25 @@ export default function OverviewPage() {
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
   const storageBytes = usageNum('storage_bytes');
-  const storageLimitGb = Number(limits.storage_gb ?? 0);
+  // Limit convention: -1 (or missing) = unlimited, 0 = not allowed, >0 = capped
+  const limitNum = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = limits[k];
+      if (v !== undefined && v !== null && Number.isFinite(Number(v))) return Number(v);
+    }
+    return -1;
+  };
+  const isUnlimited = (v: number) => v < 0;
+  const storageLimitGb = limitNum('storage_gb');
   const storagePct = storageLimitGb > 0
     ? Math.min(100, Math.round((storageBytes / (storageLimitGb * 1024 ** 3)) * 100))
     : 0;
 
-  const seatLimit = Number(limits.max_operators ?? limits.max_seats ?? 0);
+  const seatLimit = limitNum('max_operators', 'max_seats');
   const seatUsed = team.length;
-  const contactLimit = Number(limits.max_contacts ?? 0);
+  const contactLimit = limitNum('max_contacts');
   const contactUsed = (contacts ?? []).length;
+
 
   const stats: { label: string; value: number; icon: React.ElementType; accent: AiAccent; path: string }[] = [
     { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, accent: 'indigo', path: '/inbox' },
@@ -401,13 +411,13 @@ export default function OverviewPage() {
               </span>
               <span className="font-medium tabular-nums text-foreground">
                 {formatBytes(storageBytes, numberLocale)}
-                {storageLimitGb > 0 ? ` / ${fmt(storageLimitGb)} GB` : ' / ∞'}
+                {isUnlimited(storageLimitGb) ? ' / ∞' : ` / ${fmt(storageLimitGb)} GB`}
               </span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
-                style={{ width: `${storageLimitGb > 0 ? Math.max(storagePct, 3) : 6}%` }}
+                style={{ width: `${isUnlimited(storageLimitGb) ? 6 : Math.max(storagePct, storageLimitGb === 0 ? 0 : 3)}%` }}
               />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2">
@@ -428,10 +438,10 @@ export default function OverviewPage() {
             {[
               { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' },
               { label: tr('dashboard.statTeamOnline'), used: seatUsed, limit: seatLimit, grad: 'from-rose-500 to-pink-500' },
-              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: Number(limits.max_kb_articles ?? 0), grad: 'from-cyan-500 to-sky-500' },
+              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: limitNum('max_kb_articles'), grad: 'from-cyan-500 to-sky-500' },
             ].map((row) => {
-              const unlimited = !row.limit || row.limit <= 0;
-              const pct = unlimited ? 0 : Math.min(100, Math.round((row.used / row.limit) * 100));
+              const unlimited = isUnlimited(row.limit);
+              const pct = unlimited || row.limit === 0 ? 0 : Math.min(100, Math.round((row.used / row.limit) * 100));
               return (
                 <div key={row.label}>
                   <div className="mb-1.5 flex items-center justify-between text-xs">
@@ -443,7 +453,7 @@ export default function OverviewPage() {
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn('h-full rounded-full bg-gradient-to-r transition-all duration-500', row.grad)}
-                      style={{ width: `${unlimited ? 6 : Math.max(pct, 3)}%` }}
+                      style={{ width: `${unlimited ? 6 : row.limit === 0 ? 0 : Math.max(pct, 3)}%` }}
                     />
                   </div>
                 </div>

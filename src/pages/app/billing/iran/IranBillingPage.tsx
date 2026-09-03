@@ -357,6 +357,8 @@ function PlansGrid({
             : 0;
           const planName = ((plan.localized || {}).fa?.name || '').trim() || plan.name;
           const isHigher = !isCurrent && currentPlan && (plan.sort_order ?? 0) > (currentPlan.sort_order ?? 0);
+          const aiAllowance = Number((plan.limits || {}).included_ai_allowance_irr ?? 0) || 0;
+
 
           return (
             <Card key={plan.id} className={isCurrent ? 'ring-2 ring-primary border-primary/40' : ''}>

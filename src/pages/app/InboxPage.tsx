@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -189,14 +190,17 @@ export default function InboxPage() {
     statusParam === 'all'
       ? statusParam
       : 'open';
-  // Plan gating for the Inbox tab strip. Unknown / still-loading entitlements
-  // stay allowed so tabs never flicker away on a slow snapshot.
-  const { data: inboxEnts } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  // Plan gating for the Inbox tab strip. While the snapshot is unknown we hide
+  // the gated tabs (and show placeholders) so a plan-locked tab is never
+  // rendered for a moment and then removed.
+  const { data: inboxEnts, loading: inboxEntsLoading, error: inboxEntsError } =
+    useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const entsReady = !!inboxEnts || (!inboxEntsLoading && !!inboxEntsError);
   const inboxCapAllowed = useCallback((key: string): boolean => {
-    if (!inboxEnts) return true;
+    if (!inboxEnts) return !!inboxEntsError; // unknown => hidden, error => permissive
     const f = (inboxEnts.features as any)?.[key] ?? (inboxEnts.modules as any)?.[key];
     return f ? f.value !== false : true;
-  }, [inboxEnts]);
+  }, [inboxEnts, inboxEntsError]);
   const aiTabAllowed = inboxCapAllowed('inbox_ai_queue');
   const needsHumanTabAllowed = inboxCapAllowed('inbox_needs_human');
   const colleaguesTabAllowed = inboxCapAllowed('inbox_team_chat');
@@ -1163,6 +1167,14 @@ export default function InboxPage() {
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
+            {/* Plan snapshot still loading — placeholders instead of guessing. */}
+            {!entsReady ? (
+              <>
+                <Skeleton className="h-8 w-24 rounded-full" />
+                <Skeleton className="h-8 w-28 rounded-full" />
+                <Skeleton className="h-8 w-24 rounded-full" />
+              </>
+            ) : null}
             {/* AI (Automated queue) — AI-managed conversations. Plan-gated. */}
             {aiTabAllowed ? (
             <button

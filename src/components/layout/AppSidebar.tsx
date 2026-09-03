@@ -17,6 +17,7 @@ import {
   Plug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ImageWithSkeleton } from '@/components/common/ImageWithSkeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -93,7 +94,11 @@ export function AppSidebar() {
   const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
   const { data: callCenterCaps, isError: callCenterCapsError } = useCallCenterCapabilities(workspace?.id);
-  const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const { data: entitlements, loading: entitlementsLoading, error: entitlementsError } =
+    useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  // Plan snapshot resolved? Until it is, plan-gated entries are NOT rendered —
+  // showing them first and removing them a moment later is worse than waiting.
+  const entsReady = !!entitlements || (!entitlementsLoading && !!entitlementsError);
   const { data: wsRole } = useWorkspaceRole(workspace?.id);
   // Fail-CLOSED: hide unless capabilities explicitly say visible.
   const callCenterVisible =
@@ -243,7 +248,7 @@ export function AppSidebar() {
   // entitlement snapshot is still loading, so nothing flickers away; only an
   // explicit `false` from the resolved snapshot hides them.
   const moduleInPlan = (key: string): boolean => {
-    if (!entitlements?.modules) return true; // not resolved yet — keep visible
+    if (!entitlements?.modules) return !!entitlementsError; // unresolved => hidden
     const state = entitlements.modules[key];
     return state == null || state.value === true;
   };
@@ -268,7 +273,7 @@ export function AppSidebar() {
 
 
   const channelInPlan = (key: string): boolean => {
-    if (!entitlements?.channels) return true; // not resolved yet — keep visible
+    if (!entitlements?.channels) return !!entitlementsError; // unresolved => hidden
     const state = (entitlements.channels as Record<string, { value: boolean } | undefined>)[key];
     return state == null || state.value === true;
   };
@@ -568,6 +573,16 @@ export function AppSidebar() {
 
       {/* Main navigation */}
       <nav className="flex-1 overflow-y-auto pt-3 px-3 space-y-0.5">
+        {!entsReady ? (
+          <div className="space-y-1.5 px-1 py-1" aria-hidden>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-2.5 px-2 py-1.5">
+                <Skeleton className="h-5 w-5 rounded-md" />
+                {!collapsed && <Skeleton className="h-3.5 flex-1 rounded" />}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {mainNav.map(item => (
           <NavTip key={item.key} label={t(`nav.${item.key}` as any)} enabled={collapsed}>
           <Link

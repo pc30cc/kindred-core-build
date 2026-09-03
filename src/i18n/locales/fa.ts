@@ -10,6 +10,7 @@ const fa: TranslationKeys = {
       renewCta: 'تمدید پلن', changeCta: 'تغییر پلن', upgradeCta: 'ارتقای پلن', managePortal: 'مدیریت پرداخت',
       usageTitle: 'خلاصه مصرف', conversations: 'گفتگوها', operators: 'اپراتورها', storage: 'فضای ذخیره‌سازی',
       callMinutes: 'دقایق تماس', unlimited: 'نامحدود', gb: 'گیگابایت', remaining: 'باقی‌مانده', visitors: 'بازدیدکنندگان', aiCredits: 'اعتبار هوش مصنوعی', kbArticles: 'مقالات پایگاه دانش', departments: 'دپارتمان‌ها',
+      aiCreditLoadFailed: 'اطلاعات اعتبار هوش مصنوعی در دسترس نیست.',
     },
     plans: {
       monthly: 'ماهانه', yearly: 'سالانه', yearlyHint: 'پرداخت سالانه — به‌صرفه‌تر', discountBadge: '{{percent}}٪ تخفیف',
@@ -18,8 +19,20 @@ const fa: TranslationKeys = {
       aiCreditIncluded: 'اعتبار هوش مصنوعی ماهانه',
       aiCreditNone: 'بدون اعتبار هوش مصنوعی',
     },
+    planFeatures: {
+      max_agents: '{{value}} اپراتور',
+      max_conversations: '{{value}} گفتگو در ماه',
+      max_visitors: '{{value}} بازدیدکننده در ماه',
+      storage_gb: '{{value}} گیگابایت فضای ذخیره‌سازی',
+      max_call_minutes_per_month: '{{value}} دقیقه تماس در ماه',
+      max_kb_articles: '{{value}} مقاله پایگاه دانش',
+      max_departments: '{{value}} دپارتمان',
+    },
     renewal: {
-      title: 'تمدید پلن {{plan}}', titleUpgrade: 'ارتقا به پلن {{plan}}', planLabel: 'پلن', periodLabel: 'دوره',
+      title: 'تمدید پلن {{plan}}', titleUpgrade: 'ارتقا به پلن {{plan}}', titleDowngrade: 'تغییر به پلن {{plan}}',
+      payDowngradeCta: 'پرداخت و تغییر پلن',
+      stackHint: 'دوره فعلی شما تا {{date}} اعتبار دارد؛ دوره جدید پس از آن اضافه می‌شود و روزهای باقی‌مانده از بین نمی‌رود.',
+      downgradeHint: 'با تغییر به این پلن، محدودیت‌های پایین‌تر از شروع دوره جدید اعمال می‌شود.', planLabel: 'پلن', periodLabel: 'دوره',
       amountLabel: 'مبلغ', discountLabel: 'تخفیف', payableLabel: 'مبلغ قابل پرداخت', payCta: 'پرداخت و تمدید',
       payUpgradeCta: 'پرداخت و ارتقا', cancel: 'انصراف', processing: 'در حال اتصال به درگاه پرداخت…',
     },
@@ -50,6 +63,7 @@ const fa: TranslationKeys = {
       trackingNumber: 'شماره پیگیری', orderNumber: 'شماره سفارش', close: 'بستن',
       descRenewal: 'تمدید پلن {{plan}}', descTopup: 'خرید اعتبار هوش مصنوعی', descUpgrade: 'ارتقای پلن',
       statusSucceeded: 'موفق', statusPending: 'در انتظار', statusFailed: 'ناموفق', statusRefunded: 'بازگشت وجه', statusCanceled: 'لغو شده',
+      emptyHint: 'پس از اولین پرداخت، همه تراکنش‌ها اینجا با شماره پیگیری نمایش داده می‌شوند.',
     },
   },
   canned: {

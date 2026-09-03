@@ -325,7 +325,7 @@ function UsageHistoryDialog({
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const typeLabel = (raw: string) => {
     const key = `billingIran.aiCredit.history.type${raw.charAt(0).toUpperCase()}${raw.slice(1).toLowerCase()}`;
-    const label = t(key);
+    const label = t(key as never);
     return label === key ? raw : label;
   };
 

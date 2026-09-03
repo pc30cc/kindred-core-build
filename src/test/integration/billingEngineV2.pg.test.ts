@@ -168,6 +168,14 @@ async function makePayment(ws: string, amount: number): Promise<string> {
   return r.id;
 }
 
+/** Settles an invoice with gateway money that has a real payment behind it. */
+async function settleGateway(ws: string, invoiceId: string, amount: number): Promise<any> {
+  const pay = await makePayment(ws, amount);
+  return (await one(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,$4,NULL) AS r`, [
+    invoiceId, amount, `cmd:${uuid()}`, pay,
+  ])).r;
+}
+
 suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
   beforeAll(async () => {
     const { Client } = await import('pg');
@@ -284,9 +292,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
   it('keeps the invoice application ledger append-only', async () => {
     const ws = await makeWorkspace();
     const inv = await makeInvoice(ws, { total: 100_000, type: 'ai_credit_purchase' });
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 100_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 100_000);
     await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
     await expect(
       client.query(`DELETE FROM public.billing_invoice_applications WHERE invoice_id=$1`, [inv.id]),
@@ -298,9 +304,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
   it('grants purchased AI credit exactly once per invoice, even on replay', async () => {
     const ws = await makeWorkspace();
     const inv = await makeInvoice(ws, { total: 300_000, type: 'ai_credit_purchase' });
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 300_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 300_000);
 
     const a = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     const b = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
@@ -331,9 +335,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
     const end = new Date(Date.now() + 30 * 86_400_000).toISOString();
     const inv = await makeInvoice(ws, { total: 1_000_000, periodStart: start, periodEnd: end, allowance: 500_000 });
 
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 1_000_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 1_000_000);
     const applied = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     expect(applied.activated).toBe(true);
 
@@ -357,9 +359,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
     const end = new Date(Date.now() + 40 * 86_400_000).toISOString();
     const inv = await makeInvoice(ws, { total: 1_000_000, periodStart: start, periodEnd: end, allowance: 400_000 });
 
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 1_000_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 1_000_000);
     const applied = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     expect(applied.activated).toBe(false);
 
@@ -381,9 +381,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       const start = new Date(Date.now() - 60_000).toISOString();
       const end = new Date(Date.now() + offsetDays * 86_400_000).toISOString();
       const inv = await makeInvoice(ws, { total: 1_000_000, periodStart: start, periodEnd: end });
-      await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-        inv.id, 1_000_000, `cmd:${uuid()}`,
-      ]);
+      await settleGateway(ws, inv.id, 1_000_000);
       return (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     };
     await mk(30);
@@ -401,9 +399,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
     const start = new Date(Date.now() - 60_000).toISOString();
     const end = new Date(Date.now() + 30 * 86_400_000).toISOString();
     const inv = await makeInvoice(ws, { total: 900_000, periodStart: start, periodEnd: end });
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 900_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 900_000);
     await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
     await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
     const periods = await q(`SELECT id FROM public.billing_subscription_periods WHERE invoice_id=$1`, [inv.id]);

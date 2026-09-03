@@ -64,17 +64,34 @@
  *      change when the OTP/proof rotation pointer changes.
  *
  * Rotating the STABLE index key itself (as opposed to the OTP/proof
- * rotation pointer) is a fundamentally different, much rarer operation — it
- * requires a dedicated re-indexing migration that recomputes every stored
- * `destination_hash`/`subject_ref_hash`/idempotency `key` under the new
- * index version, because those values are used as lookup keys, not just
- * verified against a stored copy. `STABLE_INDEX_KEY_VERSION` is a source
- * constant (not an env var) precisely to make that operation deliberate and
- * rare rather than an accidental side effect of an ordinary OTP pepper
- * rotation. Whatever pepper-ring entry backs `STABLE_INDEX_KEY_VERSION`
- * must remain present in `GENERIC_VERIFICATION_PEPPER_RING` for as long as
- * ANY indexed row (a live challenge, a live idempotency-ledger row, a live
- * proof) exists — removing it prematurely fails closed
+ * rotation pointer) is a fundamentally different, much rarer operation than
+ * an ordinary OTP pepper rotation, and it is NOT something a migration can
+ * do for you automatically: `hashDestination`/`hashSubjectRef`/
+ * `hashIpForRateLimit`/`deriveIdempotencyKey`/`deriveRequestFingerprint`
+ * are HMACs over the ORIGINAL raw input (the actual email/phone, the
+ * actual IP address, the actual caller-supplied request id) — this
+ * codebase does not retain those raw inputs anywhere once hashed (by
+ * design, see docs/GENERIC_VERIFICATION_SECURITY.md), so nothing can
+ * "recompute every stored hash under the new version" after the fact. The
+ * only supported procedure is: (1) quiesce verification traffic for this
+ * subsystem; (2) wait for every existing challenge, proof, rate-limit
+ * window, and idempotency ledger entry to expire under its own TTL; (3)
+ * purge the expired rows; (4) only then change `STABLE_INDEX_KEY_VERSION`
+ * below and deploy; (5) resume traffic. An operator who instead needs live
+ * rotation without a quiesce window must implement a genuinely
+ * version-aware dual-read migration (checking both the old- and new-version
+ * hash until every indexed row has been re-hashed under the new one) —
+ * this codebase does not implement that. `STABLE_INDEX_KEY_VERSION` is a
+ * source constant (not an env var) precisely to make this a deliberate,
+ * reviewed code change rather than an accidental side effect of an
+ * ordinary OTP pepper rotation. Whatever pepper-ring entry backs
+ * `STABLE_INDEX_KEY_VERSION` (version 1, today) must remain present in
+ * `GENERIC_VERIFICATION_PEPPER_RING` for as long as ANY indexed row (a live
+ * challenge, a live idempotency-ledger row, a live proof, or an active
+ * rate-limit window) exists — "keep old versions until every challenge
+ * created with them has expired" (correct and sufficient for the ROTATING
+ * OTP/proof domain) is NOT sufficient for version 1, because it also backs
+ * every stable-index lookup. Removing it prematurely fails closed
  * (`DerivationKeyUnavailableError`) rather than silently corrupting lookups.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -93,7 +110,33 @@ export class DerivationKeyUnavailableError extends Error {
   }
 }
 
+/**
+ * A distinct, dedicated error for a MALFORMED or internally INCONSISTENT
+ * crypto configuration — GENERIC_VERIFICATION_PEPPER_RING that isn't valid
+ * JSON, isn't an object, has an invalid version key or too-short value, is
+ * an empty ring, disagrees with GENERIC_VERIFICATION_PEPPER for version 1,
+ * or an explicitly-set GENERIC_VERIFICATION_KEY_VERSION that is invalid or
+ * absent from the ring. Deliberately distinct from
+ * `VerificationPepperMissingError` (which means "nothing at all is
+ * configured" and is expected to fail lazily, at first use) — a
+ * `VerificationConfigError` means something WAS configured but is broken,
+ * and must never be silently downgraded to "unconfigured" or "use whatever
+ * default is available instead."
+ */
+export class VerificationConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VerificationConfigError';
+  }
+}
+
 const MIN_PEPPER_LENGTH = 32;
+
+/** A ring/version-config key must be a positive integer with no leading zeros, sign, or decimal point. */
+const VALID_VERSION_KEY = /^[1-9][0-9]*$/;
+
+/** Bounded, "reasonable" ceiling for any key version — see hashProofToken's own bound for why an unbounded version is unsafe. */
+const MAX_KEY_VERSION = 1_000_000;
 
 /**
  * The FIXED key version backing every stable-index derivation (destination
@@ -109,41 +152,104 @@ const STABLE_INDEX_KEY_VERSION = 1;
 let cachedRing: Map<number, string> | null = null;
 let cachedCurrentVersion: number | null = null;
 
+/**
+ * Loads and validates the pepper ring. Distinguishes two very different
+ * failure modes:
+ *
+ *   - NOTHING configured at all (neither GENERIC_VERIFICATION_PEPPER nor
+ *     GENERIC_VERIFICATION_PEPPER_RING is set) — returns an EMPTY ring.
+ *     This is the documented "unconfigured" state, which fails LAZILY —
+ *     `VerificationPepperMissingError` is thrown later, at first actual use
+ *     (keyForVersion), not here. This lets a deployment that never touches
+ *     this dormant subsystem start up without setting these vars at all.
+ *   - SOMETHING is configured but is malformed or internally inconsistent
+ *     (invalid JSON, a non-object, an invalid version key, a too-short
+ *     value, an explicit ring that resolves to zero usable entries, or a
+ *     GENERIC_VERIFICATION_PEPPER that disagrees with ring version "1") —
+ *     throws `VerificationConfigError` IMMEDIATELY, here. A value that was
+ *     actually provided and is broken must never be silently ignored or
+ *     silently overridden; that would mask an operational mistake as an
+ *     ordinary "not configured" state.
+ */
 function loadRing(env: NodeJS.ProcessEnv = process.env): Map<number, string> {
   if (cachedRing) return cachedRing;
 
-  const ring = new Map<number, string>();
-  const base = env.GENERIC_VERIFICATION_PEPPER?.trim();
-  if (base && base.length >= MIN_PEPPER_LENGTH) {
-    ring.set(1, base);
+  const rawBase = env.GENERIC_VERIFICATION_PEPPER;
+  const trimmedBase = rawBase?.trim();
+  const baseProvided = Boolean(trimmedBase);
+  if (baseProvided && trimmedBase!.length < MIN_PEPPER_LENGTH) {
+    throw new VerificationConfigError(`GENERIC_VERIFICATION_PEPPER must be at least ${MIN_PEPPER_LENGTH} characters`);
   }
 
-  const rawRing = env.GENERIC_VERIFICATION_PEPPER_RING?.trim();
-  if (rawRing) {
+  const rawRing = env.GENERIC_VERIFICATION_PEPPER_RING;
+  const ringProvided = Boolean(rawRing?.trim());
+  const ringEntries = new Map<number, string>();
+  if (ringProvided) {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(rawRing) as Record<string, string>;
-      for (const [k, v] of Object.entries(parsed)) {
-        const version = Number.parseInt(k, 10);
-        if (Number.isInteger(version) && version > 0 && typeof v === 'string' && v.length >= MIN_PEPPER_LENGTH) {
-          ring.set(version, v);
-        }
-      }
+      parsed = JSON.parse(rawRing!.trim());
     } catch {
-      // Malformed ring JSON is ignored, never silently treated as "no ring"
-      // in a way that would downgrade security — callers still fail closed
-      // via hasKey()/requireKey() below if the resulting ring is empty.
+      throw new VerificationConfigError('GENERIC_VERIFICATION_PEPPER_RING is not valid JSON');
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new VerificationConfigError('GENERIC_VERIFICATION_PEPPER_RING must be a JSON object mapping version numbers to secrets');
+    }
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!VALID_VERSION_KEY.test(k) || Number.parseInt(k, 10) > MAX_KEY_VERSION) {
+        throw new VerificationConfigError(`GENERIC_VERIFICATION_PEPPER_RING has an invalid version key: "${k}" (must be a positive integer, no leading zeros)`);
+      }
+      if (typeof v !== 'string' || v.length < MIN_PEPPER_LENGTH) {
+        throw new VerificationConfigError(`GENERIC_VERIFICATION_PEPPER_RING version ${k} must be a string of at least ${MIN_PEPPER_LENGTH} characters`);
+      }
+      ringEntries.set(Number.parseInt(k, 10), v);
+    }
+    if (ringEntries.size === 0) {
+      throw new VerificationConfigError('GENERIC_VERIFICATION_PEPPER_RING must not be an empty object — omit it entirely if there is no ring');
     }
   }
+
+  // Version 1 has exactly one source of truth. If both GENERIC_VERIFICATION_PEPPER
+  // and an explicit ring["1"] are supplied, they must be byte-identical —
+  // never silently let one override the other, which would mean whichever
+  // value "wins" depends on object iteration order rather than being an
+  // explicit, reviewed choice.
+  if (baseProvided && ringEntries.has(1) && ringEntries.get(1) !== trimmedBase) {
+    throw new VerificationConfigError(
+      'GENERIC_VERIFICATION_PEPPER and GENERIC_VERIFICATION_PEPPER_RING version 1 are both configured but do not match — they must be identical',
+    );
+  }
+
+  const ring = new Map<number, string>();
+  if (baseProvided) ring.set(1, trimmedBase!);
+  for (const [version, value] of ringEntries) ring.set(version, value);
 
   cachedRing = ring;
   return ring;
 }
 
+/**
+ * Resolves the CURRENT key version used for NEW challenges/proofs. An
+ * explicitly-configured GENERIC_VERIFICATION_KEY_VERSION that is invalid
+ * (not a bounded positive integer) or not present in the ring FAILS CLOSED
+ * with `VerificationConfigError` — it never silently falls back to
+ * `max(ring.keys())`, since that fallback could silently start issuing new
+ * challenges/proofs under a DIFFERENT version than the operator explicitly
+ * intended, without any error ever surfacing. The `max(ring.keys())`
+ * default only applies when GENERIC_VERIFICATION_KEY_VERSION is not set at
+ * all — an actual operator choice, once made, is never second-guessed.
+ */
 function currentVersion(env: NodeJS.ProcessEnv = process.env): number {
   if (cachedCurrentVersion !== null) return cachedCurrentVersion;
   const ring = loadRing(env);
-  const configured = Number.parseInt(env.GENERIC_VERIFICATION_KEY_VERSION || '', 10);
-  if (Number.isInteger(configured) && ring.has(configured)) {
+  const rawConfigured = env.GENERIC_VERIFICATION_KEY_VERSION?.trim();
+  if (rawConfigured) {
+    if (!VALID_VERSION_KEY.test(rawConfigured) || Number.parseInt(rawConfigured, 10) > MAX_KEY_VERSION) {
+      throw new VerificationConfigError(`GENERIC_VERIFICATION_KEY_VERSION "${rawConfigured}" is not a valid positive integer`);
+    }
+    const configured = Number.parseInt(rawConfigured, 10);
+    if (!ring.has(configured)) {
+      throw new VerificationConfigError(`GENERIC_VERIFICATION_KEY_VERSION ${configured} is not present in the configured pepper ring`);
+    }
     cachedCurrentVersion = configured;
     return configured;
   }
@@ -302,7 +408,14 @@ export class InvalidProofTokenFormatError extends Error {
   }
 }
 
-const PROOF_TOKEN_PATTERN = /^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]+)$/;
+// A proof value is ALWAYS a 32-byte HMAC-SHA256 digest, base64url-encoded
+// with no padding — exactly 43 characters (ceil(32 * 8 / 6)), never fewer
+// (truncated) or more (oversized/injected garbage). The version group is
+// intentionally unbounded HERE (bounded explicitly in parseProofToken
+// below via MAX_KEY_VERSION) so a huge version is rejected with the same
+// clear signal as any other malformed token, rather than by regex
+// backtracking behavior.
+const PROOF_TOKEN_PATTERN = /^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]{43})$/;
 
 /**
  * Deterministically derives the raw proof token from domain-separated
@@ -330,11 +443,23 @@ export function deriveProofToken(inputs: ProofDomainInputs, keyVersion: number, 
   return `gvp_v${keyVersion}_${digest.toString('base64url')}`;
 }
 
-/** Strictly parses `gvp_v<N>_<value>`. Returns null for anything else — including the OLD, pre-versioned `gvp_<value>` format, which is deliberately no longer accepted. */
+/**
+ * Strictly parses `gvp_v<N>_<value>`. Returns null for anything else —
+ * including: the OLD, pre-versioned `gvp_<value>` format (deliberately no
+ * longer accepted); a truncated or oversized value (the value MUST be
+ * exactly 43 base64url characters — the encoded length of a 32-byte
+ * digest); and a version that is zero, negative, non-numeric, or
+ * unreasonably huge (bounded by `MAX_KEY_VERSION`) — `Number.parseInt`
+ * alone would silently accept e.g. a 40-digit version string as some
+ * enormous (but technically parseable) number, so the bound is checked
+ * explicitly rather than trusted to the regex's digit-count alone.
+ */
 export function parseProofToken(rawToken: string): { version: number; value: string } | null {
   const m = PROOF_TOKEN_PATTERN.exec(rawToken);
   if (!m) return null;
-  return { version: Number.parseInt(m[1], 10), value: m[2] };
+  const version = Number.parseInt(m[1], 10);
+  if (!Number.isSafeInteger(version) || version <= 0 || version > MAX_KEY_VERSION) return null;
+  return { version, value: m[2] };
 }
 
 /**

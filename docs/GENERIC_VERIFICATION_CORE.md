@@ -323,23 +323,37 @@ must NOT share a "current version" pointer:
    — never "whichever version happens to be current when the row is later
    read again." A proof token is now self-describing: it has the shape
    `gvp_v<N>_<base64url-value>`, strictly parsed by a
-   `/^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]+)$/` pattern
+   `/^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]{43})$/` pattern (the value MUST be
+   exactly 43 characters — the encoded length of a 32-byte digest, never
+   truncated or oversized) plus a bounded-version check
    (`parseProofToken`/`InvalidProofTokenFormatError`), so `hashProofToken`
    recovers its key version from the token itself and never needs (or
    accepts) an externally supplied "current" version. This is what makes a
    proof issued under key v1 still consumable after rotation to v2 (test
    KR4), and what makes a verify-replay after rotation still reproduce the
    identical `gvp_v1_...` token rather than a `gvp_v2_...` one (test KR3).
+   `_gv_do_verify` re-checks the same invariants (matching key version,
+   canonical hash shape, bounded TTL) at the database layer before ever
+   inserting a proof row, aborting the whole transaction on any violation
+   (tests PI1, PI2) — see docs/GENERIC_VERIFICATION_SECURITY.md.
 2. **Stable index material** — destination hash, subject-ref hash, IP
    rate-limit hash, the idempotency key, and the request fingerprint. These
    are pinned to a fixed `STABLE_INDEX_KEY_VERSION = 1` constant, completely
    independent of `GENERIC_VERIFICATION_KEY_VERSION` (the OTP/proof
-   rotation pointer). It is deliberately not an environment variable:
-   changing it would require a dedicated re-indexing migration, since every
-   existing row's stored hash would need to be recomputed under the new
-   version to remain findable. Without this separation, rotating the OTP
-   key would silently change what a resend/replay/rate-limit lookup hashes
-   to, breaking in-flight challenges and letting rotation reset rate-limit
+   rotation pointer). It is deliberately not an environment variable, and
+   rotating it is NOT something a migration can do automatically: these
+   are HMACs over the ORIGINAL raw input (the actual email/phone, IP, or
+   request id), and this codebase does not retain those raw inputs
+   anywhere once hashed — nothing can "recompute every stored hash" after
+   the fact. The only supported procedure is to quiesce verification
+   traffic, wait for every challenge/proof/rate-limit window/idempotency
+   entry to expire, purge the expired rows, THEN change the constant and
+   deploy (or implement a genuinely version-aware dual-read migration,
+   which this codebase does not have) — see
+   docs/GENERIC_VERIFICATION_SECURITY.md's "Key management and rotation"
+   for the full procedure. Without this separation, rotating the OTP key
+   would silently change what a resend/replay/rate-limit lookup hashes to,
+   breaking in-flight challenges and letting rotation reset rate-limit
    buckets (tests KR1, KR2, KR5a/b/c).
 
 `currentVerificationKeyVersion()` (the rotation pointer) is used ONLY when

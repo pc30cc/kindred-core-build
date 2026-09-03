@@ -12,7 +12,7 @@
  *    constant-time compare, IPv6-safe rate-limit bucketing)
  *  - fa/tr/en templates are complete for every locale
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   ALL_VERIFICATION_PURPOSES,
   PURPOSE_POLICIES,
@@ -34,8 +34,14 @@ import {
   collapseIpForRateLimit,
   hashIpForRateLimit,
   currentVerificationKeyVersion,
+  hasVerificationPepper,
+  deriveProofToken,
+  parseProofToken,
+  hashProofToken,
   DerivationKeyUnavailableError,
   VerificationPepperMissingError,
+  VerificationConfigError,
+  InvalidProofTokenFormatError,
   __resetVerificationCryptoCacheForTests,
 } from '../../../server/services/verification/crypto';
 import { renderOtpEmail, renderOtpSms, SUPPORTED_TEMPLATE_LOCALES } from '../../../server/services/verification/templates';
@@ -139,6 +145,11 @@ describe('Generic Verification Core — OTP crypto', () => {
   });
 
   it('key rotation: verifying against an OLD key version still works while that key remains in the ring', () => {
+    // This test's ring is the sole source of truth for version 1 here — it
+    // must NOT also inherit the outer beforeEach's GENERIC_VERIFICATION_PEPPER
+    // (a different value), which would now fail closed as a version-1
+    // conflict (see the "fail-closed cryptographic configuration" suite).
+    delete process.env.GENERIC_VERIFICATION_PEPPER;
     process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({
       1: 'ring-key-version-one-at-least-32-bytes!!',
       2: 'ring-key-version-two-at-least-32-bytes!!',
@@ -199,6 +210,177 @@ describe('Generic Verification Core — OTP crypto', () => {
   it('hashIpForRateLimit never contains the raw IP as a substring', () => {
     const hash = hashIpForRateLimit('203.0.113.7');
     expect(hash.includes('203.0.113.7')).toBe(false);
+  });
+});
+
+describe('Generic Verification Core — fail-closed cryptographic configuration', () => {
+  beforeEach(() => {
+    __resetVerificationCryptoCacheForTests();
+    delete process.env.GENERIC_VERIFICATION_PEPPER;
+    delete process.env.GENERIC_VERIFICATION_PEPPER_RING;
+    delete process.env.GENERIC_VERIFICATION_KEY_VERSION;
+  });
+
+  afterEach(() => {
+    __resetVerificationCryptoCacheForTests();
+    delete process.env.GENERIC_VERIFICATION_PEPPER;
+    delete process.env.GENERIC_VERIFICATION_PEPPER_RING;
+    delete process.env.GENERIC_VERIFICATION_KEY_VERSION;
+  });
+
+  it('nothing configured at all fails LAZILY at first use (VerificationPepperMissingError) — loadRing itself never throws for a totally empty config', () => {
+    expect(hasVerificationPepper()).toBe(false);
+    expect(() =>
+      deriveOtpCode({ purpose: 'x', channel: 'email', challengeHandle: 'h', generation: 1, destinationHash: 'd' }, 1, 6),
+    ).toThrow(VerificationPepperMissingError);
+  });
+
+  it('a malformed GENERIC_VERIFICATION_PEPPER_RING (not valid JSON) fails closed with VerificationConfigError, never silently treated as "no ring"', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER = 'test-pepper-value-at-least-32-bytes-long!!';
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = 'not-json-at-all{{{';
+    expect(() => hasVerificationPepper()).toThrow(VerificationConfigError);
+  });
+
+  it('a GENERIC_VERIFICATION_PEPPER_RING that is valid JSON but not a plain object (a string, an array, or null) is rejected', () => {
+    for (const notAnObject of ['"just-a-string"', '[1,2,3]', 'null', '42']) {
+      __resetVerificationCryptoCacheForTests();
+      process.env.GENERIC_VERIFICATION_PEPPER_RING = notAnObject;
+      expect(() => hasVerificationPepper()).toThrow(VerificationConfigError);
+    }
+  });
+
+  it('an invalid version key in the ring (non-integer, zero, negative, leading zero, decimal) is rejected', () => {
+    for (const badKey of ['0', '-1', '01', 'abc', '1.5']) {
+      __resetVerificationCryptoCacheForTests();
+      process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({ [badKey]: 'a-value-that-is-at-least-32-bytes-long!!' });
+      expect(() => hasVerificationPepper()).toThrow(VerificationConfigError);
+    }
+  });
+
+  it('a ring value shorter than 32 characters is rejected', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({ 1: 'too-short' });
+    expect(() => hasVerificationPepper()).toThrow(VerificationConfigError);
+  });
+
+  it('an explicitly empty ring object is rejected, never silently treated as "no ring configured"', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = '{}';
+    expect(() => hasVerificationPepper()).toThrow(VerificationConfigError);
+  });
+
+  it('GENERIC_VERIFICATION_PEPPER shorter than 32 characters is rejected outright, not silently dropped', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER = 'too-short';
+    expect(() => hasVerificationPepper()).toThrow(VerificationConfigError);
+  });
+
+  it('GENERIC_VERIFICATION_PEPPER and ring version 1 disagreeing fails startup instead of one silently overriding the other', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER = 'test-pepper-value-at-least-32-bytes-long!!';
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({ 1: 'a-different-ring-value-at-least-32-bytes!!' });
+    expect(() => hasVerificationPepper()).toThrow(VerificationConfigError);
+  });
+
+  it('GENERIC_VERIFICATION_PEPPER and an IDENTICAL ring version 1 is accepted (not treated as a conflict)', () => {
+    const pepper = 'test-pepper-value-at-least-32-bytes-long!!';
+    process.env.GENERIC_VERIFICATION_PEPPER = pepper;
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({ 1: pepper, 2: 'second-ring-key-value-at-least-32-bytes!!' });
+    expect(hasVerificationPepper()).toBe(true);
+    expect(currentVerificationKeyVersion()).toBe(2); // default: max of the ring when KEY_VERSION is unset
+  });
+
+  it('an explicitly configured GENERIC_VERIFICATION_KEY_VERSION absent from the ring fails closed, never falls back to the max version', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER = 'test-pepper-value-at-least-32-bytes-long!!';
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({
+      1: 'test-pepper-value-at-least-32-bytes-long!!',
+      2: 'second-ring-key-value-at-least-32-bytes!!',
+    });
+    process.env.GENERIC_VERIFICATION_KEY_VERSION = '5'; // never in the ring
+    expect(() => currentVerificationKeyVersion()).toThrow(VerificationConfigError);
+  });
+
+  it('an explicitly configured GENERIC_VERIFICATION_KEY_VERSION that is not a valid positive integer fails closed', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER = 'test-pepper-value-at-least-32-bytes-long!!';
+    for (const bad of ['0', '-1', '1.5', 'abc', '01']) {
+      __resetVerificationCryptoCacheForTests();
+      process.env.GENERIC_VERIFICATION_KEY_VERSION = bad;
+      expect(() => currentVerificationKeyVersion()).toThrow(VerificationConfigError);
+    }
+  });
+
+  it('an UNSET GENERIC_VERIFICATION_KEY_VERSION still correctly defaults to the max ring version — the fallback is only skipped when a version IS explicitly configured', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER = 'test-pepper-value-at-least-32-bytes-long!!';
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({
+      1: 'test-pepper-value-at-least-32-bytes-long!!',
+      3: 'third-ring-key-value-at-least-32-bytes!!',
+    });
+    expect(currentVerificationKeyVersion()).toBe(3);
+  });
+});
+
+describe('Generic Verification Core — proof token parsing/hashing (strict validation)', () => {
+  beforeEach(() => {
+    __resetVerificationCryptoCacheForTests();
+    process.env.GENERIC_VERIFICATION_PEPPER = 'test-pepper-value-at-least-32-bytes-long!!';
+    delete process.env.GENERIC_VERIFICATION_PEPPER_RING;
+    delete process.env.GENERIC_VERIFICATION_KEY_VERSION;
+  });
+
+  const domain = { handle: 'gvc_test_handle_1', requestId: 'req-1', purpose: 'signup_email', channel: 'email' as const };
+
+  it('a validly-derived token round-trips through parseProofToken and hashProofToken', () => {
+    const token = deriveProofToken(domain, 1);
+    expect(token).toMatch(/^gvp_v1_[A-Za-z0-9_-]{43}$/);
+    const value = token.slice('gvp_v1_'.length);
+    expect(parseProofToken(token)).toEqual({ version: 1, value });
+    expect(() => hashProofToken(token)).not.toThrow();
+  });
+
+  it('rejects a malformed prefix — the old, deliberately-retired unversioned gvp_<value> format, and a wrong scheme entirely', () => {
+    const token = deriveProofToken(domain, 1);
+    const value = token.slice('gvp_v1_'.length);
+    expect(parseProofToken(`gvp_${value}`)).toBeNull();
+    expect(parseProofToken(`gvx_v1_${value}`)).toBeNull();
+    expect(parseProofToken('not-a-proof-token-at-all')).toBeNull();
+    expect(() => hashProofToken(`gvp_${value}`)).toThrow(InvalidProofTokenFormatError);
+  });
+
+  it('rejects a zero, negative, or non-numeric version', () => {
+    const token = deriveProofToken(domain, 1);
+    const value = token.slice('gvp_v1_'.length);
+    expect(parseProofToken(`gvp_v0_${value}`)).toBeNull();
+    expect(parseProofToken(`gvp_v-1_${value}`)).toBeNull();
+    expect(parseProofToken(`gvp_vabc_${value}`)).toBeNull();
+    expect(() => hashProofToken(`gvp_v0_${value}`)).toThrow(InvalidProofTokenFormatError);
+  });
+
+  it('rejects a huge version — both an unsafe-integer digit string and one merely exceeding the bounded ceiling', () => {
+    const token = deriveProofToken(domain, 1);
+    const value = token.slice('gvp_v1_'.length);
+    expect(parseProofToken(`gvp_v99999999999999999999999999_${value}`)).toBeNull(); // unsafe integer
+    expect(parseProofToken(`gvp_v2000000_${value}`)).toBeNull(); // safe integer, but exceeds MAX_KEY_VERSION
+    expect(() => hashProofToken(`gvp_v2000000_${value}`)).toThrow(InvalidProofTokenFormatError);
+  });
+
+  it('rejects a truncated value — fewer than the exact 43 base64url characters a 32-byte digest always encodes to', () => {
+    const token = deriveProofToken(domain, 1);
+    const truncated = token.slice(0, token.length - 5);
+    expect(parseProofToken(truncated)).toBeNull();
+    expect(() => hashProofToken(truncated)).toThrow(InvalidProofTokenFormatError);
+  });
+
+  it('rejects an oversized value — more than 43 characters, e.g. extra injected data appended', () => {
+    const token = deriveProofToken(domain, 1);
+    const oversized = `${token}EXTRA`;
+    expect(parseProofToken(oversized)).toBeNull();
+    expect(() => hashProofToken(oversized)).toThrow(InvalidProofTokenFormatError);
+  });
+
+  it('a well-formed token whose embedded version has no corresponding ring entry fails with DerivationKeyUnavailableError, distinct from InvalidProofTokenFormatError', () => {
+    process.env.GENERIC_VERIFICATION_PEPPER_RING = JSON.stringify({ 1: 'test-pepper-value-at-least-32-bytes-long!!' });
+    __resetVerificationCryptoCacheForTests();
+    const token = deriveProofToken(domain, 1);
+    const value = token.slice('gvp_v1_'.length);
+    const missingKeyToken = `gvp_v99_${value}`; // well-formed shape; version 99 was never in the ring
+    expect(parseProofToken(missingKeyToken)).toEqual({ version: 99, value });
+    expect(() => hashProofToken(missingKeyToken)).toThrow(DerivationKeyUnavailableError);
   });
 });
 

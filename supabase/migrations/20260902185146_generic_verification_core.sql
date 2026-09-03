@@ -201,8 +201,16 @@ CREATE INDEX IF NOT EXISTS idx_verification_attempts_challenge ON public.verific
 CREATE TABLE IF NOT EXISTS public.verification_proofs (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   challenge_id uuid NOT NULL UNIQUE REFERENCES public.verification_challenges(id) ON DELETE CASCADE,
-  proof_hash text NOT NULL UNIQUE,                -- HMAC of the raw proof token — the raw token is NEVER stored
-  proof_key_version integer NOT NULL,             -- the key version embedded in the raw token (gvp_v<N>_...) — see crypto.ts's parseProofToken
+  -- HMAC of the raw proof token — the raw token is NEVER stored. The exact
+  -- canonical `v<N>:<64 lowercase hex>` shape (never uppercase hex, never a
+  -- different separator) is enforced here as defense in depth alongside
+  -- the same check inside _gv_do_verify, below.
+  proof_hash text NOT NULL UNIQUE CHECK (proof_hash ~ '^v[0-9]+:[0-9a-f]{64}$'),
+  -- The key version embedded in the raw token (gvp_v<N>_...) — see
+  -- crypto.ts's parseProofToken. Bounded to the same MAX_KEY_VERSION ceiling
+  -- crypto.ts itself enforces, so a corrupted/absurd value can never reach
+  -- storage even if some future caller bypassed Node's own validation.
+  proof_key_version integer NOT NULL CHECK (proof_key_version > 0 AND proof_key_version <= 1000000),
   purpose text NOT NULL,
   channel text NOT NULL,
   workspace_id uuid,
@@ -227,7 +235,20 @@ CREATE TABLE IF NOT EXISTS public.verification_proofs (
   consumed_at timestamptz,
   consumed_by_context text,
   revoked_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  -- Cross-column integrity, defense in depth alongside the equivalent
+  -- runtime checks in _gv_do_verify: the version embedded IN the hash text
+  -- must equal the separately-stored proof_key_version column — these two
+  -- must never be allowed to drift apart, since a future consumer trusts
+  -- proof_key_version as the authoritative record of what key protects
+  -- this proof.
+  CONSTRAINT verification_proofs_hash_version_matches CHECK (split_part(proof_hash, ':', 1) = ('v' || proof_key_version::text)),
+  -- Positive, bounded TTL — mirrors PLATFORM_MAXIMUMS.proofTtlSeconds
+  -- (1800s / 30 minutes) in server/services/verification/types.ts. This is
+  -- defense in depth, not the source of truth: if that TypeScript constant
+  -- is ever deliberately raised, this bound must be raised too in the same
+  -- reviewed change.
+  CONSTRAINT verification_proofs_ttl_bounded CHECK (expires_at > created_at AND expires_at <= created_at + interval '1800 seconds')
 );
 CREATE INDEX IF NOT EXISTS idx_verification_proofs_lookup ON public.verification_proofs (proof_hash) WHERE status = 'active';
 
@@ -962,6 +983,34 @@ BEGIN
   WHERE id = _chal.id;
 
   IF _issues_proof THEN
+    -- Defense-in-depth proof integrity checks (in addition to the table's
+    -- own CHECK constraints, which catch the same violations if this
+    -- function were ever bypassed by a direct INSERT). service.ts always
+    -- derives _proof_key_version from THIS SAME challenge's own key_version
+    -- and _proof_hash from hashProofToken (which embeds that identical
+    -- version) — so none of this can fail for a correctly-behaving caller.
+    -- It exists to fail the WHOLE transaction closed (via
+    -- gv_execute_idempotent's exception handler rolling back everything
+    -- since its own BEGIN, including the attempt row and 'verified' status
+    -- update above) rather than silently persist an inconsistent proof, if
+    -- a caller ever invokes the public wrapper directly with corrupted
+    -- args — a bug, or a compromised service-role connection.
+    IF _proof_key_version IS NULL OR _proof_key_version <= 0 OR _proof_key_version > 1000000 THEN
+      RAISE EXCEPTION 'VERIFICATION_PROOF_KEY_VERSION_INVALID';
+    END IF;
+    IF _proof_key_version <> _chal.key_version THEN
+      RAISE EXCEPTION 'VERIFICATION_PROOF_KEY_VERSION_MISMATCH';
+    END IF;
+    IF _proof_hash IS NULL OR _proof_hash !~ '^v[0-9]+:[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'VERIFICATION_PROOF_HASH_MALFORMED';
+    END IF;
+    IF split_part(_proof_hash, ':', 1) <> ('v' || _proof_key_version::text) THEN
+      RAISE EXCEPTION 'VERIFICATION_PROOF_HASH_VERSION_MISMATCH';
+    END IF;
+    IF _proof_ttl_seconds IS NULL OR _proof_ttl_seconds <= 0 OR _proof_ttl_seconds > 1800 THEN
+      RAISE EXCEPTION 'VERIFICATION_PROOF_TTL_INVALID';
+    END IF;
+
     -- destination_normalized/destination_hash are copied from the LOCKED
     -- challenge row, never from caller input — this is what makes a proof
     -- for destination A structurally impossible to redirect toward

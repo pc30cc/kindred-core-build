@@ -55,13 +55,36 @@ is what protects it once one does.
   token — still valid, still hashing to the same stored value — without the
   raw token ever having been persisted anywhere. Only `hashProofToken()`'s
   output is ever stored, in `verification_proofs.proof_hash`.
-- **Proof tokens are version-self-describing.** A raw token has the shape
-  `gvp_v<N>_<base64url-value>`, strictly validated by
-  `parseProofToken()`/`InvalidProofTokenFormatError` against
-  `/^gvp_v([1-9][0-9]*)_([A-Za-z0-9_-]+)$/`. `hashProofToken()` parses the
-  version out of the token itself rather than accepting or defaulting to an
-  externally supplied "current" version — see §Two rotation domains below
-  for why this matters for correctness across a key rotation.
+- **Proof tokens are version-self-describing, and strictly validated on
+  both length and version.** A raw token has the shape
+  `gvp_v<N>_<base64url-value>`, where the value MUST be exactly 43
+  characters — the exact encoded length of a 32-byte HMAC-SHA256 digest,
+  never fewer (truncated) or more (oversized/injected garbage) — and `N`
+  must be a bounded positive integer (`parseProofToken` rejects anything
+  above `MAX_KEY_VERSION`, not just anything `Number.parseInt` happens to
+  accept). `hashProofToken()` parses the version out of the token itself
+  rather than accepting or defaulting to an externally supplied "current"
+  version — see §Two rotation domains below for why this matters for
+  correctness across a key rotation. `consumeVerificationProof()` catches
+  both `InvalidProofTokenFormatError` (malformed shape) and
+  `DerivationKeyUnavailableError` (well-formed but the embedded version has
+  no ring entry) and returns a normal generic `{ ok: false }` for either —
+  a future HTTP consumer never sees an uncaught exception from a
+  caller-supplied token that it could accidentally expose as a 500.
+- **Proof integrity is enforced again at the database layer, independent
+  of Node.** Before `_gv_do_verify` inserts a `verification_proofs` row, it
+  re-checks that `proof_key_version` is a positive value bounded the same
+  way as `MAX_KEY_VERSION`, that it equals the challenge's own recorded
+  `key_version`, that `proof_hash` matches the exact canonical
+  `v<N>:<64 lowercase hex>` shape, that the version embedded in
+  `proof_hash` agrees with `proof_key_version`, and that the proof TTL is
+  positive and bounded. Any violation aborts the WHOLE transaction (via
+  `gv_execute_idempotent`'s exception handler rolling back to its own
+  savepoint) rather than persisting an inconsistent proof — the challenge
+  is never left `'verified'` with no matching proof, and no attempt row
+  survives either (test PI1). The table itself also carries the equivalent
+  `CHECK` constraints as defense in depth, in case this function were ever
+  bypassed by a direct `INSERT` (test PI2).
 - **Proofs are bound to their verified destination, one-way only.**
   `verification_proofs.destination_normalized`/`destination_hash`/
   `destination_hash_key_version` are copied from the LOCKED challenge row at
@@ -88,7 +111,23 @@ codebase):
   used for new challenges. Defaults to the highest version present in the
   ring.
 
-**Rotation procedure:**
+**Fail-closed configuration validation.** A malformed or internally
+inconsistent configuration never silently degrades to "unconfigured" or
+"pick something else instead" — `loadRing()`/`currentVersion()` throw a
+dedicated `VerificationConfigError` immediately for: invalid JSON in
+`GENERIC_VERIFICATION_PEPPER_RING`; a ring that isn't a plain object; an
+invalid version key (non-integer, zero, negative, leading zero); a ring
+value shorter than 32 characters; an explicitly empty ring object;
+`GENERIC_VERIFICATION_PEPPER` disagreeing with ring version `"1"`; or an
+explicitly-set `GENERIC_VERIFICATION_KEY_VERSION` that is invalid or not
+present in the ring (this case never falls back to the ring's maximum
+version — an operator's explicit choice, once made, is never
+second-guessed). This is distinct from `VerificationPepperMissingError`
+(nothing configured AT ALL), which is the one case that still fails
+LAZILY, at first actual use — a deployment that never touches this dormant
+subsystem can start up without setting any of these vars.
+
+**Rotation procedure (the ORDINARY OTP/proof rotation pointer):**
 1. Add the new secret to `GENERIC_VERIFICATION_PEPPER_RING` under a new,
    higher version number, alongside the existing (still-valid) versions.
 2. Bump `GENERIC_VERIFICATION_KEY_VERSION` to that new version. New
@@ -97,6 +136,13 @@ codebase):
    has elapsed — `otpTtlSeconds` per purpose, capped at
    `PLATFORM_MAXIMUMS.otpTtlSeconds`), the old version may be removed from
    the ring.
+
+**This procedure is NOT sufficient for removing version 1 specifically.**
+Version 1 always also backs `STABLE_INDEX_KEY_VERSION` (see below) — as
+long as ANY live challenge, proof, rate-limit window, or idempotency
+ledger row was indexed under it, removing it breaks every lookup against
+those rows, not just OTP verification. See "Two rotation domains" below
+for the procedure that actually applies to version 1.
 
 **Why this never breaks an in-flight code:** `verification_challenges.key_version`
 records the key version *at creation time*. Verification always recomputes
@@ -147,12 +193,22 @@ silently break the moment `GENERIC_VERIFICATION_KEY_VERSION` changes:
   `deriveRequestFingerprint` are all pinned to a fixed
   `STABLE_INDEX_KEY_VERSION = 1` constant in `crypto.ts` — completely
   decoupled from `GENERIC_VERIFICATION_KEY_VERSION`. This is deliberately
-  NOT an environment variable: changing it would require a dedicated
-  re-indexing migration to recompute every existing row's stored hash under
-  the new version, since these hashes are used as lookup/matching keys
-  (finding an existing challenge by handle+scope, matching a rate-limit
-  bucket, replaying an idempotency key), not as secrets that need periodic
-  rotation.
+  NOT an environment variable, and rotating it is NOT something a
+  migration can do automatically: these are HMACs over the ORIGINAL raw
+  input (the actual email/phone, the actual IP address, the actual
+  caller-supplied request id), and this codebase does not retain those raw
+  inputs anywhere once hashed (see "No raw secrets..." below) — nothing can
+  "recompute every stored hash under a new version" after the fact. The
+  only supported procedure to rotate `STABLE_INDEX_KEY_VERSION` is: (1)
+  quiesce verification traffic for this subsystem; (2) wait for every
+  existing challenge, proof, rate-limit window, and idempotency ledger
+  entry to expire under its own TTL; (3) purge the expired rows
+  (`gv_purge_expired_idempotency`, plus the normal challenge/proof TTL
+  cleanup); (4) only then change the constant in `crypto.ts` and deploy;
+  (5) resume traffic. The alternative is a genuinely version-aware
+  dual-read migration (checking both the old- and new-version hash until
+  every indexed row has been re-hashed) — this codebase does not implement
+  one; the quiesce-and-purge procedure above is what's actually supported.
 
 **Why this separation is a security-relevant correctness property, not just
 an implementation detail:** without it, rotating the OTP/proof key would

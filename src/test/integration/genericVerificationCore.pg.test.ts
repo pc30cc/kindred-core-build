@@ -1980,4 +1980,151 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     const row = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     expect(row.rows[0].status).not.toBe('revoked');
   });
+
+  // ── CP. consumeVerificationProof malformed-token handling (P0 hardening) ──
+  it('CP1: a malformed proof token (bad prefix, truncated, oversized, or absurd version) returns a generic { ok: false } from consumeVerificationProof, never an uncaught exception, and touches zero database rows', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const before = await db.query(`SELECT count(*)::int AS n FROM public.verification_proofs`);
+    const beforeIdem = await db.query(`SELECT count(*)::int AS n FROM public.verification_idempotency`);
+
+    const malformedTokens = [
+      'not-a-proof-token-at-all',
+      'gvp_someRawValueWithNoVersionPrefix1234567890abcdefghijk', // old, retired unversioned format
+      'gvp_v0_' + 'a'.repeat(43), // zero version
+      'gvp_v99999999999999999999999999_' + 'a'.repeat(43), // absurd version
+      'gvp_v1_' + 'a'.repeat(10), // truncated value
+      'gvp_v1_' + 'a'.repeat(60), // oversized value
+    ];
+
+    for (const proofToken of malformedTokens) {
+      const result = await svc.consumeVerificationProof(config, {
+        proofToken, purpose: 'signup_phone', channel: 'sms', consumedByContext: 'test-cp1',
+      });
+      expect(result.ok).toBe(false);
+      expect(typeof result.reason).toBe('string');
+    }
+
+    const after = await db.query(`SELECT count(*)::int AS n FROM public.verification_proofs`);
+    const afterIdem = await db.query(`SELECT count(*)::int AS n FROM public.verification_idempotency`);
+    expect(after.rows[0].n).toBe(before.rows[0].n);
+    expect(afterIdem.rows[0].n).toBe(beforeIdem.rows[0].n);
+  });
+
+  it('CP2: a well-formed proof token whose embedded key version has no corresponding ring entry also returns a generic { ok: false }, not an uncaught exception', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const { deriveProofToken } = await import('../../../server/services/verification/crypto');
+    // Derive a genuinely valid token under a real key version to get a
+    // correctly-shaped 43-char base64url value, then splice in a version
+    // number that was never in this process's ring — this is the ONLY way
+    // to construct this scenario, since deriveProofToken itself refuses to
+    // derive anything under an unavailable version.
+    const validToken = deriveProofToken({ handle: 'gvc_doesnotexist', requestId: 'r1', purpose: 'signup_phone', channel: 'sms' }, 1);
+    const value = validToken.slice('gvp_v1_'.length);
+    const proofToken = `gvp_v999_${value}`;
+    const result = await svc.consumeVerificationProof(config, {
+      proofToken, purpose: 'signup_phone', channel: 'sms', consumedByContext: 'test-cp2',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  // ── PI. database-layer proof integrity (P0 hardening) ───────────────────
+  it('PI1: gv_execute_idempotent aborts the WHOLE transaction if proof version/hash args are internally inconsistent — no attempt row, no proof row, and the challenge is never marked verified', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    const { candidateOtpDigest } = await import('../../../server/services/verification/crypto');
+    smsSendMock.mockResolvedValue({ success: true, provider: 'kavenegar', messageId: 'pi1-msg' });
+
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '09121230210', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.210' },
+    });
+    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+
+    const chalRow = await db.query(
+      `SELECT id, generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`,
+      [req.handle],
+    );
+    const { id: challengeId, generation, key_version: keyVersion, destination_hash: destinationHash } = chalRow.rows[0];
+    const candidateDigest = candidateOtpDigest(
+      { purpose: 'signup_phone', channel: 'sms', challengeHandle: req.handle, generation, destinationHash },
+      code,
+      keyVersion,
+    );
+
+    async function attemptWithBadArgs(proofKeyVersion: number | null, proofHash: string, tag: string) {
+      const args = {
+        handle: req.handle, candidateDigest, purpose: 'signup_phone', channel: 'sms',
+        workspaceId: null, subjectRefHash: null, ipHash: null,
+        issuesProof: true, proofHash, proofKeyVersion, proofTtlSeconds: 300,
+      };
+      return db.query(
+        `SELECT public.gv_execute_idempotent($1,$2,$3,$4,$5,$6,$7,$8) AS result`,
+        [randomUUID().replace(/-/g, ''), 'signup_phone', 'verify', `pi1-fp-${tag}`, 'signup_phone', null, null, JSON.stringify(args)],
+      );
+    }
+
+    // (a) proofKeyVersion does not match the challenge's own recorded key_version.
+    await expect(attemptWithBadArgs(keyVersion + 1, `v${keyVersion + 1}:${'a'.repeat(64)}`, 'version-mismatch')).rejects.toThrow();
+
+    // (b) proofHash is well-formed but its embedded version disagrees with proofKeyVersion.
+    await expect(attemptWithBadArgs(keyVersion, `v${keyVersion + 1}:${'a'.repeat(64)}`, 'hash-version-mismatch')).rejects.toThrow();
+
+    // (c) proofHash is not even the canonical v<N>:<64 lowercase hex> shape.
+    await expect(attemptWithBadArgs(keyVersion, 'not-a-valid-hash', 'malformed-hash')).rejects.toThrow();
+
+    // (d) proofKeyVersion is non-positive.
+    await expect(attemptWithBadArgs(0, `v0:${'a'.repeat(64)}`, 'zero-version')).rejects.toThrow();
+
+    // None of the four malicious attempts left ANY trace: the challenge is
+    // exactly as it was before (not verified, zero attempts recorded), and
+    // no proof exists — every attempt's WHOLE transaction rolled back,
+    // including the attempt-row insert and the 'verified' status update
+    // that happen earlier in the SAME _gv_do_verify call, because the
+    // integrity check raises before COMMIT and gv_execute_idempotent's own
+    // exception handler rolls back to its enclosing savepoint.
+    const afterChal = await db.query(`SELECT status, attempt_count FROM public.verification_challenges WHERE id = $1`, [challengeId]);
+    expect(afterChal.rows[0].status).toBe('provider_accepted');
+    expect(afterChal.rows[0].attempt_count).toBe(0);
+    const attempts = await db.query(`SELECT count(*)::int AS n FROM public.verification_attempts WHERE challenge_id = $1`, [challengeId]);
+    expect(attempts.rows[0].n).toBe(0);
+    const proofs = await db.query(`SELECT count(*)::int AS n FROM public.verification_proofs WHERE challenge_id = $1`, [challengeId]);
+    expect(proofs.rows[0].n).toBe(0);
+
+    // The challenge survived all four attacks completely unharmed and is
+    // still perfectly verifiable for real with correct arguments.
+    const verified = await svc.verifyVerificationChallenge(config, {
+      handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId: newRequestId(), requester: { ipAddress: '203.0.113.210' },
+    });
+    expect(verified.ok).toBe(true);
+  });
+
+  it('PI2: the verification_proofs table itself rejects an inconsistent proof_hash/proof_key_version pair at the CHECK-constraint level, independent of _gv_do_verify', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    smsSendMock.mockResolvedValue({ success: true, provider: 'kavenegar', messageId: 'pi2-msg' });
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '09121230211', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.211' },
+    });
+    const chalRow = await db.query(
+      `SELECT id, destination_normalized, destination_hash, subject_kind, subject_ref, subject_ref_hash, purpose, channel FROM public.verification_challenges WHERE handle = $1`,
+      [req.handle],
+    );
+    const c = chalRow.rows[0];
+
+    // A hand-crafted direct INSERT bypassing _gv_do_verify entirely — this
+    // must be rejected by the table's own CHECK constraints, proving the
+    // defense-in-depth is real and not merely redundant with the
+    // application-level check inside _gv_do_verify.
+    await expect(
+      db.query(
+        `INSERT INTO public.verification_proofs (
+           challenge_id, proof_hash, proof_key_version, purpose, channel, workspace_id, subject_kind, subject_ref, subject_ref_hash,
+           destination_normalized, destination_hash, destination_hash_key_version, expires_at
+         ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, 1, now() + interval '300 seconds')`,
+        [c.id, `v1:${'a'.repeat(64)}`, 2, c.purpose, c.channel, c.subject_kind, c.subject_ref, c.subject_ref_hash, c.destination_normalized, c.destination_hash],
+      ),
+    ).rejects.toThrow(/verification_proofs_hash_version_matches|check constraint/i);
+
+    const proofs = await db.query(`SELECT count(*)::int AS n FROM public.verification_proofs WHERE challenge_id = $1`, [c.id]);
+    expect(proofs.rows[0].n).toBe(0);
+  });
 });

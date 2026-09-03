@@ -82,6 +82,8 @@ import {
   hashIpForRateLimit,
   hashProofToken,
   hashSubjectRef,
+  DerivationKeyUnavailableError,
+  InvalidProofTokenFormatError,
 } from './crypto.js';
 
 export class VerificationRateLimitedError extends Error {
@@ -624,8 +626,28 @@ export async function consumeVerificationProof(
     authenticatedUserId: input.authenticatedUserId,
   });
 
+  // A malformed proof token (wrong prefix, truncated/oversized value,
+  // zero/negative/huge version) OR one whose embedded version is no longer
+  // in the pepper ring (a historical proof key removed too early) is an
+  // ORDINARY consume failure here, not a server error — a future HTTP
+  // consumer must be able to return this as a normal 4xx-shaped
+  // { ok: false } without a try/catch of its own, and must never see an
+  // uncaught exception it could accidentally expose as a 500. No database
+  // call is made in either branch. (`VerificationPepperMissingError` — the
+  // ENTIRE subsystem has no pepper configured at all — is deliberately NOT
+  // caught here: that is a genuine deployment misconfiguration, not
+  // something a caller-supplied token could ever trigger on a correctly
+  // configured server, and must keep surfacing loudly.)
+  let proofHash: string;
+  try {
+    proofHash = hashProofToken(input.proofToken);
+  } catch (err) {
+    if (err instanceof InvalidProofTokenFormatError) return { ok: false, reason: 'invalid_proof' };
+    if (err instanceof DerivationKeyUnavailableError) return { ok: false, reason: 'invalid_proof' };
+    throw err;
+  }
+
   const sb = getServiceClient(config);
-  const proofHash = hashProofToken(input.proofToken);
   const subjectRefHash = input.subjectRef ? hashSubjectRef(input.subjectRef) : undefined;
 
   const { data, error } = await sb.rpc('gv_consume_verification_proof', {

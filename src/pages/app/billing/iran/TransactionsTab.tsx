@@ -49,9 +49,37 @@ export default function TransactionsTab({ payments, currentPlanName }: { payment
         <Card><CardContent className="py-10 text-center text-muted-foreground">
           <Receipt className="w-8 h-8 mx-auto mb-2 opacity-40" />
           <p>{t('billingIran.transactions.empty')}</p>
+          <p className="text-xs mt-1.5 opacity-80">{t('billingIran.transactions.emptyHint')}</p>
         </CardContent></Card>
       ) : (
-        <Card className="overflow-x-auto">
+        <>
+        {/* Mobile: one readable card per transaction. */}
+        <div className="grid gap-3 md:hidden">
+          {payments.map((p) => {
+            const status = mapPaymentStatus(p.status);
+            return (
+              <Card key={p.id}>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm text-foreground truncate">{describe(p)}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{jalaliDate(p.created_at)}</p>
+                    </div>
+                    <Badge variant="outline" className={`${STATUS_STYLE[status]} shrink-0`}>
+                      {t(`billingIran.transactions.status${status.charAt(0).toUpperCase() + status.slice(1)}` as any)}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    <span className="font-semibold text-sm">{formatToman(p.amount, 'fa')}</span>
+                    <Button variant="ghost" size="sm" onClick={() => setDetail(p)}>{t('billingIran.transactions.details')}</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        <Card className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -84,6 +112,7 @@ export default function TransactionsTab({ payments, currentPlanName }: { payment
             </TableBody>
           </Table>
         </Card>
+        </>
       )}
 
       <Dialog open={!!detail} onOpenChange={(v) => !v && setDetail(null)}>

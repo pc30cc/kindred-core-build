@@ -190,15 +190,25 @@ export default function OverviewPage() {
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
   const storageBytes = usageNum('storage_bytes');
-  const storageLimitGb = Number(limits.storage_gb ?? 0);
+  // Limit convention: -1 (or missing) = unlimited, 0 = not allowed, >0 = capped
+  const limitNum = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = limits[k];
+      if (v !== undefined && v !== null && Number.isFinite(Number(v))) return Number(v);
+    }
+    return -1;
+  };
+  const isUnlimited = (v: number) => v < 0;
+  const storageLimitGb = limitNum('storage_gb');
   const storagePct = storageLimitGb > 0
     ? Math.min(100, Math.round((storageBytes / (storageLimitGb * 1024 ** 3)) * 100))
     : 0;
 
-  const seatLimit = Number(limits.max_operators ?? limits.max_seats ?? 0);
+  const seatLimit = limitNum('max_operators', 'max_seats');
   const seatUsed = team.length;
-  const contactLimit = Number(limits.max_contacts ?? 0);
+  const contactLimit = limitNum('max_contacts');
   const contactUsed = (contacts ?? []).length;
+
 
   const stats: { label: string; value: number; icon: React.ElementType; accent: AiAccent; path: string }[] = [
     { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, accent: 'indigo', path: '/inbox' },

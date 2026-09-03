@@ -84,6 +84,9 @@ export const idpayProvider: BillingProviderHandler = {
     refunds: false, webhooks: true, multiCurrency: false, trialSupport: false,
   },
 
+  // Unit contract: `req.metadata.amount` is ALWAYS a whole-Rial (IRR) integer,
+  // set server-side from `billing_payment_intents.amount_irr`. IDPay's API
+  // expects amounts in Rial, so no conversion is needed here.
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
     const amount = parseInt(String(req.metadata?.amount || '0'));
     const res = await fetch(`${baseUrl(config)}/payment`, {

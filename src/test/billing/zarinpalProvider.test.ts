@@ -15,7 +15,10 @@ const req: CheckoutRequest = {
 };
 
 function mockJson(body: unknown) {
-  const fetchMock = vi.fn().mockResolvedValue({ json: async () => body });
+  // readZarinpalJson() reads the body as text (to tolerate a non-JSON HTML
+  // error page from the gateway/WAF) before JSON.parse-ing it, so the fetch
+  // stub must expose `.text()`, not `.json()`.
+  const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => JSON.stringify(body) });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
@@ -57,12 +60,12 @@ describe('zarinpal createCheckoutSession', () => {
     });
   });
 
-  it('keeps IRT currency and amount untouched', async () => {
+  it('converts the whole-Rial metadata amount down to Toman when config.currency is IRT', async () => {
     const fetchMock = mockJson({ data: { code: 100, authority: 'A-mock' } });
     await zarinpalProvider.createCheckoutSession({ ...config, currency: 'IRT' }, req);
     const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(payload.currency).toBe('IRT');
-    expect(payload.amount).toBe(250000);
+    expect(payload.amount).toBe(25000); // 250,000 Rial === 25,000 Toman
   });
 
   it('defaults amount to 0 and currency to IRR', async () => {
@@ -248,12 +251,12 @@ describe('zarinpal verifyPayment', () => {
     expect(JSON.parse(init.body).authority).toBe('A0000000000000000000000000000mock');
   });
 
-  it('parses the amount without any currency conversion', async () => {
-    for (const currency of ['IRR', 'IRT', undefined]) {
+  it('converts the wire amount for IRT but always returns amount normalized back to IRR', async () => {
+    for (const [currency, expectedWireAmount] of [['IRR', 250000], [undefined, 250000], ['IRT', 25000]] as const) {
       const fetchMock = mockJson({ data: { code: 100, ref_id: 5 } });
       const out = await zarinpalProvider.verifyPayment!({ ...config, currency }, verifyParams);
-      expect(JSON.parse(fetchMock.mock.calls[0][1].body).amount).toBe(250000);
-      expect(out.amount).toBe(250000);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).amount).toBe(expectedWireAmount);
+      expect(out.amount).toBe(250000); // always IRR in the result, regardless of wire currency
     }
     const fetchMock = mockJson({ data: { code: 100, ref_id: 5 } });
     const out = await zarinpalProvider.verifyPayment!(config, { Authority: 'A-mock' });

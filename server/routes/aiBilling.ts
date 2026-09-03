@@ -20,8 +20,32 @@ import { resetRateCache } from '../services/ai-billing/rates.js';
 import { runAiBillingRecovery } from '../services/ai-billing/recovery.js';
 import { getBillingDegradation } from '../services/ai-billing/degrade.js';
 import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
+import { resolveBillingConfig, getProvider } from '../services/billing/index.js';
+import { createAiCreditTopupIntent, setPaymentIntentProviderRef, IRAN_PROVIDERS } from '../services/billing/paymentIntent.js';
 
 export const aiBillingRouter = Router();
+
+const DEFAULT_TOPUP_PRESETS_TOMAN = [100_000, 250_000, 500_000, 1_000_000];
+const DEFAULT_TOPUP_MIN_TOMAN = 10_000;
+const DEFAULT_TOPUP_MAX_TOMAN = 50_000_000;
+const TOPUP_CONFIG_KEY = 'ai_credit_topup_config';
+
+interface TopupConfig {
+  presetsToman: number[];
+  minToman: number;
+  maxToman: number;
+}
+
+async function getTopupConfig(config: ServerConfig): Promise<TopupConfig> {
+  const sb = getServiceClient(config);
+  const { data } = await sb.from('app_runtime_config').select('value').eq('key', TOPUP_CONFIG_KEY).maybeSingle();
+  const v = (data?.value || {}) as Partial<TopupConfig>;
+  return {
+    presetsToman: Array.isArray(v.presetsToman) && v.presetsToman.length ? v.presetsToman : DEFAULT_TOPUP_PRESETS_TOMAN,
+    minToman: Number.isFinite(v.minToman) ? Number(v.minToman) : DEFAULT_TOPUP_MIN_TOMAN,
+    maxToman: Number.isFinite(v.maxToman) ? Number(v.maxToman) : DEFAULT_TOPUP_MAX_TOMAN,
+  };
+}
 
 function cfg(req: any): ServerConfig {
   return req.serverConfig;
@@ -106,6 +130,69 @@ aiBillingRouter.get('/workspaces/:workspaceId/summary', async (req, res) => {
     aiReplies: replyCount ?? 0,
     mode: await getBillingMode(config),
   });
+});
+
+// ── AI credit top-up: buy purchased credit through the same server-authoritative
+// payment-intent flow subscriptions use. Verification happens through the
+// shared POST /api/billing/verify-callback route (same intentId contract).
+
+aiBillingRouter.get('/workspaces/:workspaceId/topup/config', async (req, res) => {
+  const config = cfg(req);
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const topup = await getTopupConfig(config);
+  res.json({ ...topup, currency: 'IRR', displayCurrency: 'TOMAN' });
+});
+
+const topupCheckoutSchema = z.object({
+  amountToman: z.number().int().positive(),
+  callbackUrl: z.string().url(),
+});
+
+aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res) => {
+  const config = cfg(req);
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const workspaceId = req.params.workspaceId;
+
+  const parsed = topupCheckoutSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
+  const { amountToman, callbackUrl } = parsed.data;
+
+  const topup = await getTopupConfig(config);
+  if (amountToman < topup.minToman || amountToman > topup.maxToman) {
+    return res.status(400).json({ error: `amountToman must be between ${topup.minToman} and ${topup.maxToman}` });
+  }
+
+  const resolved = await resolveBillingConfig(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
+  if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
+  if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
+    return res.status(400).json({ error: 'AI credit top-up is not supported for the configured provider' });
+  }
+
+  const amountIrr = amountToman * 10;
+  try {
+    const intent = await createAiCreditTopupIntent(config, {
+      workspaceId,
+      providerName: resolved.provider.name,
+      amountIrr,
+    });
+    const sep = callbackUrl.includes('?') ? '&' : '?';
+    const result = await resolved.provider.createCheckoutSession(resolved.config, {
+      workspaceId,
+      planId: 'ai_credit_topup',
+      interval: 'monthly',
+      currency: 'IRR',
+      callbackUrl: `${callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`,
+      metadata: { amount: String(amountIrr) },
+    });
+    if (result.authority || result.sessionId) {
+      await setPaymentIntentProviderRef(config, intent.id, result.authority || result.sessionId || '');
+    }
+    res.json({ success: true, ...result, intentId: intent.id });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 aiBillingRouter.get('/workspaces/:workspaceId/history', async (req, res) => {
@@ -604,6 +691,30 @@ aiBillingRouter.post('/admin/runs/:runId/refund', async (req, res) => {
   } catch (err: any) {
     res.status(err?.httpStatus || 500).json({ error: err?.code || 'billing_internal_error', message: err?.message });
   }
+});
+
+aiBillingRouter.get('/admin/topup-config', async (req, res) => {
+  res.json(await getTopupConfig(cfg(req)));
+});
+
+const topupConfigSchema = z.object({
+  presetsToman: z.array(z.number().int().positive()).min(1).max(12),
+  minToman: z.number().int().positive(),
+  maxToman: z.number().int().positive(),
+});
+
+aiBillingRouter.put('/admin/topup-config', async (req, res) => {
+  const parsed = topupConfigSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+  if (parsed.data.minToman >= parsed.data.maxToman) {
+    return res.status(400).json({ error: 'minToman must be less than maxToman' });
+  }
+  const sb = getServiceClient(cfg(req));
+  const { error } = await sb
+    .from('app_runtime_config')
+    .upsert({ key: TOPUP_CONFIG_KEY, value: parsed.data, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(parsed.data);
 });
 
 aiBillingRouter.post('/admin/recovery/run', async (req, res) => {

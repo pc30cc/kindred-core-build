@@ -273,12 +273,34 @@ export async function billingCheckout(data: {
   callbackUrl: string;
   customerEmail?: string;
   customerName?: string;
-  amount?: number;
   phone?: string;
 }) {
-  return request<{ success: boolean; paymentUrl: string; sessionId?: string }>('/api/billing/checkout', {
+  // The charged amount is always computed server-side from the plan's price —
+  // never accepted from the client.
+  return request<{ success: boolean; paymentUrl: string; sessionId?: string; authority?: string; intentId?: string }>('/api/billing/checkout', {
     method: 'POST', body: JSON.stringify(data),
   });
+}
+
+/**
+ * Verifies a gateway return. `intentId` is REQUIRED for the Iranian one-time
+ * gateways — the amount/plan/interval are re-derived server-side from the
+ * payment intent, never from `params` (the raw, untrusted redirect query).
+ */
+export async function billingVerifyCallback(input: {
+  workspaceId: string;
+  provider: string;
+  params: Record<string, string>;
+  intentId?: string;
+}) {
+  return request<{ success: boolean; verified?: boolean; providerRef?: string; amount?: number; status?: string; duplicate?: boolean }>(
+    '/api/billing/verify-callback',
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export async function billingGetProviders() {
+  return request<{ providers: Record<string, { name: string; capabilities: Record<string, boolean> }> }>('/api/billing/providers');
 }
 
 export async function billingCancel(workspaceId: string) {
@@ -307,6 +329,37 @@ export async function billingTest(provider: string, config: Record<string, unkno
 
 export async function billingGetEvents(workspaceId: string) {
   return request<{ events: any[] }>(`/api/billing/events/${workspaceId}`);
+}
+
+export interface AiBillingSummary {
+  currency: string;
+  cycleId: string;
+  renewsAt: string;
+  available: number;
+  reserved: number;
+  granted: number;
+  usedThisCycle: number;
+  planRemaining: number;
+  purchasedRemaining: number;
+  aiReplies: number;
+  mode: 'METER_ONLY' | 'ENFORCED';
+}
+
+export async function aiBillingSummary(workspaceId: string) {
+  return request<AiBillingSummary>(`/api/ai-billing/workspaces/${workspaceId}/summary`);
+}
+
+export async function aiCreditTopupConfig(workspaceId: string) {
+  return request<{ presetsToman: number[]; minToman: number; maxToman: number; currency: string; displayCurrency: string }>(
+    `/api/ai-billing/workspaces/${workspaceId}/topup/config`,
+  );
+}
+
+export async function aiCreditTopupCheckout(workspaceId: string, input: { amountToman: number; callbackUrl: string }) {
+  return request<{ success: boolean; paymentUrl: string; sessionId?: string; authority?: string; intentId: string }>(
+    `/api/ai-billing/workspaces/${workspaceId}/topup/checkout`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
 }
 
 export async function billingAdminOverview() {

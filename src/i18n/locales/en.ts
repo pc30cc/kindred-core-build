@@ -1,4 +1,49 @@
 const en = {
+    billingIran: {
+    pageTitle: 'Plan & Payments', pageSubtitle: 'Manage your workspace plan, credit and payments.',
+    tabs: { overview: 'Overview', plans: 'Plans', aiCredit: 'AI Credit', transactions: 'Transactions' },
+    overview: {
+      currentPlan: 'Current plan', freePlan: 'Free', statusActive: 'Active', statusInactive: 'Inactive',
+      activeUntil: 'Active until {{date}}', daysLeft: '{{days}} days left in this period', perMonth: '/ mo', perYear: '/ yr',
+      renewCta: 'Renew plan', changeCta: 'Change plan', upgradeCta: 'Upgrade plan', managePortal: 'Manage payment',
+      usageTitle: 'Usage summary', conversations: 'Conversations', operators: 'Operators', storage: 'Storage',
+      callMinutes: 'Call minutes', unlimited: 'Unlimited', gb: 'GB',
+    },
+    plans: {
+      monthly: 'Monthly', yearly: 'Yearly', yearlyHint: 'Yearly billing — better value', discountBadge: '{{percent}}% off',
+      selectCta: 'Select plan', upgradeCta: 'Upgrade plan', currentCta: 'Current plan', viewAllFeatures: 'View all features',
+      free: 'Free',
+    },
+    renewal: {
+      title: 'Renew {{plan}} plan', titleUpgrade: 'Upgrade to {{plan}} plan', planLabel: 'Plan', periodLabel: 'Period',
+      amountLabel: 'Amount', discountLabel: 'Discount', payableLabel: 'Amount due', payCta: 'Pay & renew',
+      payUpgradeCta: 'Pay & upgrade', cancel: 'Cancel', processing: 'Connecting to the payment gateway…',
+    },
+    aiCredit: {
+      title: 'AI Credit', remainingLabel: 'Remaining credit', ofPeriodAllowance: 'of {{total}} credit this period',
+      usedLabel: 'Used', monthlyRemainingLabel: 'Monthly credit remaining', purchasedRemainingLabel: 'Purchased credit',
+      increaseCta: 'Add credit',
+      topup: {
+        title: 'Add AI credit', presetLabel: 'Top-up amount', customAmountLabel: 'Custom amount (Toman)',
+        customAmountPlaceholder: 'e.g. 200,000', minMaxHint: 'Amount must be between {{min}} and {{max}} Toman.',
+        payCta: 'Pay', cancel: 'Cancel', invalidAmount: 'The amount entered is invalid.',
+      },
+    },
+    result: {
+      successTitle: 'Payment successful', failureTitle: 'Payment failed', pendingTitle: 'Payment status is being verified',
+      failureHint: 'If your account was charged, the amount will be refunded according to your bank\'s process.',
+      backCta: 'Back to Plan & Payments', viewInvoiceCta: 'View invoice', retryCta: 'Try again',
+      amountLabel: 'Amount', purposeLabel: 'For', dateLabel: 'Date', trackingNumberLabel: 'Tracking number', orderNumberLabel: 'Order number',
+      purposeRenewal: 'Renew {{plan}} plan', purposeUpgrade: 'Upgrade plan to {{plan}}', purposeTopup: 'AI credit purchase',
+    },
+    transactions: {
+      title: 'Transactions', date: 'Date', description: 'Description', amount: 'Amount', status: 'Status', details: 'Details',
+      empty: 'No transactions yet', detailTitle: 'Transaction details', gateway: 'Gateway',
+      trackingNumber: 'Tracking number', orderNumber: 'Order number', close: 'Close',
+      descRenewal: 'Renew {{plan}} plan', descTopup: 'AI credit purchase', descUpgrade: 'Plan upgrade',
+      statusSucceeded: 'Succeeded', statusPending: 'Pending', statusFailed: 'Failed', statusRefunded: 'Refunded', statusCanceled: 'Canceled',
+    },
+  },
   canned: {
     title: 'Canned responses',
     subtitle: 'Reusable replies your team can insert with slash shortcuts in the inbox composer.',
@@ -2234,7 +2279,7 @@ const en = {
       },
       anonymous: 'Anonymous',
     },
-    admin: {
+      admin: {
       recording: {
         title: 'Recording platform settings',
         description: 'Master switch and platform-wide recording health. Workspace recording is only effective when every gate below is satisfied.',

@@ -25,6 +25,16 @@ import {
   authorizeWorkspaceAccess,
   requirePlatformAdmin,
 } from '../lib/workspaceAuth.js';
+import {
+  createSubscriptionIntent,
+  getPaymentIntent,
+  setPaymentIntentProviderRef,
+  claimPaymentIntent,
+  markPaymentIntentFailed,
+  isIntentUsable,
+  IRAN_PROVIDERS,
+} from '../services/billing/paymentIntent.js';
+import * as aiLedger from '../services/ai-billing/ledger.js';
 
 export const billingRouter = Router();
 
@@ -127,6 +137,13 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
 });
 
 // ─── POST /api/billing/checkout — create checkout session ────────
+//
+// The charged amount is NEVER taken from the client. It is always looked up
+// server-side from `billing_plans.prices[currency][interval]`. For the
+// Iranian one-time gateways (which read the amount back off the request),
+// a `billing_payment_intents` row is created first and its id is appended to
+// the callback URL, so verify-callback can re-derive the amount/plan/interval
+// from that row instead of trusting anything the browser sends back.
 const checkoutSchema = z.object({
   workspaceId: z.string().uuid(),
   planId: z.string(),
@@ -135,7 +152,6 @@ const checkoutSchema = z.object({
   callbackUrl: z.string().url(),
   customerEmail: z.string().email().optional(),
   customerName: z.string().optional(),
-  amount: z.number().optional(),
   phone: z.string().optional(),
 });
 
@@ -150,39 +166,81 @@ billingRouter.post('/checkout', async (req, res) => {
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
 
+    const supabase = createClient(url, key);
+    const currency = input.currency.toUpperCase();
+    const { data: plan } = await supabase
+      .from('billing_plans')
+      .select('id, prices')
+      .eq('id', input.planId)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (!plan) return res.status(400).json({ error: 'Unknown plan' });
+    const amount = Number((plan.prices as any)?.[currency]?.[input.interval]);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return res.status(400).json({ error: `Plan has no ${currency} price for interval ${input.interval}` });
+    }
+
+    let callbackUrl = input.callbackUrl;
+    let intentId: string | undefined;
+    if (IRAN_PROVIDERS.has(resolved.provider.name)) {
+      const intent = await createSubscriptionIntent(serverConfigOf(req), {
+        workspaceId: input.workspaceId,
+        planId: input.planId,
+        interval: input.interval,
+        providerName: resolved.provider.name,
+        amountIrr: amount,
+      });
+      intentId = intent.id;
+      const sep = callbackUrl.includes('?') ? '&' : '?';
+      callbackUrl = `${callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`;
+    }
+
     const result = await resolved.provider.createCheckoutSession(resolved.config, {
       workspaceId: input.workspaceId,
       planId: input.planId,
       interval: input.interval,
-      currency: input.currency,
-      callbackUrl: input.callbackUrl,
+      currency,
+      callbackUrl,
       customerEmail: input.customerEmail,
       customerName: input.customerName,
       metadata: {
-        amount: String(input.amount || 0),
+        amount: String(amount),
         phone: input.phone || '',
       },
     });
+
+    if (intentId && (result.authority || result.sessionId)) {
+      await setPaymentIntentProviderRef(serverConfigOf(req), intentId, result.authority || result.sessionId || '');
+    }
 
     await logBillingEvent(url, key, {
       workspace_id: input.workspaceId,
       event_type: 'checkout_initiated',
       provider_name: resolved.provider.name,
-      amount: input.amount,
-      currency: input.currency,
+      amount,
+      currency,
       status: 'pending',
-      metadata: { planId: input.planId, sessionId: result.sessionId },
+      metadata: { planId: input.planId, sessionId: result.sessionId, intentId },
     });
 
-    res.json({ success: true, ...result });
+    res.json({ success: true, ...result, intentId });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
 // ─── POST /api/billing/verify-callback — verify callback from gateway ──
+//
+// `params` are the raw, untrusted redirect query params from the gateway
+// (Authority/Status, trackId, RefNum, ...). For the Iranian one-time
+// gateways an `intentId` is REQUIRED: the amount handed to `verifyPayment`
+// is always read back from the server-created intent row, never from
+// anything the client supplies, and the intent's `purchase_type` decides
+// whether a successful verify applies a subscription period or grants AI
+// credit. `claimPaymentIntent` makes this idempotent — a replayed callback
+// (double submit, provider retry) can never double-apply the result.
 billingRouter.post('/verify-callback', async (req, res) => {
-  const { workspaceId, provider: providerName, params } = req.body;
+  const { workspaceId, provider: providerName, params, intentId } = req.body;
   if (!workspaceId || !providerName) return res.status(400).json({ error: 'Missing workspaceId or provider' });
   if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
@@ -197,6 +255,70 @@ billingRouter.post('/verify-callback', async (req, res) => {
     if (!resolved || resolved.provider.name !== providerName) {
       return res.status(400).json({ error: 'Provider not configured' });
     }
+
+    if (IRAN_PROVIDERS.has(providerName)) {
+      if (typeof intentId !== 'string' || !intentId) {
+        return res.status(400).json({ error: 'Missing intentId' });
+      }
+      const intent = await getPaymentIntent(serverConfigOf(req), intentId);
+      if (!intent || intent.workspace_id !== workspaceId || intent.provider_name !== providerName) {
+        return res.status(400).json({ error: 'Invalid payment intent' });
+      }
+      if (intent.status !== 'pending') {
+        // Already finalized (success or failure) — replay-safe no-op.
+        return res.json({ success: true, verified: intent.status === 'succeeded', duplicate: true });
+      }
+      if (!isIntentUsable(intent)) {
+        await markPaymentIntentFailed(serverConfigOf(req), intent.id);
+        return res.status(400).json({ error: 'Payment intent expired' });
+      }
+
+      const result = await provider.verifyPayment(resolved.config, {
+        ...params,
+        amount: String(intent.amount_irr),
+      });
+      if (!result.verified) {
+        await markPaymentIntentFailed(serverConfigOf(req), intent.id);
+        return res.json({ success: true, ...result });
+      }
+
+      const claimed = await claimPaymentIntent(serverConfigOf(req), intent.id);
+      if (!claimed) return res.json({ success: true, verified: true, duplicate: true });
+
+      if (intent.purchase_type === 'ai_credit_topup') {
+        await aiLedger.purchaseCredit(serverConfigOf(req), {
+          workspaceId,
+          amount: String(intent.amount_irr),
+          commandKey: `intent:${intent.id}`,
+          reason: 'ai_credit_topup',
+        });
+        await logBillingEvent(url, key, {
+          workspace_id: workspaceId,
+          event_type: 'ai_credit_topup',
+          provider_name: providerName,
+          provider_event_id: result.providerRef,
+          amount: intent.amount_irr,
+          currency: 'IRR',
+          status: 'success',
+          metadata: { intentId: intent.id },
+        });
+      } else {
+        await processWebhookEvent(url, key, providerName, {
+          type: 'payment_succeeded',
+          providerEventId: result.providerRef || intent.id,
+          providerPaymentId: result.providerRef,
+          workspaceId,
+          planId: intent.plan_id || undefined,
+          interval: intent.billing_interval || undefined,
+          amount: intent.amount_irr,
+          currency: 'IRR',
+          raw: params,
+        });
+      }
+
+      return res.json({ success: true, ...result });
+    }
+
     const result = await provider.verifyPayment(
       resolved.config,
       params

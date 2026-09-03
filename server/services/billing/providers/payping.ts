@@ -17,8 +17,12 @@ export const paypingProvider: BillingProviderHandler = {
     refunds: false, webhooks: false, multiCurrency: false, trialSupport: false,
   },
 
+  // Unit contract: `req.metadata.amount` is ALWAYS a whole-Rial (IRR) integer,
+  // set server-side from `billing_payment_intents.amount_irr`. PayPing's API
+  // is the one Iranian gateway in this file that bills in Toman, so it is the
+  // only adapter that converts (IRR / 10) before sending the wire amount.
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const amount = parseInt(String(req.metadata?.amount || '0'));
+    const amountIrr = parseInt(String(req.metadata?.amount || '0'));
     const res = await fetch('https://api.payping.ir/v2/pay', {
       method: 'POST',
       headers: {
@@ -26,7 +30,7 @@ export const paypingProvider: BillingProviderHandler = {
         'Authorization': `Bearer ${config.bearer_token}`,
       },
       body: JSON.stringify({
-        amount: amount / 10, // PayPing uses Toman
+        amount: Math.round(amountIrr / 10), // PayPing bills in Toman
         returnUrl: req.callbackUrl,
         payerIdentity: req.customerEmail,
         payerName: req.customerName,
@@ -58,7 +62,7 @@ export const paypingProvider: BillingProviderHandler = {
       },
       body: JSON.stringify({
         refId: params.refid,
-        amount: parseInt(params.amount || '0') / 10,
+        amount: Math.round(parseInt(params.amount || '0') / 10),
       }),
     });
     return {

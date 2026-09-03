@@ -24,7 +24,10 @@ const checkoutReq: CheckoutRequest = {
 };
 
 function mockJson(body: unknown) {
-  const fn = vi.fn(async () => ({ ok: true, json: async () => body }));
+  // readIdPayJson() reads the body as text (to tolerate a non-JSON HTML error
+  // page from the gateway/WAF) before JSON.parse-ing it, so the fetch stub
+  // must expose `.text()`, not `.json()`.
+  const fn = vi.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify(body) }));
   (globalThis as unknown as { fetch: unknown }).fetch = fn;
   return fn;
 }
@@ -309,7 +312,7 @@ describe('idpay verifyPayment', () => {
   });
 
   it('ignores HTTP failure status and only parses the body', async () => {
-    const fn = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ status: 100, track_id: 't' }) }));
+    const fn = vi.fn(async () => ({ ok: false, status: 500, text: async () => JSON.stringify({ status: 100, track_id: 't' }) }));
     (globalThis as unknown as { fetch: unknown }).fetch = fn;
     await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({ verified: true });
     expect(fn).toHaveBeenCalledTimes(1);

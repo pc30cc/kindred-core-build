@@ -1149,13 +1149,17 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
+    const seesAll =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    const scopeAssignment = (q: any) =>
+      seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
     const base = () =>
-      sb.from('conversations').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed');
+      scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed'));
     /* The AI tab lives outside `base()` scope: it counts exactly the
        ai_managed threads that base() excludes. */
-    const automatedQuery = sb.from('conversations').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed');
+    const automatedQuery = scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed'));
     const [openRes, pendingRes, resolvedRes, allRes, needsRes, automatedRes] = await Promise.all([
       base().eq('status', 'open'),
       base().eq('status', 'pending'),

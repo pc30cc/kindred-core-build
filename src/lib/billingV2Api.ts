@@ -366,3 +366,17 @@ export function billingV2CreateAiCreditInvoice(workspaceId: string, amountIrr: n
     { method: 'POST', body: JSON.stringify({ amountIrr }) },
   );
 }
+
+/**
+ * Stable engine contract (`/api/billing/workspaces/:id/engine`). Read-only:
+ * it reports which engine owns the workspace so the UI can pick a screen.
+ */
+export interface BillingEngineReadModel {
+  engine: 'v1' | 'v2';
+  rolloutState: 'legacy' | 'shadow' | 'v2_cutover_pending' | 'v2_active';
+  subscriptionStatus: string | null;
+}
+
+export function billingEngineReadModel(workspaceId: string) {
+  return request<BillingEngineReadModel>(`/api/billing/workspaces/${workspaceId}/engine`);
+}

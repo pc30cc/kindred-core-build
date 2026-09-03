@@ -59,7 +59,7 @@ export default function PluginDetailPage() {
     onSuccess: () => {
       toast({ title: t('plugins.telegram.disconnected') });
       qc.invalidateQueries({ queryKey: ['plugins'] });
-      navigate(`/app/w/${slug}/plugins`);
+      navigate(`/${slug}/plugins`);
     },
     onError: (err: any) =>
       toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
@@ -98,7 +98,7 @@ export default function PluginDetailPage() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 p-4 md:p-6">
       <Button asChild variant="ghost" size="sm" className="-ms-2">
-        <Link to={`/app/w/${slug}/plugins`}>
+        <Link to={`/${slug}/plugins`}>
           <BackIcon className="me-1.5 h-4 w-4" />
           {t('plugins.title')}
         </Link>

@@ -138,7 +138,7 @@ export default function ContactDetailPage() {
     try {
       await deleteMutation.mutateAsync(contact.id);
       toast({ title: t('contacts.toastDeleted') });
-      navigate(`/app/w/${wsSlug}/contacts`);
+      navigate(`/${wsSlug}/contacts`);
     } catch (e: any) {
       toast({ title: t('contacts.toastError'), description: e?.message, variant: 'destructive' });
     }
@@ -157,7 +157,7 @@ export default function ContactDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-3" dir={dir}>
         <p className="text-muted-foreground">{t('contacts.notFound')}</p>
-        <Link to={`/app/w/${wsSlug}/contacts`}>
+        <Link to={`/${wsSlug}/contacts`}>
           <Button variant="outline">{t('contacts.backToContacts')}</Button>
         </Link>
       </div>
@@ -167,7 +167,7 @@ export default function ContactDetailPage() {
   const company = getCompanyFromMetadata(contact);
   const { label: location } = getLocalizedLocation(contact, locale, networkProfile?.geo ?? null);
   const BackIcon = rtl ? ArrowRight : ArrowLeft;
-  const billingHref = `/app/w/${wsSlug}/billing`;
+  const billingHref = `/${wsSlug}/billing`;
   const ipLocked = ipState?.status === 'locked';
   const ipValue = ipState?.status === 'ok' ? ipState.ip : null;
   const callList = (calls ?? []) as ContactCall[];
@@ -188,7 +188,7 @@ export default function ContactDetailPage() {
     <div className="flex flex-col h-full bg-background" dir={dir}>
       {/* Toolbar */}
       <div className="sticky top-0 z-10 border-b border-border bg-card px-4 sm:px-6 py-2.5 flex items-center gap-3 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/app/w/${wsSlug}/contacts`)} className="gap-1.5 shrink-0">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/${wsSlug}/contacts`)} className="gap-1.5 shrink-0">
           <BackIcon className="w-4 h-4" />{t('contacts.back')}
         </Button>
         <ContactAvatar
@@ -373,7 +373,7 @@ export default function ContactDetailPage() {
                               <div
                                 key={conv.id}
                                 className={cn('p-4 hover:bg-secondary/50 cursor-pointer transition-colors', rtl && 'text-right')}
-                                onClick={() => navigate(`/app/w/${wsSlug}/inbox?c=${conv.id}`)}
+                                onClick={() => navigate(`/${wsSlug}/inbox?c=${conv.id}`)}
                                 title={t('contacts.openConversation')}
                               >
                                 <p className="font-medium text-sm text-foreground line-clamp-1">
@@ -453,7 +453,7 @@ export default function ContactDetailPage() {
                                 <div
                                   key={call.id}
                                   className={cn('p-4 transition-colors', rtl && 'text-right', call.conversation_id && 'hover:bg-secondary/50 cursor-pointer')}
-                                  onClick={() => call.conversation_id && navigate(`/app/w/${wsSlug}/inbox?c=${call.conversation_id}`)}
+                                  onClick={() => call.conversation_id && navigate(`/${wsSlug}/inbox?c=${call.conversation_id}`)}
                                 >
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">

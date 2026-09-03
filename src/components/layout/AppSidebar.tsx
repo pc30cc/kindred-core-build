@@ -361,7 +361,7 @@ export function AppSidebar() {
               return (
                 <button
                   key={ws.id}
-                  onClick={() => { navigate(`/app/w/${ws.slug}`); setWsMenuOpen(false); }}
+                  onClick={() => { navigate(`/${ws.slug}`); setWsMenuOpen(false); }}
                   className={cn(
                     'flex items-center gap-2.5 w-full px-3 py-2 text-sm rounded-md transition-colors',
                     isCurrentWs ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent'

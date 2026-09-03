@@ -202,7 +202,7 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
         <Badge variant="outline">{enumLabel('status', candidate.status)}</Badge>
         <span>{formatDateTime(candidate.created_at)}</span>
         {candidate.conversation_id && (
-          <a href={`/app/w/${candidate.workspace_id}/inbox?c=${candidate.conversation_id}`} className="underline">{tr('viewConversation')}</a>
+          <a href={`/${candidate.workspace_id}/inbox?c=${candidate.conversation_id}`} className="underline">{tr('viewConversation')}</a>
         )}
         {pageUrl && <a href={pageUrl} target="_blank" rel="noreferrer" className="underline truncate max-w-[260px]">{pageUrl}</a>}
       </div>

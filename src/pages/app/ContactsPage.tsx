@@ -58,7 +58,7 @@ export default function ContactsPage() {
   const canCreate = can('contact_create');
   const canImport = can('contact_import');
   const canExport = can('contact_export');
-  const goBilling = () => navigate(`/app/w/${wsSlug}/billing`);
+  const goBilling = () => navigate(`/${wsSlug}/billing`);
   const lockedToast = () => {
     toast({ title: t('contacts.featureLockedTitle'), description: t('contacts.featureLockedDesc'), variant: 'destructive' });
   };
@@ -154,7 +154,7 @@ export default function ContactsPage() {
   };
 
   const openContact = (id: string) => {
-    navigate(`/app/w/${wsSlug}/contacts/${id}`);
+    navigate(`/${wsSlug}/contacts/${id}`);
   };
 
   const handleCreate = async () => {

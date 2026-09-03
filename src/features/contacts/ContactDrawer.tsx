@@ -162,7 +162,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                   className="h-8 text-xs flex-1"
                   onClick={() => {
                     onOpenChange(false);
-                    navigate(`/app/w/${wsSlug}/contacts/${contact.id}`);
+                    navigate(`/${wsSlug}/contacts/${contact.id}`);
                   }}
                 >
                   <ExternalLink className="w-3 h-3 me-1.5" />
@@ -289,7 +289,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                         className="p-3 rounded-lg border border-border hover:bg-accent/40 cursor-pointer transition-colors"
                         onClick={() => {
                           onOpenChange(false);
-                          navigate(`/app/w/${wsSlug}/inbox`);
+                          navigate(`/${wsSlug}/inbox`);
                         }}
                       >
                         <div className="flex items-start justify-between gap-2">

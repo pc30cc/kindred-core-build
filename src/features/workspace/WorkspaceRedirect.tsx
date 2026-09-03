@@ -115,7 +115,7 @@ export function WorkspaceRedirect() {
   }
 
   if (workspaces?.length) {
-    return <Navigate to={`/app/w/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
+    return <Navigate to={`/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
   }
 
   return (

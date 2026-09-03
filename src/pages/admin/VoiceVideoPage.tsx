@@ -258,7 +258,7 @@ function WorkspaceOverridesTab() {
           {(workspaces ?? []).map((w) => (
             <Link
               key={w.id}
-              to={`/app/w/${w.slug}/widget`}
+              to={`/${w.slug}/widget`}
               className="flex items-center justify-between rounded-md border border-border px-3 py-2 hover:bg-muted/40 transition-colors"
             >
               <div className="flex items-center gap-2 min-w-0">
@@ -303,7 +303,7 @@ function LiveOperationsTab() {
         {(workspaces ?? []).slice(0, 10).map((w) => (
           <Link
             key={w.id}
-            to={`/app/w/${w.slug}/inbox`}
+            to={`/${w.slug}/inbox`}
             className="flex items-center justify-between rounded-md border border-border px-3 py-2 hover:bg-muted/40 transition-colors"
           >
             <div className="text-sm">{w.name}</div>
@@ -657,7 +657,7 @@ function CallbacksTab() {
                 return (
                   <Link
                     key={w.id}
-                    to={`/app/w/${w.slug}/inbox`}
+                    to={`/${w.slug}/inbox`}
                     className="flex items-center justify-between rounded-md border border-border px-3 py-2 hover:bg-muted/40 transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0">

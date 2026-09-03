@@ -71,7 +71,7 @@ export function useCurrentWorkspace() {
 export function useWorkspacePath() {
   const { workspace } = useActiveWorkspace();
   return useCallback(
-    (path: string) => workspace ? `/app/w/${workspace.slug}${path}` : `/app${path}`,
+    (path: string) => workspace ? `/${workspace.slug}${path}` : `/app${path}`,
     [workspace]
   );
 }

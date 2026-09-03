@@ -55,7 +55,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
       setDomain('');
       onOpenChange(false);
 
-      navigate(newWs?.slug ? `/app/w/${newWs.slug}` : '/app');
+      navigate(newWs?.slug ? `/${newWs.slug}` : '/app');
     } catch (err: any) {
       const msg = String(err?.message || '');
       if (msg === 'email_verification_required') {

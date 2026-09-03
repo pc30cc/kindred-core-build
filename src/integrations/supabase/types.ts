@@ -7749,6 +7749,7 @@ export type Database = {
       }
       team_messages: {
         Row: {
+          attachment_id: string | null
           body: string
           created_at: string
           id: string
@@ -7758,7 +7759,8 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
-          body: string
+          attachment_id?: string | null
+          body?: string
           created_at?: string
           id?: string
           read_at?: string | null
@@ -7767,6 +7769,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          attachment_id?: string | null
           body?: string
           created_at?: string
           id?: string
@@ -7775,7 +7778,15 @@ export type Database = {
           sender_id?: string
           workspace_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "team_messages_attachment_id_fkey"
+            columns: ["attachment_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_attachments"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       translations: {
         Row: {

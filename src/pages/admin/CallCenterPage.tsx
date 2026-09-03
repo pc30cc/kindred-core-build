@@ -17,12 +17,6 @@ import { RecordingRetentionPanel } from '@/components/admin/calls/RecordingReten
 import { useTranslation } from '@/i18n';
 import { Link } from 'react-router-dom';
 
-const WIDGET_LOCALES: Array<{ code: 'en' | 'fa' | 'tr'; label: string; native: string }> = [
-  { code: 'en', label: 'English', native: 'English' },
-  { code: 'fa', label: 'Persian', native: 'فارسی' },
-  { code: 'tr', label: 'Turkish', native: 'Türkçe' },
-];
-
 function Stat({ label, value, icon: Icon }: { label: string; value: number | string; icon?: any }) {
   return (
     <div className="rounded-lg bg-muted/40 p-3 flex items-center gap-3">
@@ -55,10 +49,24 @@ export default function AdminCallCenterPage() {
   const { data: ws } = useCallCenterAdminWorkspaces();
   const LOCALES: Array<{ key: string; label: string; placeholder: string }> = [
     { key: 'default', label: t('callCenter.adminPage.disabledMessage.defaultLocale'), placeholder: t('callCenter.adminPage.disabledMessage.placeholder') },
-    { key: 'en', label: 'English', placeholder: 'Call center is currently unavailable.' },
-    { key: 'tr', label: 'Türkçe', placeholder: 'Çağrı merkezi şu anda kullanılamıyor.' },
-    { key: 'fa', label: 'فارسی', placeholder: 'مرکز تماس در حال حاضر در دسترس نیست.' },
+    { key: 'en', label: t('callCenter.adminPage.languages.names.en'), placeholder: t('callCenter.adminPage.disabledMessage.placeholders.en') },
+    { key: 'tr', label: t('callCenter.adminPage.languages.names.tr'), placeholder: t('callCenter.adminPage.disabledMessage.placeholders.tr') },
+    { key: 'fa', label: t('callCenter.adminPage.languages.names.fa'), placeholder: t('callCenter.adminPage.disabledMessage.placeholders.fa') },
   ];
+  const WIDGET_LOCALES: Array<{ code: 'en' | 'fa' | 'tr'; label: string; native: string }> = [
+    { code: 'en', label: t('callCenter.adminPage.languages.names.en'), native: 'English' },
+    { code: 'fa', label: t('callCenter.adminPage.languages.names.fa'), native: 'فارسی' },
+    { code: 'tr', label: t('callCenter.adminPage.languages.names.tr'), native: 'Türkçe' },
+  ];
+  const DIAGNOSTIC_WARNINGS: Record<string, string> = {
+    livekit_disabled: t('callCenter.adminPage.livekit.warnings.disabled'),
+    livekit_api_key_missing: t('callCenter.adminPage.livekit.warnings.apiKeyMissing'),
+    livekit_api_secret_missing: t('callCenter.adminPage.livekit.warnings.apiSecretMissing'),
+    livekit_url_missing: t('callCenter.adminPage.livekit.warnings.urlMissing'),
+    recording_storage_credentials_missing: t('callCenter.adminPage.livekit.warnings.storageCredentialsMissing'),
+    livekit_v1_rtc_path_not_supported: t('callCenter.adminPage.livekit.warnings.v1PathUnsupported'),
+    livekit_server_unreachable: t('callCenter.adminPage.livekit.warnings.serverUnreachable'),
+  };
   const LIMITS: Array<[keyof CallCenterPlatformSettings, string]> = [
     ['max_concurrent_calls_per_workspace', t('callCenter.adminPage.limits.maxConcurrent')],
     ['max_queue_size_per_workspace', t('callCenter.adminPage.limits.maxQueue')],
@@ -605,7 +613,7 @@ export default function AdminCallCenterPage() {
                 {diag.warnings.map((w) => (
                   <div key={w} className="flex items-center gap-2 text-xs rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    <span>{w}</span>
+                    <span>{DIAGNOSTIC_WARNINGS[w] || w}</span>
                   </div>
                 ))}
               </div>

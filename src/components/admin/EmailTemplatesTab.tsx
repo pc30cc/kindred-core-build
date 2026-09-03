@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
 import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -35,27 +36,10 @@ interface DbTemplate {
 }
 
 const CATEGORIES = [
-  { key: 'auth', label: 'Authentication', icon: Shield, slugs: ['email_verify', 'password_reset', 'magic_link', 'welcome'] },
-  { key: 'transactional', label: 'Transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'payment_success', 'payment_failed', 'subscription_renewed', 'subscription_cancelled'] },
-  { key: 'notification', label: 'Notification', icon: Bell, slugs: ['new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
+  { key: 'auth', icon: Shield, slugs: ['email_verify', 'password_reset', 'magic_link', 'welcome'] },
+  { key: 'transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'payment_success', 'payment_failed', 'subscription_renewed', 'subscription_cancelled'] },
+  { key: 'notification', icon: Bell, slugs: ['new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
 ] as const;
-
-const SLUG_LABELS: Record<string, string> = {
-  email_verify: 'Email Verification',
-  password_reset: 'Password Reset',
-  magic_link: 'Magic Link Login',
-  welcome: 'Welcome Email',
-  invite_member: 'Team Invite',
-  invite_otp: 'Invitation Verification Code',
-  payment_success: 'Payment Success',
-  payment_failed: 'Payment Failed',
-  subscription_renewed: 'Subscription Renewed',
-  subscription_cancelled: 'Subscription Cancelled',
-  new_conversation: 'New Conversation',
-  task_assigned: 'Task Assigned',
-  account_expiry: 'Account Expiry Warning',
-  system_alert: 'System Alert',
-};
 
 const SLUG_VARIABLES: Record<string, string[]> = {
   email_verify: ['{name}', '{brand}', '{action_url}', '{expiry_time}'],
@@ -75,12 +59,13 @@ const SLUG_VARIABLES: Record<string, string[]> = {
 };
 
 const LOCALES = [
-  { code: 'en', label: 'English' },
-  { code: 'fa', label: 'فارسی' },
-  { code: 'tr', label: 'Türkçe' },
+  { code: 'en', labelKey: 'en' },
+  { code: 'fa', labelKey: 'fa' },
+  { code: 'tr', labelKey: 'tr' },
 ];
 
 export default function EmailTemplatesTab() {
+  const { t } = useTranslation();
   // The platform's active region/language mode decides which languages a
   // transactional email can be sent in — a single-language platform never
   // sends (or needs) templates in a language no account can be set to.
@@ -116,7 +101,7 @@ export default function EmailTemplatesTab() {
       const { templates } = await adminFetch<{ templates: DbTemplate[] }>('/api/admin/management/email-templates');
       setTemplates(templates || []);
     } catch (err: any) {
-      toast.error('Failed to load templates');
+      toast.error(t('admin.brandingPage.emailTemplates.toasts.loadFailed' as any));
       console.error(err);
     }
     setLoading(false);
@@ -136,7 +121,7 @@ export default function EmailTemplatesTab() {
   }
 
   async function handleSave() {
-    if (!editSubject.trim() || !editHtml.trim()) { toast.error('Subject and HTML body are required'); return; }
+    if (!editSubject.trim() || !editHtml.trim()) { toast.error(t('admin.brandingPage.emailTemplates.toasts.required' as any)); return; }
     setSaving(true);
     try {
       if (editId) {
@@ -144,7 +129,7 @@ export default function EmailTemplatesTab() {
           method: 'PUT',
           body: JSON.stringify({ subject: editSubject, html_body: editHtml, text_body: editText || null, is_active: editActive }),
         });
-        toast.success('Template updated');
+        toast.success(t('admin.brandingPage.emailTemplates.toasts.updated' as any));
       } else {
         await adminFetch('/api/admin/management/email-templates', {
           method: 'POST',
@@ -153,11 +138,11 @@ export default function EmailTemplatesTab() {
             html_body: editHtml, text_body: editText || null, is_active: editActive,
           }),
         });
-        toast.success('Template created');
+        toast.success(t('admin.brandingPage.emailTemplates.toasts.created' as any));
       }
       await fetchTemplates();
     } catch {
-      toast.error(editId ? 'Failed to update template' : 'Failed to create template');
+      toast.error(t((editId ? 'admin.brandingPage.emailTemplates.toasts.updateFailed' : 'admin.brandingPage.emailTemplates.toasts.createFailed') as any));
     }
     setSaving(false);
   }
@@ -166,17 +151,17 @@ export default function EmailTemplatesTab() {
     if (!editId) return;
     try {
       await adminFetch(`/api/admin/management/email-templates/${editId}`, { method: 'DELETE' });
-      toast.success('Template deleted');
+      toast.success(t('admin.brandingPage.emailTemplates.toasts.deleted' as any));
       await fetchTemplates();
     } catch {
-      toast.error('Failed to delete');
+      toast.error(t('admin.brandingPage.emailTemplates.toasts.deleteFailed' as any));
     }
   }
 
   async function handleDuplicate() {
     const existingLocales = templates.filter(t => t.slug === selectedSlug).map(t => t.locale);
     const nextLocale = LOCALES.find(l => activeLocales.includes(l.code) && !existingLocales.includes(l.code));
-    if (!nextLocale) { toast.info('Template exists for all locales'); return; }
+    if (!nextLocale) { toast.info(t('admin.brandingPage.emailTemplates.toasts.allLocales' as any)); return; }
     try {
       await adminFetch('/api/admin/management/email-templates', {
         method: 'POST',
@@ -185,11 +170,11 @@ export default function EmailTemplatesTab() {
           html_body: editHtml, text_body: editText || null, is_active: editActive,
         }),
       });
-      toast.success(`Duplicated to ${nextLocale.label}`);
+      toast.success(t('admin.brandingPage.emailTemplates.toasts.duplicated' as any, { locale: t(`admin.brandingPage.languages.${nextLocale.labelKey}` as any) }));
       setSelectedLocale(nextLocale.code);
       await fetchTemplates();
     } catch {
-      toast.error('Failed to duplicate');
+      toast.error(t('admin.brandingPage.emailTemplates.toasts.duplicateFailed' as any));
     }
   }
 
@@ -206,10 +191,10 @@ export default function EmailTemplatesTab() {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="space-y-4">
         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-full"><SelectValue placeholder="Filter category" /></SelectTrigger>
+          <SelectTrigger className="w-full"><SelectValue placeholder={t('admin.brandingPage.emailTemplates.filterCategory' as any)} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {CATEGORIES.map(c => (<SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>))}
+            <SelectItem value="all">{t('admin.brandingPage.emailTemplates.allCategories' as any)}</SelectItem>
+            {CATEGORIES.map(c => (<SelectItem key={c.key} value={c.key}>{t(`admin.brandingPage.emailTemplates.categories.${c.key}` as any)}</SelectItem>))}
           </SelectContent>
         </Select>
         <div className="space-y-1">
@@ -220,7 +205,7 @@ export default function EmailTemplatesTab() {
               <button key={slug} onClick={() => setSelectedSlug(slug)}
                 className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between ${isSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
                 <div>
-                  <div className="text-sm font-medium">{SLUG_LABELS[slug] || slug}</div>
+                  <div className="text-sm font-medium">{t(`admin.brandingPage.emailTemplates.slugs.${slug}` as any)}</div>
                   <div className={`text-xs ${isSelected ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{slug}</div>
                 </div>
                 <div className="flex gap-1">
@@ -239,7 +224,7 @@ export default function EmailTemplatesTab() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-lg flex items-center gap-2"><Mail className="h-5 w-5" />{SLUG_LABELS[selectedSlug] || selectedSlug}</CardTitle>
+                <CardTitle className="text-lg flex items-center gap-2"><Mail className="h-5 w-5" />{t(`admin.brandingPage.emailTemplates.slugs.${selectedSlug}` as any)}</CardTitle>
                 <CardDescription>{selectedSlug}</CardDescription>
               </div>
               <div className="flex items-center gap-2">
@@ -248,13 +233,13 @@ export default function EmailTemplatesTab() {
                   <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {LOCALES.filter(l => activeLocales.includes(l.code)).map(l => (
-                      <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>
+                      <SelectItem key={l.code} value={l.code}>{t(`admin.brandingPage.languages.${l.labelKey}` as any)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 )}
                 <div className="flex items-center gap-2">
-                  <Label className="text-sm">Active</Label>
+                  <Label className="text-sm">{t('admin.brandingPage.common.active' as any)}</Label>
                   <Switch checked={editActive} onCheckedChange={setEditActive} />
                 </div>
               </div>
@@ -262,38 +247,38 @@ export default function EmailTemplatesTab() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="text-xs text-muted-foreground">Available Variables</Label>
+              <Label className="text-xs text-muted-foreground">{t('admin.brandingPage.emailTemplates.availableVariables' as any)}</Label>
               <div className="flex flex-wrap gap-1.5 mt-1">
                 {(SLUG_VARIABLES[selectedSlug] || []).map(v => (
                   <Badge key={v} variant="outline" className="text-xs cursor-pointer hover:bg-accent"
-                    onClick={() => navigator.clipboard.writeText(v).then(() => toast.info(`Copied ${v}`))}>{v}</Badge>
+                    onClick={() => navigator.clipboard.writeText(v).then(() => toast.info(t('admin.brandingPage.emailTemplates.toasts.copied' as any, { variable: v })))}>{v}</Badge>
                 ))}
               </div>
             </div>
-            <div><Label>Subject</Label><Input value={editSubject} onChange={e => setEditSubject(e.target.value)} placeholder="Email subject line..." /></div>
+            <div><Label>{t('admin.brandingPage.emailTemplates.subject' as any)}</Label><Input value={editSubject} onChange={e => setEditSubject(e.target.value)} placeholder={t('admin.brandingPage.emailTemplates.subjectPlaceholder' as any)} /></div>
             <div>
               <div className="flex items-center justify-between mb-2">
-                <Label>HTML Body</Label>
+                <Label>{t('admin.brandingPage.emailTemplates.htmlBody' as any)}</Label>
                 <div className="flex gap-1">
-                  <Button size="sm" variant={viewMode === 'code' ? 'default' : 'outline'} onClick={() => setViewMode('code')} className="h-7 text-xs"><Code className="h-3 w-3 mr-1" /> Source</Button>
-                  <Button size="sm" variant={viewMode === 'preview' ? 'default' : 'outline'} onClick={() => setViewMode('preview')} className="h-7 text-xs"><Eye className="h-3 w-3 mr-1" /> Preview</Button>
+                  <Button size="sm" variant={viewMode === 'code' ? 'default' : 'outline'} onClick={() => setViewMode('code')} className="h-7 text-xs"><Code className="h-3 w-3 me-1" /> {t('admin.brandingPage.emailTemplates.source' as any)}</Button>
+                  <Button size="sm" variant={viewMode === 'preview' ? 'default' : 'outline'} onClick={() => setViewMode('preview')} className="h-7 text-xs"><Eye className="h-3 w-3 me-1" /> {t('admin.brandingPage.emailTemplates.preview' as any)}</Button>
                 </div>
               </div>
               {viewMode === 'code' ? (
                 <Textarea value={editHtml} onChange={e => setEditHtml(e.target.value)} placeholder="<html>...</html>" className="min-h-[300px] font-mono text-xs" dir="ltr" />
               ) : (
                 <div className="border rounded-lg p-4 min-h-[300px] bg-white">
-                  <iframe srcDoc={editHtml} className="w-full min-h-[280px] border-0" sandbox="allow-same-origin" title="Email Preview" />
+                  <iframe srcDoc={editHtml} className="w-full min-h-[280px] border-0" sandbox="" title={t('admin.brandingPage.emailTemplates.previewTitle' as any)} />
                 </div>
               )}
             </div>
-            <div><Label>Plain Text Body (optional)</Label><Textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder="Plain text fallback..." className="min-h-[80px] font-mono text-xs" dir="ltr" /></div>
+            <div><Label>{t('admin.brandingPage.emailTemplates.plainTextBody' as any)}</Label><Textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder={t('admin.brandingPage.emailTemplates.plainTextPlaceholder' as any)} className="min-h-[80px] font-mono text-xs" dir="ltr" /></div>
             <div className="flex items-center justify-between pt-2">
               <div className="flex gap-2">
-                {editId && (<Button variant="destructive" size="sm" onClick={handleDelete}><Trash2 className="h-4 w-4 mr-1" /> Delete</Button>)}
-                <Button variant="outline" size="sm" onClick={handleDuplicate}><Copy className="h-4 w-4 mr-1" /> Duplicate to Locale</Button>
+                {editId && (<Button variant="destructive" size="sm" onClick={handleDelete}><Trash2 className="h-4 w-4 me-1" /> {t('admin.brandingPage.emailTemplates.delete' as any)}</Button>)}
+                <Button variant="outline" size="sm" onClick={handleDuplicate}><Copy className="h-4 w-4 me-1" /> {t('admin.brandingPage.emailTemplates.duplicate' as any)}</Button>
               </div>
-              <Button onClick={handleSave} disabled={saving}><Save className="h-4 w-4 mr-1" />{editId ? 'Update' : 'Create'} Template</Button>
+              <Button onClick={handleSave} disabled={saving}><Save className="h-4 w-4 me-1" />{editId ? t('admin.brandingPage.emailTemplates.update' as any) : t('admin.brandingPage.emailTemplates.create' as any)}</Button>
             </div>
           </CardContent>
         </Card>

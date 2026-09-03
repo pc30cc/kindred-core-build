@@ -5,21 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { Activity, RefreshCw, Shield, X } from 'lucide-react';
 import { useState } from 'react';
@@ -33,29 +20,39 @@ import {
   type AutoActionDefinition,
   type AutoActionEvent,
 } from '@/lib/admin-auto-actions-api';
+import { useTranslation } from '@/i18n';
 
-function stateBadge(state: AutoActionEvent['state']) {
-  if (state === 'active') return <Badge className="bg-warning/15 text-warning">active</Badge>;
-  if (state === 'expired') return <Badge variant="outline">expired</Badge>;
-  if (state === 'resolved') return <Badge className="bg-success/15 text-success">resolved</Badge>;
-  return <Badge variant="outline">overridden</Badge>;
+type Translate = ReturnType<typeof useTranslation>['t'];
+
+function stateBadge(state: AutoActionEvent['state'], t: Translate) {
+  const label = t(`admin.observability.autoActions.states.${state}` as any);
+  if (state === 'active') return <Badge className="bg-warning/15 text-warning">{label}</Badge>;
+  if (state === 'expired') return <Badge variant="outline">{label}</Badge>;
+  if (state === 'resolved') return <Badge className="bg-success/15 text-success">{label}</Badge>;
+  return <Badge variant="outline">{label}</Badge>;
 }
 
 function DefinitionRow({ def }: { def: AutoActionDefinition }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { toast } = useToast();
   const [cooldown, setCooldown] = useState<string>(String(def.cooldown_seconds));
   const [duration, setDuration] = useState<string>(String(def.max_duration_seconds));
 
   const mut = useMutation({
-    mutationFn: (patch: Parameters<typeof updateAutoActionDefinition>[1]) =>
-      updateAutoActionDefinition(def.id, patch),
+    mutationFn: (patch: Parameters<typeof updateAutoActionDefinition>[1]) => updateAutoActionDefinition(def.id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-auto-action-defs'] });
-      toast({ title: 'Action updated' });
+      toast({
+        title: t('admin.observability.autoActions.actionUpdated' as any),
+      });
     },
     onError: (err: Error) =>
-      toast({ title: 'Update failed', description: err.message, variant: 'destructive' }),
+      toast({
+        title: t('admin.observability.autoActions.updateFailed' as any),
+        description: err.message,
+        variant: 'destructive',
+      }),
   });
 
   return (
@@ -68,22 +65,21 @@ function DefinitionRow({ def }: { def: AutoActionDefinition }) {
               {def.action_type}
             </Badge>
           </div>
-          {def.description && (
-            <p className="text-xs text-muted-foreground mt-0.5">{def.description}</p>
-          )}
+          {def.description && <p className="text-xs text-muted-foreground mt-0.5">{def.description}</p>}
           <p className="text-[11px] font-mono text-muted-foreground mt-0.5 truncate">
-            trigger: {def.trigger_rule_slug || 'any-critical'} · min severity: {def.min_severity}
+            {t('admin.observability.autoActions.triggerSummary' as any, {
+              trigger: def.trigger_rule_slug || t('admin.observability.autoActions.anyCritical' as any),
+              severity: t(`admin.observability.autoActions.severity.${def.min_severity}` as any),
+            })}
           </p>
         </div>
-        <Switch
-          checked={def.enabled}
-          onCheckedChange={(v) => mut.mutate({ enabled: v })}
-          disabled={mut.isPending}
-        />
+        <Switch checked={def.enabled} onCheckedChange={(v) => mut.mutate({ enabled: v })} disabled={mut.isPending} />
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <Label className="text-[11px] text-muted-foreground">Cooldown (s)</Label>
+          <Label className="text-[11px] text-muted-foreground">
+            {t('admin.observability.autoActions.cooldownSeconds' as any)}
+          </Label>
           <Input
             type="number"
             min={60}
@@ -99,7 +95,9 @@ function DefinitionRow({ def }: { def: AutoActionDefinition }) {
           />
         </div>
         <div>
-          <Label className="text-[11px] text-muted-foreground">Max duration (s)</Label>
+          <Label className="text-[11px] text-muted-foreground">
+            {t('admin.observability.autoActions.maxDurationSeconds' as any)}
+          </Label>
           <Input
             type="number"
             min={60}
@@ -115,7 +113,9 @@ function DefinitionRow({ def }: { def: AutoActionDefinition }) {
           />
         </div>
         <div>
-          <Label className="text-[11px] text-muted-foreground">Min severity</Label>
+          <Label className="text-[11px] text-muted-foreground">
+            {t('admin.observability.autoActions.minSeverity' as any)}
+          </Label>
           <Select
             value={def.min_severity}
             onValueChange={(v) => mut.mutate({ min_severity: v as 'warn' | 'critical' })}
@@ -124,8 +124,8 @@ function DefinitionRow({ def }: { def: AutoActionDefinition }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="warn">warn</SelectItem>
-              <SelectItem value="critical">critical</SelectItem>
+              <SelectItem value="warn">{t('admin.observability.autoActions.severity.warn' as any)}</SelectItem>
+              <SelectItem value="critical">{t('admin.observability.autoActions.severity.critical' as any)}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -135,6 +135,7 @@ function DefinitionRow({ def }: { def: AutoActionDefinition }) {
 }
 
 export default function AutoActionsPanel() {
+  const { t, locale } = useTranslation();
   const qc = useQueryClient();
   const { toast } = useToast();
   const defsQ = useQuery({
@@ -158,12 +159,20 @@ export default function AutoActionsPanel() {
       qc.invalidateQueries({ queryKey: ['admin-auto-action-active'] });
       qc.invalidateQueries({ queryKey: ['admin-auto-action-events'] });
       toast({
-        title: 'Cycle complete',
-        description: `activated ${data.result.activated} · resolved ${data.result.resolved} · expired ${data.result.expired}`,
+        title: t('admin.observability.autoActions.cycleComplete' as any),
+        description: t('admin.observability.autoActions.cycleSummary' as any, {
+          activated: data.result.activated,
+          resolved: data.result.resolved,
+          expired: data.result.expired,
+        }),
       });
     },
     onError: (err: Error) =>
-      toast({ title: 'Evaluation failed', description: err.message, variant: 'destructive' }),
+      toast({
+        title: t('admin.observability.autoActions.evaluationFailed' as any),
+        description: err.message,
+        variant: 'destructive',
+      }),
   });
 
   const overrideMut = useMutation({
@@ -171,10 +180,16 @@ export default function AutoActionsPanel() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-auto-action-active'] });
       qc.invalidateQueries({ queryKey: ['admin-auto-action-events'] });
-      toast({ title: 'Action overridden' });
+      toast({
+        title: t('admin.observability.autoActions.actionOverridden' as any),
+      });
     },
     onError: (err: Error) =>
-      toast({ title: 'Override failed', description: err.message, variant: 'destructive' }),
+      toast({
+        title: t('admin.observability.autoActions.overrideFailed' as any),
+        description: err.message,
+        variant: 'destructive',
+      }),
   });
 
   const active = activeQ.data?.active || [];
@@ -184,28 +199,26 @@ export default function AutoActionsPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Shield className="h-4 w-4 text-primary" />
-          <h2 className="text-lg font-semibold text-foreground">Self-healing actions</h2>
+          <h2 className="text-lg font-semibold text-foreground">{t('admin.observability.autoActions.title' as any)}</h2>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => evalMut.mutate()}
-          disabled={evalMut.isPending}
-        >
-          <RefreshCw className={`h-4 w-4 mr-1 ${evalMut.isPending ? 'animate-spin' : ''}`} />
-          Evaluate now
+        <Button size="sm" variant="outline" onClick={() => evalMut.mutate()} disabled={evalMut.isPending}>
+          <RefreshCw className={`h-4 w-4 me-1 ${evalMut.isPending ? 'animate-spin' : ''}`} />
+          {t('admin.observability.autoActions.evaluateNow' as any)}
         </Button>
       </div>
 
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground text-sm flex items-center gap-2">
-            <Activity className="h-4 w-4" /> Active actions ({active.length})
+            <Activity className="h-4 w-4" />{' '}
+            {t('admin.observability.autoActions.activeActions' as any, {
+              count: active.length,
+            })}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {active.length === 0 && (
-            <p className="text-muted-foreground text-sm">No active auto-actions.</p>
+            <p className="text-muted-foreground text-sm">{t('admin.observability.autoActions.noActive' as any)}</p>
           )}
           {active.length > 0 && (
             <div className="space-y-2">
@@ -220,8 +233,10 @@ export default function AutoActionsPanel() {
                       <span className="font-mono text-xs text-foreground">{a.action_slug}</span>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      trigger: {a.trigger_rule_slug || 'any-critical'} ·{' '}
-                      expires {new Date(a.expires_at).toLocaleTimeString()}
+                      {t('admin.observability.autoActions.activeSummary' as any, {
+                        trigger: a.trigger_rule_slug || t('admin.observability.autoActions.anyCritical' as any),
+                        expires: new Date(a.expires_at).toLocaleTimeString(locale),
+                      })}
                     </p>
                   </div>
                   <Button
@@ -230,8 +245,8 @@ export default function AutoActionsPanel() {
                     onClick={() => overrideMut.mutate(a.id)}
                     disabled={overrideMut.isPending}
                   >
-                    <X className="h-3 w-3 mr-1" />
-                    End
+                    <X className="h-3 w-3 me-1" />
+                    {t('admin.observability.autoActions.end' as any)}
                   </Button>
                 </div>
               ))}
@@ -242,11 +257,15 @@ export default function AutoActionsPanel() {
 
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground text-sm">Action definitions</CardTitle>
+          <CardTitle className="text-foreground text-sm">
+            {t('admin.observability.autoActions.definitions' as any)}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {defsQ.isLoading && (
-            <p className="text-muted-foreground text-sm">Loading definitions…</p>
+            <p className="text-muted-foreground text-sm">
+              {t('admin.observability.autoActions.loadingDefinitions' as any)}
+            </p>
           )}
           {(defsQ.data?.definitions || []).map((d) => (
             <DefinitionRow key={d.id} def={d} />
@@ -256,41 +275,45 @@ export default function AutoActionsPanel() {
 
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground text-sm">Recent events</CardTitle>
+          <CardTitle className="text-foreground text-sm">
+            {t('admin.observability.autoActions.recentEvents' as any)}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Started</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Trigger</TableHead>
-                <TableHead>Severity</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Ended</TableHead>
+                <TableHead>{t('admin.observability.autoActions.started' as any)}</TableHead>
+                <TableHead>{t('admin.observability.autoActions.action' as any)}</TableHead>
+                <TableHead>{t('admin.observability.autoActions.trigger' as any)}</TableHead>
+                <TableHead>{t('admin.observability.autoActions.severityLabel' as any)}</TableHead>
+                <TableHead>{t('admin.observability.autoActions.state' as any)}</TableHead>
+                <TableHead>{t('admin.observability.autoActions.ended' as any)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(eventsQ.data?.events || []).map((e) => (
                 <TableRow key={e.id}>
                   <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                    {new Date(e.started_at).toLocaleString()}
+                    {new Date(e.started_at).toLocaleString(locale)}
                   </TableCell>
                   <TableCell className="font-mono text-xs">{e.action_slug}</TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {e.trigger_rule_slug || '—'}
+                  <TableCell className="font-mono text-xs">{e.trigger_rule_slug || '—'}</TableCell>
+                  <TableCell className="text-xs">
+                    {e.trigger_severity
+                      ? t(`admin.observability.autoActions.severity.${e.trigger_severity}` as any)
+                      : '—'}
                   </TableCell>
-                  <TableCell className="text-xs">{e.trigger_severity || '—'}</TableCell>
-                  <TableCell className="text-xs">{stateBadge(e.state)}</TableCell>
+                  <TableCell className="text-xs">{stateBadge(e.state, t)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {e.ended_at ? `${e.ended_reason || 'ended'}` : '—'}
+                    {e.ended_at ? e.ended_reason || t('admin.observability.autoActions.endedFallback' as any) : '—'}
                   </TableCell>
                 </TableRow>
               ))}
               {!eventsQ.isLoading && (eventsQ.data?.events.length ?? 0) === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground text-sm">
-                    No auto-action events yet.
+                    {t('admin.observability.autoActions.noEvents' as any)}
                   </TableCell>
                 </TableRow>
               )}

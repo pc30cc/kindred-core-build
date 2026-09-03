@@ -28,17 +28,17 @@ import {
   type EnforcementFlags,
 } from '@/lib/admin-enforcement-api';
 import { AlertTriangle, ShieldAlert, ShieldOff, ShieldCheck, Play, Power, GitMerge } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleString();
+function fmtTime(iso: string, locale: string): string {
+  return new Date(iso).toLocaleString(locale);
 }
 
 export default function EnforcementPanel() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [tab, setTab] = useState<
-    'overview' | 'rules' | 'breaches' | 'history' | 'normalizations'
-  >('overview');
+  const { t, locale } = useTranslation();
+  const [tab, setTab] = useState<'overview' | 'rules' | 'breaches' | 'history' | 'normalizations'>('overview');
 
   const flagsQ = useQuery({
     queryKey: ['enforcement-flags'],
@@ -75,18 +75,28 @@ export default function EnforcementPanel() {
     mutationFn: (patch: Partial<EnforcementFlags>) => updateEnforcementFlags(patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['enforcement-flags'] });
-      toast({ title: 'Flags updated' });
+      toast({ title: t('admin.observability.enforcement.flagsUpdated' as any) });
     },
-    onError: (e: Error) => toast({ title: 'Update failed', description: e.message, variant: 'destructive' }),
+    onError: (e: Error) =>
+      toast({
+        title: t('admin.observability.enforcement.updateFailed' as any),
+        description: e.message,
+        variant: 'destructive',
+      }),
   });
 
   const ruleMut = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: any }) => updateEnforcementRule(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['enforcement-rules'] });
-      toast({ title: 'Rule updated' });
+      toast({ title: t('admin.observability.enforcement.ruleUpdated' as any) });
     },
-    onError: (e: Error) => toast({ title: 'Rule update failed', description: e.message, variant: 'destructive' }),
+    onError: (e: Error) =>
+      toast({
+        title: t('admin.observability.enforcement.ruleUpdateFailed' as any),
+        description: e.message,
+        variant: 'destructive',
+      }),
   });
 
   const evalMut = useMutation({
@@ -96,20 +106,33 @@ export default function EnforcementPanel() {
       qc.invalidateQueries({ queryKey: ['enforcement-breaches'] });
       qc.invalidateQueries({ queryKey: ['enforcement-actions'] });
       toast({
-        title: 'Cycle complete',
-        description: `Triggered: ${data.enforcement?.triggered ?? 0} · SLO opened: ${data.slo?.opened ?? 0}`,
+        title: t('admin.observability.enforcement.cycleComplete' as any),
+        description: t('admin.observability.enforcement.cycleSummary' as any, {
+          triggered: data.enforcement?.triggered ?? 0,
+          opened: data.slo?.opened ?? 0,
+        }),
       });
     },
-    onError: (e: Error) => toast({ title: 'Cycle failed', description: e.message, variant: 'destructive' }),
+    onError: (e: Error) =>
+      toast({
+        title: t('admin.observability.enforcement.cycleFailed' as any),
+        description: e.message,
+        variant: 'destructive',
+      }),
   });
 
   const overrideMut = useMutation({
     mutationFn: overrideEnforcementAction,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['enforcement-active'] });
-      toast({ title: 'Action overridden' });
+      toast({ title: t('admin.observability.enforcement.actionOverridden' as any) });
     },
-    onError: (e: Error) => toast({ title: 'Override failed', description: e.message, variant: 'destructive' }),
+    onError: (e: Error) =>
+      toast({
+        title: t('admin.observability.enforcement.overrideFailed' as any),
+        description: e.message,
+        variant: 'destructive',
+      }),
   });
 
   const flags = flagsQ.data?.flags;
@@ -127,44 +150,40 @@ export default function EnforcementPanel() {
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground flex items-center gap-2 text-sm">
-            <ShieldAlert className="h-4 w-4" /> Safety controls
+            <ShieldAlert className="h-4 w-4" /> {t('admin.observability.enforcement.safety.title' as any)}
           </CardTitle>
-          <CardDescription>
-            Kill switch, dry-run mode, and platform-wide max concurrent enforcement actions.
-          </CardDescription>
+          <CardDescription>{t('admin.observability.enforcement.safety.description' as any)}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {flagsQ.isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
+          {flagsQ.isLoading && <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>}
           {flags && (
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="flex items-center justify-between rounded-md border border-border p-3">
                 <div>
                   <Label className="text-foreground flex items-center gap-2 text-sm">
-                    <Power className="h-3.5 w-3.5" /> Kill switch
+                    <Power className="h-3.5 w-3.5" /> {t('admin.observability.enforcement.safety.killSwitch' as any)}
                   </Label>
                   <p className="text-muted-foreground text-xs">
-                    Disables ALL enforcement activations.
+                    {t('admin.observability.enforcement.safety.killSwitchHint' as any)}
                   </p>
                 </div>
-                <Switch
-                  checked={flags.kill_switch}
-                  onCheckedChange={(v) => flagsMut.mutate({ kill_switch: v })}
-                />
+                <Switch checked={flags.kill_switch} onCheckedChange={(v) => flagsMut.mutate({ kill_switch: v })} />
               </div>
               <div className="flex items-center justify-between rounded-md border border-border p-3">
                 <div>
-                  <Label className="text-foreground text-sm">Dry-run mode</Label>
+                  <Label className="text-foreground text-sm">
+                    {t('admin.observability.enforcement.safety.dryRun' as any)}
+                  </Label>
                   <p className="text-muted-foreground text-xs">
-                    Logs what would happen without applying.
+                    {t('admin.observability.enforcement.safety.dryRunHint' as any)}
                   </p>
                 </div>
-                <Switch
-                  checked={flags.dry_run}
-                  onCheckedChange={(v) => flagsMut.mutate({ dry_run: v })}
-                />
+                <Switch checked={flags.dry_run} onCheckedChange={(v) => flagsMut.mutate({ dry_run: v })} />
               </div>
               <div className="rounded-md border border-border p-3">
-                <Label className="text-foreground text-sm">Max concurrent</Label>
+                <Label className="text-foreground text-sm">
+                  {t('admin.observability.enforcement.safety.maxConcurrent' as any)}
+                </Label>
                 <Input
                   type="number"
                   min={1}
@@ -179,7 +198,7 @@ export default function EnforcementPanel() {
                   }}
                 />
                 <p className="text-muted-foreground mt-1 text-xs">
-                  Cap on simultaneous active enforcement actions.
+                  {t('admin.observability.enforcement.safety.maxConcurrentHint' as any)}
                 </p>
               </div>
             </div>
@@ -188,23 +207,22 @@ export default function EnforcementPanel() {
             <div className="flex items-center gap-2">
               {flags?.kill_switch ? (
                 <Badge className="bg-destructive/15 text-destructive">
-                  <ShieldOff className="mr-1 h-3 w-3" /> Enforcement disabled
+                  <ShieldOff className="me-1 h-3 w-3" /> {t('admin.observability.enforcement.disabled' as any)}
                 </Badge>
               ) : (
                 <Badge className="bg-success/15 text-success">
-                  <ShieldCheck className="mr-1 h-3 w-3" /> Enforcement live
+                  <ShieldCheck className="me-1 h-3 w-3" /> {t('admin.observability.enforcement.live' as any)}
                 </Badge>
               )}
-              {flags?.dry_run && <Badge variant="outline">Dry-run</Badge>}
+              {flags?.dry_run && (
+                <Badge variant="outline">{t('admin.observability.enforcement.dryRunBadge' as any)}</Badge>
+              )}
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => evalMut.mutate()}
-              disabled={evalMut.isPending}
-            >
-              <Play className="mr-1 h-3 w-3" />
-              {evalMut.isPending ? 'Running…' : 'Evaluate now'}
+            <Button size="sm" variant="outline" onClick={() => evalMut.mutate()} disabled={evalMut.isPending}>
+              <Play className="me-1 h-3 w-3" />
+              {evalMut.isPending
+                ? t('admin.observability.enforcement.running' as any)
+                : t('admin.observability.enforcement.evaluateNow' as any)}
             </Button>
           </div>
         </CardContent>
@@ -212,33 +230,43 @@ export default function EnforcementPanel() {
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
         <TabsList>
-          <TabsTrigger value="overview">Active actions ({active.length})</TabsTrigger>
-          <TabsTrigger value="rules">Rules ({rules.length})</TabsTrigger>
-          <TabsTrigger value="breaches">Open breaches ({openBreaches.length})</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="normalizations">Normalizations ({norms.length})</TabsTrigger>
+          <TabsTrigger value="overview">
+            {t('admin.observability.enforcement.tabs.active' as any, { count: active.length })}
+          </TabsTrigger>
+          <TabsTrigger value="rules">
+            {t('admin.observability.enforcement.tabs.rules' as any, { count: rules.length })}
+          </TabsTrigger>
+          <TabsTrigger value="breaches">
+            {t('admin.observability.enforcement.tabs.breaches' as any, { count: openBreaches.length })}
+          </TabsTrigger>
+          <TabsTrigger value="history">{t('admin.observability.enforcement.tabs.history' as any)}</TabsTrigger>
+          <TabsTrigger value="normalizations">
+            {t('admin.observability.enforcement.tabs.normalizations' as any, { count: norms.length })}
+          </TabsTrigger>
         </TabsList>
 
         {/* Active enforcement actions */}
         <TabsContent value="overview">
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-foreground text-sm">Currently active</CardTitle>
-              <CardDescription>
-                Actions inserted by the enforcement engine that are still in TTL.
-              </CardDescription>
+              <CardTitle className="text-foreground text-sm">
+                {t('admin.observability.enforcement.active.title' as any)}
+              </CardTitle>
+              <CardDescription>{t('admin.observability.enforcement.active.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent>
               {active.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No active enforcement actions.</p>
+                <p className="text-muted-foreground text-sm">
+                  {t('admin.observability.enforcement.active.empty' as any)}
+                </p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Rule</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Expires</TableHead>
+                      <TableHead>{t('admin.observability.enforcement.action' as any)}</TableHead>
+                      <TableHead>{t('admin.observability.enforcement.rule' as any)}</TableHead>
+                      <TableHead>{t('admin.observability.enforcement.started' as any)}</TableHead>
+                      <TableHead>{t('admin.observability.enforcement.expires' as any)}</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -247,8 +275,8 @@ export default function EnforcementPanel() {
                       <TableRow key={a.id}>
                         <TableCell className="font-mono text-xs">{a.action_type}</TableCell>
                         <TableCell className="text-xs">{a.trigger_rule_slug || '—'}</TableCell>
-                        <TableCell className="text-xs">{fmtTime(a.started_at)}</TableCell>
-                        <TableCell className="text-xs">{fmtTime(a.expires_at)}</TableCell>
+                        <TableCell className="text-xs">{fmtTime(a.started_at, locale)}</TableCell>
+                        <TableCell className="text-xs">{fmtTime(a.expires_at, locale)}</TableCell>
                         <TableCell>
                           <Button
                             size="sm"
@@ -256,7 +284,7 @@ export default function EnforcementPanel() {
                             onClick={() => overrideMut.mutate(a.id)}
                             disabled={overrideMut.isPending}
                           >
-                            End now
+                            {t('admin.observability.enforcement.endNow' as any)}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -272,31 +300,34 @@ export default function EnforcementPanel() {
         <TabsContent value="rules">
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-foreground text-sm">Enforcement rules</CardTitle>
-              <CardDescription>
-                Built-in rules. You can toggle them and tune cooldown / TTL.
-              </CardDescription>
+              <CardTitle className="text-foreground text-sm">
+                {t('admin.observability.enforcement.rules.title' as any)}
+              </CardTitle>
+              <CardDescription>{t('admin.observability.enforcement.rules.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {rules.map((r) => (
-                <div
-                  key={r.id}
-                  className="rounded-md border border-border p-3 space-y-2"
-                >
+                <div key={r.id} className="rounded-md border border-border p-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-foreground font-medium text-sm flex items-center gap-2">
                         {r.title}
                         {r.is_builtin && (
-                          <Badge variant="outline" className="text-[10px]">builtin</Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {t('admin.observability.enforcement.rules.builtin' as any)}
+                          </Badge>
                         )}
                         <Badge variant="outline" className="text-[10px] font-mono">
-                          prio {r.priority}
+                          {t('admin.observability.enforcement.rules.priorityShort' as any)}{' '}
+                          {r.priority.toLocaleString(locale)}
                         </Badge>
                       </p>
                       <p className="text-muted-foreground text-xs">{r.description}</p>
                       <p className="text-muted-foreground mt-1 text-xs">
-                        Trigger: <span className="font-mono">{r.trigger_type}</span>
+                        {t('admin.observability.enforcement.trigger' as any)}:{' '}
+                        <span className="font-mono">
+                          {t(`admin.observability.enforcement.triggerTypes.${r.trigger_type}` as any)}
+                        </span>
                       </p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {r.actions_json.map((a) => (
@@ -308,14 +339,14 @@ export default function EnforcementPanel() {
                     </div>
                     <Switch
                       checked={r.enabled}
-                      onCheckedChange={(v) =>
-                        ruleMut.mutate({ id: r.id, patch: { enabled: v } })
-                      }
+                      onCheckedChange={(v) => ruleMut.mutate({ id: r.id, patch: { enabled: v } })}
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <Label className="text-muted-foreground text-xs">Cooldown (s)</Label>
+                      <Label className="text-muted-foreground text-xs">
+                        {t('admin.observability.enforcement.rules.cooldown' as any)}
+                      </Label>
                       <Input
                         type="number"
                         min={60}
@@ -330,7 +361,9 @@ export default function EnforcementPanel() {
                       />
                     </div>
                     <div>
-                      <Label className="text-muted-foreground text-xs">TTL (s)</Label>
+                      <Label className="text-muted-foreground text-xs">
+                        {t('admin.observability.enforcement.rules.ttl' as any)}
+                      </Label>
                       <Input
                         type="number"
                         min={60}
@@ -345,7 +378,9 @@ export default function EnforcementPanel() {
                       />
                     </div>
                     <div>
-                      <Label className="text-muted-foreground text-xs">Priority (0–1000)</Label>
+                      <Label className="text-muted-foreground text-xs">
+                        {t('admin.observability.enforcement.rules.priority' as any)}
+                      </Label>
                       <Input
                         type="number"
                         min={0}
@@ -363,7 +398,9 @@ export default function EnforcementPanel() {
                 </div>
               ))}
               {rules.length === 0 && (
-                <p className="text-muted-foreground text-sm">No rules defined.</p>
+                <p className="text-muted-foreground text-sm">
+                  {t('admin.observability.enforcement.rules.empty' as any)}
+                </p>
               )}
             </CardContent>
           </Card>
@@ -374,21 +411,19 @@ export default function EnforcementPanel() {
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-foreground text-sm flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" /> SLO breaches
+                <AlertTriangle className="h-4 w-4" /> {t('admin.observability.enforcement.breaches.title' as any)}
               </CardTitle>
-              <CardDescription>
-                Sustained breaches detected across SLO definitions.
-              </CardDescription>
+              <CardDescription>{t('admin.observability.enforcement.breaches.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>SLO</TableHead>
-                    <TableHead>Scope</TableHead>
-                    <TableHead>Observed / Target</TableHead>
-                    <TableHead>State</TableHead>
-                    <TableHead>Last breach</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.scope' as any)}</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.breaches.observedTarget' as any)}</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.state' as any)}</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.breaches.lastBreach' as any)}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -403,18 +438,22 @@ export default function EnforcementPanel() {
                       </TableCell>
                       <TableCell>
                         {b.state === 'open' ? (
-                          <Badge className="bg-destructive/15 text-destructive">open ×{b.consecutive_breaches}</Badge>
+                          <Badge className="bg-destructive/15 text-destructive">
+                            {t('admin.observability.enforcement.breaches.openCount' as any, {
+                              count: b.consecutive_breaches,
+                            })}
+                          </Badge>
                         ) : (
-                          <Badge variant="outline">resolved</Badge>
+                          <Badge variant="outline">{t('admin.observability.enforcement.resolved' as any)}</Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs">{fmtTime(b.last_breach_at)}</TableCell>
+                      <TableCell className="text-xs">{fmtTime(b.last_breach_at, locale)}</TableCell>
                     </TableRow>
                   ))}
                   {breaches.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-muted-foreground text-center text-sm">
-                        No breaches recorded.
+                        {t('admin.observability.enforcement.breaches.empty' as any)}
                       </TableCell>
                     </TableRow>
                   )}
@@ -428,36 +467,40 @@ export default function EnforcementPanel() {
         <TabsContent value="history">
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-foreground text-sm">Enforcement history</CardTitle>
-              <CardDescription>
-                Audit log of every rule activation (including dry-run).
-              </CardDescription>
+              <CardTitle className="text-foreground text-sm">
+                {t('admin.observability.enforcement.history.title' as any)}
+              </CardTitle>
+              <CardDescription>{t('admin.observability.enforcement.history.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Rule</TableHead>
-                    <TableHead>Trigger</TableHead>
-                    <TableHead>Scope</TableHead>
-                    <TableHead>Mode</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.time' as any)}</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.rule' as any)}</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.trigger' as any)}</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.scope' as any)}</TableHead>
+                    <TableHead>{t('admin.observability.enforcement.mode' as any)}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {actions.map((a) => (
                     <TableRow key={a.id}>
-                      <TableCell className="text-xs whitespace-nowrap">{fmtTime(a.created_at)}</TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">{fmtTime(a.created_at, locale)}</TableCell>
                       <TableCell className="font-mono text-xs">{a.rule_slug}</TableCell>
-                      <TableCell className="text-xs">{a.trigger_type}</TableCell>
+                      <TableCell className="text-xs">
+                        {t(`admin.observability.enforcement.triggerTypes.${a.trigger_type}` as any)}
+                      </TableCell>
                       <TableCell className="text-xs">
                         {a.scope_type}:{a.scope_key.slice(0, 12)}
                       </TableCell>
                       <TableCell>
                         {a.dry_run ? (
-                          <Badge variant="outline">dry-run</Badge>
+                          <Badge variant="outline">{t('admin.observability.enforcement.dryRunBadge' as any)}</Badge>
                         ) : (
-                          <Badge className="bg-primary/15 text-primary">applied</Badge>
+                          <Badge className="bg-primary/15 text-primary">
+                            {t('admin.observability.enforcement.applied' as any)}
+                          </Badge>
                         )}
                       </TableCell>
                     </TableRow>
@@ -465,7 +508,7 @@ export default function EnforcementPanel() {
                   {actions.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-muted-foreground text-center text-sm">
-                        No history yet.
+                        {t('admin.observability.enforcement.history.empty' as any)}
                       </TableCell>
                     </TableRow>
                   )}
@@ -480,33 +523,31 @@ export default function EnforcementPanel() {
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-foreground text-sm flex items-center gap-2">
-                <GitMerge className="h-4 w-4" /> Conflict normalizations
+                <GitMerge className="h-4 w-4" /> {t('admin.observability.enforcement.normalizations.title' as any)}
               </CardTitle>
               <CardDescription>
-                Audit of cycles where the conflict resolver merged or
-                suppressed conflicting actions.
+                {t('admin.observability.enforcement.normalizations.description' as any)}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {norms.length === 0 && (
                 <p className="text-muted-foreground text-sm">
-                  No normalization events yet — every cycle so far produced
-                  a clean action set.
+                  {t('admin.observability.enforcement.normalizations.empty' as any)}
                 </p>
               )}
               {norms.map((n) => (
                 <div key={n.id} className="rounded-md border border-border p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-foreground text-sm font-medium">
-                      {fmtTime(n.created_at)}
-                    </p>
+                    <p className="text-foreground text-sm font-medium">{fmtTime(n.created_at, locale)}</p>
                     <Badge variant="outline" className="text-[10px]">
-                      {n.reasons.length} change{n.reasons.length === 1 ? '' : 's'}
+                      {t('admin.observability.enforcement.normalizations.changes' as any, { count: n.reasons.length })}
                     </Badge>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div>
-                      <p className="text-muted-foreground text-[11px] uppercase">Raw</p>
+                      <p className="text-muted-foreground text-[11px] uppercase">
+                        {t('admin.observability.enforcement.normalizations.raw' as any)}
+                      </p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {n.raw_actions.map((r, i) => (
                           <Badge key={i} variant="outline" className="text-[10px] font-mono">
@@ -516,13 +557,12 @@ export default function EnforcementPanel() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-muted-foreground text-[11px] uppercase">Normalized</p>
+                      <p className="text-muted-foreground text-[11px] uppercase">
+                        {t('admin.observability.enforcement.normalizations.normalized' as any)}
+                      </p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {n.normalized_actions.map((r, i) => (
-                          <Badge
-                            key={i}
-                            className="bg-primary/15 text-primary text-[10px] font-mono"
-                          >
+                          <Badge key={i} className="bg-primary/15 text-primary text-[10px] font-mono">
                             {r.action_type} · {r.rule_slug} · p{r.rule_priority}
                           </Badge>
                         ))}

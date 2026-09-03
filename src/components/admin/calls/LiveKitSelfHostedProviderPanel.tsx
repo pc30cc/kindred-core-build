@@ -24,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from '@/i18n';
 import {
   fetchLiveKitConfig,
   updateLiveKitConfig,
@@ -45,6 +46,7 @@ function ReadinessBadge({ ok, label }: { ok: boolean; label: string }) {
 
 export function LiveKitSelfHostedProviderPanel() {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cfg, setCfg] = useState<LiveKitConfigPublicView | null>(null);
@@ -75,7 +77,7 @@ export function LiveKitSelfHostedProviderPanel() {
       setSavedEgressUrl(r.livekit.egress_url);
     } catch (e: any) {
       toast({
-        title: 'Failed to load LiveKit settings',
+        title: t('admin.voiceVideo.livekit.loadFailed' as any),
         description: e.message,
         variant: 'destructive',
       });
@@ -104,9 +106,9 @@ export function LiveKitSelfHostedProviderPanel() {
       if (patch.recording_storage && 'secret_key' in patch.recording_storage) setS3SecretEdit('');
       // Stale once config changes — force a fresh probe.
       setTestResult(null);
-      toast({ title: 'LiveKit settings saved' });
+      toast({ title: t('admin.voiceVideo.livekit.saved' as any) });
     } catch (e: any) {
-      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+      toast({ title: t('admin.voiceVideo.livekit.saveFailed' as any), description: e.message, variant: 'destructive' });
       throw e;
     } finally {
       setSaving(false);
@@ -139,8 +141,8 @@ export function LiveKitSelfHostedProviderPanel() {
     }
     if (!currentRtc) {
       toast({
-        title: 'RTC URL is required',
-        description: 'Enter the LiveKit RTC URL (e.g. wss://livekit.example.com) before testing.',
+        title: t('admin.voiceVideo.livekit.rtcRequired' as any),
+        description: t('admin.voiceVideo.livekit.rtcRequiredHint' as any),
         variant: 'destructive',
       });
       return;
@@ -151,15 +153,15 @@ export function LiveKitSelfHostedProviderPanel() {
       const r = await testLiveKitConnection();
       setTestResult(r);
       toast({
-        title: r.ok ? 'LiveKit connection OK' : 'LiveKit connection failed',
+        title: r.ok ? t('admin.voiceVideo.livekit.testOk' as any) : t('admin.voiceVideo.livekit.testFailed' as any),
         description: r.ok
-          ? `Reached ${r.rtc_url} in ${r.latency_ms}ms`
-          : r.error || 'Unknown error',
+          ? t('admin.voiceVideo.livekit.reached' as any, { url: r.rtc_url, latency: r.latency_ms })
+          : r.error || t('admin.voiceVideo.livekit.unknownError' as any),
         variant: r.ok ? 'default' : 'destructive',
       });
     } catch (e: any) {
       setTestResult({ ok: false, error: e.message });
-      toast({ title: 'Test failed', description: e.message, variant: 'destructive' });
+      toast({ title: t('admin.voiceVideo.livekit.testFailed' as any), description: e.message, variant: 'destructive' });
     } finally {
       setTesting(false);
     }
@@ -178,11 +180,7 @@ export function LiveKitSelfHostedProviderPanel() {
   // Mirror of livekitProvider.isReady() in the backend.
   const ready = cfg.enabled && cfg.api_key_present && cfg.api_secret_present && !!cfg.rtc_url;
   // For the Test button: trust the *typed* RTC URL too (we'll auto-save before probing).
-  const canTest =
-    cfg.enabled &&
-    cfg.api_key_present &&
-    cfg.api_secret_present &&
-    !!(cfg.rtc_url ?? '').trim();
+  const canTest = cfg.enabled && cfg.api_key_present && cfg.api_secret_present && !!(cfg.rtc_url ?? '').trim();
 
   return (
     <Card>
@@ -192,20 +190,19 @@ export function LiveKitSelfHostedProviderPanel() {
             <CardTitle className="flex items-center gap-2">
               <Server className="h-5 w-5" /> LiveKit
               <Badge variant="outline" className="gap-1">
-                <ShieldCheck className="h-3 w-3" /> Self-hosted
+                <ShieldCheck className="h-3 w-3" /> {t('admin.voiceVideo.livekit.selfHosted' as any)}
               </Badge>
               <Badge variant={ready ? 'default' : 'secondary'} className="gap-1">
                 {ready ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                {ready ? 'Ready' : 'Not ready'}
+                {ready ? t('admin.voiceVideo.livekit.ready' as any) : t('admin.voiceVideo.livekit.notReady' as any)}
               </Badge>
             </CardTitle>
-            <CardDescription>
-              Connect your self-hosted LiveKit server. Secrets are write-only — the UI only
-              shows whether each value is configured, never the value itself.
-            </CardDescription>
+            <CardDescription>{t('admin.voiceVideo.livekit.description' as any)}</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Label htmlFor="livekit-enabled" className="text-sm">Enabled</Label>
+            <Label htmlFor="livekit-enabled" className="text-sm">
+              {t('admin.voiceVideo.livekit.enabled' as any)}
+            </Label>
             <Switch
               id="livekit-enabled"
               checked={cfg.enabled}
@@ -220,32 +217,36 @@ export function LiveKitSelfHostedProviderPanel() {
         {/* Readiness summary — mirrors backend livekitProvider.isReady() */}
         <div className="rounded-md border border-border p-3 space-y-2 bg-muted/20">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold text-foreground">Readiness</div>
+            <div className="text-xs font-semibold text-foreground">
+              {t('admin.voiceVideo.livekit.readiness' as any)}
+            </div>
             <Button
               size="sm"
               variant="outline"
               onClick={runTest}
               disabled={testing || saving || !canTest}
-              title={!canTest ? 'Configure API key, secret, RTC URL and enable LiveKit first' : 'Probe LiveKit using saved credentials'}
+              title={
+                !canTest
+                  ? t('admin.voiceVideo.livekit.testDisabledHint' as any)
+                  : t('admin.voiceVideo.livekit.testHint' as any)
+              }
             >
               {testing ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />
               ) : (
-                <Plug className="h-3.5 w-3.5 mr-1.5" />
+                <Plug className="h-3.5 w-3.5 me-1.5" />
               )}
-              Test connection
+              {t('admin.voiceVideo.livekit.testConnection' as any)}
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
-            <ReadinessBadge ok={cfg.enabled} label="Enabled" />
-            <ReadinessBadge ok={cfg.api_key_present} label="API key" />
-            <ReadinessBadge ok={cfg.api_secret_present} label="API secret" />
-            <ReadinessBadge ok={!!cfg.rtc_url} label="RTC URL" />
+            <ReadinessBadge ok={cfg.enabled} label={t('admin.voiceVideo.livekit.enabled' as any)} />
+            <ReadinessBadge ok={cfg.api_key_present} label={t('admin.voiceVideo.livekit.apiKey' as any)} />
+            <ReadinessBadge ok={cfg.api_secret_present} label={t('admin.voiceVideo.livekit.apiSecret' as any)} />
+            <ReadinessBadge ok={!!cfg.rtc_url} label={t('admin.voiceVideo.livekit.rtcUrl' as any)} />
           </div>
           {!ready && (
-            <p className="text-[11px] text-muted-foreground">
-              All four conditions must be satisfied for the resolver to mark LiveKit as ready.
-            </p>
+            <p className="text-[11px] text-muted-foreground">{t('admin.voiceVideo.livekit.readinessHint' as any)}</p>
           )}
           {testResult && (
             <div
@@ -260,8 +261,10 @@ export function LiveKitSelfHostedProviderPanel() {
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   <span>
-                    Reached <code className="font-mono">{testResult.rtc_url}</code> in{' '}
-                    {testResult.latency_ms}ms.
+                    {t('admin.voiceVideo.livekit.reached' as any, {
+                      url: testResult.rtc_url,
+                      latency: testResult.latency_ms,
+                    })}
                   </span>
                 </div>
               ) : (
@@ -277,7 +280,7 @@ export function LiveKitSelfHostedProviderPanel() {
         {/* URLs */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label>RTC URL</Label>
+            <Label>{t('admin.voiceVideo.livekit.rtcUrl' as any)}</Label>
             <Input
               value={cfg.rtc_url ?? ''}
               onChange={(e) => setCfg({ ...cfg, rtc_url: e.target.value })}
@@ -287,12 +290,10 @@ export function LiveKitSelfHostedProviderPanel() {
               }}
               placeholder="wss://livekit.example.com"
             />
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Required. The LiveKit server signaling endpoint.
-            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">{t('admin.voiceVideo.livekit.rtcHint' as any)}</p>
           </div>
           <div>
-            <Label>WebSocket URL (optional override)</Label>
+            <Label>{t('admin.voiceVideo.livekit.websocketUrl' as any)}</Label>
             <Input
               value={cfg.ws_url ?? ''}
               onChange={(e) => setCfg({ ...cfg, ws_url: e.target.value })}
@@ -303,11 +304,11 @@ export function LiveKitSelfHostedProviderPanel() {
               placeholder="wss://livekit.example.com"
             />
             <p className="text-[11px] text-muted-foreground mt-1">
-              Defaults to RTC URL when blank.
+              {t('admin.voiceVideo.livekit.websocketHint' as any)}
             </p>
           </div>
           <div>
-            <Label>Region (optional)</Label>
+            <Label>{t('admin.voiceVideo.livekit.region' as any)}</Label>
             <Input
               value={cfg.region ?? ''}
               onChange={(e) => setCfg({ ...cfg, region: e.target.value })}
@@ -326,9 +327,11 @@ export function LiveKitSelfHostedProviderPanel() {
         <div className="space-y-3">
           <div>
             <div className="flex items-center justify-between">
-              <Label>API Key</Label>
+              <Label>{t('admin.voiceVideo.livekit.apiKey' as any)}</Label>
               <Badge variant={cfg.api_key_present ? 'default' : 'secondary'}>
-                {cfg.api_key_present ? 'configured' : 'not set'}
+                {cfg.api_key_present
+                  ? t('admin.voiceVideo.livekit.configured' as any)
+                  : t('admin.voiceVideo.livekit.notSet' as any)}
               </Badge>
             </div>
             <div className="flex gap-2 mt-1">
@@ -336,18 +339,22 @@ export function LiveKitSelfHostedProviderPanel() {
                 type="password"
                 value={apiKeyEdit}
                 onChange={(e) => setApiKeyEdit(e.target.value)}
-                placeholder={cfg.api_key_present ? 'Leave blank to keep current value' : 'Paste LiveKit API key'}
+                placeholder={
+                  cfg.api_key_present
+                    ? t('admin.voiceVideo.livekit.keepCurrent' as any)
+                    : t('admin.voiceVideo.livekit.pasteApiKey' as any)
+                }
               />
               <Button
                 variant="outline"
                 disabled={saving || apiKeyEdit === ''}
                 onClick={() => save({ api_key: apiKeyEdit })}
               >
-                <Save className="h-4 w-4 mr-2" /> Save
+                <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.livekit.save' as any)}
               </Button>
               {cfg.api_key_present && (
                 <Button variant="ghost" disabled={saving} onClick={() => save({ api_key: '' })}>
-                  Clear
+                  {t('admin.voiceVideo.livekit.clear' as any)}
                 </Button>
               )}
             </div>
@@ -355,9 +362,11 @@ export function LiveKitSelfHostedProviderPanel() {
 
           <div>
             <div className="flex items-center justify-between">
-              <Label>API Secret</Label>
+              <Label>{t('admin.voiceVideo.livekit.apiSecret' as any)}</Label>
               <Badge variant={cfg.api_secret_present ? 'default' : 'secondary'}>
-                {cfg.api_secret_present ? 'configured' : 'not set'}
+                {cfg.api_secret_present
+                  ? t('admin.voiceVideo.livekit.configured' as any)
+                  : t('admin.voiceVideo.livekit.notSet' as any)}
               </Badge>
             </div>
             <div className="flex gap-2 mt-1">
@@ -365,18 +374,22 @@ export function LiveKitSelfHostedProviderPanel() {
                 type="password"
                 value={apiSecretEdit}
                 onChange={(e) => setApiSecretEdit(e.target.value)}
-                placeholder={cfg.api_secret_present ? 'Leave blank to keep current value' : 'Paste LiveKit API secret'}
+                placeholder={
+                  cfg.api_secret_present
+                    ? t('admin.voiceVideo.livekit.keepCurrent' as any)
+                    : t('admin.voiceVideo.livekit.pasteApiSecret' as any)
+                }
               />
               <Button
                 variant="outline"
                 disabled={saving || apiSecretEdit === ''}
                 onClick={() => save({ api_secret: apiSecretEdit })}
               >
-                <Save className="h-4 w-4 mr-2" /> Save
+                <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.livekit.save' as any)}
               </Button>
               {cfg.api_secret_present && (
                 <Button variant="ghost" disabled={saving} onClick={() => save({ api_secret: '' })}>
-                  Clear
+                  {t('admin.voiceVideo.livekit.clear' as any)}
                 </Button>
               )}
             </div>
@@ -389,13 +402,15 @@ export function LiveKitSelfHostedProviderPanel() {
         <div>
           <div className="flex items-center justify-between">
             <div>
-              <Label>Webhook secret (optional)</Label>
+              <Label>{t('admin.voiceVideo.livekit.webhookSecret' as any)}</Label>
               <p className="text-[11px] text-muted-foreground">
-                Used to verify LiveKit server webhooks. Defaults to API secret when blank.
+                {t('admin.voiceVideo.livekit.webhookSecretHint' as any)}
               </p>
             </div>
             <Badge variant={cfg.webhook_secret_present ? 'default' : 'secondary'}>
-              {cfg.webhook_secret_present ? 'configured' : 'not set'}
+              {cfg.webhook_secret_present
+                ? t('admin.voiceVideo.livekit.configured' as any)
+                : t('admin.voiceVideo.livekit.notSet' as any)}
             </Badge>
           </div>
           <div className="flex gap-2 mt-1">
@@ -403,18 +418,22 @@ export function LiveKitSelfHostedProviderPanel() {
               type="password"
               value={webhookSecretEdit}
               onChange={(e) => setWebhookSecretEdit(e.target.value)}
-              placeholder={cfg.webhook_secret_present ? 'Leave blank to keep current value' : 'Optional webhook secret'}
+              placeholder={
+                cfg.webhook_secret_present
+                  ? t('admin.voiceVideo.livekit.keepCurrent' as any)
+                  : t('admin.voiceVideo.livekit.webhookSecretPlaceholder' as any)
+              }
             />
             <Button
               variant="outline"
               disabled={saving || webhookSecretEdit === ''}
               onClick={() => save({ webhook_secret: webhookSecretEdit })}
             >
-              <Save className="h-4 w-4 mr-2" /> Save
+              <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.livekit.save' as any)}
             </Button>
             {cfg.webhook_secret_present && (
               <Button variant="ghost" disabled={saving} onClick={() => save({ webhook_secret: '' })}>
-                Clear
+                {t('admin.voiceVideo.livekit.clear' as any)}
               </Button>
             )}
           </div>
@@ -425,20 +444,14 @@ export function LiveKitSelfHostedProviderPanel() {
         {/* Egress */}
         <div className="flex items-center justify-between">
           <div>
-            <Label>Egress (recording / streaming)</Label>
-            <p className="text-[11px] text-muted-foreground">
-              Enable LiveKit Egress for server-side recording and streaming.
-            </p>
+            <Label>{t('admin.voiceVideo.livekit.egress' as any)}</Label>
+            <p className="text-[11px] text-muted-foreground">{t('admin.voiceVideo.livekit.egressHint' as any)}</p>
           </div>
-          <Switch
-            checked={cfg.egress_enabled}
-            onCheckedChange={(v) => save({ egress_enabled: v })}
-            disabled={saving}
-          />
+          <Switch checked={cfg.egress_enabled} onCheckedChange={(v) => save({ egress_enabled: v })} disabled={saving} />
         </div>
         {cfg.egress_enabled && (
           <div>
-            <Label>Egress URL</Label>
+            <Label>{t('admin.voiceVideo.livekit.egressUrl' as any)}</Label>
             <Input
               value={cfg.egress_url ?? ''}
               onChange={(e) => setCfg({ ...cfg, egress_url: e.target.value })}
@@ -456,10 +469,12 @@ export function LiveKitSelfHostedProviderPanel() {
           <>
             <Separator />
             <div className="space-y-3">
-              <div className="text-xs font-semibold text-foreground">Recording storage (S3 / S3-compatible)</div>
+              <div className="text-xs font-semibold text-foreground">
+                {t('admin.voiceVideo.livekit.storageTitle' as any)}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label>Vendor</Label>
+                  <Label>{t('admin.voiceVideo.livekit.vendor' as any)}</Label>
                   <select
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={cfg.recording_storage.vendor ?? ''}
@@ -470,19 +485,21 @@ export function LiveKitSelfHostedProviderPanel() {
                     }}
                     disabled={saving}
                   >
-                    <option value="">— none —</option>
+                    <option value="">— {t('admin.voiceVideo.livekit.none' as any)} —</option>
                     <option value="s3">AWS S3</option>
-                    <option value="s3_compatible">S3-compatible (MinIO, R2, etc.)</option>
+                    <option value="s3_compatible">{t('admin.voiceVideo.livekit.s3Compatible' as any)}</option>
                   </select>
                 </div>
                 <div>
-                  <Label>Bucket</Label>
+                  <Label>{t('admin.voiceVideo.livekit.bucket' as any)}</Label>
                   <Input
                     value={cfg.recording_storage.bucket ?? ''}
-                    onChange={(e) => setCfg({
-                      ...cfg,
-                      recording_storage: { ...cfg.recording_storage, bucket: e.target.value },
-                    })}
+                    onChange={(e) =>
+                      setCfg({
+                        ...cfg,
+                        recording_storage: { ...cfg.recording_storage, bucket: e.target.value },
+                      })
+                    }
                     onBlur={(e) => {
                       const v = e.target.value.trim();
                       if (v !== (cfg.recording_storage.bucket ?? '')) {
@@ -493,13 +510,15 @@ export function LiveKitSelfHostedProviderPanel() {
                   />
                 </div>
                 <div>
-                  <Label>Region</Label>
+                  <Label>{t('admin.voiceVideo.livekit.storageRegion' as any)}</Label>
                   <Input
                     value={cfg.recording_storage.region ?? ''}
-                    onChange={(e) => setCfg({
-                      ...cfg,
-                      recording_storage: { ...cfg.recording_storage, region: e.target.value },
-                    })}
+                    onChange={(e) =>
+                      setCfg({
+                        ...cfg,
+                        recording_storage: { ...cfg.recording_storage, region: e.target.value },
+                      })
+                    }
                     onBlur={(e) => {
                       const v = e.target.value.trim();
                       if (v !== (cfg.recording_storage.region ?? '')) {
@@ -510,13 +529,15 @@ export function LiveKitSelfHostedProviderPanel() {
                   />
                 </div>
                 <div>
-                  <Label>Endpoint (S3-compatible)</Label>
+                  <Label>{t('admin.voiceVideo.livekit.endpoint' as any)}</Label>
                   <Input
                     value={cfg.recording_storage.endpoint ?? ''}
-                    onChange={(e) => setCfg({
-                      ...cfg,
-                      recording_storage: { ...cfg.recording_storage, endpoint: e.target.value },
-                    })}
+                    onChange={(e) =>
+                      setCfg({
+                        ...cfg,
+                        recording_storage: { ...cfg.recording_storage, endpoint: e.target.value },
+                      })
+                    }
                     onBlur={(e) => {
                       const v = e.target.value.trim();
                       if (v !== (cfg.recording_storage.endpoint ?? '')) {
@@ -528,7 +549,9 @@ export function LiveKitSelfHostedProviderPanel() {
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <Label htmlFor="lk-fps" className="text-sm">Force path-style URLs</Label>
+                <Label htmlFor="lk-fps" className="text-sm">
+                  {t('admin.voiceVideo.livekit.forcePathStyle' as any)}
+                </Label>
                 <Switch
                   id="lk-fps"
                   checked={cfg.recording_storage.force_path_style}
@@ -539,9 +562,11 @@ export function LiveKitSelfHostedProviderPanel() {
 
               <div>
                 <div className="flex items-center justify-between">
-                  <Label>Access key</Label>
+                  <Label>{t('admin.voiceVideo.livekit.accessKey' as any)}</Label>
                   <Badge variant={cfg.recording_storage.access_key_present ? 'default' : 'secondary'}>
-                    {cfg.recording_storage.access_key_present ? 'configured' : 'not set'}
+                    {cfg.recording_storage.access_key_present
+                      ? t('admin.voiceVideo.livekit.configured' as any)
+                      : t('admin.voiceVideo.livekit.notSet' as any)}
                   </Badge>
                 </div>
                 <div className="flex gap-2 mt-1">
@@ -549,14 +574,18 @@ export function LiveKitSelfHostedProviderPanel() {
                     type="password"
                     value={s3AccessEdit}
                     onChange={(e) => setS3AccessEdit(e.target.value)}
-                    placeholder={cfg.recording_storage.access_key_present ? 'Leave blank to keep' : 'S3 access key'}
+                    placeholder={
+                      cfg.recording_storage.access_key_present
+                        ? t('admin.voiceVideo.livekit.keep' as any)
+                        : t('admin.voiceVideo.livekit.s3AccessKey' as any)
+                    }
                   />
                   <Button
                     variant="outline"
                     disabled={saving || s3AccessEdit === ''}
                     onClick={() => save({ recording_storage: { access_key: s3AccessEdit } })}
                   >
-                    <Save className="h-4 w-4 mr-2" /> Save
+                    <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.livekit.save' as any)}
                   </Button>
                   {cfg.recording_storage.access_key_present && (
                     <Button
@@ -564,7 +593,7 @@ export function LiveKitSelfHostedProviderPanel() {
                       disabled={saving}
                       onClick={() => save({ recording_storage: { access_key: '' } })}
                     >
-                      Clear
+                      {t('admin.voiceVideo.livekit.clear' as any)}
                     </Button>
                   )}
                 </div>
@@ -572,9 +601,11 @@ export function LiveKitSelfHostedProviderPanel() {
 
               <div>
                 <div className="flex items-center justify-between">
-                  <Label>Secret key</Label>
+                  <Label>{t('admin.voiceVideo.livekit.secretKey' as any)}</Label>
                   <Badge variant={cfg.recording_storage.secret_key_present ? 'default' : 'secondary'}>
-                    {cfg.recording_storage.secret_key_present ? 'configured' : 'not set'}
+                    {cfg.recording_storage.secret_key_present
+                      ? t('admin.voiceVideo.livekit.configured' as any)
+                      : t('admin.voiceVideo.livekit.notSet' as any)}
                   </Badge>
                 </div>
                 <div className="flex gap-2 mt-1">
@@ -582,14 +613,18 @@ export function LiveKitSelfHostedProviderPanel() {
                     type="password"
                     value={s3SecretEdit}
                     onChange={(e) => setS3SecretEdit(e.target.value)}
-                    placeholder={cfg.recording_storage.secret_key_present ? 'Leave blank to keep' : 'S3 secret key'}
+                    placeholder={
+                      cfg.recording_storage.secret_key_present
+                        ? t('admin.voiceVideo.livekit.keep' as any)
+                        : t('admin.voiceVideo.livekit.s3SecretKey' as any)
+                    }
                   />
                   <Button
                     variant="outline"
                     disabled={saving || s3SecretEdit === ''}
                     onClick={() => save({ recording_storage: { secret_key: s3SecretEdit } })}
                   >
-                    <Save className="h-4 w-4 mr-2" /> Save
+                    <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.livekit.save' as any)}
                   </Button>
                   {cfg.recording_storage.secret_key_present && (
                     <Button
@@ -597,7 +632,7 @@ export function LiveKitSelfHostedProviderPanel() {
                       disabled={saving}
                       onClick={() => save({ recording_storage: { secret_key: '' } })}
                     >
-                      Clear
+                      {t('admin.voiceVideo.livekit.clear' as any)}
                     </Button>
                   )}
                 </div>
@@ -610,12 +645,8 @@ export function LiveKitSelfHostedProviderPanel() {
 
         <Alert>
           <Info className="h-4 w-4" />
-          <AlertTitle>TURN / ICE policy lives in the Network section</AlertTitle>
-          <AlertDescription>
-            TURN URLs, TURN credentials and ICE policy are cross-provider network settings.
-            They are configured in the <em>Channels &amp; recording</em> tab under RTC / Network,
-            and LiveKit consumes those resolved values at runtime.
-          </AlertDescription>
+          <AlertTitle>{t('admin.voiceVideo.livekit.networkTitle' as any)}</AlertTitle>
+          <AlertDescription>{t('admin.voiceVideo.livekit.networkHint' as any)}</AlertDescription>
         </Alert>
       </CardContent>
     </Card>

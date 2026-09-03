@@ -10,6 +10,7 @@ const tr: TranslationKeys = {
       page: 'Sayfa {{page}} / {{pages}}', prev: 'Önceki', next: 'Sonraki', close: 'Kapat', cancel: 'Vazgeç',
       confirm: 'Onayla', back: 'Geri', amount: 'Tutar', date: 'Tarih', status: 'Durum', actions: 'İşlemler',
       view: 'Görüntüle', total: 'Toplam', yes: 'Evet', no: 'Hayır', notAvailable: '—',
+      continue: 'Devam',
     },
     overview: {
       currentPlan: 'Mevcut plan', free: 'Ücretsiz', trial: 'Deneme', trialEnds: 'Deneme {{date}} tarihinde bitiyor',
@@ -65,6 +66,8 @@ const tr: TranslationKeys = {
       ledger: 'Cüzdan hareketleri', credit: 'Giriş', debit: 'Çıkış', reference: 'Referans', balanceAfter: 'İşlem sonrası bakiye',
       empty: 'Henüz hareket yok.', receipt: 'Cüzdan yükleme makbuzu', receiptNumber: 'Belge no.',
       continueToBank: 'Ödemeye devam et', frozen: 'Bu cüzdan donduruldu.',
+      saved: 'Otomatik ödeme ayarı kaydedildi.', invalidAmount: 'Girilen tutar geçerli değil.',
+      entryTypes: { deposit: 'Cüzdan yüklemesi', invoice_payment: 'Fatura ödemesi', refund: 'İade', credit: 'Alacak', debit: 'Borç', admin_adjustment: 'Destek düzeltmesi', chargeback: 'Ters ibraz' },
     },
     ai: {
       title: 'YZ Kredisi', cycleAllowance: 'Bu döngüdeki plan kredisi', used: 'Kullanılan', remaining: 'Kalan',
@@ -74,11 +77,13 @@ const tr: TranslationKeys = {
       consumptionNote: 'Önce son kullanma tarihi en yakın olan kredi harcanır.',
       creditAdded: 'Kredi başarıyla eklendi.', creditFinalizing: 'Ödeme alındı, krediniz tamamlanıyor.',
       noCycle: 'Aktif YZ döngüsü yok.',
+      expiresOn: 'Bu döngünün kotası {{date}} tarihinde sona erer.', buyNote: 'Önce fatura oluşturulur; ödeme sonrası kredi eklenir.',
     },
     transactions: {
       title: 'İşlemler', empty: 'Henüz ödeme denemesi yok.', document: 'Belge no.', tracking: 'Takip kodu',
       statuses: { pending: 'Bekliyor', processing: 'İşleniyor', succeeded: 'Başarılı', canceled: 'İptal edildi', failed: 'Başarısız', expired: 'Süresi doldu', refunded: 'İade edildi', review: 'Ödeme inceleniyor' },
       purchase: { subscription: 'Abonelik', ai_credit_topup: 'YZ kredisi alımı', wallet_deposit: 'Cüzdan yükleme' },
+      date: 'Tarih', type: 'Tür', amount: 'Tutar',
     },
     result: {
       successTitle: 'Ödeme başarılı', successDesc: 'Ödemeniz onaylandı.',

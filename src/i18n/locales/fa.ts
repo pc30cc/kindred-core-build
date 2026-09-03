@@ -10,6 +10,7 @@ const fa: TranslationKeys = {
       page: 'صفحه {{page}} از {{pages}}', prev: 'قبلی', next: 'بعدی', close: 'بستن', cancel: 'انصراف',
       confirm: 'تأیید', back: 'بازگشت', amount: 'مبلغ', date: 'تاریخ', status: 'وضعیت', actions: 'عملیات',
       view: 'مشاهده', total: 'جمع', yes: 'بله', no: 'خیر', notAvailable: '—',
+      continue: 'ادامه',
     },
     overview: {
       currentPlan: 'پلن فعلی', free: 'رایگان', trial: 'دوره آزمایشی', trialEnds: 'پایان دوره آزمایشی {{date}}',
@@ -65,6 +66,8 @@ const fa: TranslationKeys = {
       ledger: 'گردش کیف پول', credit: 'واریز', debit: 'برداشت', reference: 'مرجع', balanceAfter: 'موجودی پس از تراکنش',
       empty: 'هنوز گردشی ثبت نشده است.', receipt: 'رسید شارژ کیف پول', receiptNumber: 'شماره سند',
       continueToBank: 'ادامه و پرداخت', frozen: 'این کیف پول مسدود است.',
+      saved: 'تنظیمات پرداخت خودکار ذخیره شد.', invalidAmount: 'مبلغ واردشده معتبر نیست.',
+      entryTypes: { deposit: 'شارژ کیف پول', invoice_payment: 'پرداخت فاکتور', refund: 'بازپرداخت', credit: 'افزایش موجودی', debit: 'کاهش موجودی', admin_adjustment: 'اصلاح توسط پشتیبانی', chargeback: 'برگشت وجه' },
     },
     ai: {
       title: 'اعتبار هوش مصنوعی', cycleAllowance: 'اعتبار پلن در چرخه فعلی', used: 'مصرف‌شده', remaining: 'باقی‌مانده',
@@ -74,11 +77,13 @@ const fa: TranslationKeys = {
       consumptionNote: 'همیشه اعتباری که زودتر منقضی می‌شود ابتدا مصرف می‌شود.',
       creditAdded: 'اعتبار با موفقیت اضافه شد.', creditFinalizing: 'پرداخت انجام شد و اعتبار در حال نهایی‌سازی است.',
       noCycle: 'چرخه اعتبار فعالی وجود ندارد.',
+      expiresOn: 'سهمیه این چرخه در {{date}} منقضی می‌شود.', buyNote: 'ابتدا فاکتور صادر می‌شود و اعتبار پس از پرداخت اضافه خواهد شد.',
     },
     transactions: {
       title: 'تراکنش‌ها', empty: 'هنوز پرداختی ثبت نشده است.', document: 'شماره سند', tracking: 'کد پیگیری',
       statuses: { pending: 'در انتظار', processing: 'در حال پردازش', succeeded: 'موفق', canceled: 'لغو شده', failed: 'ناموفق', expired: 'منقضی شده', refunded: 'بازپرداخت شده', review: 'پرداخت نیازمند بررسی' },
       purchase: { subscription: 'اشتراک', ai_credit_topup: 'خرید اعتبار هوش مصنوعی', wallet_deposit: 'شارژ کیف پول' },
+      date: 'تاریخ', type: 'نوع', amount: 'مبلغ',
     },
     result: {
       successTitle: 'پرداخت موفق', successDesc: 'پرداخت شما تأیید شد.',

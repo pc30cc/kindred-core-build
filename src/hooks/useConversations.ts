@@ -238,7 +238,10 @@ export function useSendMessage(
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages', conversationId] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
+      // A post-send action moves the thread between Open/Pending/Resolved.
+      qc.invalidateQueries({ queryKey: ['inbox-tab-counts'] });
     },
+
   });
 }
 

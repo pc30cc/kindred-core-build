@@ -17,7 +17,7 @@ import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingError } from '@/lib/billing-i18n';
 import { formatToman } from '@/lib/money';
-import { billingCheckout, billingVerifyCallback, billingGetPortal, billingGetPaymentIntent, aiBillingSummary, type BillingReceipt, type AiBillingSummary } from '@/lib/api';
+import { billingCheckout, billingVerifyCallback, billingGetPortal, billingGetPaymentIntent, billingInvoicePreview, billingCancelInvoice, aiBillingSummary, type BillingReceipt, type AiBillingSummary, type BillingInvoice } from '@/lib/api';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { useIranBilling } from './useIranBilling';
@@ -31,7 +31,7 @@ type Interval = 'monthly' | 'yearly';
 export default function IranBillingPage() {
   const { t } = useTranslation();
   const state = useIranBilling();
-  const { workspaceId, loading, plans, subscription, payments, effective, providerCapabilities, reload } = state;
+  const { workspaceId, loading, plans, subscription, payments, attempts, effective, providerCapabilities, reload } = state;
   const { data: members } = useWorkspaceMembers(workspaceId || undefined);
 
   const [result, setResult] = useState<{ status: PaymentResultStatus; receipt?: BillingReceipt | null } | null>(null);
@@ -112,9 +112,10 @@ export default function IranBillingPage() {
 
   const currentPlan = subscription?.billing_plans || plans.find((p) => p.is_free);
   const isActive = subscription?.status === 'active' || subscription?.status === 'trialing';
+  const isTrial = subscription?.status === 'trialing';
   const currentPlanName = ((currentPlan?.localized || {}).fa?.name || '').trim() || currentPlan?.name || t('billingIran.plans.free');
 
-  async function startCheckout(plan: any, targetInterval: Interval) {
+  async function startCheckout(plan: any, targetInterval: Interval, intentId?: string) {
     if (!workspaceId) return;
     setCheckingOut(true);
     try {
@@ -124,6 +125,7 @@ export default function IranBillingPage() {
         interval: targetInterval,
         currency: 'IRR',
         callbackUrl: `${window.location.origin}${window.location.pathname}`,
+        intentId,
       });
       if (res.paymentUrl) window.location.href = res.paymentUrl;
     } catch (e: any) {
@@ -213,6 +215,7 @@ export default function IranBillingPage() {
             currentPlanName={currentPlanName}
             subscription={subscription}
             isActive={isActive}
+            isTrial={isTrial}
             providerCapabilities={providerCapabilities}
             onRenew={() => setRenewalPlan(currentPlan)}
             onChangePlan={() => setActiveTab('plans')}
@@ -240,27 +243,28 @@ export default function IranBillingPage() {
         </TabsContent>
 
         <TabsContent value="transactions" className="mt-5">
-          <TransactionsTab payments={payments} currentPlanName={currentPlanName} />
+          <TransactionsTab payments={payments} attempts={attempts} currentPlanName={currentPlanName} />
         </TabsContent>
       </Tabs>
 
       <RenewalDialog
+        workspaceId={workspaceId}
         plan={renewalPlan}
         interval={interval}
         currentPlan={currentPlan}
         periodEnd={subscription?.current_period_end || null}
         submitting={checkingOut}
-        onCancel={() => setRenewalPlan(null)}
-        onConfirm={(targetInterval) => startCheckout(renewalPlan, targetInterval)}
+        onCancel={() => { setRenewalPlan(null); reload(); }}
+        onConfirm={(targetInterval, intentId) => startCheckout(renewalPlan, targetInterval, intentId)}
       />
     </div>
   );
 }
 
 function OverviewCard({
-  currentPlan, currentPlanName, subscription, isActive, providerCapabilities, onRenew, onChangePlan,
+  currentPlan, currentPlanName, subscription, isActive, isTrial, providerCapabilities, onRenew, onChangePlan,
 }: {
-  currentPlan: any; currentPlanName: string; subscription: any; isActive: boolean;
+  currentPlan: any; currentPlanName: string; subscription: any; isActive: boolean; isTrial: boolean;
   providerCapabilities: Record<string, boolean> | null;
   onRenew: () => void; onChangePlan: () => void;
 }) {
@@ -271,8 +275,11 @@ function OverviewCard({
   // so this stays hidden for them, but a future recurring-capable provider
   // would surface it automatically.
   const hasCustomerPortal = !!providerCapabilities?.customerPortal;
-  const price = currentPlan?.prices?.IRR?.monthly ?? 0;
-  const isFree = !!currentPlan?.is_free;
+  const price = Number(currentPlan?.prices?.IRR?.monthly ?? 0) || 0;
+  // Trial and free plans are not purchasable periods: no price line and no
+  // "renew" action — the only sensible next step is upgrading to a paid plan.
+  const isFree = !!currentPlan?.is_free || price <= 0;
+  const nonPurchasable = isFree || isTrial;
   const periodEnd = subscription?.current_period_end as string | undefined;
   const daysLeft = periodEnd ? Math.max(0, Math.ceil((new Date(periodEnd).getTime() - Date.now()) / 86400000)) : null;
 
@@ -284,7 +291,7 @@ function OverviewCard({
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground">{t('billingIran.overview.currentPlan')}</p>
             <h2 className="text-2xl font-bold text-foreground">{currentPlanName}</h2>
-            {!isFree && (
+            {!nonPurchasable && (
               <p className="text-sm text-muted-foreground">
                 {formatToman(price, 'fa')}
                 <span className="text-xs">{t('billingIran.overview.perMonth')}</span>
@@ -306,13 +313,22 @@ function OverviewCard({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {isFree ? (
-              <Button onClick={onChangePlan}>{t('billingIran.overview.upgradeCta')}</Button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {nonPurchasable ? (
+              <Button size="lg" className="h-12 px-7 text-base font-semibold rounded-xl shadow-sm" onClick={onChangePlan}>
+                <ArrowRight className="w-4 h-4 me-2 rotate-180" />
+                {t('billingIran.overview.upgradeCta')}
+              </Button>
             ) : (
               <>
-                <Button onClick={onRenew}>{t('billingIran.overview.renewCta')}</Button>
-                <Button variant="outline" onClick={onChangePlan}>{t('billingIran.overview.changeCta')}</Button>
+                <Button size="lg" className="h-12 px-7 text-base font-semibold rounded-xl shadow-sm" onClick={onRenew}>
+                  <RefreshCw className="w-4 h-4 me-2" />
+                  {t('billingIran.overview.renewCta')}
+                </Button>
+                <Button size="lg" variant="outline" className="h-12 px-7 text-base font-semibold rounded-xl" onClick={onChangePlan}>
+                  <LayoutGrid className="w-4 h-4 me-2" />
+                  {t('billingIran.overview.changeCta')}
+                </Button>
               </>
             )}
             {hasCustomerPortal && subscription?.provider_customer_id && (
@@ -483,7 +499,7 @@ function PlansGrid({
           const yearly = plan.prices?.IRR?.yearly ?? 0;
           const price = interval === 'monthly' ? monthly : yearly;
           const isCurrent = currentPlan?.id === plan.id;
-          const isFree = !!plan.is_free;
+          const isFree = !!plan.is_free || !(Number(monthly) > 0 || Number(yearly) > 0);
           // Real discount only — never a hardcoded badge.
           const discountPct = interval === 'yearly' && monthly > 0 && yearly > 0
             ? Math.round((1 - yearly / (monthly * 12)) * 100)
@@ -499,7 +515,7 @@ function PlansGrid({
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">{planName}</h3>
                   <div className="mt-2">
-                    {isFree ? (
+                    {isFree || !(Number(price) > 0) ? (
                       <span className="text-2xl font-bold text-foreground">{t('billingIran.plans.free')}</span>
                     ) : (
                       <>
@@ -558,55 +574,119 @@ function PlansGrid({
   );
 }
 
+/**
+ * Pre-payment invoice. The invoice is issued by the server (unique invoice
+ * number + server-derived amount) BEFORE the customer is sent to the bank, so
+ * what they read here is exactly what they will be charged. Closing the dialog
+ * cancels that invoice, which keeps the transaction history truthful.
+ */
 function RenewalDialog({
-  plan, interval, currentPlan, periodEnd, submitting, onCancel, onConfirm,
+  workspaceId, plan, interval, currentPlan, periodEnd, submitting, onCancel, onConfirm,
 }: {
-  plan: any | null; interval: Interval; currentPlan: any; periodEnd: string | null; submitting: boolean;
-  onCancel: () => void; onConfirm: (interval: Interval) => void;
+  workspaceId: string | null; plan: any | null; interval: Interval; currentPlan: any; periodEnd: string | null; submitting: boolean;
+  onCancel: () => void; onConfirm: (interval: Interval, intentId?: string) => void;
 }) {
   const { t } = useTranslation();
+  const [invoice, setInvoice] = useState<BillingInvoice | null>(null);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+
+  const planId = plan?.id as string | undefined;
+
+  useEffect(() => {
+    if (!planId || !workspaceId) { setInvoice(null); return; }
+    let cancelled = false;
+    setLoadingInvoice(true);
+    setInvoiceError(null);
+    setInvoice(null);
+    billingInvoicePreview({ workspaceId, planId, interval })
+      .then((r) => { if (!cancelled) setInvoice(r.invoice); })
+      .catch((e: any) => { if (!cancelled) setInvoiceError(billingError('fa', e?.message)); })
+      .finally(() => { if (!cancelled) setLoadingInvoice(false); });
+    return () => { cancelled = true; };
+  }, [planId, workspaceId, interval]);
+
   if (!plan) return null;
   const planName = ((plan.localized || {}).fa?.name || '').trim() || plan.name;
-  const amount = plan.prices?.IRR?.[interval] ?? 0;
+  const amount = invoice?.totalIrr ?? plan.prices?.IRR?.[interval] ?? 0;
   const isSamePlan = currentPlan?.id === plan.id;
   const isUpgrade = !isSamePlan && (plan.sort_order ?? 0) > (currentPlan?.sort_order ?? 0);
   const isDowngrade = !isSamePlan && (plan.sort_order ?? 0) < (currentPlan?.sort_order ?? 0);
   // Early renewal never burns paid days — the server stacks the new period on
   // top of the current one, so say so before the customer pays.
-  const stacks = isSamePlan && !!periodEnd && new Date(periodEnd).getTime() > Date.now();
+  const stacks = invoice ? invoice.stacked : (isSamePlan && !!periodEnd && new Date(periodEnd).getTime() > Date.now());
+
+  function close() {
+    // Abandoned invoice → recorded as canceled instead of vanishing.
+    if (invoice?.intentId) billingCancelInvoice(invoice.intentId).catch(() => { /* best effort */ });
+    setInvoice(null);
+    onCancel();
+  }
 
   return (
-    <Dialog open={!!plan} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent dir="rtl">
+    <Dialog open={!!plan} onOpenChange={(v) => !v && close()}>
+      <DialogContent dir="rtl" className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>
-            {t(
-              isUpgrade ? 'billingIran.renewal.titleUpgrade'
-                : isDowngrade ? 'billingIran.renewal.titleDowngrade'
-                  : 'billingIran.renewal.title',
-              { plan: planName },
-            )}
-          </DialogTitle>
+          <DialogTitle>{t('billingIran.invoice.title')}</DialogTitle>
         </DialogHeader>
-        <dl className="text-sm space-y-2.5">
-          <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.renewal.planLabel')}</dt><dd className="font-medium">{planName}</dd></div>
-          <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.renewal.periodLabel')}</dt><dd className="font-medium">{interval === 'monthly' ? t('billingIran.plans.monthly') : t('billingIran.plans.yearly')}</dd></div>
-          <div className="flex justify-between"><dt className="text-muted-foreground">{t('billingIran.renewal.payableLabel')}</dt><dd className="font-semibold text-foreground">{formatToman(amount, 'fa')}</dd></div>
-        </dl>
-        {stacks && (
-          <p className="rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-            {t('billingIran.renewal.stackHint', { date: jalaliDate(periodEnd) })}
-          </p>
+
+        {loadingInvoice ? (
+          <div className="py-10 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : invoiceError ? (
+          <p className="rounded-xl bg-destructive/10 border border-destructive/25 px-3 py-2.5 text-sm text-destructive">{invoiceError}</p>
+        ) : (
+          <div className="space-y-3.5">
+            <div className="rounded-xl border border-border/60 bg-muted/30 px-3.5 py-3 flex items-center justify-between gap-3">
+              <span className="text-xs text-muted-foreground">{t('billingIran.invoice.number')}</span>
+              <span className="font-mono text-sm font-semibold tracking-wider text-foreground" dir="ltr">{invoice?.invoiceNumber || '—'}</span>
+            </div>
+
+            <dl className="text-sm space-y-2.5">
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t('billingIran.invoice.issuedAt')}</dt><dd className="font-medium">{jalaliDate(invoice?.issuedAt)}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t('billingIran.renewal.planLabel')}</dt><dd className="font-medium">{planName}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t('billingIran.renewal.periodLabel')}</dt><dd className="font-medium">{interval === 'monthly' ? t('billingIran.plans.monthly') : t('billingIran.plans.yearly')}</dd></div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">{t('billingIran.invoice.purchaseType')}</dt>
+                <dd className="font-medium">
+                  {t(isUpgrade ? 'billingIran.invoice.typeUpgrade' : isDowngrade ? 'billingIran.invoice.typeDowngrade' : isSamePlan ? 'billingIran.invoice.typeRenewal' : 'billingIran.invoice.typeNew')}
+                </dd>
+              </div>
+              {invoice && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{t('billingIran.invoice.coverage')}</dt>
+                  <dd className="font-medium">{t('billingIran.invoice.coverageValue', { from: jalaliDate(invoice.periodStart), to: jalaliDate(invoice.periodEnd) })}</dd>
+                </div>
+              )}
+              <div className="flex justify-between gap-4 border-t border-border/60 pt-2.5">
+                <dt className="text-muted-foreground">{t('billingIran.renewal.payableLabel')}</dt>
+                <dd className="text-lg font-bold text-foreground">{formatToman(amount, 'fa')}</dd>
+              </div>
+            </dl>
+
+            {stacks && (
+              <p className="rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                {t('billingIran.renewal.stackHint', { date: jalaliDate(invoice?.periodStart || periodEnd) })}
+              </p>
+            )}
+            {isDowngrade && (
+              <p className="rounded-xl bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                {t('billingIran.renewal.downgradeHint')}
+              </p>
+            )}
+          </div>
         )}
-        {isDowngrade && (
-          <p className="rounded-xl bg-amber-500/10 border border-amber-500/25 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            {t('billingIran.renewal.downgradeHint')}
-          </p>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={onCancel} disabled={submitting}>{t('billingIran.renewal.cancel')}</Button>
-          <Button onClick={() => onConfirm(interval)} disabled={submitting}>
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : null}
+
+        <DialogFooter className="gap-2">
+          <Button size="lg" variant="outline" className="h-12 px-6 rounded-xl" onClick={close} disabled={submitting}>
+            {t('billingIran.renewal.cancel')}
+          </Button>
+          <Button
+            size="lg"
+            className="h-12 px-7 text-base font-semibold rounded-xl"
+            onClick={() => onConfirm(interval, invoice?.intentId)}
+            disabled={submitting || loadingInvoice || !invoice}
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : <CreditCard className="w-4 h-4 me-2" />}
             {t(isUpgrade ? 'billingIran.renewal.payUpgradeCta' : isDowngrade ? 'billingIran.renewal.payDowngradeCta' : 'billingIran.renewal.payCta')}
           </Button>
         </DialogFooter>

@@ -33,12 +33,14 @@ import {
   markIntentSucceeded,
   markPaymentIntentFailed,
   markPaymentIntentExpired,
+  markPaymentIntentCanceled,
   noteIntentFailureAttempt,
   providerRefMatchesIntent,
   isIntentUsable,
   IRAN_PROVIDERS,
   type PaymentIntentRow,
 } from '../services/billing/paymentIntent.js';
+import { classifyPlanAction, computeSubscriptionWindow } from '../services/billing/periods.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import {
   applySubscriptionPayment,
@@ -62,6 +64,7 @@ async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
   const receipt: Record<string, unknown> = {
     status: intent.status,
     intentId: intent.id,
+    invoiceNumber: intent.invoice_number,
     amountIrr: intent.amount_irr,
     purchaseType: intent.purchase_type,
     actionType: (payment?.action_type as string | null) || intent.action_type || null,
@@ -225,7 +228,126 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
     .order('created_at', { ascending: false })
     .limit(20);
 
-  res.json({ subscription: sub, payments: payments || [] });
+  // Unpaid attempts (abandoned at the gateway, canceled, failed, expired) are
+  // real events in the customer's history: they must be visible, not silently
+  // dropped just because no money moved.
+  const { data: intents } = await supabase
+    .from('billing_payment_intents')
+    .select('id, created_at, updated_at, amount_irr, status, purchase_type, action_type, provider_name, provider_ref, invoice_number, billing_interval, plan_id, failure_reason, metadata, billing_plans(name)')
+    .eq('workspace_id', workspaceId)
+    .neq('status', 'succeeded')
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  res.json({ subscription: sub, payments: payments || [], attempts: intents || [] });
+});
+
+// ─── POST /api/billing/invoice-preview ───────────────────────────
+//
+// Issues the invoice the customer sees BEFORE being sent to the bank. The
+// invoice is a real, server-created payment intent (with a unique invoice
+// number), so the amount shown is exactly the amount charged and an abandoned
+// invoice stays visible in the transaction history.
+const invoicePreviewSchema = z.object({
+  workspaceId: z.string().uuid(),
+  planId: z.string(),
+  interval: z.enum(['monthly', 'yearly']).default('monthly'),
+  currency: z.string().default('IRR'),
+});
+
+billingRouter.post('/invoice-preview', async (req, res) => {
+  const parsed = invoicePreviewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
+  const input = parsed.data;
+  if (!(await authorizeWorkspace(req, res, input.workspaceId, { manage: true }))) return;
+
+  const { url, key } = getConfig(req);
+  try {
+    const resolved = await resolveBillingConfig(url, key, input.workspaceId);
+    if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
+    if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
+      return res.status(400).json({ error: 'INVOICE_PREVIEW_UNSUPPORTED_PROVIDER' });
+    }
+
+    const supabase = createClient(url, key);
+    const currency = input.currency.toUpperCase();
+    const { data: plan } = await supabase
+      .from('billing_plans')
+      .select('id, name, prices, sort_order')
+      .eq('id', input.planId)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (!plan) return res.status(400).json({ error: 'Unknown plan' });
+
+    const amount = Number((plan.prices as any)?.[currency]?.[input.interval]);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'FREE_PLAN_NO_CHECKOUT' });
+    }
+
+    const { data: sub } = await supabase
+      .from('workspace_subscriptions')
+      .select('plan_id, status, current_period_end, billing_plans(sort_order)')
+      .eq('workspace_id', input.workspaceId)
+      .maybeSingle();
+
+    const actionType = classifyPlanAction({
+      currentPlanId: (sub as any)?.plan_id ?? null,
+      currentPlanRank: ((sub as any)?.billing_plans?.sort_order as number | undefined) ?? null,
+      currentStatus: (sub as any)?.status ?? null,
+      nextPlanId: plan.id,
+      nextPlanRank: (plan as any).sort_order ?? null,
+    });
+
+    const window = computeSubscriptionWindow({
+      now: new Date(),
+      interval: input.interval,
+      action: actionType,
+      currentPeriodEnd: (sub as any)?.current_period_end ? new Date((sub as any).current_period_end) : null,
+    });
+
+    const intent = await createSubscriptionIntent(serverConfigOf(req), {
+      workspaceId: input.workspaceId,
+      planId: plan.id,
+      interval: input.interval,
+      providerName: resolved.provider.name,
+      amountIrr: amount,
+      actionType,
+      metadata: { origin: 'invoice_preview' },
+    });
+
+    res.json({
+      invoice: {
+        intentId: intent.id,
+        invoiceNumber: intent.invoice_number,
+        issuedAt: intent.created_at,
+        expiresAt: intent.expires_at,
+        planId: plan.id,
+        planName: plan.name,
+        interval: input.interval,
+        actionType,
+        amountIrr: amount,
+        totalIrr: amount,
+        periodStart: window.start.toISOString(),
+        periodEnd: window.end.toISOString(),
+        stacked: window.stacked,
+        providerName: resolved.provider.name,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── POST /api/billing/invoice/:intentId/cancel ──────────────────
+// The customer closed the invoice without paying. Recorded truthfully.
+billingRouter.post('/invoice/:intentId/cancel', async (req, res) => {
+  const intentId = String(req.params.intentId || '');
+  const cfg = serverConfigOf(req);
+  const intent = await getPaymentIntent(cfg, intentId);
+  if (!intent) return res.status(404).json({ error: 'Not found' });
+  if (!(await authorizeWorkspace(req, res, intent.workspace_id, { manage: true }))) return;
+  await markPaymentIntentCanceled(cfg, intentId);
+  res.json({ success: true });
 });
 
 // ─── POST /api/billing/checkout — create checkout session ────────
@@ -245,6 +367,8 @@ const checkoutSchema = z.object({
   customerEmail: z.string().email().optional(),
   customerName: z.string().optional(),
   phone: z.string().optional(),
+  /** Invoice the customer just confirmed (from /invoice-preview). Reused instead of issuing a second one. */
+  intentId: z.string().uuid().optional(),
 });
 
 billingRouter.post('/checkout', async (req, res) => {
@@ -285,17 +409,37 @@ billingRouter.post('/checkout', async (req, res) => {
 
     let callbackUrl = input.callbackUrl;
     let intentId: string | undefined;
+    let invoiceNumber: string | null = null;
     if (IRAN_PROVIDERS.has(resolved.provider.name)) {
-      const intent = await createSubscriptionIntent(serverConfigOf(req), {
-        workspaceId: input.workspaceId,
-        planId: input.planId,
-        interval: input.interval,
-        providerName: resolved.provider.name,
-        amountIrr: amount,
-      });
-      intentId = intent.id;
+      let intent: PaymentIntentRow | null = null;
+      if (input.intentId) {
+        // Reuse the invoice the customer already saw — but only when it still
+        // describes exactly this purchase. Anything else is rejected instead of
+        // silently charging a different amount than the invoice showed.
+        const existing = await getPaymentIntent(serverConfigOf(req), input.intentId);
+        const matches =
+          existing &&
+          existing.workspace_id === input.workspaceId &&
+          existing.status === 'pending' &&
+          existing.plan_id === input.planId &&
+          existing.billing_interval === input.interval &&
+          existing.amount_irr === amount &&
+          existing.provider_name === resolved.provider.name;
+        if (!matches) return res.status(409).json({ error: 'INVOICE_NO_LONGER_VALID' });
+        intent = existing;
+      } else {
+        intent = await createSubscriptionIntent(serverConfigOf(req), {
+          workspaceId: input.workspaceId,
+          planId: input.planId,
+          interval: input.interval,
+          providerName: resolved.provider.name,
+          amountIrr: amount,
+        });
+      }
+      intentId = intent!.id;
+      invoiceNumber = intent!.invoice_number;
       const sep = callbackUrl.includes('?') ? '&' : '?';
-      callbackUrl = `${callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`;
+      callbackUrl = `${callbackUrl}${sep}intent=${intent!.id}&provider=${encodeURIComponent(resolved.provider.name)}`;
     }
 
 
@@ -342,7 +486,7 @@ billingRouter.post('/checkout', async (req, res) => {
       metadata: { planId: input.planId, sessionId: result.sessionId, intentId },
     });
 
-    res.json({ success: true, ...result, intentId });
+    res.json({ success: true, ...result, intentId, invoiceNumber });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -458,6 +602,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             providerName,
             providerPaymentId: providerRef,
             paymentIntentId: intent.id,
+            invoiceNumber: intent.invoice_number,
             amount: intent.amount_irr,
             currency: 'IRR',
             purchaseType: 'ai_credit_topup',
@@ -487,6 +632,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
             providerName,
             providerPaymentId: providerRef,
             paymentIntentId: intent.id,
+            invoiceNumber: intent.invoice_number,
             amount: intent.amount_irr,
             currency: 'IRR',
             purchaseType: 'subscription',

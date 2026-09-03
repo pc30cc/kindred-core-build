@@ -15,6 +15,7 @@ export interface IranBillingState {
   plans: any[];
   subscription: any;
   payments: any[];
+  attempts: any[];
   events: any[];
   effective: WorkspaceEffectiveEntitlements | null;
   providerCapabilities: Record<string, boolean> | null;
@@ -30,6 +31,7 @@ export function useIranBilling(): IranBillingState {
   const [plans, setPlans] = useState<any[]>([]);
   const [subscription, setSubscription] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
+  const [attempts, setAttempts] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [effective, setEffective] = useState<WorkspaceEffectiveEntitlements | null>(null);
   const [providerCapabilities, setProviderCapabilities] = useState<Record<string, boolean> | null>(null);
@@ -48,6 +50,7 @@ export function useIranBilling(): IranBillingState {
         setPlans(plansRes.plans || []);
         setSubscription(statusRes.subscription);
         setPayments(statusRes.payments || []);
+        setAttempts((statusRes as any).attempts || []);
         setEvents(eventsRes.events || []);
         setEffective(effRes);
         const activeProvider = statusRes.subscription?.provider_name;
@@ -60,5 +63,5 @@ export function useIranBilling(): IranBillingState {
 
   useEffect(() => { load(); }, [load]);
 
-  return { workspaceId, loading, plans, subscription, payments, events, effective, providerCapabilities, reload: load };
+  return { workspaceId, loading, plans, subscription, payments, attempts, events, effective, providerCapabilities, reload: load };
 }

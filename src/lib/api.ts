@@ -262,7 +262,41 @@ export async function billingGetPlans(locale?: string) {
 }
 
 export async function billingGetStatus(workspaceId: string) {
-  return request<{ subscription: any; payments: any[] }>(`/api/billing/status/${workspaceId}`);
+  return request<{ subscription: any; payments: any[]; attempts?: any[] }>(`/api/billing/status/${workspaceId}`);
+}
+
+/** Invoice shown to the customer BEFORE the gateway redirect. */
+export interface BillingInvoice {
+  intentId: string;
+  invoiceNumber: string | null;
+  issuedAt: string;
+  expiresAt: string;
+  planId: string;
+  planName: string;
+  interval: 'monthly' | 'yearly';
+  actionType: string;
+  amountIrr: number;
+  totalIrr: number;
+  periodStart: string;
+  periodEnd: string;
+  stacked: boolean;
+  providerName: string;
+}
+
+export async function billingInvoicePreview(data: {
+  workspaceId: string;
+  planId: string;
+  interval: 'monthly' | 'yearly';
+  currency?: string;
+}) {
+  return request<{ invoice: BillingInvoice }>('/api/billing/invoice-preview', {
+    method: 'POST', body: JSON.stringify({ currency: 'IRR', ...data }),
+  });
+}
+
+/** The customer closed the invoice without paying. */
+export async function billingCancelInvoice(intentId: string) {
+  return request<{ success: boolean }>(`/api/billing/invoice/${encodeURIComponent(intentId)}/cancel`, { method: 'POST' });
 }
 
 export async function billingCheckout(data: {
@@ -274,6 +308,7 @@ export async function billingCheckout(data: {
   customerEmail?: string;
   customerName?: string;
   phone?: string;
+  intentId?: string;
 }) {
   // The charged amount is always computed server-side from the plan's price —
   // never accepted from the client.
@@ -312,6 +347,7 @@ export interface BillingReceipt {
   paidAt: string | null;
   planName: string | null;
   billingInterval: string | null;
+  invoiceNumber?: string | null;
   periodEnd?: string | null;
   newAiBalanceIrr?: number;
 }

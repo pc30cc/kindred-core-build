@@ -262,12 +262,21 @@ export function AppSidebar() {
   ] as const;
 
 
+  const channelInPlan = (key: string): boolean => {
+    if (!entitlements?.channels) return true; // not resolved yet — keep visible
+    const state = (entitlements.channels as Record<string, { value: boolean } | undefined>)[key];
+    return state == null || state.value === true;
+  };
+
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
-    ...(isWsAdmin ? [{ key: 'widget', path: '/widget', icon: Package, accent: 'violet' } as const] : []),
+    ...(isWsAdmin && channelInPlan('chat_widget')
+      ? [{ key: 'widget', path: '/widget', icon: Package, accent: 'violet' } as const]
+      : []),
     ...(isWsAdmin ? [{ key: 'plugins', path: '/plugins', icon: Plug, accent: 'emerald' } as const] : []),
     { key: 'settings', path: isWsAdmin ? '/settings/general' : '/settings/profile', icon: Settings, accent: 'indigo' },
   ] as const;
+
 
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';

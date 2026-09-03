@@ -719,6 +719,9 @@ const fa: TranslationKeys = {
     'system.agentJoined': '{name} به گفتگو پیوست',
     'system.agentJoinedGeneric': 'یکی از همکاران به گفتگو پیوست',
     'system.noAgentAvailable': 'همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم.',
+    'system.transferred': '{actor} این پرونده را به {to} منتقل کرد',
+    'system.unassigned': '{actor} این پرونده را از حالت واگذارشده خارج کرد',
+
     'callSurface.expand': 'بزرگ‌نمایی',
     'callSurface.expandAria': 'پنجره تماس را بزرگ کن',
     'callSurface.minimize': 'کوچک کردن',

@@ -24,6 +24,8 @@ import {
   readMetrics,
 } from '../services/billing/rollout.js';
 import { compareShadow } from '../services/billing/shadow.js';
+import { readSchedulerHealth } from '../services/billing/scheduler/index.js';
+import { getBillingV2SchedulerStatus } from '../services/billing/scheduler/ticker.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 import { getServiceClient } from '../supabase.js';
 
@@ -36,6 +38,16 @@ function cfg(req: any): ServerConfig {
 adminBillingV2Router.get('/metrics', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   res.json({ metrics: readMetrics() });
+});
+
+// Read-only: scheduler health never moves money.
+adminBillingV2Router.get('/scheduler/health', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    res.json({ ...(await readSchedulerHealth(cfg(req))), ticker: getBillingV2SchedulerStatus() });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
 });
 
 adminBillingV2Router.get('/workspaces/:id/state', async (req, res) => {

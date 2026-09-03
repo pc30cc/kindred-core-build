@@ -32,18 +32,26 @@ const INVOICE_TYPE_BY_ACTION: Record<PlanActionType, InvoiceType> = {
 interface PlanRecord {
   id: string;
   name: string;
-  price_monthly: number | null;
-  price_yearly: number | null;
+  /** Canonical price map: { CURRENCY: { monthly, yearly } }. */
+  prices?: Record<string, Record<string, unknown>> | null;
+  /** Legacy flat columns, still honoured when a deployment has them. */
+  price_monthly?: number | null;
+  price_yearly?: number | null;
   limits: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 
 function planPriceIrr(plan: PlanRecord, interval: BillingInterval): number {
-  const raw = interval === 'yearly' ? plan.price_yearly : plan.price_monthly;
+  // `billing_plans.prices` is the schema's real price authority; the flat
+  // columns only exist on older deployments and are a fallback, never the
+  // silent 0 that would give away paid service.
+  const fromMap = (plan.prices ?? {})?.IRR?.[interval];
+  const raw = fromMap ?? (interval === 'yearly' ? plan.price_yearly : plan.price_monthly);
   const value = Number(raw ?? 0);
   if (!Number.isFinite(value) || value < 0) throw new Error('plan_price_invalid');
   return Math.round(value);
 }
+
 
 function planAiAllowanceIrr(plan: PlanRecord, interval: BillingInterval): number {
   const limits = (plan.limits ?? {}) as Record<string, unknown>;

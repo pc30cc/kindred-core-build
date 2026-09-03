@@ -24,6 +24,7 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useQuery } from '@tanstack/react-query';
 import { listDepartments } from '@/lib/workspace-departments-api';
 import { useTranslation } from '@/i18n';
+import { SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skeletons';
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -95,7 +96,15 @@ export default function CallCenterSettingsPage() {
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
 
-  if (isLoading || !s) return <p className="text-sm text-muted-foreground">{t('callCenter.common.loading')}</p>;
+  if (isLoading || !s) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-10 w-72 rounded-lg" />
+        <SkeletonForm fields={5} />
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
 
   const platform = data?.platform;
   const platformOff = !platform?.call_center_enabled;

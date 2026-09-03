@@ -15,6 +15,7 @@ import type { CapabilityDefinition } from '@/lib/entitlements-api';
 import { bt, capLabel as sharedCapLabel, formatLimitValue as sharedFormatLimit, billingError, billingActionMessage, type BillingLocale } from '@/lib/billing-i18n';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { displayCurrency } from '@/lib/region';
+import { SkeletonStats, SkeletonCard, SkeletonTable } from '@/components/common/Skeletons';
 
 const CURRENCY_MAP: Record<string, { symbol: string; locale: string; divider: number }> = {
   USD: { symbol: '$', locale: 'en-US', divider: 100 },
@@ -166,7 +167,11 @@ export default function BillingPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20" dir={pageDir}>
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <div className="w-full space-y-5">
+          <SkeletonStats count={3} />
+          <SkeletonCard lines={4} />
+          <SkeletonTable rows={5} columns={4} />
+        </div>
       </div>
     );
   }

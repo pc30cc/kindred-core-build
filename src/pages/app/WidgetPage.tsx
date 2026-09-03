@@ -30,6 +30,7 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
 import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
 
 /** Widget behaviour switch → plan capability key. Mirrors the server map in
  *  `server/services/widget/entitlements.ts` (that file is the authority). */
@@ -304,7 +305,15 @@ function WidgetPageContent() {
   };
 
   if (isLoading) {
-    return <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>;
+    return (
+      <div className="space-y-5 p-1" dir={dir}>
+        <Skeleton className="h-24 w-full rounded-2xl" />
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <SkeletonForm fields={5} />
+          <Skeleton className="h-[560px] w-full rounded-2xl" />
+        </div>
+      </div>
+    );
   }
 
   return (

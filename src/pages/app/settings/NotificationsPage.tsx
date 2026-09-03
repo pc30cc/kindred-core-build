@@ -33,6 +33,7 @@ import {
   Moon,
   Volume2,
 } from 'lucide-react';
+import { SkeletonCard } from '@/components/common/Skeletons';
 
 type PermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
 
@@ -186,8 +187,9 @@ export default function SettingsNotificationsPage() {
 
   if (isLoading || !prefs) {
     return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-5">
+        <SkeletonCard lines={4} />
+        <SkeletonCard lines={4} />
       </div>
     );
   }

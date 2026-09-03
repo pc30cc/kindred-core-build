@@ -21,6 +21,7 @@ import {
   useVerificationOverview, useVerificationPurpose, useUpdatePurposeSettings, useResetPurposeSettings,
   useVerificationAudit, useTemplatePreview, VerificationAdminApiError,
   type VerificationPurpose, type PurposeOverview, type PlatformCeilings, type ProviderReadinessState,
+  type PurposeBaseline,
 } from '@/hooks/useVerificationAdmin';
 import type { Locale } from '@/i18n/config';
 
@@ -351,6 +352,13 @@ function PurposeEditorDialog({
 
   const gates = detail.data?.gates;
   const ceilings = platformCeilings ?? detail.data?.platformCeilings;
+  const baseline = detail.data?.baseline;
+
+  const weakeningFields = useMemo(
+    () => (form && baseline ? computeWeakeningFields(form, baseline) : new Set<string>()),
+    [form, baseline],
+  );
+  const hasWeakening = weakeningFields.size > 0;
 
   const errorMessage = useMemo(() => {
     if (!error) return null;
@@ -369,6 +377,15 @@ function PurposeEditorDialog({
 
   async function handleSave() {
     if (!form) return;
+    // Belt-and-suspenders: the Save button is already disabled while
+    // hasWeakening is true, but never rely on a disabled button alone —
+    // the server and database independently re-validate the same rule
+    // regardless (see migration 100), so this is purely a fast, clear,
+    // localized failure instead of a round-trip to find out.
+    if (hasWeakening) {
+      setError('POLICY_WEAKENING_NOT_ALLOWED');
+      return;
+    }
     setError(null);
     try {
       await updateMutation.mutateAsync({
@@ -419,6 +436,13 @@ function PurposeEditorDialog({
         </DialogHeader>
 
         {errorMessage && <Alert variant="destructive"><AlertDescription>{errorMessage}</AlertDescription></Alert>}
+        {hasWeakening && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              {t('admin.verification.editor.weakeningBlocked' as any, { count: String(weakeningFields.size) })}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="space-y-4">
           <div className="rounded-lg border p-3 space-y-2">
@@ -448,20 +472,48 @@ function PurposeEditorDialog({
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <NumberField label={t('admin.verification.editor.otpLength' as any)} ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.otpLength ?? '') })}
-              value={form.otpLength} onChange={(v) => setForm({ ...form, otpLength: v })} min={4} max={ceilings?.otpLength} />
-            <NumberField label={t('admin.verification.editor.otpTtlSeconds' as any)} ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.otpTtlSeconds ?? '') })}
-              value={form.otpTtlSeconds} onChange={(v) => setForm({ ...form, otpTtlSeconds: v })} min={30} max={ceilings?.otpTtlSeconds} />
-            <NumberField label={t('admin.verification.editor.maxVerificationAttempts' as any)} ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.maxVerificationAttempts ?? '') })}
-              value={form.maxVerificationAttempts} onChange={(v) => setForm({ ...form, maxVerificationAttempts: v })} min={1} max={ceilings?.maxVerificationAttempts} />
-            <NumberField label={t('admin.verification.editor.resendCooldownSeconds' as any)} ceilingLabel={t('admin.verification.editor.floor' as any, { value: String(ceilings?.resendCooldownSecondsMin ?? '') })}
-              value={form.resendCooldownSeconds} onChange={(v) => setForm({ ...form, resendCooldownSeconds: v })} min={ceilings?.resendCooldownSecondsMin} />
-            <NumberField label={t('admin.verification.editor.maxSendsPerWindow' as any)} ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.maxSendsPerWindow ?? '') })}
-              value={form.maxSendsPerWindow} onChange={(v) => setForm({ ...form, maxSendsPerWindow: v })} min={1} max={ceilings?.maxSendsPerWindow} />
-            <NumberField label={t('admin.verification.editor.rateWindowSeconds' as any)} ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.rateWindowSeconds ?? '') })}
-              value={form.rateWindowSeconds} onChange={(v) => setForm({ ...form, rateWindowSeconds: v })} min={60} max={ceilings?.rateWindowSeconds} />
-            <NumberField label={t('admin.verification.editor.proofTtlSeconds' as any)} ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.proofTtlSeconds ?? '') })}
-              value={form.proofTtlSeconds} onChange={(v) => setForm({ ...form, proofTtlSeconds: v })} min={30} max={ceilings?.proofTtlSeconds} />
+            <NumberField
+              label={t('admin.verification.editor.otpLength' as any)}
+              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.otpLength ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor' as any, { value: String(baseline.otpLength) }) : undefined}
+              invalid={weakeningFields.has('otpLength')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              value={form.otpLength} onChange={(v) => setForm({ ...form, otpLength: v })} min={baseline?.otpLength ?? 4} max={ceilings?.otpLength} />
+            <NumberField
+              label={t('admin.verification.editor.otpTtlSeconds' as any)}
+              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.otpTtlSeconds ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.otpTtlSeconds) }) : undefined}
+              invalid={weakeningFields.has('otpTtlSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              value={form.otpTtlSeconds} onChange={(v) => setForm({ ...form, otpTtlSeconds: v })} min={30} max={baseline?.otpTtlSeconds ?? ceilings?.otpTtlSeconds} />
+            <NumberField
+              label={t('admin.verification.editor.maxVerificationAttempts' as any)}
+              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.maxVerificationAttempts ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.maxVerificationAttempts) }) : undefined}
+              invalid={weakeningFields.has('maxVerificationAttempts')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              value={form.maxVerificationAttempts} onChange={(v) => setForm({ ...form, maxVerificationAttempts: v })} min={1} max={baseline?.maxVerificationAttempts ?? ceilings?.maxVerificationAttempts} />
+            <NumberField
+              label={t('admin.verification.editor.resendCooldownSeconds' as any)}
+              ceilingLabel={t('admin.verification.editor.floor' as any, { value: String(ceilings?.resendCooldownSecondsMin ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor' as any, { value: String(baseline.resendCooldownSeconds) }) : undefined}
+              invalid={weakeningFields.has('resendCooldownSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              value={form.resendCooldownSeconds} onChange={(v) => setForm({ ...form, resendCooldownSeconds: v })} min={baseline?.resendCooldownSeconds ?? ceilings?.resendCooldownSecondsMin} />
+            <NumberField
+              label={t('admin.verification.editor.maxSendsPerWindow' as any)}
+              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.maxSendsPerWindow ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.maxSendsPerWindow) }) : undefined}
+              invalid={weakeningFields.has('maxSendsPerWindow')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              value={form.maxSendsPerWindow} onChange={(v) => setForm({ ...form, maxSendsPerWindow: v })} min={1} max={baseline?.maxSendsPerWindow ?? ceilings?.maxSendsPerWindow} />
+            <NumberField
+              label={t('admin.verification.editor.rateWindowSeconds' as any)}
+              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.rateWindowSeconds ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor' as any, { value: String(baseline.rateWindowSeconds) }) : undefined}
+              invalid={weakeningFields.has('rateWindowSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              value={form.rateWindowSeconds} onChange={(v) => setForm({ ...form, rateWindowSeconds: v })} min={baseline?.rateWindowSeconds ?? 60} max={ceilings?.rateWindowSeconds} />
+            <NumberField
+              label={t('admin.verification.editor.proofTtlSeconds' as any)}
+              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.proofTtlSeconds ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.proofTtlSeconds) }) : undefined}
+              invalid={weakeningFields.has('proofTtlSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              value={form.proofTtlSeconds} onChange={(v) => setForm({ ...form, proofTtlSeconds: v })} min={30} max={baseline?.proofTtlSeconds ?? ceilings?.proofTtlSeconds} />
           </div>
 
           <div className="rounded-lg border p-3 space-y-3">
@@ -471,8 +523,10 @@ function PurposeEditorDialog({
             </div>
             {form.globalRateLimitEnabled && (
               <div className="grid grid-cols-2 gap-4">
-                <NumberField label={t('admin.verification.editor.globalRateLimitMaxPerWindow' as any)} value={form.globalRateLimitMaxPerWindow ?? 1}
-                  onChange={(v) => setForm({ ...form, globalRateLimitMaxPerWindow: v })} min={1} />
+                <NumberField label={t('admin.verification.editor.globalRateLimitMaxPerWindow' as any)}
+                  ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.globalRateLimitMaxPerWindowMax ?? '') })}
+                  value={form.globalRateLimitMaxPerWindow ?? 1}
+                  onChange={(v) => setForm({ ...form, globalRateLimitMaxPerWindow: v })} min={1} max={ceilings?.globalRateLimitMaxPerWindowMax} />
                 <NumberField label={t('admin.verification.editor.globalRateLimitWindowSeconds' as any)}
                   ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.globalRateLimitWindowSecondsMax ?? '') })}
                   value={form.globalRateLimitWindowSeconds ?? 60} onChange={(v) => setForm({ ...form, globalRateLimitWindowSeconds: v })} min={60} max={ceilings?.globalRateLimitWindowSecondsMax} />
@@ -499,7 +553,7 @@ function PurposeEditorDialog({
           </Button>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose}>{t('admin.verification.editor.cancel' as any)}</Button>
-            <Button onClick={handleSave} disabled={updateMutation.isPending}>
+            <Button onClick={handleSave} disabled={updateMutation.isPending || hasWeakening}>
               {updateMutation.isPending ? t('admin.verification.editor.saving' as any) : t('admin.verification.editor.save' as any)}
             </Button>
           </div>
@@ -541,9 +595,33 @@ function buildFormState(settings: PurposeOverview['settings'], _locale: Locale) 
   };
 }
 
+/**
+ * Client-side mirror of server/services/verification/types.ts's
+ * findPolicyWeakeningViolations — same seven fields, same directions. The
+ * baseline VALUES always come from the API (PurposeOverview.baseline),
+ * never hardcoded here, so this can never drift from what the RPC itself
+ * enforces. This is a UX convenience only (disables Save, explains why
+ * inline) — the server and database remain the authoritative enforcement,
+ * proven independently in the PG integration suite.
+ */
+function computeWeakeningFields(form: ReturnType<typeof buildFormState>, baseline: PurposeBaseline): Set<string> {
+  const violations = new Set<string>();
+  if (form.otpLength < baseline.otpLength) violations.add('otpLength');
+  if (form.otpTtlSeconds > baseline.otpTtlSeconds) violations.add('otpTtlSeconds');
+  if (form.maxVerificationAttempts > baseline.maxVerificationAttempts) violations.add('maxVerificationAttempts');
+  if (form.resendCooldownSeconds < baseline.resendCooldownSeconds) violations.add('resendCooldownSeconds');
+  if (form.maxSendsPerWindow > baseline.maxSendsPerWindow) violations.add('maxSendsPerWindow');
+  if (form.rateWindowSeconds < baseline.rateWindowSeconds) violations.add('rateWindowSeconds');
+  if (form.proofTtlSeconds > baseline.proofTtlSeconds) violations.add('proofTtlSeconds');
+  return violations;
+}
+
 function NumberField({
-  label, ceilingLabel, value, onChange, min, max,
-}: { label: string; ceilingLabel?: string; value: number; onChange: (v: number) => void; min?: number; max?: number }) {
+  label, ceilingLabel, baselineLabel, invalid, invalidMessage, value, onChange, min, max,
+}: {
+  label: string; ceilingLabel?: string; baselineLabel?: string; invalid?: boolean; invalidMessage?: string;
+  value: number; onChange: (v: number) => void; min?: number; max?: number;
+}) {
   return (
     <div className="space-y-1">
       <Label>{label}</Label>
@@ -552,9 +630,13 @@ function NumberField({
         value={value}
         min={min}
         max={max}
+        aria-invalid={invalid || undefined}
+        className={invalid ? 'border-destructive focus-visible:ring-destructive' : undefined}
         onChange={(e) => onChange(Number(e.target.value))}
       />
       {ceilingLabel && <p className="text-xs text-muted-foreground">{ceilingLabel}</p>}
+      {baselineLabel && <p className="text-xs text-muted-foreground">{baselineLabel}</p>}
+      {invalid && invalidMessage && <p className="text-xs text-destructive">{invalidMessage}</p>}
     </div>
   );
 }

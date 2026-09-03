@@ -99,10 +99,16 @@ async function getEmailProviderStatus(config: ServerConfig): Promise<ProviderRea
 /**
  * Classifies an already-redacted `SmsProviderInfo` (server/services/sms/
  * index.ts's `getSmsProviderInfo` — never reads a raw credential itself)
- * into the same four-state readiness contract as email.
+ * into the same four-state readiness contract as email. `unconfigured`
+ * means no provider was ever selected; `invalid` means a provider WAS
+ * selected but is missing something a real send would need (a credential
+ * or a required per-provider field) — these are different operational
+ * situations, so a selected-but-incomplete provider must never read as
+ * merely "not configured yet".
  */
 export function classifySmsProviderInfo(info: SmsProviderInfo): ProviderReadinessState {
-  if (info.providerName === 'disabled' || !info.hasApiKey) return 'unconfigured';
+  if (info.providerName === 'disabled') return 'unconfigured';
+  if (!info.hasApiKey) return 'invalid';
   if (info.providerName === 'kavenegar' && !info.sender) return 'invalid';
   if (info.providerName === 'smsir' && (!info.lineNumber || info.verifyTemplateId == null)) return 'invalid';
   return 'configured';

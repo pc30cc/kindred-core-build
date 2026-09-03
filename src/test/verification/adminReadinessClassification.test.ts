@@ -74,9 +74,13 @@ function smsInfo(overrides: Partial<SmsProviderInfo>): SmsProviderInfo {
 }
 
 describe('Generic Verification Core admin readiness — SMS provider classification', () => {
-  it('disabled or no api key is unconfigured', () => {
+  it('no provider selected (disabled/absent) is unconfigured', () => {
     expect(classifySmsProviderInfo(smsInfo({ providerName: 'disabled' }))).toBe('unconfigured');
-    expect(classifySmsProviderInfo(smsInfo({ providerName: 'kavenegar', hasApiKey: false }))).toBe('unconfigured');
+  });
+
+  it('a provider selected but missing its api key is invalid, not unconfigured', () => {
+    expect(classifySmsProviderInfo(smsInfo({ providerName: 'kavenegar', hasApiKey: false }))).toBe('invalid');
+    expect(classifySmsProviderInfo(smsInfo({ providerName: 'smsir', hasApiKey: false }))).toBe('invalid');
   });
 
   it('kavenegar with an api key but no sender is invalid', () => {

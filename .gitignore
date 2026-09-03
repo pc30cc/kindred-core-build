@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# e2e full-stack harness runtime state (ports, seeded session tokens, PIDs)
+e2e/harness/.runtime.json
+e2e/harness/.postgrest.conf
+test-results/

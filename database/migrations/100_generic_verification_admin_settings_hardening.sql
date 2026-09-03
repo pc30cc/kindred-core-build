@@ -212,20 +212,30 @@ $c$;
 --    double-deletes a row a concurrent caller is using) + GET DIAGNOSTICS
 --    for the exact row count. Never touches
 --    verification_purpose_settings_audit — audit evidence is never
---    deleted by this or any function in this migration.
+--    deleted by this or any function in this migration. `_limit` is
+--    clamped to [1, 1000] regardless of what the caller passes, so a
+--    mistaken call (0, negative, or an unbounded number) can never scan or
+--    lock more than 1000 rows in one call. This function is ALSO called
+--    opportunistically (bounded to 5 rows) from inside
+--    gv_admin_update_purpose_settings itself below, so the table cannot
+--    grow without bound purely because nobody ever calls this manually —
+--    every successful settings update or reset also reclaims a small
+--    batch of expired rows.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.gv_admin_purge_expired_idempotency(_limit integer) RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $function$
-DECLARE _n integer;
+DECLARE
+  _n integer;
+  _bounded_limit integer := LEAST(GREATEST(COALESCE(_limit, 1), 1), 1000);
 BEGIN
   WITH victims AS (
     SELECT request_id FROM public.verification_admin_idempotency
     WHERE expires_at <= now()
     ORDER BY expires_at
-    LIMIT _limit
+    LIMIT _bounded_limit
     FOR UPDATE SKIP LOCKED
   )
   DELETE FROM public.verification_admin_idempotency USING victims
@@ -240,9 +250,15 @@ GRANT EXECUTE ON FUNCTION public.gv_admin_purge_expired_idempotency(integer) TO 
 -- ============================================================
 -- 5. gv_admin_update_purpose_settings — hardened body, SAME signature as
 --    099 (no caller-visible contract change): SHA-256 fingerprint,
---    request-id advisory lock acquired before any ledger read,
---    policy-weakening enforcement on 'update', and a defensive
---    unique_violation catch around the settings+audit+ledger write unit.
+--    request-id advisory lock acquired before any ledger read, expired
+--    ledger rows reclaimed as a fresh operation, policy-weakening
+--    enforcement on 'update', the settings UPDATE + audit INSERT + ledger
+--    INSERT sharing ONE subtransaction (so a failure at any point in that
+--    unit rolls back the whole thing, including the settings mutation —
+--    proven by a fault-injection test that deliberately violates the
+--    audit table's user_agent-length CHECK constraint and confirms the
+--    settings row is left completely unmutated), and an opportunistic
+--    bounded purge of expired ledger rows on every successful call.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.gv_admin_update_purpose_settings(
   _request_id text,
@@ -305,10 +321,18 @@ BEGIN
 
   SELECT * INTO _cached FROM public.verification_admin_idempotency WHERE request_id = _request_id;
   IF FOUND THEN
-    IF _cached.request_fingerprint <> _fingerprint THEN
+    IF _cached.expires_at <= now() THEN
+      -- Expired: this replay window has passed, so we no longer guarantee
+      -- replay-safety for this requestId — reclaim it (delete, under the
+      -- advisory lock, so no concurrent caller for this SAME requestId can
+      -- be mid-flight) and fall through to treat this call as a brand-new
+      -- operation rather than either replaying stale data or rejecting it.
+      DELETE FROM public.verification_admin_idempotency WHERE request_id = _request_id;
+    ELSIF _cached.request_fingerprint <> _fingerprint THEN
       RAISE EXCEPTION 'ADMIN_REQUEST_CONFLICT';
+    ELSE
+      RETURN jsonb_build_object('replayed', true, 'result', _cached.result);
     END IF;
-    RETURN jsonb_build_object('replayed', true, 'result', _cached.result);
   END IF;
 
   SELECT * INTO _row FROM public.verification_purpose_settings WHERE purpose = _purpose FOR UPDATE;
@@ -321,32 +345,16 @@ BEGIN
   END IF;
 
   _previous := public.gv_admin_sanitize_settings(_row);
+  -- Computed unconditionally: 'reset' uses it to build the restored row
+  -- inside the subtransaction below, 'update' uses it for the
+  -- policy-tightening check immediately below.
+  _defaults := public.gv_admin_default_settings(_purpose);
 
-  IF _action = 'reset' THEN
-    _defaults := public.gv_admin_default_settings(_purpose);
-    UPDATE public.verification_purpose_settings SET
-      admin_enabled = false,
-      otp_length = (_defaults->>'otpLength')::integer,
-      otp_ttl_seconds = (_defaults->>'otpTtlSeconds')::integer,
-      max_verification_attempts = (_defaults->>'maxVerificationAttempts')::integer,
-      resend_cooldown_seconds = (_defaults->>'resendCooldownSeconds')::integer,
-      max_sends_per_window = (_defaults->>'maxSendsPerWindow')::integer,
-      rate_window_seconds = (_defaults->>'rateWindowSeconds')::integer,
-      proof_ttl_seconds = (_defaults->>'proofTtlSeconds')::integer,
-      global_rate_limit_enabled = false,
-      global_rate_limit_max_per_window = NULL,
-      global_rate_limit_window_seconds = NULL,
-      default_locale = 'en',
-      revision = revision + 1,
-      updated_by = _actor_profile_id,
-      updated_at = now()
-    WHERE purpose = _purpose
-    RETURNING * INTO _row;
-  ELSE
-    -- 'update' — the only path that could ever set admin_enabled = true,
+  IF _action = 'update' THEN
+    -- 'update' is the only path that could ever set admin_enabled = true,
     -- so this is the ONLY place PURPOSE_NOT_DEPLOYED is checked. Reset
-    -- always forces admin_enabled back to false above, so it never needs
-    -- this check.
+    -- always forces admin_enabled back to false, so it never needs this
+    -- check.
     IF _admin_enabled AND NOT public.gv_admin_consumer_implemented(_purpose) THEN
       RAISE EXCEPTION 'PURPOSE_NOT_DEPLOYED';
     END IF;
@@ -354,7 +362,6 @@ BEGIN
     -- Policy-tightening-only enforcement — see this migration's header
     -- comment (gap 1). Reset never reaches here (it applies the baseline
     -- itself, unconditionally), so only 'update' needs this check.
-    _defaults := public.gv_admin_default_settings(_purpose);
     IF _otp_length < (_defaults->>'otpLength')::integer
        OR _otp_ttl_seconds > (_defaults->>'otpTtlSeconds')::integer
        OR _max_verification_attempts > (_defaults->>'maxVerificationAttempts')::integer
@@ -365,39 +372,69 @@ BEGIN
     THEN
       RAISE EXCEPTION 'POLICY_WEAKENING_NOT_ALLOWED';
     END IF;
-
-    UPDATE public.verification_purpose_settings SET
-      admin_enabled = _admin_enabled,
-      otp_length = _otp_length,
-      otp_ttl_seconds = _otp_ttl_seconds,
-      max_verification_attempts = _max_verification_attempts,
-      resend_cooldown_seconds = _resend_cooldown_seconds,
-      max_sends_per_window = _max_sends_per_window,
-      rate_window_seconds = _rate_window_seconds,
-      proof_ttl_seconds = _proof_ttl_seconds,
-      global_rate_limit_enabled = _global_rate_limit_enabled,
-      global_rate_limit_max_per_window = _global_rate_limit_max_per_window,
-      global_rate_limit_window_seconds = _global_rate_limit_window_seconds,
-      default_locale = _default_locale,
-      revision = revision + 1,
-      updated_by = _actor_profile_id,
-      updated_at = now()
-    WHERE purpose = _purpose
-    RETURNING * INTO _row;
   END IF;
 
-  _result := jsonb_build_object(
-    'settings', public.gv_admin_sanitize_settings(_row),
-    'effectiveEnabled', public.gv_admin_effective_enabled(_purpose)
-  );
-
-  -- Defense in depth: the advisory lock above should make a duplicate
-  -- ledger insert unreachable, but if one ever occurred, this block undoes
-  -- the settings mutation + audit insert together with the failed ledger
-  -- insert (a nested PL/pgSQL exception block is an implicit SAVEPOINT,
-  -- rolled back as one unit on the exception) and resolves deterministically
-  -- instead of leaking a raw unique_violation.
+  -- Everything that mutates state — the settings UPDATE, the audit
+  -- INSERT, and the ledger INSERT — shares ONE subtransaction (a nested
+  -- PL/pgSQL exception block is an implicit SAVEPOINT). If ANY of the
+  -- three fails for ANY reason, the whole unit rolls back together,
+  -- including the settings UPDATE — there is no window where the settings
+  -- mutation could commit while the audit/ledger write it is supposed to
+  -- be paired with does not. The advisory lock above should make the
+  -- specific unique_violation case unreachable in practice; it is still
+  -- caught here (rather than left to abort the call) so a residual race
+  -- resolves deterministically (replay or ADMIN_REQUEST_CONFLICT) instead
+  -- of leaking a raw constraint error. Any OTHER exception (e.g. a
+  -- CHECK-constraint violation) is deliberately NOT caught here and
+  -- propagates normally, which — because PL/pgSQL functions are
+  -- themselves atomic — rolls back everything this function did, proving
+  -- the same guarantee from the outside.
   BEGIN
+    IF _action = 'reset' THEN
+      UPDATE public.verification_purpose_settings SET
+        admin_enabled = false,
+        otp_length = (_defaults->>'otpLength')::integer,
+        otp_ttl_seconds = (_defaults->>'otpTtlSeconds')::integer,
+        max_verification_attempts = (_defaults->>'maxVerificationAttempts')::integer,
+        resend_cooldown_seconds = (_defaults->>'resendCooldownSeconds')::integer,
+        max_sends_per_window = (_defaults->>'maxSendsPerWindow')::integer,
+        rate_window_seconds = (_defaults->>'rateWindowSeconds')::integer,
+        proof_ttl_seconds = (_defaults->>'proofTtlSeconds')::integer,
+        global_rate_limit_enabled = false,
+        global_rate_limit_max_per_window = NULL,
+        global_rate_limit_window_seconds = NULL,
+        default_locale = 'en',
+        revision = revision + 1,
+        updated_by = _actor_profile_id,
+        updated_at = now()
+      WHERE purpose = _purpose
+      RETURNING * INTO _row;
+    ELSE
+      UPDATE public.verification_purpose_settings SET
+        admin_enabled = _admin_enabled,
+        otp_length = _otp_length,
+        otp_ttl_seconds = _otp_ttl_seconds,
+        max_verification_attempts = _max_verification_attempts,
+        resend_cooldown_seconds = _resend_cooldown_seconds,
+        max_sends_per_window = _max_sends_per_window,
+        rate_window_seconds = _rate_window_seconds,
+        proof_ttl_seconds = _proof_ttl_seconds,
+        global_rate_limit_enabled = _global_rate_limit_enabled,
+        global_rate_limit_max_per_window = _global_rate_limit_max_per_window,
+        global_rate_limit_window_seconds = _global_rate_limit_window_seconds,
+        default_locale = _default_locale,
+        revision = revision + 1,
+        updated_by = _actor_profile_id,
+        updated_at = now()
+      WHERE purpose = _purpose
+      RETURNING * INTO _row;
+    END IF;
+
+    _result := jsonb_build_object(
+      'settings', public.gv_admin_sanitize_settings(_row),
+      'effectiveEnabled', public.gv_admin_effective_enabled(_purpose)
+    );
+
     INSERT INTO public.verification_purpose_settings_audit (
       purpose, action, previous_settings, new_settings, actor_profile_id, request_id, ip_hash, user_agent, locale
     ) VALUES (
@@ -408,10 +445,22 @@ BEGIN
     VALUES (_request_id, _purpose, _fingerprint, _result, now() + interval '7 days');
   EXCEPTION WHEN unique_violation THEN
     SELECT * INTO _cached FROM public.verification_admin_idempotency WHERE request_id = _request_id;
-    IF FOUND AND _cached.request_fingerprint = _fingerprint THEN
+    IF FOUND AND _cached.expires_at > now() AND _cached.request_fingerprint = _fingerprint THEN
       RETURN jsonb_build_object('replayed', true, 'result', _cached.result);
     END IF;
     RAISE EXCEPTION 'ADMIN_REQUEST_CONFLICT';
+  END;
+
+  -- Opportunistic bounded cleanup: every successful call also reclaims a
+  -- small batch of expired ledger rows, so the table cannot grow without
+  -- bound purely because nobody ever calls gv_admin_purge_expired_idempotency
+  -- manually. Deliberately isolated in its own sub-block and never allowed
+  -- to affect the primary mutation's outcome — a maintenance failure here
+  -- must never turn a successful settings change into an error.
+  BEGIN
+    PERFORM public.gv_admin_purge_expired_idempotency(5);
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
   END;
 
   RETURN jsonb_build_object('replayed', false, 'result', _result);

@@ -38,10 +38,22 @@ export interface PurposeGates {
   effectiveEnabled: boolean;
 }
 
+export interface PurposeBaseline {
+  otpLength: number;
+  otpTtlSeconds: number;
+  maxVerificationAttempts: number;
+  resendCooldownSeconds: number;
+  maxSendsPerWindow: number;
+  rateWindowSeconds: number;
+  proofTtlSeconds: number;
+}
+
 export interface PurposeOverview {
   purpose: VerificationPurpose;
   settings: PurposeSettings;
   gates: PurposeGates;
+  /** This purpose's own immutable baseline — settings may only tighten relative to it, never widen. */
+  baseline: PurposeBaseline;
 }
 
 export interface PlatformCeilings {

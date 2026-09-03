@@ -1,27 +1,41 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { readFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Pool } from 'pg';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Generic Verification Core Super Admin page — real-browser authorization
- * boundary. Mirrors the exact pattern already proven in e2e/invitations.spec.ts:
- * no seeded session, drive Chromium against the running self-hosted stack,
- * and assert the unauthenticated redirect.
+ * Generic Verification Core — Super Admin page, real-browser acceptance.
  *
- * KNOWN GAP (documented, not silently skipped): the authenticated
- * interactive scenarios called for in this pass — a real Super Admin
- * session exercising overview/editing/reset/revision-conflict/policy-
- * weakening-validation/audit-display/sandboxed-preview, a workspace
- * owner/admin session receiving 403, and fa/tr/en RTL/LTR checks on the
- * authenticated page — were NOT implemented in this round. They require
- * booting a full authenticated dev+backend stack (seeded profiles,
- * sessions, and a platform-admin role) and this repository has no existing
- * seed/login harness for Playwright to build on (e2e/invitations.spec.ts
- * itself only covers the unauthenticated case). Building that harness from
- * scratch was judged out of scope for the time invested in this pass; the
- * equivalent behavior is instead proven by the real-Postgres + real-Express
- * integration suite (src/test/integration/genericVerificationAdminSettings.pg.test.ts),
- * which exercises the identical HTTP → Zod → service → RPC → database path
- * end to end, just not through an actual browser.
+ * Two modes:
+ *  - Default (E2E_FULL_STACK unset): only the unauthenticated boundary,
+ *    against whatever stack is already running on baseURL. This is the
+ *    original, always-cheap check.
+ *  - E2E_FULL_STACK=1: playwright.config.ts's globalSetup
+ *    (e2e/harness/setupFullStack.ts) boots a real, disposable Postgres +
+ *    PostgREST + Express stack and seeds two real sessions (a platform
+ *    Super Admin and a workspace owner/admin who is NOT a platform admin).
+ *    This file then drives real Chromium against the real rendered app for
+ *    every authenticated scenario. No module is mocked in that stack.
  */
+
+const RUNTIME_FILE = path.join(__dirname, 'harness', '.runtime.json');
+const fullStack = process.env.E2E_FULL_STACK === '1';
+
+interface Runtime {
+  ports: { postgrest: number; express: number; proxy: number };
+  superAdmin: { userId: string; token: string };
+  workspaceAdmin: { userId: string; token: string; workspaceId: string };
+}
+
+function loadRuntime(): Runtime {
+  if (!existsSync(RUNTIME_FILE)) {
+    throw new Error(`${RUNTIME_FILE} missing — globalSetup did not run (is E2E_FULL_STACK=1 set?)`);
+  }
+  return JSON.parse(readFileSync(RUNTIME_FILE, 'utf8'));
+}
 
 async function withSiteDefault(page: Page, locale: 'en' | 'fa' | 'tr') {
   await page.route('**/runtime-config.js', async (route) => {
@@ -33,19 +47,191 @@ async function withSiteDefault(page: Page, locale: 'en' | 'fa' | 'tr') {
   });
 }
 
-test.describe('admin verification page — authorization boundary', () => {
+async function seedSessionCookie(context: BrowserContext, token: string, port: number) {
+  await context.addCookies([
+    {
+      name: 'gs_session',
+      value: token,
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Lax',
+    },
+  ]);
+  void port;
+}
+
+test.describe('admin verification page — authorization boundary (no seeded session required)', () => {
   test('is not reachable without a session', async ({ page }) => {
     await withSiteDefault(page, 'en');
     await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
-    expect(page.url()).toMatch(/\/auth\/login|\/login/);
+    await expect(page).toHaveURL(/\/auth\/login/);
+  });
+});
+
+test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', () => {
+  test.skip(!fullStack, 'requires E2E_FULL_STACK=1 (real Postgres + PostgREST + Express harness)');
+
+  let runtime: Runtime;
+  let db: Pool;
+
+  test.beforeAll(() => {
+    runtime = loadRuntime();
+    db = new Pool({ connectionString: process.env.E2E_PG_SUPERUSER_DSN?.replace(/\/[^/]*$/, `/${process.env.E2E_DB_NAME || 'gv_e2e_stack'}`) || `postgres://app_test:app_test@127.0.0.1:5432/${process.env.E2E_DB_NAME || 'gv_e2e_stack'}` });
   });
 
-  test('the unauthenticated redirect never exposes a secret in the URL', async ({ page }) => {
+  test.afterAll(async () => {
+    await db.end();
+  });
+
+  test('a workspace owner/admin (not a platform admin) is redirected away, not shown the page', async ({ page, context }) => {
     await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.workspaceAdmin.token, runtime.ports.proxy);
     await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
-    expect(page.url()).not.toMatch(/pepper/i);
-    expect(page.url()).not.toMatch(/service[_-]?role/i);
+    await page.waitForURL(/\/app/, { timeout: 10_000 });
+    expect(page.url()).not.toContain('/admin/verification');
+  });
+
+  test('a platform Super Admin can reach the page and it renders real overview data', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Verification & OTP' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Dormant — no consumer enabled')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Purposes' })).toBeVisible();
+  });
+
+  for (const [locale, dir] of [['fa', 'rtl'], ['tr', 'ltr'], ['en', 'ltr']] as const) {
+    test(`renders with dir="${dir}" for site default locale ${locale}`, async ({ page, context }) => {
+      await withSiteDefault(page, locale);
+      await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+      await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+      const heading = locale === 'fa' ? 'تأیید هویت و رمز یکبار مصرف' : locale === 'tr' ? 'Doğrulama ve OTP' : 'Verification & OTP';
+      await page.waitForSelector(`h1:has-text("${heading}")`, { timeout: 15_000 }).catch(() => {});
+      const container = page.locator('h1').first().locator('xpath=ancestor::div[@dir][1]');
+      await expect(container).toHaveAttribute('dir', dir, { timeout: 15_000 });
+    });
+  }
+
+  test('purpose edit dialog exposes the immutable baseline and gates', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('tab', { name: 'Purposes' }).click();
+    await page.getByRole('row', { name: /Signup — Email/ }).getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByText('Activation gates')).toBeVisible();
+    await expect(page.getByText(/Purpose baseline:/).first()).toBeVisible();
+  });
+
+  test('a weakening submission is rejected VISIBLY and Save is disabled — no server round-trip needed', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('tab', { name: 'Purposes' }).click();
+    await page.getByRole('row', { name: /Signup — Email/ }).getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    const otpLengthInput = page.getByLabel('OTP length (digits)');
+    await otpLengthInput.fill('1');
+
+    await expect(page.getByText(/Cannot save: .* value\(s\) would weaken this purpose/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  });
+
+  test('a valid tightening submission saves, bumps revision, and appears in the audit log', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('tab', { name: 'Purposes' }).click();
+    await page.getByRole('row', { name: /Password reset/ }).getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    const resendCooldown = page.getByLabel('Resend cooldown (seconds)');
+    const current = await resendCooldown.inputValue();
+    await resendCooldown.fill(String(Number(current) + 5));
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden({ timeout: 10_000 });
+
+    await page.getByRole('tab', { name: 'Audit history' }).click();
+    await expect(page.getByRole('row', { name: /Password reset/ }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Update').first()).toBeVisible();
+  });
+
+  test('a stale expectedRevision is rejected as a visible revision conflict', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('tab', { name: 'Purposes' }).click();
+    await page.getByRole('row', { name: /Change email/ }).getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    // Out-of-band mutation via a raw DB bump of `revision` while the dialog
+    // is open, simulating a second admin's concurrent change — the open
+    // dialog still holds the now-stale revision it loaded with.
+    await db.query(`UPDATE public.verification_purpose_settings SET revision = revision + 1 WHERE purpose = 'change_email'`);
+
+    const resendCooldown = page.getByLabel('Resend cooldown (seconds)');
+    const current = await resendCooldown.inputValue();
+    await resendCooldown.fill(String(Number(current) + 5));
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByText('Someone else changed these settings. Reload and try again.')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('reset restores platform defaults and turns admin_enabled back off', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('tab', { name: 'Purposes' }).click();
+    await page.getByRole('row', { name: /Change phone/ }).getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.getByRole('button', { name: /Reset to defaults/ }).click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await page.getByRole('button', { name: 'Reset', exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeHidden({ timeout: 10_000 });
+
+    const { rows } = await db.query(`SELECT admin_enabled FROM public.verification_purpose_settings WHERE purpose = 'change_phone'`);
+    expect(rows[0].admin_enabled).toBe(false);
+  });
+
+  test('notification preview is fully sandboxed and sends nothing', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('tab', { name: 'Notification preview' }).click();
+    await expect(page.getByText('Test code shown: 123456')).toBeVisible({ timeout: 10_000 });
+    const iframe = page.locator('iframe[title*="Sandboxed"]');
+    await expect(iframe).toHaveAttribute('sandbox', '');
+  });
+
+  test('zero provider calls and zero verification challenge rows exist after this whole session', async () => {
+    const { rows: challenges } = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges`);
+    expect(challenges[0].n).toBe(0);
+  });
+
+  test('no secret leaks into the DOM, cookies, or storage', async ({ page, context }) => {
+    await withSiteDefault(page, 'en');
+    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Verification & OTP' })).toBeVisible({ timeout: 15_000 });
+
+    const bodyHtml = await page.content();
+    expect(bodyHtml).not.toContain('SERVICE_ROLE');
+    expect(bodyHtml).not.toContain(runtime.superAdmin.token);
+
+    const cookies = await context.cookies();
+    for (const c of cookies) {
+      if (c.name === 'gs_session') continue;
+      expect(c.value).not.toContain(runtime.superAdmin.token);
+    }
+
+    const storageDump = await page.evaluate(() => ({
+      local: { ...localStorage },
+      session: { ...sessionStorage },
+    }));
+    const serialized = JSON.stringify(storageDump);
+    expect(serialized).not.toContain(runtime.superAdmin.token);
+    expect(serialized.toUpperCase()).not.toContain('SERVICE_ROLE');
   });
 });

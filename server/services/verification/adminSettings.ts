@@ -18,8 +18,8 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import {
-  ALL_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS, findPolicyWeakeningViolations,
-  type VerificationPurpose,
+  ALL_VERIFICATION_PURPOSES, PLATFORM_MAXIMUMS, findPolicyWeakeningViolations, getAdminPolicyBaseline,
+  type VerificationPurpose, type AdminPolicyBaseline,
 } from './types.js';
 
 export class VerificationAdminError extends Error {
@@ -78,6 +78,14 @@ export interface PurposeOverview {
   purpose: VerificationPurpose;
   settings: PurposeSettings;
   gates: PurposeGates;
+  /**
+   * This purpose's own immutable canonical baseline (never editable, never
+   * derived from stored settings) — the UI uses it to compute per-field
+   * direction-aware min/max constraints and to explain why a given value
+   * would be rejected as a weakening. Identical to what the RPC itself
+   * validates against (see database/migrations/100_..._hardening.sql).
+   */
+  baseline: AdminPolicyBaseline;
 }
 
 function mapRow(row: Record<string, unknown>): PurposeSettings {
@@ -150,7 +158,7 @@ export async function getPurposeGates(config: ServerConfig, purpose: string): Pr
 export async function getPurposeOverview(config: ServerConfig, purpose: string): Promise<PurposeOverview> {
   assertKnownPurpose(purpose);
   const [settings, gates] = await Promise.all([getPurposeSettings(config, purpose), getPurposeGates(config, purpose)]);
-  return { purpose, settings, gates };
+  return { purpose, settings, gates, baseline: getAdminPolicyBaseline(purpose) };
 }
 
 export async function getAllPurposeOverviews(config: ServerConfig): Promise<PurposeOverview[]> {

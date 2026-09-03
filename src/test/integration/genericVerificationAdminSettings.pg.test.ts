@@ -236,6 +236,29 @@ function fullUpdatePayload(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+/**
+ * Calls gv_admin_update_purpose_settings directly (bypassing Express and
+ * its per-admin rate limiter entirely) with the same universally-safe
+ * tightening values as fullUpdatePayload. Used by tests that are about
+ * database/RPC-layer behavior specifically (ledger reclaim, opportunistic
+ * purge) rather than the HTTP/Zod/auth layer — calling many of these in a
+ * row must never be mistaken for real admin traffic hitting the
+ * mutationLimiter (30/min) that fullUpdatePayload's HTTP siblings share
+ * across this entire test file.
+ */
+async function rpcUpdate(purpose: string, requestId: string, expectedRevision = 1, overrides: Partial<Record<string, unknown>> = {}) {
+  const p = { ...fullUpdatePayload({ requestId, expectedRevision, ...overrides }) };
+  return db.query(
+    `SELECT public.gv_admin_update_purpose_settings($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) AS result`,
+    [
+      p.requestId, purpose, 'update', null, p.expectedRevision, p.adminEnabled, p.otpLength, p.otpTtlSeconds,
+      p.maxVerificationAttempts, p.resendCooldownSeconds, p.maxSendsPerWindow, p.rateWindowSeconds, p.proofTtlSeconds,
+      p.globalRateLimitEnabled, p.globalRateLimitMaxPerWindow, p.globalRateLimitWindowSeconds, p.defaultLocale,
+      null, null, p.locale,
+    ],
+  );
+}
+
 suite('Generic Verification Core — Super Admin settings (real PostgreSQL + real Express admin router)', () => {
   // ── Authorization ────────────────────────────────────────────────────
   it('unauthenticated requests are rejected on every route', async () => {
@@ -626,5 +649,85 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     await db.query(`SELECT public.gv_admin_purge_expired_idempotency($1)`, [1000]);
     const idem = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id=$1`, [requestId]);
     expect(idem.rows[0].n).toBe(1);
+  });
+
+  it('gv_admin_purge_expired_idempotency clamps an out-of-range _limit instead of erroring', async () => {
+    await expect(db.query(`SELECT public.gv_admin_purge_expired_idempotency($1)`, [-5])).resolves.toBeTruthy();
+    await expect(db.query(`SELECT public.gv_admin_purge_expired_idempotency($1)`, [0])).resolves.toBeTruthy();
+    await expect(db.query(`SELECT public.gv_admin_purge_expired_idempotency($1)`, [999999])).resolves.toBeTruthy();
+  });
+
+  it('the table cannot grow without bound purely because nobody calls the purge RPC manually: every successful settings call opportunistically reclaims expired rows', async () => {
+    await resetSettingsRow('password_reset');
+    await resetSettingsRow('change_email');
+    await resetSettingsRow('change_phone');
+    const seedIds = [randomUUID(), randomUUID(), randomUUID()];
+    const seedPurposes = ['password_reset', 'change_email', 'change_phone'];
+    for (let i = 0; i < 3; i++) {
+      await rpcUpdate(seedPurposes[i], seedIds[i]);
+    }
+    await db.query(`UPDATE public.verification_admin_idempotency SET expires_at = now() - interval '1 day' WHERE request_id = ANY($1)`, [seedIds]);
+    const beforeCount = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id = ANY($1)`, [seedIds]);
+    expect(beforeCount.rows[0].n).toBe(3);
+
+    // A single, UNRELATED successful call — never a manual purge call —
+    // must opportunistically reclaim the expired rows above.
+    await resetSettingsRow('sensitive_action');
+    await rpcUpdate('sensitive_action', randomUUID());
+
+    const afterCount = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id = ANY($1)`, [seedIds]);
+    expect(afterCount.rows[0].n).toBe(0);
+  });
+
+  // ── Migration 100 hardening: expired ledger rows are reclaimed, not replayed/rejected ──
+  it('an expired ledger row for the SAME requestId is reclaimed as a brand-new operation (not replayed, not rejected)', async () => {
+    await resetSettingsRow('login_step_up');
+    const requestId = randomUUID();
+    const first = await rpcUpdate('login_step_up', requestId, 1);
+    expect(first.rows[0].result.replayed).toBe(false);
+    expect(first.rows[0].result.result.settings.revision).toBe(2);
+
+    await db.query(`UPDATE public.verification_admin_idempotency SET expires_at = now() - interval '1 day' WHERE request_id = $1`, [requestId]);
+
+    const second = await rpcUpdate('login_step_up', requestId, 2, { otpTtlSeconds: 250 });
+    expect(second.rows[0].result.replayed).toBe(false); // a REAL new mutation, not a cached replay
+    expect(second.rows[0].result.result.settings.revision).toBe(3);
+    expect(second.rows[0].result.result.settings.otpTtlSeconds).toBe(250);
+
+    const row = await db.query(`SELECT expires_at FROM public.verification_admin_idempotency WHERE request_id = $1`, [requestId]);
+    expect(new Date(row.rows[0].expires_at).getTime()).toBeGreaterThan(Date.now()); // reclaimed row is fresh, not still expired
+  });
+
+  // ── Migration 100 hardening: atomicity — settings mutation never survives an audit/ledger failure ──
+  it('fault injection: a CHECK-constraint violation on the audit insert (oversized user_agent) rolls back the settings mutation too', async () => {
+    await resetSettingsRow('workspace_invitation');
+    const oversizedUserAgent = 'x'.repeat(400); // audit table CHECK caps user_agent at 300 chars
+    await expect(
+      db.query(
+        `SELECT public.gv_admin_update_purpose_settings($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+        ['fault-inject-ua-001', 'workspace_invitation', 'update', null, 1, false, 6, 300, 4, 90, 3, 3600, 180, false, null, null, 'en', null, oversizedUserAgent, 'en'],
+      ),
+    ).rejects.toThrow(/user_agent/i);
+
+    const row = await db.query(`SELECT revision FROM public.verification_purpose_settings WHERE purpose='workspace_invitation'`);
+    expect(row.rows[0].revision).toBe(1); // the UPDATE that ran earlier in the same function call did NOT survive
+    const audit = await db.query(`SELECT count(*)::int AS n FROM public.verification_purpose_settings_audit WHERE purpose='workspace_invitation'`);
+    expect(audit.rows[0].n).toBe(0);
+    const idem = await db.query(`SELECT count(*)::int AS n FROM public.verification_admin_idempotency WHERE request_id='fault-inject-ua-001'`);
+    expect(idem.rows[0].n).toBe(0);
+  });
+
+  // ── Purpose-aware editor: baseline exposure ──────────────────────────
+  it('GET /purposes/:purpose and GET /purposes both expose the immutable baseline matching getAdminPolicyBaseline', async () => {
+    const single = await call('GET', '/api/admin/verification/purposes/sensitive_action', 'super-admin-token');
+    expect(single.status).toBe(200);
+    const tsBaseline = getAdminPolicyBaseline('sensitive_action');
+    expect(single.json.baseline).toEqual(tsBaseline);
+
+    const list = await call('GET', '/api/admin/verification/purposes', 'super-admin-token');
+    expect(list.status).toBe(200);
+    for (const overview of list.json.purposes) {
+      expect(overview.baseline).toEqual(getAdminPolicyBaseline(overview.purpose));
+    }
   });
 });

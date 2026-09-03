@@ -256,11 +256,32 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
 
   const amountIrr = amountToman * 10;
   try {
-    const intent = await createAiCreditTopupIntent(config, {
-      workspaceId,
-      providerName: resolved.provider.name,
-      amountIrr,
-    });
+    // The proforma the customer confirmed is reused so the document number
+    // they saw is the one that reaches the bank — never a second one.
+    let intent: any = null;
+    if (parsed.data.intentId) {
+      const { data: existing } = await getServiceClient(config)
+        .from('billing_payment_intents')
+        .select('*')
+        .eq('id', parsed.data.intentId)
+        .eq('workspace_id', workspaceId)
+        .eq('purchase_type', 'ai_credit_topup')
+        .eq('status', 'pending')
+        .eq('amount_irr', amountIrr)
+        .eq('provider_name', resolved.provider.name)
+        .is('provider_ref', null)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+      intent = existing || null;
+    }
+    if (!intent) {
+      intent = await createAiCreditTopupIntent(config, {
+        workspaceId,
+        providerName: resolved.provider.name,
+        amountIrr,
+      });
+    }
+
     const sep = callbackUrl.includes('?') ? '&' : '?';
     const result = await resolved.provider.createCheckoutSession(resolved.config, {
       workspaceId,

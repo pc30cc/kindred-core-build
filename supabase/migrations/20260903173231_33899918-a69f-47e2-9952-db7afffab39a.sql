@@ -1,0 +1,2 @@
+REVOKE ALL ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) TO service_role;

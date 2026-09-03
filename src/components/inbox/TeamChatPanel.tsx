@@ -60,6 +60,8 @@ export default function TeamChatPanel() {
   const [peerId, setPeerId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: dirData, isLoading } = useColleagues(workspace?.id);
   const { data: presence } = useTeamPresence(workspace?.id);
@@ -67,6 +69,29 @@ export default function TeamChatPanel() {
   const { data: threadData, isLoading: threadLoading } = useTeamThread(workspace?.id, peerId);
   const send = useSendTeamMessage(workspace?.id);
   const markRead = useMarkTeamThreadRead(workspace?.id);
+  const recorder = useVoiceRecorder();
+
+  // ─── Pending attachment (single per draft, mirrors the Inbox composer) ───
+  const [att, setAtt] = useState<{
+    file: File | null;
+    attachmentId: string | null;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    status: 'idle' | 'uploading' | 'ready' | 'error';
+    progress: number;
+    error: string;
+  }>({
+    file: null, attachmentId: null, fileName: '', mimeType: '',
+    sizeBytes: 0, status: 'idle', progress: 0, error: '',
+  });
+
+  const resetAttachment = useCallback(() => {
+    setAtt({
+      file: null, attachmentId: null, fileName: '', mimeType: '',
+      sizeBytes: 0, status: 'idle', progress: 0, error: '',
+    });
+  }, []);
 
   const colleagues = dirData?.colleagues ?? [];
   const peer: Colleague | undefined = colleagues.find(c => c.user_id === peerId);
@@ -88,14 +113,97 @@ export default function TeamChatPanel() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, peerId]);
 
+  // Switching colleague drops any half-composed draft attachment.
+  useEffect(() => { resetAttachment(); recorder.cancel(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [peerId]);
+
+  /** Upload through the same authenticated operator attachment endpoints. */
+  const beginUpload = useCallback(async (file: File) => {
+    if (!workspace?.id) return;
+    if (!ALLOWED_TEAM_MIMES.has(file.type)) {
+      toast({
+        title: t('inbox.attachInvalidType') || 'File type not allowed',
+        description: file.type || 'unknown',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (file.size > MAX_TEAM_BYTES) {
+      toast({
+        title: t('inbox.attachTooLarge') || 'File too large',
+        description: humanSize(MAX_TEAM_BYTES),
+        variant: 'destructive',
+      });
+      return;
+    }
+    setAtt({
+      file, attachmentId: null, fileName: file.name, mimeType: file.type,
+      sizeBytes: file.size, status: 'uploading', progress: 5, error: '',
+    });
+    try {
+      const init = await conversationsApi.initAttachment({
+        workspace_id: workspace.id,
+        conversation_id: null, // internal message — never bound to a visitor thread
+        file,
+      });
+      setAtt((s) => ({ ...s, attachmentId: init.attachment_id, progress: 20 }));
+      await conversationsApi.uploadAttachment({
+        workspace_id: workspace.id,
+        attachment_id: init.attachment_id,
+        file,
+        onProgress: (pct) => setAtt((s) => ({ ...s, progress: Math.max(s.progress, pct) })),
+      });
+      setAtt((s) => ({ ...s, status: 'ready', progress: 100 }));
+    } catch (e: any) {
+      setAtt((s) => ({ ...s, status: 'error', error: e?.message || 'Upload failed' }));
+      toast({
+        title: t('inbox.attachUploadFailed') || 'Upload failed',
+        description: e?.message || '',
+        variant: 'destructive',
+      });
+    }
+  }, [workspace?.id, t]);
+
+  const onFilePicked: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) void beginUpload(file);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    if (!el) { setDraft((d) => d + emoji); return; }
+    const start = el.selectionStart ?? draft.length;
+    const end = el.selectionEnd ?? draft.length;
+    const next = draft.slice(0, start) + emoji + draft.slice(end);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const caret = start + emoji.length;
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const stopAndSendVoice = async () => {
+    const file = await recorder.stop();
+    if (file) void beginUpload(file);
+  };
+
+  const hasAttachment = att.status === 'ready' && !!att.attachmentId;
+  const sendDisabled = (!draft.trim() && !hasAttachment)
+    || !peerId || send.isPending || att.status === 'uploading';
+
   const submit = () => {
     const body = draft.trim();
-    if (!body || !peerId || send.isPending) return;
+    if (!peerId || send.isPending) return;
+    if (!body && !hasAttachment) return;
+    const attachmentId = hasAttachment ? att.attachmentId : null;
     setDraft('');
-    send.mutate({ recipient_id: peerId, body });
+    resetAttachment();
+    send.mutate({ recipient_id: peerId, body, attachment_id: attachmentId });
   };
 
   const isOnline = (id: string) => (pMap.get(id) as any)?.state === 'online';
+
 
   return (
     <div className="flex h-full w-full" dir={dir}>

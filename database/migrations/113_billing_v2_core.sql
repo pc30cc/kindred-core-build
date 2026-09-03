@@ -241,7 +241,12 @@ ALTER TABLE public.workspace_subscriptions
   ADD COLUMN IF NOT EXISTS free_fallback_at      TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS trial_start           TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS billing_engine_version TEXT NOT NULL DEFAULT 'v1',
-  ADD COLUMN IF NOT EXISTS billing_v2_effective_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS billing_v2_effective_at TIMESTAMPTZ,
+  -- Legacy → V2 AI allowance handover marker. NULL means the legacy calendar
+  -- grant is still the authority for this workspace; the first activated V2
+  -- period stamps it, and from that moment the legacy path is off for good.
+  ADD COLUMN IF NOT EXISTS v2_allowance_effective_period_id UUID
+    REFERENCES public.billing_subscription_periods(id) ON DELETE SET NULL;
 
 ALTER TABLE public.workspace_subscriptions DROP CONSTRAINT IF EXISTS workspace_subscriptions_pending_change_check;
 ALTER TABLE public.workspace_subscriptions ADD CONSTRAINT workspace_subscriptions_pending_change_check

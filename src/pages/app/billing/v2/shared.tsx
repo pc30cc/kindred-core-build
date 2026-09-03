@@ -131,7 +131,7 @@ export function Pager({
 }
 
 /** Server error code → translated message, with a safe generic fallback. */
-export function errorMessage(e: unknown, t: (k: string) => string): string {
+export function errorMessage(e: unknown, t: (k: any) => string): string {
   const code = (e as any)?.code || (e as any)?.message;
   if (typeof code === 'string' && /^[A-Z_]+$/.test(code)) {
     const translated = t(`billingV2.errors.${code}`);

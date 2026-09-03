@@ -461,9 +461,37 @@ async function resolveMaxCallRecordingStorageMb(
   };
 }
 
+/**
+ * `max_kb_articles` — lifetime occupancy of knowledge-base articles for
+ * the workspace. Live exact count(*) on
+ * `public.knowledge_base_articles` scoped by `workspace_id`.
+ * Deletes free capacity; -1 on the plan = unlimited.
+ */
+async function resolveMaxKbArticles(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<UsageResolution> {
+  const sb = makeClient(config);
+  const { count, error } = await sb
+    .from('knowledge_base_articles')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId);
+  if (error) throw new Error(`max_kb_articles_count_failed:${error.message}`);
+  return {
+    value: typeof count === 'number' ? count : 0,
+    period: 'lifetime',
+    periodKind: 'lifetime',
+    source: 'derived_count',
+    isExact: true,
+    supported: true,
+    note: 'count(*) on public.knowledge_base_articles where workspace_id = $1 (occupancy)',
+  };
+}
+
 // ─── Limit key → resolver registry ──────────────────────────
 
 type Resolver = (config: ServerConfig, workspaceId: string) => Promise<UsageResolution>;
+
 
 /**
  * Canonical mapping: capability registry limit key → usage resolver.

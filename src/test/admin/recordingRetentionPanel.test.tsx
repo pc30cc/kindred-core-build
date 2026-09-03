@@ -49,10 +49,10 @@ function renderPanel() {
 
 describe('RetentionStatusBadge', () => {
   it.each([
-    ['on_hold', /legal hold/i],
-    ['expired', /expired/i],
-    ['legacy_unmanaged', /legacy/i],
-    ['expires_at', /retained/i],
+    ['on_hold', /statusOnHold/i],
+    ['expired', /statusExpired/i],
+    ['legacy_unmanaged', /statusLegacy/i],
+    ['expires_at', /statusRetained/i],
   ] as const)('renders %s with the right label', (status, re) => {
     const { container } = render(<RetentionStatusBadge status={status as any} />);
     expect(container.textContent || '').toMatch(re);

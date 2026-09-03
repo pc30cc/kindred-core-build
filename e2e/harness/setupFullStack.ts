@@ -76,7 +76,9 @@ export default async function globalSetup() {
   const dbDsn = PG_SUPERUSER_DSN.replace(/\/[^/]*$/, `/${DB_NAME}`);
   const db = new Pool({ connectionString: dbDsn, max: 5 });
 
-  // 2. Full self-host migration chain (000..100) + minimal auth-schema stub.
+  // 2. Full self-host migration chain (000..100) + minimal auth-schema stub
+  //    (ensureAuthChainInstalled also stubs `public.call_center_settings`,
+  //    a genuine self-host/hosted parity gap — see authStubSchema.ts).
   await ensureAuthChainInstalled(db as any);
 
   // 2b. `public.is_ip_blocked(_ip)` — server/middleware/security.ts's

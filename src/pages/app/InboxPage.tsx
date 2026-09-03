@@ -64,6 +64,7 @@ import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
 import { Zap } from 'lucide-react';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { MessageAttachmentView, humanSize, attachmentUrl } from '@/components/inbox/MessageAttachmentView';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { ContactDrawer } from '@/features/contacts/ContactDrawer';
 import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';

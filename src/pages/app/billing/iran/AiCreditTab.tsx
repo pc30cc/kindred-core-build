@@ -31,6 +31,8 @@ export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
   const [summary, setSummary] = useState<AiBillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
 
   const load = useCallback(() => {
     setLoading(true);

@@ -114,13 +114,26 @@ adminDatabaseRouter.post('/restore', async (req, res) => {
   }
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
+
+  // Full dumps carry the DDL: rebuild the structure first, then load the rows.
+  let schemaResult: unknown = null;
+  if (Array.isArray(payload.schema) && payload.schema.length > 0) {
+    const { data: applied, error: schemaError } = await sb.rpc('admin_apply_schema', {
+      _actor_user_id: actorId,
+      _statements: payload.schema,
+    });
+    if (schemaError) return res.status(500).json({ error: schemaError.message });
+    schemaResult = applied;
+  }
+
   const { data, error } = await sb.rpc('admin_restore_database', {
     _actor_user_id: actorId,
     _payload: payload,
   });
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ ok: true, result: data });
+  res.json({ ok: true, result: data, schema: schemaResult });
 });
+
 
 // ─── Purge ───────────────────────────────────────────────────────────────
 adminDatabaseRouter.post('/purge', async (req, res) => {

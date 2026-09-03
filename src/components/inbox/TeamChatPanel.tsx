@@ -290,7 +290,13 @@ export default function TeamChatPanel() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[11.5px] text-muted-foreground truncate">
                         {c.last_message
-                          ? (c.last_message.outgoing ? `${t('inbox.you') || 'You'}: ` : '') + c.last_message.body
+                          ? (c.last_message.outgoing ? `${t('inbox.you') || 'You'}: ` : '')
+                            + (c.last_message.body
+                              || (c.last_message.attachment_kind === 'image' ? (t('inbox.previewImage') || 'Photo')
+                                : c.last_message.attachment_kind === 'audio' ? (t('inbox.previewAudio') || 'Voice message')
+                                : c.last_message.attachment_kind === 'video' ? (t('inbox.previewVideo') || 'Video')
+                                : c.last_message.attachment_kind ? (t('inbox.previewFile') || 'File')
+                                : ''))
                           : c.role}
                       </span>
                       {c.unread > 0 && (

@@ -1166,6 +1166,14 @@ export default function InboxPage() {
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
+            {/* Plan snapshot still loading — placeholders instead of guessing. */}
+            {!entsReady ? (
+              <>
+                <Skeleton className="h-8 w-24 rounded-full" />
+                <Skeleton className="h-8 w-28 rounded-full" />
+                <Skeleton className="h-8 w-24 rounded-full" />
+              </>
+            ) : null}
             {/* AI (Automated queue) — AI-managed conversations. Plan-gated. */}
             {aiTabAllowed ? (
             <button

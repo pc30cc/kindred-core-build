@@ -63,8 +63,9 @@ export default function OperatorActivityPage() {
 
   if (!wsId) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="space-y-5">
+        <SkeletonStats count={4} />
+        <SkeletonTable rows={6} columns={5} />
       </div>
     );
   }

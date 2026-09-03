@@ -231,8 +231,18 @@ export default function SettingsProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-5">
+        <div className="rounded-xl border border-border/60 bg-card p-5">
+          <div className="flex items-center gap-4">
+            <SkeletonAvatar size={72} />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-56" />
+            </div>
+          </div>
+        </div>
+        <SkeletonForm fields={4} />
+        <SkeletonCard lines={3} />
       </div>
     );
   }

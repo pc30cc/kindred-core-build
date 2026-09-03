@@ -166,7 +166,11 @@ export default function BillingPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20" dir={pageDir}>
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <div className="w-full space-y-5">
+          <SkeletonStats count={3} />
+          <SkeletonCard lines={4} />
+          <SkeletonTable rows={5} columns={4} />
+        </div>
       </div>
     );
   }

@@ -17,6 +17,7 @@ import {
   Plug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ImageWithSkeleton } from '@/components/common/ImageWithSkeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
@@ -296,9 +297,9 @@ export function AppSidebar() {
               : 'hover:bg-sidebar-accent/50',
           )}
         >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-primary/20 shadow-sm">
+          <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-primary/20 shadow-sm">
             {workspaceIconUrl ? (
-              <img src={workspaceIconUrl} alt="" className="h-full w-full object-cover" />
+              <ImageWithSkeleton src={workspaceIconUrl} className="h-full w-full object-cover" />
             ) : (
               <Building2 className="h-[18px] w-[18px] text-primary-foreground" strokeWidth={2.25} />
             )}

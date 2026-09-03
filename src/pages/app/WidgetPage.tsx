@@ -304,7 +304,15 @@ function WidgetPageContent() {
   };
 
   if (isLoading) {
-    return <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>;
+    return (
+      <div className="space-y-5 p-1" dir={dir}>
+        <Skeleton className="h-24 w-full rounded-2xl" />
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <SkeletonForm fields={5} />
+          <Skeleton className="h-[560px] w-full rounded-2xl" />
+        </div>
+      </div>
+    );
   }
 
   return (

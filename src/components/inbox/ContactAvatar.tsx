@@ -10,6 +10,7 @@
  */
 import { cn } from '@/lib/utils';
 import { OsIcon } from '@/components/visitors/OsIcon';
+import { ImageWithSkeleton } from '@/components/common/ImageWithSkeleton';
 
 /** OS brand identity used when a contact has no picture but we know the device. */
 type OsKind = 'apple' | 'windows' | 'linux' | 'android' | null;
@@ -146,9 +147,8 @@ export function ContactAvatar({
         aria-hidden="true"
       >
         {avatarUrl ? (
-          <img
+          <ImageWithSkeleton
             src={avatarUrl}
-            alt=""
             className="w-full h-full object-cover"
             loading="lazy"
             referrerPolicy="no-referrer"

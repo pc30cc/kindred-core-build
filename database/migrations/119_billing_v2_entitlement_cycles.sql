@@ -426,7 +426,13 @@ BEGIN
                                 THEN 'skipped' ELSE allowance_state END
    WHERE workspace_id = v_period.workspace_id
      AND subscription_period_id <> v_period.id
-     AND status IN ('scheduled', 'active');
+     AND status IN ('scheduled', 'active')
+     AND subscription_period_id IN (
+       SELECT id FROM public.billing_subscription_periods
+        WHERE workspace_id = v_period.workspace_id
+          AND status NOT IN ('scheduled', 'active'));
+
+
 
 
   -- The one cycle that is live right now.

@@ -222,6 +222,7 @@ export const USAGE_BACKED_LIMIT_KEYS: readonly string[] = [
   'ai_credits_per_month',
   'max_contacts',
   'max_agents',
+  'max_kb_articles',
   'max_concurrent_calls',
   'max_call_minutes_per_month',
   'max_call_recordings',

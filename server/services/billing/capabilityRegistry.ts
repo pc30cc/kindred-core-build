@@ -128,6 +128,13 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'widget_composer_placeholder', type: 'feature', label: 'Custom Composer Placeholder', group: 'widget', description: 'Workspace may author the "write your message" placeholder in the widget composer.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 150 },
   { key: 'widget_team_avatars',       type: 'feature', label: 'Online Operator Avatars',       group: 'widget', description: 'Show the avatars of online operators inside the widget "start chat" button.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 160 },
   { key: 'widget_workspace_logo',     type: 'feature', label: 'Workspace Logo in Widget',      group: 'widget', description: 'Show the workspace logo in the widget header. When denied the widget falls back to the brand name only.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 170 },
+  // Tab-level surfaces of Widget → configuration. When a plan denies one of
+  // these the whole tab disappears from the operator UI and the matching
+  // workspace customisation is ignored by the runtime.
+  { key: 'widget_appearance',         type: 'feature', label: 'Widget Appearance Editor',      group: 'widget', description: 'Workspace may customise the widget look & feel (Widget → Appearance). When denied the platform defaults are used.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 180 },
+  { key: 'widget_behavior',           type: 'feature', label: 'Widget Behaviour Settings',     group: 'widget', description: 'Workspace may configure widget behaviour (Widget → Behaviour).', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 190 },
+  { key: 'widget_prechat_form',       type: 'feature', label: 'Widget Pre-chat Form',          group: 'widget', description: 'Collect visitor details before the chat starts (Widget → Pre-chat form).', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 200 },
+
 
 
 
